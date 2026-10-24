@@ -66,3 +66,23 @@ N9 (Minor). Fingerprint check. Resume-relevant inputs that are not in the thread
 
 ## Verdict
 APPROVED 7/10. Fix N1-N4 in round 2 (small edits), and record N8 decisions. Confidence: HIGH on the S1-S5 fixes, the invariants and the timer audit. MEDIUM on N1 (compaction duration is not measured) and N4 (it depends on the spawner's child stream).
+
+## 2-fix-d (N1-N4 + style F-A)
+
+Verdict: APPROVED. No Blocking or Serious finding. Two items are only partly closed.
+
+Checks: the runtime, process and policy specs (33, 32 and 13 tests) pass under `--runInBand --detectOpenHandles` with no open-handle report. The whole `codex-runtime` lib passes 532/532 at `--maxWorkers=2` with no force-exit or "did not exit" text. The new timers cannot cause the force-exit warning, because `compactTimer` is cleared in the `compact()` `finally` and in `close()`, and `resetCompactWatchdog` clears before re-arming. If the warning still appears, it is not from `codex-runtime`.
+
+Fixed:
+- N4 fixed. `codex-app-server-process.ts:161-163` attaches a capture-free `error` listener that `cleanup()` never removes, so a late child error is no longer uncaught.
+- N3 fixed. `codex-permission-policy.ts:21-38` now applies the `grantRoot` / unknown-key / missing-details guard to `fileChange` at every level except plan. It runs before the rule hit, so a remembered rule can no longer auto-accept a `grantRoot` request. Missing details still prompt only at auto-edit.
+- F-A fixed. The home check uses `normalizeCodexHomeKey`. A relative or invalid `codexHome` becomes `CodexHomeMismatchError`, and the comparison is case-folded on win32.
+- N2 is surfaced. A rejected follow-up steer emits `codexFollowUpRejected` (`codex-runtime.ts:222-232`). Other failures still close the context.
+- N1 is partly addressed. The compaction watchdog resets on any `item/*` or `turn/*` notification for the thread (`:388-396`).
+
+Remaining findings:
+1. Moderate, N1 is only partly closed. The deadline is still 30 s of silence. A summarization call usually emits `item/started` (contextCompaction) and then nothing until `item/completed`. A silent model call longer than 30 s still kills a healthy context. Use a larger silence ceiling (120-300 s) or an overall deadline.
+2. Minor, N2. The `codexFollowUpRejected` event is emitted for `turnId` captured before the steer. When the rejection is the "turn just completed" race, that turn's terminal has usually been emitted already, so the consumer gets an event after the terminal. Skip the emit when `terminalTurns.has(turnId)`, or log it instead.
+3. Minor, N3. Yolo with `grantRoot` (or an unknown key) now prompts instead of auto-accepting. That is safe, but an unattended yolo consumer (gateway or lane) waits the 240 s bridge timeout and then gets a decline. Decide whether yolo should be exempt, and record it in the decisions log.
+
+Invariants hold. All new paths only add `present`, `cancel`, `decline` or an error event, and none adds an accept. One response per request, decline before steer, and one terminal per turn are unchanged. The `codexFollowUpRejected` item is the only exception to terminal ordering (finding 2).

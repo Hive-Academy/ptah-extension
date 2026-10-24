@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { posix, win32 } from 'node:path';
+import { normalizeCodexHomeKey } from './codex-home-path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
   CodexExecutableSource,
@@ -158,6 +158,9 @@ export class CodexAppServerProcess {
       });
       this.child.on('close', this.onClose);
       this.child.on('exit', this.onExit);
+      // This capture-free listener outlives cleanup: late child errors must not
+      // become uncaught host exceptions after the bounded close has settled.
+      this.child.on('error', () => undefined);
       this.child.on('error', this.onError);
       this.child.stdout?.on('data', this.onData);
       this.child.stdout?.on('error', this.onError);
@@ -181,19 +184,18 @@ export class CodexAppServerProcess {
           10_000,
         ),
       );
-      const paths = this.binary.platform === 'win32' ? win32 : posix;
-      const canonical = (home: string): string => {
-        const normalized = paths.normalize(home).replace(/[\\/]+$/, '');
-        return this.binary.platform === 'win32'
-          ? normalized.toLowerCase()
-          : normalized;
-      };
-      if (
-        !paths.isAbsolute(initialized.codexHome) ||
-        canonical(initialized.codexHome) !==
-          canonical(this.profile.normalizedHome)
-      )
+      try {
+        if (
+          normalizeCodexHomeKey(initialized.codexHome, this.binary.platform) !==
+          normalizeCodexHomeKey(
+            this.profile.normalizedHome,
+            this.binary.platform,
+          )
+        )
+          throw new CodexHomeMismatchError();
+      } catch {
         throw new CodexHomeMismatchError();
+      }
       this.write({ method: 'initialized' });
       this.assertOpen();
       this.verifiedHome = this.profile.normalizedHome;

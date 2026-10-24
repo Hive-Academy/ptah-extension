@@ -20,21 +20,21 @@ export function codexPermissionPolicy(
   if (level === 'plan') return 'decline';
   // Missing details cannot prove a file-only grant. Unknown fields fail closed too.
   if (
-    level === 'auto-edit' &&
     kind === 'fileChange' &&
-    (!details ||
-      details['grantRoot'] != null ||
-      Object.keys(details).some(
-        (key) =>
-          ![
-            'threadId',
-            'turnId',
-            'itemId',
-            'startedAtMs',
-            'reason',
-            'grantRoot',
-          ].includes(key),
-      ))
+    ((!details && level === 'auto-edit') ||
+      (details &&
+        (details['grantRoot'] != null ||
+          Object.keys(details).some(
+            (key) =>
+              ![
+                'threadId',
+                'turnId',
+                'itemId',
+                'startedAtMs',
+                'reason',
+                'grantRoot',
+              ].includes(key),
+          ))))
   )
     return 'present';
   if (ruleStoreHit) return 'acceptForSession';

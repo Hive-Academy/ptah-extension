@@ -406,6 +406,21 @@ describe('CodexAppServerProcess', () => {
     expect(child.frames).toHaveLength(4);
   });
 
+  it('absorbs late child errors after the close ceiling without retaining handlers', async () => {
+    await start();
+    const closing = runtime.close();
+    await jest.advanceTimersByTimeAsync(1000);
+    await closing;
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(child.listenerCount('error')).toBe(1);
+    expect(child.listenerCount('close')).toBe(0);
+    expect(child.stdout.listenerCount('data')).toBe(0);
+    expect(() =>
+      child.emit('error', new Error('late kill secret')),
+    ).not.toThrow();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('rejects a crash mid-request without exposing process error text', async () => {
     await start();
     const rejected = expect(
@@ -417,7 +432,8 @@ describe('CodexAppServerProcess', () => {
     child.emit('exit', 1, null);
     child.finish();
     await closing;
-    expect(child.listenerCount('error')).toBe(0);
+    expect(child.listenerCount('error')).toBe(1);
+    expect(() => child.emit('error', new Error('late secret'))).not.toThrow();
     expect(child.stdout.listenerCount('data')).toBe(0);
   });
 

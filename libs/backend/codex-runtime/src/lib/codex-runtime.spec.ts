@@ -236,7 +236,8 @@ describe('CodexRuntime', () => {
     await runtime.close();
     for (const child of children) {
       expect(child.listenerCount('exit')).toBe(0);
-      expect(child.listenerCount('error')).toBe(0);
+      expect(child.listenerCount('error')).toBe(1);
+      expect(() => child.emit('error', new Error('late secret'))).not.toThrow();
       expect(child.listenerCount('close')).toBe(0);
       expect(child.stdout.listenerCount('data')).toBe(0);
       expect(child.stdin.listenerCount('finish')).toBe(0);
@@ -410,6 +411,57 @@ describe('CodexRuntime', () => {
     });
   });
 
+  it('reports a rejected follow-up after exactly one decline and keeps the turn alive', async () => {
+    runtime = new CodexRuntime({
+      ...options,
+      sink: {
+        request: async () => ({
+          decision: 'decline',
+          editNotSupported: true,
+          followUpMessage: 'Try again',
+        }),
+      },
+    });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    const events = context.events(new AbortController().signal);
+    const iterator = events[Symbol.asyncIterator]();
+    children[0].failMethod = 'turn/steer';
+    children[0].approval();
+    await flush();
+    await flush();
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'error',
+      turnId: 'turn-1',
+      error: {
+        code: 'codexFollowUpRejected',
+        message: 'Codex rejected the follow-up instruction.',
+        retryable: true,
+      },
+    });
+    const frames = children[0].frames;
+    expect(frames.filter((frame) => frame['id'] === 'approval')).toEqual([
+      { id: 'approval', result: { decision: 'decline' } },
+    ]);
+    expect(
+      frames.findIndex((frame) => frame['id'] === 'approval'),
+    ).toBeLessThan(
+      frames.findIndex((frame) => frame['method'] === 'turn/steer'),
+    );
+    expect(children[0].stdin.writableEnded).toBe(false);
+    children[0].failMethod = undefined;
+    await expect(context.steer({ text: 'retry' })).resolves.toMatchObject({
+      turnId: 'turn-1',
+    });
+    children[0].complete();
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'terminal',
+      status: 'completed',
+    });
+    await context.close();
+    expect((await iterator.next()).done).toBe(true);
+  });
+
   it('blocks new turns until an interrupted turn is terminal, then approvals still work', async () => {
     const context = await runtime.open(profile);
     const receipt = await context.startTurn({ text: 'go' });
@@ -519,7 +571,7 @@ describe('CodexRuntime', () => {
             ? expect(context.compact()).rejects.toThrow('compaction failed')
             : Promise.resolve();
         await flush();
-        await jest.advanceTimersByTimeAsync(30_000);
+        await jest.advanceTimersByTimeAsync(120_000);
         await compacting;
         await expect(context.startTurn({ text: 'later' })).rejects.toThrow(
           'not ready',
@@ -623,6 +675,73 @@ describe('CodexRuntime', () => {
     });
     await compacting;
     await next;
+  });
+
+  it('keeps long active compaction alive and clears the watchdog on completion', async () => {
+    const context = await runtime.open(profile);
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'setImmediate', 'nextTick'],
+    });
+    try {
+      const compacting = context.compact();
+      await flush();
+      for (let step = 0; step < 4; step++) {
+        await jest.advanceTimersByTimeAsync(25_000);
+        children[0].notify('item/started', {
+          threadId: 'thread-1',
+          turnId: 'compact',
+          item: { id: 'compact-item', type: 'contextCompaction' },
+          startedAtMs: 1,
+        });
+      }
+      expect(children[0].stdin.writableEnded).toBe(false);
+      children[0].notify('item/completed', {
+        threadId: 'thread-1',
+        turnId: 'compact',
+        item: { id: 'compact-item', type: 'contextCompaction' },
+        completedAtMs: 1,
+      });
+      await compacting;
+      await jest.advanceTimersByTimeAsync(30_000);
+      await expect(context.startTurn({ text: 'after' })).resolves.toBeDefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('fails compaction after activity stops and ignores another thread activity', async () => {
+    const context = await runtime.open(profile);
+    jest.useFakeTimers({
+      doNotFake: ['queueMicrotask', 'setImmediate', 'nextTick'],
+    });
+    try {
+      const compacting = expect(context.compact()).rejects.toThrow(
+        'compaction failed',
+      );
+      await flush();
+      await jest.advanceTimersByTimeAsync(100_000);
+      children[0].notify('item/started', {
+        threadId: 'thread-1',
+        turnId: 'compact',
+        item: { id: 'compact-item', type: 'contextCompaction' },
+        startedAtMs: 1,
+      });
+      await jest.advanceTimersByTimeAsync(100_000);
+      expect(children[0].stdin.writableEnded).toBe(false);
+      children[0].notify('item/started', {
+        threadId: 'other-thread',
+        turnId: 'compact',
+        item: { id: 'compact-item', type: 'contextCompaction' },
+        startedAtMs: 1,
+      });
+      await jest.advanceTimersByTimeAsync(20_000);
+      await compacting;
+      await expect(context.startTurn({ text: 'later' })).rejects.toThrow(
+        'not ready',
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('releases a compaction reservation on close', async () => {

@@ -162,6 +162,7 @@ class RuntimeContext implements CodexContext {
   private releaseTurnSignal?: () => void;
   private compacting?: Promise<void>;
   private finishCompact?: () => void;
+  private compactTimer?: ReturnType<typeof setTimeout>;
   private interruptTimer?: ReturnType<typeof setTimeout>;
   private readonly targets = new Map<string, CodexPermissionRuleTarget>();
 
@@ -211,14 +212,29 @@ class RuntimeContext implements CodexContext {
           );
           if (result.followUpMessage !== undefined) {
             const text = result.followUpMessage;
+            const turnId = this.activeTurn;
             // dispatchApproval writes the returned response in its promise continuation.
             // The next event-loop check phase is strictly after that microtask writer.
             const handle = setImmediate(() => {
               this.followUps.delete(handle);
               if (this.state === 'closed' || signal.aborted) return;
               void this.steer({ text }).catch((error: unknown) => {
-                if (!(error instanceof CodexRequestRejectedError))
-                  this.onFailure();
+                if (error instanceof CodexRequestRejectedError) {
+                  // The turn already ended; a late rejection must not follow its terminal.
+                  if (turnId !== undefined && this.terminalTurns.has(turnId))
+                    return;
+                  this.emit({
+                    ...this.identity,
+                    turnId,
+                    sequence: 0,
+                    type: 'error',
+                    error: {
+                      code: 'codexFollowUpRejected',
+                      message: 'Codex rejected the follow-up instruction.',
+                      retryable: true,
+                    },
+                  });
+                } else this.onFailure();
               });
             });
             this.followUps.add(handle);
@@ -372,6 +388,16 @@ class RuntimeContext implements CodexContext {
     frame: Parameters<CodexAppServerHandlers['onNotification']>[0],
   ): void {
     if (this.state === 'closed' || !this.committedIdentity) return;
+    // Compaction owns admission, so thread item activity belongs to its work.
+    if (
+      this.finishCompact &&
+      typeof frame.params === 'object' &&
+      frame.params !== null &&
+      !Array.isArray(frame.params) &&
+      frame.params['threadId'] === this.identity.threadId &&
+      (frame.method.startsWith('item/') || frame.method.startsWith('turn/'))
+    )
+      this.resetCompactWatchdog();
     if (frame.method === 'item/started') {
       const parsed = codexNotificationSchemas['item/started'].parse(
         frame.params,
@@ -641,6 +667,12 @@ class RuntimeContext implements CodexContext {
     });
   }
 
+  private resetCompactWatchdog(): void {
+    clearTimeout(this.compactTimer);
+    // Summarization can be silent for a long time; only a long quiet period means a hang.
+    this.compactTimer = setTimeout(() => this.onFailure(), 120_000);
+  }
+
   compact(): Promise<void> {
     if (this.compacting) return this.compacting;
     this.compacting = this.serialize(async () => {
@@ -649,7 +681,7 @@ class RuntimeContext implements CodexContext {
       const completed = new Promise<void>((resolve) => {
         this.finishCompact = resolve;
       });
-      const timer = setTimeout(() => this.onFailure(), 30_000);
+      this.resetCompactWatchdog();
       try {
         await this.process.request('thread/compact/start', {
           threadId: this.identity.threadId,
@@ -661,7 +693,8 @@ class RuntimeContext implements CodexContext {
         this.onFailure();
         throw new Error('Codex compaction failed');
       } finally {
-        clearTimeout(timer);
+        clearTimeout(this.compactTimer);
+        this.compactTimer = undefined;
         this.finishCompact = undefined;
       }
     }).finally(() => {
@@ -677,6 +710,8 @@ class RuntimeContext implements CodexContext {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.state = 'closed';
+    clearTimeout(this.compactTimer);
+    this.compactTimer = undefined;
     clearTimeout(this.interruptTimer);
     this.interruptTimer = undefined;
     this.turnController.abort();

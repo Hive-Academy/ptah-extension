@@ -48,20 +48,27 @@ describe('codexPermissionPolicy', () => {
   );
 
   it.each<CodexApprovalRequest['details'] | undefined>([
-    undefined,
     { grantRoot: '/outside' },
     { writableRoots: ['/outside'] },
     { scope: 'session' },
   ])(
     'presents scope widening or unknown file-change details %j even with a rule',
     (details) => {
-      for (const remembered of [false, true]) {
-        expect(
-          codexPermissionPolicy('auto-edit', 'fileChange', remembered, details),
-        ).toBe('present');
+      for (const level of ['ask', 'auto-edit', 'yolo'] as const) {
+        for (const remembered of [false, true]) {
+          expect(
+            codexPermissionPolicy(level, 'fileChange', remembered, details),
+          ).toBe('present');
+        }
       }
     },
   );
+  it('requires details before auto-edit approval', () => {
+    expect(codexPermissionPolicy('auto-edit', 'fileChange', true)).toBe(
+      'present',
+    );
+  });
+
   it('auto-accepts a validated ordinary file change with a null grantRoot', () => {
     expect(
       codexPermissionPolicy('auto-edit', 'fileChange', false, {
