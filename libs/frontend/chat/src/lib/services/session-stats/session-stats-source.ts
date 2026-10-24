@@ -40,8 +40,16 @@ export interface SessionStatsSource {
   readonly runOwnerKeys: Signal<readonly string[]>;
 }
 
-/** Product names of the lane CLIs, for runs that carry no display name. */
-const CLI_LABELS: Readonly<Record<CliType, string>> = {
+/**
+ * Forward key: the system Claude lane joins `CliType` when its tuple member is
+ * activated. Typed here first so the label exists before any run can carry it;
+ * once `CliType` includes it, this union is just `CliType` again.
+ */
+type CliLabelKey = CliType | 'claude';
+
+/** Product names of the lane CLIs, for runs that carry no display name. Exhaustive over `CliType`. */
+const CLI_LABELS: Readonly<Record<CliLabelKey, string>> = {
+  claude: 'Claude',
   codex: 'Codex',
   copilot: 'Copilot',
   cursor: 'Cursor',
