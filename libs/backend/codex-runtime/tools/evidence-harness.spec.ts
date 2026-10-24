@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
 import { join, resolve } from 'node:path';
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -1047,7 +1048,7 @@ describe('review regression guards using real functions and isolated disk', () =
     ).toBe('decline');
     const frame = {
       id: 2,
-      method: 'item/mcpToolCall/requestApproval',
+      method: 'mcpServer/elicitation/request',
       params: {
         threadId: 'thread',
         server: 'marker',
@@ -1056,7 +1057,7 @@ describe('review regression guards using real functions and isolated disk', () =
       },
     };
     expect(markerApprovalDecision(frame, { ...context, kind: 'mcp' })).toBe(
-      'accept',
+      'decline',
     );
     expect(
       markerApprovalDecision(
@@ -1211,7 +1212,7 @@ describe('review regression guards using real functions and isolated disk', () =
     await rpc.stop();
   });
 
-  it('per-turn bound stops subsequent observations with a distinct message', () => {
+  it('30,000-token per-turn bound stops subsequent observations with a distinct message', () => {
     const budget = new UsageBudget();
     budget.observe('one', USAGE_TURN_LIMIT);
     expect(() => budget.observe('one', USAGE_TURN_LIMIT + 1)).toThrow(
@@ -2147,5 +2148,427 @@ describe('ask-command-edit evidence flow', () => {
         }),
       ]),
     );
+  });
+});
+
+describe('MCP elicitation evidence flow', () => {
+  const method = 'mcpServer/elicitation/request';
+  async function exercise(
+    mode:
+      | 'happy'
+      | 'server'
+      | 'non-mcp'
+      | 'second'
+      | 'turn'
+      | 'tool'
+      | 'required'
+      | 'early'
+      | 'title'
+      | 'null-turn'
+      | 'null-meta'
+      | 'booleans'
+      | 'openai/form'
+      | 'openaiForm'
+      | 'config-absent'
+      | 'config-wrong',
+  ) {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-mcp-spec-'));
+    const experiment: Experiment = {
+      root,
+      workspace: join(root, 'workspace'),
+      home: join(root, 'home'),
+      scratch: join(root, 'scratch'),
+    };
+    for (const directory of [
+      experiment.workspace,
+      experiment.home,
+      experiment.scratch,
+    ])
+      mkdirSync(directory);
+    const child = Object.assign(new childProcess.ChildProcess(), fakeChild());
+    const spawnModule =
+      jest.requireActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    const spawnSpy = jest
+      .spyOn(spawnModule, 'spawn')
+      .mockImplementation((_binary, args) => {
+        if (mode !== 'non-mcp')
+          expect(args).toContain(
+            'mcp_servers.marker.default_tools_approval_mode="prompt"',
+          );
+        return child;
+      });
+    child.stdin.on('finish', () => child.emit('close', 0));
+    const result: Parameters<typeof runCase>[1] = {
+      id: 'mcp-approval',
+      status: '',
+      turns: 0,
+      events: [],
+      approvals: [],
+      notes: [],
+    };
+    const original = join(experiment.workspace, 'mcp-approval.marker');
+    const sent: Record<string, unknown>[] = [];
+    const selected = policy('ask');
+    const send = (frame: object) =>
+      child.stdout.write(JSON.stringify(frame) + '\n');
+    const notify = (method: string, params: object) => send({ method, params });
+    let writes = 0;
+    let held = false;
+    let holdTimer: ReturnType<typeof setTimeout> | undefined;
+    const request = (id: string) =>
+      send({
+        id,
+        method,
+        params: {
+          threadId: 'thread',
+          turnId:
+            mode === 'turn' ? 'wrong' : mode === 'null-turn' ? null : 'turn',
+          serverName: mode === 'server' ? 'other' : 'marker',
+          mode: mode === 'openai/form' || mode === 'openaiForm' ? mode : 'form',
+          message:
+            'Approve write_marker for person@example.com with Bearer private-token',
+          requestedSchema:
+            mode === 'booleans'
+              ? {
+                  type: 'object',
+                  properties: {
+                    approve: { type: 'boolean' },
+                    confirm: { type: 'boolean' },
+                    persist: { type: 'boolean' },
+                  },
+                  required: ['approve', 'confirm'],
+                }
+              : {
+                  type: 'object',
+                  properties: {
+                    persist: { type: 'string', enum: ['session', 'always'] },
+                  },
+                  ...(mode === 'required' ? { required: ['persist'] } : {}),
+                },
+          ...(mode === 'tool' ? { tool: 'other' } : {}),
+          _meta:
+            mode === 'null-meta'
+              ? null
+              : {
+                  tool_title:
+                    mode === 'title' ? 'Write marker' : 'write_marker',
+                  codex_approval_kind: 'private-metadata-value',
+                },
+        },
+      });
+    child.stdin.on('data', (bytes: Buffer) => {
+      const frame: Record<string, unknown> = JSON.parse(bytes.toString());
+      sent.push(frame);
+      const reply = (value: object) => send({ id: frame['id'], result: value });
+      switch (frame['method']) {
+        case 'initialize':
+          reply({ codexHome: experiment.home });
+          break;
+        case 'model/list':
+          reply({ data: [{ id: 'test-model' }] });
+          break;
+        case 'config/read':
+          reply({
+            config: {
+              ...OUTPUT_BOUNDS,
+              sandbox_mode: selected.sandbox,
+              approval_policy: selected.approvalPolicy,
+              sandbox_workspace_write: { network_access: false },
+              ...(mode === 'config-absent'
+                ? {}
+                : {
+                    mcp_servers: {
+                      marker: {
+                        default_tools_approval_mode:
+                          mode === 'config-wrong' ? 'auto' : 'prompt',
+                      },
+                    },
+                  }),
+            },
+          });
+          break;
+        case 'thread/start':
+          reply({ thread: { id: 'thread' }, ...selected });
+          break;
+        case 'turn/start':
+          reply({ turn: { id: 'turn' } });
+          setImmediate(() => {
+            notify('turn/started', {
+              threadId: 'thread',
+              turn: { id: 'turn' },
+            });
+            notify('thread/tokenUsage/updated', {
+              threadId: 'thread',
+              turnId: 'turn',
+              tokenUsage: { total: { totalTokens: 10 } },
+            });
+            if (mode !== 'non-mcp')
+              notify('item/started', {
+                threadId: 'thread',
+                turnId: 'turn',
+                item: {
+                  id: 'tool',
+                  type: 'mcpToolCall',
+                  status: 'inProgress',
+                  server: 'marker',
+                  tool: 'write_marker',
+                  arguments: { slot: 'original' },
+                },
+              });
+            request('approval-one');
+            if (mode === 'second') request('approval-two');
+            holdTimer = setTimeout(() => {
+              held =
+                !existsSync(original) &&
+                !sent.some((entry) => entry['id'] === 'approval-one');
+              if (mode === 'early')
+                writeFileSync(original, 'marker', { flag: 'wx' });
+            }, 50);
+          });
+          break;
+        case 'turn/interrupt':
+          reply({});
+          notify('turn/completed', {
+            threadId: 'thread',
+            turn: { id: 'turn', status: 'interrupted' },
+          });
+          notify('thread/tokenUsage/updated', {
+            threadId: 'thread',
+            turnId: 'turn',
+            tokenUsage: { total: { totalTokens: 10 } },
+          });
+          break;
+        default:
+          if (
+            frame['id'] === 'approval-one' &&
+            [
+              'happy',
+              'title',
+              'null-turn',
+              'null-meta',
+              'booleans',
+              'config-absent',
+            ].includes(mode)
+          ) {
+            expect(frame['result']).toEqual({
+              action: 'accept',
+              content:
+                mode === 'booleans' ? { approve: true, confirm: true } : {},
+            });
+            expect(held).toBe(true);
+            writeFileSync(original, 'marker', { flag: 'wx' });
+            writes++;
+            notify('item/completed', {
+              threadId: 'thread',
+              turnId: 'turn',
+              item: {
+                id: 'tool',
+                type: 'mcpToolCall',
+                status: 'completed',
+                server: 'marker',
+                tool: 'write_marker',
+                arguments: { slot: 'original' },
+                result: { private: 'never retained' },
+                error: null,
+              },
+            });
+          }
+      }
+    });
+    let failure: unknown;
+    try {
+      const protocolDirectory = join(__dirname, '../src/lib/protocol');
+      await runCase(
+        {
+          id: result.id,
+          turnCost: 1,
+          observations: [1],
+          kind: mode === 'non-mcp' ? 'command' : 'mcp',
+          level: 'ask',
+          decision: 'accept',
+          purpose: 'test',
+        },
+        result,
+        experiment,
+        'unused',
+        'test-model',
+        new TurnBudget(),
+        new UsageBudget(),
+        JSON.parse(
+          readFileSync(
+            join(protocolDirectory, 'codex-app-server-protocol.manifest.json'),
+            'utf8',
+          ),
+        ),
+        readFileSync(
+          join(protocolDirectory, 'codex-app-server-protocol.schema.json'),
+          'utf8',
+        ),
+        false,
+        new Set(),
+        root,
+      );
+    } catch (error) {
+      failure = error;
+    } finally {
+      if (holdTimer) clearTimeout(holdTimer);
+      spawnSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+    return { result, sent, failure, writes, held };
+  }
+
+  it('holds the request without effects, accepts once, then observes the marker', async () => {
+    const { result, sent, failure, writes, held } = await exercise('happy');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('observed');
+    expect(writes).toBe(1);
+    expect(held).toBe(true);
+    expect(result.approvals[0]).toMatchObject({
+      absentBefore: true,
+      response: 'accept',
+      serverName: 'marker',
+      requestedSchemaProperties: ['persist'],
+      metaKeys: ['codex_approval_kind', 'tool_title'],
+    });
+    expect(JSON.stringify(result.approvals)).not.toMatch(
+      /person@example.com|private-token|private-metadata-value/,
+    );
+    expect(sent.some((frame) => frame['method'] === 'turn/interrupt')).toBe(
+      true,
+    );
+    expect(result.events).toContainEqual({
+      direction: 'in',
+      method: 'item/completed',
+      itemType: 'mcpToolCall',
+      itemStatus: 'completed',
+      server: 'marker',
+      tool: 'write_marker',
+      hasError: false,
+    });
+  });
+
+  it.each([
+    'server',
+    'non-mcp',
+    'second',
+    'turn',
+    'tool',
+    'required',
+    'openai/form',
+    'openaiForm',
+  ] as const)('declines unexpected elicitation: %s', async (mode) => {
+    const { result, sent, failure, writes } = await exercise(mode);
+    expect(failure).toBeDefined();
+    expect(result.notes).toContain('Unexpected request');
+    expect(sent).toContainEqual({
+      id: mode === 'second' ? 'approval-two' : 'approval-one',
+      result: { action: 'decline' },
+    });
+    expect(writes).toBe(0);
+  });
+
+  it.each([
+    'title',
+    'null-turn',
+    'null-meta',
+    'booleans',
+    'config-absent',
+  ] as const)(
+    'accepts supported elicitation and observes exactly one marker: %s',
+    async (mode) => {
+      const { result, failure, writes, held } = await exercise(mode);
+      expect(failure).toBeUndefined();
+      expect(result.status).toBe('observed');
+      expect(writes).toBe(1);
+      expect(held).toBe(true);
+      if (mode === 'null-turn')
+        expect(result.notes).toContain('elicitation turnId: null');
+      if (mode === 'booleans')
+        expect(result.notes).toContain(
+          'elicitation required boolean fields: approve, confirm',
+        );
+      if (mode === 'config-absent')
+        expect(result.notes).toContain(
+          'MCP approval mode not visible in config/read',
+        );
+    },
+  );
+
+  it('rejects a visible MCP approval mode other than prompt before starting a thread', async () => {
+    const { result, sent, failure, writes } = await exercise('config-wrong');
+    expect(failure).toBeDefined();
+    expect(String(failure)).toContain(
+      'Effective config differs from bounded profile',
+    );
+    expect(result.status).not.toBe('observed');
+    expect(sent.some((frame) => frame['method'] === 'thread/start')).toBe(
+      false,
+    );
+    expect(writes).toBe(0);
+  });
+
+  it('fails if a marker appears during the hold', async () => {
+    const { result, failure } = await exercise('early');
+    expect(failure).toBeDefined();
+    expect(result.status).not.toBe('observed');
+  });
+
+  it('summarizes item and startup fields without retaining payloads', async () => {
+    const child = fakeChild();
+    const result: Parameters<typeof runCase>[1] = {
+      id: 'summary',
+      status: '',
+      turns: 0,
+      events: [],
+      approvals: [],
+    };
+    const rpc = new RpcChild(child, result);
+    const send = (method: string, params: object) =>
+      child.stdout.write(JSON.stringify({ method, params }) + '\n');
+    send('item/started', {
+      item: { type: 'agentMessage', text: 'private-text' },
+    });
+    for (const error of [null, { message: 'private-error' }])
+      send('item/completed', {
+        item: {
+          type: 'mcpToolCall',
+          status: 'failed',
+          server: 'server '.repeat(20),
+          tool: 'person@example.com',
+          arguments: { secret: 'private-args' },
+          result: 'private-result',
+          error,
+        },
+      });
+    send('mcpServer/startupStatus/updated', {
+      name: 'name '.repeat(20),
+      status: 'failed',
+      error: 'private-startup-error',
+    });
+    expect(result.events[0]).toEqual({
+      direction: 'in',
+      method: 'item/started',
+      itemType: 'agentMessage',
+    });
+    expect(result.events[1]).toMatchObject({
+      itemType: 'mcpToolCall',
+      itemStatus: 'failed',
+      server: 'server '.repeat(20).slice(0, 80),
+      hasError: false,
+    });
+    expect(result.events[2]).toMatchObject({ hasError: true });
+    expect(result.events[3]).toEqual({
+      direction: 'in',
+      method: 'mcpServer/startupStatus/updated',
+      status: 'failed',
+      name: 'name '.repeat(20).slice(0, 80),
+    });
+    expect(JSON.stringify(result.events)).not.toMatch(
+      /private-|person@example.com|arguments|result|message/,
+    );
+    rpc.stopSync();
   });
 });

@@ -40,7 +40,7 @@ import {
 } from './evidence-failure-notes';
 export const TURN_CAP = 8;
 export const CASE_DEADLINE_MS = 60_000;
-export const USAGE_TURN_LIMIT = 15_000;
+export const USAGE_TURN_LIMIT = 30_000;
 export const USAGE_CUMULATIVE_LIMIT = 100_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_EVENTS = 4000;
@@ -342,13 +342,41 @@ type EvidenceCase = z.infer<typeof caseSchema>;
 interface EventSummary {
   direction: 'in' | 'out';
   method: string;
+  itemType?: string;
+  itemStatus?: string;
+  server?: string;
+  tool?: string;
+  hasError?: boolean;
+  status?: string;
+  name?: string;
 }
+
+const ELICITATION = 'mcpServer/elicitation/request';
+const elicitationSchema = z.object({
+  threadId: z.string(),
+  turnId: z.string().nullish(),
+  serverName: z.literal('marker'),
+  mode: z.literal('form'),
+  message: z.string(),
+  requestedSchema: z.object({
+    type: z.literal('object'),
+    properties: z.record(z.string(), z.unknown()),
+    required: z.array(z.string()).nullish(),
+  }),
+  _meta: z.record(z.string(), z.unknown()).nullish(),
+  tool: z.string().optional(),
+  toolName: z.string().optional(),
+});
 
 interface ApprovalSummary {
   method: string;
   absentBefore: boolean;
   response: string;
   paramKeys: string[];
+  serverName?: string;
+  message?: string;
+  requestedSchemaProperties?: string[];
+  metaKeys?: string[];
   reason?: string | null;
   kind?: string | null;
   type?: string | null;
@@ -373,6 +401,27 @@ function approvalSummary(frame: RequestFrame): ApprovalSummary {
     if (typeof value === 'string')
       evidence[key] = String(sanitize(value)).slice(0, 400);
     else if (value === null) evidence[key] = null;
+  }
+  if (frame.method === ELICITATION) {
+    const keys = (value: unknown): string[] => {
+      const parsed = z.record(z.string(), z.unknown()).safeParse(value);
+      return parsed.success
+        ? Object.keys(parsed.data)
+            .map((key) => String(sanitize(key)).slice(0, 80))
+            .sort()
+        : [];
+    };
+    const schema = z
+      .object({ properties: z.unknown().optional() })
+      .safeParse(params['requestedSchema']);
+    if (typeof params['serverName'] === 'string')
+      evidence.serverName = String(sanitize(params['serverName'])).slice(0, 80);
+    if (typeof params['message'] === 'string')
+      evidence.message = String(sanitize(params['message'])).slice(0, 400);
+    evidence.requestedSchemaProperties = keys(
+      schema.success ? schema.data.properties : undefined,
+    );
+    evidence.metaKeys = keys(params['_meta']);
   }
   return evidence;
 }
@@ -518,6 +567,7 @@ export class RpcChild {
       throw new Error('unsupported server request');
     };
   private readonly answered = new Set<string | number>();
+  private readonly elicitations = new Set<string | number>();
   denyLiteral = 'decline'; // Fallback from batch-1a research/review; recorded as unverified unless schema confirms it.
   onNotification: (method: string, params: unknown) => void = () => undefined;
   constructor(
@@ -554,10 +604,49 @@ export class RpcChild {
     });
     child.stdin.on('error', () => this.fail(new Error('stdin failed')));
   }
-  private event(direction: 'in' | 'out', method: string): void {
+  private event(
+    direction: 'in' | 'out',
+    method: string,
+    params?: unknown,
+  ): void {
     if (this.result.events.length >= MAX_EVENTS)
       throw new Error('event limit reached');
-    this.result.events.push({ direction, method });
+    const summary: EventSummary = { direction, method };
+    const parsed = z
+      .object({
+        item: z
+          .object({
+            type: z.string(),
+            status: z.string().optional(),
+            server: z.string().optional(),
+            tool: z.string().optional(),
+            error: z.unknown().optional(),
+          })
+          .optional(),
+        status: z.string().optional(),
+        name: z.string().optional(),
+      })
+      .safeParse(params);
+    if (direction === 'in' && parsed.success) {
+      const data = parsed.data;
+      const item = data.item;
+      const capped = (value: string) => String(sanitize(value)).slice(0, 80);
+      if ((method === 'item/started' || method === 'item/completed') && item) {
+        summary.itemType = capped(item.type);
+        if (item.status !== undefined) summary.itemStatus = capped(item.status);
+        if (item.type === 'mcpToolCall') {
+          if (item.server !== undefined) summary.server = capped(item.server);
+          if (item.tool !== undefined) summary.tool = capped(item.tool);
+          if (method === 'item/completed')
+            summary.hasError = item.error != null;
+        }
+      }
+      if (method === 'mcpServer/startupStatus/updated') {
+        if (data.status !== undefined) summary.status = capped(data.status);
+        if (data.name !== undefined) summary.name = capped(data.name);
+      }
+    }
+    this.result.events.push(summary);
   }
   private fail(error: Error): void {
     if (!this.failure && !this.ending) recordCaseFailure(this.result, error);
@@ -578,10 +667,16 @@ export class RpcChild {
   private receive(frame: Frame): void {
     if ('method' in frame) {
       const evidence = 'id' in frame ? approvalSummary(frame) : undefined;
-      if (evidence && frame.method.endsWith('/requestApproval'))
+      if ('id' in frame && frame.method === ELICITATION)
+        this.elicitations.add(frame.id);
+      if (
+        evidence &&
+        (frame.method.endsWith('/requestApproval') ||
+          frame.method === ELICITATION)
+      )
         this.result.approvals.push(evidence);
       try {
-        this.event('in', frame.method);
+        this.event('in', frame.method, frame.params);
       } catch (error) {
         if ('id' in frame) {
           this.decline(frame.id);
@@ -675,7 +770,12 @@ export class RpcChild {
     // Deliberately bypass assertHealthy: even a failed case must answer pending requests.
     if (!this.child.stdin.destroyed && !this.child.stdin.writableEnded) {
       this.child.stdin.write(
-        JSON.stringify({ id, result: { decision: this.denyLiteral } }) + '\n',
+        JSON.stringify({
+          id,
+          result: this.elicitations.has(id)
+            ? { action: 'decline' }
+            : { decision: this.denyLiteral },
+        }) + '\n',
       );
     }
   }
@@ -1085,17 +1185,6 @@ export function markerApprovalDecision(
       ? 'accept'
       : 'decline';
   }
-  if (
-    context.kind === 'mcp' &&
-    frame.method === 'item/mcpToolCall/requestApproval' &&
-    params['server'] === 'marker' &&
-    params['toolName'] === 'write_marker'
-  ) {
-    const args = record(params['arguments'] ?? {});
-    return args['slot'] === 'original' && Object.keys(args).length === 1
-      ? 'accept'
-      : 'decline';
-  }
   return 'decline';
 }
 
@@ -1169,9 +1258,7 @@ function schemaDenial(
       ? 'CommandExecutionApprovalDecision'
       : method === 'item/fileChange/requestApproval'
         ? 'FileChangeApprovalDecision'
-        : method === 'item/mcpToolCall/requestApproval'
-          ? 'McpToolCallApprovalDecision'
-          : '';
+        : '';
   const values = literals(definitions[name]);
   return values.includes('decline')
     ? { literal: 'decline', verified: true }
@@ -1258,6 +1345,9 @@ export async function runCase(
     `mcp_servers.marker.command=${JSON.stringify(process.execPath)}`,
     `mcp_servers.marker.args=${JSON.stringify([fixture, JSON.stringify({ root: experiment.root, original })])}`,
     `mcp_servers.marker.enabled=${item.kind === 'mcp'}`,
+    ...(item.kind === 'mcp'
+      ? ['mcp_servers.marker.default_tools_approval_mode="prompt"']
+      : []),
     ...Object.entries(OUTPUT_BOUNDS).map(
       ([key, value]) => `${key}=${JSON.stringify(value)}`,
     ),
@@ -1397,9 +1487,69 @@ export async function runCase(
   rpc.onRequest = async (frame, evidence) => {
     const requestParams = record(frame.params ?? {});
     const beforeFirstApproval = !approvalRequestObserved;
-    approvalRequestObserved ||= frame.method.endsWith('/requestApproval');
+    approvalRequestObserved ||=
+      frame.method.endsWith('/requestApproval') || frame.method === ELICITATION;
     let answered = false;
     try {
+      if (frame.method === ELICITATION) {
+        const parsed = elicitationSchema.safeParse(frame.params);
+        if (
+          !parsed.success ||
+          item.kind !== 'mcp' ||
+          approvalRounds !== 0 ||
+          compacting ||
+          !manifest.methods.serverRequests.includes(ELICITATION)
+        )
+          throw new Error('Unexpected request');
+        const params = parsed.data;
+        if (
+          !threadId ||
+          !turnId ||
+          params.threadId !== threadId ||
+          (params.turnId != null && params.turnId !== turnId) ||
+          [params.tool, params.toolName, params._meta?.['toolName']].some(
+            (name) => name !== undefined && name !== 'write_marker',
+          )
+        )
+          throw new Error('Unexpected request');
+        const required = params.requestedSchema.required ?? [];
+        if (
+          !required.every(
+            (name) =>
+              Object.hasOwn(params.requestedSchema.properties, name) &&
+              z
+                .object({ type: z.literal('boolean') })
+                .safeParse(params.requestedSchema.properties[name]).success,
+          )
+        )
+          throw new Error('Unexpected request');
+        const content = Object.fromEntries(
+          required.map((name) => [name, true]),
+        );
+        if (params.turnId == null)
+          (result.notes ??= []).push('elicitation turnId: null');
+        if (required.length)
+          (result.notes ??= []).push(
+            `elicitation required boolean fields: ${required.map((name) => String(sanitize(name)).slice(0, 80)).join(', ')}`,
+          );
+        checkObservedPaths(experiment.root, experiment.workspace, frame.params);
+        approvalRounds += 1;
+        approvalPending = true;
+        if (markerExists(experiment.root, original))
+          throw new Error('Side effect before approval');
+        await delay(200);
+        rpc.assertHealthy();
+        if (markerExists(experiment.root, original))
+          throw new Error('Side effect during approval');
+        evidence.absentBefore = true;
+        evidence.response = 'accept';
+        validatedApprovals.push(evidence);
+        approvalPending = false;
+        rpc.respond(frame.id, { action: 'accept', content });
+        answered = true;
+        inspect();
+        return;
+      }
       const denial = schemaDenial(schemaText, frame.method);
       rpc.denyLiteral = denial.literal;
       result.notes?.push(
@@ -1631,6 +1781,17 @@ export async function runCase(
           }
         }
       }
+      if (observed['type'] === 'mcpToolCall') {
+        const call = z
+          .object({
+            server: z.literal('marker'),
+            tool: z.literal('write_marker'),
+            arguments: z.object({ slot: z.literal('original') }).strict(),
+          })
+          .safeParse(observed);
+        if (item.kind !== 'mcp' || !call.success)
+          throw new Error('Unexpected or repeated tool item');
+      }
       if (observed['type'] === 'fileChange') {
         const changes = z
           .array(z.object({ path: z.string() }))
@@ -1735,9 +1896,30 @@ export async function runCase(
         .some((entry) => entry.id === model || entry.model === model)
     )
       throw new Error('Selected model not in first model/list page');
-    result.effectiveConfig = configSummary(
-      await rpc.request('config/read', { includeLayers: false }),
-    );
+    const configResponse = await rpc.request('config/read', {
+      includeLayers: false,
+    });
+    if (item.kind === 'mcp') {
+      const parsed = z
+        .object({
+          config: z.object({
+            mcp_servers: z.object({
+              marker: z.record(z.string(), z.unknown()),
+            }),
+          }),
+        })
+        .safeParse(configResponse);
+      const marker = parsed.success
+        ? parsed.data.config.mcp_servers.marker
+        : {};
+      if (!Object.hasOwn(marker, 'default_tools_approval_mode'))
+        (result.notes ??= []).push(
+          'MCP approval mode not visible in config/read',
+        );
+      else if (marker['default_tools_approval_mode'] !== 'prompt')
+        throw new Error('Effective config differs from bounded profile');
+    }
+    result.effectiveConfig = configSummary(configResponse);
     const effective = record(result.effectiveConfig);
     if (
       Object.entries(OUTPUT_BOUNDS).some(
