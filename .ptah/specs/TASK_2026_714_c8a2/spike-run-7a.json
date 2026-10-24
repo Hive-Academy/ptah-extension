@@ -1,0 +1,288 @@
+{
+  "provenance": "real run requested; individual observations only",
+  "model": "gpt-6-luna",
+  "binary": "D:\\projects\\ptah-extension\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+  "binarySha256": "eba0f32c976667cb9298efafd98513e823eeda7b576a03ec658bb8be8d336316",
+  "schemaSha256": "d912e0edc7dace2843be975bee0ca39c3f9f37f11cad07101bd32eb622adf3db",
+  "platform": "win32",
+  "arch": "x64",
+  "cap": 6,
+  "worstCaseTurns": 5,
+  "turnBudgetNote": "A steer-created turn can cause later cases to be skipped.",
+  "turnsConsumed": 1,
+  "outputBounds": {
+    "model_reasoning_effort": "low",
+    "model_verbosity": "low",
+    "tool_output_token_limit": 2000
+  },
+  "usageBounds": {
+    "perTurn": 30000,
+    "cumulative": 100000
+  },
+  "observedUsage": 0,
+  "caseDeadlinesMs": {
+    "schema-handshake": 60000,
+    "modified-input-schema": 60000,
+    "subagent-and-rewind": 60000,
+    "different-home-isolation": 75000,
+    "always-allow-scope": 150000,
+    "same-home-isolation": 150000
+  },
+  "cleanup": "home/auth deleted; experiment deleted",
+  "results": [
+    {
+      "id": "schema-handshake",
+      "status": "schema only",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "Method presence only: externalAgentConfig/detect, externalAgentConfig/import, externalAgentConfig/import/readHistories, externalAgentConfig/import/recordHistory, skills/config/write, skills/extraRoots/set, skills/list, thread/compact/start, thread/resume, thread/rollback, item/tool/requestUserInput, externalAgentConfig/import/completed, externalAgentConfig/import/progress, item/agentMessage/delta, item/plan/delta, skills/changed, thread/compacted, turn/plan/updated"
+      ]
+    },
+    {
+      "id": "modified-input-schema",
+      "status": "schema only",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "modifiedInput property present: false; wire response and behavior unverified; no invented mapping"
+      ]
+    },
+    {
+      "id": "subagent-and-rewind",
+      "status": "schema only",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "{\"thread/read\":\"schema present; behavior unverified\",\"thread/items/list\":\"schema present; behavior unverified\",\"thread/turns/list\":\"schema present; behavior unverified\",\"thread/resume\":\"schema present; behavior unverified\",\"thread/rollback\":\"schema present; behavior unverified\",\"thread/revert\":\"schema present; behavior unverified\",\"thread/rewind\":\"schema absent\",\"subagent/start\":\"schema absent\"}"
+      ]
+    },
+    {
+      "id": "different-home-isolation",
+      "status": "failed: protocol, isolation or approval gate",
+      "turns": 1,
+      "events": [
+        {
+          "direction": "out",
+          "method": "initialize"
+        },
+        {
+          "direction": "in",
+          "method": "remoteControl/status/changed"
+        },
+        {
+          "direction": "out",
+          "method": "initialized"
+        },
+        {
+          "direction": "out",
+          "method": "config/read"
+        },
+        {
+          "direction": "out",
+          "method": "model/list"
+        },
+        {
+          "direction": "out",
+          "method": "thread/start"
+        },
+        {
+          "direction": "in",
+          "method": "thread/started"
+        },
+        {
+          "direction": "out",
+          "method": "initialize"
+        },
+        {
+          "direction": "in",
+          "method": "remoteControl/status/changed"
+        },
+        {
+          "direction": "out",
+          "method": "initialized"
+        },
+        {
+          "direction": "out",
+          "method": "config/read"
+        },
+        {
+          "direction": "out",
+          "method": "model/list"
+        },
+        {
+          "direction": "out",
+          "method": "thread/start"
+        },
+        {
+          "direction": "in",
+          "method": "thread/started"
+        },
+        {
+          "direction": "out",
+          "method": "turn/start"
+        },
+        {
+          "direction": "in",
+          "method": "thread/status/changed"
+        },
+        {
+          "direction": "in",
+          "method": "turn/started"
+        },
+        {
+          "direction": "in",
+          "method": "item/started",
+          "itemType": "userMessage"
+        },
+        {
+          "direction": "in",
+          "method": "item/completed",
+          "itemType": "userMessage"
+        },
+        {
+          "direction": "in",
+          "method": "turn/moderationMetadata"
+        },
+        {
+          "direction": "in",
+          "method": "thread/status/changed"
+        },
+        {
+          "direction": "in",
+          "method": "item/started",
+          "itemType": "commandExecution",
+          "itemStatus": "inProgress"
+        }
+      ],
+      "approvals": [],
+      "notes": ["Unexpected command"],
+      "round": {
+        "schema": {
+          "thread/read": "schema present; behavior unverified",
+          "thread/items/list": "schema present; behavior unverified",
+          "thread/turns/list": "schema present; behavior unverified",
+          "thread/resume": "schema present; behavior unverified",
+          "thread/rollback": "schema present; behavior unverified",
+          "thread/revert": "schema present; behavior unverified",
+          "thread/rewind": "schema absent",
+          "subagent/start": "schema absent"
+        },
+        "configPresenceBefore": "absent",
+        "firstHomeVerified": true,
+        "secondHomeVerified": true,
+        "secondHomeDeleted": true,
+        "configUnchanged": true
+      }
+    },
+    {
+      "id": "always-allow-scope",
+      "status": "not run: prior gate or usage bound",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "same-home-isolation",
+      "status": "not run: prior gate or usage bound",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    }
+  ],
+  "harnessCapabilities": [
+    {
+      "capability": "Plan entry/read-only planning",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": ["item/plan/delta", "turn/plan/updated"]
+    },
+    {
+      "capability": "AskUserQuestion",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": ["item/tool/requestUserInput"]
+    },
+    {
+      "capability": "ExitPlanMode",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": ["item/plan/delta", "turn/plan/updated"]
+    },
+    {
+      "capability": "Subagent spawn/list/background",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "externalAgentConfig/import/readHistories",
+        "externalAgentConfig/import/recordHistory",
+        "externalAgentConfig/import/completed",
+        "externalAgentConfig/import/progress",
+        "item/agentMessage/delta"
+      ]
+    },
+    {
+      "capability": "Agent reporting/interrupted context",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "externalAgentConfig/import/readHistories",
+        "externalAgentConfig/import/recordHistory",
+        "externalAgentConfig/import/completed",
+        "externalAgentConfig/import/progress",
+        "item/agentMessage/delta"
+      ]
+    },
+    {
+      "capability": "Edited input/remembered permissions",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "applyPatchApproval",
+        "execCommandApproval",
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+        "autoApprovalReview/strictReviewRequired",
+        "item/autoApprovalReview/completed",
+        "item/autoApprovalReview/started"
+      ]
+    },
+    {
+      "capability": "Compact/file rewind",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "thread/compact/start",
+        "thread/rollback",
+        "thread/compacted"
+      ]
+    },
+    {
+      "capability": "Skills/instruction harness",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "skills/config/write",
+        "skills/extraRoots/set",
+        "skills/list",
+        "skills/changed"
+      ]
+    }
+  ],
+  "gaps": [
+    "modifiedInput behavior",
+    "Always Allow",
+    "native plan transitions and user answers/cancel",
+    "subagent lifecycle",
+    "remote MCP/OAuth/Smithery",
+    "skills/instructions/images/effort/resume role parity",
+    "same-home concurrent profile isolation",
+    "different-account isolation",
+    "file rewind/history/stats",
+    "packaged binary manifests",
+    "positive read and multi-path sandbox boundaries are not proved by single-action cases",
+    "usage reporting can lag billing; observed usage bounds are not a provider-side spending limit; usage is observed after the turn, so one turn can overshoot"
+  ]
+}
