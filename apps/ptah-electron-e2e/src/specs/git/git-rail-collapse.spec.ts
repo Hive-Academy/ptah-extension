@@ -92,9 +92,10 @@ test.describe('git source-control rail', () => {
       );
       expect(size).toEqual([1200, 800]);
 
-      await initial.page
-        .getByRole('button', { name: 'Toggle Workspaces panel' })
-        .click();
+      // The Workspaces panel starts closed, so the dock gets its full width.
+      await expect(
+        initial.page.getByRole('button', { name: 'Toggle Workspaces panel' }),
+      ).toHaveAttribute('aria-expanded', 'false');
       const dock = initial.page.locator('ptah-review-shell');
       await expect(dock).toBeVisible();
       const dockBox = await dock.boundingBox();
