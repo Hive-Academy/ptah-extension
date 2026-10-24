@@ -19,6 +19,9 @@
  * Lanes without an owner rule (ptah-cli on Claude and other providers) learn
  * their owner only from a run. The last known owner of each such lane is
  * remembered in memory so a later lookup reads the evidence filed under it.
+ * A lane run on a named Claude account is remembered under that route, so
+ * one account's owner never answers for a lane on another account, and a
+ * failed identity read is never remembered at all.
  *
  * A run's owner is recorded at spawn and may then only move from unknown to
  * known, or from a cli-store owner to the account of the same provider
@@ -31,7 +34,9 @@ import {
   type ClaudeAccountInfo,
   type ProviderOwnerResolver,
 } from '@ptah-extension/auth-providers';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import type { CliType, QuotaOwnerRef } from '@ptah-extension/shared';
+import { namedSourceMaterial } from './plan-owner-read';
 
 /** The resolver surface lanes use. */
 export type LaneOwnerSource = Pick<
@@ -82,6 +87,11 @@ export function upgradeQuotaOwner(
 export interface LaneOwnerKey {
   readonly cli: CliType;
   readonly ptahCliId?: string;
+  /**
+   * The certified route fingerprint of a lane run on a named Claude account.
+   * Omitted for the ambient login, whose remembered owner keeps its key.
+   */
+  readonly accountRouteFingerprint?: string;
 }
 
 /** Remembered lane owners kept; the same bound as the plan-usage cache. */
@@ -169,14 +179,22 @@ export class LaneOwnerResolver {
   }
 
   /**
-   * A ptah-cli Claude lane's owner from its own `accountInfo()`. Without an
-   * email it is unknown, keyed by the run so no other lane shares it.
+   * A Claude lane's owner from its own query's `accountInfo()`. A known
+   * email plus organization is the same owner whichever directory the lane
+   * ran in. Without an email it is unknown, keyed by the run so no other
+   * lane shares it; on a named route the key also names the route, revision
+   * and auth epoch, so a later epoch of the same account is another unknown.
    */
   ownerForClaudeLane(
     account: ClaudeAccountInfo,
     agentId: string,
+    route?: ClaudeAccountNamedRoute,
   ): QuotaOwnerRef {
-    return this.owners.ownerForClaudeAccount(account, `run:${agentId}`);
+    const run = `run:${agentId}`;
+    return this.owners.ownerForClaudeAccount(
+      account,
+      route ? namedSourceMaterial(route, `${run}:${route.runId}`) : run,
+    );
   }
 
   /** A ptah-cli lane's owner from the key stored for that agent. */
@@ -196,5 +214,8 @@ export class LaneOwnerResolver {
 }
 
 function laneKey(lane: LaneOwnerKey): string {
-  return `${lane.cli}:${lane.ptahCliId ?? ''}`;
+  const base = `${lane.cli}:${lane.ptahCliId ?? ''}`;
+  return lane.accountRouteFingerprint === undefined
+    ? base
+    : JSON.stringify([base, lane.accountRouteFingerprint]);
 }

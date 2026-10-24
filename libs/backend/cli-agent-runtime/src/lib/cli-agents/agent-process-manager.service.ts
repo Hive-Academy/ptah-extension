@@ -103,6 +103,7 @@ import {
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
 import { matchesAuthFailure } from './limits/lane-auth-classifier';
+import { laneRouteFingerprint } from './limits/lane-limit-lookup.service';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
 
@@ -2748,11 +2749,24 @@ export class AgentProcessManager {
     }
   }
 
-  /** Keep the lane's current owner for limit lookups of that lane. */
+  /**
+   * Keep the lane's current owner for limit lookups of that lane. A run on a
+   * named Claude account is remembered under its route fingerprint, so it
+   * never answers for the ambient lane or a lane on another account. A run
+   * whose binding is unreadable is not remembered at all (fail closed).
+   */
   private rememberLaneOwner(info: AgentProcessInfo): void {
     if (!info.quotaOwner) return;
+    const fingerprint = laneRouteFingerprint(info);
+    if (fingerprint === null) return;
     this.laneOwners.rememberLaneOwner(
-      { cli: info.cli, ptahCliId: info.ptahCliId },
+      {
+        cli: info.cli,
+        ptahCliId: info.ptahCliId,
+        ...(fingerprint !== undefined && {
+          accountRouteFingerprint: fingerprint,
+        }),
+      },
       info.quotaOwner,
     );
   }

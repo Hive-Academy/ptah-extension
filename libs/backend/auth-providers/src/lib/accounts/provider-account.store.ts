@@ -103,6 +103,18 @@ export class ProviderAccountStore {
     return this.atomic(db => this.profile(db, profileId));
   }
 
+  /** The row for `profileId` even when removed; `undefined` when it was never added. */
+  find(profileId: string): StoredProviderAccount | undefined {
+    if (!isProviderAccountOpaqueId(profileId)) throw new ProviderAccountStoreError('conflict');
+    return this.atomic(db => {
+      const raw = db.prepare('SELECT * FROM provider_account_profiles WHERE profile_id = ?').get(profileId);
+      if (!raw) return undefined;
+      const result = profileSchema.safeParse(raw);
+      if (!result.success) throw new ProviderAccountStoreError('unavailable-storage');
+      return result.data;
+    });
+  }
+
   list(): readonly StoredProviderAccount[] {
     return this.atomic(db => db.prepare("SELECT * FROM provider_account_profiles WHERE provider = 'claude' AND removed_at IS NULL ORDER BY created_at, profile_id")
       .all().map(row => profileSchema.parse(row)));

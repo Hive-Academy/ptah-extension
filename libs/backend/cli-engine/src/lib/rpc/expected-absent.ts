@@ -28,6 +28,9 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   // `agent:getLanePlanLimits` serves the desktop display panel only; the
   // headless hosts have no renderer to show per-lane plan limits (R10.9).
   'lanePlanLimits',
+  // Named Claude account management (`provider:*Account*`) ships in the
+  // desktop app first; its sign-in flow needs a renderer (TASK_2026_712 D30).
+  'providerAccounts',
 ] as const;
 
 /**

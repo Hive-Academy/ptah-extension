@@ -6,7 +6,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 import type { QuotaOwnerRef } from './plan-limit.types';
-import type { ProviderAccountBinding } from './provider-account.types';
+import type {
+  ProviderAccountBinding,
+  ProviderAccountSelection,
+} from './provider-account.types';
 import type {
   OutcomeRoutingSource,
   OutcomeTaskKind,
@@ -66,11 +69,14 @@ export type AgentFailureKind = 'quota';
  * surface that has to enumerate spawnable CLIs — the MCP `ptah_agent_spawn`
  * schema (`tool-description.builder.ts`), the stdio dispatcher's zod enum
  * (`agent-tool.dispatcher.ts`), and default-CLI selection
- * (`AgentProcessManager.getPreferredCli`). Adding a seventh adapter means
- * adding one literal HERE; the other surfaces follow automatically.
+ * (`AgentSpawnEnvironment.preferredCli`). Adding an adapter means adding one
+ * literal HERE; the other surfaces follow automatically. Order is the
+ * auto-detect fallback order, so a new member is appended, never inserted.
  *
- * `ptah-cli` is deliberately NOT a member: those agents are user-configured
- * Anthropic-compatible providers selected by `ptahCliId`, not a binary name.
+ * `claude` is the native Claude Agent SDK lane (system Claude, optionally on a
+ * named account). `ptah-cli` is deliberately NOT a member: those agents are
+ * user-configured Anthropic-compatible providers selected by `ptahCliId`, not
+ * a system lane.
  */
 export const SYSTEM_CLI_TYPES = [
   'codex',
@@ -80,6 +86,7 @@ export const SYSTEM_CLI_TYPES = [
   'opencode',
   'pi',
   'grok',
+  'claude',
 ] as const;
 
 export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];
@@ -321,6 +328,14 @@ export interface SpawnAgentRequest {
    * keeps `not-routed` when absent.
    */
   readonly routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
+  /**
+   * Account route a caller asked for (TASK_2026_712). Only a `claude` system
+   * lane takes one, and every entry point refuses a named selection before
+   * spawn while named lane admission is release-held (D7), so the value that
+   * arrives here is `omitted` or `ambient`: the route a lane takes with no
+   * selection. Absent means the caller sent none.
+   */
+  readonly accountSelection?: ProviderAccountSelection;
 }
 
 export interface AgentOutput {

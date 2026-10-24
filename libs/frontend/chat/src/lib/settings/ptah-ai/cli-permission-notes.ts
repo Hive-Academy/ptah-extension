@@ -18,6 +18,7 @@ export const PENDING_USER_REVIEW_IDS: readonly CliType[] = [
   'copilot',
   'ptah-cli',
   'grok',
+  'claude',
 ];
 
 /**
@@ -74,6 +75,17 @@ const FIXED_NOTES: Readonly<
       'Ptah approves Grok tool requests, shell commands and file edits included. ' +
       'It answers allow-once when Grok offers it; if a request offers only a persistent grant, ' +
       'Ptah accepts that grant and shows an info line. A request with no allow option is declined.',
+  },
+  // NEW copy (TASK_2026_712 Batch 26d), pending user review. The system Claude lane runs on the Claude
+  // Agent SDK and maps the chat permission level the same way Ptah CLI agents do (`claude-sdk-lane-options.ts`
+  // resolveClaudeLanePermissionOptions: yolo → bypassPermissions, auto-edit → acceptEdits, plan → plan,
+  // otherwise default with the per-tool approval callback).
+  claude: {
+    badge: 'Follows Autopilot',
+    tone: 'info',
+    detail:
+      "Uses the chat's Autopilot setting. With Autopilot off, each tool call waits for your approval; " +
+      'Auto-edit approves file edits only; Plan Mode is read-only; Full Auto approves every action.',
   },
 };
 

@@ -397,7 +397,7 @@ CLI AGENT DELEGATION (3-tier hierarchy):
     Tier 2: Sub-agents (Senior Leads) — via Agent tool
       Tier 3: CLI agents (Junior Helpers) — via ptah.agent.spawn
 
-Available CLI agents: codex, copilot, ptah-cli (concurrency cap is the \`ptah.agentOrchestration.maxConcurrentAgents\` setting, default 5; a spawn past the cap fails with a clear error).
+CLI agent adapters: ${SYSTEM_CLI_TYPES.join(', ')}, plus ptah-cli for configured providers; which are installed is per-machine, so call ptah.agent.list() first (concurrency cap is the \`ptah.agentOrchestration.maxConcurrentAgents\` setting, default 5; a spawn past the cap fails with a clear error).
 Sub-agents decide when to delegate grunt work vs do it directly.
 
 SPECIALIST AGENTS (14):
@@ -479,8 +479,14 @@ exist is per-machine — call list() first rather than assuming a vendor.
 
 LIFECYCLE:
 - spawn(request) - Launch a CLI agent with a task
-  request: { task: string, cli?: ${SYSTEM_CLI_TYPES.map((cli) => `'${cli}'`).join('|')}, workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  request: { task: string, cli?: ${SYSTEM_CLI_TYPES.map((cli) => `'${cli}'`).join('|')}, ptahCliId?: string, workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string, model?: string, modelTier?: 'opus'|'sonnet'|'haiku', resumeSessionId?: string, accountSelection?: { kind: 'omitted'|'ambient'|'named', profileId?: string } }
   returns: { agentId, cli, status, startedAt }
+  cli 'claude' is the system Claude lane (Claude Agent SDK session, Ptah tools
+  over MCP; resumeSessionId continues its SDK session). modelTier applies only
+  to ptahCliId lanes; system lanes ignore it. accountSelection is accepted only
+  with cli 'claude': ambient or omitted uses the existing Claude login; a named
+  account is refused before spawn in this release, and a resume keeps the
+  account stored with its session.
 
 - status(agentId?) - Get agent status (omit agentId for all agents)
   returns: { agentId, status, cli, task, startedAt, exitCode? }

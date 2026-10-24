@@ -46,3 +46,15 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
 } as const;
 
 export type CliAgentRuntimeDIToken = keyof typeof CLI_AGENT_RUNTIME_TOKENS;
+
+/**
+ * Host-owned full `ClaudeLaneAccountPersistence` (registry, SDK attachment and
+ * session metadata authorities, same as main chat). Kept outside
+ * `CLI_AGENT_RUNTIME_TOKENS` because no host registers it until certification
+ * (D7): it is resolved optionally, so an unregistered host keeps named lane
+ * admission refused. Register `{ useFactory: () => null }`, never
+ * `{ useValue: null }`, if an explicit null binding is ever needed.
+ */
+export const CLAUDE_LANE_ACCOUNT_PERSISTENCE = Symbol.for(
+  'ClaudeLaneAccountPersistence',
+);

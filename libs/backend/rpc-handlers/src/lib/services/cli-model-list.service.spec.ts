@@ -26,6 +26,7 @@ function makeHarness() {
     opencode: [{ id: 'provider/model', name: 'OpenCode model' }],
     pi: [{ id: 'pi-model', name: 'Pi model' }],
     grok: [{ id: 'grok-model', name: 'Grok model' }],
+    claude: [{ id: 'claude-model', name: 'Claude model' }],
   };
   const codexAdapter = { listCatalogModels: jest.fn().mockResolvedValue([]) };
   const cliDetection = {
@@ -260,6 +261,7 @@ describe('CliModelListService', () => {
       opencode: [],
       pi: [],
       grok: [],
+      claude: [],
     });
   });
 

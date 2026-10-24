@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, lstatSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
@@ -24,6 +24,16 @@ const admissionRequestSchema = z.object({
     z.object({ kind: z.literal('named'), profileId: z.string().refine(isProviderAccountOpaqueId) }).strict(),
   ]),
 }).strict();
+
+/**
+ * Stable UUID-shaped profile ID for one Add request (SHA-256, RFC 4122
+ * version/variant bits). The same request always maps to the same row.
+ */
+function profileIdForRequest(requestId: string): string {
+  const hex = createHash('sha256').update(`ptah.provider-account.add\0${requestId}`).digest('hex');
+  const variant = ((Number.parseInt(hex.charAt(16), 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 /** Metadata and fail-closed admission. Construction never reads the database. */
 @injectable()
@@ -88,11 +98,26 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
     return { code, summary: accountActionResult(code).summary };
   }
 
-  add(label: string): ProviderAccountSummary {
+  /**
+   * Adds a profile. With a `requestId` the profile ID is derived from it, so
+   * the primary key makes the request durable: a replay after a restart
+   * returns the stored account, a replay with another label or after removal
+   * is `conflict`, and nothing is created twice.
+   */
+  add(label: string, requestId?: string): ProviderAccountSummary {
     if (!isSafeProviderAccountLabel(label)) throw new ProviderAccountStoreError('conflict');
+    if (requestId !== undefined && !isProviderAccountOpaqueId(requestId)) {
+      throw new ProviderAccountStoreError('conflict');
+    }
+    const profileId = requestId === undefined ? randomUUID() : profileIdForRequest(requestId);
     const dbPath = this.connection.dbPath;
     if (!isAbsolute(dbPath)) throw new ProviderAccountStoreError('unavailable-storage');
     try {
+      const prior = requestId === undefined ? undefined : this.store.find(profileId);
+      if (prior) {
+        if (prior.removed_at !== null || prior.label !== label) throw new ProviderAccountStoreError('conflict');
+        return this.summary(prior);
+      }
       // Check each owned parent; do not follow a substituted symlink or junction.
       let parent = dirname(dbPath);
       for (const segment of ['provider-accounts', 'claude']) {
@@ -104,7 +129,6 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
         const stat = lstatSync(parent);
         if (stat.isSymbolicLink() || !stat.isDirectory()) throw new ProviderAccountStoreError('unsupported-store');
       }
-      const profileId = randomUUID();
       return this.summary(this.store.add(profileId, label, join(parent, profileId)));
     } catch (error: unknown) {
       if (error instanceof ProviderAccountStoreError) throw error;

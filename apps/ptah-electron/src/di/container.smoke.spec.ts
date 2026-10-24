@@ -18,7 +18,10 @@
  */
 
 import 'reflect-metadata';
-import { OpenRouterPricingService } from '@ptah-extension/auth-providers';
+import {
+  OpenRouterPricingService,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
 import { SessionStatsReaderService } from '@ptah-extension/agent-sdk';
 import { registerUsageAnalytics, USAGE_ANALYTICS_TOKENS } from '@ptah-extension/usage-analytics';
 
@@ -72,6 +75,7 @@ import {
   AuthRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   LanePlanLimitsRpcHandlers,
+  ProviderAccountRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -89,6 +93,7 @@ import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+import { createElectronRpcHostProfile } from '../rpc-host-profile';
 
 describe('Electron DI — host attention coordinator', () => {
   it('resolves the phase-2 singleton independently of handler classes', () => {
@@ -296,6 +301,44 @@ describe('Electron DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
+  });
+});
+
+describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
+  it('resolves ProviderAccountRpcHandlers once and registers exactly its ten methods', () => {
+    const c = buildMinimalContainer();
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: { broadcastMessage: jest.fn(async () => undefined) },
+    });
+    c.register<Pick<ProviderAccountService, 'list'>>(ProviderAccountService, {
+      useValue: { list: jest.fn(() => []) },
+    });
+
+    const handlers = c.resolve(ProviderAccountRpcHandlers);
+    expect(handlers).toBeInstanceOf(ProviderAccountRpcHandlers);
+    expect(c.resolve(ProviderAccountRpcHandlers)).toBe(handlers);
+
+    const rpcHandler = c.resolve<{ registerMethod: jest.Mock }>(
+      TOKENS.RPC_HANDLER,
+    );
+    rpcHandler.registerMethod.mockClear();
+    handlers.register();
+    const registered = rpcHandler.registerMethod.mock.calls.map(
+      ([method]) => method as string,
+    );
+    expect([...registered].sort()).toEqual(
+      [...ProviderAccountRpcHandlers.METHODS].sort(),
+    );
+    expect(new Set(registered).size).toBe(registered.length);
+  });
+
+  it('the Electron host profile turns providerAccounts on', () => {
+    const c = buildMinimalContainer();
+    const profile = createElectronRpcHostProfile(
+      c,
+      c.resolve<Logger>(TOKENS.LOGGER),
+    );
+    expect(profile.capabilities.providerAccounts).toBe(true);
   });
 });
 

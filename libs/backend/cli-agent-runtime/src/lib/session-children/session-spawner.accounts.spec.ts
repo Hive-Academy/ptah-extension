@@ -54,8 +54,8 @@ function harness(refusal?: ProviderAccountPortRefusal) {
 describe('child account refusal transport', () => {
   afterEach(() => jest.useRealTimers());
 
-  it.each(['missing-profile', 'invalid-bound', 'route-changed', 'release-held'] as const)
-    ('preserves typed %s through rollback and does not touch the parent', async code => {
+  it.each(['missing-profile', 'invalid-bound', 'route-changed', 'release-held'] as const)(
+    'preserves typed %s through rollback and does not touch the parent', async code => {
       const accountRefusal = { code, summary: 'The child account could not be verified.' };
       const h = harness(accountRefusal);
       const result = await h.service.start({ callerSessionId: PARENT, branch: 'feat/child', task: 'private task' });

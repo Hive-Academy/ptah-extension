@@ -113,6 +113,18 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'memory:setTriggers',
   'memory:stats',
   'memory:unpin',
+  // Claude account management (TASK_2026_712 D30) — `providerAccounts`
+  // capability is Electron-only, see expected-absent.ts.
+  'provider:addAccount',
+  'provider:cancelAccountSignIn',
+  'provider:getAccountStatus',
+  'provider:listAccounts',
+  'provider:removeAccount',
+  'provider:renameAccount',
+  'provider:setAccountDefault',
+  'provider:setAccountSelection',
+  'provider:signOutAccount',
+  'provider:startAccountSignIn',
   // The whole `skillSynthesis:*` namespace requires the `skillSynthesis`
   // capability (manifest.ts `requires: ['skillSynthesis']`), which
   // `createVscodeRpcHostProfile` never turns on, so this host serves none of it.

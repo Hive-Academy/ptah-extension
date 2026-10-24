@@ -171,7 +171,19 @@ describe('provider account binding transport', () => {
     expect([finiteKeys, noConfigDir, noBindingPath, noReferencePath]).toEqual([
       true, true, true, true,
     ]);
-    expect(SYSTEM_CLI_TYPES).not.toContain('claude');
+    // Batch 26 activated the roster: `claude` is appended last, so the original seven keep
+    // their auto-detect order, and `ptah-cli` stays outside the system tuple.
+    expect([...SYSTEM_CLI_TYPES]).toEqual([
+      'codex',
+      'copilot',
+      'cursor',
+      'antigravity',
+      'opencode',
+      'pi',
+      'grok',
+      'claude',
+    ]);
+    expect(SYSTEM_CLI_TYPES).not.toContain('ptah-cli');
   });
 
   it('rejects malformed registry linkage and preserves explicit ambient selection', () => {

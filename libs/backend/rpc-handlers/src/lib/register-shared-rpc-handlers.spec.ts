@@ -28,6 +28,7 @@ jest.mock('./handlers', () => ({
   PlanLimitsBroadcaster: class PlanLimitsBroadcaster {},
 }));
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
+import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 
 describe('registerSharedRpcHandlers', () => {
   it('registers ConnectionCheckRecorder as a container singleton', () => {
@@ -39,5 +40,14 @@ describe('registerSharedRpcHandlers', () => {
 
     expect(first).toBeInstanceOf(ConnectionCheckRecorder);
     expect(second).toBe(first);
+  });
+
+  it('registers the provider account handler lazily, as a singleton binding', () => {
+    const container = rootContainer.createChildContainer();
+    registerSharedRpcHandlers(container);
+
+    // Registration only: resolving would need the host RPC handler, account
+    // store and webview ports, and so would open account storage.
+    expect(container.isRegistered(ProviderAccountRpcHandlers)).toBe(true);
   });
 });

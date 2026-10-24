@@ -40,6 +40,7 @@ function emptyListed(): AgentListCliModelsResult {
     opencode: [],
     pi: [],
     grok: [],
+    claude: [],
   };
 }
 

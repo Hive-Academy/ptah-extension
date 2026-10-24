@@ -18,8 +18,10 @@ import type {
   PlanLimitLedgerOwnerSnapshot,
   PlanOwnerTarget,
 } from '@ptah-extension/auth-providers';
+import { LaneOwnerResolver } from './lane-owner.resolver';
 import {
   LaneLimitLookupService,
+  laneRouteFingerprint,
   type LaneLimitLedger,
   type LaneLimitOwnerRules,
   type LaneLimitSnapshots,
@@ -446,5 +448,113 @@ describe('LaneLimitLookupService', () => {
     const { service } = createHarness(async (t) => snapshot(t.ownerRef));
 
     await expect(service.lookup([])).resolves.toEqual([]);
+  });
+});
+
+describe('LaneLimitLookupService on named Claude accounts', () => {
+  const bindingFor = (fingerprint: string, runId: string) => ({
+    version: 1 as const,
+    provider: 'claude' as const,
+    profileId: 'account123',
+    runId,
+    routeRevision: 0,
+    authEpoch: 0,
+    routeFingerprint: fingerprint,
+    identity: { kind: 'known' as const, ownerKey: 'b'.repeat(64) },
+  });
+  const A = bindingFor('a'.repeat(64), 'run12345');
+  const B = bindingFor('c'.repeat(64), 'run67890');
+  const C = bindingFor('e'.repeat(64), 'run24680');
+  const lane = { cli: 'ptah-cli' as const, ptahCliId: 'pc-claude' };
+  const bound = (binding: typeof A) => ({
+    ...lane,
+    accountBinding: binding,
+    accountBindingId: binding.runId,
+  });
+  const OWNER_AMBIENT = owner('anthropic', 'account', 'a0b0');
+  const OWNER_A = owner('anthropic', 'account', 'a1a1');
+  const OWNER_B = owner('anthropic', 'account', 'b1b1');
+
+  function service(resolver: LaneOwnerResolver): LaneLimitLookupService {
+    return new LaneLimitLookupService(
+      createMockLogger() as unknown as Logger,
+      resolver,
+      { getOwnerSnapshot: jest.fn() } as unknown as LaneLimitSnapshots,
+      { snapshotFor: jest.fn(() => undefined) } as unknown as LaneLimitLedger,
+    );
+  }
+
+  /** The key the manager writes, through the same helper it uses. */
+  function remember(
+    resolver: LaneOwnerResolver,
+    info: object,
+    ownerRef: QuotaOwnerRef,
+  ): void {
+    const fingerprint = laneRouteFingerprint(info);
+    if (fingerprint === null) return;
+    resolver.rememberLaneOwner(
+      {
+        ...lane,
+        ...(fingerprint !== undefined && {
+          accountRouteFingerprint: fingerprint,
+        }),
+      },
+      ownerRef,
+    );
+  }
+
+  it('keys two named routes apart and leaves the ambient key unchanged', async () => {
+    const resolver = new LaneOwnerResolver(
+      createMockLogger() as unknown as Logger,
+      {} as unknown as ConstructorParameters<typeof LaneOwnerResolver>[1],
+    );
+    remember(resolver, lane, OWNER_AMBIENT);
+    remember(resolver, bound(A), OWNER_A);
+    remember(resolver, bound(B), OWNER_B);
+
+    // The ambient key is the one an unbound lane always used.
+    expect(resolver.lastLaneOwner(lane)).toEqual(OWNER_AMBIENT);
+    expect(
+      resolver.lastLaneOwner({
+        ...lane,
+        accountRouteFingerprint: A.routeFingerprint,
+      }),
+    ).toEqual(OWNER_A);
+
+    const results = await service(resolver).lookup([
+      lane,
+      bound(A),
+      bound(B),
+      bound(C),
+    ]);
+
+    expect(results.map((r) => r.owner)).toEqual([
+      OWNER_AMBIENT,
+      OWNER_A,
+      OWNER_B,
+      undefined,
+    ]);
+    // A named route with no run of its own never borrows the ambient owner.
+    expect(results[3].lookup).toBe('no-owner');
+  });
+
+  it('an unreadable binding is neither remembered nor read as ambient', async () => {
+    const resolver = new LaneOwnerResolver(
+      createMockLogger() as unknown as Logger,
+      {} as unknown as ConstructorParameters<typeof LaneOwnerResolver>[1],
+    );
+    const corrupt = { ...bound(A), accountBindingId: 'different' };
+    remember(resolver, lane, OWNER_AMBIENT);
+    remember(resolver, corrupt, OWNER_A);
+
+    expect(laneRouteFingerprint(lane)).toBeUndefined();
+    expect(laneRouteFingerprint(corrupt)).toBeNull();
+    expect(laneRouteFingerprint(bound(A))).toBe(A.routeFingerprint);
+    expect(resolver.lastLaneOwner(lane)).toEqual(OWNER_AMBIENT);
+
+    const [result] = await service(resolver).lookup([corrupt]);
+
+    expect(result.lookup).toBe('no-owner');
+    expect(result.owner).toBeUndefined();
   });
 });

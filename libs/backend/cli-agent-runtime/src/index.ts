@@ -47,6 +47,7 @@ export { MCP_ATTACHMENT_TIMEOUT_MS } from './lib/cli-agents/mcp-attachment-probe
 export type { IMcpAttachmentProbe, McpAttachment } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';
 export { registerCliAgentRuntimeServices } from './lib/di/register';
+export { LaneAccountResumeError } from './lib/cli-agents/lane-resume-gate';
 
 export {
   wireSdkCallbacks,

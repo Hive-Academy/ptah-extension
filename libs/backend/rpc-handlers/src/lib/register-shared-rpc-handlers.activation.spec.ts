@@ -38,6 +38,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
+  type ProviderAccountAdmissionPort,
   PLAN_LIMIT_LEDGER_STORAGE_KEY,
   PlanLimitLedgerService,
   registerAuthProvidersServices,
@@ -55,6 +56,7 @@ import {
   registerSharedRpcHandlers,
 } from './register-shared-rpc-handlers';
 import { PlanLimitsBroadcaster } from './handlers/plan-limits-broadcaster';
+import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 
 interface Host {
   c: DependencyContainer;
@@ -308,5 +310,39 @@ describe('activateSessionLifecycleNotifier — plan-limit ledger activation', ()
     ];
     expect(type).toBe(MESSAGE_TYPES.PLAN_LIMITS_CHANGED);
     expect(payload.owners.map((entry) => entry.owner.key)).toContain(owner.key);
+  });
+});
+
+describe('activateSessionLifecycleNotifier — provider accounts (TASK_2026_712 Batch 35)', () => {
+  it('activation leaves the account handler registered but never constructed', () => {
+    const host = composeHost();
+    expect(host.c.isRegistered(ProviderAccountRpcHandlers)).toBe(true);
+
+    activateSessionLifecycleNotifier(host.c);
+
+    // The handler needs TOKENS.RPC_HANDLER, which this composition does not
+    // bind. Had activation built the singleton it would be cached and this
+    // resolve would succeed; only the manifest-gated registerRpcSurface does.
+    expect(() => host.c.resolve(ProviderAccountRpcHandlers)).toThrow();
+    expect(host.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('the admission token resolves fail-closed with no SQLite connection, reading no database', async () => {
+    const host = composeHost();
+    activateSessionLifecycleNotifier(host.c);
+
+    const admission = host.c.resolve<ProviderAccountAdmissionPort>(
+      AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
+    );
+
+    await expect(
+      admission.admitClaudeRoute({
+        provider: 'claude',
+        scope: 'main',
+        selection: { kind: 'ambient' },
+        operationId: 'operation-0001',
+        runId: 'run-00001',
+      }),
+    ).resolves.toEqual({ code: 'release-held', summary: expect.any(String) });
   });
 });

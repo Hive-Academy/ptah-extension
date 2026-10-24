@@ -82,6 +82,12 @@ export const RPC_CAPABILITIES = [
    * (`agent:getLanePlanLimits`, the `$limits` host source). Electron only.
    */
   'lanePlanLimits',
+  /**
+   * Host can list and manage named provider accounts (`provider:*Account*`):
+   * account metadata, scope selection and the release-held sign-in commands.
+   * Electron only.
+   */
+  'providerAccounts',
 ] as const;
 
 export type Capability = (typeof RPC_CAPABILITIES)[number];

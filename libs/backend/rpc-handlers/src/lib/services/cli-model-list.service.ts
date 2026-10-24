@@ -79,6 +79,10 @@ export class CliModelListService {
     const opencode = (modelMap['opencode'] ?? []) as CliModelOption[];
     const pi = (modelMap['pi'] ?? []) as CliModelOption[];
     const grok = (modelMap['grok'] ?? []) as CliModelOption[];
+    // The system Claude lane's list comes from `ClaudeCliAdapter.listModels()`
+    // (the ambient native Claude model service) via detection; empty when the
+    // Claude Agent SDK is not installed.
+    const claude = (modelMap['claude'] ?? []) as CliModelOption[];
 
     const result: AgentListCliModelsResult = {
       codex,
@@ -88,6 +92,7 @@ export class CliModelListService {
       opencode,
       pi,
       grok,
+      claude,
     };
 
     return { models: result, codexReported, copilotReported };
