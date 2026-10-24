@@ -25,6 +25,15 @@
     "purpose": "Read-only plus granular approvals; hold command approval; original marker remains absent after denial"
   },
   {
+    "id": "ask-command-edit",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "command",
+    "level": "ask",
+    "decision": "edit",
+    "purpose": "Decline original command, steer to a replacement marker, approve only the replacement; observe turn charging and usage"
+  },
+  {
     "id": "modified-input-schema",
     "turnCost": 0,
     "observations": [1, 2],
@@ -81,6 +90,6 @@
     "turnCost": 1,
     "observations": [5],
     "kind": "compact",
-    "purpose": "Compact retained accepted-command thread; one reserved invocation, sharing its 60-second deadline and 12000-token observed cumulative ceiling; no retries"
+    "purpose": "Compact retained accepted-command thread; one reserved invocation, sharing its 60-second deadline and 15000-token per-turn and 100000-token cumulative observed bounds; no retries"
   }
 ]

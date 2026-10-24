@@ -40,7 +40,8 @@ import {
 } from './evidence-failure-notes';
 export const TURN_CAP = 8;
 export const CASE_DEADLINE_MS = 60_000;
-export const USAGE_CEILING = 12_000;
+export const USAGE_TURN_LIMIT = 15_000;
+export const USAGE_CUMULATIVE_LIMIT = 100_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_EVENTS = 4000;
 // codex 0.155.1 has no per-turn output cap (model_max_output_tokens is ignored); user-approved substitute bounds.
@@ -62,11 +63,19 @@ function objectId(value: unknown, key: string): string {
 
 export class TurnBudget {
   private used = 0;
+  constructor(readonly cap = TURN_CAP) {
+    if (!Number.isInteger(cap) || cap < 1 || cap > TURN_CAP)
+      throw new Error(`Turn cap must be an integer from 1 to ${TURN_CAP}`);
+  }
   get consumed(): number {
     return this.used;
   }
+  observeTurn(): boolean {
+    this.used += 1;
+    return this.used <= this.cap;
+  }
   claim(): boolean {
-    if (this.used >= TURN_CAP) return false;
+    if (this.used >= this.cap) return false;
     this.used += 1;
     return true;
   }
@@ -316,7 +325,7 @@ const caseSchema = z.object({
   observations: z.array(z.number()),
   kind: z.enum(['schema', 'command', 'file', 'boundary', 'mcp', 'compact']),
   level: z.enum(['ask', 'plan', 'auto-edit', 'yolo']).optional(),
-  decision: z.enum(['accept', 'deny']).optional(),
+  decision: z.enum(['accept', 'deny', 'edit']).optional(),
   purpose: z.string(),
 });
 
@@ -342,6 +351,14 @@ interface CaseResult {
   markers?: { original: boolean; replacement: boolean; outside: boolean };
   terminal?: string;
   usage?: unknown;
+  usageByTurn?: Record<string, number>;
+  steer?: {
+    status: 'pending' | 'success' | 'error';
+    rpcErrorCode?: number;
+    responseTurn: 'unreported' | 'same' | 'new';
+    newTurnStarted: boolean;
+    usageAfter: { turnId: string; totalTokens: number }[];
+  };
   effectiveConfig?: unknown;
   notes?: string[];
 }
@@ -421,15 +438,32 @@ export function assertSafeSandbox(value: unknown): void {
 
 export class UsageBudget {
   private readonly totals = new Map<string, number>();
+  private readonly turns = new Map<string, number>();
+  private failure: string | undefined;
+  get exceeded(): boolean {
+    return this.failure !== undefined;
+  }
   get consumed(): number {
     return [...this.totals.values()].reduce((sum, count) => sum + count, 0);
   }
-  observe(id: string, count: number): void {
+  turnTotal(id: string, turnId: string): number {
+    return this.turns.get(JSON.stringify([id, turnId])) ?? 0;
+  }
+  observe(id: string, count: number, turnId = id): number {
     if (!Number.isSafeInteger(count) || count < 0)
       throw new Error('Invalid usage');
-    this.totals.set(id, Math.max(count, this.totals.get(id) ?? 0));
-    if (this.consumed >= USAGE_CEILING)
-      throw new Error('Cumulative usage ceiling reached');
+    const previous = this.totals.get(id) ?? 0;
+    const total = Math.max(count, previous);
+    this.totals.set(id, total);
+    const key = JSON.stringify([id, turnId]);
+    const turnTotal = (this.turns.get(key) ?? 0) + total - previous;
+    this.turns.set(key, turnTotal);
+    if (turnTotal > USAGE_TURN_LIMIT)
+      this.failure ??= 'Per-turn usage bound reached';
+    if (this.consumed > USAGE_CUMULATIVE_LIMIT)
+      this.failure ??= 'Cumulative usage bound reached';
+    if (this.failure) throw new Error(this.failure);
+    return turnTotal;
   }
 }
 
@@ -1072,7 +1106,7 @@ function schemaDenial(
       : { literal: 'decline', verified: false };
 }
 
-async function runCase(
+export async function runCase(
   item: EvidenceCase,
   result: CaseResult,
   experiment: Experiment,
@@ -1086,6 +1120,9 @@ async function runCase(
   children: Set<RpcChild>,
   authDirectory: string,
 ): Promise<void> {
+  const editing = item.kind === 'command' && item.decision === 'edit';
+  if (editing && !manifest.methods.requests.includes('turn/steer'))
+    throw new Error('turn/steer missing from manifest');
   const original = join(experiment.workspace, `${item.id}.marker`);
   const replacement = join(
     experiment.workspace,
@@ -1107,6 +1144,12 @@ async function runCase(
     markerScript,
     experiment.root,
     target,
+  ]);
+  const editedCommand = markerCommand([
+    process.execPath,
+    markerScript,
+    experiment.root,
+    replacement,
   ]);
   const overrides = [
     `mcp_servers.marker.command=${JSON.stringify(process.execPath)}`,
@@ -1138,6 +1181,22 @@ async function runCase(
   children.add(rpc);
   let threadId = '';
   let turnId = '';
+  let initialTurnId = '';
+  let steerSent = false;
+  const chargedTurns = new Set<string>();
+  const adoptSteerTurn = (id: string): void => {
+    if (!chargedTurns.has(id)) {
+      const withinCap = budget.observeTurn();
+      result.turns += 1;
+      chargedTurns.add(id);
+      if (!withinCap) throw new Error('not run: cap');
+    }
+    if (turnId !== id) {
+      turnId = id;
+      terminal = undefined;
+      interrupted = false;
+    }
+  };
   let terminal: string | undefined;
   let compacted = false;
   let compacting = false;
@@ -1157,17 +1216,53 @@ async function runCase(
       if (!notes.includes(note)) notes.push(note);
     }
   };
+  let usageWait: Promise<void> | undefined;
+  let usageTimer: ReturnType<typeof setTimeout> | undefined;
+  let finishUsageWait: ((observed: boolean) => void) | undefined;
+  let terminalUsageTurn = '';
+  const beginUsageWait = (): void => {
+    if (usageWait || !turnId) return;
+    terminalUsageTurn = turnId;
+    usageWait = new Promise<void>((resolveWait) => {
+      finishUsageWait = (observed) => {
+        clearTimeout(usageTimer);
+        finishUsageWait = undefined;
+        (result.notes ??= []).push(
+          observed
+            ? 'usage after terminal: observed'
+            : 'usage after terminal: not observed within 500 ms',
+        );
+        resolveWait();
+      };
+      usageTimer = setTimeout(() => finishUsageWait?.(false), 500);
+    });
+  };
   let toolItems = 0;
   const validatedFileItems = new Set<string>();
   const interrupt = (): void => {
     if (interrupted || !turnId || compacting) return;
     interrupted = true;
+    beginUsageWait();
     void rpc
       .request('turn/interrupt', { threadId, turnId })
       .catch(() => rpc.abort());
   };
   const inspect = (): void => {
     const state = markerState(experiment.root, original, replacement, outside);
+    if (editing) {
+      if (
+        state.original ||
+        state.outside ||
+        (state.replacement &&
+          (approvalPending || result.approvals[1]?.response !== 'accept'))
+      )
+        throw new Error('Unexpected marker effect');
+      if (state.replacement) {
+        outcome = true;
+        interrupt();
+      }
+      return;
+    }
     const present = target === outside ? state.outside : state.original;
     if (
       state.replacement ||
@@ -1185,7 +1280,8 @@ async function runCase(
   const guard = setInterval(() => {
     try {
       inspect();
-    } catch {
+    } catch (error) {
+      recordCaseFailure(result, error);
       rpc.abort();
     }
   }, 20);
@@ -1200,17 +1296,30 @@ async function runCase(
         `Denial literal ${denial.literal}: ${denial.verified ? 'found in method approval schema; wire behavior unverified' : 'unverified fallback from batch-1a review; research does not establish per-method response shape'}`,
       );
       checkObservedPaths(experiment.root, experiment.workspace, frame.params);
+      const approvalCommand =
+        editing && approvalRounds === 1 ? editedCommand : expectedCommand;
+      const approvalTarget =
+        editing && approvalRounds === 1 ? replacement : target;
+      if (
+        editing &&
+        (approvalRounds > 1 || (approvalRounds === 1 && !steerSent))
+      )
+        throw new Error('Unexpected request');
       const context: MarkerApproval = {
         kind: item.kind,
         level: item.level,
-        decision: item.decision,
+        decision: editing
+          ? approvalRounds === 0
+            ? 'deny'
+            : 'accept'
+          : item.decision,
         threadId,
-        expectedCommand,
-        target,
+        expectedCommand: approvalCommand,
+        target: approvalTarget,
         root: experiment.root,
         workspace: experiment.workspace,
         validatedFileItems,
-        approvals: approvalRounds,
+        approvals: editing ? 0 : approvalRounds,
       };
       // Validate identity independently of the selected decline policy.
       const fixed =
@@ -1221,7 +1330,7 @@ async function runCase(
         }) === 'accept';
       if (!fixed && frame.method === 'item/commandExecution/requestApproval') {
         const params = record(frame.params ?? {});
-        if (!commandMatches(params['command'], expectedCommand))
+        if (!commandMatches(params['command'], approvalCommand)) {
           recordCommandShape(result, params, params, {
             experiment,
             expectedCommand,
@@ -1229,6 +1338,8 @@ async function runCase(
             authDirectory,
             sanitize,
           });
+          if (editing) throw new Error('Unexpected command');
+        }
       }
       if (
         !manifest.methods.serverRequests.includes(frame.method) ||
@@ -1240,11 +1351,11 @@ async function runCase(
         noteWrapper(record(frame.params ?? {})['command']);
       approvalRounds += 1;
       approvalPending = true;
-      if (markerExists(experiment.root, target))
+      if (markerExists(experiment.root, approvalTarget))
         throw new Error('Side effect before approval');
       await delay(200);
       rpc.assertHealthy();
-      if (markerExists(experiment.root, target))
+      if (markerExists(experiment.root, approvalTarget))
         throw new Error('Side effect during approval');
       const decision = markerApprovalDecision(frame, context);
       if (decision === 'decline') rpc.decline(frame.id);
@@ -1256,8 +1367,59 @@ async function runCase(
         response: decision,
       });
       approvalPending = false;
+      if (editing && approvalRounds === 1) {
+        if (!turnId) throw new Error('Unexpected request');
+        if (budget.consumed >= budget.cap) {
+          (result.notes ??= []).push('turn/steer not sent: turn cap reached');
+          interrupt();
+          throw new Error('not run: cap');
+        }
+        steerSent = true;
+        result.steer = {
+          status: 'pending',
+          responseTurn: 'unreported',
+          newTurnStarted: false,
+          usageAfter: [],
+        };
+        const expectedTurnId = turnId;
+        let steeredTurnId: string;
+        try {
+          const response = z.object({ turnId: z.string() }).parse(
+            await rpc.request('turn/steer', {
+              threadId,
+              expectedTurnId,
+              input: [
+                {
+                  type: 'text',
+                  text: `The original command was declined. Request approval, then run exactly this replacement command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${editedCommand}\nNo other tools or retries.`,
+                  text_elements: [],
+                },
+              ],
+            }),
+          );
+          result.steer.status = 'success';
+          result.steer.responseTurn =
+            response.turnId === expectedTurnId ? 'same' : 'new';
+          steeredTurnId = response.turnId;
+        } catch (error) {
+          result.steer.status = 'error';
+          const match =
+            error instanceof Error
+              ? /^RPC error (-?\d+)$/.exec(error.message)
+              : null;
+          if (match) {
+            result.steer.rpcErrorCode = Number(match[1]);
+            (result.notes ??= []).push(
+              `turn/steer refused: RPC error ${Number(match[1])}`,
+            );
+          }
+          throw error;
+        }
+        adoptSteerTurn(steeredTurnId);
+      }
       inspect();
-    } catch {
+    } catch (error) {
+      recordCaseFailure(result, error);
       if (!answered) rpc.decline(frame.id);
       interrupt();
       rpc.abort();
@@ -1273,10 +1435,28 @@ async function runCase(
       data['threadId'] !== threadId
     )
       throw new Error('Notification thread mismatch');
+    if (method === 'turn/started') {
+      const id = objectId(data, 'turn');
+      if (!initialTurnId) {
+        initialTurnId = id;
+        turnId = id;
+        chargedTurns.add(id);
+      } else if (editing && steerSent && id !== initialTurnId) {
+        if (result.steer) result.steer.newTurnStarted = true;
+        adoptSteerTurn(id);
+      }
+    }
     if (method === 'item/started' || method === 'item/completed') {
       const observed = record(data['item']);
       if (observed['type'] === 'commandExecution') {
-        if (!commandMatches(observed['command'], expectedCommand)) {
+        if (
+          !commandMatches(observed['command'], expectedCommand) &&
+          !(
+            editing &&
+            steerSent &&
+            commandMatches(observed['command'], editedCommand)
+          )
+        ) {
           recordCommandShape(result, data, observed, {
             experiment,
             expectedCommand,
@@ -1329,25 +1509,39 @@ async function runCase(
           !['commandExecution', 'fileChange', 'mcpToolCall'].includes(
             String(observed['type']),
           ) ||
-          ++toolItems > 1
+          ++toolItems > (editing ? 2 : 1)
         )
           throw new Error('Unexpected or repeated tool item');
       }
       compacted ||=
         method === 'item/completed' && observed['type'] === 'contextCompaction';
     }
-    if (method === 'turn/completed')
+    if (
+      method === 'turn/completed' &&
+      (!editing || objectId(data, 'turn') === turnId)
+    ) {
       terminal = z.string().parse(record(data['turn'])['status']);
+      beginUsageWait();
+    }
     if (method === 'thread/tokenUsage/updated') {
       result.usage = usageSummary(params);
-      usage.observe(
-        item.id,
-        z
-          .number()
-          .int()
-          .nonnegative()
-          .parse(record(result.usage)['totalTokens']),
-      );
+      const usageTurnId = z.string().parse(data['turnId']);
+      const totalTokens = z
+        .number()
+        .int()
+        .nonnegative()
+        .parse(record(result.usage)['totalTokens']);
+      if (steerSent && result.steer)
+        result.steer.usageAfter.push({ turnId: usageTurnId, totalTokens });
+      if (usageTurnId === terminalUsageTurn) finishUsageWait?.(true);
+      try {
+        usage.observe(item.id, totalTokens, usageTurnId);
+      } finally {
+        (result.usageByTurn ??= {})[usageTurnId] = usage.turnTotal(
+          item.id,
+          usageTurnId,
+        );
+      }
     }
     inspect();
   };
@@ -1397,8 +1591,9 @@ async function runCase(
       cwd: experiment.workspace,
       ...selected,
       ephemeral: true,
-      developerInstructions:
-        'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
+      developerInstructions: editing
+        ? 'Evidence experiment. Only the approved replacement marker may be touched. The original command must be declined, then follow the steer instruction for one replacement command. Do not inspect credentials, config, home, environment or network. No subagents or retries.'
+        : 'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
     });
     if (typeof selected.approvalPolicy !== 'string') {
       assertThreadApprovalPolicy(thread, selected.approvalPolicy);
@@ -1439,13 +1634,21 @@ async function runCase(
       },
       budget,
     );
-    turnId = objectId(started, 'turn');
+    initialTurnId ||= objectId(started, 'turn');
+    turnId ||= initialTurnId;
+    chargedTurns.add(initialTurnId);
     if (outcome) interrupt();
-    while (!terminal) {
+    while (
+      (!terminal && !interrupted) ||
+      (editing && result.steer?.status === 'pending')
+    ) {
       rpc.assertHealthy();
       inspect();
       await delay(20);
     }
+    rpc.assertHealthy();
+    inspect();
+    await usageWait;
     rpc.assertHealthy();
     inspect();
     result.terminal = terminal;
@@ -1456,7 +1659,9 @@ async function runCase(
       outside,
     );
     result.status =
-      outcome && result.approvals.length === 1
+      outcome &&
+      result.approvals.length === (editing ? 2 : 1) &&
+      (!editing || result.steer?.status === 'success')
         ? 'observed'
         : 'unverified: required gate not observed';
     if (
@@ -1466,7 +1671,7 @@ async function runCase(
     ) {
       compacting = true;
       result.notes?.push(
-        'Compaction shares the case deadline and usage ceiling; separately charged model invocation.',
+        'Compaction shares the case deadline and usage bounds; separately charged model invocation.',
       );
       await rpc.request('thread/compact/start', { threadId }, budget);
       while (!compacted) {
@@ -1491,6 +1696,14 @@ async function runCase(
     ) {
       (result.notes ??= []).push('granular ask: no approval request observed');
     }
+    if (result.steer?.status === 'success')
+      (result.notes ??= []).push(
+        result.steer.newTurnStarted || result.steer.responseTurn === 'new'
+          ? 'steer started a new turn'
+          : 'steer stayed in the same turn',
+      );
+    await usageWait;
+    clearTimeout(usageTimer);
     clearInterval(guard);
     clearTimeout(deadline);
     await rpc.stop();
@@ -1512,6 +1725,7 @@ export interface HarnessOptions {
   authSource?: string;
   model?: string;
   out?: string;
+  turnCap?: number;
 }
 
 export function parseOptions(args: string[]): HarnessOptions {
@@ -1526,9 +1740,14 @@ export function parseOptions(args: string[]): HarnessOptions {
       'auth-source': { type: 'string' },
       model: { type: 'string' },
       out: { type: 'string' },
+      'turn-cap': { type: 'string' },
     },
   });
+  const turnCap =
+    values['turn-cap'] === undefined ? TURN_CAP : Number(values['turn-cap']);
+  new TurnBudget(turnCap);
   return {
+    turnCap,
     run: values.run === true,
     dryRun: values['dry-run'] === true || values.run !== true,
     keep: values.keep === true,
@@ -1544,16 +1763,29 @@ export async function runHarness(
   print: (text: string) => void = (text) => process.stdout.write(text),
   io: typeof disk = disk,
 ): Promise<void> {
-  if (cases.reduce((total, item) => total + item.turnCost, 0) > TURN_CAP)
-    throw new Error('Planned turn budget exceeds cap');
+  const cap = options.turnCap ?? TURN_CAP;
+  const budget = new TurnBudget(cap);
+  const plannedTurns = cases.reduce((sum, item) => sum + item.turnCost, 0);
+  if (plannedTurns > cap) throw new Error('Planned turn budget exceeds cap');
+  const worstCaseTurns =
+    plannedTurns +
+    cases.filter((item) => item.kind === 'command' && item.decision === 'edit')
+      .length;
+  const turnBudgetNote =
+    'A steer-created turn can cause later cases to be skipped.';
   if (!options.run || options.dryRun) {
     print(
       JSON.stringify(
         {
           mode: 'dry-run',
-          cap: TURN_CAP,
+          cap,
+          worstCaseTurns,
+          turnBudgetNote,
           outputBounds: OUTPUT_BOUNDS,
-          usageCeiling: USAGE_CEILING,
+          usageBounds: {
+            perTurn: USAGE_TURN_LIMIT,
+            cumulative: USAGE_CUMULATIVE_LIMIT,
+          },
           caseDeadlineMs: CASE_DEADLINE_MS,
           cases,
         },
@@ -1595,7 +1827,6 @@ export async function runHarness(
     )
   )
     throw new Error('Artifact destination overlaps source credentials');
-  const budget = new TurnBudget();
   const usage = new UsageBudget();
   const results: CaseResult[] = [];
   let experiment: Experiment | undefined;
@@ -1661,12 +1892,12 @@ export async function runHarness(
         ];
         continue;
       }
-      if (stop || usage.consumed >= USAGE_CEILING) {
-        result.status = 'not run: prior gate or usage ceiling';
+      if (stop || usage.exceeded) {
+        result.status = 'not run: prior gate or usage bound';
         continue;
       }
-      if (budget.consumed >= TURN_CAP) {
-        result.status = 'not run: cap';
+      if (budget.consumed >= cap) {
+        result.status = 'not run: prior gate or usage bound';
         continue;
       }
       try {
@@ -1714,10 +1945,15 @@ export async function runHarness(
       schemaSha256: manifest.schemaSha256,
       platform: process.platform,
       arch: process.arch,
-      cap: TURN_CAP,
+      cap,
+      worstCaseTurns,
+      turnBudgetNote,
       turnsConsumed: budget.consumed,
       outputBounds: OUTPUT_BOUNDS,
-      usageCeiling: USAGE_CEILING,
+      usageBounds: {
+        perTurn: USAGE_TURN_LIMIT,
+        cumulative: USAGE_CUMULATIVE_LIMIT,
+      },
       observedUsage: usage.consumed,
       caseDeadlineMs: CASE_DEADLINE_MS,
       cleanup,
@@ -1750,7 +1986,7 @@ export async function runHarness(
         'file rewind/history/stats',
         'packaged binary manifests',
         'positive read and multi-path sandbox boundaries are not proved by single-action cases',
-        'usage reporting can lag billing; observed usage ceiling is not a provider-side spending limit',
+        'usage reporting can lag billing; observed usage bounds are not a provider-side spending limit; usage is observed after the turn, so one turn can overshoot',
       ],
     });
     mkdirSync(dirname(output), { recursive: true });
@@ -1765,7 +2001,7 @@ export async function runHarness(
                 (entry) => `| ${entry.id} | ${entry.status} | ${entry.turns} |`,
               )
               .join('\n') +
-            `\n\nTotal: ${budget.consumed}/${TURN_CAP}. Usage ceiling: ${USAGE_CEILING}. Cleanup: ${cleanup}.\n`,
+            `\n\nTotal: ${budget.consumed}/${cap}. Observed usage: ${usage.consumed}. Usage bounds: ${USAGE_TURN_LIMIT} per turn, ${USAGE_CUMULATIVE_LIMIT} cumulative. Cleanup: ${cleanup}.\n`,
         ),
       ),
     );

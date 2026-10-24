@@ -1,3 +1,4 @@
+import * as childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { runInNewContext } from 'node:vm';
@@ -40,7 +41,10 @@ import {
   assertDisjointHomes,
   createFatalCleanup,
   UsageBudget,
-  USAGE_CEILING,
+  USAGE_TURN_LIMIT,
+  USAGE_CUMULATIVE_LIMIT,
+  OUTPUT_BOUNDS,
+  runCase,
   type MarkerApproval,
   errorCode,
 } from './evidence-harness';
@@ -1149,15 +1153,39 @@ describe('review regression guards using real functions and isolated disk', () =
     await rpc.stop();
   });
 
-  it('counts cumulative usage monotonically across children and rejects the ceiling', () => {
+  it('per-turn bound stops subsequent observations with a distinct message', () => {
     const budget = new UsageBudget();
-    budget.observe('one', 1000);
-    budget.observe('one', 800);
-    budget.observe('two', 500);
-    expect(budget.consumed).toBe(1500);
-    expect(() => budget.observe('two', USAGE_CEILING - 1000)).toThrow(
-      'ceiling',
+    budget.observe('one', USAGE_TURN_LIMIT);
+    expect(() => budget.observe('one', USAGE_TURN_LIMIT + 1)).toThrow(
+      'Per-turn usage bound reached',
     );
+    expect(budget.exceeded).toBe(true);
+    expect(() => budget.observe('later', 1)).toThrow(
+      'Per-turn usage bound reached',
+    );
+  });
+
+  it('cumulative bound stops subsequent observations with a distinct message', () => {
+    const budget = new UsageBudget();
+    for (let i = 0; i < 10; i++) budget.observe(String(i), 10_000);
+    expect(budget.consumed).toBe(USAGE_CUMULATIVE_LIMIT);
+    expect(budget.exceeded).toBe(false);
+    expect(() => budget.observe('eleven', 1)).toThrow(
+      'Cumulative usage bound reached',
+    );
+    expect(budget.exceeded).toBe(true);
+    expect(() => budget.observe('later', 1)).toThrow(
+      'Cumulative usage bound reached',
+    );
+  });
+
+  it('attributes thread cumulative increments to separate turns without double counting', () => {
+    const budget = new UsageBudget();
+    expect(budget.observe('thread', 10_000, 'first')).toBe(10_000);
+    expect(budget.observe('thread', 9_000, 'first')).toBe(10_000);
+    expect(budget.observe('thread', 20_000, 'second')).toBe(10_000);
+    expect(budget.consumed).toBe(20_000);
+    expect(budget.exceeded).toBe(false);
   });
 
   it('redacts account/email/cookie/session/token keys and markdown text', () => {
@@ -1325,5 +1353,480 @@ describe('granular ask approval policy', () => {
       false,
     );
     expect(approvalPoliciesEqual('on-request', expected)).toBe(false);
+  });
+});
+
+describe('ask-command-edit evidence flow', () => {
+  const protocolDirectory = join(__dirname, '../src/lib/protocol');
+  const schemaText = readFileSync(
+    join(protocolDirectory, 'codex-app-server-protocol.schema.json'),
+    'utf8',
+  );
+  const approvalMethod = 'item/commandExecution/requestApproval';
+
+  async function exercise(
+    mode:
+      | 'happy'
+      | 'repeat'
+      | 'refused'
+      | 'original'
+      | 'new-turn'
+      | 'per-turn'
+      | 'cumulative'
+      | 'trailing-usage'
+      | 'terminal-usage',
+    cap = TURN_CAP,
+  ) {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-edit-spec-'));
+    const experiment: Experiment = {
+      root,
+      workspace: join(root, 'workspace'),
+      home: join(root, 'home'),
+      scratch: join(root, 'scratch'),
+    };
+    for (const directory of [
+      experiment.workspace,
+      experiment.home,
+      experiment.scratch,
+    ])
+      mkdirSync(directory);
+    const child = Object.assign(new childProcess.ChildProcess(), fakeChild());
+    const processChild = child;
+    const spawnModule =
+      jest.requireActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    const spy = jest.spyOn(spawnModule, 'spawn').mockReturnValue(processChild);
+    processChild.stdin.on('finish', () => processChild.emit('close', 0));
+    const result: Parameters<typeof runCase>[1] = {
+      id: 'ask-command-edit',
+      status: '',
+      turns: 0,
+      events: [],
+      approvals: [],
+      notes: [],
+    };
+    const budget = new TurnBudget(cap);
+    const usage = new UsageBudget();
+    if (mode === 'cumulative')
+      for (let i = 0; i < 10; i++) usage.observe(`prior-${i}`, 10_000);
+    const original = join(experiment.workspace, 'ask-command-edit.marker');
+    const replacement = join(
+      experiment.workspace,
+      'ask-command-edit.replacement.marker',
+    );
+    const command = (target: string) =>
+      markerCommand([
+        process.execPath,
+        join(root, 'ask-command-edit-marker.cjs'),
+        root,
+        target,
+      ]);
+    const sent: Record<string, unknown>[] = [];
+    const send = (frame: object) =>
+      child.stdout.write(JSON.stringify(frame) + '\n');
+    const notify = (method: string, params: object) => send({ method, params });
+    let activeTurn = 'turn-one';
+    const requestApproval = (id: string, target: string) => {
+      notify('item/started', {
+        threadId: 'thread',
+        item: { id, type: 'commandExecution', command: command(target) },
+      });
+      send({
+        id,
+        method: approvalMethod,
+        params: {
+          threadId: 'thread',
+          turnId: activeTurn,
+          itemId: id,
+          cwd: experiment.workspace,
+          command: command(target),
+        },
+      });
+    };
+    const selected = policy('ask');
+    child.stdin.on('data', (bytes: Buffer) => {
+      const frame: Record<string, unknown> = JSON.parse(bytes.toString());
+      sent.push(frame);
+      const reply = (value: object) => send({ id: frame['id'], result: value });
+      switch (frame['method']) {
+        case 'initialize':
+          reply({ codexHome: experiment.home });
+          break;
+        case 'model/list':
+          reply({ data: [{ id: 'test-model' }] });
+          break;
+        case 'config/read':
+          reply({
+            config: {
+              ...OUTPUT_BOUNDS,
+              sandbox_mode: selected.sandbox,
+              approval_policy: selected.approvalPolicy,
+              sandbox_workspace_write: { network_access: false },
+            },
+          });
+          break;
+        case 'thread/start':
+          reply({ thread: { id: 'thread' }, ...selected });
+          break;
+        case 'turn/start':
+          reply({ turn: { id: activeTurn } });
+          setImmediate(() => {
+            notify('turn/started', {
+              threadId: 'thread',
+              turn: { id: activeTurn },
+            });
+            notify('thread/tokenUsage/updated', {
+              threadId: 'thread',
+              turnId: activeTurn,
+              tokenUsage: {
+                total: {
+                  totalTokens: mode === 'per-turn' ? USAGE_TURN_LIMIT + 1 : 100,
+                },
+              },
+            });
+            requestApproval('first', original);
+          });
+          break;
+        case 'turn/steer':
+          if (mode === 'refused') {
+            send({
+              id: frame['id'],
+              error: { code: -32000, message: 'refused' },
+            });
+            break;
+          }
+          if (mode === 'new-turn') {
+            activeTurn = 'turn-two';
+            notify('turn/started', {
+              threadId: 'thread',
+              turn: { id: activeTurn },
+            });
+          }
+          reply({ turnId: activeTurn });
+          setImmediate(() =>
+            requestApproval(
+              'second',
+              mode === 'repeat' ? original : replacement,
+            ),
+          );
+          break;
+        case 'turn/interrupt':
+          reply({});
+          notify('turn/completed', {
+            threadId: 'thread',
+            turn: { id: activeTurn, status: 'interrupted' },
+          });
+          if (mode === 'trailing-usage')
+            setTimeout(() => {
+              notify('thread/tokenUsage/updated', {
+                threadId: 'thread',
+                turnId: activeTurn,
+                tokenUsage: { total: { totalTokens: 300 } },
+              });
+            }, 30);
+          break;
+        default:
+          if (
+            frame['id'] === 'second' &&
+            JSON.stringify(frame['result']).includes('accept')
+          ) {
+            setImmediate(() => {
+              if (mode === 'terminal-usage') {
+                notify('turn/completed', {
+                  threadId: 'thread',
+                  turn: { id: activeTurn, status: 'completed' },
+                });
+                setTimeout(
+                  () =>
+                    notify('thread/tokenUsage/updated', {
+                      threadId: 'thread',
+                      turnId: activeTurn,
+                      tokenUsage: { total: { totalTokens: 300 } },
+                    }),
+                  30,
+                );
+                return;
+              }
+              writeFileSync(
+                mode === 'original' ? original : replacement,
+                'marker',
+              );
+              notify('thread/tokenUsage/updated', {
+                threadId: 'thread',
+                turnId: activeTurn,
+                tokenUsage: { total: { totalTokens: 200 } },
+              });
+            });
+          }
+      }
+    });
+    let failure: unknown;
+    try {
+      await runCase(
+        {
+          id: result.id,
+          turnCost: 1,
+          observations: [1, 2],
+          kind: 'command',
+          level: 'ask',
+          decision: 'edit',
+          purpose: 'test',
+        },
+        result,
+        experiment,
+        'unused',
+        'test-model',
+        budget,
+        usage,
+        {
+          pinnedVersion: '0.155.1',
+          binaryPath: 'unused',
+          binarySha256: '',
+          schemaSha256: '',
+          platform: '',
+          arch: '',
+          methods: {
+            requests: ['turn/steer'],
+            serverRequests: [approvalMethod],
+            clientNotifications: [],
+            serverNotifications: [],
+          },
+        },
+        schemaText,
+        false,
+        new Set(),
+        root,
+      );
+    } catch (error) {
+      failure = error;
+    } finally {
+      spy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+    return {
+      result,
+      sent,
+      failure,
+      budget,
+      usage,
+      editedCommand: command(replacement),
+    };
+  }
+
+  it('declines, steers with schema params, accepts replacement and observes only its marker', async () => {
+    const { result, sent, failure, editedCommand } = await exercise('happy');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('observed');
+    expect(result.approvals.map((entry) => entry.response)).toEqual([
+      'decline',
+      'accept',
+    ]);
+    expect(
+      sent.find((frame) => frame['method'] === 'turn/steer'),
+    ).toMatchObject({
+      params: {
+        threadId: 'thread',
+        expectedTurnId: 'turn-one',
+        input: [
+          {
+            type: 'text',
+            text: expect.stringContaining(editedCommand),
+            text_elements: [],
+          },
+        ],
+      },
+    });
+    expect(sent.findIndex((frame) => frame['id'] === 'first')).toBeLessThan(
+      sent.findIndex((frame) => frame['method'] === 'turn/steer'),
+    );
+    expect(result.markers).toEqual({
+      original: false,
+      replacement: true,
+      outside: false,
+    });
+    expect(result.steer).toMatchObject({
+      status: 'success',
+      responseTurn: 'same',
+      newTurnStarted: false,
+      usageAfter: [{ turnId: 'turn-one', totalTokens: 200 }],
+    });
+    expect(result.notes).toContain('steer stayed in the same turn');
+  });
+
+  it('rejects a second approval repeating the original command', async () => {
+    const { result, failure } = await exercise('repeat');
+    expect(failure).toBeDefined();
+    expect(result.notes).toContain('Unexpected command');
+    expect(result.approvals.map((entry) => entry.response)).toEqual([
+      'decline',
+    ]);
+  });
+
+  it('fails cleanly with the RPC code when turn/steer is refused', async () => {
+    const { result, failure, sent } = await exercise('refused');
+    expect(failure).toBeDefined();
+    expect(result.notes).toContain('turn/steer refused: RPC error -32000');
+    expect(result.steer).toMatchObject({
+      status: 'error',
+      rpcErrorCode: -32000,
+    });
+    expect(
+      sent.filter((frame) => frame['method'] === 'turn/start'),
+    ).toHaveLength(1);
+  });
+
+  it('inspect rejects the original marker even after replacement approval', async () => {
+    const { result, failure } = await exercise('original');
+    expect(failure).toBeDefined();
+    expect(result.notes).toContain('Unexpected marker effect');
+  });
+
+  it('charges a new steer turn once and records its separate usage', async () => {
+    const { result, budget, failure } = await exercise('new-turn');
+    expect(failure).toBeUndefined();
+    expect(result.turns).toBe(2);
+    expect(budget.consumed).toBe(2);
+    expect(result.usageByTurn).toEqual({ 'turn-one': 100, 'turn-two': 100 });
+    expect(result.steer).toMatchObject({
+      responseTurn: 'new',
+      newTurnStarted: true,
+    });
+    expect(result.notes).toContain('steer started a new turn');
+  });
+
+  it.each([
+    ['per-turn', 'Per-turn usage bound reached'],
+    ['cumulative', 'Cumulative usage bound reached'],
+  ] as const)(
+    '%s usage bound fails the active case and latches the run stop gate',
+    async (mode, message) => {
+      const { result, failure, usage, sent } = await exercise(mode);
+      expect(failure).toBeDefined();
+      expect(result.notes).toContain(message);
+      expect(usage.exceeded).toBe(true);
+      const breached = mode === 'per-turn' ? USAGE_TURN_LIMIT + 1 : 100;
+      expect(result.usageByTurn).toEqual({ 'turn-one': breached });
+      expect(usage.consumed).toBe(
+        mode === 'cumulative' ? 100_000 + breached : breached,
+      );
+      expect(
+        sent.filter((frame) => frame['method'] === 'turn/steer'),
+      ).toHaveLength(0);
+    },
+  );
+
+  it('does not send steer when the caller cap is one', async () => {
+    const { result, sent, failure, budget } = await exercise('happy', 1);
+    expect(failure).toBeDefined();
+    expect(budget.consumed).toBe(1);
+    expect(sent.some((frame) => frame['method'] === 'turn/steer')).toBe(false);
+    expect(result.notes).toContain('turn/steer not sent: turn cap reached');
+    expect(result.approvals.map((entry) => entry.response)).toEqual([
+      'decline',
+    ]);
+  });
+
+  it.each(['0', '9', '1.5', 'abc'])('rejects --turn-cap %s', (value) => {
+    expect(() => parseOptions(['--turn-cap', value])).toThrow(
+      'Turn cap must be an integer',
+    );
+  });
+
+  it('accepts --turn-cap 7', () => {
+    expect(parseOptions(['--turn-cap', '7']).turnCap).toBe(7);
+  });
+
+  it('rejects planned turns over the caller cap before spawning a child', async () => {
+    const spawnModule =
+      jest.requireActual<typeof import('node:child_process')>(
+        'node:child_process',
+      );
+    const spy = jest.spyOn(spawnModule, 'spawn');
+    try {
+      await expect(
+        runHarness(parseOptions(['--run', '--turn-cap', '1']), [
+          {
+            id: 'two',
+            turnCost: 2,
+            kind: 'command',
+            level: 'ask',
+            decision: 'accept',
+            observations: [],
+            purpose: 'test',
+          },
+        ]),
+      ).rejects.toThrow('Planned turn budget exceeds cap');
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('reports worst-case turns without reserving a steer slot in preflight', async () => {
+    const print = jest.fn();
+    await runHarness(
+      parseOptions(['--dry-run', '--turn-cap', '1']),
+      [
+        {
+          id: 'edit',
+          turnCost: 1,
+          kind: 'command',
+          level: 'ask',
+          decision: 'edit',
+          observations: [],
+          purpose: 'test',
+        },
+      ],
+      print,
+    );
+    expect(JSON.parse(print.mock.calls[0][0])).toMatchObject({
+      cap: 1,
+      worstCaseTurns: 2,
+      turnBudgetNote:
+        'A steer-created turn can cause later cases to be skipped.',
+    });
+  });
+
+  it.each(['trailing-usage', 'terminal-usage'] as const)(
+    'captures trailing usage after %s',
+    async (mode) => {
+      const { result, failure, usage } = await exercise(mode);
+      expect(failure).toBeUndefined();
+      expect(result.notes).toContain('usage after terminal: observed');
+      expect(result.usageByTurn).toEqual({ 'turn-one': 300 });
+      expect(usage.consumed).toBe(300);
+    },
+  );
+
+  it('records when terminal usage does not arrive within 500 ms', async () => {
+    const { result, failure } = await exercise('happy');
+    expect(failure).toBeUndefined();
+    expect(result.notes).toContain(
+      'usage after terminal: not observed within 500 ms',
+    );
+  });
+
+  it('keeps observed steer turns in the count even when they exceed the cap', () => {
+    const budget = new TurnBudget();
+    for (let i = 0; i < TURN_CAP; i++) expect(budget.claim()).toBe(true);
+    expect(budget.observeTurn()).toBe(false);
+    expect(budget.consumed).toBe(TURN_CAP + 1);
+    expect(budget.claim()).toBe(false);
+  });
+
+  it('declares ask-command-edit with one planned turn', () => {
+    const cases: unknown = JSON.parse(
+      readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
+    );
+    expect(cases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'ask-command-edit',
+          turnCost: 1,
+          decision: 'edit',
+        }),
+      ]),
+    );
   });
 });
