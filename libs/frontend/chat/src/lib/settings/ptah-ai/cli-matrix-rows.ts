@@ -16,9 +16,12 @@ import {
 
 /**
  * Orchestration fields a system CLI's Model and Effort cells read and write (`agent:setConfig`).
- * `claudeModel` / `claudeReasoningEffort` are forward keys for the system Claude lane: they are
- * distinct from the Claude account selection and from Ptah CLI instance tiers. No row uses them
- * until `SYSTEM_CLI_TYPES` includes `claude` and detection reports it.
+ * `claudeModel` / `claudeReasoningEffort` belong to the system Claude lane row, which is built once
+ * detection reports `claude`. They are distinct from Ptah CLI instance tiers and from the Claude
+ * account: the lane's account is the stored `lane` selection, chosen in Providers → Accounts
+ * ("Next Claude lane"), not a matrix cell. Nothing in the lane spawn reads that selection yet
+ * (`agent-process-manager.service.ts` `runSdk` passes no `accountAdmission`), so the matrix carries
+ * no account field until that wiring lands.
  */
 export type CliModelSettingKey =
   | 'claudeModel'
