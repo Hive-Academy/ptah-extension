@@ -81,7 +81,6 @@ export type {
   ProvidersCliTest,
   ProvidersCustomEntry,
   ProvidersDetectedClis,
-  ProvidersClaudeOrchestrationField,
 } from './providers-settings.types';
 // Account state is part of the Providers settings surface; this file is its public entry
 // point (re-exported by the package barrel), as for the types above.

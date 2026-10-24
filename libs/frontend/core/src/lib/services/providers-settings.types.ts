@@ -68,18 +68,12 @@ export type ProvidersOrchestrationField =
   | 'grokModel'
   | 'opencodeModel'
   | 'piModel'
+  | 'claudeModel'
   | 'codexReasoningEffort'
   | 'copilotReasoningEffort'
   | 'grokReasoningEffort'
   | 'antigravityReasoningEffort'
-  | 'piReasoningEffort';
-/**
- * System Claude lane model and effort (TASK_2026_712). Read into the Providers state only:
- * `ProvidersCommitService` has no write/read-back operation for them yet, so they stay out
- * of `ProvidersSettingsPatch` rather than being accepted and silently dropped.
- */
-export type ProvidersClaudeOrchestrationField =
-  | 'claudeModel'
+  | 'piReasoningEffort'
   | 'claudeReasoningEffort';
 /** Orchestration policy the CLI matrix writes. Array fields are read back order-sensitively. */
 export type ProvidersOrchestrationPolicyField =
@@ -117,7 +111,6 @@ export interface ProvidersSettingsPatch {
 export type ProvidersOrchestration = Pick<
   RpcMethodResult<'agent:getConfig'>,
   | ProvidersOrchestrationField
-  | ProvidersClaudeOrchestrationField
   | ProvidersOrchestrationPolicyField
   | 'subagentPromptCacheTtlEnvOverride'
   | 'detectedClis'

@@ -776,6 +776,80 @@ describe('ProvidersCommitService', () => {
           undefined,
         );
       });
+      it('writes the Claude lane model and effort one field per call and confirms each by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({
+            claudeModel: 'claude-opus-4-5',
+            claudeReasoningEffort: 'high',
+          }),
+        });
+        await service.run(
+          service.operations({
+            orchestration: {
+              claudeModel: 'claude-opus-4-5',
+              claudeReasoningEffort: 'high',
+            },
+          }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: [
+            'agentOrchestration.claudeModel',
+            'agentOrchestration.claudeReasoningEffort',
+          ],
+        });
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeModel: 'claude-opus-4-5' },
+          undefined,
+        );
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeReasoningEffort: 'high' },
+          undefined,
+        );
+      });
+      it('writes an empty Claude lane model (SDK default) and confirms it by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({ claudeModel: '' }),
+        });
+        await service.run(
+          service.operations({ orchestration: { claudeModel: '' } }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: ['agentOrchestration.claudeModel'],
+        });
+      });
+      it.each([
+        ['a different value', 'low'],
+        ['no value (a host without the field)', undefined],
+      ])(
+        'a Claude lane effort read back as %s is not saved',
+        async (_label, stored) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ claudeReasoningEffort: stored }),
+          });
+          await service.run(
+            service.operations({
+              orchestration: { claudeReasoningEffort: 'high' },
+            }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'failed',
+            unsaved: ['agentOrchestration.claudeReasoningEffort'],
+          });
+        },
+      );
       it.each([
         ['a different value', '5m'],
         ['no value (a host without the field)', undefined],
