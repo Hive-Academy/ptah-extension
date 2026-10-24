@@ -2811,7 +2811,7 @@ describe('MCP elicitation evidence flow', () => {
 });
 
 describe('round 7a catalog', () => {
-  it('budgets nine paid turns with schema-only probes first', () => {
+  it('budgets ten paid turns with schema-only probes first', () => {
     const cases = JSON.parse(
       readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
     ) as { id: string; turnCost: number }[];
@@ -2827,7 +2827,7 @@ describe('round 7a catalog', () => {
       cases
         .filter((item) => ids.includes(item.id))
         .reduce((sum, item) => sum + item.turnCost, 0),
-    ).toBe(9);
+    ).toBe(10);
     expect(
       cases.find((item) => item.id === 'subagent-and-rewind')?.turnCost,
     ).toBe(0);

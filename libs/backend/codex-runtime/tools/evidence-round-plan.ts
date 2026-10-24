@@ -1,13 +1,17 @@
 import type { EvidenceCase } from './evidence-harness';
 
-export const APPROVED_TURNS = 17;
+// decisions.md: total approval 35; 18 earlier turns + 1 failed first 7a = 19 used.
+// --7a-turns-used accounts only for the subsequent rerun, never that failed turn.
+const TOTAL_APPROVED_TURNS = 35;
+const PREVIOUSLY_USED_TURNS = 18 + 1;
+export const APPROVED_TURNS = TOTAL_APPROVED_TURNS - PREVIOUSLY_USED_TURNS;
 export const ESTIMATE_LIMIT = 85_000;
 export const CASE_TOKEN_ESTIMATES: Readonly<Record<string, number>> = {
   'schema-handshake': 0,
   'modified-input-schema': 0,
   'subagent-and-rewind': 0,
   'different-home-isolation': 12_000,
-  'always-allow-scope': 36_000,
+  'always-allow-scope': 3 * 12_000,
   'same-home-isolation': 24_000,
   'resume-history': 24_000,
   'profile-inputs': 15_000,
@@ -23,7 +27,9 @@ export function roundPlan(
     priorTurnsUsed < 0 ||
     priorTurnsUsed > APPROVED_TURNS
   )
-    throw new Error('Prior turns used must be an integer from 0 to 17');
+    throw new Error(
+      `Prior turns used must be an integer from 0 to ${APPROVED_TURNS}`,
+    );
   const remaining = APPROVED_TURNS - priorTurnsUsed;
   const plannedTurns = cases.reduce((sum, item) => sum + item.turnCost, 0);
   const cap = plannedTurns + 1;

@@ -26,6 +26,10 @@ import {
   configSummary,
   commandMatches,
   markerCommand,
+  commandPrompt,
+  MARKER_INSTRUCTIONS,
+  MARKER_MESSAGE_INSTRUCTIONS,
+  sanitize,
   markerExists,
   type EvidenceCase,
   type CaseResult,
@@ -34,7 +38,10 @@ import {
   type TurnBudget,
   type UsageBudget,
 } from './evidence-harness';
-import { createPathRedactor } from './evidence-failure-notes';
+import {
+  createPathRedactor,
+  recordCommandShape,
+} from './evidence-failure-notes';
 
 const record = (value: unknown): Record<string, unknown> =>
   z.record(z.string(), z.unknown()).parse(value);
@@ -216,12 +223,32 @@ export async function runRoundCase(c: Context): Promise<void> {
       ]),
     };
     sessions.push(session);
+    const noteRejection = (
+      params: Record<string, unknown>,
+      fields: Record<string, unknown>,
+      expectedCommand = session.command,
+    ): void => {
+      recordCommandShape(result, params, fields, {
+        experiment: local,
+        expectedCommand,
+        markerScript: script,
+        authDirectory: c.authDirectory,
+        sanitize,
+      });
+    };
     rpc.onRequest = async (frame, summary) => {
       const params = record(frame.params);
       if (
         params['threadId'] !== session.thread ||
         frame.method !== 'item/commandExecution/requestApproval'
       ) {
+        noteRejection(
+          params,
+          params,
+          scope && session.approvals === 1
+            ? session.otherCommand
+            : session.command,
+        );
         rpc.decline(frame.id);
         throw new Error('approval/isolation gate failed');
       }
@@ -232,8 +259,16 @@ export async function runRoundCase(c: Context): Promise<void> {
       if (
         (!scope && !(same || different)) ||
         !commandMatches(params['command'], expected) ||
-        session.approvals >= (scope ? 2 : 1)
+        session.approvals >= (scope ? 2 : 1) ||
+        (scope && session.approvals === 1 && session.commands !== 2)
       ) {
+        noteRejection(
+          params,
+          params,
+          scope && session.approvals === 1
+            ? session.otherCommand
+            : session.command,
+        );
         rpc.decline(frame.id);
         throw new Error('Approval rejected by safety gate');
       }
@@ -243,6 +278,13 @@ export async function runRoundCase(c: Context): Promise<void> {
           scope && session.approvals === 1 ? other : target,
         )
       ) {
+        noteRejection(
+          params,
+          params,
+          scope && session.approvals === 1
+            ? session.otherCommand
+            : session.command,
+        );
         rpc.decline(frame.id);
         throw new Error('Side effect before approval');
       }
@@ -250,7 +292,9 @@ export async function runRoundCase(c: Context): Promise<void> {
       const decision =
         (scope || (same && label === 'first')) && session.approvals === 1
           ? 'acceptForSession'
-          : 'accept';
+          : scope
+            ? 'decline'
+            : 'accept';
       summary.response = decision;
       summary.absentBefore = true;
       rpc.respond(frame.id, { decision });
@@ -261,8 +305,10 @@ export async function runRoundCase(c: Context): Promise<void> {
         params['threadId'] != null &&
         session.thread &&
         params['threadId'] !== session.thread
-      )
+      ) {
+        noteRejection(params, record(params['item'] ?? {}));
         throw new Error('Notification thread mismatch');
+      }
       if (
         method === 'mcpServer/startupStatus/updated' &&
         params['name'] === 'profile_probe' &&
@@ -307,9 +353,21 @@ export async function runRoundCase(c: Context): Promise<void> {
           if (
             !(scope || same || different) ||
             !commandMatches(observed['command'], expected)
-          )
+          ) {
+            noteRejection(params, observed, expected);
             throw new Error('Unexpected command');
+          }
           if (method === 'item/completed') {
+            if (scope && session.commands === 2) {
+              if (
+                session.approvals !== 2 ||
+                observed['status'] !== 'declined' ||
+                markerExists(experiment.root, other)
+              )
+                throw new Error('approval/isolation gate failed');
+              session.commands++;
+              return;
+            }
             if (
               observed['status'] !== 'completed' ||
               observed['exitCode'] !== 0
@@ -382,7 +440,9 @@ export async function runRoundCase(c: Context): Promise<void> {
         config: { model_reasoning_effort: profile ? 'medium' : 'low' },
         developerInstructions: profile
           ? `Reply exactly ${PROFILE_MARKER}. Do not use tools.`
-          : 'Only execute the exact commands requested. Never inspect credentials, config, environment, home or network. No subagents or retries. Otherwise reply OK without tools.',
+          : scope || same
+            ? MARKER_MESSAGE_INSTRUCTIONS
+            : MARKER_INSTRUCTIONS,
       },
     );
     assertSafeSandbox(response);
@@ -434,8 +494,6 @@ export async function runRoundCase(c: Context): Promise<void> {
     if (session.terminal !== 'completed')
       throw new Error('Round turn did not complete');
   };
-  const commandPrompt = (command: string): string =>
-    `Request approval then run exactly the following command once without changes or wrappers. No other tools or retries.\n${command}`;
   try {
     if (different) {
       (experiment.additionalHomes ??= []).push(extraHome);
@@ -473,13 +531,21 @@ export async function runRoundCase(c: Context): Promise<void> {
       if (first.approvals !== 1 || first.commands !== 1)
         throw new Error('approval/isolation gate failed');
       rmSync(join(experiment.workspace, `${item.id}-first.marker`));
-      await turn(
-        first,
-        `${commandPrompt(first.command)}\nThen request approval and run this different command once:\n${first.otherCommand}`,
-      );
-      if (Number(first.approvals) !== 2 || Number(first.commands) !== 3)
+      await turn(first, commandPrompt(first.command));
+      if (Number(first.approvals) !== 1 || Number(first.commands) !== 2)
         throw new Error('approval/isolation gate failed');
       evidence['exactCommandReuseWithoutApproval'] = true;
+      await turn(first, commandPrompt(first.otherCommand));
+      if (Number(first.approvals) !== 2 || Number(first.commands) !== 3)
+        throw new Error('approval/isolation gate failed');
+      if (
+        markerExists(
+          experiment.root,
+          join(experiment.workspace, `${item.id}-first-other.marker`),
+        )
+      )
+        throw new Error('approval/isolation gate failed');
+      evidence['differentCommandDeclined'] = true;
     } else if (resume) {
       await turn(first, 'Reply OK without tools.');
       await first.rpc.stop();
@@ -506,6 +572,26 @@ export async function runRoundCase(c: Context): Promise<void> {
       evidence['developerMarker'] = true;
       evidence['mcpStartupReady'] = true;
     } else throw new Error('Unknown round case');
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /gate|mismatch|Unexpected/.test(error.message)
+    ) {
+      // Gates without a command payload still leave an explicit missing shape.
+      recordCommandShape(
+        result,
+        {},
+        {},
+        {
+          experiment,
+          expectedCommand: sessions[0]?.command ?? '',
+          markerScript: '',
+          authDirectory: c.authDirectory,
+          sanitize,
+        },
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(deadline);
     const stopped = await Promise.allSettled(

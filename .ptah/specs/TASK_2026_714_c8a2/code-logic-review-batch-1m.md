@@ -99,3 +99,40 @@ npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/
 npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7b --7a-turns-used <turnsConsumed from the 7a artifact>
 ```
 Expected headers: `runner 7a: 6 cases, planned turns 5, cap 6, estimated tokens 72000, budget left 17` and, for 7b with 6, `runner 7b: 6 cases, planned turns 4, cap 5, estimated tokens 64000, budget left 11, prior turns used 6`.
+
+## Final corrections review (fix2 + fix3)
+
+Verdict: APPROVED to run 7a. Score 8/10. No must-fix finding. Confidence is HIGH on budget and gate safety, and MEDIUM on whether the model complies with the 3-message flow.
+
+Checks: scoped jest on `tools` passes 235/235. The "worker failed to exit" warning appears only in the three-suite parallel run, as before; the suites in isolation do not show it, and it is not a spend risk. Dry runs were executed; no `--run`, no binary. `git status` shows only the seven expected `tools/` files modified.
+
+### Parameters checked
+- 7a: `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7a` prints `runner 7a: 6 cases, planned turns 6, cap 7, estimated tokens 72000, budget left 16, prior turns used 0` and JSON `cap 7`, `worstCaseTurns 6`. The real run uses the same arguments with `--run` in place of `--dry-run`, and no `--turn-cap` (the runner sets it and rejects one).
+- 7b: same command with `--round 7b --7a-turns-used <7a turnsConsumed>`. With 7 it prints cap 5, estimated 64000, budget left 9. With 12 it errors "Cap exceeds remaining approved turns"; with 17 it errors "Prior turns exceed approval"; without the flag it errors.
+
+### 1. Shared round texts and one tool action per message
+`MARKER_INSTRUCTIONS`, `MARKER_MESSAGE_INSTRUCTIONS`, `commandPrompt` and `markerCommand` are exported from `evidence-harness.ts` and imported by the round file, not copied. The main harness now calls the same exports (`evidence-harness.ts` diff at the developer-instruction and prompt sites). Always-allow and same-home use the "per user message" variant, the others the single-action variant. Every user message in the round cases requests exactly one command: scope has three messages (command, same command, other command), same-home has one per child, different-home one, and profile and resume use no-tool prompts.
+
+### 2. Redacted shape
+Shape recording reuses the main harness's `recordCommandShape`. It uses only `command`/`commands` string fields, strips exact experiment paths, node path, home, tmp, cwd and auth directory in all slash and quote variants, then generic drive and UNC paths, `/home`, `/Users` and `~/`, then passes the text through `sanitize` (bearer/token patterns) and truncates to 400 characters. Parameter notes list key names only. It is recorded once (the first shape wins), and the catch-all in the round file adds an empty-shape marker only when none exists. Residual: a model-chosen command containing non-path personal text would pass through; the command is a fixed marker command, so this is negligible. Unix paths outside `/home`, `/Users` and tmp are not generically masked; irrelevant on the win32 target.
+
+### 3. Three-message always-allow flow
+Verified in `evidence-cases-round.ts` (approval handler about 238-283, item handler about 340-380, flow about 528-545):
+- Message 1: the exact command prompts once and is answered `acceptForSession`.
+- The marker is removed. Message 2: the same command must complete with no approval (`approvals === 1`, `commands === 2`). If it prompts anyway, the handler expects the other command, sees a mismatch, declines and throws, so it cannot be accepted.
+- Message 3: the different command must prompt exactly when `approvals === 1 && commands === 2`. It is answered `decline` (the decision is `acceptForSession` only when `approvals` is 1 after increment, otherwise `decline` for scope). Approvals are capped at 2, so a double accept is impossible. The completed item must have status `declined`, and the other marker must not exist.
+- If the other command arrives first, or the model retries after the decline, the gate declines and fails the case. This costs at most the remaining tokens of that turn, bounded by the per-turn and cumulative guards and the cap.
+- Proves native session grant semantics only; the Ptah rule-store scope is still unproved (unchanged limit).
+
+### 4. Estimate and bounds
+`always-allow-scope` is 3 x 12k, same-home 24k, different-home 12k, total 72k, equal to six plain turns at the earlier ~12k measurement. Later turns in one thread carry more context, so scope is more likely 41k than 36k, giving about 77-80k for the run. That is still below the 85k plan limit and leaves roughly 20k below the 100k cumulative guard, which `UsageBudget` enforces per run. Per-turn 30k is not threatened. Cap 7 equals six planned turns plus one reserve and is enforced at every `turn/start`. Deadlines: scope 225 s, same-home 150 s, different-home 75 s.
+
+### 5. Ledger
+`APPROVED_TURNS = 35 - (18 + 1) = 16`; `MAX_APPROVED_TURN_CAP = 16`. 7a cap 7 plus 7b cap 5 is at most 12, which is at most 16, and each run's cap is a hard in-process limit regardless of the flag value. A mistyped `--7a-turns-used` can only cause a refusal (too high) or a smaller printed remaining (too low), never a larger spend. The flag is not machine-checked against the 7a artifact; the report requires reading `turnsConsumed` from it.
+
+### 6. Nothing else changed
+The diff touches only `tools/` files: round cases and their spec, the case catalog (`turnCost` 2 to 3 for scope), the harness exports and cap constant, and the round plan. Approval gates, cleanup, usage accounting, deadlines and stop rules are as accepted in the previous round.
+
+### Minor notes
+- The scope purpose text in `evidence-cases.json` still says "repeat without approval, different command prompts"; it should say "declined". Cosmetic.
+- If 7a stops early, the 7b flag must use the artifact's actual `turnsConsumed`, not 6 or 7.

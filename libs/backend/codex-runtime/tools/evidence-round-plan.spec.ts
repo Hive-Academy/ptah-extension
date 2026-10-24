@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { roundPlan, parseRoundArgs, ROUND_ORDER } from './evidence-round-plan';
 import type { EvidenceCase } from './evidence-harness';
 const entry = (id: string, turnCost: number): EvidenceCase => ({
@@ -14,12 +16,12 @@ describe('shared approved round budget', () => {
     ).toEqual({
       plannedTurns: 2,
       cap: 3,
-      remaining: 11,
+      remaining: 10,
       priorTurnsUsed: 6,
       estimatedTokens: 40000,
     });
   });
-  it.each([-1, 18, 0.5, NaN])('rejects invalid prior count %s', (count) => {
+  it.each([-1, 17, 0.5, NaN])('rejects invalid prior count %s', (count) => {
     expect(() => roundPlan([], count)).toThrow('Prior turns');
   });
   it('rejects a cap beyond the shared remaining budget', () => {
@@ -39,6 +41,15 @@ describe('shared approved round budget', () => {
         0,
       ),
     ).toThrow('Estimated tokens exceed');
+  });
+  it('refuses combined caps above the sixteen remaining turns', () => {
+    expect(roundPlan([entry('profile-inputs', 15)], 0).cap).toBe(16);
+    expect(() => roundPlan([entry('profile-inputs', 16)], 0)).toThrow(
+      'Cap exceeds',
+    );
+    expect(() => roundPlan([entry('profile-inputs', 4)], 12)).toThrow(
+      'Cap exceeds',
+    );
   });
   it('rejects unknown token estimates', () => {
     expect(() => roundPlan([entry('unknown', 1)], 0)).toThrow(
@@ -69,28 +80,23 @@ describe('round selection and recorded usage', () => {
     expect(() => parseRoundArgs(args)).toThrow();
   });
   it.each([
-    ['7a', 5, 72000],
+    ['7a', 6, 72000],
     ['7b', 4, 64000],
   ] as const)(
     'keeps proposed %s within bounds with one reserve',
     (round, turns, tokens) => {
-      const cases = ROUND_ORDER[round].map((id) =>
-        entry(
-          id,
-          [
-            'same-home-isolation',
-            'always-allow-scope',
-            'resume-history',
-          ].includes(id)
-            ? 2
-            : id.includes('schema') || id === 'subagent-and-rewind'
-              ? 0
-              : 1,
-        ),
-      );
-      expect(roundPlan(cases, round === '7a' ? 0 : 6)).toMatchObject({
+      const catalog = JSON.parse(
+        readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
+      ) as EvidenceCase[];
+      const cases = ROUND_ORDER[round].map((id) => {
+        const item = catalog.find((candidate) => candidate.id === id);
+        if (!item) throw new Error(`Missing case ${id}`);
+        return item;
+      });
+      expect(roundPlan(cases, round === '7a' ? 0 : 7)).toMatchObject({
         plannedTurns: turns,
         cap: turns + 1,
+        remaining: round === '7a' ? 16 : 9,
         estimatedTokens: tokens,
       });
       expect(tokens + 12000).toBeLessThanOrEqual(85000);

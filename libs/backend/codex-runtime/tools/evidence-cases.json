@@ -147,7 +147,7 @@
   },
   {
     "id": "always-allow-scope",
-    "turnCost": 2,
+    "turnCost": 3,
     "observations": [2],
     "kind": "round",
     "purpose": "Exact acceptForSession, repeat without approval, different command prompts"

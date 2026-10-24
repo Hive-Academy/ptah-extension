@@ -17,6 +17,9 @@ import {
   policy,
   OUTPUT_BOUNDS,
   markerCommand,
+  commandPrompt,
+  MARKER_INSTRUCTIONS,
+  MARKER_MESSAGE_INSTRUCTIONS,
   type CaseResult,
   type Experiment,
   type Manifest,
@@ -43,6 +46,8 @@ const manifest: Manifest = {
   },
 };
 type Fault =
+  | 'decline-ignored'
+  | 'unexpected-command'
   | 'none'
   | 'home'
   | 'cross-event'
@@ -117,7 +122,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
         send({ method, params });
       let turns = 0;
       let requestId = 100;
-      const approvals = new Map<number, () => void>();
+      const approvals = new Map<number, (decision: string) => void>();
       const commandLabel = caseId === 'same-home-isolation' ? 'first' : label;
       const target = (other: boolean) =>
         join(
@@ -133,7 +138,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
         ]);
       const approve = async (other: boolean, turnId: string) => {
         const id = ++requestId;
-        await new Promise<void>((resolve) => {
+        return new Promise<string>((resolve) => {
           approvals.set(id, resolve);
           send({
             id,
@@ -158,7 +163,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
         };
         sent.push(q);
         if (!q.method) {
-          approvals.get(q.id)?.();
+          approvals.get(q.id)?.(q.result?.decision ?? 'decline');
           return;
         }
         let response: unknown = {};
@@ -211,6 +216,33 @@ async function exercise(caseId: string, fault: Fault = 'none') {
           response = { turn: { id: turnId } };
           setImmediate(() => {
             void (async () => {
+              if (
+                [
+                  'unexpected-command',
+                  'cross-event',
+                  'cross-approval',
+                  'wrong-command',
+                ].includes(fault)
+              ) {
+                for (let message = 0; message < 5; message++)
+                  notify('item/completed', {
+                    threadId: thread,
+                    item: {
+                      type: 'agentMessage',
+                      text: `Marker ${root} Bearer private-token ${'bounded '.repeat(90)}`,
+                    },
+                  });
+              }
+              if (fault === 'unexpected-command') {
+                notify('item/started', {
+                  threadId: thread,
+                  item: {
+                    type: 'commandExecution',
+                    command: `${command(false)}; echo C:/Users/private/secret Bearer private-token`,
+                  },
+                });
+                return;
+              }
               if (fault === 'cross-event') {
                 notify('item/started', {
                   threadId: 'foreign',
@@ -224,21 +256,29 @@ async function exercise(caseId: string, fault: Fault = 'none') {
                 caseId.includes('isolation') ||
                 caseId === 'always-allow-scope'
               ) {
-                for (const other of turns === 2 ? [false, true] : [false]) {
+                for (const other of [
+                  caseId === 'always-allow-scope' && turns === 3,
+                ]) {
+                  let decision = 'acceptForSession';
                   if (
                     (turns === 1 || other || fault === 'repeat-approval') &&
                     !(fault === 'grant-leak' && index === 1)
-                  )
-                    await approve(other, turnId);
-                  writeFileSync(target(other), 'marker');
+                  ) {
+                    const response = await approve(other, turnId);
+                    // Only the scope probe's third action models a legitimate decline.
+                    // Invalid approval fixtures retain their prior notification stream.
+                    if (other) decision = response;
+                  }
+                  if (decision !== 'decline' || fault === 'decline-ignored')
+                    writeFileSync(target(other), 'marker');
                   notify('item/completed', {
                     threadId: thread,
                     turnId,
                     item: {
                       type: 'commandExecution',
                       command: command(other),
-                      status: 'completed',
-                      exitCode: 0,
+                      status: decision === 'decline' ? 'declined' : 'completed',
+                      exitCode: decision === 'decline' ? null : 0,
                     },
                   });
                 }
@@ -285,7 +325,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
       {
         id: caseId,
         kind: 'round',
-        turnCost: 2,
+        turnCost: caseId === 'always-allow-scope' ? 3 : 2,
         observations: [6],
         purpose: 'fake',
       },
@@ -311,6 +351,7 @@ async function exercise(caseId: string, fault: Fault = 'none') {
     result,
     error,
     sent,
+    experiment,
     childCount,
     turns: budget.consumed,
     usage: usage.consumed,
@@ -324,7 +365,7 @@ describe('round 7a harness fake children (no binary)', () => {
     ['same-home-isolation', 2, 2],
     ['profile-inputs', 1, 1],
     ['resume-history', 2, 2],
-    ['always-allow-scope', 2, 1],
+    ['always-allow-scope', 3, 1],
   ])('%s observes gates and cleanup', async (id, turns, count) => {
     const run = await exercise(String(id));
     expect(run.error).toBeUndefined();
@@ -338,7 +379,7 @@ describe('round 7a harness fake children (no binary)', () => {
         run.sent
           .filter((frame) => 'result' in frame)
           .map((frame) => frame['result']),
-      ).toEqual([{ decision: 'acceptForSession' }, { decision: 'accept' }]);
+      ).toEqual([{ decision: 'acceptForSession' }, { decision: 'decline' }]);
     if (id === 'different-home-isolation')
       expect(run.result.round?.['secondHomeDeleted']).toBe(true);
     if (id === 'same-home-isolation') {
@@ -383,6 +424,7 @@ describe('round 7a harness fake children (no binary)', () => {
     ['resume-history', 'history', 'Resume history missing'],
     ['resume-history', 'rollback', 'Rollback history mismatch'],
     ['always-allow-scope', 'repeat-approval', 'approval/isolation gate failed'],
+    ['always-allow-scope', 'decline-ignored', 'approval/isolation gate failed'],
     ['always-allow-scope', 'wrong-command', 'approval/isolation gate failed'],
     ['profile-inputs', 'usage', 'Per-turn usage bound reached'],
   ])('%s stops at %s and cleans', async (id, fault, message) => {
@@ -390,6 +432,116 @@ describe('round 7a harness fake children (no binary)', () => {
     expect(run.error).toEqual(new Error(message));
     expect(run.cleaned).toBe(true);
   });
+  it.each([
+    'different-home-isolation',
+    'same-home-isolation',
+    'always-allow-scope',
+  ])('%s uses the shared accept command and proven text', async (caseId) => {
+    const run = await exercise(caseId);
+    const script = join(run.experiment.root, `${caseId}-first.cjs`);
+    const marker = join(run.experiment.workspace, `${caseId}-first.marker`);
+    const command = markerCommand([
+      process.execPath,
+      script,
+      run.experiment.root,
+      marker,
+    ]);
+    const starts = run.sent.filter(
+      (frame) => frame['method'] === 'thread/start',
+    );
+    for (const start of starts)
+      expect(start['params']).toMatchObject({
+        developerInstructions:
+          caseId === 'different-home-isolation'
+            ? MARKER_INSTRUCTIONS
+            : MARKER_MESSAGE_INSTRUCTIONS,
+      });
+    const turns = run.sent.filter((frame) => frame['method'] === 'turn/start');
+    expect(turns[0]['params']).toMatchObject({
+      input: [
+        { type: 'text', text: commandPrompt(command), text_elements: [] },
+      ],
+    });
+    expect(commandPrompt(command)).toBe(
+      `Request approval, then run exactly this command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${command}\nNo other tools or retries.`,
+    );
+    if (process.platform === 'win32') expect(command).not.toContain('\\');
+    if (caseId === 'same-home-isolation')
+      expect(turns[1]['params']).toMatchObject({
+        input: [
+          { type: 'text', text: commandPrompt(command), text_elements: [] },
+        ],
+      });
+    if (caseId === 'always-allow-scope') {
+      const other = markerCommand([
+        process.execPath,
+        script,
+        run.experiment.root,
+        join(run.experiment.workspace, `${caseId}-first-other.marker`),
+      ]);
+      expect(turns[1]['params']).toMatchObject({
+        input: [
+          {
+            type: 'text',
+            text: commandPrompt(command),
+            text_elements: [],
+          },
+        ],
+      });
+      expect(turns).toHaveLength(3);
+      expect(turns[2]['params']).toMatchObject({
+        input: [
+          { type: 'text', text: commandPrompt(other), text_elements: [] },
+        ],
+      });
+      expect(run.result.round).toMatchObject({
+        exactCommandReuseWithoutApproval: true,
+        differentCommandDeclined: true,
+      });
+    }
+  });
+  it.each<Fault>([
+    'unexpected-command',
+    'cross-event',
+    'cross-approval',
+    'wrong-command',
+  ])(
+    'records redacted command shape and bounded agent text for %s',
+    async (fault) => {
+      const run = await exercise('same-home-isolation', fault);
+      expect(run.error).toBeInstanceOf(Error);
+      const shape = run.result.notes?.find((note) =>
+        note.startsWith('Unexpected command shape: '),
+      );
+      expect(shape).toBeDefined();
+      expect(shape?.length).toBeLessThanOrEqual(426);
+      if (fault === 'unexpected-command') {
+        expect(run.error).toEqual(new Error('Unexpected command'));
+        expect(shape).toContain('<MARKER_SCRIPT>');
+        expect(shape).toContain('<PATH>');
+      }
+      expect(run.result.agentMessages).toHaveLength(3);
+      for (const message of run.result.agentMessages ?? []) {
+        expect(message.length).toBeLessThanOrEqual(400);
+      }
+      expect(
+        run.result.agentMessages?.some((message) =>
+          message.includes('Bearer [REDACTED]'),
+        ),
+      ).toBe(true);
+      const diagnostics = JSON.stringify([
+        run.result.notes,
+        run.result.agentMessages,
+      ]);
+      expect(diagnostics).not.toContain(run.experiment.root);
+      expect(diagnostics).not.toContain(
+        run.experiment.root.replace(/\\/g, '/'),
+      );
+      expect(diagnostics).not.toContain('private-token');
+      expect(diagnostics).not.toContain('C:/Users/private');
+      expect(run.cleaned).toBe(true);
+    },
+  );
   it('checks existing config bytes', async () => {
     const run = await exercise('same-home-isolation', 'config-present');
     expect(run.error).toBeUndefined();

@@ -41,7 +41,8 @@ import {
   recordCommandShape,
 } from './evidence-failure-notes';
 export const TURN_CAP = 8;
-const MAX_APPROVED_TURN_CAP = 17;
+// decisions.md records 19 used of 35 approved, including the failed first 7a.
+const MAX_APPROVED_TURN_CAP = 16;
 export const CASE_DEADLINE_MS = 60_000;
 export function caseDeadlineMs(item: Pick<EvidenceCase, 'turnCost'>): number {
   return Math.min(225_000, Math.max(CASE_DEADLINE_MS, item.turnCost * 75_000));
@@ -1146,6 +1147,15 @@ export function isToleratedMarkerRead(
   );
 }
 
+export const MARKER_INSTRUCTIONS =
+  'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.';
+export const MARKER_MESSAGE_INSTRUCTIONS =
+  'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action per user message; a later user message may request a different single marker.';
+
+export function commandPrompt(command: string, readOnly = false): string {
+  return `${readOnly ? 'Run' : 'Request approval, then run'} exactly this command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${command}\nNo other tools or retries.`;
+}
+
 export function markerCommand(
   paths: string[],
   platform = process.platform,
@@ -2036,8 +2046,8 @@ export async function runCase(
         ? 'Evidence experiment. Only read the single requested fixture. Do not inspect credentials, config, home, environment or network. No subagents or retries. Stop after one tool action.'
         : editing
           ? // Match accept/deny while allowing one action for each user message.
-            'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action per user message; a later user message may request a different single marker.'
-          : 'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
+            MARKER_MESSAGE_INSTRUCTIONS
+          : MARKER_INSTRUCTIONS,
     });
     if (typeof selected.approvalPolicy !== 'string') {
       assertThreadApprovalPolicy(thread, selected.approvalPolicy);
@@ -2053,7 +2063,7 @@ export async function runCase(
         : item.kind === 'file'
           ? `Use the file edit tool once to create ${target} containing marker. Request approval. No commands or retries.`
           : // The command stands alone on its line: run 6d copied a trailing period into it.
-            `${readRule ? 'Run' : 'Request approval, then run'} exactly this command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${expectedCommand}\nNo other tools or retries.`;
+            commandPrompt(expectedCommand, readRule);
     const sandboxPolicy =
       selected.sandbox === 'read-only'
         ? { type: 'readOnly', networkAccess: false }
