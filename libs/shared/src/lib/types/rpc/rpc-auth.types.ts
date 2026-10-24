@@ -474,6 +474,15 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  // Claude system lane. Global like every other per-CLI lane setting.
+  'agentOrchestration.claudeModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.claudeReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'memory.curatorProvider': {
     appScopable: false,
     supportedTargets: ['global'],

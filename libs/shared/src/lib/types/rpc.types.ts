@@ -16,6 +16,7 @@ import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
+export * from './rpc/rpc-provider-accounts.types';
 export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
