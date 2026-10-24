@@ -27,8 +27,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/libs/backend/**/*.ts",
         "{workspaceRoot}/libs/backend/**/*.js",
         "{workspaceRoot}/apps/ptah-cli/src/**/*.ts",

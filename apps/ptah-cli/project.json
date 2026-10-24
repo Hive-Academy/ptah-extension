@@ -254,10 +254,12 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/.github/workflows/publish-cli.yml",
-        { "dependentTasksOutputFiles": "**/*.mjs", "transitive": false }
+        {
+          "dependentTasksOutputFiles": "**/*.mjs",
+          "transitive": false
+        }
       ],
       "dependsOn": [
         "build-esbuild",

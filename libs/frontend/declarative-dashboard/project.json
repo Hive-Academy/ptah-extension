@@ -10,8 +10,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/libs/frontend/mcp-apps-page/src/**/*.ts",
         "{workspaceRoot}/libs/frontend/mcp-apps-page/src/**/*.html"
       ],

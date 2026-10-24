@@ -5,20 +5,21 @@ export default {
   // Prevents lint-staged from spawning parallel nx processes that OOM.
   '*.{ts,js,json,md}': (files) => {
     const cmds = [`npx nx format:write --files=${files.join(',')}`];
-    // Only lint TS/JS files (skip JSON/MD)
+    // Lint only the staged TS/JS files (skip JSON/MD). `nx affected -t lint`
+    // re-linted every project the whole branch touched on each commit.
+    // ESLint 10 resolves the nearest eslint.config.mjs per file, and no
+    // config uses type-aware rules, so per-file linting matches the project
+    // lint targets. CI does not run ESLint; this is the lint gate.
     const tsFiles = files.filter((f) => /\.[tj]sx?$/.test(f));
     if (tsFiles.length > 0) {
-      // --files: lint the tasks the staged TS/JS files affect, not every task the
-      // branch diff affects. Without it a branch that changes nx.json lints
-      // all ~80 projects on every commit, and fails on lint debt elsewhere.
-      // A heavy check: it queues on the machine-wide verify lock
-      // (scripts/verify-lock.mjs) like `npm run verify` and the pre-push hook.
-      const staged = tsFiles
-        .map((f) => path.relative(process.cwd(), f).split(path.sep).join('/'))
-        .join(',');
-      cmds.push(
-        `node scripts/verify.mjs --exec --task lint-staged -- npx nx affected --target=lint --files=${staged} --max-warnings=-1`,
-      );
+      const quoted = tsFiles
+        .map((f) => `"${path.relative(process.cwd(), f).split(path.sep).join('/')}"`)
+        .join(' ');
+      // @nx/enforce-module-boundaries reads the cached project graph and is
+      // silently skipped without one (a fresh worktree has none). `nx show
+      // projects` writes .nx/workspace-data/project-graph.json first.
+      cmds.push('npx nx show projects --json');
+      cmds.push(`npx eslint --max-warnings=-1 --no-warn-ignored ${quoted}`);
     }
     return cmds;
   },

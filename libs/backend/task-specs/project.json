@@ -28,8 +28,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/apps/**/*.ts",
         "{workspaceRoot}/apps/**/*.tsx",
         "{workspaceRoot}/libs/**/*.ts",

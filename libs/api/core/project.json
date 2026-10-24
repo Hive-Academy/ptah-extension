@@ -9,7 +9,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
+        "jestRuntime",
         "{workspaceRoot}/libs/api/jest.api-preset.cjs",
         "{workspaceRoot}/libs/api/**/*.dto.ts"
       ],

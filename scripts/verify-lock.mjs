@@ -66,6 +66,58 @@ function readJson(file) {
   }
 }
 
+/**
+ * Reads a lock file and says why it failed. 'missing' means released;
+ * 'read' (EBUSY/EPERM from AV or a sharing violation) is inconclusive;
+ * 'corrupt' means the file exists and its content is not a lock entry.
+ */
+function inspect(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    return { status: error.code === 'ENOENT' ? 'missing' : 'read' };
+  }
+  try {
+    const value = JSON.parse(text);
+    if (value && typeof value.pid === 'number') return { status: 'ok', value };
+  } catch {
+    // Falls through to 'corrupt'.
+  }
+  return { status: 'corrupt' };
+}
+
+function mtimeOf(file) {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// Publishes a complete file in one step, so readers never see it half written.
+function writeAtomic(target, data) {
+  const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  fs.writeFileSync(tmp, data);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.renameSync(tmp, target);
+      return true;
+    } catch (error) {
+      if (attempt >= 4) {
+        unlinkQuiet(tmp);
+        return false;
+      }
+      // A reader can hold the target open for a moment on Windows. Retry.
+      pause(50);
+    }
+  }
+}
+
 function unlinkQuiet(file) {
   try {
     fs.unlinkSync(file);
@@ -76,7 +128,7 @@ function unlinkQuiet(file) {
 
 export function describe(entry) {
   if (!entry) return 'nobody';
-  if (entry.unreadable) return 'an unreadable holder file';
+  if (entry.unreadable) return `an unreadable lock file (${entry.reason})`;
   const started = new Date(entry.startedAt);
   const since = Number.isNaN(started.getTime())
     ? 'an unknown time'
@@ -94,11 +146,14 @@ export function describe(entry) {
  */
 export function staleReason(holder, now = Date.now()) {
   if (holder.unreadable) {
-    // link() publishes complete files, so this is corruption or a read that
-    // AV or a sharing violation blocked. Only an old file counts as stale.
+    // A read error (AV, sharing violation) says nothing about the holder, so
+    // it never makes the lock stale. Corrupt content does: a live holder's
+    // file always parses, because link() and rename() publish complete files.
+    // The grace period covers the brief empty file of the 'wx' fallback.
+    if (holder.reason !== 'corrupt') return null;
     const age = now - holder.mtimeMs;
     return age > UNREADABLE_GRACE_MS
-      ? `holder file unreadable for ${Math.round(age / 1000)}s`
+      ? `holder file corrupt for ${Math.round(age / 1000)}s`
       : null;
   }
   const age = now - holder.startedAt;
@@ -112,19 +167,19 @@ export function staleReason(holder, now = Date.now()) {
 
 export function readHolder() {
   const { holder } = lockPaths();
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let mtimeMs;
-    try {
-      mtimeMs = fs.statSync(holder).mtimeMs;
-    } catch {
-      return null;
+  for (let attempt = 0; ; attempt++) {
+    const result = inspect(holder);
+    if (result.status === 'ok') return result.value;
+    if (result.status === 'missing') return null;
+    if (attempt === 2) {
+      return {
+        unreadable: true,
+        reason: result.status,
+        mtimeMs: mtimeOf(holder) ?? Date.now(),
+      };
     }
-    const entry = readJson(holder);
-    if (entry && typeof entry.pid === 'number') return entry;
-    if (attempt === 2) return { unreadable: true, mtimeMs };
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    pause(50);
   }
-  return null;
 }
 
 /** Records the PID of the command the holder runs. See staleReason(). */
@@ -132,21 +187,13 @@ export function recordChild(entry, childPid) {
   const { holder } = lockPaths();
   const current = readJson(holder);
   if (!current || current.token !== entry.token) return;
-  const tmp = `${holder}.${process.pid}.child.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify({ ...current, childPid }, null, 2));
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      fs.renameSync(tmp, holder);
-      return;
-    } catch {
-      // A reader can hold the file open for a moment on Windows. Retry.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    }
-  }
-  unlinkQuiet(tmp);
+  writeAtomic(holder, JSON.stringify({ ...current, childPid }, null, 2));
 }
 
-/** Live tickets in FIFO order. Removes tickets of dead or silent waiters. */
+/**
+ * Live tickets in FIFO order. Removes tickets of dead or silent waiters.
+ * A ticket that cannot be read right now keeps its place in the queue.
+ */
 export function readQueue(now = Date.now()) {
   const { queue } = lockPaths();
   let names;
@@ -161,18 +208,22 @@ export function readQueue(now = Date.now()) {
   const live = [];
   for (const name of names) {
     const file = path.join(queue, name);
-    const ticket = readJson(file);
-    let mtime = 0;
-    try {
-      mtime = fs.statSync(file).mtimeMs;
-    } catch {
+    const result = inspect(file);
+    const mtime = mtimeOf(file);
+    if (result.status === 'missing' || mtime === null) continue;
+    const silent = now - mtime > TICKET_TTL_MS;
+    if (result.status === 'ok') {
+      if (!isAlive(result.value.pid) || silent) unlinkQuiet(file);
+      else live.push({ name, ...result.value });
       continue;
     }
-    if (!ticket || !isAlive(ticket.pid) || now - mtime > TICKET_TTL_MS) {
+    // Tickets are published with rename(), so 'corrupt' is real damage. Drop
+    // it only once it is old. Until then, and for read errors, keep the slot.
+    if (result.status === 'corrupt' && now - mtime > UNREADABLE_GRACE_MS) {
       unlinkQuiet(file);
       continue;
     }
-    live.push({ name, ...ticket });
+    live.push({ name, unreadable: true, reason: result.status });
   }
   return live;
 }
@@ -209,7 +260,12 @@ function breakStale(expected) {
     return;
   }
   const current = readJson(moved);
-  if (current && expected && current.token !== expected.token) {
+  // expected === null: we judged a corrupt file. If it parses now, a holder
+  // replaced it meanwhile, so it is not ours to drop.
+  const replaced = expected
+    ? current && current.token !== expected.token
+    : current && typeof current.pid === 'number';
+  if (replaced) {
     // The holder changed between our read and the rename. Put it back.
     try {
       fs.renameSync(moved, holder);
@@ -269,7 +325,7 @@ export async function acquire({ task, worktree, onWait = () => {} }) {
       const now = new Date();
       fs.utimesSync(ticketFile, now, now);
     } catch {
-      fs.writeFileSync(ticketFile, ticketData);
+      writeAtomic(ticketFile, ticketData);
     }
 
     const queue = readQueue();

@@ -8,6 +8,7 @@
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
+      "inputs": ["production", "^production", "rootPackageFiles"],
       "dependsOn": [],
       "outputs": [
         "{options.outputPath}/main.mjs",
@@ -430,13 +431,15 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/scripts/copy-webview.js",
         "{workspaceRoot}/scripts/electron-only-chunks.js",
         "{workspaceRoot}/scripts/eager-closure-gate.js",
         "{workspaceRoot}/.github/workflows/publish-electron.yml",
-        { "dependentTasksOutputFiles": "**/*.mjs", "transitive": false }
+        {
+          "dependentTasksOutputFiles": "**/*.mjs",
+          "transitive": false
+        }
       ],
       "dependsOn": [
         "build-main",

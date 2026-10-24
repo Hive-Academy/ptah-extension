@@ -124,18 +124,28 @@ function spawnCommand(command, args, env) {
     const line = [command, ...args].map(quoteForCmd).join(' ');
     return spawn(line, { stdio: 'inherit', env, shell: true });
   }
-  return spawn(command, args, { stdio: 'inherit', env });
+  // On POSIX the child leads its own process group, so killTree() and the
+  // cleanup after exit reach every descendant (e.g. of `sh -c`).
+  return spawn(command, args, {
+    stdio: 'inherit',
+    env,
+    detached: process.platform !== 'win32',
+  });
 }
 
-// On Windows child.kill() ends only the direct child. Nx and Jest workers
-// below it would keep running after the lock is released.
+// child.kill() ends only the direct child. Nx and Jest workers below it would
+// keep running after the lock is released, so stop the whole tree or group.
 function killTree(child, signal) {
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
       stdio: 'ignore',
     });
   } else {
-    child.kill(signal);
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // The group is already gone.
+    }
   }
 }
 
@@ -224,6 +234,11 @@ async function main() {
       resolve(exitCode ?? (signal ? 1 : 0)),
     );
   });
+  if (process.platform !== 'win32' && child.pid) {
+    // Descendants that outlived the direct child must not overlap the next
+    // holder. On Windows the kill-on-close job object covers the same case.
+    killTree(child, 'SIGTERM');
+  }
   lock.release();
   const seconds = ((Date.now() - runStart) / 1000).toFixed(1);
   log(

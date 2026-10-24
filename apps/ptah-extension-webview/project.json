@@ -123,8 +123,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.ts",
         "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.html"
       ],

@@ -97,7 +97,9 @@ jobs:
       - name: Run scripts/ tests
         run: npm run test:scripts
 
-      - run: node_modules/.bin/nx affected -t build
+      # ptah-docs builds in the `docs-build` job: inside this multi-task run
+      # it took 14-21 min, against 13 s on its own.
+      - run: node_modules/.bin/nx affected -t build --exclude=ptah-docs --parallel=3
 
       # Electron runtime-dependency gate: every external import in the main
       # bundle must be declared in apps/ptah-electron/package.json, or the
@@ -110,6 +112,54 @@ jobs:
       - name: Enforce eager-closure bundle gate
         if: hashFiles('dist/apps/ptah-extension-webview/browser-stats.json') != ''
         run: npm run gate:eager-closure
+
+  # Astro docs build, out of the `checks` critical path. The restore key
+  # stays job-scoped so a `checks` cache entry cannot hide a slow build
+  # behind a cache hit.
+  docs-build:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 20
+    if: |
+      (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') &&
+      !startsWith(github.head_ref, 'chore/bump-cli-v') &&
+      !startsWith(github.head_ref, 'chore/bump-electron-v') &&
+      !startsWith(github.head_ref, 'chore/bump-extension-v') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      # blob:none, not tree:0. `astro build` runs Starlight's
+      # `git log --name-status -- apps/ptah-docs/src/content/docs` over the
+      # full history (even with lastUpdated off). In a treeless clone that
+      # fetches the trees of every commit one by one: ptah-docs:build sat
+      # silent for 14-21 min (timed out at 20 on PR #814), against ~13 s with
+      # trees present. A blobless clone keeps the trees and the full history
+      # that nx affected needs.
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-ci
+        with:
+          NODE_VERSION: ${{ env.NODE_VERSION }}
+          NX_CACHE_KEY: nx-${{ runner.os }}-docs-${{ github.sha }}
+          NX_CACHE_RESTORE_KEY: |
+            nx-${{ runner.os }}-docs-
+
+      - name: Build docs when affected
+        shell: bash
+        run: |
+          if ! affected="$(node_modules/.bin/nx show projects --affected -t build --json)"; then
+            echo "Failed to determine affected build projects." >&2
+            exit 1
+          fi
+          if ! grep -q '"ptah-docs"' <<< "$affected"; then
+            echo "ptah-docs is not affected."
+            exit 0
+          fi
+          node_modules/.bin/nx run ptah-docs:build --outputStyle=stream
 
   # The pre-push hook type-checks only direct pushes to main/develop, so
   # this is the only typecheck gate for a PR. esbuild/webpack builds strip
@@ -252,7 +302,7 @@ jobs:
 
   main:
     name: main
-    needs: [checks, typecheck, test-shard]
+    needs: [checks, docs-build, typecheck, test-shard]
     runs-on: ubuntu-latest
     if: |
       always() &&
@@ -265,13 +315,14 @@ jobs:
       - name: Require all CI checks
         env:
           CHECKS_RESULT: ${{ needs.checks.result }}
+          DOCS_BUILD_RESULT: ${{ needs['docs-build'].result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           TEST_SHARD_RESULT: ${{ needs['test-shard'].result }}
         shell: bash
         run: |
-          if [ "$CHECKS_RESULT" != 'success' ] || [ "$TYPECHECK_RESULT" != 'success' ] ||
-            [ "$TEST_SHARD_RESULT" != 'success' ]; then
-            echo "checks=$CHECKS_RESULT typecheck=$TYPECHECK_RESULT test-shard=$TEST_SHARD_RESULT"
+          if [ "$CHECKS_RESULT" != 'success' ] || [ "$DOCS_BUILD_RESULT" != 'success' ] ||
+            [ "$TYPECHECK_RESULT" != 'success' ] || [ "$TEST_SHARD_RESULT" != 'success' ]; then
+            echo "checks=$CHECKS_RESULT docs-build=$DOCS_BUILD_RESULT typecheck=$TYPECHECK_RESULT test-shard=$TEST_SHARD_RESULT"
             exit 1
           fi
 

@@ -21,8 +21,7 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/jest.preset.js",
-        "{workspaceRoot}/__mocks__/**/*",
+        "jestRuntime",
         "{workspaceRoot}/apps/ptah-cli/src/services/mcp/session-submit.service.spec.ts",
         "{workspaceRoot}/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts",
         "{workspaceRoot}/libs/backend/memory-curator/src/lib/code-symbol.store.spec.ts",
