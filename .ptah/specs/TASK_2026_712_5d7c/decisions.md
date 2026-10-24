@@ -237,3 +237,12 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - P1-E complete re-review (codex, 74/74 files, `code-logic-review-phase-p1-e-r2.md`): 8/10, no Blocking or Serious, no release-hold bypass. One Moderate (Add replay after rename compares the current label) cannot lose data or break a lane config → named later task P1E-F4. Deferred also: P1E-F2 (post-commit snapshot push loss), P1E-F3 (clock-seeded revision, D30), P1E-S1 (D32 container lookup).
 - Review family: codex (OpenAI) reviewing Claude (Anthropic) implementers. The first P1-E review had incomplete coverage (role forbade git); the r2 review ran without a role and read the full diff `87c373e1f..HEAD`.
 - Known local-only failure: `auth-providers` `translation-proxy.sdk.integration.spec.ts` (real CLI, 4 tests) fails on both branches; its folder is unchanged and CI passes. Pre-existing lint errors in `auth-providers` (package.json dependency-checks, `provider-account.store.ts:16`, `provider-account.store.spec.ts:131`) and `claude-sdk-lane-runner.ts:92,352,467` come from #808 commits 738ae99ef7 / b95a97e47a, not from this round.
+
+## D34 — Batch 29 acceptance (2026-10-24, orchestrator)
+
+- Executor: frontend-developer subagent (Claude). Review deferred to the P1-F phase review at Batch 35 (different family).
+- File swap allowed by the batch: `apps/ptah-extension-webview/src/app/app.config.ts` registers `ProviderAccountsStateService` as a `MESSAGE_HANDLERS` multi-provider (the router reads handlers once at startup); `core/src/index.ts` is unchanged because `providers-settings-state.service.ts` re-exports the service, like the Providers types (`index.ts:7`).
+- The webview cannot read the `providerAccounts` capability; the service gates on `isElectron` (the only host where the capability is true). Inert elsewhere: no RPC, pushes ignored.
+- `claudeModel` / `claudeReasoningEffort` are read into Providers state only. Writing them needs `providers-commit.service.ts` → Batch 33 (Electron Accounts composition owns the Providers write path) or Batch 34 if the file cap does not allow it.
+- `PENDING_USER_REVIEW_IDS` for the claude permission note (D31) moved out of Batch 29 (file cap) → Batch 33.
+- Verification: core 46 suites / 1341 tests; typecheck core, ptah-extension-webview; lint of the 5 changed files 0 errors. The new config fields are optional on `agent:getConfig`, so the 5 specs that build the config literally still compile.
