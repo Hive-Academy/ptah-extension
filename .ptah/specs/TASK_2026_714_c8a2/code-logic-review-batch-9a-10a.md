@@ -57,3 +57,16 @@ R4. MINOR - Reply correlation is by `requestId` only. JSON-RPC ids are small per
 R5. MINOR - `assertReady` still re-checks `this.sink` (vacuous after the constructor proof). Harmless.
 
 Fine: the proof symbol is module-private (not exported), so arbitrary contexts are refused; sequence dedup, required permission level and the `assertAllRequirementsHandled` throw on any missing key are specified in the specs.
+
+## Round 2 check
+
+Verdict: APPROVED (score 8.5/10), no defects. Scoped jest: gateway 2 suites / 58 tests pass.
+
+- R1 fixed: `close()` is memoised (`closing ??=`) and closes context, then runtime, then child scope in nested `finally` blocks, so a failing step does not skip the next. Failure paths in `open()` close the runtime (if resolved) and dispose the scope before rethrowing. The turn `finally` calls the same `close()`.
+- R2 fixed: the gate is checked before any scope or registration (adapter :52-54), each adapter gets its own `createChildContainer()`, and the parent is untouched; the spec "opens two adapters in separate scopes" and "retries a closed gate without ... registering anything" cover collision and half-registered state. Disposing the child is safe for parent services: tsyringe only tracks instances it constructs via a class constructor (dependency-container.js:304), and `registerCodexRuntime` registers values and factories, so ports, the sink and the parent's services are never disposed by it.
+- R3 fixed: `error` yields nothing (adapter :252-254); failure still comes from the failed terminal.
+- R4 fixed: the strict reply schema requires contextId/threadId/turnId/requestId and the sink compares all four (sink :82-86).
+- R5 fixed: the vacuous sink check is gone; `assertReady` now checks closed state and the gate.
+- Earlier fixes still hold: private constructor with proof symbol, sequence dedup, usage once at terminal, divergent finals.
+
+Residual notes (non-blocking): (a) an adapter that is opened and never used or closed leaks its runtime and child scope; the host must call `close()` (documented in the class comment). (b) If `runtime.close()` rejects during the failed-open path, that error replaces the original open error; minor diagnostics loss. (c) Any non-terminal abort (early consumer return, failed start) closes the whole adapter permanently, so a later turn on it throws "closed"; intentional per the earlier design but callers must reopen.

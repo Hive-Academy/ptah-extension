@@ -20,6 +20,13 @@ const request: CodexApprovalRequest = {
   details: {},
 };
 
+const correlation = {
+  contextId: request.contextId,
+  threadId: request.threadId,
+  turnId: request.turnId,
+  requestId: request.requestId,
+};
+
 function setup() {
   const presentation = {
     sendNotice: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
@@ -28,7 +35,11 @@ function setup() {
         Promise<CodexGatewayApprovalReply>,
         Parameters<NonNullable<CodexGatewayApprovalPresentation['present']>>
       >()
-      .mockResolvedValue({ requestId: request.requestId, decision: 'decline' }),
+      .mockResolvedValue({
+        ...correlation,
+        requestId: request.requestId,
+        decision: 'decline',
+      }),
     dismiss: jest.fn<void, [CodexApprovalRequest]>(),
   };
   const logger = { warn: jest.fn() };
@@ -45,6 +56,7 @@ describe('CodexGatewayApprovalSink', () => {
     async (decision) => {
       const { sink, presentation } = setup();
       presentation.present.mockResolvedValue({
+        ...correlation,
         requestId: request.requestId,
         decision,
       });
@@ -120,7 +132,7 @@ describe('CodexGatewayApprovalSink', () => {
     const result = sink.request(request, controller.signal);
     controller.abort();
     await expect(result).resolves.toBe('cancel');
-    reply({ requestId: request.requestId, decision: 'accept' });
+    reply({ ...correlation, requestId: request.requestId, decision: 'accept' });
     await expect(result).resolves.toBe('cancel');
     expect(presentation.dismiss).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
@@ -169,6 +181,7 @@ describe('CodexGatewayApprovalSink', () => {
   it('declines a reply bound to the wrong request', async () => {
     const { sink, presentation } = setup();
     presentation.present.mockResolvedValue({
+      ...correlation,
       requestId: 'other',
       decision: 'accept',
     });
@@ -191,7 +204,7 @@ describe('CodexGatewayApprovalSink', () => {
     await expect(earlier).resolves.toBe('cancel');
     const next = { ...request, requestId: 8 };
     const later = sink.request(next, new AbortController().signal);
-    reply({ requestId: request.requestId, decision: 'accept' });
+    reply({ ...correlation, requestId: request.requestId, decision: 'accept' });
     await expect(later).resolves.toBe('decline');
     expect(presentation.dismiss).toHaveBeenCalledWith(next);
     expect(presentation.dismiss).toHaveBeenCalledTimes(2);
@@ -217,6 +230,21 @@ describe('CodexGatewayApprovalSink', () => {
       await active.request(target, controller.signal);
       expect(presentation.dismiss).toHaveBeenCalledTimes(1);
       expect(presentation.dismiss).toHaveBeenCalledWith(target);
+    },
+  );
+  it.each(['contextId', 'threadId', 'turnId'] as const)(
+    'declines same-requestId replies with a different %s',
+    async (key) => {
+      const { sink, presentation } = setup();
+      presentation.present.mockResolvedValue({
+        ...correlation,
+        [key]: 'other',
+        decision: 'accept',
+      });
+      await expect(
+        sink.request(request, new AbortController().signal),
+      ).resolves.toBe('decline');
+      expect(presentation.dismiss).toHaveBeenCalledWith(request);
     },
   );
 });

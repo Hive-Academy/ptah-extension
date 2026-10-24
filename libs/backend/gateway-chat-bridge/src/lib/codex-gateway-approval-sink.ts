@@ -11,6 +11,9 @@ export const CODEX_GATEWAY_APPROVAL_CHOICES: readonly CodexApprovalDecision[] =
 
 const approvalReplySchema = z
   .object({
+    contextId: z.string(),
+    threadId: z.string(),
+    turnId: z.string(),
     requestId: z.union([z.string(), z.number()]),
     decision: z.enum(['accept', 'acceptForSession', 'decline', 'cancel']),
   })
@@ -76,7 +79,11 @@ export class CodexGatewayApprovalSink implements ApprovalSink {
       )
         return { decision: 'decline', editNotSupported: true };
       const parsed = approvalReplySchema.safeParse(reply);
-      return parsed.success && parsed.data.requestId === request.requestId
+      return parsed.success &&
+        parsed.data.contextId === request.contextId &&
+        parsed.data.threadId === request.threadId &&
+        parsed.data.turnId === request.turnId &&
+        parsed.data.requestId === request.requestId
         ? parsed.data.decision
         : 'decline';
     } catch {

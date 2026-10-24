@@ -18,14 +18,16 @@ import type { Logger } from '@ptah-extension/vscode-core';
 
 const gatedConstruction = Symbol('gated Codex gateway context');
 
-/** Owns admission and context creation; the host owns the registered runtime lifecycle. */
+/** Owns gated admission, its isolated runtime and its registration scope. */
 export class CodexGatewayAdapter {
   private readonly gate = new CodexParityGate();
+  private closing?: Promise<void>;
 
   private constructor(
     proof: typeof gatedConstruction,
     private readonly context: CodexContext,
-    private readonly sink: ApprovalSink,
+    private readonly runtime: ReturnType<typeof resolveGatedCodexRuntime>,
+    private readonly scope: DependencyContainer,
     private readonly logger: Pick<Logger, 'warn'>,
     private readonly platform: CodexParityPlatform,
   ) {
@@ -34,7 +36,7 @@ export class CodexGatewayAdapter {
     }
   }
 
-  /** Supply a fresh host-owned container; pre-registered runtimes are refused. */
+  /** Each adapter registers in its own child scope; the parent remains untouched. */
   static async open(
     container: DependencyContainer,
     ports: Omit<CodexRuntimeRegistrationPorts, 'sink'>,
@@ -47,16 +49,31 @@ export class CodexGatewayAdapter {
     if (!sink || typeof sink.request !== 'function') {
       throw new Error('Codex gateway approval sink is required');
     }
-    registerCodexRuntime(container, { ...ports, sink });
-    const runtime = resolveGatedCodexRuntime(container, 'gateway', platform);
-    const context = await runtime.open(profile, resume);
-    return new CodexGatewayAdapter(
-      gatedConstruction,
-      context,
-      sink,
-      logger,
-      platform,
-    );
+    if (!new CodexParityGate().isEnabled('gateway', platform)) {
+      throw new Error('Codex gateway routing disabled by parity gate');
+    }
+    const scope = container.createChildContainer();
+    let runtime: ReturnType<typeof resolveGatedCodexRuntime> | undefined;
+    try {
+      registerCodexRuntime(scope, { ...ports, sink });
+      runtime = resolveGatedCodexRuntime(scope, 'gateway', platform);
+      const context = await runtime.open(profile, resume);
+      return new CodexGatewayAdapter(
+        gatedConstruction,
+        context,
+        runtime,
+        scope,
+        logger,
+        platform,
+      );
+    } catch (error) {
+      try {
+        await runtime?.close();
+      } finally {
+        await scope.dispose();
+      }
+      throw error;
+    }
   }
 
   startTurn(input: CodexTurnInput): AsyncIterable<FlatStreamEventUnion> {
@@ -74,13 +91,24 @@ export class CodexGatewayAdapter {
   }
 
   close(): Promise<void> {
-    return this.context.close();
+    this.closing ??= this.closeOwnedResources();
+    return this.closing;
+  }
+
+  private async closeOwnedResources(): Promise<void> {
+    try {
+      await this.context.close();
+    } finally {
+      try {
+        await this.runtime.close();
+      } finally {
+        await this.scope.dispose();
+      }
+    }
   }
 
   private assertReady(): void {
-    if (!this.sink || typeof this.sink.request !== 'function') {
-      throw new Error('Codex gateway approval sink is required');
-    }
+    if (this.closing) throw new Error('Codex gateway is closed');
     if (!this.gate.isEnabled('gateway', this.platform)) {
       throw new Error('Codex gateway routing disabled by parity gate');
     }
@@ -128,7 +156,7 @@ export class CodexGatewayAdapter {
       if (!terminal) {
         // End abandoned work, including early consumer return and failed start.
         try {
-          await this.context.close();
+          await this.close();
         } catch {
           this.logger.warn('[codex-gateway] context cleanup failed');
         }
@@ -222,12 +250,7 @@ class GatewayEventProjection {
         this.usage = event.usage;
         break;
       case 'error':
-        yield {
-          ...base,
-          eventType: 'text_delta',
-          delta: 'Codex reported a runtime error.',
-          blockIndex: 0,
-        };
+        // Non-terminal diagnostics are not assistant answer text. Await terminal.
         break;
       case 'terminal': {
         if (event.status === 'failed')

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import {
+  CodexParityGate,
   registerCodexRuntime,
   resolveGatedCodexRuntime,
   type CodexContext,
@@ -61,14 +62,19 @@ async function setup(events: CodexRuntimeEvent[] = [terminal]) {
   const sink = { request: jest.fn().mockResolvedValue('decline') };
   const logger = { warn: jest.fn() };
   const platform = { platform: 'win32', arch: 'x64' };
-  const runtime = { open: jest.fn().mockResolvedValue(context) };
+  const runtime = {
+    open: jest.fn().mockResolvedValue(context),
+    close: jest.fn().mockResolvedValue(undefined),
+  };
   jest
     .mocked(resolveGatedCodexRuntime)
     .mockReturnValue(
       runtime as unknown as ReturnType<typeof resolveGatedCodexRuntime>,
     );
   const scope = container.createChildContainer();
-  const ports = {} as Parameters<typeof CodexGatewayAdapter.open>[1];
+  const ports = { usage: null } as Parameters<
+    typeof CodexGatewayAdapter.open
+  >[1];
   const profile = {} as Parameters<typeof CodexGatewayAdapter.open>[5];
   const open = () =>
     CodexGatewayAdapter.open(
@@ -107,12 +113,14 @@ function text(events: FlatStreamEventUnion[]) {
 describe('CodexGatewayAdapter', () => {
   it('opens through the gate using the registered sink and exact resume identity', async () => {
     const { runtime, scope, ports, profile, sink, platform } = await setup();
-    expect(registerCodexRuntime).toHaveBeenLastCalledWith(scope, {
+    const child = jest.mocked(registerCodexRuntime).mock.calls.at(-1)?.[0];
+    expect(child).not.toBe(scope);
+    expect(registerCodexRuntime).toHaveBeenLastCalledWith(child, {
       ...ports,
       sink,
     });
     expect(resolveGatedCodexRuntime).toHaveBeenLastCalledWith(
-      scope,
+      child,
       'gateway',
       platform,
     );
@@ -139,6 +147,118 @@ describe('CodexGatewayAdapter', () => {
     await expect(open()).rejects.toThrow('parity gate');
     expect(runtime.open).not.toHaveBeenCalled();
   });
+
+  it('retries a closed gate without creating a scope or registering anything', async () => {
+    const { scope, open, runtime } = await setup();
+    const actual = jest.requireActual<
+      typeof import('@ptah-extension/codex-runtime')
+    >('@ptah-extension/codex-runtime');
+    const child = jest.spyOn(scope, 'createChildContainer');
+    jest.mocked(registerCodexRuntime).mockClear();
+    runtime.open.mockClear();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      jest
+        .mocked(CodexParityGate)
+        .mockImplementationOnce(() => new actual.CodexParityGate());
+      await expect(open()).rejects.toThrow('parity gate');
+    }
+    expect(child).not.toHaveBeenCalled();
+    expect(registerCodexRuntime).not.toHaveBeenCalled();
+    expect(runtime.open).not.toHaveBeenCalled();
+    expect(scope.isRegistered(actual.CODEX_RUNTIME_TOKENS.Runtime)).toBe(false);
+  });
+
+  it('opens two adapters in separate scopes under the same parent', async () => {
+    const { scope, open, runtime } = await setup();
+    const actual = jest.requireActual<
+      typeof import('@ptah-extension/codex-runtime')
+    >('@ptah-extension/codex-runtime');
+    jest
+      .mocked(registerCodexRuntime)
+      .mockImplementationOnce(actual.registerCodexRuntime)
+      .mockImplementationOnce(actual.registerCodexRuntime);
+    const first = await open();
+    const firstScope = jest.mocked(registerCodexRuntime).mock.calls.at(-1)?.[0];
+    const otherRuntime = {
+      ...runtime,
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    jest
+      .mocked(resolveGatedCodexRuntime)
+      .mockReturnValueOnce(
+        otherRuntime as unknown as ReturnType<typeof resolveGatedCodexRuntime>,
+      );
+    const second = await open();
+    const secondScope = jest
+      .mocked(registerCodexRuntime)
+      .mock.calls.at(-1)?.[0];
+    expect(firstScope).not.toBe(secondScope);
+    expect(scope.isRegistered(actual.CODEX_RUNTIME_TOKENS.Runtime)).toBe(false);
+    await first.close();
+    expect(runtime.close).toHaveBeenCalledTimes(1);
+    expect(otherRuntime.close).not.toHaveBeenCalled();
+    await second.close();
+    expect(otherRuntime.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['registration', 'resolution', 'opening'] as const)(
+    'disposes its child after %s failure and leaves the parent reusable',
+    async (stage) => {
+      const { scope, open, runtime } = await setup();
+      const child = scope.createChildContainer();
+      const dispose = jest.spyOn(child, 'dispose');
+      jest.spyOn(scope, 'createChildContainer').mockReturnValueOnce(child);
+      const fail = () => {
+        throw new Error('failed opening');
+      };
+      if (stage === 'registration')
+        jest.mocked(registerCodexRuntime).mockImplementationOnce((target) => {
+          target.register('partial', { useValue: true });
+          fail();
+        });
+      if (stage === 'resolution')
+        jest.mocked(resolveGatedCodexRuntime).mockImplementationOnce(fail);
+      if (stage === 'opening')
+        runtime.open.mockRejectedValueOnce(new Error('failed opening'));
+      await expect(open()).rejects.toThrow('failed opening');
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(scope.isRegistered('partial')).toBe(false);
+      expect(runtime.close).toHaveBeenCalledTimes(stage === 'opening' ? 1 : 0);
+      await expect(open()).resolves.toBeInstanceOf(CodexGatewayAdapter);
+    },
+  );
+
+  it('closes the owned context, runtime and child once, including concurrent calls', async () => {
+    const { adapter, context, runtime, scope } = await setup();
+    const child = jest.mocked(registerCodexRuntime).mock.calls.at(-1)![0];
+    const dispose = jest.spyOn(child, 'dispose');
+    const parentDispose = jest.spyOn(scope, 'dispose');
+    const first = adapter.close();
+    expect(adapter.close()).toBe(first);
+    await first;
+    await adapter.close();
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(runtime.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(parentDispose).not.toHaveBeenCalled();
+    expect(() => adapter.steer({ text: 'late' })).toThrow('closed');
+  });
+
+  it.each(['context', 'runtime'] as const)(
+    'still disposes the scope when %s close fails',
+    async (target) => {
+      const { adapter, context, runtime } = await setup();
+      const child = jest.mocked(registerCodexRuntime).mock.calls.at(-1)![0];
+      const dispose = jest.spyOn(child, 'dispose');
+      (target === 'context' ? context : runtime).close.mockRejectedValueOnce(
+        new Error('close failed'),
+      );
+      await expect(adapter.close()).rejects.toThrow('close failed');
+      await expect(adapter.close()).rejects.toThrow('close failed');
+      expect(runtime.close).toHaveBeenCalledTimes(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('refuses a pre-registered runtime whose sink cannot be proven', async () => {
     const { scope, runtime, open } = await setup();
@@ -413,7 +533,7 @@ describe('CodexGatewayAdapter', () => {
     });
     expect(context.close).not.toHaveBeenCalled();
   });
-  it('surfaces a non-terminal error and continues until terminal without closing', async () => {
+  it('omits a non-terminal error from answer text and continues until terminal without closing', async () => {
     const { adapter, context } = await setup([
       {
         ...base,
@@ -428,7 +548,11 @@ describe('CodexGatewayAdapter', () => {
       terminal,
     ]);
     const result = await collect(adapter.startTurn({ text: 'hi' }));
-    expect(text(result)).toBe('Codex reported a runtime error.recovered');
+    expect(text(result)).toBe('recovered');
+    expect(result.map((event) => event.eventType)).toEqual([
+      'text_delta',
+      'message_complete',
+    ]);
     expect(result.at(-1)?.eventType).toBe('message_complete');
     expect(context.close).not.toHaveBeenCalled();
   });
