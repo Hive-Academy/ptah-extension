@@ -302,9 +302,13 @@ describe('CodexAccountUsageClient', () => {
       child.response = { rateLimits: { primary: { usedPercent: 3 } } };
     };
     await client.read(homeA);
-    configure = (child) => { child.notification = true; child.fail = true; };
+    configure = (child) => {
+      child.notification = true;
+      child.fail = true;
+    };
     expect(await client.read(homeA, { refresh: true })).toEqual({
-      status: 'service-unavailable', providerId: 'openai-codex',
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
     });
   });
 

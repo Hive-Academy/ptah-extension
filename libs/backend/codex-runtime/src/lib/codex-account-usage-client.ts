@@ -1,18 +1,26 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { IDisposable } from '@ptah-extension/platform-core';
-import type { CodexAppServerHandlers, CodexAppServerProcess } from './codex-app-server-process';
+import type {
+  CodexAppServerHandlers,
+  CodexAppServerProcess,
+} from './codex-app-server-process';
 import type {
   CodexAccountUsageResult,
   CodexUsageEligibility,
 } from './codex-account-usage.types';
 import type { CodexHomeAuthReader } from './codex-home-auth-reader';
-import { codexNotificationSchemas, type CodexNotificationMethod, type CodexRequestResult } from './codex-protocol-validator';
+import {
+  codexNotificationSchemas,
+  type CodexNotificationMethod,
+  type CodexRequestResult,
+} from './codex-protocol-validator';
 
 const PROVIDER = 'openai-codex';
 const CACHE_MS = 30_000;
 const MISS_MS = 30_000;
-const LIMITS_UPDATED = 'account/rateLimits/updated' satisfies CodexNotificationMethod;
+const LIMITS_UPDATED =
+  'account/rateLimits/updated' satisfies CodexNotificationMethod;
 
 interface Flight {
   readonly controller: AbortController;
@@ -237,7 +245,10 @@ export class CodexAccountUsageClient {
           if (frame.method !== LIMITS_UPDATED || !current()) return;
           // Use the shared notification contract. The read response remains the
           // authoritative snapshot; an update makes the previous cache obsolete.
-          if (!codexNotificationSchemas[LIMITS_UPDATED].safeParse(frame.params).success)
+          if (
+            !codexNotificationSchemas[LIMITS_UPDATED].safeParse(frame.params)
+              .success
+          )
             throw new Error('Invalid Codex usage notification');
           state.cached = undefined;
           state.miss = undefined;
