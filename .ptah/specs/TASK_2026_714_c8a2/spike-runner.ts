@@ -11,18 +11,13 @@ const all: EvidenceCase[] = JSON.parse(
     'utf8',
   ),
 );
-// Run 6i. User budget: 20 total, 15 used, 5 remain. Observed and dropped: command accept/deny,
-// compaction, file change, plan, auto-edit, YOLO (runs 6e-6h). The user kept ask as granular +
-// read-only (sandbox-allowed reads run without a prompt), so ask-read-rule is not run. 2 planned
-// + 1 possible steer turn = cap 3, two turns stay in reserve.
-const REMAINING = 5;
-const CAP = 3;
-const order = [
-  'schema-handshake',
-  'modified-input-schema',
-  'mcp-approval',
-  'ask-command-edit',
-];
+// Run 6j. User budget: 20 total, 17 used, 3 remain. Observed and dropped: command accept/deny,
+// compaction, file change, plan, auto-edit, YOLO (runs 6e-6h), MCP approval (run 6i). Only the
+// edit case runs, after Batch 1l (agent-text evidence, per-message stop instruction). 1 planned
+// + 1 possible steer turn = cap 2, one turn stays in reserve.
+const REMAINING = 3;
+const CAP = 2;
+const order = ['schema-handshake', 'modified-input-schema', 'ask-command-edit'];
 const cases = order.map((id) => {
   const found = all.find((item) => item.id === id);
   if (!found) throw new Error(`case ${id} missing`);
