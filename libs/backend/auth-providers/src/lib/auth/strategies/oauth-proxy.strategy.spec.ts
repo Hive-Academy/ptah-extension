@@ -32,6 +32,7 @@ import { createMockSentryService } from '@ptah-extension/vscode-core/testing';
 
 import { OAuthProxyStrategy } from './oauth-proxy.strategy';
 import type { AuthConfigureContext } from '../auth-strategy.types';
+import { authOperationContextSchema } from '../auth-strategy.types';
 import type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
@@ -47,7 +48,8 @@ import type { ProviderModelsService } from '../../provider-models.service';
 // ---------------------------------------------------------------------------
 
 function asLogger(mock: MockLogger): Logger {
-  return mock as unknown as Logger;
+  const surface: Partial<Logger> = mock;
+  return surface as Logger;
 }
 
 function createMockCopilotAuth(): jest.Mocked<ICopilotAuthService> {
@@ -145,6 +147,7 @@ function makeStrategy(): Harness {
   const codexAuth = createMockCodexAuth();
   const codexProxy = createMockTranslationProxy();
   const providerModels = createMockProviderModels();
+  const providerModelsSurface: Partial<ProviderModelsService> = providerModels;
   const sentry = createMockSentryService();
 
   const strategy = new OAuthProxyStrategy(
@@ -153,8 +156,8 @@ function makeStrategy(): Harness {
     copilotProxy,
     codexAuth,
     codexProxy,
-    providerModels as unknown as ProviderModelsService,
-    sentry as unknown as SentryService,
+    providerModelsSurface as ProviderModelsService,
+    sentry as SentryService,
   );
 
   return {
@@ -169,7 +172,10 @@ function makeStrategy(): Harness {
 }
 
 describe('OAuthProxyStrategy', () => {
+  const originalEnv = { ...process.env };
+
   afterEach(() => {
+    process.env = { ...originalEnv };
     jest.clearAllMocks();
   });
 
@@ -183,41 +189,51 @@ describe('OAuthProxyStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('GitHub Copilot flow', () => {
-    it('happy path: already authed → starts proxy, sets env, and reports success', async () => {
-      const harness = makeStrategy();
-      harness.copilotAuth.isAuthenticated.mockResolvedValueOnce(true);
-      harness.copilotProxy.isRunning.mockReturnValueOnce(false); // not yet running
-      harness.copilotProxy.start.mockResolvedValueOnce({
-        port: 9321,
-        url: 'http://127.0.0.1:9321',
-      });
+    it.each([undefined, false, true])(
+      'happy path with hostNativeCodex=%s: starts proxy, sets env, and reports success',
+      async (hostNativeCodex) => {
+        const harness = makeStrategy();
+        harness.copilotAuth.isAuthenticated.mockResolvedValueOnce(true);
+        harness.copilotProxy.isRunning.mockReturnValueOnce(false); // not yet running
+        harness.copilotProxy.start.mockResolvedValueOnce({
+          port: 9321,
+          url: 'http://127.0.0.1:9321',
+        });
 
-      const ctx = makeContext('github-copilot');
-      const result = await harness.strategy.configure(ctx);
+        const ctx = makeContext('github-copilot');
+        if (hostNativeCodex !== undefined) {
+          ctx.operationContext = authOperationContextSchema.parse({
+            providerId: 'github-copilot',
+            reason: 'provider-selection',
+            hostNativeCodex,
+          });
+        }
+        const result = await harness.strategy.configure(ctx);
 
-      // Codex proxy stopped first to prevent cross-contamination.
-      // (Guarded by isRunning() → default false, so stop() isn't invoked here.)
-      expect(harness.codexProxy.stop).not.toHaveBeenCalled();
+        // Codex proxy stopped first to prevent cross-contamination.
+        // (Guarded by isRunning() → default false, so stop() isn't invoked here.)
+        expect(harness.codexProxy.stop).not.toHaveBeenCalled();
 
-      expect(harness.copilotAuth.tryRestoreAuth).not.toHaveBeenCalled();
-      expect(harness.copilotProxy.start).toHaveBeenCalledTimes(1);
-      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9321');
-      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
-        COPILOT_PROXY_TOKEN_PLACEHOLDER,
-      );
-      expect(process.env['ANTHROPIC_BASE_URL']).toBe('http://127.0.0.1:9321');
-      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
-        'github-copilot',
-      );
+        expect(harness.copilotAuth.tryRestoreAuth).not.toHaveBeenCalled();
+        expect(harness.copilotProxy.start).toHaveBeenCalledTimes(1);
+        expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9321');
+        expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+          COPILOT_PROXY_TOKEN_PLACEHOLDER,
+        );
+        expect(process.env['ANTHROPIC_BASE_URL']).toBe('http://127.0.0.1:9321');
+        expect(
+          harness.providerModels.switchActiveProvider,
+        ).toHaveBeenCalledWith('github-copilot');
 
-      expect(result.configured).toBe(true);
-      expect(result.details[0]).toContain('GitHub Copilot');
-      expect(result.details[0]).toContain('http://127.0.0.1:9321');
+        expect(result.configured).toBe(true);
+        expect(result.details[0]).toContain('GitHub Copilot');
+        expect(result.details[0]).toContain('http://127.0.0.1:9321');
 
-      // cleanup the env var we set
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-    });
+        // cleanup the env var we set
+        delete process.env['ANTHROPIC_BASE_URL'];
+        delete process.env['ANTHROPIC_AUTH_TOKEN'];
+      },
+    );
 
     it('attempts silent restore when not authed and succeeds', async () => {
       const harness = makeStrategy();
@@ -330,6 +346,102 @@ describe('OAuthProxyStrategy', () => {
   // -------------------------------------------------------------------------
 
   describe('OpenAI Codex flow', () => {
+    it.each(['startup', 'provider-selection', 'reauth', 'auth-file-changed'])(
+      'native %s leaves Claude auth, proxies, watchers and models untouched',
+      async (reason) => {
+        const harness = makeStrategy();
+        harness.copilotProxy.isRunning.mockReturnValue(true);
+        harness.codexProxy.isRunning.mockReturnValue(true);
+        const authEnv: AuthEnv = {
+          ANTHROPIC_API_KEY: 'test-claude-key',
+          ANTHROPIC_AUTH_TOKEN: 'test-claude-token',
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:9321',
+        };
+        Object.assign(process.env, authEnv);
+        const envBefore = { ...process.env };
+        const authBefore = { ...authEnv };
+
+        const result = await harness.strategy.configure({
+          providerId: 'openai-codex',
+          authEnv,
+          operationContext: authOperationContextSchema.parse({
+            providerId: 'openai-codex',
+            hostNativeCodex: true,
+            reason,
+            normalizedHome: 'D:/codex-test-home',
+          }),
+        });
+
+        expect(result).toEqual({
+          configured: false,
+          details: ['Codex authentication is owned by the native runtime.'],
+        });
+        expect(authEnv).toEqual(authBefore);
+        expect(process.env).toEqual(envBefore);
+        for (const proxy of [harness.codexProxy, harness.copilotProxy]) {
+          expect(proxy.start).not.toHaveBeenCalled();
+          expect(proxy.stop).not.toHaveBeenCalled();
+          expect(proxy.isRunning).not.toHaveBeenCalled();
+          expect(proxy.getUrl).not.toHaveBeenCalled();
+        }
+        expect(harness.codexAuth.isAuthenticated).not.toHaveBeenCalled();
+        expect(harness.codexAuth.ensureTokensFresh).not.toHaveBeenCalled();
+        expect(harness.codexAuth.startWatchingAuthFile).not.toHaveBeenCalled();
+        expect(harness.codexAuth.stopWatchingAuthFile).not.toHaveBeenCalled();
+        expect(harness.codexAuth.clearCache).not.toHaveBeenCalled();
+        expect(harness.copilotAuth.isAuthenticated).not.toHaveBeenCalled();
+        expect(
+          harness.providerModels.switchActiveProvider,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      { reason: 'startup', hostNativeCodex: false },
+      { reason: 'provider-selection', hostNativeCodex: false },
+      { reason: 'reauth', hostNativeCodex: false },
+      { reason: 'auth-file-changed', hostNativeCodex: false },
+      { reason: 'legacy-session-start', hostNativeCodex: true },
+      { reason: 'legacy-session-start', hostNativeCodex: false },
+      { reason: 'startup' },
+    ])('keeps the translation proxy flow for %j', async (operation) => {
+      const harness = makeStrategy();
+      harness.copilotProxy.isRunning.mockReturnValue(true);
+      harness.codexAuth.isAuthenticated.mockResolvedValue(true);
+      harness.codexAuth.ensureTokensFresh.mockResolvedValue(true);
+      harness.codexProxy.start.mockResolvedValue({
+        port: 9401,
+        url: 'http://127.0.0.1:9401',
+      });
+      const context = makeContext('openai-codex');
+      context.operationContext = authOperationContextSchema.parse({
+        providerId: 'openai-codex',
+        ...operation,
+      });
+
+      const result = await harness.strategy.configure(context);
+
+      expect(result.configured).toBe(true);
+      expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
+      expect(harness.codexAuth.startWatchingAuthFile).toHaveBeenCalledTimes(1);
+      expect(harness.codexAuth.isAuthenticated).toHaveBeenCalledTimes(1);
+      expect(harness.codexAuth.ensureTokensFresh).toHaveBeenCalledTimes(1);
+      expect(harness.codexProxy.start).toHaveBeenCalledTimes(1);
+      expect(context.authEnv).toEqual({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:9401',
+        ANTHROPIC_AUTH_TOKEN: CODEX_PROXY_TOKEN_PLACEHOLDER,
+      });
+      expect(process.env['ANTHROPIC_BASE_URL']).toBe(
+        context.authEnv.ANTHROPIC_BASE_URL,
+      );
+      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBe(
+        CODEX_PROXY_TOKEN_PLACEHOLDER,
+      );
+      expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+        'openai-codex',
+      );
+    });
+
     it('happy path: authed + tokens fresh → starts codex proxy and sets env', async () => {
       const harness = makeStrategy();
       harness.codexAuth.isAuthenticated.mockResolvedValueOnce(true);

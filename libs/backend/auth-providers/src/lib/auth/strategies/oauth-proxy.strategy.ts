@@ -16,6 +16,7 @@ import type {
   AuthConfigureResult,
   AuthConfigureContext,
 } from '../auth-strategy.types';
+import { resolveCodexProxyPolicy } from '../codex-proxy-policy';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
 import type { ProviderModelsService } from '../../provider-models.service';
 import type {
@@ -51,8 +52,7 @@ export class OAuthProxyStrategy implements IAuthStrategy {
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv } = context;
     if (providerId === 'openai-codex') {
-      await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
-      return this.configureCodexOAuth(providerId, authEnv);
+      return this.configureCodexOAuth(context);
     }
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     this.codexAuth.stopWatchingAuthFile();
@@ -164,9 +164,17 @@ export class OAuthProxyStrategy implements IAuthStrategy {
    * Uses file-based auth from ~/.codex/auth.json and the Codex translation proxy.
    */
   private async configureCodexOAuth(
-    providerId: string,
-    authEnv: import('@ptah-extension/shared').AuthEnv,
+    context: AuthConfigureContext,
   ): Promise<AuthConfigureResult> {
+    const { providerId, authEnv, operationContext } = context;
+    if (resolveCodexProxyPolicy(operationContext) === 'native-return') {
+      return {
+        configured: false,
+        details: ['Codex authentication is owned by the native runtime.'],
+      };
+    }
+
+    await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
     this.logger.info(`[${this.name}] Configuring OAuth provider: OpenAI Codex`);
     // Start watching before the auth check so that if auth currently fails, a
     // later `codex login` is detected and the adapter re-initializes itself.
