@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { CodexAppServerProcess } from './codex-app-server-process';
 import { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime';
 import type {
   CodexExecutionProfile,
@@ -30,7 +31,6 @@ const profile: CodexExecutionProfile = {
     },
   },
   sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
-  experimentalApi: true,
   instructionSources: [],
   mcpServers: [],
   attachments: [],
@@ -243,6 +243,24 @@ describe('CodexRuntime', () => {
     }
   });
 
+  it.each([undefined, '/wrong/home'])(
+    'fails closed with a typed home mismatch for %s',
+    async (verified) => {
+      const getter = jest
+        .spyOn(CodexAppServerProcess.prototype, 'verifiedCodexHome', 'get')
+        .mockReturnValue(verified);
+      try {
+        await expect(runtime.open(profile)).rejects.toMatchObject({
+          code: 'codexHomeMismatch',
+        });
+        expect(persist).not.toHaveBeenCalled();
+        expect(children[0].stdin.writableEnded).toBe(true);
+      } finally {
+        getter.mockRestore();
+      }
+    },
+  );
+
   it.each(['chat', 'lane'] as const)(
     'isolates same-home chat/%s processes, settings and turns',
     async (consumer) => {
@@ -410,18 +428,107 @@ describe('CodexRuntime', () => {
     expect(options.sink.request).toHaveBeenCalledTimes(1);
   });
 
-  it('closes after uncertain interruption and never retries the mutation', async () => {
+  it.each([
+    'turn/start',
+    'turn/steer',
+    'turn/interrupt',
+    'thread/compact/start',
+  ])('keeps the context usable after rejection of %s', async (method) => {
+    const context = await runtime.open(profile);
+    if (method === 'turn/steer' || method === 'turn/interrupt')
+      await context.startTurn({ text: 'go' });
+    children[0].failMethod = method;
+    const rejected =
+      method === 'turn/start'
+        ? context.startTurn({ text: 'go' })
+        : method === 'turn/steer'
+          ? context.steer({ text: 'edit' })
+          : method === 'turn/interrupt'
+            ? context.interrupt('turn-1')
+            : context.compact();
+    await expect(rejected).rejects.toMatchObject({
+      code: 'codexRequestRejected',
+      retryable: true,
+    });
+    expect(children[0].stdin.writableEnded).toBe(false);
+    children[0].failMethod = undefined;
+    if (method === 'turn/steer' || method === 'turn/interrupt')
+      children[0].complete();
+    await expect(context.startTurn({ text: 'again' })).resolves.toBeDefined();
+  });
+  it('cancels approvals arriving while interrupting', async () => {
     const context = await runtime.open(profile);
     await context.startTurn({ text: 'go' });
-    children[0].failMethod = 'turn/interrupt';
-    expect(await context.interrupt('turn-1')).toBe(false);
-    await expect(context.startTurn({ text: 'again' })).rejects.toThrow(
-      'not ready',
-    );
-    expect(
-      children[0].frames.filter((frame) => frame['method'] === 'turn/start'),
-    ).toHaveLength(1);
+    await context.interrupt('turn-1');
+    children[0].approval();
+    await flush();
+    expect(children[0].frames.at(-1)).toEqual({
+      id: 'approval',
+      result: { decision: 'cancel' },
+    });
+    expect(options.sink.request).not.toHaveBeenCalled();
+    expect(children[0].stdin.writableEnded).toBe(false);
   });
+  it('buffers events and terminal before the first next call', async () => {
+    const context = await runtime.open(profile);
+    const events = context.events(new AbortController().signal);
+    await context.startTurn({ text: 'go' });
+    children[0].complete();
+    await context.close();
+    const received = [];
+    for await (const event of events) received.push(event);
+    expect(received.filter((event) => event.type === 'terminal')).toHaveLength(
+      1,
+    );
+  });
+  it('closes only the overflowing subscriber', async () => {
+    const context = await runtime.open(profile);
+    const events = context.events(new AbortController().signal);
+    const iterator = events[Symbol.asyncIterator]();
+    await context.startTurn({ text: 'go' });
+    for (let i = 0; i < 1030; i++)
+      children[0].notify('item/agentMessage/delta', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'message',
+        delta: 'x',
+      });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'error',
+      error: { code: 'codexSubscriberOverflow' },
+    });
+    expect((await iterator.next()).done).toBe(true);
+    expect(children[0].stdin.writableEnded).toBe(false);
+    children[0].complete();
+    await expect(context.startTurn({ text: 'again' })).resolves.toBeDefined();
+  });
+  it.each(['interrupt', 'compact'] as const)(
+    'bounds the %s completion wait',
+    async (operation) => {
+      const context = await runtime.open(profile);
+      jest.useFakeTimers({
+        doNotFake: ['queueMicrotask', 'setImmediate', 'nextTick'],
+      });
+      try {
+        if (operation === 'interrupt') {
+          await context.startTurn({ text: 'go' });
+          await context.interrupt('turn-1');
+        }
+        const compacting =
+          operation === 'compact'
+            ? expect(context.compact()).rejects.toThrow('compaction failed')
+            : Promise.resolve();
+        await flush();
+        await jest.advanceTimersByTimeAsync(30_000);
+        await compacting;
+        await expect(context.startTurn({ text: 'later' })).rejects.toThrow(
+          'not ready',
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    },
+  );
 
   it('emits one sanitized terminal failure on crash and ignores late approvals', async () => {
     let answer: (decision: 'accept') => void = () => undefined;

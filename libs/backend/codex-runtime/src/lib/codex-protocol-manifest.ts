@@ -1,11 +1,5 @@
-/** One reviewed platform/architecture row from the pinned protocol manifest. */
-export interface CodexProtocolManifest {
-  readonly pinnedVersion: string;
-  readonly platform: string;
-  readonly arch: string;
-  readonly binarySha256: string;
-  readonly binaryPath?: string;
-}
+import type { CodexExecutableManifestRow } from './codex-runtime-ports';
+
 export interface CodexBinaryIdentity {
   readonly executablePath: string;
   readonly versionOutput: string;
@@ -24,7 +18,10 @@ export type CodexBinaryVerification =
 /** Pure identity check. Paths are diagnostic only; never regenerate on a mismatch. */
 export function verifyCodexBinary(
   binary: CodexBinaryIdentity,
-  manifest: CodexProtocolManifest,
+  manifest: Pick<
+    CodexExecutableManifestRow,
+    'pinnedVersion' | 'platform' | 'arch' | 'binarySha256'
+  >,
 ): CodexBinaryVerification {
   if (binary.platform !== manifest.platform || binary.arch !== manifest.arch) {
     return { status: 'mismatch', reason: 'unsupportedPlatform' };

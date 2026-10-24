@@ -1,8 +1,13 @@
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
+import { normalizeCodexHomeKey } from '../codex-home-path';
 import { CodexAccountUsageClient } from '../codex-account-usage-client';
 import { CodexAppServerProcess } from '../codex-app-server-process';
 import type { CodexHomeAuthReader } from '../codex-home-auth-reader';
-import { CodexParityGate } from '../codex-parity-gate';
+import {
+  CodexParityGate,
+  type CodexParityConsumer,
+  type CodexParityPlatform,
+} from '../codex-parity-gate';
 import { CodexRuntime, type CodexRuntimeOptions } from '../codex-runtime';
 import type { CodexExecutionProfile } from '../codex-runtime.types';
 import { CODEX_RUNTIME_TOKENS } from './tokens';
@@ -17,13 +22,17 @@ export interface CodexRuntimeRegistrationPorts extends CodexRuntimeOptions {
 }
 
 /** Register once per host-owned container. The owner closes runtime and usage on exit.
+ * Call close() explicitly on resolved runtime/client; tsyringe dispose() does not call it.
  * No process starts here. Composition supplies resolved ports; no service locator is used.
- * Hosts must consult CodexParityGate before routing; this registration enables no route.
+ * Hosts must use resolveGatedCodexRuntime before routing; this registration enables no route.
  */
 export function registerCodexRuntime(
   container: DependencyContainer,
   ports: CodexRuntimeRegistrationPorts,
 ): void {
+  if (container.isRegistered(CODEX_RUNTIME_TOKENS.Runtime, true)) {
+    throw new Error('Codex runtime already registered');
+  }
   container.register(CODEX_RUNTIME_TOKENS.ExecutableSource, {
     useValue: ports.executable,
   });
@@ -36,9 +45,14 @@ export function registerCodexRuntime(
   container.register(CODEX_RUNTIME_TOKENS.Clock, { useValue: ports.clock });
   container.register(CODEX_RUNTIME_TOKENS.Logger, { useValue: ports.logger });
   container.register(CODEX_RUNTIME_TOKENS.Runtime, {
-    useValue: new CodexRuntime(ports),
+    useFactory: instanceCachingFactory(() => new CodexRuntime(ports)),
   });
-  container.register(CodexParityGate, { useValue: new CodexParityGate() });
+  container.register(CODEX_RUNTIME_TOKENS.ParityGate, {
+    useFactory: instanceCachingFactory(() => new CodexParityGate()),
+  });
+  container.register(CodexParityGate, {
+    useToken: CODEX_RUNTIME_TOKENS.ParityGate,
+  });
 
   const usage = ports.usage;
   if (usage === null) {
@@ -55,22 +69,36 @@ export function registerCodexRuntime(
     useValue: usage.auth,
   });
   container.register(CodexAccountUsageClient, {
-    useValue: new CodexAccountUsageClient(
-      usage.auth,
-      (home, handlers) => {
-        const profile = usage.profileForHome(home);
-        if (profile.consumer !== 'usage' || profile.normalizedHome !== home) {
-          throw new Error('Codex usage profile identity mismatch');
-        }
-        return new CodexAppServerProcess(
-          ports.spawner,
-          ports.executable,
-          ports.binary,
-          profile,
-          handlers,
-        );
-      },
-      () => ports.clock.now(),
+    useFactory: instanceCachingFactory(() =>
+      CodexAccountUsageClient.fromProfiles(
+        usage.auth,
+        (home) =>
+          usage.profileForHome(normalizeCodexHomeKey(home, process.platform)),
+        (profile, handlers) =>
+          new CodexAppServerProcess(
+            ports.spawner,
+            ports.executable,
+            ports.binary,
+            profile,
+            handlers,
+          ),
+        () => ports.clock.now(),
+      ),
     ),
   });
+}
+
+/** Routing boundary: the raw Runtime token is for lifecycle ownership and tests only. */
+export function resolveGatedCodexRuntime(
+  container: DependencyContainer,
+  consumer: CodexParityConsumer,
+  platform: CodexParityPlatform,
+): CodexRuntime {
+  const gate = container.resolve<CodexParityGate>(
+    CODEX_RUNTIME_TOKENS.ParityGate,
+  );
+  if (!gate.isEnabled(consumer, platform)) {
+    throw new Error('Codex production routing disabled by parity gate');
+  }
+  return container.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
 }

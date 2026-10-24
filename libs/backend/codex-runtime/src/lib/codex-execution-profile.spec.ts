@@ -43,7 +43,6 @@ describe('buildCodexExecutionProfile', () => {
       expect(profile.approvalPolicy).toEqual(observed.approvalPolicy);
       expect(profile.sandboxPolicy.mode).toBe(observed.sandbox);
       expect(profile.sandboxPolicy.networkAccess).toBe(false);
-      expect(profile.experimentalApi).toBe(permissionLevel === 'ask');
       expect(profile.approvalsReviewer).toBe('user');
       expect(profile.fullAccessStatus).toBe('unproved-disabled');
       expect(profile.sandboxPolicy.writableRoots).toEqual(
@@ -155,7 +154,7 @@ describe('buildCodexExecutionProfile', () => {
     );
   });
 
-  it('preserves Windows path case and resolves relative paths from an explicit base', () => {
+  it('preserves Windows cwd case and folds home identity and resolves relative paths from an explicit base', () => {
     const source = input();
     const profile = buildCodexExecutionProfile({
       ...source,
@@ -171,7 +170,7 @@ describe('buildCodexExecutionProfile', () => {
       },
     });
     expect(profile.cwd).toBe('C:\\Actual\\Work');
-    expect(profile.normalizedHome).toBe('C:\\Root\\Home');
+    expect(profile.normalizedHome).toBe('c:\\root\\home');
   });
 
   it.each(['/missing', '/file', '/unobserved', '~/work', '$HOME/work'])(
@@ -225,9 +224,15 @@ describe('buildCodexExecutionProfile', () => {
     const revised = buildCodexExecutionProfile({
       ...source,
       resume,
-      session: { ...source.session, model: 'next', effort: 'high' },
+      session: {
+        ...source.session,
+        model: 'next',
+        effort: 'high',
+        enhancedPrompt: 'next turn',
+        attachments: [{ type: 'file', path: '/file' }],
+      },
     });
-    expect(revised.profileFingerprint).not.toBe(resume.profileFingerprint);
+    expect(revised.profileFingerprint).toBe(resume.profileFingerprint);
     expect(resume.model).toBe('model');
     for (const patch of [
       { contextId: 'other' },
@@ -278,6 +283,29 @@ describe('buildCodexExecutionProfile', () => {
     expect(original.normalizedHome).toBe(other.normalizedHome);
     expect(original.profileFingerprint).not.toBe(other.profileFingerprint);
     expect(original.profileFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it('changes identity when thread policy or instructions change', () => {
+    const source = input();
+    const original = buildCodexExecutionProfile(source);
+    for (const patch of [
+      { permissionLevel: 'auto-edit' as const },
+      { systemPrompt: 'new system instruction' },
+      { developerPrompt: 'new developer instruction' },
+      { outputStyle: 'brief' },
+      {
+        instructionSources: [
+          { kind: 'inline' as const, name: 'role', content: 'new role' },
+        ],
+      },
+    ]) {
+      expect(
+        buildCodexExecutionProfile({
+          ...source,
+          session: { ...source.session, ...patch },
+        }).profileFingerprint,
+      ).not.toBe(original.profileFingerprint);
+    }
   });
 
   it('rejects malformed input and credential-bearing URLs with sanitized errors', () => {

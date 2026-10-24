@@ -73,7 +73,6 @@ export interface CodexExecutionProfile {
   readonly permissionLevel: CodexPermissionLevel;
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly sandboxPolicy: CodexSandboxPolicy;
-  readonly experimentalApi: boolean;
   readonly enhancedPrompt?: string;
   readonly systemPrompt?: string;
   readonly developerPrompt?: string;

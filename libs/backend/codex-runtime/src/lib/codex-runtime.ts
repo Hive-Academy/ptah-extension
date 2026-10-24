@@ -2,6 +2,8 @@ import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { z } from 'zod';
 import {
   CodexAppServerProcess,
+  CodexHomeMismatchError,
+  CodexRequestRejectedError,
   type CodexAppServerHandlers,
 } from './codex-app-server-process';
 import {
@@ -112,8 +114,9 @@ export class CodexRuntime implements RuntimePort {
     try {
       await context.open(resume);
       return context;
-    } catch {
+    } catch (error) {
       await context.close();
+      if (error instanceof CodexHomeMismatchError) throw error;
       throw new Error('Codex context could not be opened');
     }
   }
@@ -130,6 +133,8 @@ export class CodexRuntime implements RuntimePort {
 interface Subscriber {
   readonly queue: CodexRuntimeEvent[];
   wake: () => void;
+  closed: boolean;
+  release: () => void;
 }
 
 /** Operations serialize RPC admission, never the lifetime of a running turn. */
@@ -157,6 +162,7 @@ class RuntimeContext implements CodexContext {
   private releaseTurnSignal?: () => void;
   private compacting?: Promise<void>;
   private finishCompact?: () => void;
+  private interruptTimer?: ReturnType<typeof setTimeout>;
   private readonly targets = new Map<string, CodexPermissionRuleTarget>();
 
   constructor(
@@ -192,7 +198,11 @@ class RuntimeContext implements CodexContext {
       {
         onNotification: (frame) => this.onNotification(frame),
         onRequest: async (frame, signal) => {
-          if (!this.bridge || !this.activeTurn || this.state !== 'running')
+          if (
+            !this.bridge ||
+            !this.activeTurn ||
+            (this.state !== 'running' && this.state !== 'interrupting')
+          )
             throw new Error('Codex approval has no live turn');
           const result = await this.bridge.handle(
             frame,
@@ -206,7 +216,10 @@ class RuntimeContext implements CodexContext {
             const handle = setImmediate(() => {
               this.followUps.delete(handle);
               if (this.state === 'closed' || signal.aborted) return;
-              void this.steer({ text }).catch(() => this.onFailure());
+              void this.steer({ text }).catch((error: unknown) => {
+                if (!(error instanceof CodexRequestRejectedError))
+                  this.onFailure();
+              });
             });
             this.followUps.add(handle);
           }
@@ -224,12 +237,8 @@ class RuntimeContext implements CodexContext {
 
   async open(resume?: CodexThreadIdentity): Promise<void> {
     await this.process.start();
-    const verified =
-      'verifiedCodexHome' in this.process
-        ? this.process.verifiedCodexHome
-        : undefined;
-    if (verified !== undefined && verified !== this.profile.normalizedHome)
-      throw new Error('Codex home verification failed');
+    if (this.process.verifiedCodexHome !== this.profile.normalizedHome)
+      throw new CodexHomeMismatchError();
     const instructions = [
       this.profile.developerPrompt,
       this.profile.outputStyle,
@@ -292,35 +301,67 @@ class RuntimeContext implements CodexContext {
     this.state = 'idle';
   }
 
-  async *events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent> {
-    const subscriber: Subscriber = { queue: [], wake: () => undefined };
-    const abort = () => subscriber.wake();
-    this.subscribers.add(subscriber);
-    signal.addEventListener('abort', abort, { once: true });
-    try {
-      while (!signal.aborted) {
-        const event = subscriber.queue.shift();
-        if (event) yield event;
-        else if (this.state === 'closed') return;
-        else
-          await new Promise<void>((resolve) => {
-            subscriber.wake = resolve;
-          });
-      }
-    } finally {
+  events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent> {
+    const subscriber: Subscriber = {
+      queue: [],
+      wake: () => undefined,
+      closed: false,
+      release: () => undefined,
+    };
+    subscriber.release = () => {
+      subscriber.closed = true;
       signal.removeEventListener('abort', abort);
       this.subscribers.delete(subscriber);
-    }
+      subscriber.wake();
+    };
+    const abort = () => {
+      subscriber.queue.length = 0;
+      subscriber.release();
+    };
+    if (!signal.aborted && this.state !== 'closed') {
+      this.subscribers.add(subscriber);
+      signal.addEventListener('abort', abort, { once: true });
+    } else subscriber.closed = true;
+    // Registration happens above, before the first next() call.
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          while (!signal.aborted) {
+            const event = subscriber.queue.shift();
+            if (event) return { value: event, done: false };
+            if (subscriber.closed) break;
+            await new Promise<void>((resolve) => {
+              subscriber.wake = resolve;
+            });
+          }
+          subscriber.release();
+          return { value: undefined, done: true };
+        },
+        return: async () => {
+          subscriber.queue.length = 0;
+          subscriber.release();
+          return { value: undefined, done: true };
+        },
+      }),
+    };
   }
 
   private emit(event: CodexRuntimeEvent): void {
     const ordered = { ...event, sequence: ++this.sequence };
     for (const subscriber of this.subscribers) {
       if (subscriber.queue.length >= 1024) {
-        // Bound slow consumers; preserve the terminal failure instead of silently dropping it.
         subscriber.queue.length = 0;
-        this.onFailure();
-        return;
+        subscriber.queue.push({
+          ...ordered,
+          type: 'error',
+          error: {
+            code: 'codexSubscriberOverflow',
+            message: 'Codex event subscription exceeded its buffer limit.',
+            retryable: true,
+          },
+        });
+        subscriber.release();
+        continue;
       }
       subscriber.queue.push(ordered);
       subscriber.wake();
@@ -379,6 +420,8 @@ class RuntimeContext implements CodexContext {
           this.turnController.abort();
           this.releaseTurnSignal?.();
           this.releaseTurnSignal = undefined;
+          clearTimeout(this.interruptTimer);
+          this.interruptTimer = undefined;
           this.state = 'idle';
         }
         this.finishCompact?.();
@@ -483,7 +526,11 @@ class RuntimeContext implements CodexContext {
         turnId,
         revision: this.turnRevision,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof CodexRequestRejectedError) {
+        if (!this.activeTurn) this.state = 'idle';
+        throw error;
+      }
       this.onFailure();
       throw new Error('Codex turn start failed');
     }
@@ -510,7 +557,8 @@ class RuntimeContext implements CodexContext {
           turnId: result.turnId,
           revision: this.turnRevision,
         };
-      } catch {
+      } catch (error) {
+        if (error instanceof CodexRequestRejectedError) throw error;
         this.onFailure();
         throw new Error('Codex steer failed');
       }
@@ -523,7 +571,9 @@ class RuntimeContext implements CodexContext {
   ): void {
     if (!signal) return;
     const abort = () => {
-      void this.interrupt(turnId).catch(() => this.onFailure());
+      void this.interrupt(turnId).catch((error: unknown) => {
+        if (!(error instanceof CodexRequestRejectedError)) this.onFailure();
+      });
     };
     signal.addEventListener('abort', abort, { once: true });
     this.releaseTurnSignal = () => signal.removeEventListener('abort', abort);
@@ -534,6 +584,8 @@ class RuntimeContext implements CodexContext {
     return this.serialize(async () => {
       if (this.activeTurn !== turnId) return false;
       this.state = 'interrupting';
+      clearTimeout(this.interruptTimer);
+      this.interruptTimer = setTimeout(() => this.onFailure(), 30_000);
       // Invalidate pending UI answers before asking the server to interrupt.
       this.turnController.abort();
       try {
@@ -543,8 +595,16 @@ class RuntimeContext implements CodexContext {
         });
         // An RPC acknowledgement is not proof of terminal state. Admission remains blocked.
         return true;
-      } catch {
-        // degradation-audit: reported - onFailure closes the context and emits a terminal error for the unfinished turn before returning the interrupt result.
+      } catch (error) {
+        if (error instanceof CodexRequestRejectedError) {
+          clearTimeout(this.interruptTimer);
+          this.interruptTimer = undefined;
+          if (this.activeTurn === turnId) {
+            this.state = 'running';
+            this.turnController = new AbortController();
+          }
+          throw error;
+        }
         this.onFailure();
         return false;
       }
@@ -589,16 +649,19 @@ class RuntimeContext implements CodexContext {
       const completed = new Promise<void>((resolve) => {
         this.finishCompact = resolve;
       });
+      const timer = setTimeout(() => this.onFailure(), 30_000);
       try {
         await this.process.request('thread/compact/start', {
           threadId: this.identity.threadId,
         });
         await completed;
         this.assertOpen();
-      } catch {
+      } catch (error) {
+        if (error instanceof CodexRequestRejectedError) throw error;
         this.onFailure();
         throw new Error('Codex compaction failed');
       } finally {
+        clearTimeout(timer);
         this.finishCompact = undefined;
       }
     }).finally(() => {
@@ -614,6 +677,8 @@ class RuntimeContext implements CodexContext {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.state = 'closed';
+    clearTimeout(this.interruptTimer);
+    this.interruptTimer = undefined;
     this.turnController.abort();
     this.finishCompact?.();
     this.bridge?.dispose();
@@ -639,7 +704,7 @@ class RuntimeContext implements CodexContext {
     this.activeTurn = undefined;
     this.translator.dispose();
     this.targets.clear();
-    for (const subscriber of this.subscribers) subscriber.wake();
+    for (const subscriber of this.subscribers) subscriber.release();
     this.closing = this.finishClose();
     return this.closing;
   }

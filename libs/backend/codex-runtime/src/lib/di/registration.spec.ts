@@ -5,6 +5,7 @@ import {
   CodexRuntime,
   CODEX_RUNTIME_TOKENS,
   registerCodexRuntime,
+  resolveGatedCodexRuntime,
   type CodexRuntimePort,
   type CodexRuntimeRegistrationPorts,
 } from '../../index';
@@ -79,6 +80,34 @@ describe('registerCodexRuntime composition', () => {
     ).toBe(false);
     expect(dependencies.spawner.spawnProcess).not.toHaveBeenCalled();
     await runtime.close();
+    await child.dispose();
+  });
+
+  it('rejects re-registration without replacing the owned instance', async () => {
+    const child = container.createChildContainer();
+    registerCodexRuntime(child, ports());
+    const runtime = child.resolve<CodexRuntime>(CODEX_RUNTIME_TOKENS.Runtime);
+    expect(() => registerCodexRuntime(child, ports())).toThrow(
+      'already registered',
+    );
+    expect(child.resolve(CODEX_RUNTIME_TOKENS.Runtime)).toBe(runtime);
+    await runtime.close();
+    await child.dispose();
+  });
+
+  it('checks the parity decision before resolving a runtime for routing', async () => {
+    const child = container.createChildContainer();
+    registerCodexRuntime(child, ports());
+    const resolve = jest.spyOn(child, 'resolve');
+    expect(() =>
+      resolveGatedCodexRuntime(child, 'chat', {
+        platform: 'win32',
+        arch: 'x64',
+      }),
+    ).toThrow('parity gate');
+    expect(resolve).toHaveBeenCalledWith(CODEX_RUNTIME_TOKENS.ParityGate);
+    expect(resolve).not.toHaveBeenCalledWith(CODEX_RUNTIME_TOKENS.Runtime);
+    resolve.mockRestore();
     await child.dispose();
   });
 

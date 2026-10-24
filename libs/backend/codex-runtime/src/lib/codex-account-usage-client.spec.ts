@@ -153,7 +153,6 @@ describe('CodexAccountUsageClient', () => {
             networkAccess: false,
             writableRoots: [],
           },
-          experimentalApi: true,
           instructionSources: [],
           mcpServers: [],
           attachments: [],
@@ -206,6 +205,59 @@ describe('CodexAccountUsageClient', () => {
       kind: 'changed',
     });
   }
+
+  it('runs a fresh read after joining an in-flight cached read', async () => {
+    await client.read(homeA);
+    const cached = client.read(homeA);
+    const refreshed = client.read(homeA, { refresh: true });
+    await Promise.all([cached, refreshed]);
+    expect(children).toHaveLength(2);
+  });
+
+  it.each(['wrong-consumer', 'wrong-home', 'equivalent-home'])(
+    'validates %s inside the usage factory before creating a process',
+    async (scenario) => {
+      const createProcess = jest.fn(() => {
+        throw new Error('Unexpected spawn');
+      });
+      const factoryClient = CodexAccountUsageClient.fromProfiles(
+        auth,
+        (home) => ({
+          contextId: 'usage',
+          consumer: scenario === 'wrong-consumer' ? 'chat' : 'usage',
+          normalizedHome:
+            scenario === 'wrong-home'
+              ? key(homeB)
+              : process.platform === 'win32'
+                ? home.toUpperCase() + '/'
+                : home + '/',
+          providerId: 'openai-codex',
+          workspaceId: 'usage',
+          cwd: process.cwd(),
+          model: 'unused',
+          permissionLevel: 'plan',
+          approvalPolicy: 'never',
+          sandboxPolicy: {
+            mode: 'read-only',
+            networkAccess: false,
+            writableRoots: [],
+          },
+          instructionSources: [],
+          mcpServers: [],
+          attachments: [],
+          profileFingerprint: 'usage',
+        }),
+        createProcess,
+      );
+      expect((await factoryClient.read(homeA)).status).toBe(
+        'service-unavailable',
+      );
+      expect(createProcess).toHaveBeenCalledTimes(
+        scenario === 'equivalent-home' ? 1 : 0,
+      );
+      await factoryClient.close();
+    },
+  );
 
   it('reads two homes concurrently, preserves isolated caches and hashes scoped identities', async () => {
     configure = (child) => {

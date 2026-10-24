@@ -200,6 +200,7 @@ export class CodexApprovalBridge {
         this.options.permissionLevel(),
         request.kind,
         target !== undefined && this.options.rules.matches(identity, target),
+        request.details,
       );
       reply = await this.interact(request, signal, policy);
     }

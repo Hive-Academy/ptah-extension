@@ -196,30 +196,20 @@ const notifications: [string, unknown][] = [
 describe('Codex protocol validation', () => {
   it('replays every inbound method from spike runs 6e through 6j', () => {
     const methods = new Set<string>();
-    const visit = (value: unknown): void => {
-      if (Array.isArray(value)) {
-        value.forEach(visit);
-      } else if (value !== null && typeof value === 'object') {
-        const node = z.record(z.string(), z.unknown()).parse(value);
-        if (node['direction'] === 'in' && typeof node['method'] === 'string')
-          methods.add(node['method']);
-        Object.values(node).forEach(visit);
-      }
-    };
     for (const suffix of ['e', 'f', 'g', 'h', 'i', 'j']) {
-      visit(
-        JSON.parse(
-          readFileSync(
-            join(
-              __dirname,
-              '../../../../..',
-              '.ptah/specs/TASK_2026_714_c8a2',
-              `spike-run-6${suffix}.json`,
+      const sequences = z
+        .array(z.array(z.object({ method: z.string() })))
+        .parse(
+          JSON.parse(
+            readFileSync(
+              join(__dirname, '__fixtures__', `spike-run-6${suffix}.json`),
+              'utf8',
             ),
-            'utf8',
           ),
-        ),
-      );
+        );
+      for (const sequence of sequences) {
+        for (const event of sequence) methods.add(event.method);
+      }
     }
     expect(methods.size).toBe(16);
     for (const method of methods) {

@@ -382,20 +382,14 @@ describe('CodexEventTranslator', () => {
 
 // Recorded evidence supplies ORDER AND ITEM TYPES ONLY. Payloads below are synthetic;
 // sanitized transcripts deliberately omit real text, tool arguments, ids and usage counts.
-const transcript = z.object({
-  results: z.array(
-    z.object({
-      id: z.string(),
-      events: z.array(
-        z.object({
-          direction: z.string(),
-          method: z.string(),
-          itemType: z.string().optional(),
-        }),
-      ),
+const transcript = z.array(
+  z.array(
+    z.strictObject({
+      method: z.string(),
+      itemType: z.string().optional(),
     }),
   ),
-});
+);
 describe.each(['6h', '6i', '6j'])(
   'recorded evidence order: spike-run-%s',
   (run) => {
@@ -403,23 +397,18 @@ describe.each(['6h', '6i', '6j'])(
       const data = transcript.parse(
         JSON.parse(
           readFileSync(
-            resolve(
-              __dirname,
-              '../../../../../.ptah/specs/TASK_2026_714_c8a2',
-              `spike-run-${run}.json`,
-            ),
+            resolve(__dirname, '__fixtures__', `spike-run-${run}.json`),
             'utf8',
           ),
         ),
       );
       let terminalCount = 0;
-      for (const recorded of data.results) {
-        const translator = new CodexEventTranslator(recorded.id, 1);
+      for (const recorded of data) {
+        const translator = new CodexEventTranslator('replay', 1);
         let nextId = 0;
         let currentId = '';
         const toolIds: string[] = [];
-        for (const event of recorded.events) {
-          if (event.direction !== 'in') continue;
+        for (const event of recorded) {
           let events: ReturnType<CodexEventTranslator['translate']> = [];
           if (
             event.method === 'item/started' ||

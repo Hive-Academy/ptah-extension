@@ -14,12 +14,7 @@
         "tsConfig": "libs/backend/codex-runtime/tsconfig.lib.json",
         "assets": [],
         "format": ["cjs"],
-        "external": ["vscode", "tsyringe", "better-sqlite3", "sqlite-vec"]
-      }
-    },
-    "test": {
-      "options": {
-        "passWithNoTests": true
+        "external": ["tsyringe"]
       }
     },
     "typecheck": {

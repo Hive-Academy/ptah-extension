@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { normalizeCodexHomeKey } from './codex-home-path';
+import type { CodexExecutionProfile } from './codex-runtime.types';
 import type { IDisposable } from '@ptah-extension/platform-core';
 import type {
   CodexAppServerHandlers,
@@ -23,6 +24,7 @@ const LIMITS_UPDATED =
   'account/rateLimits/updated' satisfies CodexNotificationMethod;
 
 interface Flight {
+  readonly refresh: boolean;
   readonly controller: AbortController;
   readonly promise: Promise<CodexAccountUsageResult>;
   waiters: number;
@@ -35,13 +37,6 @@ interface HomeState {
   ownerKey?: string;
   miss?: { readonly at: number; readonly result: CodexAccountUsageResult };
   flight?: Flight;
-}
-
-function normalizeHome(home: string): string {
-  if (!home.trim() || home.includes('\0'))
-    throw new Error('Invalid Codex home');
-  const normalized = resolve(home);
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
 function unavailable(): CodexAccountUsageResult {
@@ -112,6 +107,33 @@ export class CodexAccountUsageClient {
   private readonly active = new Set<Promise<CodexAccountUsageResult>>();
   private closed = false;
 
+  /** Profile identity belongs at the usage boundary, not in host DI wiring. */
+  static fromProfiles(
+    auth: CodexHomeAuthReader,
+    profileForHome: (home: string) => CodexExecutionProfile,
+    createProcess: (
+      profile: CodexExecutionProfile,
+      handlers: CodexAppServerHandlers,
+    ) => CodexAppServerProcess,
+    now: () => number = Date.now,
+  ): CodexAccountUsageClient {
+    return new CodexAccountUsageClient(
+      auth,
+      (home, handlers) => {
+        const profile = profileForHome(home);
+        if (
+          profile.consumer !== 'usage' ||
+          normalizeCodexHomeKey(profile.normalizedHome, process.platform) !==
+            home
+        ) {
+          throw new Error('Codex usage profile identity mismatch');
+        }
+        return createProcess({ ...profile, normalizedHome: home }, handlers);
+      },
+      now,
+    );
+  }
+
   constructor(
     private readonly auth: CodexHomeAuthReader,
     private readonly createProcess: (
@@ -130,12 +152,16 @@ export class CodexAccountUsageClient {
     let key: string;
     let state: HomeState;
     try {
-      key = normalizeHome(home);
+      key = normalizeCodexHomeKey(home, process.platform);
       state = this.stateFor(key);
     } catch {
       return unavailable();
     }
     let flight = state.flight;
+    if (flight && options.refresh && !flight.refresh) {
+      await this.join(state, flight, options.signal);
+      return this.read(key, options);
+    }
     if (!flight) {
       const controller = new AbortController();
       const generation = state.generation;
@@ -154,7 +180,7 @@ export class CodexAccountUsageClient {
             : unavailable(),
         () => unavailable(),
       );
-      flight = { controller, promise, waiters: 0 };
+      flight = { controller, promise, waiters: 0, refresh: !!options.refresh };
       state.flight = flight;
       this.active.add(promise);
       const current = flight;
@@ -167,7 +193,7 @@ export class CodexAccountUsageClient {
   }
 
   clearCache(home: string): void {
-    const state = this.homes.get(normalizeHome(home));
+    const state = this.homes.get(normalizeCodexHomeKey(home, process.platform));
     if (!state) return;
     state.generation++;
     state.cached = undefined;
@@ -180,7 +206,10 @@ export class CodexAccountUsageClient {
 
   /** Opaque, per-home identity only. Raw server account identifiers never escape. */
   currentOwnerKey(home: string): string | null {
-    return this.homes.get(normalizeHome(home))?.ownerKey ?? null;
+    return (
+      this.homes.get(normalizeCodexHomeKey(home, process.platform))?.ownerKey ??
+      null
+    );
   }
 
   async close(): Promise<void> {
@@ -200,7 +229,8 @@ export class CodexAccountUsageClient {
     this.homes.set(home, state);
     try {
       state.watcher = this.auth.watch(home, (event) => {
-        if (normalizeHome(event.home) === home) this.clearCache(home);
+        if (normalizeCodexHomeKey(event.home, process.platform) === home)
+          this.clearCache(home);
       });
     } catch {
       this.homes.delete(home);
@@ -261,7 +291,8 @@ export class CodexAccountUsageClient {
       if (
         !current() ||
         child.verifiedCodexHome === undefined ||
-        normalizeHome(child.verifiedCodexHome) !== home
+        normalizeCodexHomeKey(child.verifiedCodexHome, process.platform) !==
+          home
       )
         return unavailable();
       const response = await child.request('account/rateLimits/read', {});

@@ -78,7 +78,6 @@ const profile: CodexExecutionProfile = {
     },
   },
   sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
-  experimentalApi: true,
   instructionSources: [],
   mcpServers: [],
   attachments: [],
@@ -359,6 +358,33 @@ describe('CodexAppServerProcess', () => {
     expect(child.stdin.writableEnded).toBe(true);
   });
 
+  it('replies method-not-found and keeps the session alive', async () => {
+    await start();
+    child.send({ id: 'unknown', method: 'future/request', params: {} });
+    expect(child.frames.at(-1)).toEqual({
+      id: 'unknown',
+      error: { code: -32601, message: 'Method not found' },
+    });
+    const pending = runtime.request('turn/interrupt', ids);
+    child.send({ id: 2, result: {} });
+    await expect(pending).resolves.toEqual({});
+  });
+  it('classifies a stale turn without exposing server text', async () => {
+    await start();
+    const pending = runtime.request('turn/interrupt', ids);
+    child.send({
+      id: 2,
+      error: { code: -32000, message: 'no active turn secret' },
+    });
+    await expect(pending).rejects.toMatchObject({
+      code: 'codexTurnNoLongerActive',
+      retryable: true,
+      message:
+        'Codex turn/interrupt rejected because the expected turn is no longer active.',
+    });
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
   it('times out the handshake at ten seconds and never retries', async () => {
     const rejected = expect(runtime.start()).rejects.toThrow('timed out');
     jest.advanceTimersByTime(10_000);
@@ -399,7 +425,9 @@ describe('CodexAppServerProcess', () => {
     await start();
     const first = runtime.request('turn/interrupt', ids);
     const second = runtime.request('turn/interrupt', ids);
-    const rejected = expect(first).rejects.toThrow(/^Codex request rejected$/);
+    const rejected = expect(first).rejects.toThrow(
+      'Codex turn/interrupt request was rejected (RPC -1).',
+    );
     child.send({ id: 3, result: {} });
     child.send({
       id: 2,
@@ -496,7 +524,7 @@ describe('CodexAppServerProcess', () => {
     expect(child.stdin.writableEnded).toBe(true);
   });
 
-  it('double close stops sends, waits one second, kills once and awaits stdio close', async () => {
+  it('double close stops sends, waits one second, kills once and releases without stdio close', async () => {
     await start();
     const closing = runtime.close();
     expect(runtime.close()).toBe(closing);
@@ -514,7 +542,7 @@ describe('CodexAppServerProcess', () => {
     expect(child.kill).toHaveBeenCalledTimes(1);
     child.emit('exit', 0, null);
     await flush();
-    expect(settled).toBe(false);
+    expect(settled).toBe(true);
     child.finish();
     await closing;
     expect(settled).toBe(true);

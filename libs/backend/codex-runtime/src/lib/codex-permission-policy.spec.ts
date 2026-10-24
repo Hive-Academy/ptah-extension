@@ -27,7 +27,7 @@ describe('codexPermissionPolicy', () => {
     '%s routes every request class without a remembered rule',
     (level, expected) => {
       expect(
-        kinds.map((kind) => codexPermissionPolicy(level, kind, false)),
+        kinds.map((kind) => codexPermissionPolicy(level, kind, false, {})),
       ).toEqual(expected);
     },
   );
@@ -36,7 +36,7 @@ describe('codexPermissionPolicy', () => {
     '%s honors scoped rules but keeps questions interactive',
     (level) => {
       expect(
-        kinds.map((kind) => codexPermissionPolicy(level, kind, true)),
+        kinds.map((kind) => codexPermissionPolicy(level, kind, true, {})),
       ).toEqual([
         'acceptForSession',
         'acceptForSession',
@@ -46,6 +46,32 @@ describe('codexPermissionPolicy', () => {
       ]);
     },
   );
+
+  it.each<CodexApprovalRequest['details'] | undefined>([
+    undefined,
+    { grantRoot: '/outside' },
+    { writableRoots: ['/outside'] },
+    { scope: 'session' },
+  ])(
+    'presents scope widening or unknown file-change details %j even with a rule',
+    (details) => {
+      for (const remembered of [false, true]) {
+        expect(
+          codexPermissionPolicy('auto-edit', 'fileChange', remembered, details),
+        ).toBe('present');
+      }
+    },
+  );
+  it('auto-accepts a validated ordinary file change with a null grantRoot', () => {
+    expect(
+      codexPermissionPolicy('auto-edit', 'fileChange', false, {
+        threadId: 'thread',
+        turnId: 'turn',
+        itemId: 'item',
+        grantRoot: null,
+      }),
+    ).toBe('accept');
+  });
 
   it('does not let a remembered grant override plan mode', () => {
     expect(

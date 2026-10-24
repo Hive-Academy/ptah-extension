@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { posix, win32 } from 'node:path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
@@ -50,6 +51,22 @@ export interface CodexAppServerHandlers {
 }
 
 /** One child and one handshake. Construct a new instance for a new generation. */
+export class CodexRequestRejectedError extends Error {
+  readonly retryable = true;
+  constructor(
+    readonly method: string,
+    readonly rpcCode: number,
+    readonly code: 'codexRequestRejected' | 'codexTurnNoLongerActive',
+  ) {
+    super(
+      code === 'codexTurnNoLongerActive'
+        ? `Codex ${method} rejected because the expected turn is no longer active.`
+        : `Codex ${method} request was rejected (RPC ${rpcCode}).`,
+    );
+    this.name = 'CodexRequestRejectedError';
+  }
+}
+
 export class CodexHomeMismatchError extends Error {
   readonly code = 'codexHomeMismatch';
 
@@ -258,6 +275,33 @@ export class CodexAppServerProcess {
         ? value.id
         : undefined;
     const pending = typeof id === 'number' ? this.pending.get(id) : undefined;
+    // Validate the envelope before replying to an unsupported server request.
+    const unsupported = z
+      .strictObject({
+        jsonrpc: z.literal('2.0').optional(),
+        emittedAtMs: z.number().int().nonnegative().optional(),
+        id: z.union([z.string(), z.number().int()]),
+        method: z.string(),
+        params: z.json().optional(),
+      })
+      .safeParse(value);
+    if (
+      this.ready &&
+      unsupported.success &&
+      !Object.hasOwn(codexServerRequestSchemas, unsupported.data.method) &&
+      !Object.hasOwn(codexRequestSchemas, unsupported.data.method)
+    ) {
+      if (this.approvals.has(unsupported.data.id))
+        throw new Error('Duplicate server request');
+      this.write(
+        {
+          id: unsupported.data.id,
+          error: { code: -32601, message: 'Method not found' },
+        },
+        'initialize',
+      );
+      return;
+    }
     const frame = validateCodexFrame(value, pending?.method);
     if ('method' in frame) {
       if ('id' in frame) {
@@ -278,8 +322,21 @@ export class CodexAppServerProcess {
       throw new Error('Unknown response');
     clearTimeout(pending.timer);
     this.pending.delete(frame.id);
-    if ('error' in frame) pending.reject(new Error('Codex request rejected'));
-    else pending.resolve(frame.result);
+    if ('error' in frame) {
+      const race =
+        (pending.method === 'turn/steer' ||
+          pending.method === 'turn/interrupt') &&
+        /expected.?turn.?id|no active turn|turn.*(?:not active|not found|mismatch|completed)/i.test(
+          frame.error.message,
+        );
+      pending.reject(
+        new CodexRequestRejectedError(
+          pending.method,
+          frame.error.code,
+          race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
+        ),
+      );
+    } else pending.resolve(frame.result);
   }
 
   private dispatchApproval(frame: ServerRequest): void {
@@ -348,7 +405,7 @@ export class CodexAppServerProcess {
     void this.close();
   }
 
-  /** Stops sends immediately; resolution means the child and its stdio have closed. */
+  /** Stops sends immediately; forces kill and releases listeners after a one-second ceiling. */
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closePromise = new Promise<void>((resolve) => {
@@ -376,7 +433,7 @@ export class CodexAppServerProcess {
     } else {
       this.killTimer = setTimeout(() => {
         this.killTimer = undefined;
-        // A kill request is not proof of exit. Keep waiting for close.
+        // Do not let a missing close event retain the runtime indefinitely.
         if (!this.closed) {
           try {
             this.child?.kill('SIGKILL');
@@ -384,6 +441,8 @@ export class CodexAppServerProcess {
             this.failure ??= new Error('Codex process kill failed');
           }
         }
+        this.cleanup();
+        this.finishClose?.();
       }, 1000);
       try {
         this.child.stdin?.end();

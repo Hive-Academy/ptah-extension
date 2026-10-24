@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { posix, win32 } from 'node:path';
 import { z } from 'zod';
+import { normalizeCodexHomeKey } from './codex-home-path';
 import type {
   CodexExecutionProfile,
   CodexJsonValue,
@@ -195,7 +196,10 @@ export function buildCodexExecutionProfile(
   if (new Set(names).size !== names.length)
     throw new Error('Duplicate MCP server names');
   const cwd = normalize(selected.cwd, true);
-  const normalizedHome = normalize(selected.normalizedHome);
+  const normalizedHome = normalizeCodexHomeKey(
+    normalize(selected.normalizedHome),
+    paths.platform,
+  );
   if (input.resume) {
     for (const key of [
       'contextId',
@@ -209,7 +213,8 @@ export function buildCodexExecutionProfile(
     }
     if (
       cwd !== input.resume.cwd ||
-      normalizedHome !== input.resume.normalizedHome
+      normalizedHome !==
+        normalizeCodexHomeKey(input.resume.normalizedHome, paths.platform)
     )
       throw new Error('Resume paths cannot change');
   }
@@ -243,14 +248,34 @@ export function buildCodexExecutionProfile(
       networkAccess: false,
       writableRoots: writable ? [cwd] : [],
     },
-    experimentalApi: selected.permissionLevel === 'ask',
     approvalsReviewer: 'user',
     fullAccessStatus: 'unproved-disabled',
+  };
+  // Thread identity excludes next-turn model, effort, prompt and attachments.
+  const identity = {
+    contextId: profile.contextId,
+    consumer: profile.consumer,
+    accountId: profile.accountId,
+    providerId: profile.providerId,
+    workspaceId: profile.workspaceId,
+    normalizedHome,
+    cwd,
+    permissionLevel: profile.permissionLevel,
+    sandboxPolicy: profile.sandboxPolicy,
+    approvalPolicy: profile.approvalPolicy,
+    mcpServers: [...profile.mcpServers].sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    ),
+    systemPrompt: profile.systemPrompt,
+    developerPrompt: profile.developerPrompt,
+    outputStyle: profile.outputStyle,
+    instructionSources: profile.instructionSources,
+    lane: profile.lane,
   };
   // Only validated configuration and opaque auth references enter this digest. No
   // secret resolver is available here. JSON parsing removes absent optional fields.
   const fingerprint = createHash('sha256')
-    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(profile)))))
+    .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
     .digest('hex');
   return freeze({ ...profile, profileFingerprint: `sha256:${fingerprint}` });
 }

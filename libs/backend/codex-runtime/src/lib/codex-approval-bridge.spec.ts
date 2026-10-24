@@ -120,6 +120,50 @@ describe('CodexApprovalBridge', () => {
     jest.useRealTimers();
   });
 
+  it('auto-accepts a plain auto-edit file change without prompting', async () => {
+    const { bridge, request } = setup({ permissionLevel: () => 'auto-edit' });
+    expect(await bridge.handle(frame(file), 'turn', signal())).toEqual({
+      response: { decision: 'accept' },
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('prompts for an auto-edit file change carrying grantRoot', async () => {
+    const { bridge, request } = setup({ permissionLevel: () => 'auto-edit' });
+    request.mockResolvedValue('decline');
+    expect(
+      await bridge.handle(
+        frame(file, 1, { grantRoot: '/outside' }),
+        'turn',
+        signal(),
+      ),
+    ).toEqual({
+      response: { decision: 'decline' },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0].details).toMatchObject({
+      grantRoot: '/outside',
+    });
+  });
+
+  it.each([undefined, '/outside'])(
+    'keeps ask file changes interactive with grantRoot %s',
+    async (grantRoot) => {
+      const { bridge, request } = setup();
+      request.mockResolvedValue('decline');
+      expect(
+        await bridge.handle(
+          frame(file, 1, grantRoot === undefined ? {} : { grantRoot }),
+          'turn',
+          signal(),
+        ),
+      ).toEqual({
+        response: { decision: 'decline' },
+      });
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each<CodexApprovalDecision>([
     'accept',
     'acceptForSession',
