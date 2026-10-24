@@ -246,3 +246,10 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - `claudeModel` / `claudeReasoningEffort` are read into Providers state only. Writing them needs `providers-commit.service.ts` → Batch 33 (Electron Accounts composition owns the Providers write path) or Batch 34 if the file cap does not allow it.
 - `PENDING_USER_REVIEW_IDS` for the claude permission note (D31) moved out of Batch 29 (file cap) → Batch 33.
 - Verification: core 46 suites / 1341 tests; typecheck core, ptah-extension-webview; lint of the 5 changed files 0 errors. The new config fields are optional on `agent:getConfig`, so the 5 specs that build the config literally still compile.
+
+## D35 — Batch 31 acceptance (2026-10-24, orchestrator)
+
+- Executor: frontend-developer subagent (Claude); review at Batch 35 (different family). Reuses `libs/frontend/ui/src/lib/native/modal/native-modal.component.ts`.
+- Verification: the 2 new specs 23/23; typecheck chat OK. Lint: 3 errors of `@nx/enforce-module-boundaries` "Static imports of lazy-loaded libraries" (`@ptah-extension/shared` value imports). Same pre-existing debt as 13 of 25 existing `chat/settings` files that import shared values; not fixed here (repo-wide lazy-load decision, out of task scope).
+- Executor decisions accepted (reversible): pending copy "Saving selection…" / "Adding profile…" (design gives none); Add opens with an empty label (no default-named profile by accident); duplicate labels allowed (store refuses only a duplicate directory, safe copy from design); focus ring light-theme token → Batch 33.
+- Rendered dark/light evidence in Electron is due after Batch 33 (visual review for 29–33).
