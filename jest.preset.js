@@ -9,10 +9,12 @@ module.exports = {
   // processes at 730-790 MB each). That starves the Electron app the developer
   // is working in, which reads as UI lag rather than as a test run.
   //
-  // Half the machine is still fast enough. The two `apps/ptah-cli` configs that
-  // pin `maxWorkers: 1` (pty and e2e, which bind a real console) set it
+  // Several agent sessions verify on the same machine, and `nx.json` runs one
+  // task at a time, so 2 workers per task is the local cap. CI passes its own
+  // `--maxWorkers`, which beats this default. The two `apps/ptah-cli` configs
+  // that pin `maxWorkers: 1` (pty and e2e, which bind a real console) set it
   // explicitly and so are unaffected by this default.
-  maxWorkers: '50%',
+  maxWorkers: 2,
   // `marked` 18 publishes ESM-only ("exports": { ".": "./lib/marked.esm.js" },
   // "type": "module") but still ships a CommonJS UMD build at
   // lib/marked.umd.js. Jest's CJS module loader cannot `require()` the ESM

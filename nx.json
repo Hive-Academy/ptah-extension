@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
-  "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. CI is unaffected — `.github/workflows/ci.yml` passes `--parallel=3 --maxWorkers=2` explicitly and a CLI flag beats this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
-  "parallel": 2,
+  "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. Several agent sessions verify at once on this machine, so the local default is 1 task, and `jest.preset.js` caps each task at 2 workers. CI keeps its own numbers: the workflows set `NX_PARALLEL` and pass `--parallel`/`--maxWorkers` explicitly, and both beat this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
+  "parallel": 1,
+  "//cacheDirectory": "Deliberately unset. With no `cacheDirectory` and no NX_CACHE_DIRECTORY, Nx 24 keeps ONE cache and task DB per workspace in ~/.nx/<workspace-id>/{cache,databases}, shared by the main checkout and every .claude-worktrees/* worktree (the id comes from the git remote, not the path). Setting `cacheDirectory` turns that sharing off. See node_modules/nx/dist/src/utils/cache-directory.js.",
   "defaultBase": "origin/main",
   "//sharedGlobals": "No root package.json / package-lock.json here: with pluginsConfig @nx/js projectsAffectedByDependencyUpdates 'auto', Nx reads the lockfile and marks only the projects that use a changed npm package (the default 'all' marks every project). Listing them made every dependency bump a full-graph run. Targets that read the root package files themselves (generatePackageJson, prune-lockfile, CLI-calling nx:run-commands) take `rootPackageFiles`.",
   "pluginsConfig": {
@@ -9,6 +10,8 @@
       "projectsAffectedByDependencyUpdates": "auto"
     }
   },
+  "//jestRuntime": "What every Jest test task reads outside its project: the root preset, the root __mocks__ and the Jest packages. externalDependencies, not rootPackageFiles, so an unrelated dependency bump does not invalidate every test.",
+  "//targetDefaults*": "Executor keys beat target-name keys in Nx 24 (orderedMatchingKeys: executor, then target name, then globs) and the first matching key wins whole. An \"nx:run-commands\" key would therefore replace the test, lint and typecheck defaults above for every run-commands target. As a glob it applies only to run-commands targets with no target-name default: the CLI-calling targets (prisma, vsce, astro) that read the root package files. The api-* typecheck/test entries add schema.prisma: the Prisma client they compile against is generated into a git-ignored folder that Nx does not hash.",
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -28,18 +31,52 @@
     "rootPackageFiles": [
       "{workspaceRoot}/package.json",
       "{workspaceRoot}/package-lock.json"
+    ],
+    "jestRuntime": [
+      "{workspaceRoot}/jest.preset.js",
+      "{workspaceRoot}/__mocks__/**/*",
+      {
+        "externalDependencies": [
+          "jest",
+          "ts-jest",
+          "jest-preset-angular",
+          "jest-environment-jsdom",
+          "jest-environment-node",
+          "@nx/jest"
+        ]
+      }
     ]
   },
   "targetDefaults": {
-    "nx:run-commands": {
-      "inputs": ["default", "^default", "rootPackageFiles"]
-    },
     "@nx/js:prune-lockfile": {
       "inputs": ["production", "^production", "rootPackageFiles"]
     },
-    "typecheck": {
-      "inputs": ["default", "^production"]
-    },
+    "typecheck": [
+      {
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "externalDependencies": ["typescript"]
+          }
+        ]
+      },
+      {
+        "filter": {
+          "projects": ["api-*", "ptah-license-server"]
+        },
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "externalDependencies": ["typescript"]
+          },
+          "{workspaceRoot}/apps/ptah-license-server/prisma/schema.prisma"
+        ]
+      }
+    ],
     "validate-deps": {
       "inputs": ["default", "^production"]
     },
@@ -74,6 +111,8 @@
           "{workspaceRoot}/.eslintrc.json",
           "{workspaceRoot}/.eslintignore",
           "{workspaceRoot}/eslint.config.mjs",
+          "{workspaceRoot}/eslint.angular.config.mjs",
+          "{workspaceRoot}/eslint.spec-change-detection.mjs",
           "{workspaceRoot}/tools/eslint-rules/**/*",
           {
             "externalDependencies": ["eslint"]
@@ -82,6 +121,20 @@
       }
     ],
     "test": [
+      {
+        "//": "The NestJS projects run Jest through nx:run-commands (see their project.json), so the plugin entry below does not reach them. This entry comes first so that the plugin entry wins for any project both match.",
+        "filter": {
+          "projects": ["api-*", "ptah-license-server"]
+        },
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          "jestRuntime",
+          "{workspaceRoot}/libs/api/jest.api-preset.cjs",
+          "{workspaceRoot}/apps/ptah-license-server/prisma/schema.prisma"
+        ]
+      },
       {
         "filter": {
           "plugin": "@nx/jest/plugin"
@@ -92,7 +145,7 @@
             "coverage": true
           }
         },
-        "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
+        "inputs": ["default", "^production", "jestRuntime"],
         "cache": true,
         "options": {
           "passWithNoTests": true
@@ -114,6 +167,14 @@
             "coverage": true
           }
         }
+      }
+    ],
+    "*": [
+      {
+        "filter": {
+          "executor": "nx:run-commands"
+        },
+        "inputs": ["default", "^default", "rootPackageFiles"]
       }
     ]
   },

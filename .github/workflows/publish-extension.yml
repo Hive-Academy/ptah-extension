@@ -47,6 +47,8 @@ permissions:
 env:
   NODE_VERSION: 22
   NX_TUI: 'false'
+  # nx.json caps local runs at one task. CI keeps its previous default of 2.
+  NX_PARALLEL: 2
   VSCODE_E2E_VERSION: '1.137.0'
   # Paused while the VS Code extension is retired. Set to 'true' to restore the gate.
   RUN_VSCODE_E2E: 'false'

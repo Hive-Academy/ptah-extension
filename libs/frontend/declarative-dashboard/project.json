@@ -7,6 +7,13 @@
   "tags": ["scope:webview", "type:ui", "platform:angular"],
   "targets": {
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/libs/frontend/mcp-apps-page/src/**/*.ts",
+        "{workspaceRoot}/libs/frontend/mcp-apps-page/src/**/*.html"
+      ],
       "options": {
         "passWithNoTests": true
       }
