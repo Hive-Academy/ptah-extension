@@ -11,21 +11,21 @@ const all: EvidenceCase[] = JSON.parse(
     'utf8',
   ),
 );
-// Run 6g. User budget: 20 total, 9 used, 11 remain; one run is capped at 8 (TURN_CAP). Proved and
-// dropped: ask-command-accept, compaction (run 6e), ask-command-deny (run 6f). ask-command-edit runs
-// first so a steer-created turn can only skip the last case. ask-read-rule runs last because an
-// "unverified" result stops every later case. The harness enforces the cap through --turn-cap.
-const REMAINING = 11;
+// Run 6h. User budget: 20 total, 10 used, 10 remain; one run is capped at 8 (TURN_CAP). Proved and
+// dropped: ask-command-accept, compaction (run 6e), ask-command-deny (run 6f). A failed gate or an
+// unverified result stops every later case, so the open cases run first, ask-command-edit next and
+// ask-read-rule (most likely unverified) last. 7 planned + 1 possible steer turn = cap 8.
+const REMAINING = 10;
 const CAP = Math.min(REMAINING, 8);
 const order = [
   'schema-handshake',
   'modified-input-schema',
-  'ask-command-edit',
   'file-change-accept',
   'plan-read-only',
   'auto-edit-boundary',
   'yolo-interrupt',
   'mcp-approval',
+  'ask-command-edit',
   'ask-read-rule',
 ];
 const cases = order.map((id) => {
