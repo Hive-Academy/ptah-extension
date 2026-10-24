@@ -15,6 +15,7 @@ import {
   provideSurfaceActiveTesting,
 } from '@ptah-extension/core/testing';
 import { AgentCardComponent } from './agent-card.component';
+import { ChatStore } from '../../../services/chat.store';
 
 function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   return {
@@ -60,6 +61,13 @@ describe('raw stdout disclosure', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent],
       providers: [
+        {
+          provide: ChatStore,
+          useValue: {
+            getPermissionForTool: () => null,
+            handlePermissionResponse: jest.fn(),
+          },
+        },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
         {

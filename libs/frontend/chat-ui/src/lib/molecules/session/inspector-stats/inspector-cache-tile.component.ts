@@ -24,12 +24,12 @@ function countdown(ms: number, showHours = true): string {
 @Component({
   selector: 'ptah-inspector-cache-tile',
   standalone: true,
-  host: { class: 'col-span-2 block min-w-0' },
+  host: { class: 'block min-w-0' },
   template: `
-    <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" role="group"
+    <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" role="group"
       data-testid="inspector-cache-tile" [title]="estimateTitle" [attr.aria-label]="accessibleText()">
-      <div class="flex items-center gap-3">
-        <svg width="44" height="44" viewBox="0 0 44 44" class="block -rotate-90 shrink-0"
+      <div class="flex flex-wrap items-center gap-1">
+        <svg width="24" height="24" viewBox="0 0 44 44" class="block -rotate-90 shrink-0"
           [style.color]="ringInk()" aria-hidden="true">
           <circle cx="22" cy="22" r="18" fill="none" stroke="var(--surface-border-strong)" stroke-width="4" />
           <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" stroke-width="4"
@@ -37,9 +37,9 @@ function countdown(ms: number, showHours = true): string {
             [attr.stroke-dashoffset]="circumference * (1 - remainingPercent() / 100)" class="arc" />
         </svg>
         <div class="min-w-0 flex-1">
-          <div class="text-[11px] text-base-content-muted">Prompt cache · {{ cache().ttl }}</div>
-          <div class="text-lg font-semibold tabular-nums">{{ countdownText() }}</div>
-          <div class="text-[11px] text-base-content-muted tabular-nums">
+          <div class="text-[10px] text-base-content-muted">Prompt cache · {{ cache().ttl }}</div>
+          <div class="text-sm font-semibold tabular-nums">{{ countdownText() }}</div>
+          <div class="text-[10px] text-base-content-muted tabular-nums">
             Estimated@if (idleCountdown(); as idle) { · idle compaction in {{ idle }} }
           </div>
         </div>

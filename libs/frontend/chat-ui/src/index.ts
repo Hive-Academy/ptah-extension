@@ -56,6 +56,13 @@ export {
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
 export {
+  COMPOSER_CARD_BORDER_CLASS,
+  COMPOSER_CARD_CLASS,
+  COMPOSER_SEND_BUTTON_CLASS,
+  COMPOSER_TEXTAREA_CLASS,
+  COMPOSER_TOOLBAR_CLASS,
+} from './lib/molecules/composer-card';
+export {
   AgentLaneStatsComponent,
   type AgentLaneStatsView,
 } from './lib/molecules/agent-lane-stats/agent-lane-stats.component';

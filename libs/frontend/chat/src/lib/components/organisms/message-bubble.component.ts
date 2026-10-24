@@ -152,6 +152,13 @@ export class MessageBubbleComponent {
   private readonly chatStore = inject(ChatStore);
 
   readonly message = input.required<ExecutionChatMessage>();
+  /** Lane hosts route permissions to their owning session. Main chat keeps its store path. */
+  readonly permissionLookup = input<
+    ((id: string) => PermissionRequest | null) | undefined
+  >();
+  readonly permissionResponded = output<PermissionResponse>();
+  /** Branch/rewind require main-session message IDs, which lane events do not have. */
+  readonly userActions = input(true);
   /** Main transcript opts into compact agent tiles; other hosts stay inline. */
   readonly agentTileMode = input<boolean>(false);
 
@@ -168,7 +175,9 @@ export class MessageBubbleComponent {
   /** Raw-message fallback has no execution node, but follows the same final-only rule. */
   protected readonly mermaidFallbackText = computed(() => {
     const text = this.message().rawContent || '';
-    return !this.isStreaming() && !this.isFinalizing() && hasMermaidFenceLine(text)
+    return !this.isStreaming() &&
+      !this.isFinalizing() &&
+      hasMermaidFenceLine(text)
       ? text
       : null;
   });
@@ -308,18 +317,15 @@ export class MessageBubbleComponent {
 
   /** The user's per-turn choice, else open only while streaming in `full`. */
   protected readonly logExpanded = computed(
-    () =>
-      this.logOpen() ?? (this.isStreaming() && this.viewMode() === 'full'),
+    () => this.logOpen() ?? (this.isStreaming() && this.viewMode() === 'full'),
   );
 
   /** Disclosure row: first message of a turn with any non-text row. */
-  protected readonly disclosureLabel = computed(
-    (): TurnElapsedLabel | null => {
-      const turn = this.turn();
-      if (!turn || !turn.isFirstAssistant || !turn.hasActivity) return null;
-      return turnElapsedLabel(turn, this.turnLive(), this.now());
-    },
-  );
+  protected readonly disclosureLabel = computed((): TurnElapsedLabel | null => {
+    const turn = this.turn();
+    if (!turn || !turn.isFirstAssistant || !turn.hasActivity) return null;
+    return turnElapsedLabel(turn, this.turnLive(), this.now());
+  });
 
   /** Count meta of the disclosure row, summed over the turn (B-4). */
   protected readonly turnCounts = computed(() => {
@@ -451,7 +457,10 @@ export class MessageBubbleComponent {
   protected getPermissionForTool = (
     toolCallId: string,
   ): PermissionRequest | null => {
-    return this.chatStore.getPermissionForTool(toolCallId);
+    const lookup = this.permissionLookup();
+    return lookup
+      ? lookup(toolCallId)
+      : this.chatStore.getPermissionForTool(toolCallId);
   };
 
   /**
@@ -459,7 +468,8 @@ export class MessageBubbleComponent {
    * Delegates to ChatStore for state management
    */
   protected onPermissionResponse(response: PermissionResponse): void {
-    this.chatStore.handlePermissionResponse(response);
+    if (this.permissionLookup()) this.permissionResponded.emit(response);
+    else this.chatStore.handlePermissionResponse(response);
   }
 
   /** Click handler for the "Branch from here" action on user bubbles. */

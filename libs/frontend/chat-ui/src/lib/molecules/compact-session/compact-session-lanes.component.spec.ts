@@ -37,6 +37,7 @@ function summary(
       done: 0,
       stopped: 0,
     },
+    kinds: { cli: 0, subagent: rows.length + moreCount, background: 0 },
   };
 }
 

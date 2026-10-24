@@ -73,7 +73,7 @@ let nextMenuId = 0;
             >{{ agents().length }}</span
           >
         } @else {
-          <span class="whitespace-nowrap">{{ agents().length }} agents</span>
+          <span class="whitespace-nowrap">{{ agents().length }} {{ agents().length === 1 ? 'agent' : 'agents' }}</span>
           <lucide-angular
             [img]="chevronIcon"
             class="h-3.5 w-3.5"
@@ -159,7 +159,7 @@ export class AgentDockMenuComponent {
   protected readonly pile = computed(() => this.hidden().slice(0, 3));
 
   protected readonly triggerLabel = computed(() => {
-    const parts = [`${this.agents().length} agents`];
+    const parts = [`${this.agents().length} ${this.agents().length === 1 ? 'agent' : 'agents'}`];
     let waiting = 0;
     let failed = 0;
     for (const agent of this.hidden()) {

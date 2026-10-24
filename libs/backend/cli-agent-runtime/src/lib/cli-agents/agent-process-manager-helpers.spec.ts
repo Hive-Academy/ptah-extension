@@ -2,6 +2,7 @@ import {
   BUFFER_LOW_WATER_SIZE,
   MAX_BUFFER_SIZE,
   createEmptyPendingDelta,
+  mergeConsecutiveTextSegments,
   trimBufferToLowWater,
 } from './agent-process-manager-helpers';
 
@@ -49,5 +50,29 @@ describe('createEmptyPendingDelta (TASK_2026_466 defect 5)', () => {
       segmentTurns: [[]],
       streamEvents: [],
     });
+  });
+});
+
+describe('mergeConsecutiveTextSegments (TASK_2026_717)', () => {
+  it('merges text of one message and keeps its messageId', () => {
+    expect(
+      mergeConsecutiveTextSegments([
+        { type: 'text', content: 'Now ', messageId: 'a' },
+        { type: 'text', content: 'delegating.', messageId: 'a' },
+        { type: 'text', content: 'Done.', messageId: 'b' },
+      ]),
+    ).toEqual([
+      { type: 'text', content: 'Now delegating.', messageId: 'a' },
+      { type: 'text', content: 'Done.', messageId: 'b' },
+    ]);
+  });
+
+  it('merges text without message ids as before', () => {
+    expect(
+      mergeConsecutiveTextSegments([
+        { type: 'text', content: 'hello ' },
+        { type: 'text', content: 'world' },
+      ]),
+    ).toEqual([{ type: 'text', content: 'hello world' }]);
   });
 });

@@ -87,6 +87,8 @@ describe('compact lane rows', () => {
     ]);
     expect(result.total).toBe(5);
     expect(result.moreCount).toBe(2);
+    // Kind counts cover the capped lanes too (the rail card's CLI badge).
+    expect(result.kinds).toEqual({ cli: 5, subagent: 0, background: 0 });
     expect(result.counts).toEqual({
       waiting: 1,
       error: 1,
