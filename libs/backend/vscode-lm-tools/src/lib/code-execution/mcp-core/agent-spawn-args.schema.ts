@@ -35,8 +35,8 @@ export interface AgentSpawnAccountInput {
  *   account stored with it. Ambient on resume is checked by the runtime's
  *   resume gate against that stored binding, which refuses a bound session.
  *
- * Ambient and omitted are today's route, so the spawn needs no extra field
- * to carry them.
+ * An accepted selection (ambient or omitted) is forwarded on
+ * `SpawnAgentRequest.accountSelection`; both are today's route.
  */
 export function agentSpawnAccountRefusal(
   input: AgentSpawnAccountInput,

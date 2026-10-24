@@ -6,7 +6,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 import type { QuotaOwnerRef } from './plan-limit.types';
-import type { ProviderAccountBinding } from './provider-account.types';
+import type {
+  ProviderAccountBinding,
+  ProviderAccountSelection,
+} from './provider-account.types';
 import type {
   OutcomeRoutingSource,
   OutcomeTaskKind,
@@ -325,6 +328,14 @@ export interface SpawnAgentRequest {
    * keeps `not-routed` when absent.
    */
   readonly routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
+  /**
+   * Account route a caller asked for (TASK_2026_712). Only a `claude` system
+   * lane takes one, and every entry point refuses a named selection before
+   * spawn while named lane admission is release-held (D7), so the value that
+   * arrives here is `omitted` or `ambient`: the route a lane takes with no
+   * selection. Absent means the caller sent none.
+   */
+  readonly accountSelection?: ProviderAccountSelection;
 }
 
 export interface AgentOutput {

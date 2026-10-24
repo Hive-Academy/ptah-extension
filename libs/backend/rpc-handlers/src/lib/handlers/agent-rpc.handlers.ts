@@ -364,6 +364,22 @@ function resumeAccountRefusal(
   return `Agent resume account refused (${code}).`;
 }
 
+/**
+ * The account selection a `claude` resume forwards into its spawn request,
+ * after `resumeAccountRefusal` returned no refusal (so it matches the stored
+ * binding). `SpawnAgentRequest` carries omitted or ambient only while named
+ * admission is release-held (D7): a restated named selection is not
+ * forwarded, and the runtime's resume gate refuses the stored named binding.
+ * Other CLIs have no account bindings and never carry a selection.
+ */
+function resumeSpawnAccountSelection(
+  cli: CliType,
+  selection: ProviderAccountSelection | undefined,
+): ProviderAccountSelection | undefined {
+  if (cli !== 'claude' || selection === undefined) return undefined;
+  return selection.kind === 'named' ? undefined : selection;
+}
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -1406,6 +1422,10 @@ export class AgentRpcHandlers {
             'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
+          const accountSelection = resumeSpawnAccountSelection(
+            parsed.data.cli,
+            parsed.data.accountSelection,
+          );
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
@@ -1414,6 +1434,7 @@ export class AgentRpcHandlers {
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
             resumedFromAgentId: params.previousAgentId,
+            ...(accountSelection ? { accountSelection } : {}),
           });
         }
 

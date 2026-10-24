@@ -1578,7 +1578,10 @@ describe('buildAgentNamespace — spawn boundary', () => {
  * account. Nothing is spawned when the value is refused.
  */
 describe('buildAgentNamespace — spawn accountSelection', () => {
-  type AccountSpawnRequest = SpawnAgentRequest & {
+  // `execute_code` callers are untyped JavaScript: the builder parses
+  // `accountSelection` as `unknown`, so the invalid-input cases are typed
+  // that way here and handed over as a `SpawnAgentRequest` downcast.
+  type AccountSpawnRequest = Omit<SpawnAgentRequest, 'accountSelection'> & {
     readonly accountSelection?: unknown;
   };
 
@@ -1587,15 +1590,17 @@ describe('buildAgentNamespace — spawn accountSelection', () => {
     mocks.processManager.spawn.mockResolvedValue({
       agentId: 'a',
     } as SpawnAgentResult);
-    const outcome = buildAgentNamespace(deps).spawn(request);
+    const outcome = buildAgentNamespace(deps).spawn(
+      request as SpawnAgentRequest,
+    );
     return { outcome, mocks };
   }
 
   it.each([
-    ['ambient', { kind: 'ambient' }],
-    ['omitted', { kind: 'omitted' }],
+    ['ambient', { kind: 'ambient' as const }],
+    ['omitted', { kind: 'omitted' as const }],
   ])(
-    'spawns a claude lane with an %s selection on the existing route',
+    'forwards an %s selection on a claude lane to the process manager',
     async (_label, accountSelection) => {
       const { outcome, mocks } = await spawnWith({
         task: 't',
@@ -1606,9 +1611,32 @@ describe('buildAgentNamespace — spawn accountSelection', () => {
       await expect(outcome).resolves.toEqual({ agentId: 'a' });
       const forwarded = mocks.processManager.spawn.mock.calls[0][0];
       expect(forwarded.cli).toBe('claude');
-      expect(forwarded).not.toHaveProperty('accountSelection');
+      expect(forwarded.accountSelection).toEqual(accountSelection);
     },
   );
+
+  it('forwards no selection when the caller sends none', async () => {
+    const { outcome, mocks } = await spawnWith({ task: 't', cli: 'claude' });
+
+    await expect(outcome).resolves.toEqual({ agentId: 'a' });
+    expect(mocks.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
+      'accountSelection',
+    );
+  });
+
+  it('forwards the parsed selection, not the caller object', async () => {
+    const raw = { kind: 'ambient' as const };
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      cli: 'claude',
+      accountSelection: raw,
+    });
+
+    await expect(outcome).resolves.toEqual({ agentId: 'a' });
+    const forwarded = mocks.processManager.spawn.mock.calls[0][0];
+    expect(forwarded.accountSelection).toEqual({ kind: 'ambient' });
+    expect(forwarded.accountSelection).not.toBe(raw);
+  });
 
   it('keeps an ambient claude resume on its stored account', async () => {
     const { outcome, mocks } = await spawnWith({

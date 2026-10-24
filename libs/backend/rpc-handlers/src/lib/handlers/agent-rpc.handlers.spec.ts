@@ -598,6 +598,11 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
 
     expect(result).toEqual({ success: true, agentId: 'a-1' });
     expect(lookup).not.toHaveBeenCalled();
+    // Batch 34d: an absent selection stays absent on the spawn request.
+    expect(h.processManager.spawn).toHaveBeenCalledTimes(1);
+    expect(h.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
+      'accountSelection',
+    );
   });
 
   it('treats an omitted selection as no selection', async () => {
@@ -612,6 +617,9 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
 
     expect(result.success).toBe(true);
     expect(lookup).not.toHaveBeenCalled();
+    expect(h.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ accountSelection: { kind: 'omitted' } }),
+    );
   });
 
   it('resumes an ambient session that restates ambient', async () => {
@@ -629,10 +637,12 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
       provider: 'claude',
       sdkSessionId: CLI_SESSION_ID,
     });
+    // Batch 34d: the validated ambient selection reaches the spawn request.
     expect(h.processManager.spawn).toHaveBeenCalledWith(
       expect.objectContaining({
         cli: 'claude',
         resumeSessionId: CLI_SESSION_ID,
+        accountSelection: { kind: 'ambient' },
       }),
     );
   });
@@ -819,6 +829,10 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
     );
 
     expect(result).toEqual({ success: true, agentId: 'a-1' });
+    // Only `claude` lanes carry a selection on the spawn request.
+    expect(h.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
+      'accountSelection',
+    );
   });
 
   it.each([

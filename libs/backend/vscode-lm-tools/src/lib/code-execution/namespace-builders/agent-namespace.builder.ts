@@ -31,6 +31,7 @@ import {
 import type {
   AgentRoleDefinition,
   CliDetectionResult,
+  ProviderAccountSelection,
   SpawnAgentRequest,
 } from '@ptah-extension/shared';
 import {
@@ -174,7 +175,7 @@ export interface AgentNamespaceDependencies {
  * matters: system-CLI lanes stopped receiving a generated system prompt
  * (TASK_2026_597, R3.4), and a caller-supplied one is dropped here.
  */
-type UntypedSpawnRequest = SpawnAgentRequest & {
+type UntypedSpawnRequest = Omit<SpawnAgentRequest, 'accountSelection'> & {
   readonly systemPrompt?: unknown;
   /** Read through the strict shared reader; see {@link assertAccountSelection}. */
   readonly accountSelection?: unknown;
@@ -185,10 +186,14 @@ type UntypedSpawnRequest = SpawnAgentRequest & {
  * reader and the same refusal rules as the MCP spawn schema, so both surfaces
  * accept and refuse identical values. A malformed value (null, extra keys, a
  * path or token field, a bad profile id) is refused, never read as ambient.
+ * Returns the parsed selection, which past the refusal is an ambient or
+ * omitted selection on a `claude` lane (named stays release-held, D7).
  */
-function assertAccountSelection(request: UntypedSpawnRequest): void {
+function assertAccountSelection(
+  request: UntypedSpawnRequest,
+): ProviderAccountSelection | undefined {
   const field = readProviderAccountSelectionField(request.accountSelection);
-  if (field.status === 'omitted') return;
+  if (field.status === 'omitted') return undefined;
   if (field.status === 'invalid') {
     throw new Error(
       'ptah.agent.spawn: "accountSelection" must be {"kind":"omitted"}, ' +
@@ -207,6 +212,7 @@ function assertAccountSelection(request: UntypedSpawnRequest): void {
       `ptah.agent.spawn: ${refusal} The agent was not spawned.`,
     );
   }
+  return field.selection;
 }
 
 /**
@@ -279,7 +285,7 @@ export function buildAgentNamespace(
         request.routingSource,
         OUTCOME_ROUTING_SOURCES,
       );
-      assertAccountSelection(request);
+      const accountSelection = assertAccountSelection(request);
       if (request.systemPrompt !== undefined) {
         logger.warn(
           'ptah.agent.spawn: "systemPrompt" is not a spawn field and was dropped; ' +
@@ -450,20 +456,21 @@ export function buildAgentNamespace(
       // otherwise carry an unusable '' straight through, since the conditional
       // spread below only overwrites when a resolved id exists. A
       // caller-supplied roleDefinition is dropped too: only the resolver may
-      // produce one. So is a caller-supplied systemPrompt (warned above). An
-      // accountSelection that passed the check above is ambient or omitted,
-      // which is the route the lane takes with no selection, so it is not
-      // forwarded as an untyped key `SpawnAgentRequest` does not declare.
+      // produce one. So is a caller-supplied systemPrompt (warned above). The
+      // raw accountSelection is replaced by the parsed one from the check
+      // above: only an ambient or omitted selection on a `claude` lane gets
+      // this far, and it is forwarded as typed.
       const {
         parentSessionId: _rawParentSessionId,
         roleDefinition: _callerRoleDefinition,
         systemPrompt: _callerSystemPrompt,
-        accountSelection: _checkedAccountSelection,
+        accountSelection: _rawAccountSelection,
         ...requestFields
       } = request;
 
       const enrichedRequest = {
         ...requestFields,
+        ...(accountSelection && { accountSelection }),
         ...(workingDirectory && { workingDirectory }),
         ...(activeSessionId && { parentSessionId: activeSessionId }),
         ...(roleDefinition && { roleDefinition }),

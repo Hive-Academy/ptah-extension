@@ -500,6 +500,10 @@ export class AgentToolDispatcher {
         effort: p.effort,
         taskKind: p.taskKind,
         routingSource: p.routingSource,
+        // Already refused by the schema unless omitted or ambient on a
+        // `claude` lane (`agentSpawnAccountRefusal`), so forwarding admits
+        // nothing.
+        accountSelection: p.accountSelection,
       });
       const limits = target ? preLimits : await this.lookupAgentLimits();
       return await this.toolSuccess(

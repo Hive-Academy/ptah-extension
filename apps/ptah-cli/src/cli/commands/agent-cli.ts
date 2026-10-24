@@ -15,6 +15,7 @@
  *                                                   emits `agent_cli.stopped`
  *   resume <id> --cli <id> --task <text>            RPC `agent:resumeCliSession`
  *   [--ptah-cli-id <id>]                            emits `agent_cli.resumed`
+ *   [account: 'ambient', claude only]               (see resolveResumeAccountSelection)
  *
  * **`--cli` NAMES A TARGET; IT DOES NOT ASK PERMISSION** (TASK_2026_297 phase 2).
  *
@@ -60,7 +61,10 @@
  */
 
 import { withEngine } from '@ptah-extension/cli-engine';
-import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import {
+  SYSTEM_CLI_TYPES,
+  isProviderAccountOpaqueId,
+} from '@ptah-extension/shared';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
 import type { GlobalOptions } from '../router.js';
@@ -71,6 +75,7 @@ import type {
   AgentListCliModelsResult,
   CliDetectionResult,
   CliType,
+  ProviderAccountSelection,
   SystemCliType,
 } from '@ptah-extension/shared';
 
@@ -132,6 +137,15 @@ export interface AgentCliOptions {
    * against, and the backend already errors actionably when none is configured.
    */
   ptahCliId?: string;
+  /**
+   * For `resume --cli claude` — the account the resume restates, as the raw
+   * flag value: the {@link AMBIENT_ACCOUNT_SENTINEL} or an account ID. Optional:
+   * when absent no selection is sent and the stored binding decides. It is
+   * never inferred, because the local CLI session index has no profile field.
+   * Only the ambient sentinel is accepted while named admission is
+   * release-held (D7); see {@link resolveResumeAccountSelection}.
+   */
+  account?: string;
 }
 
 export interface AgentCliStderrLike {
@@ -588,12 +602,22 @@ async function runResume(
     );
     return ExitCode.UsageError;
   }
+  let accountSelection: ProviderAccountSelection | undefined;
+  if (opts.account !== undefined) {
+    const account = resolveResumeAccountSelection(opts.account, target);
+    if (account.status === 'refused') {
+      stderr.write(`ptah agent-cli resume: ${account.message}\n`);
+      return ExitCode.UsageError;
+    }
+    accountSelection = account.selection;
+  }
 
   const params = buildResumeCliSessionParams({
     cliSessionId: opts.cliSessionId,
     task: opts.task,
     target,
     ptahCliId: opts.ptahCliId,
+    accountSelection,
   });
 
   return engine(globals, { mode: 'full' }, async (ctx) => {
@@ -626,6 +650,50 @@ export interface ResumeCliSessionParams {
   readonly cli: CliType;
   readonly task: string;
   readonly ptahCliId?: string;
+  readonly accountSelection?: ProviderAccountSelection;
+}
+
+/** The `--account` value that restates the ambient (default sign-in) route. */
+export const AMBIENT_ACCOUNT_SENTINEL = 'ambient';
+
+/** Outcome of reading a resume's `--account` value. */
+export type ResumeAccountResolution =
+  | { readonly status: 'ok'; readonly selection: ProviderAccountSelection }
+  | { readonly status: 'refused'; readonly message: string };
+
+/**
+ * Turn a raw `--account` value into the selection `resume` sends.
+ *
+ * Only `claude` lanes have account bindings, so any other target is refused.
+ * The ambient sentinel becomes `{ kind: 'ambient' }`; the backend then refuses
+ * it before spawn if the stored binding is a named account (a resume never
+ * switches accounts). An account ID is refused here: named admission is
+ * release-held (D7). Messages never echo the raw value, which is user input.
+ */
+export function resolveResumeAccountSelection(
+  raw: string,
+  target: CliAgentTarget,
+): ResumeAccountResolution {
+  if (target.cli !== 'claude') {
+    return {
+      status: 'refused',
+      message: '--account only applies to --cli claude',
+    };
+  }
+  const value = raw.trim();
+  if (value === AMBIENT_ACCOUNT_SENTINEL) {
+    return { status: 'ok', selection: { kind: 'ambient' } };
+  }
+  if (isProviderAccountOpaqueId(value)) {
+    return {
+      status: 'refused',
+      message: `named accounts are not available yet; use --account ${AMBIENT_ACCOUNT_SENTINEL} or omit the flag`,
+    };
+  }
+  return {
+    status: 'refused',
+    message: `--account must be '${AMBIENT_ACCOUNT_SENTINEL}' (omit the flag to keep the session's stored account)`,
+  };
 }
 
 /**
@@ -647,13 +715,16 @@ export function buildResumeCliSessionParams(input: {
   task: string;
   target: CliAgentTarget;
   ptahCliId?: string;
+  accountSelection?: ProviderAccountSelection;
 }): ResumeCliSessionParams {
   const ptahCliId = input.ptahCliId ?? input.target.ptahCliId;
+  const { accountSelection } = input;
   return {
     cliSessionId: input.cliSessionId,
     cli: input.target.cli,
     task: input.task,
     ...(ptahCliId === undefined ? {} : { ptahCliId }),
+    ...(accountSelection === undefined ? {} : { accountSelection }),
   };
 }
 

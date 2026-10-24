@@ -358,6 +358,19 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('Grok and Antigravity effort keys (TASK_2026_712, Batch 34b)', () => {
+    // Written through `agent:setConfig` and read by the lane spawn
+    // environment; unrouted, the write would miss ~/.ptah/settings.json.
+    it.each([
+      'agentOrchestration.grokReasoningEffort',
+      'agentOrchestration.antigravityReasoningEffort',
+    ])('%s is file-based and defaults to the CLI default', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('');
+    });
+  });
+
   describe('decision-model selection key (TASK_2026_646_136a)', () => {
     // Written by `DecisionModelConfig.setSelection`. VS Code has no schema for
     // it, so an unrouted write is rejected there.

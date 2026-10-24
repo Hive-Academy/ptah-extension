@@ -188,6 +188,74 @@ describe('agent spawn surface parity', () => {
       expect(stdio.spawn).not.toHaveBeenCalled();
     },
   );
+
+  // TASK_2026_712 Batch 34b: a validated account selection reaches the
+  // SpawnAgentRequest on both transports instead of being dropped.
+  it.each([
+    ['ambient', { kind: 'ambient' }],
+    ['omitted', { kind: 'omitted' }],
+  ])(
+    'forwards a %s accountSelection for a claude lane from HTTP and stdio',
+    async (_label, accountSelection) => {
+      const args = { task: 't', cli: 'claude', accountSelection };
+
+      const http = await spawnOverHttp(args);
+      const stdio = await spawnOverStdio(args);
+
+      expect(isError(http.response)).toBe(false);
+      expect(isError(stdio.response)).toBe(false);
+      const fromHttp = http.spawn.mock.calls[0][0];
+      const fromStdio = stdio.spawn.mock.calls[0][0];
+      expect(fromHttp.accountSelection).toEqual(accountSelection);
+      expect(fromStdio).toEqual(fromHttp);
+    },
+  );
+
+  it('leaves accountSelection undefined on both surfaces when it is absent', async () => {
+    const http = await spawnOverHttp({ task: 't', cli: 'claude' });
+    const stdio = await spawnOverStdio({ task: 't', cli: 'claude' });
+
+    expect(http.spawn.mock.calls[0][0].accountSelection).toBeUndefined();
+    expect(stdio.spawn.mock.calls[0][0].accountSelection).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a named claude selection',
+      {
+        cli: 'claude',
+        accountSelection: { kind: 'named', profileId: 'profile-0001' },
+      },
+    ],
+    [
+      'a named claude selection on resume',
+      {
+        cli: 'claude',
+        resume_session_id: 's-1',
+        accountSelection: { kind: 'named', profileId: 'profile-0001' },
+      },
+    ],
+    [
+      'a selection on another CLI',
+      { cli: 'codex', accountSelection: { kind: 'ambient' } },
+    ],
+    [
+      'a selection on an auto-detected lane',
+      { accountSelection: { kind: 'ambient' } },
+    ],
+    [
+      'a selection on a Ptah CLI agent',
+      { ptahCliId: 'p-1', accountSelection: { kind: 'ambient' } },
+    ],
+  ])('refuses %s on both surfaces without spawning', async (_label, fields) => {
+    const http = await spawnOverHttp({ task: 't', ...fields });
+    const stdio = await spawnOverStdio({ task: 't', ...fields });
+
+    expect(isError(http.response)).toBe(true);
+    expect(isError(stdio.response)).toBe(true);
+    expect(http.spawn).not.toHaveBeenCalled();
+    expect(stdio.spawn).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

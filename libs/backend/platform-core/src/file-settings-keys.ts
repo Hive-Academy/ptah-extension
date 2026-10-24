@@ -113,6 +113,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.copilotReasoningEffort',
   'agentOrchestration.copilotAutoApprove',
   'agentOrchestration.piReasoningEffort',
+  // Written through `agent:setConfig` like the other per-CLI efforts.
+  'agentOrchestration.grokReasoningEffort',
+  'agentOrchestration.antigravityReasoningEffort',
   'agentOrchestration.cursorModel',
   'agentOrchestration.antigravityModel',
   'agentOrchestration.grokModel',
@@ -331,6 +334,8 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.copilotReasoningEffort': '',
   'agentOrchestration.copilotAutoApprove': true,
   'agentOrchestration.piReasoningEffort': '',
+  'agentOrchestration.grokReasoningEffort': '',
+  'agentOrchestration.antigravityReasoningEffort': '',
   'agentOrchestration.cursorModel': '',
   'agentOrchestration.antigravityModel': '',
   'agentOrchestration.grokModel': '',

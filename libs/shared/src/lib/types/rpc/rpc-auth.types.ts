@@ -454,6 +454,14 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.grokReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.antigravityReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.cursorModel': {
     appScopable: false,
     supportedTargets: ['global'],
