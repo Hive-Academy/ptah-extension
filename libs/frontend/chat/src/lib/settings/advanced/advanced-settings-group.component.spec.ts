@@ -53,6 +53,8 @@ describe('AdvancedSettingsGroupComponent', () => {
       .filter((call) => call[1] === 'settings:set')
       .map((call) => call[2] as { key: string; value: unknown });
   const settle = async (): Promise<void> => {
+    // Zoneless stability does not track the mocked RPC promise chain.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await fixture.whenStable();
     fixture.detectChanges();
   };
