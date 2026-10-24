@@ -13,12 +13,8 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import type { SessionAgent } from '@ptah-extension/chat';
-import {
-  LaneControlsOutlet,
-  SessionAgentRosterService,
-} from '@ptah-extension/chat';
+import { SessionAgentRosterService } from '@ptah-extension/chat';
 import {
   AgentAvatarComponent,
   agentAccessibleLabel,
@@ -83,7 +79,6 @@ interface DockLayout {
   selector: 'ptah-canvas-lane-tabs',
   standalone: true,
   imports: [
-    NgTemplateOutlet,
     AgentAvatarComponent,
     AgentDockCardComponent,
     AgentDockMenuComponent,
@@ -93,16 +88,12 @@ interface DockLayout {
   host: { '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
     @let view = layout();
-    @let controls = laneControls?.template() ?? null;
-    <!-- One header strip: the dock, then the open lane's control row. -->
-    <div class="flex min-w-0" data-testid="lane-header-strip">
     <!-- Keep the dock at z-10 below the header menu (z-20); its card and dropdown share this stacking context. -->
     <div
       #dock
       role="tablist"
       aria-label="Lanes"
       class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
-      [class.flex-1]="!controls"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first) {
@@ -202,23 +193,10 @@ interface DockLayout {
         />
       }
     </div>
-    @if (controls) {
-      <div
-        class="relative z-10 min-w-[240px] flex-1 border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
-        data-testid="lane-controls"
-      >
-        <ng-container [ngTemplateOutlet]="controls" />
-      </div>
-    }
-    </div>
   `,
 })
 export class CanvasLaneTabsComponent {
   private readonly roster = inject(SessionAgentRosterService);
-  /** The open lane's control row (provided by the focus area). */
-  protected readonly laneControls = inject(LaneControlsOutlet, {
-    optional: true,
-  });
   private readonly floatingUI = inject(FloatingUIService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);

@@ -8,10 +8,8 @@ import {
   output,
   signal,
   untracked,
-  viewChild,
-  type TemplateRef,
 } from '@angular/core';
-import { NgTemplateOutlet, SlicePipe } from '@angular/common';
+import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, Moon, Square } from 'lucide-angular';
 import {
   AgentMonitorStore,
@@ -29,7 +27,6 @@ import type {
 } from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
 import { LANE_COLUMN_CLASS } from '../../molecules/execution-header/lane-column';
-import { LaneControlsOutlet } from '../../molecules/execution-header/lane-controls-outlet';
 import { LaneTranscriptComponent } from '../transcript/lane-transcript.component';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
@@ -42,7 +39,6 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
   selector: 'ptah-subagent-lane',
   standalone: true,
   imports: [
-    NgTemplateOutlet,
     SlicePipe,
     LucideAngularModule,
     AgentLaneStatsComponent,
@@ -55,12 +51,9 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
   // centered column, and the transcript in its own scroller between them.
   host: { class: 'flex min-h-0 flex-col' },
   template: `
-    <!-- In the host's header strip when it provides LaneControlsOutlet. -->
-    <ng-template #laneControls>
     <ptah-execution-header
       class="shrink-0"
       kind="subagent"
-      [placement]="controlsOutlet ? 'strip' : 'column'"
       [label]="label()"
       [live]="live()"
       [peek]="progress()"
@@ -127,10 +120,6 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
         }
       </dl>
     </ptah-execution-header>
-    </ng-template>
-    @if (!controlsOutlet) {
-      <ng-container [ngTemplateOutlet]="laneControls" />
-    }
     @if (commandError(); as err) {
       <p
         role="alert"
@@ -240,11 +229,6 @@ export class SubagentLaneComponent {
   readonly permissionResponded = output<PermissionResponse>();
 
   protected readonly columnClass = LANE_COLUMN_CLASS;
-  protected readonly controlsOutlet = inject(LaneControlsOutlet, {
-    optional: true,
-  });
-  private readonly laneControls =
-    viewChild<TemplateRef<unknown>>('laneControls');
   protected readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly store = inject(SubagentExecutionStore);
@@ -344,11 +328,6 @@ export class SubagentLaneComponent {
   });
 
   constructor() {
-    effect((onCleanup) => {
-      const outlet = this.controlsOutlet;
-      const controls = this.laneControls();
-      if (outlet && controls) onCleanup(outlet.attach(controls));
-    });
     effect((onCleanup) => {
       const key = this.key();
       this.store.retain(

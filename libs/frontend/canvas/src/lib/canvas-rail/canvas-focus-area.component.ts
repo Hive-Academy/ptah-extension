@@ -7,11 +7,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import {
-  TabManagerService,
-  ChatStore,
-  LaneControlsOutlet,
-} from '@ptah-extension/chat';
+import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import type { CompactRailState, SessionLimitSummary } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
@@ -29,8 +25,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
     CanvasLaneViewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // The lane's control row renders in the dock's header strip.
-  providers: [LaneControlsOutlet],
   host: { class: 'block h-full min-h-0 min-w-0' },
   template: `
     <section

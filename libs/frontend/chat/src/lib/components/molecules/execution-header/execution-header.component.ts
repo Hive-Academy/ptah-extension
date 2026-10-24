@@ -12,8 +12,7 @@ import { LANE_COLUMN_CLASS } from './lane-column';
 const META_SEPARATOR = ' · ';
 
 /**
- * Compact control row of a sub-agent or CLI lane: in the host's header strip
- * when it provides `LaneControlsOutlet`, else in the main chat's column.
+ * Compact control row of a sub-agent or CLI lane, in the main chat's column.
  *
  * The transcript's message bubbles carry the turn label (`Worked for …`) and
  * the tool and file counts, so this row repeats neither. It holds the lane
@@ -29,12 +28,9 @@ const META_SEPARATOR = ' · ';
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '[attr.data-kind]': 'kind()', class: 'block' },
   template: `
-    <div [class]="placement() === 'column' ? columnClass : ''">
+    <div [class]="columnClass">
       <div
-        class="flex min-h-[30px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-base-content-muted"
-        [class.border-b]="placement() === 'column'"
-        [class.border-surface-border]="placement() === 'column'"
-        [class.pb-1]="placement() === 'column'"
+        class="flex min-h-[30px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-surface-border pb-1 text-[12px] text-base-content-muted"
         data-test="execution-header-row"
       >
         <ng-content select="[executionHeaderStats]" />
@@ -103,11 +99,6 @@ export class ExecutionHeaderComponent {
   readonly extraMeta = input<readonly string[]>([]);
   readonly metaTone = input<'muted' | 'warning'>('muted');
   readonly controlsId = input.required<string>();
-  /**
-   * `column`: above the transcript, in the main chat's column. `strip`: in
-   * the host's header strip (`LaneControlsOutlet`), which draws the border.
-   */
-  readonly placement = input<'column' | 'strip'>('column');
   readonly open = model(false);
 
   protected readonly metaParts = computed(() => {
