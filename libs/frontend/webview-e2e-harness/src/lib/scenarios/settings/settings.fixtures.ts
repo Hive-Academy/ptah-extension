@@ -859,6 +859,16 @@ export async function bootSettings(
   const readySelector =
     host === 'electron' ? 'ptah-electron-shell' : 'ptah-app-shell';
   await expect(page.locator(readySelector).first()).toBeVisible();
+  if (host === 'electron') {
+    // The Electron fold budgets measure the page beside the open Workspaces
+    // panel, which now starts closed.
+    const workspaces = page.getByRole('button', {
+      name: 'Toggle Workspaces panel',
+    });
+    await expect(workspaces).toHaveAttribute('aria-expanded', 'false');
+    await workspaces.click();
+    await expect(page.locator('ptah-workspace-sidebar')).toBeVisible();
+  }
   await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
   await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
   return state;
