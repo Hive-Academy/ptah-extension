@@ -33,6 +33,7 @@ jest.mock('node:fs/promises', () => ({
   readFile: jest.fn(),
   writeFile: jest.fn(),
   rename: jest.fn(),
+  unlink: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('axios');
@@ -688,6 +689,16 @@ describe('CodexAuthService', () => {
       mockedExistsSync.mockReturnValue(false);
       service.startWatchingAuthFile();
       expect(mockedWatch).not.toHaveBeenCalled();
+    });
+
+    it('retries watching when the default home appears after an earlier start', () => {
+      mockedExistsSync.mockReturnValue(false);
+      service.startWatchingAuthFile();
+      mockedExistsSync.mockReturnValue(true);
+      service.startWatchingAuthFile();
+      expect(mockedWatch).toHaveBeenCalledTimes(1);
+      service.stopWatchingAuthFile();
+      expect(fakeWatcher.close).toHaveBeenCalledTimes(1);
     });
 
     it('closes the watcher on stopWatchingAuthFile', () => {
