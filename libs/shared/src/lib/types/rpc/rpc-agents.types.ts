@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
 import type { EffortLevel } from '../ai-provider.types';
+import type { SystemCliType } from '../agent-process.types';
 import type {
   ProviderAccountBindingPresence,
   ProviderAccountSelectionField,
@@ -318,16 +319,11 @@ export interface CliModelOption {
   readonly isFallback?: boolean;
 }
 
-/** Response from agent:listCliModels RPC method */
-export interface AgentListCliModelsResult {
-  codex: CliModelOption[];
-  copilot: CliModelOption[];
-  cursor: CliModelOption[];
-  antigravity: CliModelOption[];
-  opencode: CliModelOption[];
-  pi: CliModelOption[];
-  grok: CliModelOption[];
-}
+/**
+ * Response from agent:listCliModels RPC method: one list per system CLI. The keys are derived from
+ * `SYSTEM_CLI_TYPES`, so a new tuple member (e.g. `claude`) cannot be missing from the wire type.
+ */
+export type AgentListCliModelsResult = Record<SystemCliType, CliModelOption[]>;
 
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot

@@ -471,6 +471,7 @@ async function runModelsList(
       opencode: result?.opencode ?? [],
       pi: result?.pi ?? [],
       grok: result?.grok ?? [],
+      claude: result?.claude ?? [],
     });
     return ExitCode.Success;
   });

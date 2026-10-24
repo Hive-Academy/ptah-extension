@@ -176,7 +176,6 @@ describe('CLI_AGENT_SELECTORS contract', () => {
   it('rejects ids that name no target', () => {
     for (const id of [
       'gemini', // removed from CliType by 2ef1abdde
-      'claude',
       'anthropic',
       'openai',
       'windsurf',
@@ -373,7 +372,7 @@ describe('ptah agent-cli config set', () => {
 // ---------------------------------------------------------------------------
 
 describe('ptah agent-cli models list', () => {
-  it('reports all seven system CLIs when --cli omitted', async () => {
+  it('reports every system CLI when --cli omitted', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
     engine.scripted.set('agent:listCliModels', {
@@ -386,6 +385,7 @@ describe('ptah agent-cli models list', () => {
         opencode: ['oc1'],
         pi: ['pi1'],
         grok: ['gk1'],
+        claude: ['cl1'],
       },
     });
 
@@ -406,6 +406,7 @@ describe('ptah agent-cli models list', () => {
         opencode: ['oc1'],
         pi: ['pi1'],
         grok: ['gk1'],
+        claude: ['cl1'],
       },
     });
   });
@@ -428,6 +429,7 @@ describe('ptah agent-cli models list', () => {
       opencode: [],
       pi: [],
       grok: [],
+      claude: [],
     });
   });
 
@@ -474,6 +476,7 @@ describe('ptah agent-cli models list', () => {
           opencode: ['opencode-m'],
           pi: ['pi-m'],
           grok: ['grok-m'],
+          claude: ['claude-m'],
         },
       });
 

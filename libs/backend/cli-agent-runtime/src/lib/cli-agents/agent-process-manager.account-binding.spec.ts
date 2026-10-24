@@ -21,8 +21,47 @@ import type {
   LaneAccountReference,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import { SYSTEM_CLI_TYPES, type CliDetectionResult } from '@ptah-extension/shared';
+import type {
+  IProcessSpawner,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
+import type {
+  IAuthSecretsService,
+  Logger,
+  SentryService,
+} from '@ptah-extension/vscode-core';
+import type { ReasoningSettings } from '@ptah-extension/settings-core';
+import { CliDetectionService } from './cli-detection.service';
+import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
+import {
+  ClaudeCliAdapter,
+  type ClaudeCliAdapterDependencies,
+} from './cli-adapters/claude-cli.adapter';
 
-const CLAUDE = 'claude' as CliType; // Public roster belongs to the certification batch.
+/** The roster before the native Claude lane joined, in auto-detect order. */
+const PREVIOUS_SEVEN = ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok'] as const;
+
+// The seven binary adapters are replaced by doubles so detection never runs a
+// real `which`/version probe. The Claude adapter under test is the real class.
+function mockRosterAdapter(name: string) {
+  return {
+    name, displayName: name, roleChannel: 'task-prompt',
+    detect: jest.fn().mockResolvedValue({ cli: name, installed: true, messagingMode: 'queue' }),
+    capabilities: () => ({ steer: false, interrupt: false, continuation: true }),
+    parseOutput: (raw: string) => raw,
+  };
+}
+jest.mock('./cli-adapters/codex-cli.adapter', () => ({ CodexCliAdapter: jest.fn(() => mockRosterAdapter('codex')) }));
+jest.mock('./cli-adapters/copilot-sdk.adapter', () => ({ CopilotSdkAdapter: jest.fn(() => mockRosterAdapter('copilot')) }));
+jest.mock('./cli-adapters/copilot-permission-bridge', () => ({ CopilotPermissionBridge: jest.fn(() => ({})) }));
+jest.mock('./cli-adapters/cursor-cli.adapter', () => ({ CursorCliAdapter: jest.fn(() => mockRosterAdapter('cursor')) }));
+jest.mock('./cli-adapters/antigravity-cli.adapter', () => ({ AntigravityCliAdapter: jest.fn(() => mockRosterAdapter('antigravity')) }));
+jest.mock('./cli-adapters/opencode-cli.adapter', () => ({ OpencodeCliAdapter: jest.fn(() => mockRosterAdapter('opencode')) }));
+jest.mock('./cli-adapters/pi-cli.adapter', () => ({ PiCliAdapter: jest.fn(() => mockRosterAdapter('pi')) }));
+jest.mock('./cli-adapters/grok-cli.adapter', () => ({ GrokCliAdapter: jest.fn(() => mockRosterAdapter('grok')) }));
+
+const CLAUDE: CliType = 'claude';
 const ROOT = 'D:/lane-account-fixture';
 const ID = AgentId.from('aaaaaaaa-bbbb-4ccc-8ddd-000000000001');
 const binding: ProviderAccountBinding = {
@@ -368,6 +407,157 @@ describe('AgentProcessManager account reference lifecycle', () => {
     const snapshot = snapshotLaneAccountReference({ accountBinding: mutable, accountBindingId: mutable.runId });
     mutable.identity.ownerKey = 'c'.repeat(64);
     expect(snapshot?.accountBinding.identity).toEqual(binding.identity);
+  });
+});
+
+/** A real Claude adapter over structural doubles; detection must never query. */
+function claudeAdapter(loader: Partial<ClaudeCliAdapterDependencies['loader']>) {
+  const queryFn = jest.fn();
+  const admission = jest.fn().mockReturnValue(null);
+  const models = { getNativeClaudeModels: jest.fn().mockResolvedValue([]) };
+  const logger = stub<Logger>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() });
+  const deps = stub<ClaudeCliAdapterDependencies>({
+    loader: {
+      getCliJsPath: jest.fn().mockResolvedValue('D:/sdk/cli.js'),
+      getQueryFunction: jest.fn().mockResolvedValue(queryFn),
+      ...loader,
+    } as ClaudeCliAdapterDependencies['loader'],
+    admission, models,
+  });
+  return { adapter: new ClaudeCliAdapter(logger, deps), queryFn, admission, models };
+}
+
+function detection(claude: ClaudeCliAdapter | null) {
+  const logger = stub<Logger>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() });
+  const sentry = { captureException: jest.fn() };
+  const service = new CliDetectionService(
+    logger,
+    stub<SentryService>(sentry),
+    stub<IProcessSpawner>({}),
+    stub<IAuthSecretsService>({ getProviderKey: jest.fn().mockResolvedValue(undefined) }),
+    claude,
+  );
+  return { service, sentry };
+}
+
+describe('Batch 26 system Claude roster activation', () => {
+  it('appends claude to the tuple after the unchanged previous seven', () => {
+    expect(SYSTEM_CLI_TYPES.slice(0, PREVIOUS_SEVEN.length)).toEqual(PREVIOUS_SEVEN);
+    expect(SYSTEM_CLI_TYPES).toHaveLength(PREVIOUS_SEVEN.length + 1);
+    expect(SYSTEM_CLI_TYPES[PREVIOUS_SEVEN.length]).toBe('claude');
+    expect(SYSTEM_CLI_TYPES).not.toContain('ptah-cli');
+  });
+
+  it('detects the real Claude adapter beside the seven without starting a query', async () => {
+    const claude = claudeAdapter({});
+    const { service } = detection(claude.adapter);
+    const results = await service.detectAll();
+    expect(results.map((r) => r.cli)).toEqual([...SYSTEM_CLI_TYPES]);
+    expect(results.every((r) => r.installed)).toBe(true);
+    expect(results.find((r) => r.cli === CLAUDE)).toMatchObject({ roleChannel: 'system-prompt', messagingMode: 'queue' });
+    expect(service.getAdapter(CLAUDE)).toBe(claude.adapter);
+    expect(claude.queryFn).not.toHaveBeenCalled();
+    expect(claude.models.getNativeClaudeModels).not.toHaveBeenCalled();
+  });
+
+  it('isolates a missing Claude SDK: claude is uninstalled, the seven are untouched', async () => {
+    const claude = claudeAdapter({ getQueryFunction: jest.fn().mockRejectedValue(new Error('module not found')) });
+    const { service, sentry } = detection(claude.adapter);
+    const results = await service.detectAll();
+    expect(results.find((r) => r.cli === CLAUDE)?.installed).toBe(false);
+    expect(results.filter((r) => r.cli !== CLAUDE).map((r) => [r.cli, r.installed]))
+      .toEqual(PREVIOUS_SEVEN.map((cli) => [cli, true]));
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
+  it('reports an absent bundled executable as not installed', async () => {
+    const claude = claudeAdapter({ getCliJsPath: jest.fn().mockResolvedValue(undefined) });
+    const { service } = detection(claude.adapter);
+    expect((await service.getDetection(CLAUDE))?.installed).toBe(false);
+    expect(claude.queryFn).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a signed-out or unadmitted account as uninstalled', async () => {
+    const claude = claudeAdapter({});
+    const { service } = detection(claude.adapter);
+    expect((await service.getDetection(CLAUDE))?.installed).toBe(true);
+    expect(claude.admission).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous seven-adapter roster when no Claude adapter is supplied', async () => {
+    const { service } = detection(null);
+    expect((await service.detectAll()).map((r) => r.cli)).toEqual([...PREVIOUS_SEVEN]);
+    expect(service.getAdapter(CLAUDE)).toBeUndefined();
+  });
+});
+
+describe('Batch 26 typed Claude runtime policy', () => {
+  type Detection = Pick<CliDetectionService, 'getAdapter' | 'getDetection' | 'getInstalledClis'>;
+
+  function environment(config: Record<string, unknown>, installed: readonly CliType[] = SYSTEM_CLI_TYPES, chatEffort?: string) {
+    const results = SYSTEM_CLI_TYPES.map(
+      (cli) => ({ cli, installed: installed.includes(cli), messagingMode: 'queue' }) as CliDetectionResult,
+    );
+    const cliDetection = stub<Detection>({
+      getAdapter: jest.fn((cli: CliType) => (SYSTEM_CLI_TYPES as readonly CliType[]).includes(cli) ? stub<CliAdapter>({ name: cli }) : undefined),
+      getDetection: jest.fn(async (cli: CliType) => results.find((r) => r.cli === cli)),
+      getInstalledClis: jest.fn(async () => results.filter((r) => r.installed)),
+    });
+    const workspace = stub<IWorkspaceProvider>({
+      getConfiguration: jest.fn((_section: string, key: string, fallback?: unknown) =>
+        key in config ? config[key] : fallback) as IWorkspaceProvider['getConfiguration'],
+    });
+    return new AgentSpawnEnvironment(
+      stub<Logger>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+      cliDetection as CliDetectionService,
+      workspace,
+      stub<ReasoningSettings>({ effort: { get: () => chatEffort } } as Partial<ReasoningSettings>),
+      stub<SentryService>({ captureException: jest.fn() }),
+    );
+  }
+
+  it('maps claudeModel, keeps request precedence and adds no hard-coded default', () => {
+    const configured = environment({ 'agentOrchestration.claudeModel': ' claude-model-from-settings ' });
+    expect(configured.resolveModel(CLAUDE, undefined)).toEqual({ model: 'claude-model-from-settings', source: 'setting' });
+    expect(configured.resolveModel(CLAUDE, 'request-model')).toEqual({ model: 'request-model', source: 'request' });
+    expect(environment({}).resolveModel(CLAUDE, undefined)).toEqual({ model: undefined, source: 'cli-default' });
+    expect(environment({}).resolveModel('codex', undefined).source).toBe('ptah-default');
+  });
+
+  it('maps claudeReasoningEffort on the SDK scale without Codex coercion', () => {
+    expect(environment({ 'agentOrchestration.claudeReasoningEffort': 'max' }).resolveReasoningEffort(CLAUDE))
+      .toMatchObject({ effort: 'max', step: 2, ignored: [] });
+    expect(environment({ 'agentOrchestration.codexReasoningEffort': 'max' }).resolveReasoningEffort('codex'))
+      .toMatchObject({ effort: 'xhigh', step: 2 });
+    expect(environment({ 'agentOrchestration.claudeReasoningEffort': 'minimal' }).resolveReasoningEffort(CLAUDE))
+      .toEqual({ effort: undefined, step: 6, ignored: [{ step: 2, value: 'minimal' }] });
+    expect(environment({ 'agentOrchestration.claudeReasoningEffort': 'inherit' }, SYSTEM_CLI_TYPES, 'high').resolveReasoningEffort(CLAUDE))
+      .toMatchObject({ effort: 'high', step: 3 });
+    expect(environment({}).resolveReasoningEffort(CLAUDE, { effort: 'xhigh' })).toMatchObject({ effort: 'xhigh', step: 1 });
+    expect(environment({}).resolveReasoningEffort(CLAUDE, { roleName: 'code-logic-reviewer' })).toMatchObject({ effort: 'medium', step: 4 });
+  });
+
+  it('honours preferred order, skips unknown IDs and ptah-cli, and respects the disabled set', async () => {
+    const order = { 'agentOrchestration.preferredAgentOrder': ['not-a-cli', 'ptah-cli', 'claude', 'codex'] };
+    expect(await environment(order).preferredCli()).toBe(CLAUDE);
+    expect(await environment({ ...order, 'agentOrchestration.disabledClis': ['claude'] }).preferredCli()).toBe('codex');
+    expect(await environment(order, ['grok']).preferredCli()).toBe('grok');
+    expect(await environment({ 'agentOrchestration.disabledClis': [...PREVIOUS_SEVEN] }, SYSTEM_CLI_TYPES).preferredCli()).toBe(CLAUDE);
+    expect(await environment({}, []).preferredCli()).toBeNull();
+  });
+
+  it('keeps auto-detect on the previous first CLI when every lane is installed', async () => {
+    expect(await environment({}).preferredCli()).toBe('codex');
+  });
+
+  it('clamps the concurrency cap to 1..100 with a default of 5', () => {
+    const cap = (value: unknown) => environment({ 'agentOrchestration.maxConcurrentAgents': value }).maxConcurrentAgents();
+    expect(cap(0)).toBe(1);
+    expect(cap(-3)).toBe(1);
+    expect(cap(500)).toBe(100);
+    expect(cap(Number.NaN)).toBe(5);
+    expect(cap(42)).toBe(42);
+    expect(environment({}).maxConcurrentAgents()).toBe(5);
   });
 });
 

@@ -66,11 +66,14 @@ export type AgentFailureKind = 'quota';
  * surface that has to enumerate spawnable CLIs — the MCP `ptah_agent_spawn`
  * schema (`tool-description.builder.ts`), the stdio dispatcher's zod enum
  * (`agent-tool.dispatcher.ts`), and default-CLI selection
- * (`AgentProcessManager.getPreferredCli`). Adding a seventh adapter means
- * adding one literal HERE; the other surfaces follow automatically.
+ * (`AgentSpawnEnvironment.preferredCli`). Adding an adapter means adding one
+ * literal HERE; the other surfaces follow automatically. Order is the
+ * auto-detect fallback order, so a new member is appended, never inserted.
  *
- * `ptah-cli` is deliberately NOT a member: those agents are user-configured
- * Anthropic-compatible providers selected by `ptahCliId`, not a binary name.
+ * `claude` is the native Claude Agent SDK lane (system Claude, optionally on a
+ * named account). `ptah-cli` is deliberately NOT a member: those agents are
+ * user-configured Anthropic-compatible providers selected by `ptahCliId`, not
+ * a system lane.
  */
 export const SYSTEM_CLI_TYPES = [
   'codex',
@@ -80,6 +83,7 @@ export const SYSTEM_CLI_TYPES = [
   'opencode',
   'pi',
   'grok',
+  'claude',
 ] as const;
 
 export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];
