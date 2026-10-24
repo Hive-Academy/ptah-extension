@@ -1895,6 +1895,18 @@ describe('ask-command-edit evidence flow', () => {
     expect(result.notes).toContain('exec-policy rule location unverified');
   });
 
+  it('keeps the decline and replacement plan out of the edit-case instructions', async () => {
+    const { sent } = await exercise('happy');
+    const start = sent.find((frame) => frame['method'] === 'thread/start');
+    const instructions = String(
+      (start?.['params'] as Record<string, unknown> | undefined)?.[
+        'developerInstructions'
+      ],
+    );
+    expect(instructions).toContain('Evidence experiment.');
+    expect(instructions).not.toMatch(/replacement|declin|steer/i);
+  });
+
   it('uses a neutral read-rule prompt without requesting approval', async () => {
     const { sent, expectedReadCommand } = await exercise('rule-approval');
     expect(

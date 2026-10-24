@@ -1519,7 +1519,7 @@ export async function runCase(
               input: [
                 {
                   type: 'text',
-                  text: `The original command was declined. Request approval, then run exactly this replacement command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${editedCommand}\nNo other tools or retries.`,
+                  text: `That command was declined. Do not retry it. Request approval, then run exactly this command once instead, without wrappers, changes or added punctuation. The command is the whole next line:\n${editedCommand}\nNo other tools or retries.`,
                   text_elements: [],
                 },
               ],
@@ -1758,7 +1758,8 @@ export async function runCase(
       developerInstructions: readRule
         ? 'Evidence experiment. Only read the single requested fixture. Do not inspect credentials, config, home, environment or network. No subagents or retries. Stop after one tool action.'
         : editing
-          ? 'Evidence experiment. Only the approved replacement marker may be touched. The original command must be declined, then follow the steer instruction for one replacement command. Do not inspect credentials, config, home, environment or network. No subagents or retries.'
+          ? // Runs 6f/6g: naming the decline and replacement plan here made the model skip the requested command.
+            'Evidence experiment. Only the marker in the latest requested command may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries.'
           : 'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
     });
     if (typeof selected.approvalPolicy !== 'string') {
