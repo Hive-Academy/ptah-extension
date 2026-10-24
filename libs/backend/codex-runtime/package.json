@@ -6,6 +6,7 @@
   "main": "./index.cjs",
   "types": "./index.d.ts",
   "dependencies": {
+    "tsyringe": "^4.10.0",
     "zod": "4.6.5"
   }
 }
