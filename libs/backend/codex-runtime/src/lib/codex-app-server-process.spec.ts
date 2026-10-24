@@ -98,6 +98,10 @@ const approval = {
 };
 
 describe('CodexAppServerProcess', () => {
+  const platformDescriptor = Object.getOwnPropertyDescriptor(
+    process,
+    'platform',
+  );
   let child: FakeChild;
   let spawner: IProcessSpawner;
   let runtime: CodexAppServerProcess;
@@ -123,6 +127,9 @@ describe('CodexAppServerProcess', () => {
     await closing;
     expect(jest.getTimerCount()).toBe(0);
     jest.useRealTimers();
+    jest.restoreAllMocks();
+    if (platformDescriptor)
+      Object.defineProperty(process, 'platform', platformDescriptor);
   });
   async function start(): Promise<void> {
     const starting = runtime.start();
@@ -144,7 +151,7 @@ describe('CodexAppServerProcess', () => {
       command: executable.resolvedPath,
       args: ['app-server'],
       cwd: '/work',
-      env: { ...process.env, CODEX_HOME: '/isolated/home' },
+      env: expect.objectContaining({ CODEX_HOME: '/isolated/home' }),
       launchGuard: {
         fileContents: [
           { path: executable.resolvedPath, sha256: binary.sha256 },
@@ -163,6 +170,85 @@ describe('CodexAppServerProcess', () => {
       },
       { method: 'initialized' },
     ]);
+  });
+
+  it.each(['linux', 'win32'] as const)(
+    'inherits only allowlisted host variables on %s',
+    async (platform) => {
+      Object.defineProperty(process, 'platform', { value: platform });
+      const allowed = {
+        PATH: '/bin',
+        PATHEXT: '.EXE',
+        SYSTEMROOT: 'C:\\Windows',
+        WINDIR: 'C:\\Windows',
+        COMSPEC: 'cmd.exe',
+        LANG: 'en_US.UTF-8',
+        LC_ALL: 'C',
+        HOME: '/host/home',
+        USERPROFILE: 'C:\\Users\\host',
+        TMP: '/tmp',
+        TEMP: '/temp',
+        TMPDIR: '/tmpdir',
+      };
+      const hostEnv = {
+        ...allowed,
+        CODEX_HOME: '/host/codex',
+        ANTHROPIC_AUTH_TOKEN: 'host-secret',
+        ANTHROPIC_BASE_URL: 'host-proxy',
+        OPENAI_API_KEY: 'host-secret',
+        CODEX_API_KEY: 'host-secret',
+        GITHUB_TOKEN: 'host-secret',
+        PTAH_INTERNAL: 'host-private',
+        OTHER_SECRET: 'host-secret',
+        OTHER_KEY: 'host-secret',
+        LC_SECRET: 'host-secret',
+        HTTPS_PROXY: 'host-proxy',
+        NODE_OPTIONS: 'host-options',
+        APPDATA: 'host-appdata',
+      };
+      jest.replaceProperty(process, 'env', hostEnv);
+      await start();
+      expect(spawner.spawnProcess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          env: { ...allowed, CODEX_HOME: profile.normalizedHome },
+        }),
+      );
+      expect(process.env).toBe(hostEnv);
+      expect(process.env['CODEX_HOME']).toBe('/host/codex');
+    },
+  );
+
+  it('normalizes Windows case variants and excludes mixed-case secrets and home overrides', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    jest.replaceProperty(process, 'env', {
+      Path: 'C:\\bin',
+      SystemRoot: 'C:\\Windows',
+      windir: 'C:\\Windows',
+      ComSpec: 'cmd.exe',
+      Temp: 'C:\\Temp',
+      lc_all: 'C',
+      codex_home: '/host/codex',
+      Codex_Home: '/other/codex',
+      Anthropic_Auth_Token: 'secret',
+      OpenAI_API_Key: 'secret',
+      Codex_Api_Key: 'secret',
+      Github_Token: 'secret',
+      Ptah_Internal: 'secret',
+    });
+    await start();
+    expect(spawner.spawnProcess).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: {
+          PATH: 'C:\\bin',
+          SYSTEMROOT: 'C:\\Windows',
+          WINDIR: 'C:\\Windows',
+          COMSPEC: 'cmd.exe',
+          TEMP: 'C:\\Temp',
+          LC_ALL: 'C',
+          CODEX_HOME: profile.normalizedHome,
+        },
+      }),
+    );
   });
 
   it('refuses mismatched identity without spawning or handshaking', async () => {

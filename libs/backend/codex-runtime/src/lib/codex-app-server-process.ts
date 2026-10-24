@@ -110,7 +110,26 @@ export class CodexAppServerProcess {
         command: this.executable.resolvedPath,
         args: ['app-server'],
         cwd: this.profile.cwd,
-        env: { ...process.env, CODEX_HOME: this.profile.normalizedHome },
+        env: {
+          // Match the evidence harness's names; retain host home/temp paths because
+          // execution profiles do not provide the harness's isolated scratch paths.
+          ...Object.fromEntries(
+            Object.entries(process.env)
+              .map(
+                ([key, value]) =>
+                  [
+                    process.platform === 'win32' ? key.toUpperCase() : key,
+                    value,
+                  ] as const,
+              )
+              .filter(([key]) =>
+                /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|LANG|LC_ALL|HOME|USERPROFILE|TMP|TEMP|TMPDIR)$/.test(
+                  key,
+                ),
+              ),
+          ),
+          CODEX_HOME: this.profile.normalizedHome,
+        },
         launchGuard: {
           fileContents: [
             {
