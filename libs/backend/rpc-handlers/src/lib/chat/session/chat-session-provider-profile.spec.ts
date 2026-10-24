@@ -73,9 +73,9 @@ const TAB_ID = 'f69cb197-0798-40bc-ac0c-6f7591e0a894';
 
 /** The global/app snapshot a workspace without an override resolves to. */
 const GLOBAL_SNAPSHOT: ProviderProfile = {
-  providerId: 'moonshot',
+  providerId: 'kimi-code',
   authEnv: {
-    ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+    ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
     ANTHROPIC_AUTH_TOKEN: 'ms-key',
     ANTHROPIC_API_KEY: '',
   },
@@ -83,8 +83,8 @@ const GLOBAL_SNAPSHOT: ProviderProfile = {
 };
 
 const REFUSAL = new AuthRequiredError(
-  'Cannot start this session: Moonshot is not ready for this workspace, and the active connection uses a different provider.',
-  { providerId: 'moonshot' },
+  'Cannot start this session: Kimi Code is not ready for this workspace, and the active connection uses a different provider.',
+  { providerId: 'kimi-code' },
 );
 
 function emptyStream(): AsyncIterable<never> {
@@ -238,8 +238,14 @@ describe('chat:resume stored provider', () => {
   it('returns metadata identity and leaves old sessions unknown', async () => {
     const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
     h.metadataGet.mockResolvedValueOnce({ providerId: 'openrouter' });
-    const params = { sessionId: SESSION_ID, tabId: TAB_ID, workspacePath: OPEN_FOLDER };
-    expect((await h.service.resumeSession(params)).providerId).toBe('openrouter');
+    const params = {
+      sessionId: SESSION_ID,
+      tabId: TAB_ID,
+      workspacePath: OPEN_FOLDER,
+    };
+    expect((await h.service.resumeSession(params)).providerId).toBe(
+      'openrouter',
+    );
     expect((await h.service.resumeSession(params)).providerId).toBeUndefined();
   });
 });
@@ -304,7 +310,7 @@ describe('fail closed: no snapshot and the shared env serves another provider', 
     expect(result).toMatchObject({
       success: false,
       errorCode: 'AUTH_REQUIRED',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       error: REFUSAL.message,
     });
     expect(h.startChatSession).not.toHaveBeenCalled();
@@ -318,7 +324,7 @@ describe('fail closed: no snapshot and the shared env serves another provider', 
     expect(result).toMatchObject({
       success: false,
       errorCode: 'AUTH_REQUIRED',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
     });
     expect(h.resumeSession).not.toHaveBeenCalled();
   });
@@ -331,7 +337,7 @@ describe('fail closed: no snapshot and the shared env serves another provider', 
     expect(result).toMatchObject({
       success: false,
       errorCode: 'AUTH_REQUIRED',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
     });
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
   });

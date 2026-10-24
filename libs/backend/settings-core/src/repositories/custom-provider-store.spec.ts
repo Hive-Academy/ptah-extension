@@ -259,7 +259,7 @@ describe('CustomProviderStore.add', () => {
   it('rejects an id already taken by a built-in provider', async () => {
     const { store } = makeStore();
 
-    await expect(store.add(validInput({ id: 'moonshot' }))).rejects.toThrow(
+    await expect(store.add(validInput({ id: 'kimi-code' }))).rejects.toThrow(
       /reserved by a built-in/,
     );
     // The virtual direct-auth id is reserved too.
@@ -270,6 +270,15 @@ describe('CustomProviderStore.add', () => {
     await expect(store.add(validInput({ id: 'requesty' }))).rejects.toThrow(
       /reserved by a built-in/,
     );
+  });
+
+  it('accepts the retired moonshot id, which is no longer a built-in', async () => {
+    const { store } = makeStore();
+
+    const entry = await store.add(validInput({ id: 'moonshot' }));
+
+    expect(entry.id).toBe('moonshot');
+    expect(getCustomProviderEntries().map((e) => e.id)).toEqual(['moonshot']);
   });
 
   it('rejects a duplicate custom id', async () => {

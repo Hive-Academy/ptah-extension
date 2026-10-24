@@ -2,7 +2,7 @@
  * Authentication Strategy Types
  *
  * The 5 strategies map 1:1 to actual authentication flows:
- * - api-key:       Direct API key (Anthropic, OpenRouter, Moonshot, Z.AI)
+ * - api-key:       Direct API key (Anthropic, OpenRouter, Kimi Code, Z.AI)
  * - oauth-proxy:   OAuth token + translation proxy (Copilot, Codex)
  * - local-native:  Local server speaking Anthropic API (Ollama v0.14+)
  * - local-proxy:   Local server + translation proxy (LM Studio)
@@ -14,11 +14,7 @@
 
 /** The 5 auth strategies, each corresponding to a distinct authentication flow */
 export type AuthStrategyType =
-  | 'api-key'
-  | 'oauth-proxy'
-  | 'local-native'
-  | 'local-proxy'
-  | 'cli';
+  'api-key' | 'oauth-proxy' | 'local-native' | 'local-proxy' | 'cli';
 
 /**
  * Legacy AuthMethod values stored in config and sent by frontend.
@@ -48,7 +44,7 @@ export type LegacyAuthMethod = 'apiKey' | 'claudeCli' | 'thirdParty';
  *     provider.authType === 'oauth' && provider.requiresProxy → 'oauth-proxy'
  *     provider.authType === 'none'  && !provider.requiresProxy→ 'local-native'
  *     provider.authType === 'none'  && provider.requiresProxy → 'local-proxy'
- *     otherwise (apiKey providers like OpenRouter/Moonshot/Z.AI)→ 'api-key'
+ *     otherwise (apiKey providers like OpenRouter/Kimi Code/Z.AI)→ 'api-key'
  *
  * The `nativeAuth` test MUST come first. `claude-cli` ("Claude
  * (Subscription)") is declared `authType: 'none'` with no proxy, which is
@@ -86,7 +82,7 @@ export function resolveStrategy(
   if (provider.authType === 'none' && provider.requiresProxy)
     return 'local-proxy';
 
-  // Default for API-key providers (OpenRouter, Moonshot, Z.AI, Sakana).
+  // Default for API-key providers (OpenRouter, Kimi Code, Z.AI, Sakana).
   // apiKey providers with requiresProxy:true (Sakana) also land here — the
   // ApiKeyStrategy starts the translation proxy internally; no separate route.
   return 'api-key';

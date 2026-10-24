@@ -76,7 +76,7 @@ export interface IAuthSecretsService {
 
   /**
    * Get API key for a specific Anthropic-compatible provider
-   * @param providerId - Provider ID (e.g., 'openrouter', 'moonshot', 'z-ai')
+   * @param providerId - Provider ID (e.g., 'openrouter', 'kimi-code', 'z-ai')
    * @returns Provider API key or undefined if not set
    */
   getProviderKey(providerId: string): Promise<string | undefined>;

@@ -73,7 +73,7 @@ describe('isFileBasedSettingKey', () => {
 
     it('returns true for cliAgent tier patterns', () => {
       expect(
-        isFileBasedSettingKey('provider.moonshot.cliAgent.modelTier.sonnet'),
+        isFileBasedSettingKey('provider.kimi-code.cliAgent.modelTier.sonnet'),
       ).toBe(true);
       expect(
         isFileBasedSettingKey('provider.lm-studio.cliAgent.modelTier.haiku'),
@@ -154,6 +154,36 @@ describe('isFileBasedSettingKey', () => {
       ).toBe(true);
     });
 
+    it('routes the kimi-code built-in slots through the static Set', () => {
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.kimi-code.reasoningEffort',
+        ),
+      ).toBe(true);
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has('provider.kimi-code.modelTier.opus'),
+      ).toBe(true);
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.kimi-code.reasoningEffort'),
+      ).toBe(true);
+      expect(isFileBasedSettingKey('provider.kimi-code.modelTier.opus')).toBe(
+        true,
+      );
+    });
+
+    it('still routes a stale moonshot key by pattern instead of dropping it', () => {
+      // `moonshot` is no longer a built-in; its leftover keys must stay
+      // file-routed (inert), not fall through to a store that discards them.
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.moonshot.selectedModel',
+        ),
+      ).toBe(false);
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.moonshot.selectedModel'),
+      ).toBe(true);
+    });
+
     it('returns false for uppercase ids and unknown leaf names', () => {
       expect(
         isFileBasedSettingKey('provider.thirdParty.MyBox.selectedModel'),
@@ -202,12 +232,14 @@ describe('isFileBasedSettingKey', () => {
       'skills.telemetry.enabled': true,
     } as const;
 
-    it.each(Object.entries(defaults))('routes and defaults %s', (key, value) => {
-      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-      expect(isFileBasedSettingKey(key)).toBe(true);
-      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
-    });
-
+    it.each(Object.entries(defaults))(
+      'routes and defaults %s',
+      (key, value) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
+      },
+    );
   });
 
   describe('memory lifecycle keys (TASK_2026_443)', () => {

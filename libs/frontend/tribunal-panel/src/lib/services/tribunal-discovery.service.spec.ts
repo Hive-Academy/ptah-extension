@@ -101,7 +101,7 @@ describe('TribunalDiscoveryService', () => {
       expect(result.every((v) => v.needsSetup)).toBe(true);
       expect(result.every((v) => !v.available)).toBe(true);
       expect(byLaneId(result, 'codex#0')).toBeDefined();
-      expect(byLaneId(result, 'ptah-cli|moonshot#0')).toBeDefined();
+      expect(byLaneId(result, 'ptah-cli|kimi-code#0')).toBeDefined();
     });
 
     it('lists the full catalog when RPC succeeds with no data', async () => {
@@ -118,13 +118,13 @@ describe('TribunalDiscoveryService', () => {
       rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
       const result = await service.discover();
-      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
+      const kimiCode = byLaneId(result, 'ptah-cli|kimi-code#0');
 
-      expect(moonshot).toBeDefined();
-      expect(moonshot?.available).toBe(false);
-      expect(moonshot?.needsSetup).toBe(true);
-      expect(moonshot?.lane.ptahCliId).toBeUndefined();
-      expect(moonshot?.lane.providerId).toBe('moonshot');
+      expect(kimiCode).toBeDefined();
+      expect(kimiCode?.available).toBe(false);
+      expect(kimiCode?.needsSetup).toBe(true);
+      expect(kimiCode?.lane.ptahCliId).toBeUndefined();
+      expect(kimiCode?.lane.providerId).toBe('kimi-code');
     });
 
     it('includes Ollama Cloud, Z.AI and LM Studio provider lanes', async () => {
@@ -224,7 +224,7 @@ describe('TribunalDiscoveryService', () => {
   });
 
   describe('discover — configured ptah-cli providers', () => {
-    it('marks Moonshot available with ptahCliId when a configured agent exists', async () => {
+    it('marks Kimi Code available with ptahCliId when a configured agent exists', async () => {
       rpc.call.mockResolvedValue(
         rpcSuccess(
           makeConfig([
@@ -232,22 +232,22 @@ describe('TribunalDiscoveryService', () => {
               cli: 'ptah-cli',
               installed: true,
               ptahCliId: 'x',
-              ptahCliName: 'Moonshot Agent',
-              providerId: 'moonshot',
-              providerName: 'Moonshot',
+              ptahCliName: 'Kimi Code Agent',
+              providerId: 'kimi-code',
+              providerName: 'Kimi Code',
             }),
           ]),
         ),
       );
 
       const result = await service.discover();
-      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
+      const kimiCode = byLaneId(result, 'ptah-cli|kimi-code#0');
 
-      expect(moonshot?.available).toBe(true);
-      expect(moonshot?.needsSetup).toBe(false);
-      expect(moonshot?.lane.ptahCliId).toBe('x');
-      expect(moonshot?.lane.family).toBe('moonshot');
-      expect(moonshot?.lane.displayName).toBe('Moonshot (Kimi)');
+      expect(kimiCode?.available).toBe(true);
+      expect(kimiCode?.needsSetup).toBe(false);
+      expect(kimiCode?.lane.ptahCliId).toBe('x');
+      expect(kimiCode?.lane.family).toBe('kimi-code');
+      expect(kimiCode?.lane.displayName).toBe('Kimi Code');
     });
 
     it('carries the provider default opus tier as model', async () => {
@@ -258,15 +258,16 @@ describe('TribunalDiscoveryService', () => {
               cli: 'ptah-cli',
               installed: true,
               ptahCliId: 'x',
-              providerId: 'moonshot',
+              providerId: 'kimi-code',
             }),
           ]),
         ),
       );
 
       const result = await service.discover();
-      expect(byLaneId(result, 'ptah-cli|moonshot#0')?.lane.model).toBe(
-        getAnthropicProvider('moonshot')?.defaultTiers?.opus,
+      expect(getAnthropicProvider('kimi-code')?.defaultTiers?.opus).toBe('k3.1-pro');
+      expect(byLaneId(result, 'ptah-cli|kimi-code#0')?.lane.model).toBe(
+        getAnthropicProvider('kimi-code')?.defaultTiers?.opus,
       );
     });
 
@@ -343,11 +344,11 @@ describe('TribunalDiscoveryService', () => {
       rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
 
       const result = await service.discover();
-      const moonshot = byLaneId(result, 'ptah-cli|moonshot#0');
+      const kimiCode = byLaneId(result, 'ptah-cli|kimi-code#0');
 
-      expect(moonshot?.supportsModelList).toBe(true);
-      expect(moonshot?.modelProviderId).toBe('moonshot');
-      expect(moonshot?.baseKey).toBe('ptah-cli|moonshot');
+      expect(kimiCode?.supportsModelList).toBe(true);
+      expect(kimiCode?.modelProviderId).toBe('kimi-code');
+      expect(kimiCode?.baseKey).toBe('ptah-cli|kimi-code');
     });
   });
 
@@ -431,10 +432,10 @@ describe('TribunalDiscoveryService', () => {
     it('returns [] when provider:listModels fails', async () => {
       rpc.call.mockResolvedValue(rpcSuccess(makeConfig([])));
       const result = await service.discover();
-      const moonshot = requireLaneId(result, 'ptah-cli|moonshot#0');
+      const kimiCode = requireLaneId(result, 'ptah-cli|kimi-code#0');
 
       rpc.call.mockResolvedValue(rpcError('boom'));
-      const models = await service.listModelsFor(moonshot);
+      const models = await service.listModelsFor(kimiCode);
 
       expect(models).toEqual([]);
     });

@@ -156,7 +156,6 @@ describeLive('model-list drift (live)', () => {
     ['z-ai', 'zai'],
     ['claude-cli', 'anthropic'],
     ['github-copilot', 'github-copilot'],
-    ['moonshot', 'moonshotai'],
     ['sakana', 'sakana'],
   ])(
     '%s fallback list names only models models.dev lists',

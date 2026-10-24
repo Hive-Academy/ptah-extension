@@ -85,7 +85,7 @@ export const PROVIDER_BRAND_SLUGS: Readonly<Record<string, string>> = {
   openrouter: 'openrouter',
   ollama: 'ollama',
   'ollama-cloud': 'ollama',
-  moonshot: 'moonshot',
+  'kimi-code': 'moonshot',
   'z-ai': 'zdotai',
   'lm-studio': 'lm-studio',
   xai: 'xai',

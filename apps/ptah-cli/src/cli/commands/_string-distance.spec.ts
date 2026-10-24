@@ -9,7 +9,7 @@ describe('levenshtein', () => {
   it('returns 0 for identical strings', () => {
     expect(levenshtein('', '')).toBe(0);
     expect(levenshtein('abc', 'abc')).toBe(0);
-    expect(levenshtein('moonshot', 'moonshot')).toBe(0);
+    expect(levenshtein('kimi-code', 'kimi-code')).toBe(0);
   });
 
   it('returns the length of the non-empty input when one side is empty', () => {
@@ -37,7 +37,7 @@ describe('levenshtein', () => {
 });
 
 describe('suggestClosest', () => {
-  const providers = ['openrouter', 'moonshot', 'z-ai'] as const;
+  const providers = ['openrouter', 'kimi-code', 'z-ai'] as const;
 
   it('returns null when the candidate list is empty', () => {
     expect(suggestClosest('anything', [])).toBeNull();
@@ -45,7 +45,7 @@ describe('suggestClosest', () => {
 
   it('returns the closest candidate within the default threshold (2)', () => {
     expect(suggestClosest('openroutr', providers)).toBe('openrouter');
-    expect(suggestClosest('moonsht', providers)).toBe('moonshot');
+    expect(suggestClosest('kimi-cod', providers)).toBe('kimi-code');
     expect(suggestClosest('zai', providers)).toBe('z-ai');
   });
 
@@ -55,7 +55,7 @@ describe('suggestClosest', () => {
   });
 
   it('returns the exact match when the input matches a candidate', () => {
-    expect(suggestClosest('moonshot', providers)).toBe('moonshot');
+    expect(suggestClosest('kimi-code', providers)).toBe('kimi-code');
   });
 
   it('honors a custom maxDistance', () => {

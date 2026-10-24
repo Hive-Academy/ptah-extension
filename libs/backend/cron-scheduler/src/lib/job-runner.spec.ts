@@ -104,8 +104,8 @@ function makeHarness(handler: JobHandler | null): Harness {
   const internalQuery = { execute: jest.fn() };
   const workspaceLlm = {
     resolveForPath: jest.fn(async () => ({
-      providerId: 'moonshot',
-      model: 'kimi-k2.5',
+      providerId: 'z-ai',
+      model: 'glm-5.3',
       auth: { env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' } },
     })),
   };
@@ -302,7 +302,7 @@ describe('JobRunner prompt jobs — workspace provider and model', () => {
     expect(h.workspaceLlm.resolveForPath).toHaveBeenCalledWith('/ws/a');
     const config = h.internalQuery.execute.mock.calls[0][0];
     expect(config.cwd).toBe('/ws/a');
-    expect(config.model).toBe('kimi-k2.5');
+    expect(config.model).toBe('glm-5.3');
     expect(config.auth).toEqual({
       env: { ANTHROPIC_AUTH_TOKEN: 'ws-a-key' },
     });
@@ -318,6 +318,6 @@ describe('JobRunner prompt jobs — workspace provider and model', () => {
     );
 
     expect(h.workspaceLlm.resolveForPath).toHaveBeenCalledWith(undefined);
-    expect(h.internalQuery.execute.mock.calls[0][0].model).toBe('kimi-k2.5');
+    expect(h.internalQuery.execute.mock.calls[0][0].model).toBe('glm-5.3');
   });
 });

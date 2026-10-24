@@ -9,15 +9,17 @@
  *
  * Known providers:
  * - OpenRouter: Multi-model access (200+ models) — Bearer auth
- * - Moonshot (Kimi): Anthropic-compatible endpoint — Bearer auth
+ * - Kimi Code: subscription coding endpoint — x-api-key auth
  * - Z.AI (GLM): Anthropic-compatible endpoint — Bearer auth
  *
  * @see https://openrouter.ai/docs/guides/claude-code-integration
- * @see https://platform.moonshot.ai/docs/guide/agent-support.en-US
+ * @see https://www.kimi.com/code
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
 import { z } from 'zod';
+
+import type { ModelCapability } from '../types/auth-env.types';
 
 import { updatePricingMap, type ModelPricing } from '../utils/pricing.utils';
 import { isValidProviderBaseUrl } from './provider-base-url';
@@ -31,6 +33,7 @@ import {
 import { CLAUDE_CLI_PROVIDER_ENTRY } from './entries/claude-cli-provider-entry';
 import { SAKANA_PROVIDER_ENTRY } from './entries/sakana-provider-entry';
 import { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';
+import { KIMI_CODE_PROVIDER_ENTRY } from './entries/kimi-code-provider-entry';
 import {
   OPENCODE_ZEN_PROVIDER_ENTRY,
   OPENCODE_GO_PROVIDER_ENTRY,
@@ -58,12 +61,21 @@ export interface ProviderStaticModel {
   cacheReadCostPerToken?: number;
   /** Cost per cache creation token in USD (optional) */
   cacheCreationCostPerToken?: number;
+  /**
+   * Capabilities this model supports, when the provider documents them.
+   *
+   * Published to the SDK as `ANTHROPIC_DEFAULT_<TIER>_MODEL_SUPPORTED_CAPABILITIES`
+   * when the model is mapped to a tier. Leave undefined unless the provider
+   * really supports this — the SDK treats the env var as an allowlist, so a
+   * partial list turns off everything omitted from it.
+   */
+  capabilities?: readonly ModelCapability[];
 }
 
 /**
  * Which environment variable carries the provider's API key.
- * - 'ANTHROPIC_AUTH_TOKEN' → sends Authorization: Bearer header (OpenRouter, Moonshot, Z.AI)
- * - 'ANTHROPIC_API_KEY'    → sends x-api-key header (future providers)
+ * - 'ANTHROPIC_AUTH_TOKEN' → sends Authorization: Bearer header (OpenRouter, Z.AI)
+ * - 'ANTHROPIC_API_KEY'    → sends x-api-key header (Kimi Code)
  */
 export type ProviderAuthEnvVar = 'ANTHROPIC_AUTH_TOKEN' | 'ANTHROPIC_API_KEY';
 
@@ -194,73 +206,7 @@ export const ANTHROPIC_PROVIDERS = [
     maskedKeyDisplay: 'sk-or-••••••••••••',
     modelsEndpoint: 'https://openrouter.ai/api/v1/models',
   },
-  {
-    id: 'moonshot',
-    name: 'Moonshot (Kimi)',
-    baseUrl: 'https://api.moonshot.ai/anthropic/',
-    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
-    keyPrefix: '',
-    helpUrl: 'https://platform.moonshot.ai/console/api-keys',
-    description: 'Kimi models via Anthropic-compatible API',
-    keyPlaceholder: 'Enter Moonshot API key...',
-    maskedKeyDisplay: '••••••••••••',
-    modelsEndpoint: 'https://api.moonshot.ai/v1/models',
-    defaultTiers: {
-      sonnet: 'kimi-k2.7-code',
-      opus: 'kimi-k3',
-      haiku: 'kimi-k2.6',
-    },
-    // Fallback for when the live list cannot be read. Synced with models.dev
-    // `moonshotai` on 2026-10-07: kimi-k3 added; kimi-k2, kimi-k2-0905-preview,
-    // kimi-k2-thinking and kimi-k2.5, no longer listed, removed.
-    staticModels: [
-      {
-        id: 'kimi-k3',
-        name: 'Kimi K3',
-        description: 'Latest flagship model (1M context)',
-        contextLength: 1048576,
-        supportsToolUse: true,
-        inputCostPerToken: 3e-6, // $3.00 per 1M tokens
-        outputCostPerToken: 15e-6, // $15.00 per 1M tokens
-        cacheReadCostPerToken: 0.3e-6, // $0.30 per 1M tokens (cache hit)
-        cacheCreationCostPerToken: 3e-6, // $3.00 per 1M tokens
-      },
-      {
-        id: 'kimi-k2.6',
-        name: 'Kimi K2.6',
-        description: 'Next-generation flagship model (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens (cache miss)
-        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
-        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2.7-code',
-        name: 'Kimi K2.7 Code',
-        description:
-          'Agentic coding model, 1T MoE / 32B active, forced thinking (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens
-        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
-        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
-      },
-      {
-        id: 'kimi-k2.7-code-highspeed',
-        name: 'Kimi K2.7 Code (Highspeed)',
-        description: 'Low-latency variant of K2.7 Code (256K context)',
-        contextLength: 256000,
-        supportsToolUse: true,
-        inputCostPerToken: 0.95e-6, // $0.95 per 1M tokens (highspeed pricing TBD, mirrors K2.7 Code)
-        outputCostPerToken: 4e-6, // $4.00 per 1M tokens
-        cacheReadCostPerToken: 0.16e-6, // $0.16 per 1M tokens (cache hit)
-        cacheCreationCostPerToken: 1.1875e-6, // 125% of input
-      },
-    ],
-  },
+  KIMI_CODE_PROVIDER_ENTRY,
   {
     id: 'z-ai',
     name: 'Z.AI (GLM)',
@@ -456,7 +402,7 @@ export const ANTHROPIC_PROVIDERS = [
  */
 export type AnthropicProviderId =
   | 'openrouter'
-  | 'moonshot'
+  | 'kimi-code'
   | 'z-ai'
   | 'github-copilot'
   | 'openai-codex'
@@ -839,6 +785,25 @@ export function getProviderBaseUrl(id: string): string {
 export function getProviderAuthEnvVar(id: string): ProviderAuthEnvVar {
   const provider = getAnthropicProvider(id);
   return provider?.authEnvVar ?? 'ANTHROPIC_AUTH_TOKEN';
+}
+
+/**
+ * Capabilities a provider's static model declares, by exact (case-insensitive)
+ * model id. A suffixed id such as `k3.1-pro[1m]` matches only its own entry.
+ *
+ * @param providerId - Provider ID
+ * @param modelId - Model ID as mapped to a tier
+ * @returns The declared list, or undefined when the provider, the model or the
+ *   declaration is missing
+ */
+export function getStaticModelCapabilities(
+  providerId: string,
+  modelId: string,
+): readonly ModelCapability[] | undefined {
+  const wanted = modelId.toLowerCase();
+  return getAnthropicProvider(providerId)?.staticModels?.find(
+    (model) => model.id.toLowerCase() === wanted,
+  )?.capabilities;
 }
 
 /**

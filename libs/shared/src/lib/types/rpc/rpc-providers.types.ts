@@ -326,7 +326,7 @@ export type OpenRouterClearModelTierResult = ProviderClearModelTierResult;
 export type LlmProviderName =
   | 'anthropic'
   | 'openrouter'
-  | 'moonshot'
+  | 'kimi-code'
   | 'z-ai'
   | 'github-copilot'
   | 'openai-codex'

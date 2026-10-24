@@ -179,7 +179,7 @@ describe('SdkQueryOptionsBuilder.build — betas require an API credential', () 
 describe('SdkQueryOptionsBuilder.build — the transport gate still stands alone', () => {
   it('sends NO beta to a third-party endpoint even WITH a credential', async () => {
     // Regression guard: the credential gate is an ADDITIONAL condition, not a
-    // replacement. An Anthropic beta header on OpenRouter/Moonshot is a 400.
+    // replacement. An Anthropic beta header on OpenRouter/Kimi Code is a 400.
     const result = await buildWithAuthEnv({
       ANTHROPIC_BASE_URL: 'https://openrouter.ai/api/v1',
       ANTHROPIC_AUTH_TOKEN: 'sk-or-fixture',

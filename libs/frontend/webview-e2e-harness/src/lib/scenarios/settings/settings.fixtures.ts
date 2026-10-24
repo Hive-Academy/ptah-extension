@@ -58,18 +58,18 @@ export const AUTH_STATUS_FIXTURE = {
   claudeCliInstalled: true,
 };
 
-/** The host's masked hint of Moonshot's stored key (prototype "•••• 8f21"; four U+2022, a space, the last 4). */
-export const MOONSHOT_KEY_HINT = '•••• 8f21';
+/** The host's masked hint of Kimi Code's stored key (prototype "•••• 8f21"; four U+2022, a space, the last 4). */
+export const KIMI_CODE_KEY_HINT = '•••• 8f21';
 
-/** `auth:getApiKeyStatus` — per-provider key presence (BRIEF connections table); Moonshot carries a key hint (28c). */
+/** `auth:getApiKeyStatus` — per-provider key presence (BRIEF connections table); Kimi Code carries a key hint (28c). */
 export const API_KEY_STATUS_FIXTURE = {
   providers: [
     {
-      provider: 'moonshot',
-      displayName: 'Moonshot (Kimi)',
+      provider: 'kimi-code',
+      displayName: 'Kimi Code',
       hasApiKey: true,
       isDefault: false,
-      keyHint: MOONSHOT_KEY_HINT,
+      keyHint: KIMI_CODE_KEY_HINT,
     },
     {
       provider: 'ollama-cloud',
@@ -109,22 +109,22 @@ export const CUSTOM_ENTRIES_FIXTURE = {
 export const PROVIDER_MODELS_FIXTURE = {
   models: [
     {
-      id: 'kimi-k2.5',
-      name: 'Kimi K2.5',
+      id: 'k3',
+      name: 'K3',
       description: '',
       contextLength: 131072,
       supportsToolUse: true,
     },
     {
-      id: 'kimi-k2.7-code',
-      name: 'Kimi K2.7 Code',
+      id: 'k3.1-pro',
+      name: 'K3.1 Pro',
       description: '',
       contextLength: 131072,
       supportsToolUse: true,
     },
     {
-      id: 'kimi-lite',
-      name: 'Kimi Lite',
+      id: 'kimi-for-coding',
+      name: 'Kimi for Coding',
       description: '',
       contextLength: 32768,
       supportsToolUse: false,
@@ -298,7 +298,7 @@ export const EFFECTIVE_ROUTE_FIXTURE = {
   storedAuthMethodScope: 'app' as const,
   providers: [
     { id: 'claude-cli', type: 'cli' as const, status: 'connected' as const },
-    { id: 'moonshot', type: 'apiKey' as const, status: 'connected' as const },
+    { id: 'kimi-code', type: 'apiKey' as const, status: 'connected' as const },
     {
       id: 'openai-codex',
       type: 'oauth' as const,
@@ -330,11 +330,11 @@ export interface FixtureCheckRecord {
 }
 
 /**
- * Latency `auth:checkConnection` records per connection: Moonshot is the prototype's "(92ms)"; CLI and sign-in
+ * Latency `auth:checkConnection` records per connection: Kimi Code is the prototype's "(92ms)"; CLI and sign-in
  * connections time no request (`latencyMs: null`, 28c).
  */
 const CHECK_LATENCY_MS: Readonly<Record<string, number | null>> = {
-  moonshot: 92,
+  'kimi-code': 92,
   sovereigneg: 140,
   anthropic: 75,
   'claude-cli': null,
@@ -551,10 +551,10 @@ function createFixtureState(): FixtureState {
     customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({
       ...entry,
     })),
-    // The prototype's Moonshot drawer: "Connected & verified (92ms)", checked in this session (boot time).
+    // The prototype's Kimi Code drawer: "Connected & verified (92ms)", checked in this session (boot time).
     connectionChecks: new Map([
       [
-        'moonshot',
+        'kimi-code',
         {
           status: 'verified',
           reason: null,

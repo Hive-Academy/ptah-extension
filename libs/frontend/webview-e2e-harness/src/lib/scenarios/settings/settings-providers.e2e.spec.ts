@@ -45,7 +45,7 @@ const KINDS: readonly {
   readonly tabs: readonly string[];
 }[] = [
   { kind: 'claude-cli', card: 'Claude (Subscription)', tabs: BASE_TABS },
-  { kind: 'api-key', card: 'Moonshot', tabs: BASE_TABS },
+  { kind: 'api-key', card: 'Kimi Code', tabs: BASE_TABS },
   { kind: 'oauth', card: 'OpenAI Codex', tabs: BASE_TABS },
   { kind: 'custom', card: 'sovereigneg', tabs: [...BASE_TABS, 'Advanced'] },
 ];
@@ -77,13 +77,13 @@ for (const host of HOSTS) {
     test('drawer Credentials: Delete key sends auth:deleteStoredKey after the inline confirm', async ({
       page,
     }) => {
-      await credentialsOf(page, 'Moonshot');
+      await credentialsOf(page, 'Kimi Code');
       await confirmWrite(
         page,
         'credentials-delete',
         'credentials-delete-confirm-button',
         'auth:deleteStoredKey',
-        { providerId: 'moonshot' },
+        { providerId: 'kimi-code' },
       );
       await closeConnectionDrawer(page);
     });
@@ -165,15 +165,15 @@ for (const host of HOSTS) {
         await expect(popover).toHaveCount(0);
       };
       // The fixture starts on the provider default (''), which has nothing to undo to: set a first model.
-      await saveModel('Kimi K2.5 [Tool: Yes]');
-      await expect.poll(() => state.model).toBe('kimi-k2.5');
+      await saveModel('K3 [Tool: Yes]');
+      await expect.poll(() => state.model).toBe('k3');
       const before = state.calls.length;
-      await saveModel('Kimi Lite [Tool: No]');
+      await saveModel('Kimi for Coding [Tool: No]');
       await expectCall(
         page,
         before,
         'config:model-switch',
-        expect.objectContaining({ model: 'kimi-lite' }),
+        expect.objectContaining({ model: 'kimi-for-coding' }),
       );
       const toast = page.locator('[data-testid="settings-toast"]');
       await expect(
@@ -195,9 +195,9 @@ for (const host of HOSTS) {
         page,
         before,
         'config:model-switch',
-        expect.objectContaining({ model: 'kimi-k2.5' }),
+        expect.objectContaining({ model: 'k3' }),
       );
-      await expect.poll(() => state.model).toBe('kimi-k2.5');
+      await expect.poll(() => state.model).toBe('k3');
     });
 
     test('popover provider: a change asks first (D6 copy) and writes nothing until confirmed', async ({
@@ -207,11 +207,11 @@ for (const host of HOSTS) {
       const before = getFixtureState(page).calls.length;
       await popover
         .locator('[data-testid="main-agent-provider"]')
-        .selectOption('moonshot');
+        .selectOption('kimi-code');
       await expect(
         popover.locator('[data-testid="main-agent-provider-copy"]'),
       ).toHaveText(
-        'New main-agent requests use Moonshot (Kimi). Changing the provider ends running chat sessions in this workspace.',
+        'New main-agent requests use Kimi Code. Changing the provider ends running chat sessions in this workspace.',
       );
       await visibleEnabled(
         popover.getByRole('button', {
@@ -257,14 +257,14 @@ for (const host of HOSTS) {
       // Unfiltered: the catalogue (each with its tool-use marker), then the pinned "Enter a model ID…".
       await expect(listbox.getByRole('option')).toHaveText([
         'Default (chosen by Claude)',
-        'Kimi K2.5 [Tool: Yes]',
-        'Kimi K2.7 Code [Tool: Yes]',
-        'Kimi Lite [Tool: No]',
+        'K3 [Tool: Yes]',
+        'K3.1 Pro [Tool: Yes]',
+        'Kimi for Coding [Tool: No]',
         'Enter a model ID…',
       ]);
-      await input.fill('lite');
+      await input.fill('coding');
       await expect(listbox.getByRole('option')).toHaveText([
-        'Kimi Lite [Tool: No]',
+        'Kimi for Coding [Tool: No]',
         'Enter a model ID…',
       ]);
       await input.fill('no-such-model');
@@ -277,7 +277,7 @@ for (const host of HOSTS) {
       await expect(popover).toBeVisible();
       // Keyboard pick: filter, Home to the first row (aria-activedescendant follows), Enter saves it.
       const before = getFixtureState(page).calls.length;
-      await input.fill('k2.7');
+      await input.fill('3.1');
       await page.keyboard.press('Home');
       // The attribute follows the next render, so it is polled, never read once (Batch 36c.j): the active row's text,
       // through whatever id the attribute names at each read.
@@ -289,10 +289,10 @@ for (const host of HOSTS) {
                 null)
             : null;
         })
-        .toBe('Kimi K2.7 Code [Tool: Yes]');
+        .toBe('K3.1 Pro [Tool: Yes]');
       // Batch 4 (TASK_PROVIDER_SCOPE): Enter picks the model into the draft; nothing is written yet.
       await page.keyboard.press('Enter');
-      await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');
+      await expect(input).toHaveValue('K3.1 Pro [Tool: Yes]');
       await expect(input).toBeFocused();
       expect(
         getFixtureState(page)
@@ -311,7 +311,7 @@ for (const host of HOSTS) {
         page,
         before,
         'config:model-switch',
-        expect.objectContaining({ model: 'kimi-k2.7-code' }),
+        expect.objectContaining({ model: 'k3.1-pro' }),
       );
       await expect(popover).toHaveCount(0);
     });
@@ -321,7 +321,7 @@ for (const host of HOSTS) {
     }) => {
       const popover = await openMainAgentPopover(page);
       const before = getFixtureState(page).calls.length;
-      await chooseMainAgentModel(page, popover, 'Kimi Lite [Tool: No]');
+      await chooseMainAgentModel(page, popover, 'Kimi for Coding [Tool: No]');
       await popover
         .locator('[data-testid="main-agent-effort"] [data-effort="high"]')
         .click();
@@ -362,13 +362,13 @@ for (const host of HOSTS) {
             latencyMs: 92,
             checkedAt: new Date().toISOString(),
           };
-          state.connectionChecks.set('moonshot', check);
+          state.connectionChecks.set('kimi-code', check);
           return check;
         },
       });
       await waitForSettled(page);
       await providersTab(page);
-      await openCardDrawer(page, 'Moonshot');
+      await openCardDrawer(page, 'Kimi Code');
       const check = page.locator('[data-testid="connection-check"]');
       await check.focus();
       await page.keyboard.press('Enter');
@@ -391,7 +391,7 @@ for (const host of HOSTS) {
         page.locator('[data-testid="connection-detail-drawer"]'),
       ).toHaveCount(0);
       await expect(
-        card(page, 'Moonshot').locator('[role="button"]').first(),
+        card(page, 'Kimi Code').locator('[role="button"]').first(),
       ).toBeFocused();
     });
   });
@@ -401,7 +401,7 @@ for (const host of HOSTS) {
       page,
       fixtureServer,
     }) => {
-      // The host rejects Moonshot's key on the first check and verifies it on the next one.
+      // The host rejects Kimi Code's key on the first check and verifies it on the next one.
       let calls = 0;
       await bootSettings(page, fixtureServer.url, host, 'anubis', {
         'auth:checkConnection': (params: unknown) => {
@@ -422,44 +422,44 @@ for (const host of HOSTS) {
                   latencyMs: 92,
                   checkedAt: new Date().toISOString(),
                 };
-          state.connectionChecks.set('moonshot', check);
+          state.connectionChecks.set('kimi-code', check);
           return check;
         },
       });
       await waitForSettled(page);
       await providersTab(page);
-      const moonshot = card(page, 'Moonshot');
-      await expect(moonshot).toHaveAttribute('data-state', 'connected');
+      const kimiCode = card(page, 'Kimi Code');
+      await expect(kimiCode).toHaveAttribute('data-state', 'connected');
       // B38-1: the drawer's failed check is the card's state too ("Check failed" + Retry, no host text).
-      await openCardDrawer(page, 'Moonshot');
+      await openCardDrawer(page, 'Kimi Code');
       let before = getFixtureState(page).calls.length;
       await page.locator('[data-testid="connection-check"]').click();
       await expectCall(page, before, 'auth:checkConnection', {
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
       });
       await expect(
         page.locator('[data-testid="connection-status"]'),
       ).toHaveText('Check failed');
       await closeConnectionDrawer(page);
-      await expect(moonshot).toHaveAttribute('data-state', 'check-failed');
-      await expect(moonshot.locator('[data-testid="status-copy"]')).toHaveText(
+      await expect(kimiCode).toHaveAttribute('data-state', 'check-failed');
+      await expect(kimiCode.locator('[data-testid="status-copy"]')).toHaveText(
         'Check failed',
       );
-      await expect(moonshot).not.toContainText('rejected');
-      // B38-2: the card's Retry runs auth:checkConnection for Moonshot alone, not a page refresh.
+      await expect(kimiCode).not.toContainText('rejected');
+      // B38-2: the card's Retry runs auth:checkConnection for Kimi Code alone, not a page refresh.
       before = getFixtureState(page).calls.length;
-      await moonshot.locator('[data-testid="btn-retry"]').click();
+      await kimiCode.locator('[data-testid="btn-retry"]').click();
       await expectCall(page, before, 'auth:checkConnection', {
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
       });
-      await expect(moonshot).toHaveAttribute('data-state', 'connected');
+      await expect(kimiCode).toHaveAttribute('data-state', 'connected');
       expect(
         getFixtureState(page)
           .calls.slice(before)
           .filter((call) => call.method === 'auth:checkConnection'),
       ).toHaveLength(1);
       // Focus stays on the card (its action left the face while it read "Checking…").
-      await expect(moonshot.locator('[role="button"]').first()).toBeFocused();
+      await expect(kimiCode.locator('[role="button"]').first()).toBeFocused();
     });
   });
 }

@@ -417,7 +417,7 @@ describe('brand slug tables', () => {
       openrouter: 'openrouter',
       ollama: 'ollama',
       'ollama-cloud': 'ollama',
-      moonshot: 'moonshot',
+      'kimi-code': 'moonshot',
       'z-ai': 'zdotai',
       'lm-studio': 'lm-studio',
       xai: 'xai',

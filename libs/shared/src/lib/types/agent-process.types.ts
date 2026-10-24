@@ -406,9 +406,9 @@ export interface CliDetectionResult {
   readonly ptahCliId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
-  /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'ptah-cli' */
+  /** Provider name (e.g., 'OpenRouter', 'Kimi Code') — only set when cli === 'ptah-cli' */
   readonly providerName?: string;
-  /** Provider ID (e.g., 'moonshot', 'z-ai') — only set when cli === 'ptah-cli' */
+  /** Provider ID (e.g., 'kimi-code', 'z-ai') — only set when cli === 'ptah-cli' */
   readonly providerId?: string;
   /**
    * Lane family of this row (`laneFamilyOf` over cli / ptahCliId /

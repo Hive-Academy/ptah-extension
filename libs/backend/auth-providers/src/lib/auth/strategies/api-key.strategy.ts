@@ -3,13 +3,13 @@
  *
  * Handles authentication via direct API key for:
  * - Anthropic direct (ANTHROPIC_API_KEY from SecretStorage or env)
- * - Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI) using per-provider keys
+ * - Anthropic-compatible providers (OpenRouter, Kimi Code, Z.AI) using per-provider keys
  * - User-defined provider entries from `provider.custom.entries`
  *
  * Custom entries take one of two existing paths, chosen by the registry's
  * `requiresProxy` flag (itself derived from the entry's `lane`):
  * - `lane: 'anthropic'` -> `requiresProxy: false` -> the direct-passthrough
- *   path, identical to Moonshot/Z.AI (base URL + per-provider auth token).
+ *   path, identical to Kimi Code/Z.AI (base URL + per-provider key).
  * - `lane: 'openai'` -> `requiresProxy: true` -> a `CustomOpenAiTranslationProxy`
  *   built for that id on demand, alongside the built-in OpenRouter/Sakana
  *   proxy singletons.
@@ -34,6 +34,7 @@ import type {
   AuthConfigureContext,
 } from '../auth-strategy.types';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
+import { unavailableProviderMessage } from '../provider-auth.error';
 import type { ProviderModelsService } from '../../provider-models.service';
 import {
   isCustomProviderId,
@@ -538,7 +539,12 @@ export class ApiKeyStrategy implements IAuthStrategy {
 
   /**
    * Configure a third-party Anthropic-compatible provider via per-provider API key.
-   * Supports: OpenRouter, Moonshot (Kimi), Z.AI (GLM).
+   * Supports: OpenRouter, Kimi Code, Z.AI (GLM).
+   *
+   * An id the registry does not know (for example a provider removed in an
+   * earlier release) fails closed: no key is read and no env is set, because
+   * `getProviderBaseUrl` would otherwise route that key to the default
+   * provider's host.
    */
   private async configureProviderApiKey(
     providerId: string,
@@ -550,11 +556,37 @@ export class ApiKeyStrategy implements IAuthStrategy {
     },
   ): Promise<AuthConfigureResult> {
     const provider = getAnthropicProvider(providerId);
-    const providerName = provider?.name ?? providerId;
+    if (!provider) {
+      this.logger.warn(
+        `[${this.name}] Provider '${providerId}' is not in the registry; refusing to configure it`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: unavailableProviderMessage(providerId),
+      };
+    }
+    const providerName = provider.name;
     const baseUrl = this.resolveProviderBaseUrl(providerId);
     const authEnvVar = getProviderAuthEnvVar(providerId);
 
     const providerKey = await this.authSecrets.getProviderKey(providerId);
+
+    if (!providerKey?.trim() && authEnvVar === 'ANTHROPIC_API_KEY') {
+      // No env fallback for a provider whose key lives in ANTHROPIC_API_KEY
+      // (Kimi Code). That variable is the direct-Anthropic credential every
+      // developer shell already carries, so a value found there cannot be
+      // attributed to this provider, and taking it would send an Anthropic
+      // key to a third-party host. Only a stored key configures it.
+      this.logger.debug(
+        `[${this.name}] No provider key in SecretStorage for ${providerId}; environment fallback is disabled for providers keyed by ANTHROPIC_API_KEY`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `No API key configured for ${providerName}. Add one in Settings, or choose a different provider.`,
+      };
+    }
 
     if (!providerKey?.trim()) {
       const envProviderKey =
@@ -646,7 +678,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
    * Returns the user-supplied override stored at
    * `provider.<id>.baseUrl` in `~/.ptah/settings.json` when present, otherwise
    * the static registry default from `getProviderBaseUrl()`. Used by both the
-   * direct-passthrough flow (Moonshot, Z-AI, Ollama, etc.) and the OpenRouter
+   * direct-passthrough flow (Kimi Code, Z-AI, Ollama, etc.) and the OpenRouter
    * proxy flow (CLI parity: `provider base-url set ...` and `provider ollama
    * set-endpoint ...`).
    *

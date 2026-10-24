@@ -40,13 +40,13 @@ import { PtahCliRegistry } from './ptah-cli-registry';
 import { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
-const CUSTOM_BASE_URL = 'https://api.moonshot.ai/anthropic/';
+const CUSTOM_BASE_URL = 'https://api.z.ai/api/anthropic';
 const DIRECT_BASE_URL = 'https://api.anthropic.com';
 
 function providerWithBaseUrl(baseUrl: string) {
   return {
-    id: 'moonshot',
-    name: 'Moonshot (Kimi)',
+    id: 'z-ai',
+    name: 'Z.AI (GLM)',
     baseUrl,
     authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
     keyPrefix: '',
@@ -81,7 +81,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 const CONFIG: PtahCliConfig = {
   id: 'pc-capabilities-001',
   name: 'Capabilities Test Agent',
-  providerId: 'moonshot',
+  providerId: 'z-ai',
   enabled: true,
   tierMappings: undefined,
   updatedAt: 0,

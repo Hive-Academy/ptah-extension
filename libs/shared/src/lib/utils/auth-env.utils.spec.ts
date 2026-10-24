@@ -70,7 +70,7 @@ describe('includesUserSettingSource', () => {
 
   it.each([
     ['https://api.anthropic.com'],
-    ['https://api.moonshot.cn/anthropic'],
+    ['https://api.kimi.ai/coding/'],
     // Near-misses: the predicate is anchored, so neither of these is local.
     ['http://127.0.0.2:11434'],
     ['http://not-localhost.example.com'],

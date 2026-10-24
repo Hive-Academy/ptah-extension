@@ -41,19 +41,19 @@ describe('state table: label, copy, tone, spine, dot (design-spec)', () => {
   const rows: readonly [ResolvedConnectionState, string, string, string, boolean, string][] = [
     ['active', 'Active for main agent', 'Used for new main-agent requests.', 'primary', true, 'bg-success'],
     ['connected', 'Connected','Connected and available to use.', 'neutral', false, 'bg-success'],
-    ['needs-key', 'Needs API key', 'Add an API key to connect Moonshot.', 'warning', true, 'bg-warning'],
+    ['needs-key', 'Needs API key', 'Add an API key to connect Kimi Code.', 'warning', true, 'bg-warning'],
     ['unauthenticated', 'Sign-in required', 'Your credential is missing or expired; authenticate again.', 'error', false, 'bg-error'],
-    ['unreachable', 'Unreachable', 'Could not reach Moonshot; check the connection and retry.', 'warning', true, 'bg-warning'],
+    ['unreachable', 'Unreachable', 'Could not reach Kimi Code; check the connection and retry.', 'warning', true, 'bg-warning'],
     ['not-installed', 'Not installed', 'Install Claude CLI to use this connection.', 'neutral', false, 'bg-base-content-muted'],
-    ['not-configured', 'Not configured', 'Set up Moonshot when you are ready.', 'neutral', false, 'bg-base-content-muted'],
-    ['checking', 'Checking…', 'Checking Moonshot…', 'neutral', false, 'bg-info animate-pulse'],
+    ['not-configured', 'Not configured', 'Set up Kimi Code when you are ready.', 'neutral', false, 'bg-base-content-muted'],
+    ['checking', 'Checking…', 'Checking Kimi Code…', 'neutral', false, 'bg-info animate-pulse'],
     ['not-checked', 'Not checked', 'Connection has not been verified.', 'neutral', false, 'bg-base-content-muted'],
     ['check-unavailable', 'Check unavailable', 'Could not check this connection. Retry.', 'neutral', false, 'bg-base-content-muted'],
-    ['check-failed', 'Check failed', 'The last check of Moonshot failed. Retry, or open the details for the reason.', 'error', true, 'bg-error'],
+    ['check-failed', 'Check failed', 'The last check of Kimi Code failed. Retry, or open the details for the reason.', 'error', true, 'bg-error'],
   ];
   it.each(rows)('%s', (state, label, copy, tone, spine, dot) => {
     expect(connectionStateLabel(state, false)).toBe(label);
-    expect(connectionStateCopy(state, 'Moonshot', 'Claude CLI')).toBe(copy);
+    expect(connectionStateCopy(state, 'Kimi Code', 'Claude CLI')).toBe(copy);
     expect(connectionCardTone(state, false)).toBe(tone);
     expect(connectionCardSpine(state, false)).toBe(spine);
     expect(connectionStateDot(state)).toBe(dot);
@@ -106,7 +106,7 @@ describe('auth modality: short badge and full provenance label', () => {
 
 describe('avatar', () => {
   it.each([
-    ['Moonshot (Kimi)', 'MK'],
+    ['Kimi Code', 'KC'],
     ['sovereigneg', 'SO'],
     ['Claude (Subscription)', 'CS'],
     ['OpenAI Codex', 'OC'],
@@ -116,8 +116,8 @@ describe('avatar', () => {
   });
 
   it('keeps one tone per connection id, from the three avatar surfaces', () => {
-    expect(connectionAvatarTone('moonshot')).toBe(connectionAvatarTone('moonshot'));
-    const tones = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'moonshot', 'sovereigneg'].map(connectionAvatarTone));
+    expect(connectionAvatarTone('kimi-code')).toBe(connectionAvatarTone('kimi-code'));
+    const tones = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'kimi-code', 'sovereigneg'].map(connectionAvatarTone));
     for (const tone of tones) expect(tone).toMatch(/^border-(primary|secondary|info)\/\d+ bg-(primary|secondary|info)\/10$/);
   });
 });
