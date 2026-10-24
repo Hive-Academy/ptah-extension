@@ -492,6 +492,14 @@ describe('MainAgentReassignPopoverComponent', () => {
       nothingWritten();
       expect(query('main-agent-model')?.tagName).toBe('PTAH-PROVIDER-MODEL-SEARCH-FIELD');
       expect(document.activeElement).toBe(modelInput());
+      // Refocus opens a fresh search; closing the list reveals the drafted selection.
+      expect(modelInput()?.getAttribute('aria-expanded')).toBe('true');
+      expect(modelInput()?.value).toBe('');
+      modelInput()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush();
+      expect(modelInput()?.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(modelInput());
+      expect(fixture.componentInstance.closed).toBe(0);
       expect(modelInput()?.value).toBe('vendor/unlisted · not in current catalog');
       await save();
       expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'vendor/unlisted', applyTo: 'workspace' } }, CONTEXT);
