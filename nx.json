@@ -10,6 +10,8 @@
       "projectsAffectedByDependencyUpdates": "auto"
     }
   },
+  "//jestRuntime": "What every Jest test task reads outside its project: the root preset, the root __mocks__ and the Jest packages. externalDependencies, not rootPackageFiles, so an unrelated dependency bump does not invalidate every test.",
+  "//targetDefaults*": "Executor keys beat target-name keys in Nx 24 (orderedMatchingKeys: executor, then target name, then globs) and the first matching key wins whole. An \"nx:run-commands\" key would therefore replace the test, lint and typecheck defaults above for every run-commands target. As a glob it applies only to run-commands targets with no target-name default: the CLI-calling targets (prisma, vsce, astro) that read the root package files. The api-* typecheck/test entries add schema.prisma: the Prisma client they compile against is generated into a git-ignored folder that Nx does not hash.",
   "namedInputs": {
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
@@ -30,7 +32,6 @@
       "{workspaceRoot}/package.json",
       "{workspaceRoot}/package-lock.json"
     ],
-    "//jestRuntime": "What every Jest test task reads outside its project: the root preset, the root __mocks__ and the Jest packages. externalDependencies, not rootPackageFiles, so an unrelated dependency bump does not invalidate every test.",
     "jestRuntime": [
       "{workspaceRoot}/jest.preset.js",
       "{workspaceRoot}/__mocks__/**/*",
@@ -50,16 +51,32 @@
     "@nx/js:prune-lockfile": {
       "inputs": ["production", "^production", "rootPackageFiles"]
     },
-    "typecheck": {
-      "cache": true,
-      "inputs": [
-        "default",
-        "^production",
-        {
-          "externalDependencies": ["typescript"]
-        }
-      ]
-    },
+    "typecheck": [
+      {
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "externalDependencies": ["typescript"]
+          }
+        ]
+      },
+      {
+        "filter": {
+          "projects": ["api-*", "ptah-license-server"]
+        },
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "externalDependencies": ["typescript"]
+          },
+          "{workspaceRoot}/apps/ptah-license-server/prisma/schema.prisma"
+        ]
+      }
+    ],
     "validate-deps": {
       "inputs": ["default", "^production"]
     },
@@ -114,7 +131,8 @@
           "default",
           "^production",
           "jestRuntime",
-          "{workspaceRoot}/libs/api/jest.api-preset.cjs"
+          "{workspaceRoot}/libs/api/jest.api-preset.cjs",
+          "{workspaceRoot}/apps/ptah-license-server/prisma/schema.prisma"
         ]
       },
       {
@@ -151,7 +169,6 @@
         }
       }
     ],
-    "//*": "Executor keys beat target-name keys in Nx 24 (orderedMatchingKeys: executor, then target name, then globs) and the first matching key wins whole. An \"nx:run-commands\" key would therefore replace the test, lint and typecheck defaults above for every run-commands target. As a glob it applies only to run-commands targets with no target-name default: the CLI-calling targets (prisma, vsce, astro) that read the root package files.",
     "*": [
       {
         "filter": {

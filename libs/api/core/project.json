@@ -11,7 +11,8 @@
         "^production",
         "jestRuntime",
         "{workspaceRoot}/libs/api/jest.api-preset.cjs",
-        "{workspaceRoot}/libs/api/**/*.dto.ts"
+        "{workspaceRoot}/libs/api/**/*.dto.ts",
+        "{workspaceRoot}/apps/ptah-license-server/prisma/schema.prisma"
       ],
       "executor": "nx:run-commands",
       "//": "NestJS 12 is ESM-only while these specs compile to CommonJS. Jest needs vm.SourceTextModule to require() an ESM package, and that only exists under --experimental-vm-modules. Scoped per project, NOT workspace-wide: the same flag makes Jest load @angular/core as a real ES module where `module` is undefined, breaking every jest-preset-angular suite.",
