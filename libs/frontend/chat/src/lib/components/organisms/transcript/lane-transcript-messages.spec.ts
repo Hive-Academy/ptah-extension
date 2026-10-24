@@ -17,6 +17,36 @@ describe('lane transcript message adaptation', () => {
     expect(message.id).toBe('sdk-lane:sdk-turn');
   });
 
+  // A message that streams on after its agent finalized comes back from the
+  // store as a second tree with the same id (TASK_2026_717, e2e task-337).
+  it('merges trees of the same SDK message into one message, later copies winning', () => {
+    const tool = (id: string, toolOutput?: string) =>
+      createExecutionNode({ id, type: 'tool', toolName: id, toolOutput });
+    const first = createExecutionNode({
+      id: 'agent-msg',
+      type: 'message',
+      status: 'streaming',
+      startTime: 10,
+      children: [tool('read')],
+    });
+    const continued = createExecutionNode({
+      id: 'agent-msg',
+      type: 'message',
+      status: 'complete',
+      startTime: 10,
+      duration: 500,
+      children: [tool('read', 'file contents'), tool('grep')],
+    });
+    const messages = laneTranscriptMessages('lane', [first, continued]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe('lane:agent-msg');
+    const root = messages[0].streamingState;
+    expect(root?.children.map((child) => child.id)).toEqual(['read', 'grep']);
+    expect(root?.children[0].toolOutput).toBe('file contents');
+    expect(root?.status).toBe('complete');
+    expect(root?.duration).toBe(500);
+  });
+
   it('groups CLI thinking, tools and answer into one message without copying nodes', () => {
     const nodes = ['thinking', 'tool', 'text'].map((type, i) =>
       createExecutionNode({

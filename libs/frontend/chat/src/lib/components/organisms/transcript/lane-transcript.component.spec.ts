@@ -177,6 +177,44 @@ describe('LaneTranscriptComponent', () => {
     },
   );
 
+  // TASK_2026_717 regression (e2e task-337): a nested tool that arrives after
+  // the Task tool result is finalized as a second tree of the same agent
+  // message. Two bubbles with one id shared one turn context whose
+  // `isFirstAssistant` was false, so the disclosure row vanished.
+  it('counts a tool streamed after finalize in the same message bubble', () => {
+    const tool = (id: string, toolName: string) =>
+      createExecutionNode({
+        id,
+        type: 'tool',
+        status: 'complete',
+        content: null,
+        toolName,
+        toolInput: { file_path: 'C:\\ws\\src\\a.ts', pattern: 'x' },
+        startTime: 20,
+      });
+    const message = (children: ExecutionNode[]) =>
+      createExecutionNode({
+        id: 'agent-message-start',
+        type: 'message',
+        status: 'streaming',
+        startTime: 10,
+        children,
+      });
+    const fixture = TestBed.createComponent(LaneTranscriptComponent);
+    fixture.componentRef.setInput('laneId', 'toolu_task');
+    fixture.componentRef.setInput('nodes', [
+      message([tool('toolu_child_1', 'Read')]),
+      message([tool('toolu_child_2', 'Grep')]),
+    ]);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelectorAll('ptah-message-bubble')).toHaveLength(1);
+    const meta = root.querySelectorAll('[data-test="turn-disclosure-meta"]');
+    expect(meta).toHaveLength(1);
+    expect(meta[0].textContent).toContain('2 tools');
+    fixture.destroy();
+  });
+
   it('shows a loaded artifact read-only, without dead Open actions', () => {
     TestBed.overrideProvider(ArtifactStore, {
       useValue: {
