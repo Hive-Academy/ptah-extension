@@ -861,7 +861,7 @@ describe('ApiKeyStrategy', () => {
     // shell already holds for direct Anthropic. Taking it from the snapshot
     // would send the user's Anthropic key to api.kimi.ai.
     it.each([
-      ['ANTHROPIC_API_KEY', { ANTHROPIC_API_KEY: 'sk-ant-api03-shell-key' }],
+      ['ANTHROPIC_API_KEY', { ANTHROPIC_API_KEY: 'fake-shell-anthropic-key' }],
       ['ANTHROPIC_AUTH_TOKEN', { ANTHROPIC_AUTH_TOKEN: 'sk-or-other-vendor' }],
     ] as const)(
       'does not configure kimi-code from envSnapshot.%s when no key is stored',
