@@ -26,6 +26,7 @@ import {
   type AuthOperationContext,
   type IAuthStrategy,
 } from './auth-strategy.types';
+import { SdkError } from '@ptah-extension/agent-sdk';
 import { resolveCodexProxyPolicy } from './codex-proxy-policy';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
@@ -130,17 +131,19 @@ export class AuthManager implements IAuthEnvProvider {
     context?: AuthOperationContext,
   ): Promise<AuthResult> {
     const operationContext =
-      context === undefined
-        ? undefined
-        : authOperationContextSchema.parse(context);
+      context === undefined ? undefined : this.parseOperationContext(context);
     const authMethod =
       rawAuthMethod === undefined
         ? this.activeProviderResolver.resolveActiveAuth().authMethod
         : normalizeAuthMethod(rawAuthMethod);
     const resolved = this.resolveProviderAndStrategy(authMethod);
     const providerId = operationContext?.providerId ?? resolved.providerId;
-    if (authMethod !== 'thirdParty' && providerId !== resolved.providerId) {
-      throw new Error('Auth operation provider does not match auth method');
+    if (
+      resolveCodexProxyPolicy(operationContext) !== 'native-return' &&
+      authMethod !== 'thirdParty' &&
+      providerId !== resolved.providerId
+    ) {
+      throw new SdkError('Auth operation provider does not match auth method');
     }
     const strategyType =
       authMethod === 'thirdParty'
@@ -183,6 +186,14 @@ export class AuthManager implements IAuthEnvProvider {
     }
   }
 
+  private parseOperationContext(
+    context: AuthOperationContext,
+  ): AuthOperationContext {
+    const parsed = authOperationContextSchema.safeParse(context);
+    if (!parsed.success) throw new SdkError('Invalid auth operation context');
+    return parsed.data;
+  }
+
   resolveActiveAuth(): ActiveAuth {
     return this.activeProviderResolver.resolveActiveAuth();
   }
@@ -208,7 +219,9 @@ export class AuthManager implements IAuthEnvProvider {
     strategyType: AuthStrategyType,
     operationContext?: AuthOperationContext,
   ): Promise<AuthResult> {
-    if (resolveCodexProxyPolicy(operationContext) === 'native-return') {
+    const nativeReturn =
+      resolveCodexProxyPolicy(operationContext) === 'native-return';
+    if (nativeReturn && !this.activeStrategy) {
       return {
         configured: false,
         details: ['Codex authentication is owned by the native runtime.'],
@@ -235,6 +248,13 @@ export class AuthManager implements IAuthEnvProvider {
         );
       }
       this.activeStrategy = null;
+    }
+
+    if (nativeReturn) {
+      return {
+        configured: false,
+        details: ['Codex authentication is owned by the native runtime.'],
+      };
     }
 
     this.logger.debug(

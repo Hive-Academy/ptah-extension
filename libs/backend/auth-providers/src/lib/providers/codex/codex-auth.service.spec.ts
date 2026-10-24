@@ -67,7 +67,7 @@ function enoent(path = '~/.codex/auth.json'): NodeJS.ErrnoException {
   return err;
 }
 
-function seedAuthFile(auth: CodexAuthFile): void {
+function seedAuthFile(auth: unknown): void {
   // Cast to `never` — readFile has overloads; the mock is used in string mode.
   mockedReadFile.mockResolvedValue(JSON.stringify(auth) as never);
 }
@@ -150,6 +150,34 @@ describe('CodexAuthService', () => {
   // ---------------------------------------------------------------------------
   // isAuthenticated
   // ---------------------------------------------------------------------------
+  it('preserves the facade behavior with real lowercase ChatGPT auth.json fields', async () => {
+    seedAuthFile({
+      auth_mode: 'chatgpt',
+      OPENAI_API_KEY: null,
+      tokens: {
+        access_token: 'synthetic-access',
+        refresh_token: 'synthetic-refresh',
+        id_token: 'synthetic-id',
+        account_id: null,
+      },
+      last_refresh: new Date().toISOString(),
+      api_base_url: null,
+    });
+    expect(await service.isAuthenticated()).toBe(true);
+    expect((await service.getHeaders()).Authorization).toBe(
+      'Bearer synthetic-access',
+    );
+    expect(await service.getTokenStatus()).toEqual({
+      authenticated: true,
+      stale: false,
+    });
+    expect(await service.ensureTokensFresh()).toBe(true);
+    expect(service.getApiEndpoint()).toBe(
+      'https://chatgpt.com/backend-api/codex',
+    );
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
   it('uses the injected Codex home for reads, writes, and watching', async () => {
     seedAuthFile({ openai_api_key: 'fake' });
     await service.isAuthenticated();

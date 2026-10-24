@@ -2,7 +2,7 @@ import type { AuthOperationContext } from './auth-strategy.types';
 
 export type CodexProxyPolicy = 'native-return' | 'legacy-strategy';
 
-/** Native global auth must leave the shared Claude environment and proxies alone. */
+/** Native intent skips proxy configuration; AuthManager tears down its previous strategy. */
 export function resolveCodexProxyPolicy(
   context?: AuthOperationContext,
 ): CodexProxyPolicy {

@@ -16,26 +16,29 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { isCodexAccessTokenStale } from '@ptah-extension/shared';
 import { SdkError } from '@ptah-extension/agent-sdk';
-import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
+import type { ICodexAuthService } from './codex-provider.types';
 
 const authFileSchema = z
   .object({
-    auth_mode: z.enum(['ApiKey', 'Chatgpt', 'ChatgptAuthTokens']).optional(),
+    auth_mode: z.string().nullable().optional(),
     openai_api_key: z.string().nullable().optional(),
     OPENAI_API_KEY: z.string().nullable().optional(),
     tokens: z
       .object({
-        access_token: z.string().optional(),
-        refresh_token: z.string().optional(),
-        id_token: z.string().optional(),
-        account_id: z.string().optional(),
+        access_token: z.string().nullable().optional(),
+        refresh_token: z.string().nullable().optional(),
+        id_token: z.string().nullable().optional(),
+        account_id: z.string().nullable().optional(),
       })
       .passthrough()
+      .nullable()
       .optional(),
-    last_refresh: z.string().optional(),
-    api_base_url: z.string().optional(),
+    last_refresh: z.string().nullable().optional(),
+    api_base_url: z.string().nullable().optional(),
   })
   .passthrough();
+
+type CodexAuthFile = z.infer<typeof authFileSchema>;
 
 /**
  * Captures CODEX_HOME relative to the host cwd, trimmed and absolute; otherwise
@@ -65,6 +68,9 @@ export class CodexHomeAuthService implements CodexHomeAuthReader {
     IWorkspaceProvider,
     CodexHomeAuthService
   >();
+  private hostLoggers = new Set<
+    Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>
+  >();
   private readonly homes = new Map<string, HomeEntry>();
 
   static forHost(
@@ -73,9 +79,31 @@ export class CodexHomeAuthService implements CodexHomeAuthReader {
   ): CodexHomeAuthService {
     let owner = this.owners.get(workspaceProvider);
     if (!owner) {
-      owner = new CodexHomeAuthService(logger, workspaceProvider);
+      // Host diagnostics fan out to registered sinks, never an arbitrary first facade.
+      const loggers = new Set<
+        Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>
+      >();
+      owner = new CodexHomeAuthService(
+        {
+          debug: (message) => {
+            for (const sink of loggers) sink.debug(message);
+          },
+          info: (message) => {
+            for (const sink of loggers) sink.info(message);
+          },
+          warn: (message) => {
+            for (const sink of loggers) sink.warn(message);
+          },
+          error: (message) => {
+            for (const sink of loggers) sink.error(message);
+          },
+        },
+        workspaceProvider,
+      );
+      owner.hostLoggers = loggers;
       this.owners.set(workspaceProvider, owner);
     }
+    owner.hostLoggers.add(logger);
     return owner;
   }
 
@@ -353,6 +381,8 @@ class HomeAuthState implements ICodexAuthService {
       if (this.getApiKey(auth)) return true;
       return !!auth.tokens?.access_token;
     } catch {
+      // degradation-audit: optional-capability - the status probe fails closed;
+      // callers receive unauthenticated instead of an exception or credentials.
       return false;
     }
   }
@@ -468,6 +498,8 @@ class HomeAuthState implements ICodexAuthService {
           supportsToolUse: true,
         }));
     } catch {
+      // degradation-audit: optional-capability - live model discovery is optional;
+      // an unavailable endpoint returns no discovered models, not an auth failure.
       return [];
     }
   }
@@ -518,6 +550,8 @@ class HomeAuthState implements ICodexAuthService {
     if (this.refreshInFlight) return this.refreshInFlight;
     this.refreshInFlight = this.checkAndRefresh()
       .catch(() => {
+        // degradation-audit: reported - the warning below reports refresh failure;
+        // raw errors may contain credentials, and false preserves the caller contract.
         this.logger.warn(
           '[CodexAuth] Credential refresh unavailable. Run `codex login` to re-authenticate.',
         );
@@ -530,6 +564,7 @@ class HomeAuthState implements ICodexAuthService {
   }
 
   private async checkAndRefresh(): Promise<boolean> {
+    if (this.pendingPersist) await this.retryPendingPersist();
     this.clearCache();
     const auth = await this.readAuthFile();
     if (!auth) return false;
@@ -544,10 +579,7 @@ class HomeAuthState implements ICodexAuthService {
       return false;
     }
     if (this.failedRefreshToken === refreshToken) return false;
-    const refreshed = await this.performRefresh(refreshToken);
-    // An ambiguous rotating-token response must not be retried on the next call.
-    this.failedRefreshToken = refreshed ? undefined : refreshToken;
-    return refreshed;
+    return this.performRefresh(refreshToken, auth);
   }
 
   private failedRefreshToken: string | undefined;
@@ -557,7 +589,10 @@ class HomeAuthState implements ICodexAuthService {
    * Concurrent callers share a single in-flight request. On success, the new
    * tokens are written back to ~/.codex/auth.json and the cache invalidated.
    */
-  private async performRefresh(refreshToken: string): Promise<boolean> {
+  private async performRefresh(
+    refreshToken: string,
+    auth: CodexAuthFile,
+  ): Promise<boolean> {
     const endpoint = this.getOAuthTokenEndpoint();
     const clientId = this.getOAuthClientId();
 
@@ -585,15 +620,41 @@ class HomeAuthState implements ICodexAuthService {
         return false;
       }
 
-      await this.persistRefreshedTokens(parsed.data, refreshToken);
+      this.failedRefreshToken = undefined;
+      this.pendingPersist = {
+        expectedRefreshToken:
+          this.pendingPersist?.expectedRefreshToken ?? refreshToken,
+        auth: {
+          ...auth,
+          tokens: { ...auth.tokens, ...parsed.data },
+          last_refresh: new Date().toISOString(),
+        },
+      };
+      const persisted = await this.retryPendingPersist();
+      if (!persisted && !this.pendingPersist) return false;
       this.clearCache();
       this.notify('refreshed');
       this.logger.info('[CodexAuth] OAuth token refreshed successfully.');
       return true;
     } catch (error) {
+      // degradation-audit: reported - HTTP status is logged below without token-bearing
+      // request/response data; callers receive false and transient failures can retry.
       const status = axios.isAxiosError(error)
         ? error.response?.status
         : undefined;
+      const rejection = axios.isAxiosError(error)
+        ? z.object({ error: z.string() }).safeParse(error.response?.data)
+        : undefined;
+      if (
+        status === 401 ||
+        (status &&
+          status >= 400 &&
+          status < 500 &&
+          rejection?.success &&
+          rejection.data.error === 'invalid_grant')
+      ) {
+        this.failedRefreshToken = refreshToken;
+      }
       this.logger.warn(
         `[CodexAuth] OAuth token refresh failed${
           status ? ` (HTTP ${status})` : ''
@@ -607,30 +668,44 @@ class HomeAuthState implements ICodexAuthService {
    * Merge refreshed tokens into the current auth file and write it back
    * atomically (temp file + rename) to avoid partial writes.
    */
-  private async persistRefreshedTokens(
-    refreshed: z.infer<typeof refreshResponseSchema>,
-    refreshToken: string,
-  ): Promise<void> {
-    const current = await this.readAuthFileFromDisk();
-    if (
-      !current ||
-      current.tokens?.refresh_token !== refreshToken ||
-      this.getApiKey(current)
-    ) {
-      throw new Error('Auth changed during refresh');
-    }
-    const next: CodexAuthFile = {
-      ...current,
-      tokens: {
-        ...current?.tokens,
-        access_token: refreshed.access_token,
-        refresh_token:
-          refreshed.refresh_token ?? current?.tokens?.refresh_token,
-        id_token: refreshed.id_token ?? current?.tokens?.id_token,
-      },
-      last_refresh: new Date().toISOString(),
-    };
+  private pendingPersist:
+    { auth: CodexAuthFile; expectedRefreshToken: string } | undefined;
 
+  private async retryPendingPersist(): Promise<boolean> {
+    const pending = this.pendingPersist;
+    if (!pending) return true;
+    // Retry a partial external write once; later ensure calls retry disk failures.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const current = await this.readAuthFileFromDisk();
+        if (!current) throw new Error('Auth file unavailable');
+        if (
+          current.tokens?.refresh_token !== pending.expectedRefreshToken ||
+          this.getApiKey(current)
+        ) {
+          this.pendingPersist = undefined;
+          this.clearCache();
+          return false; // A different external login wins.
+        }
+        await this.persistRefreshedTokens({
+          ...current,
+          tokens: { ...current.tokens, ...pending.auth.tokens },
+          last_refresh: pending.auth.last_refresh,
+        });
+        this.pendingPersist = undefined;
+        return true;
+      } catch {
+        if (attempt === 0)
+          await new Promise<void>((done) => setTimeout(done, 25));
+      }
+    }
+    this.logger.warn(
+      '[CodexAuth] OAuth refresh succeeded but could not be persisted; retaining credentials in memory for retry.',
+    );
+    return false;
+  }
+
+  private async persistRefreshedTokens(next: CodexAuthFile): Promise<void> {
     // Suppress the watcher: this write is ours, not an external `codex login`.
     this.suppressWatchUntil = Date.now() + WATCH_DEBOUNCE_MS * 4;
     const tmpPath = `${this.authFilePath}.${randomUUID()}.tmp`;
@@ -642,6 +717,8 @@ class HomeAuthState implements ICodexAuthService {
       });
       await rename(tmpPath, this.authFilePath);
     } finally {
+      // degradation-audit: optional-capability - temp cleanup is best effort (rename
+      // normally removed the file); cleanup must not mask the original write outcome.
       await unlink(tmpPath).catch(() => undefined);
     }
   }
@@ -699,6 +776,23 @@ class HomeAuthState implements ICodexAuthService {
    * Uses a short-lived cache to avoid excessive disk I/O.
    */
   private async readAuthFile(): Promise<CodexAuthFile | null> {
+    const pending = this.pendingPersist;
+    if (pending) {
+      const current = await this.readAuthFileFromDisk();
+      // A concurrent freshness check may have saved or superseded this rotation.
+      if (this.pendingPersist !== pending) return this.readAuthFile();
+      if (
+        current &&
+        (current.tokens?.refresh_token !== pending.expectedRefreshToken ||
+          this.getApiKey(current))
+      ) {
+        this.pendingPersist = undefined;
+        this.clearCache();
+      } else {
+        this.cachedAuth = pending.auth;
+        return pending.auth;
+      }
+    }
     const now = Date.now();
     if (
       this.cachedAuth &&
@@ -714,6 +808,8 @@ class HomeAuthState implements ICodexAuthService {
       this.cacheTimestamp = now;
       return auth;
     } catch (error) {
+      // degradation-audit: reported - missing files are debug-logged and invalid or
+      // unreadable files warn below; omit raw parser errors that can contain tokens.
       this.cachedAuth = null;
       this.cacheTimestamp = 0;
 
@@ -761,6 +857,9 @@ class HomeAuthState implements ICodexAuthService {
       const raw = await readFile(this.authFilePath, 'utf-8');
       return authFileSchema.parse(JSON.parse(raw));
     } catch {
+      // degradation-audit: optional-capability - a disk snapshot can be absent or
+      // mid-write; null prevents overwriting it and keeps pending rotated tokens.
+      // Persistence retries and reports a sanitized warning if it remains unavailable.
       return null;
     }
   }
@@ -777,8 +876,8 @@ class HomeAuthState implements ICodexAuthService {
    */
   private isTokenStale(auth: CodexAuthFile): boolean {
     return isCodexAccessTokenStale({
-      accessToken: auth.tokens?.access_token,
-      lastRefresh: auth.last_refresh,
+      accessToken: auth.tokens?.access_token ?? undefined,
+      lastRefresh: auth.last_refresh ?? undefined,
     });
   }
 }
