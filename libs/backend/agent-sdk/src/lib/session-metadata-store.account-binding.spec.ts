@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
+import type { IAsyncStateStorage } from '@ptah-extension/platform-core';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
   SessionMetadataStore, sessionIndexEntry, toSessionRecordInput,
@@ -25,6 +26,28 @@ function fixture() {
   const loggerMethods: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'> = createMockLogger();
   const logger = loggerMethods as Logger;
   return { storage, logger, store: new SessionMetadataStore(storage, logger) };
+}
+
+/**
+ * The shared mock is sync-only, so the async (schema-versioned index) flush
+ * branch needs this local adapter. Sequence I/O is not used by the index.
+ */
+function asyncFixture() {
+  const storage = createMockStateStorage();
+  const loggerMethods: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'> = createMockLogger();
+  const logger = loggerMethods as Logger;
+  const asyncStorage: IAsyncStateStorage = {
+    ...storage,
+    getAsync: async <T>(storageKey: string, defaultValue?: T): Promise<T | undefined> =>
+      storage.get<T>(storageKey, defaultValue),
+    readJsonSequence: (): AsyncIterable<never> => {
+      throw new Error('Sequence reads are not used by the session index');
+    },
+    replaceJsonSequence: async (): Promise<void> => {
+      throw new Error('Sequence writes are not used by the session index');
+    },
+  };
+  return { storage, store: new SessionMetadataStore(asyncStorage, logger) };
 }
 
 describe('immutable session account linkage', () => {
@@ -55,6 +78,20 @@ describe('immutable session account linkage', () => {
     if (!corrupted) throw new Error('Missing fixture');
     expect(() => sessionIndexEntry(corrupted)).toThrow(expect.objectContaining({ code: 'invalid-bound' }));
     expect(() => toSessionRecordInput(corrupted)).toThrow(expect.objectContaining({ code: 'invalid-bound' }));
+  });
+
+  it('keeps writing the async index when one stored row has a malformed binding', async () => {
+    const { storage, store } = asyncFixture();
+    const malformed = { ...binding, directory: '/private/account' };
+    const healthy: SessionMetadata = { ...metadata, sessionId: 'sdk-session-0002' };
+    const third: SessionMetadata = { ...metadata, sessionId: 'sdk-session-0003' };
+    storage.__state.seed(key, { schemaVersion: 1, items: [{ ...metadata, accountBinding: malformed }, healthy] });
+    await expect(store.save(third)).resolves.toBeUndefined();
+    const index = storage.get<{ schemaVersion: number; items: SessionMetadata[] }>(key);
+    expect(index?.items.map(m => m.sessionId)).toEqual([metadata.sessionId, healthy.sessionId, third.sessionId]);
+    // The bad row keeps its stored binding, so it never reads as ambient.
+    expect(index?.items[0].accountBinding).toEqual(malformed);
+    await expect(store.get(metadata.sessionId)).rejects.toMatchObject({ code: 'invalid-bound' });
   });
 
   it('refuses malformed writes without sending paths to storage or logs', async () => {
