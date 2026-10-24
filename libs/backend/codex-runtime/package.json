@@ -4,5 +4,8 @@
   "private": true,
   "type": "commonjs",
   "main": "./index.cjs",
-  "types": "./index.d.ts"
+  "types": "./index.d.ts",
+  "dependencies": {
+    "zod": "4.6.5"
+  }
 }
