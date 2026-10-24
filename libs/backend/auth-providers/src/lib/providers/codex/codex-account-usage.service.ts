@@ -154,8 +154,13 @@ export class CodexAccountUsageService
   }
 
   async getAccountUsage(
-    options: { refresh?: boolean; signal?: AbortSignal } = {},
+    options: { home?: string; refresh?: boolean; signal?: AbortSignal } = {},
   ): Promise<CodexAccountUsageResult> {
+    // This legacy service reads only the default home. Until usage moves onto the
+    // per-home core client, an explicit home must not get default-account usage.
+    if (options.home !== undefined) {
+      return { status: 'service-unavailable', providerId: 'openai-codex' };
+    }
     const eligibility = await this.auth.getAccountUsageEligibility();
     if (eligibility !== 'supported') {
       return { status: eligibility, providerId: 'openai-codex' };
