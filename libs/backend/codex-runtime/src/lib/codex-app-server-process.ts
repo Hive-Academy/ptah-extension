@@ -1,3 +1,4 @@
+import { posix, win32 } from 'node:path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
   CodexExecutableSource,
@@ -49,7 +50,21 @@ export interface CodexAppServerHandlers {
 }
 
 /** One child and one handshake. Construct a new instance for a new generation. */
+export class CodexHomeMismatchError extends Error {
+  readonly code = 'codexHomeMismatch';
+
+  constructor() {
+    super('Codex home verification failed');
+    this.name = 'CodexHomeMismatchError';
+  }
+}
+
 export class CodexAppServerProcess {
+  private verifiedHome?: string;
+
+  get verifiedCodexHome(): string | undefined {
+    return this.verifiedHome;
+  }
   private child?: SpawnedProcessHandle;
   private startPromise?: Promise<void>;
   private closePromise?: Promise<void>;
@@ -118,18 +133,37 @@ export class CodexAppServerProcess {
       if (signal?.aborted) this.onAbort();
       if (!this.child.stdin || !this.child.stdout)
         throw new Error('Codex process streams unavailable');
-      await this.sendRequest(
+      const initialized = validateCodexResult(
         'initialize',
-        {
-          clientInfo: { name: 'ptah', version: '1' },
-          // The pinned schema requires true, including for granular approval policy.
-          capabilities: { experimentalApi: true },
-        },
-        10_000,
+        await this.sendRequest(
+          'initialize',
+          {
+            clientInfo: { name: 'ptah', version: '1' },
+            // The pinned schema requires true, including for granular approval policy.
+            capabilities: { experimentalApi: true },
+          },
+          10_000,
+        ),
       );
+      const paths = this.binary.platform === 'win32' ? win32 : posix;
+      const canonical = (home: string): string => {
+        const normalized = paths.normalize(home).replace(/[\\/]+$/, '');
+        return this.binary.platform === 'win32'
+          ? normalized.toLowerCase()
+          : normalized;
+      };
+      if (
+        !paths.isAbsolute(initialized.codexHome) ||
+        canonical(initialized.codexHome) !==
+          canonical(this.profile.normalizedHome)
+      )
+        throw new CodexHomeMismatchError();
       this.write({ method: 'initialized' });
+      this.assertOpen();
+      this.verifiedHome = this.profile.normalizedHome;
       this.ready = true;
-    } catch {
+    } catch (error) {
+      if (error instanceof CodexHomeMismatchError) this.failure ??= error;
       this.fail('Codex initialization failed');
       throw this.failure;
     }

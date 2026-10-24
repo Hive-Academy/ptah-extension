@@ -7,7 +7,10 @@ import type {
 } from './codex-runtime-ports';
 import type { CodexExecutionProfile } from './codex-runtime.types';
 import type { CodexBinaryIdentity } from './codex-protocol-manifest';
-import { CodexAppServerProcess } from './codex-app-server-process';
+import {
+  CodexAppServerProcess,
+  CodexHomeMismatchError,
+} from './codex-app-server-process';
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdout = new PassThrough();
@@ -172,6 +175,59 @@ describe('CodexAppServerProcess', () => {
     );
     await expect(runtime.start()).rejects.toThrow('initialization failed');
     expect(spawner.spawnProcess).not.toHaveBeenCalled();
+  });
+
+  it('exposes the verified home only after a successful handshake', async () => {
+    expect(runtime.verifiedCodexHome).toBeUndefined();
+    const starting = runtime.start();
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: '/isolated/other/../home/' },
+    });
+    await starting;
+    expect(runtime.verifiedCodexHome).toBe(profile.normalizedHome);
+  });
+
+  it('rejects a different home with a sanitized typed error and closes the child', async () => {
+    const rejected = expect(runtime.start()).rejects.toBeInstanceOf(
+      CodexHomeMismatchError,
+    );
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: '/other-user/private' },
+    });
+    await rejected;
+    expect(runtime.verifiedCodexHome).toBeUndefined();
+    expect(child.stdin.writableEnded).toBe(true);
+    expect(child.frames).toHaveLength(1);
+    child.finish();
+    await runtime.close();
+    await expect(runtime.start()).rejects.toThrow(
+      'Codex home verification failed',
+    );
+  });
+
+  it('compares Windows home echoes without case or separator differences', async () => {
+    runtime = new CodexAppServerProcess(
+      spawner,
+      {
+        ...executable,
+        expectedManifestRow: {
+          ...executable.expectedManifestRow,
+          platform: 'win32',
+        },
+      },
+      { ...binary, platform: 'win32' },
+      { ...profile, normalizedHome: 'C:\\Users\\Account\\.codex' },
+      { onNotification, onRequest },
+    );
+    const starting = runtime.start();
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: 'c:/users/account/.codex/' },
+    });
+    await starting;
+    expect(runtime.verifiedCodexHome).toBe('C:\\Users\\Account\\.codex');
   });
 
   it('decodes UTF-8 split at every byte and multiple frames per chunk', async () => {
