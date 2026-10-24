@@ -23,6 +23,14 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/scripts/tree-sitter-grammars.json",
+        "{workspaceRoot}/assets/tree-sitter/**/*"
+      ],
       "options": {
         "passWithNoTests": true
       }

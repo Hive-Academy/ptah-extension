@@ -3,21 +3,14 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-tui/src",
-  "tags": [
-    "scope:cli",
-    "type:app"
-  ],
+  "tags": ["scope:cli", "type:app"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}/tui.mjs"
-      ],
+      "outputs": ["{options.outputPath}/tui.mjs"],
       "dependsOn": [
         {
-          "projects": [
-            "ptah-cli"
-          ],
+          "projects": ["ptah-cli"],
           "target": "build"
         }
       ],
@@ -27,9 +20,7 @@
         "main": "apps/ptah-tui/src/main.tsx",
         "outputFileName": "tui.mjs",
         "tsConfig": "apps/ptah-tui/tsconfig.build.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -117,9 +108,14 @@
       }
     },
     "test": {
-      "dependsOn": [
-        "build"
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        { "dependentTasksOutputFiles": "**/*.mjs", "transitive": false }
       ],
+      "dependsOn": ["build"],
       "options": {
         "passWithNoTests": true
       }
@@ -131,11 +127,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

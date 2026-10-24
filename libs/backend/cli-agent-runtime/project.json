@@ -18,6 +18,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/.claude/agents/**/*"
+      ],
       "options": {
         "passWithNoTests": true
       }

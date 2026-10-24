@@ -26,6 +26,8 @@ env:
   # The publish-* workflows stay on 22 deliberately -- they match release targets.
   NODE_VERSION: 24
   NX_TUI: false
+  # nx.json caps local runs at one task. CI keeps its previous default of 2.
+  NX_PARALLEL: 2
 
 jobs:
   checks:
@@ -218,12 +220,11 @@ jobs:
       # running 114-250 s in CI against seconds locally (TASK_2026_404_edeb).
       #
       # These two flags stay even though `jest.preset.js` now sets
-      # `maxWorkers: '50%'` and `nx.json` sets `parallel: 2` (TASK_2026_486_3b7e,
+      # `maxWorkers: 2` and `nx.json` sets `parallel: 1` (TASK_2026_486_3b7e,
       # which capped the LOCAL default after the same oversubscription starved a
-      # developer's machine). A CLI flag beats both, so CI keeps the values
-      # measured here rather than inheriting a default tuned for a 16-core
-      # workstation — `'50%'` of a 4-core runner would be 2 by coincidence and
-      # 1 on a 2-core runner.
+      # developer's machine, then tightened for concurrent agent sessions).
+      # A CLI flag beats both, so CI keeps the values measured here rather than
+      # inheriting a default tuned for a shared workstation.
       #
       # Measured on one host, warm: cli-engine coverage 16.9 s → 9.2 s at
       # `--maxWorkers=2`; agent-sdk 17.2 s → 8.1 s at `--maxWorkers=4`, and the

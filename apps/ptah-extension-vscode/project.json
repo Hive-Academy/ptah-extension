@@ -204,6 +204,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        { "dependentTasksOutputFiles": "**/*.mjs", "transitive": false }
+      ],
       "dependsOn": ["build-esbuild"],
       "options": {
         "passWithNoTests": true

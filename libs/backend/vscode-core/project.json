@@ -3,35 +3,29 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/vscode-core/src",
   "projectType": "library",
-  "tags": [
-    "scope:extension",
-    "type:util"
-  ],
+  "tags": ["scope:extension", "type:util"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/vscode-core",
         "main": "libs/backend/vscode-core/src/index.ts",
         "tsConfig": "libs/backend/vscode-core/tsconfig.lib.json",
-        "assets": [
-          "libs/backend/vscode-core/*.md"
-        ],
-        "format": [
-          "cjs"
-        ],
-        "external": [
-          "vscode",
-          "tsyringe",
-          "eventemitter3",
-          "rxjs"
-        ]
+        "assets": ["libs/backend/vscode-core/*.md"],
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "eventemitter3", "rxjs"]
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/libs/backend/**/*.ts",
+        "{workspaceRoot}/apps/**/tokens.ts"
+      ],
       "options": {
         "passWithNoTests": true
       }
@@ -48,11 +42,7 @@
         }
       },
       "cache": true,
-      "inputs": [
-        "default",
-        "^production",
-        "{workspaceRoot}/jest.preset.js"
-      ],
+      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
       "configurations": {
         "ci": {
           "ci": true,

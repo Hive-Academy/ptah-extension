@@ -1,12 +1,10 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
-  "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. CI is unaffected — `.github/workflows/ci.yml` passes `--parallel=3 --maxWorkers=2` explicitly and a CLI flag beats this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
-  "parallel": 2,
+  "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. Several agent sessions verify at once on this machine, so the local default is 1 task, and `jest.preset.js` caps each task at 2 workers. CI keeps its own numbers: the workflows set `NX_PARALLEL` and pass `--parallel`/`--maxWorkers` explicitly, and both beat this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
+  "parallel": 1,
+  "//cacheDirectory": "Deliberately unset. With no `cacheDirectory` and no NX_CACHE_DIRECTORY, Nx 24 keeps ONE cache and task DB per workspace in ~/.nx/<workspace-id>/{cache,databases}, shared by the main checkout and every .claude-worktrees/* worktree (the id comes from the git remote, not the path). Setting `cacheDirectory` turns that sharing off. See node_modules/nx/dist/src/utils/cache-directory.js.",
   "namedInputs": {
-    "default": [
-      "{projectRoot}/**/*",
-      "sharedGlobals"
-    ],
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
       "default",
       "!{projectRoot}/.eslintrc.json",
@@ -26,56 +24,31 @@
   },
   "targetDefaults": {
     "typecheck": {
-      "inputs": [
-        "default",
-        "^production"
-      ]
+      "cache": true,
+      "inputs": ["default", "^production"]
     },
     "validate-deps": {
-      "inputs": [
-        "default",
-        "^production"
-      ]
+      "inputs": ["default", "^production"]
     },
     "@angular/build:application": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/esbuild:esbuild": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/js:tsc": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/angular:ng-packagr-lite": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "lint": [
       {
@@ -88,16 +61,29 @@
           "{workspaceRoot}/.eslintrc.json",
           "{workspaceRoot}/.eslintignore",
           "{workspaceRoot}/eslint.config.mjs",
+          "{workspaceRoot}/eslint.angular.config.mjs",
+          "{workspaceRoot}/eslint.spec-change-detection.mjs",
           "{workspaceRoot}/tools/eslint-rules/**/*",
           {
-            "externalDependencies": [
-              "eslint"
-            ]
+            "externalDependencies": ["eslint"]
           }
         ]
       }
     ],
     "test": [
+      {
+        "//": "The NestJS projects run Jest through nx:run-commands (see their project.json), so the plugin entry below does not reach them. This entry comes first so that the plugin entry wins for any project both match.",
+        "filter": {
+          "projects": ["api-*", "ptah-license-server"]
+        },
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/libs/api/jest.api-preset.cjs"
+        ]
+      },
       {
         "filter": {
           "plugin": "@nx/jest/plugin"
@@ -111,7 +97,8 @@
         "inputs": [
           "default",
           "^production",
-          "{workspaceRoot}/jest.preset.js"
+          "{workspaceRoot}/jest.preset.js",
+          "{workspaceRoot}/__mocks__/**/*"
         ],
         "cache": true,
         "options": {
@@ -338,9 +325,7 @@
       "options": {
         "targetName": "e2e"
       },
-      "include": [
-        "apps/ptah-license-server-e2e/**/*"
-      ]
+      "include": ["apps/ptah-license-server-e2e/**/*"]
     }
   ],
   "analytics": true

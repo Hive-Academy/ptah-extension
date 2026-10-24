@@ -3,21 +3,12 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-cli/src",
-  "tags": [
-    "scope:cli",
-    "type:app"
-  ],
+  "tags": ["scope:cli", "type:app"],
   "targets": {
     "build": {
-      "inputs": [
-        "default",
-        "^production"
-      ],
+      "inputs": ["default", "^production"],
       "executor": "nx:noop",
-      "dependsOn": [
-        "build-esbuild",
-        "copy-wasm"
-      ]
+      "dependsOn": ["build-esbuild", "copy-wasm"]
     },
     "build-esbuild": {
       "executor": "@nx/esbuild:esbuild",
@@ -35,9 +26,7 @@
         "main": "apps/ptah-cli/src/main.ts",
         "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-cli/tsconfig.build.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -136,41 +125,29 @@
     },
     "copy-wasm": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-esbuild"
-      ],
-      "outputs": [
-        "{workspaceRoot}/dist/apps/ptah-cli/wasm"
-      ],
+      "dependsOn": ["build-esbuild"],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-cli/wasm"],
       "options": {
         "command": "node scripts/copy-wasm.js dist/apps/ptah-cli"
       }
     },
     "verify-packed-wasm": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "restore-cli-manifest"
-      ],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "node apps/ptah-cli/scripts/verify-packed-wasm.cjs"
       }
     },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}/embedder-worker.mjs"
-      ],
-      "dependsOn": [
-        "build"
-      ],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
+      "dependsOn": ["build"],
       "options": {
         "outputPath": "dist/apps/ptah-cli",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
         "outputFileName": "embedder-worker.mjs",
         "tsConfig": "apps/ptah-cli/tsconfig.embedder-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -182,27 +159,19 @@
             ".js": ".mjs"
           }
         },
-        "external": [
-          "@huggingface/transformers"
-        ]
+        "external": ["@huggingface/transformers"]
       }
     },
     "build-integrity-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}/integrity-worker.mjs"
-      ],
-      "dependsOn": [
-        "build"
-      ],
+      "outputs": ["{options.outputPath}/integrity-worker.mjs"],
+      "dependsOn": ["build"],
       "options": {
         "outputPath": "dist/apps/ptah-cli",
         "main": "libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
         "outputFileName": "integrity-worker.mjs",
         "tsConfig": "apps/ptah-cli/tsconfig.integrity-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -217,27 +186,19 @@
             "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "better-sqlite3"
-        ]
+        "external": ["better-sqlite3"]
       }
     },
     "build-workspace-watch-host": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}/workspace-watch-host.mjs"
-      ],
-      "dependsOn": [
-        "build"
-      ],
+      "outputs": ["{options.outputPath}/workspace-watch-host.mjs"],
+      "dependsOn": ["build"],
       "options": {
         "outputPath": "dist/apps/ptah-cli",
         "main": "libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts",
         "outputFileName": "workspace-watch-host.mjs",
         "tsConfig": "apps/ptah-cli/tsconfig.workspace-watch-host.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -252,9 +213,7 @@
             "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "@parcel/watcher"
-        ]
+        "external": ["@parcel/watcher"]
       }
     },
     "restore-cli-manifest": {
@@ -264,9 +223,7 @@
         "build-integrity-worker",
         "build-workspace-watch-host",
         {
-          "projects": [
-            "ptah-tui"
-          ],
+          "projects": ["ptah-tui"],
           "target": "build"
         }
       ],
@@ -282,9 +239,7 @@
     },
     "serve": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "restore-cli-manifest"
-      ],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "node dist/apps/ptah-cli/main.mjs"
       }
@@ -296,6 +251,14 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/.github/workflows/publish-cli.yml",
+        { "dependentTasksOutputFiles": "**/*.mjs", "transitive": false }
+      ],
       "dependsOn": [
         "build-esbuild",
         "build-embedder-worker",
@@ -309,28 +272,21 @@
     "e2e": {
       "executor": "nx:run-commands",
       "inputs": ["default", "^production"],
-      "dependsOn": [
-        "restore-cli-manifest"
-      ],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "jest --config apps/ptah-cli/jest.e2e.config.cjs --runInBand"
       }
     },
     "e2e-pty": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "restore-cli-manifest"
-      ],
+      "dependsOn": ["restore-cli-manifest"],
       "options": {
         "command": "jest --config apps/ptah-cli/jest.pty.config.cjs --runInBand"
       }
     },
     "publish:dry-run": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "restore-cli-manifest",
-        "verify-packed-wasm"
-      ],
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --dry-run --access public"
@@ -338,10 +294,7 @@
     },
     "publish": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "restore-cli-manifest",
-        "verify-packed-wasm"
-      ],
+      "dependsOn": ["restore-cli-manifest", "verify-packed-wasm"],
       "options": {
         "cwd": "dist/apps/ptah-cli",
         "command": "npm publish --access public --provenance"
@@ -354,11 +307,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

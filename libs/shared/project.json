@@ -17,6 +17,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/scripts/agent-usage/__fixtures__/claude-session/subagents/agent-code-logic-reviewer.jsonl"
+      ],
       "options": {
         "passWithNoTests": true
       }

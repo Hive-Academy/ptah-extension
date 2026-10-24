@@ -38,6 +38,7 @@
     "lint:shared": "nx lint shared",
     "lint:all": "nx run-many -t lint",
     "lint:fix": "nx run-many -t lint --fix",
+    "verify": "node scripts/verify.mjs",
     "typecheck:affected": "nx affected -t typecheck ",
     "typecheck:extension": "nx run ptah-extension-vscode:typecheck",
     "typecheck:webview": "nx run ptah-extension-webview:typecheck",

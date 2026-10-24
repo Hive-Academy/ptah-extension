@@ -35,6 +35,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/apps/ptah-extension-vscode/package.json"
+      ],
       "options": {
         "passWithNoTests": true
       }

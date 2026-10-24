@@ -120,6 +120,14 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/__mocks__/**/*",
+        "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.ts",
+        "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.html"
+      ],
       "options": {
         "passWithNoTests": true
       }
