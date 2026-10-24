@@ -16,6 +16,8 @@ import {
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import {
+  caseDeadlineMs,
+  shouldStopAfterCase,
   childEnvironment,
   cleanupExperiment,
   createExperiment,
@@ -2140,7 +2142,7 @@ describe('ask-command-edit evidence flow', () => {
     ]);
   });
 
-  it.each(['0', '9', '1.5', 'abc'])('rejects --turn-cap %s', (value) => {
+  it.each(['0', '18', '1.5', 'abc'])('rejects --turn-cap %s', (value) => {
     expect(() => parseOptions(['--turn-cap', value])).toThrow(
       'Turn cap must be an integer',
     );
@@ -2270,7 +2272,9 @@ describe('MCP elicitation evidence flow', () => {
       | 'openai/form'
       | 'openaiForm'
       | 'config-absent'
-      | 'config-wrong',
+      | 'config-wrong'
+      | 'usage'
+      | 'usage-single',
   ) {
     const root = mkdtempSync(join(tmpdir(), 'ptah-mcp-spec-'));
     const experiment: Experiment = {
@@ -2301,14 +2305,14 @@ describe('MCP elicitation evidence flow', () => {
       });
     child.stdin.on('finish', () => child.emit('close', 0));
     const result: Parameters<typeof runCase>[1] = {
-      id: 'mcp-approval',
+      id: mode.startsWith('usage') ? 'usage-semantics' : 'mcp-approval',
       status: '',
       turns: 0,
       events: [],
       approvals: [],
       notes: [],
     };
-    const original = join(experiment.workspace, 'mcp-approval.marker');
+    const original = join(experiment.workspace, `${result.id}.marker`);
     const sent: Record<string, unknown>[] = [];
     const selected = policy('ask');
     const send = (frame: object) =>
@@ -2402,7 +2406,10 @@ describe('MCP elicitation evidence flow', () => {
             notify('thread/tokenUsage/updated', {
               threadId: 'thread',
               turnId: 'turn',
-              tokenUsage: { total: { totalTokens: 10 } },
+              tokenUsage: {
+                last: { totalTokens: 10 },
+                total: { totalTokens: 10 },
+              },
             });
             if (mode !== 'non-mcp')
               notify('item/started', {
@@ -2437,7 +2444,10 @@ describe('MCP elicitation evidence flow', () => {
           notify('thread/tokenUsage/updated', {
             threadId: 'thread',
             turnId: 'turn',
-            tokenUsage: { total: { totalTokens: 10 } },
+            tokenUsage: {
+              last: { totalTokens: 10 },
+              total: { totalTokens: 10 },
+            },
           });
           break;
         default:
@@ -2445,6 +2455,8 @@ describe('MCP elicitation evidence flow', () => {
             frame['id'] === 'approval-one' &&
             [
               'happy',
+              'usage',
+              'usage-single',
               'title',
               'null-turn',
               'null-meta',
@@ -2474,6 +2486,21 @@ describe('MCP elicitation evidence flow', () => {
                 error: null,
               },
             });
+            if (mode.startsWith('usage')) {
+              if (mode === 'usage')
+                notify('thread/tokenUsage/updated', {
+                  threadId: 'thread',
+                  turnId: 'turn',
+                  tokenUsage: {
+                    last: { totalTokens: 7 },
+                    total: { totalTokens: 17 },
+                  },
+                });
+              notify('turn/completed', {
+                threadId: 'thread',
+                turn: { id: 'turn', status: 'completed' },
+              });
+            }
           }
       }
     });
@@ -2519,6 +2546,25 @@ describe('MCP elicitation evidence flow', () => {
     }
     return { result, sent, failure, writes, held };
   }
+
+  it('captures two model requests without interrupting at the MCP marker', async () => {
+    const { result, sent, failure } = await exercise('usage');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('observed');
+    expect(result.usageSamples).toEqual([
+      { last: 10, total: 10 },
+      { last: 7, total: 17 },
+    ]);
+    expect(result.round?.['usageLastMatchesIncrement']).toBe(true);
+    expect(sent.some((frame) => frame['method'] === 'turn/interrupt')).toBe(
+      false,
+    );
+  });
+  it('does not claim two-request usage proof from a single notification', async () => {
+    const { result, failure } = await exercise('usage-single');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('unverified: two model requests required');
+  });
 
   it('holds the request without effects, accepts once, then observes the marker', async () => {
     const { result, sent, failure, writes, held } = await exercise('happy');
@@ -2762,4 +2808,77 @@ describe('MCP elicitation evidence flow', () => {
       rpc.stopSync();
     },
   );
+});
+
+describe('round 7a catalog', () => {
+  it('budgets nine paid turns with schema-only probes first', () => {
+    const cases = JSON.parse(
+      readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
+    ) as { id: string; turnCost: number }[];
+    const ids = [
+      'different-home-isolation',
+      'same-home-isolation',
+      'profile-inputs',
+      'usage-semantics',
+      'resume-history',
+      'always-allow-scope',
+    ];
+    expect(
+      cases
+        .filter((item) => ids.includes(item.id))
+        .reduce((sum, item) => sum + item.turnCost, 0),
+    ).toBe(9);
+    expect(
+      cases.find((item) => item.id === 'subagent-and-rewind')?.turnCost,
+    ).toBe(0);
+    expect(new TurnBudget(10).cap).toBe(10);
+    expect(() => new TurnBudget(18)).toThrow();
+  });
+});
+
+describe('additional experiment homes', () => {
+  it('removes separately copied auth on fatal/keep cleanup without deleting retained artifacts', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ptah-extra-home-'));
+    const home = join(root, 'home');
+    const second = join(root, 'second-home');
+    mkdirSync(home);
+    mkdirSync(second);
+    writeFileSync(join(second, 'auth.json'), 'fake-secret');
+    try {
+      cleanupExperiment(
+        {
+          root,
+          home,
+          workspace: root,
+          scratch: root,
+          additionalHomes: [second],
+        },
+        true,
+      );
+      expect(existsSync(home)).toBe(false);
+      expect(existsSync(second)).toBe(false);
+      expect(existsSync(root)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('case scheduling guards', () => {
+  it.each([
+    ['observed', false],
+    ['unverified: two usage notifications required', false],
+    ['failed: protocol, isolation or approval gate', true],
+    ['not run: cap', true],
+  ])('status %s stops=%s', (status, expected) => {
+    expect(shouldStopAfterCase(String(status))).toBe(expected);
+  });
+  it.each([
+    [0, 60000],
+    [1, 75000],
+    [2, 150000],
+    [10, 225000],
+  ])('bounds deadline for %i turns', (turnCost, expected) => {
+    expect(caseDeadlineMs({ turnCost })).toBe(expected);
+  });
 });

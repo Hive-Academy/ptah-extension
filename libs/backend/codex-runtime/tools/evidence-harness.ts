@@ -1,3 +1,4 @@
+import { runRoundCase, schemaProbe } from './evidence-cases-round';
 import { spawn, spawnSync } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
@@ -40,7 +41,14 @@ import {
   recordCommandShape,
 } from './evidence-failure-notes';
 export const TURN_CAP = 8;
+const MAX_APPROVED_TURN_CAP = 17;
 export const CASE_DEADLINE_MS = 60_000;
+export function caseDeadlineMs(item: Pick<EvidenceCase, 'turnCost'>): number {
+  return Math.min(225_000, Math.max(CASE_DEADLINE_MS, item.turnCost * 75_000));
+}
+export function shouldStopAfterCase(status: string): boolean {
+  return status !== 'observed' && !status.startsWith('unverified:');
+}
 export const USAGE_TURN_LIMIT = 30_000;
 export const USAGE_CUMULATIVE_LIMIT = 100_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -65,8 +73,10 @@ function objectId(value: unknown, key: string): string {
 export class TurnBudget {
   private used = 0;
   constructor(readonly cap = TURN_CAP) {
-    if (!Number.isInteger(cap) || cap < 1 || cap > TURN_CAP)
-      throw new Error(`Turn cap must be an integer from 1 to ${TURN_CAP}`);
+    if (!Number.isInteger(cap) || cap < 1 || cap > MAX_APPROVED_TURN_CAP)
+      throw new Error(
+        `Turn cap must be an integer from 1 to ${MAX_APPROVED_TURN_CAP}`,
+      );
   }
   get consumed(): number {
     return this.used;
@@ -149,6 +159,7 @@ export interface Experiment {
   workspace: string;
   scratch: string;
   home: string;
+  additionalHomes?: string[];
 }
 export const disk = {
   mkdtempSync,
@@ -284,6 +295,21 @@ export function createExperiment(
   }
 }
 
+function cleanupAdditionalHome(
+  root: string,
+  home: string,
+  io: typeof disk,
+): void {
+  try {
+    io.lstatSync(home);
+  } catch (error) {
+    if (missing(error)) return;
+    throw error;
+  }
+  assertDisjointHomes(root, home, undefined, io);
+  io.rmSync(home, { recursive: true, force: true });
+}
+
 export function cleanupExperiment(
   experiment: Experiment,
   keep: boolean,
@@ -296,7 +322,13 @@ export function cleanupExperiment(
     try {
       io.rmSync(experiment.home, { recursive: true, force: true });
     } finally {
-      if (!keep) io.rmSync(experiment.root, { recursive: true, force: true });
+      try {
+        for (const home of experiment.additionalHomes ?? []) {
+          cleanupAdditionalHome(experiment.root, home, io);
+        }
+      } finally {
+        if (!keep) io.rmSync(experiment.root, { recursive: true, force: true });
+      }
     }
   }
 }
@@ -322,7 +354,7 @@ export function childEnvironment(
 }
 const caseSchema = z.object({
   id: z.string().regex(/^[a-z-]+$/),
-  turnCost: z.number().int().min(0).max(1),
+  turnCost: z.number().int().min(0).max(2),
   observations: z.array(z.number()),
   kind: z.enum([
     'schema',
@@ -332,13 +364,14 @@ const caseSchema = z.object({
     'mcp',
     'compact',
     'read-rule',
+    'round',
   ]),
   level: z.enum(['ask', 'plan', 'auto-edit', 'yolo']).optional(),
   decision: z.enum(['accept', 'deny', 'edit']).optional(),
   purpose: z.string(),
 });
 
-type EvidenceCase = z.infer<typeof caseSchema>;
+export type EvidenceCase = z.infer<typeof caseSchema>;
 
 interface EventSummary {
   direction: 'in' | 'out';
@@ -427,7 +460,7 @@ function approvalSummary(frame: RequestFrame): ApprovalSummary {
   return evidence;
 }
 
-interface CaseResult {
+export interface CaseResult {
   id: string;
   status: string;
   turns: number;
@@ -437,6 +470,8 @@ interface CaseResult {
   markers?: { original: boolean; replacement: boolean; outside: boolean };
   terminal?: string;
   usage?: unknown;
+  round?: Record<string, unknown>;
+  usageSamples?: { last: number; total: number }[];
   usageByTurn?: Record<string, number>;
   steer?: {
     status: 'pending' | 'success' | 'error';
@@ -834,7 +869,7 @@ export class RpcChild {
   }
 }
 // Shared by the exact approved command and the local MCP fixture. No arbitrary path argument from the model.
-const MARKER_WRITER = String.raw`
+export const MARKER_WRITER = String.raw`
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -908,7 +943,7 @@ const manifestSchema = z.object({
   }),
 });
 
-type Manifest = z.infer<typeof manifestSchema>;
+export type Manifest = z.infer<typeof manifestSchema>;
 
 function digest(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -1132,7 +1167,7 @@ export function markerCommand(
   return command;
 }
 
-function configSummary(value: unknown): unknown {
+export function configSummary(value: unknown): unknown {
   const config = record(record(value)['config']);
   assertSafeSandbox(config);
   if (
@@ -1307,6 +1342,21 @@ export async function runCase(
   children: Set<RpcChild>,
   authDirectory: string,
 ): Promise<void> {
+  if (item.kind === 'round') {
+    await runRoundCase({
+      item,
+      result,
+      experiment,
+      binary,
+      model,
+      budget,
+      usage,
+      manifest,
+      children,
+      authDirectory,
+    });
+    return;
+  }
   const editing = item.kind === 'command' && item.decision === 'edit';
   const readRule = item.kind === 'read-rule';
   if (editing && !manifest.methods.requests.includes('turn/steer'))
@@ -1501,7 +1551,7 @@ export async function runCase(
       throw new Error('Unexpected marker effect');
     if (present || validatedApprovals[0]?.response === 'decline') {
       outcome = true;
-      interrupt();
+      if (item.id !== 'usage-semantics') interrupt();
     }
   };
   // One bounded poll per child, always released below; never one poll per event/item.
@@ -1513,7 +1563,7 @@ export async function runCase(
       rpc.abort();
     }
   }, 20);
-  const deadline = setTimeout(() => rpc.abort(), CASE_DEADLINE_MS);
+  const deadline = setTimeout(() => rpc.abort(), caseDeadlineMs(item));
   rpc.onRequest = async (frame, evidence) => {
     const requestParams = record(frame.params ?? {});
     const beforeFirstApproval = !approvalRequestObserved;
@@ -1880,6 +1930,21 @@ export async function runCase(
     }
     if (method === 'thread/tokenUsage/updated') {
       result.usage = usageSummary(params);
+      if (item.id === 'usage-semantics') {
+        const wireUsage = record(data['tokenUsage']);
+        (result.usageSamples ??= []).push({
+          last: z
+            .number()
+            .int()
+            .nonnegative()
+            .parse(record(wireUsage['last'])['totalTokens']),
+          total: z
+            .number()
+            .int()
+            .nonnegative()
+            .parse(record(wireUsage['total'])['totalTokens']),
+        });
+      }
       const usageTurnId = z.string().parse(data['turnId']);
       const totalTokens = z
         .number()
@@ -1984,7 +2049,7 @@ export async function runCase(
     threadId = objectId(thread, 'thread');
     const prompt =
       item.kind === 'mcp'
-        ? 'Use only marker MCP write_marker once with slot original. No other tools or retries.'
+        ? 'Use only marker MCP write_marker once with slot original. After the tool result, reply DONE without further tools or retries.'
         : item.kind === 'file'
           ? `Use the file edit tool once to create ${target} containing marker. Request approval. No commands or retries.`
           : // The command stands alone on its line: run 6d copied a trailing period into it.
@@ -2016,7 +2081,7 @@ export async function runCase(
     initialTurnId ||= objectId(started, 'turn');
     turnId ||= initialTurnId;
     chargedTurns.add(initialTurnId);
-    if (outcome) interrupt();
+    if (outcome && item.id !== 'usage-semantics') interrupt();
     while (
       (!terminal && !interrupted) ||
       (editing && result.steer?.status === 'pending')
@@ -2064,6 +2129,25 @@ export async function runCase(
         await delay(20);
       }
       result.notes?.push('compaction completion observed');
+    }
+    if (item.id === 'usage-semantics') {
+      const samples = result.usageSamples ?? [];
+      const distinct = samples.filter(
+        (sample, index) =>
+          index === 0 || sample.total > samples[index - 1].total,
+      );
+      if (terminal !== 'completed' || distinct.length < 2)
+        result.status = 'unverified: two model requests required';
+      result.round = {
+        usageLastMatchesIncrement:
+          distinct.length >= 2 &&
+          distinct
+            .slice(1)
+            .every(
+              (sample, index) =>
+                sample.last === sample.total - distinct[index].total,
+            ),
+      };
     }
     if (!result.usage)
       throw new Error('No usage evidence; stop before further inference');
@@ -2184,8 +2268,13 @@ export async function runHarness(
             perTurn: USAGE_TURN_LIMIT,
             cumulative: USAGE_CUMULATIVE_LIMIT,
           },
-          caseDeadlineMs: CASE_DEADLINE_MS,
-          cases,
+          caseDeadlinesMs: Object.fromEntries(
+            cases.map((item) => [item.id, caseDeadlineMs(item)]),
+          ),
+          cases: cases.map((item) => ({
+            ...item,
+            deadlineMs: caseDeadlineMs(item),
+          })),
         },
         null,
         2,
@@ -2259,16 +2348,18 @@ export async function runHarness(
       if (item.kind === 'schema') {
         result.status = 'schema only';
         result.notes = [
-          item.id === 'modified-input-schema'
-            ? `modifiedInput property present: ${schemaText.includes('"modifiedInput"')}; wire response and behavior unverified; no invented mapping`
-            : `Method presence only: ${Object.values(manifest.methods)
-                .flat()
-                .filter((method) =>
-                  /userInput|plan|agent|rollback|resume|compact|skills/i.test(
-                    method,
-                  ),
-                )
-                .join(', ')}`,
+          item.id === 'subagent-and-rewind'
+            ? JSON.stringify(schemaProbe(manifest))
+            : item.id === 'modified-input-schema'
+              ? `modifiedInput property present: ${schemaText.includes('"modifiedInput"')}; wire response and behavior unverified; no invented mapping`
+              : `Method presence only: ${Object.values(manifest.methods)
+                  .flat()
+                  .filter((method) =>
+                    /userInput|plan|agent|rollback|resume|compact|skills/i.test(
+                      method,
+                    ),
+                  )
+                  .join(', ')}`,
         ];
         continue;
       }
@@ -2313,7 +2404,13 @@ export async function runHarness(
           children,
           dirname(authPath),
         );
-        if (result.status !== 'observed') stop = true;
+        if (
+          item.id === 'usage-semantics' &&
+          (result.usageSamples?.length ?? 0) < 2
+        ) {
+          result.status = 'unverified: two usage notifications required';
+        }
+        if (shouldStopAfterCase(result.status)) stop = true;
       } catch (error) {
         recordCaseFailure(result, error);
         result.status =
@@ -2353,7 +2450,9 @@ export async function runHarness(
         cumulative: USAGE_CUMULATIVE_LIMIT,
       },
       observedUsage: usage.consumed,
-      caseDeadlineMs: CASE_DEADLINE_MS,
+      caseDeadlinesMs: Object.fromEntries(
+        cases.map((item) => [item.id, caseDeadlineMs(item)]),
+      ),
       cleanup,
       results,
       harnessCapabilities: [

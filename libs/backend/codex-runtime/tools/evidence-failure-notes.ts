@@ -2,6 +2,15 @@ import { homedir, tmpdir } from 'node:os';
 import type { Experiment } from './evidence-harness';
 // Only literal harness messages, bounded RPC codes and known error names enter notes.
 export const failureMessages = new Set([
+  'Case deadline exceeded',
+  'Round command did not complete',
+  'Round turn did not complete',
+  'Round marker missing',
+  'Resume history missing',
+  'Rollback history mismatch',
+  'Profile marker missing',
+  'Shared home config changed',
+  'Unknown round case',
   'Tolerated marker read before command',
   'Tolerated read asked for approval',
   'exec-policy rule location unverified',

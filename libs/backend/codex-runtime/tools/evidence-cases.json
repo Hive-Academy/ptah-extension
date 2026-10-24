@@ -100,5 +100,56 @@
     "observations": [5],
     "kind": "compact",
     "purpose": "Compact retained accepted-command thread; one reserved invocation, sharing its 60-second deadline and 15000-token per-turn and 100000-token cumulative observed bounds; no retries"
+  },
+  {
+    "id": "subagent-and-rewind",
+    "turnCost": 0,
+    "observations": [3, 5],
+    "kind": "schema",
+    "purpose": "Pinned manifest presence only; rollback behavior piggybacks resume-history; no invented subagent method"
+  },
+  {
+    "id": "different-home-isolation",
+    "turnCost": 1,
+    "observations": [4],
+    "kind": "round",
+    "purpose": "Two initialized children with separately copied auth; one paid child, second handshake only"
+  },
+  {
+    "id": "profile-inputs",
+    "turnCost": 1,
+    "observations": [3],
+    "kind": "round",
+    "purpose": "Thread reasoning effort, developer marker and configured stdio MCP startup"
+  },
+  {
+    "id": "usage-semantics",
+    "turnCost": 1,
+    "observations": [5],
+    "kind": "mcp",
+    "purpose": "One MCP tool turn; retain tokenUsage.last and total for every notification",
+    "level": "ask",
+    "decision": "accept"
+  },
+  {
+    "id": "same-home-isolation",
+    "turnCost": 2,
+    "observations": [4],
+    "kind": "round",
+    "purpose": "Two concurrent children, separate threads and approvals; config bytes unchanged"
+  },
+  {
+    "id": "resume-history",
+    "turnCost": 2,
+    "observations": [5],
+    "kind": "round",
+    "purpose": "Persisted history after child restart, successful continuation and schema-supported rollback"
+  },
+  {
+    "id": "always-allow-scope",
+    "turnCost": 2,
+    "observations": [2],
+    "kind": "round",
+    "purpose": "Exact acceptForSession, repeat without approval, different command prompts"
   }
 ]
