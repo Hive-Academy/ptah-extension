@@ -12,24 +12,24 @@ const entry = (id: string, turnCost: number): EvidenceCase => ({
 describe('shared approved round budget', () => {
   it('subtracts actual prior turns and reserves a steer slot', () => {
     expect(
-      roundPlan([entry('profile-inputs', 1), entry('usage-semantics', 1)], 6),
+      roundPlan([entry('profile-inputs', 1), entry('profile-inputs', 1)], 6),
     ).toEqual({
       plannedTurns: 2,
       cap: 3,
-      remaining: 10,
+      remaining: 7,
       priorTurnsUsed: 6,
-      estimatedTokens: 40000,
+      estimatedTokens: 32000,
     });
   });
-  it.each([-1, 17, 0.5, NaN])('rejects invalid prior count %s', (count) => {
+  it.each([-1, 14, 0.5, NaN])('rejects invalid prior count %s', (count) => {
     expect(() => roundPlan([], count)).toThrow('Prior turns');
   });
   it('rejects a cap beyond the shared remaining budget', () => {
-    expect(() => roundPlan([entry('profile-inputs', 1)], 16)).toThrow(
+    expect(() => roundPlan([entry('profile-inputs', 1)], 13)).toThrow(
       'Cap exceeds',
     );
   });
-  it('rejects the original requested 7a grouping at 96k', () => {
+  it('rejects the old grouping under the corrected token estimates', () => {
     expect(() =>
       roundPlan(
         [
@@ -42,9 +42,9 @@ describe('shared approved round budget', () => {
       ),
     ).toThrow('Estimated tokens exceed');
   });
-  it('refuses combined caps above the sixteen remaining turns', () => {
-    expect(roundPlan([entry('profile-inputs', 15)], 0).cap).toBe(16);
-    expect(() => roundPlan([entry('profile-inputs', 16)], 0)).toThrow(
+  it('refuses combined caps above the thirteen remaining turns', () => {
+    expect(roundPlan([entry('profile-inputs', 12)], 0).cap).toBe(13);
+    expect(() => roundPlan([entry('profile-inputs', 13)], 0)).toThrow(
       'Cap exceeds',
     );
     expect(() => roundPlan([entry('profile-inputs', 4)], 12)).toThrow(
@@ -59,48 +59,64 @@ describe('shared approved round budget', () => {
 });
 
 describe('round selection and recorded usage', () => {
-  it('requires an explicit actual 7a usage count for 7b', () => {
-    expect(() => parseRoundArgs(['--round', '7b', '--dry-run'])).toThrow(
-      '7b requires',
+  it('requires the sum of actual earlier usage for later rounds', () => {
+    expect(() => parseRoundArgs(['--round', '7d', '--dry-run'])).toThrow(
+      'Later rounds require',
     );
     expect(
-      parseRoundArgs(['--round', '7b', '--7a-turns-used', '6', '--dry-run']),
-    ).toEqual({ round: '7b', priorTurnsUsed: 6, args: ['--dry-run'] });
+      parseRoundArgs(['--round', '7e', '--prior-turns-used', '7', '--dry-run']),
+    ).toEqual({ round: '7e', priorTurnsUsed: 7, args: ['--dry-run'] });
+    expect(
+      parseRoundArgs(['--round', '7c', '--prior-turns-used', '4'])
+        .priorTurnsUsed,
+    ).toBe(4);
   });
   it.each([
-    ['--round', '7c'],
+    ['--round', '7a'],
     ['--round'],
-    ['--round', '7a', '--round', '7b'],
-    ['--7a-turns-used', '1'],
-    ['--round', '7b', '--7a-turns-used', '-1'],
-    ['--round', '7b', '--7a-turns-used', '18'],
+    ['--round', '7c', '--round', '7d'],
+    ['--round', '7d', '--prior-turns-used', '-1'],
+    ['--round', '7e', '--prior-turns-used', '14'],
     ['--turn-cap=17'],
     ['--turn-cap', '17'],
   ])('rejects unsafe CLI %j', (...args) => {
     expect(() => parseRoundArgs(args)).toThrow();
   });
-  it.each([
-    ['7a', 6, 72000],
-    ['7b', 4, 64000],
-  ] as const)(
-    'keeps proposed %s within bounds with one reserve',
-    (round, turns, tokens) => {
-      const catalog = JSON.parse(
-        readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
-      ) as EvidenceCase[];
+  it('fits all caps within thirteen turns and prioritizes unproved scope/isolation', () => {
+    const catalog = JSON.parse(
+      readFileSync(join(__dirname, 'evidence-cases.json'), 'utf8'),
+    ) as EvidenceCase[];
+    let prior = 0;
+    for (const [round, turns, tokens] of [
+      ['7c', 3, 64000],
+      ['7d', 2, 48000],
+      ['7e', 3, 48000],
+    ] as const) {
       const cases = ROUND_ORDER[round].map((id) => {
         const item = catalog.find((candidate) => candidate.id === id);
         if (!item) throw new Error(`Missing case ${id}`);
         return item;
       });
-      expect(roundPlan(cases, round === '7a' ? 0 : 7)).toMatchObject({
+      const plan = roundPlan(cases, prior);
+      expect(plan).toMatchObject({
         plannedTurns: turns,
         cap: turns + 1,
-        remaining: round === '7a' ? 16 : 9,
+        remaining: 13 - prior,
         estimatedTokens: tokens,
       });
-      expect(tokens + 12000).toBeLessThanOrEqual(85000);
-      if (round === '7b') expect(cases.at(-1)?.id).toBe('usage-semantics');
-    },
-  );
+      expect(plan.estimatedTokens).toBeLessThanOrEqual(85000);
+      expect(
+        cases.some(
+          (item) =>
+            item.id === 'usage-semantics' ||
+            item.id === 'different-home-isolation',
+        ),
+      ).toBe(false);
+      prior += plan.cap;
+    }
+    expect(prior).toBe(11);
+    expect(() => roundPlan([entry('always-allow-scope', 3)], prior)).toThrow(
+      'Cap exceeds',
+    );
+  });
 });

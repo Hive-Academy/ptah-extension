@@ -27,8 +27,9 @@ const cases = ROUND_ORDER[selection.round].map((id) => {
   return found;
 });
 const plan = roundPlan(cases, selection.priorTurnsUsed);
-// The caller records actual turnsConsumed from 7a's JSON artifact, including
-// failures/steers, and supplies it for 7b. Never infer use from planned turns.
+// Baseline: 22 of 35 turns used through 7a2. Supply --prior-turns-used as
+// the sum of actual turnsConsumed from ALL later attempts, including reruns,
+// failures and steers. Planned caps total 11 of the remaining 13 turns.
 process.stdout.write(
   `runner ${selection.round}: ${cases.length} cases, planned turns ${plan.plannedTurns}, cap ${plan.cap}, estimated tokens ${plan.estimatedTokens}, budget left ${plan.remaining}, prior turns used ${plan.priorTurnsUsed}\n`,
 );

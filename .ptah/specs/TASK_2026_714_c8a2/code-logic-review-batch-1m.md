@@ -136,3 +136,40 @@ The diff touches only `tools/` files: round cases and their spec, the case catal
 ### Minor notes
 - The scope purpose text in `evidence-cases.json` still says "repeat without approval, different command prompts"; it should say "declined". Cosmetic.
 - If 7a stops early, the 7b flag must use the artifact's actual `turnsConsumed`, not 6 or 7.
+
+## Batch 1n review
+
+Verdict: REVISE. Do not start 7c until the item below is fixed or the user approves a bound change. Score 5/10. Confidence is HIGH on the diagnosis because it follows from the 7a2 artifact's own arithmetic. Scoped jest on `tools` passes 767/767 (16 suites). Dry runs were executed; no `--run`, no binary, no git changes.
+
+### Must fix before any paid run
+
+1. **The 7a2 trip was a genuine per-turn breach; the diagnosis and the replay are wrong, so 7c would fail the same way.**
+   - The artifact's event log (`spike-run-7a2.json`, always-allow-scope) shows four `thread/tokenUsage/updated` notifications, not three: turn 1 has two (after the command item and after the final agent message), and turn 2 has two as well (after the repeated command and after its final agent message). Each command turn costs two model requests.
+   - `usageSamples` records only three because the fourth notification is the one that threw, and observe runs before the push (`evidence-cases-round.ts` observe call, then `usageSamples.push`).
+   - The artifact header `observedUsage: 77861` equals 23451 (different-home) + 54410. 54410 is the fourth total (38926 + a last of 15484, inferred). Turn 2's delta is then 54410 - 23481 = 30929, which is greater than 30000 by 929. So `UsageBudget` was right, the key was already stable (`case:label:thread`), and the 77861 is not over-counted. The "real ~62k" figure comes from the three recorded samples and ignores the fourth.
+   - Batch 1n's replay (`evidence-harness.spec.ts:1244-1257` and the `7a2-replay` fault in `evidence-cases-round.spec.ts:300-337`) feeds turn 2 a single 15445 sample, so it never reproduces the breach. It passes only because it omits the second notification.
+   - The identity change (`[item.id, thread]`, `evidence-cases-round.ts:330-336`, `evidence-harness.ts:1970`) is harmless and actually correct for resume (one stream across the restarted child; it also fixes the resumed-child per-turn exposure I noted earlier), but it does not touch the path that failed.
+2. **Consequence for 7c.** Measured per-turn costs are 23.5k (turn 1, approval), 30.9k (turn 2, approval-free), and a larger turn 3 (context grows ~3.7k per request: requests of 11.7k, 11.8k, 15.4k, 15.5k, so the declined turn is probably about 2 x 19k = 38k).
+   - The per-turn bound of 30000 will trip again at turn 2 and, if not, at turn 3. Two paid turns (~54k) would be spent and the decline step, the point of the rerun, would again not run.
+   - The report's estimates (approval-free turn ~16k, always-allow 64k) are wrong. A realistic always-allow total is about 23.5 + 31 + 38 = about 92k, which sits against the 100000 cumulative guard, so the plan limit of 85k would also be violated.
+   - The harness refuses plans above 85k estimated tokens, but the estimate table is wrong, so the guard is not protecting here.
+3. **Fix options (the per-turn and cumulative bounds are user-approved spend limits; do not change them silently).**
+   - Ask the user to raise the per-turn bound to about 45000 and the cumulative bound for the 7c run to about 120000, and set the always-allow estimate to about 95k with a run-specific estimate limit. Cost is about 90-95k tokens for 7c.
+   - Or reduce the experiment: split into two runs, each still needing the per-turn bound above 31k, so splitting alone does not remove the need for the new bound.
+   - In both cases fix the estimate table to two requests per command turn (about 24k, 31k, 38k).
+   - Replace the replay with the true four-notification stream: 11721/11721, 11760/23481 (turn 1), then 15445/38926 and 15484/54410 (turn 2), and assert the outcome under the chosen bounds.
+
+### Other checks
+
+- **(2) Estimates for 7d and 7e.** 7d (same-home, two children, one approval turn each, about 23.5k each, 47k) is consistent with the 48k estimate and with the per-turn bound. 7e (resume, two no-tool turns, one request each at about 11.7-15k, plus profile at about 12-16k; est 48k) is plausible and conservative. Both are well under 100k. Only 7c is wrong.
+- **(3) Ledger.** `PREVIOUSLY_USED_TURNS = 22`, remaining 13. Caps are 4 + 3 + 4 = 11, each enforced as a hard limit at `turn/start` inside its own process, so a wrong `--prior-turns-used` cannot let any single run exceed its cap, and one pass of 7c, 7d, 7e cannot exceed 11. Dry runs: `7c` with 0 gives cap 4, left 13; `7d` with 4 gives cap 3, left 9; `7e` with 7 gives cap 4, left 6; `7e` with 10 and `7c` with 14 are refused. Residual: reruns of a failed round are new spend and rely on the caller summing `turnsConsumed` (process control, not code).
+- **(4) Always-allow flow and 7e designs.** The three-message flow and shared proven texts from the previous review are unchanged and still correct (accept only the first command, decline the different one, approval cap 2). 7e resume and profile cases are no-tool prompts or as designed.
+- **(5) Other changes.** The diff is limited to the usage key (two sites), the round plan (rounds 7c/7d/7e, estimates, baseline 22, flag rename to `--prior-turns-used`), the runner comment, and specs.
+
+### Dry-run commands checked
+```
+npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7c --prior-turns-used 0
+... --dry-run --round 7d --prior-turns-used <turns actually used since 7a2>
+... --dry-run --round 7e --prior-turns-used <turns actually used since 7a2>
+```
+Run 7d and 7e are fine to run as designed once their prior-turn values are supplied. Only 7c is blocked.

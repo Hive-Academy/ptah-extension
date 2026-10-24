@@ -328,11 +328,12 @@ export async function runRoundCase(c: Context): Promise<void> {
           .nonnegative()
           .parse(record(tokens['last'])['totalTokens']);
         session.usageTurn = z.string().parse(params['turnId']);
-        c.usage.observe(
-          `${item.id}:${label}:${session.thread}`,
-          total,
-          session.usageTurn,
-        );
+        // Thread cumulative totals survive a child restart during resume.
+        const usageKey = JSON.stringify([item.id, session.thread]);
+        const turnUsage = c.usage.observe(usageKey, total, session.usageTurn);
+        (result.usageByTurn ??= {})[
+          JSON.stringify([session.thread, session.usageTurn])
+        ] = turnUsage;
         (result.usageSamples ??= []).push({ last, total });
         result.usage = { totalTokens: c.usage.consumed };
         evidence[`${label}Usage`] = { last, total };

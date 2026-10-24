@@ -1,21 +1,20 @@
 import type { EvidenceCase } from './evidence-harness';
 
-// decisions.md: total approval 35; 18 earlier turns + 1 failed first 7a = 19 used.
-// --7a-turns-used accounts only for the subsequent rerun, never that failed turn.
+// decisions.md: 18 earlier + 1 failed 7a + 3 in 7a2 = 22 used.
+// Prior usage below counts all subsequent attempts, including failures and steers.
 const TOTAL_APPROVED_TURNS = 35;
-const PREVIOUSLY_USED_TURNS = 18 + 1;
+const PREVIOUSLY_USED_TURNS = 22;
 export const APPROVED_TURNS = TOTAL_APPROVED_TURNS - PREVIOUSLY_USED_TURNS;
 export const ESTIMATE_LIMIT = 85_000;
 export const CASE_TOKEN_ESTIMATES: Readonly<Record<string, number>> = {
   'schema-handshake': 0,
   'modified-input-schema': 0,
   'subagent-and-rewind': 0,
-  'different-home-isolation': 12_000,
-  'always-allow-scope': 3 * 12_000,
-  'same-home-isolation': 24_000,
-  'resume-history': 24_000,
-  'profile-inputs': 15_000,
-  'usage-semantics': 25_000,
+  'different-home-isolation': 24_000,
+  'always-allow-scope': 24_000 + 16_000 + 24_000,
+  'same-home-isolation': 2 * 24_000,
+  'resume-history': 2 * 16_000,
+  'profile-inputs': 16_000,
 };
 
 export function roundPlan(
@@ -44,28 +43,32 @@ export function roundPlan(
   return { plannedTurns, cap, remaining, priorTurnsUsed, estimatedTokens };
 }
 
-// Proposed split: moving resume to 7b is necessary to fit the 85k estimate limit.
+// Repeat the complete scope proof in one thread. Usage semantics and different-home
+// isolation were answered by 7a2; do not spend another turn on them.
 export const ROUND_ORDER = {
-  '7a': [
+  '7c': [
     'schema-handshake',
     'modified-input-schema',
     'subagent-and-rewind',
-    'different-home-isolation',
     'always-allow-scope',
+  ],
+  '7d': [
+    'schema-handshake',
+    'modified-input-schema',
+    'subagent-and-rewind',
     'same-home-isolation',
   ],
-  '7b': [
+  '7e': [
     'schema-handshake',
     'modified-input-schema',
     'subagent-and-rewind',
     'resume-history',
     'profile-inputs',
-    'usage-semantics',
   ],
 } as const;
 
 export function parseRoundArgs(args: readonly string[]): {
-  round: '7a' | '7b';
+  round: keyof typeof ROUND_ORDER;
   priorTurnsUsed: number;
   args: string[];
 } {
@@ -80,18 +83,16 @@ export function parseRoundArgs(args: readonly string[]): {
     if (rest.includes(name)) throw new Error(`Duplicate ${name}`);
     return value;
   };
-  const round = take('--round') ?? '7a';
-  if (round !== '7a' && round !== '7b')
-    throw new Error('Round must be 7a or 7b');
-  const used = take('--7a-turns-used');
-  if (round === '7b' && used === undefined)
+  const round = take('--round') ?? '7c';
+  if (round !== '7c' && round !== '7d' && round !== '7e')
+    throw new Error('Round must be 7c, 7d or 7e');
+  const used = take('--prior-turns-used');
+  if (round !== '7c' && used === undefined)
     throw new Error(
-      '7b requires --7a-turns-used from the 7a artifact turnsConsumed',
+      'Later rounds require --prior-turns-used: sum turnsConsumed from all attempts after 7a2',
     );
-  if (round === '7a' && used !== undefined)
-    throw new Error('7a cannot override prior turns');
   if (used !== undefined && !/^(0|[1-9][0-9]*)$/.test(used))
-    throw new Error('Invalid --7a-turns-used');
+    throw new Error('Invalid --prior-turns-used');
   const priorTurnsUsed = Number(used ?? 0);
   if (priorTurnsUsed > APPROVED_TURNS)
     throw new Error('Prior turns exceed approval');

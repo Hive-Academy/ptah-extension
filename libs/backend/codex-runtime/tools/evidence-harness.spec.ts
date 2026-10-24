@@ -1241,6 +1241,21 @@ describe('review regression guards using real functions and isolated disk', () =
     );
   });
 
+  it('replays 7a2 request samples as turn deltas and one thread total', () => {
+    const budget = new UsageBudget();
+    expect(budget.observe('scope-thread', 11721, 'turn-1')).toBe(11721);
+    expect(budget.observe('scope-thread', 23481, 'turn-1')).toBe(23481);
+    expect(budget.observe('scope-thread', 38926, 'turn-2')).toBe(15445);
+    expect(budget.turnTotal('scope-thread', 'turn-1')).toBe(23481);
+    expect(budget.turnTotal('scope-thread', 'turn-2')).toBe(15445);
+    expect(budget.consumed).toBe(38926);
+    expect(budget.exceeded).toBe(false);
+    budget.observe('scope-thread', 38926, 'turn-2');
+    expect(budget.consumed).toBe(38926);
+    budget.observe('other-thread', 24000, 'turn-1');
+    expect(budget.consumed).toBe(62926);
+  });
+
   it('attributes thread cumulative increments to separate turns without double counting', () => {
     const budget = new UsageBudget();
     expect(budget.observe('thread', 10_000, 'first')).toBe(10_000);

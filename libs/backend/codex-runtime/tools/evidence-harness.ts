@@ -572,6 +572,8 @@ export class UsageBudget {
   turnTotal(id: string, turnId: string): number {
     return this.turns.get(JSON.stringify([id, turnId])) ?? 0;
   }
+  // id is a stable cumulative stream (case/thread), never a turn or sample.
+  // Attribute only increments to each turn; retain each stream once per run.
   observe(id: string, count: number, turnId = id): number {
     if (!Number.isSafeInteger(count) || count < 0)
       throw new Error('Invalid usage');
@@ -1965,10 +1967,14 @@ export async function runCase(
         result.steer.usageAfter.push({ turnId: usageTurnId, totalTokens });
       if (usageTurnId === terminalUsageTurn) finishUsageWait?.(true);
       try {
-        usage.observe(item.id, totalTokens, usageTurnId);
+        usage.observe(
+          JSON.stringify([item.id, threadId]),
+          totalTokens,
+          usageTurnId,
+        );
       } finally {
         (result.usageByTurn ??= {})[usageTurnId] = usage.turnTotal(
-          item.id,
+          JSON.stringify([item.id, threadId]),
           usageTurnId,
         );
       }

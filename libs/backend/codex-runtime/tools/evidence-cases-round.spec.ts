@@ -46,6 +46,7 @@ const manifest: Manifest = {
   },
 };
 type Fault =
+  | '7a2-replay'
   | 'decline-ignored'
   | 'unexpected-command'
   | 'none'
@@ -296,13 +297,42 @@ async function exercise(caseId: string, fault: Fault = 'none') {
                         : 'OK',
                 },
               });
+              if (fault === '7a2-replay' && turns === 1)
+                notify('thread/tokenUsage/updated', {
+                  threadId: thread,
+                  turnId,
+                  tokenUsage: {
+                    last: { totalTokens: 11721 },
+                    total: { totalTokens: 11721 },
+                  },
+                });
               notify('thread/tokenUsage/updated', {
                 threadId: thread,
                 turnId,
                 tokenUsage: {
-                  last: { totalTokens: 100 },
+                  last: {
+                    totalTokens:
+                      fault === '7a2-replay'
+                        ? turns === 1
+                          ? 11760
+                          : turns === 2
+                            ? 15445
+                            : 24000
+                        : 100,
+                  },
                   total: {
-                    totalTokens: fault === 'usage' ? 30001 : turns * 100,
+                    totalTokens:
+                      fault === 'usage'
+                        ? 30001
+                        : fault === '7a2-replay'
+                          ? turns === 1
+                            ? 23481
+                            : turns === 2
+                              ? 38926
+                              : 62926
+                          : (turns +
+                              (caseId === 'resume-history' ? index : 0)) *
+                            100,
                   },
                 },
               });
@@ -360,6 +390,22 @@ async function exercise(caseId: string, fault: Fault = 'none') {
 }
 
 describe('round 7a harness fake children (no binary)', () => {
+  it('replays 7a2 then completes the different-command decline without double counting', async () => {
+    const run = await exercise('always-allow-scope', '7a2-replay');
+    expect(run.error).toBeUndefined();
+    expect(run.result.status).toBe('observed');
+    expect(run.result.usageSamples?.slice(0, 3)).toEqual([
+      { last: 11721, total: 11721 },
+      { last: 11760, total: 23481 },
+      { last: 15445, total: 38926 },
+    ]);
+    expect(Object.values(run.result.usageByTurn ?? {})).toEqual([
+      23481, 15445, 24000,
+    ]);
+    expect(run.usage).toBe(62926);
+    expect(run.result.round?.['differentCommandDeclined']).toBe(true);
+    expect(run.childCount).toBe(1);
+  });
   it.each([
     ['different-home-isolation', 1, 2],
     ['same-home-isolation', 2, 2],
