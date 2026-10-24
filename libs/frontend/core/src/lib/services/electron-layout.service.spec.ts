@@ -1215,7 +1215,7 @@ describe('ElectronLayoutService — sidebar and editor panel controls', () => {
       expect(vscodeService.setState).toHaveBeenCalledTimes(1);
       expect(vscodeService.setState).toHaveBeenCalledWith('electron-layout', {
         sidebarWidth: 250,
-        sidebarVisible: true,
+        sidebarVisible: false,
         editorWidth: service.editorPanelWidth(),
         editorVisible: false,
         gitRailWidth: 300,
@@ -2299,8 +2299,8 @@ describe('ElectronLayoutService — restoreLayout with stored state', () => {
     const service = TestBed.inject(ElectronLayoutService);
     tick(0);
 
-    // sidebarVisible should remain at default (true) since 'yes' is not a boolean
-    expect(service.workspaceSidebarVisible()).toBe(true);
+    // sidebarVisible should remain at default (false) since 'yes' is not a boolean
+    expect(service.workspaceSidebarVisible()).toBe(false);
     // sidebarWidth = 250 should be applied (valid number)
     expect(service.workspaceSidebarWidth()).toBe(250);
   }));
