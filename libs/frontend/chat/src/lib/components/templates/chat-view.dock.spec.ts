@@ -290,7 +290,16 @@ function mount(
           getPtahUserIconUri: () => 'data:,',
         },
       },
-      { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+      {
+        provide: ClaudeRpcService,
+        useValue: {
+          call: jest.fn((method: string) =>
+            method === 'session:cli-sessions'
+              ? Promise.resolve({ success: true, data: { cliSessions: [] } })
+              : undefined,
+          ),
+        },
+      },
       {
         provide: ConfirmationDialogService,
         useValue: { confirm: jest.fn(), confirmWithCheckboxes: jest.fn() },

@@ -146,6 +146,7 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
               <!-- Batch 28b: the compact searchable model control (ui barrel), filtering the popover's own options. Its list
                    is position:fixed (Floating UI), so the body's scroll box never clips it; Esc closes the list first. -->
               <ptah-provider-model-search-field data-testid="main-agent-model" inputId="main-agent-model" ariaLabel="Main agent model"
+                [openOnFocus]="false"
                 [options]="searchOptions()" [selectedId]="selectedModel()" [includeDefault]="!selectedModel()"
                 [defaultLabel]="catalogue().status === 'loading' ? 'Loading models…' : defaultModelLabel()" [pinnedOption]="manualOption"
                 [disabled]="busy() || !targetReady() || !providerId() || catalogue().status === 'loading'" (modelSelected)="onModel($event)" />

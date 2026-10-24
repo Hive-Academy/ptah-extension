@@ -566,7 +566,7 @@ describe('ProvidersSettingsComponent', () => {
     expect(listModels).toHaveBeenCalledWith('provider:listModels', { providerId: 'first' });
     // Batch 28b: the compact searchable control; opening it lists the options.
     const input = element.querySelector<HTMLInputElement>('[data-testid="main-agent-model"] input');
-    input?.dispatchEvent(new Event('focus')); await render();
+    input?.click(); await render();
     const options = Array.from(element.querySelectorAll('[role="option"]')).map((option) => option.textContent?.trim());
     expect(options).toContain('Catalogue model [Tool: No]');
   });

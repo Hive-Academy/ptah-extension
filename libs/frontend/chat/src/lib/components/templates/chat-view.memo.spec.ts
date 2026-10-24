@@ -99,6 +99,7 @@ function makeMemoHarness(): MemoHarness {
   const tabManagerStub = {
     tabs: tabsSig,
     activeTabId: signal<string | null>('tab-1').asReadonly(),
+    activeTabSessionId: signal<string | null>('session-1').asReadonly(),
   } as unknown as TabManagerService;
 
   TestBed.configureTestingModule({

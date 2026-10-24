@@ -8,6 +8,11 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { ModelStateService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { provideMarkdown } from 'ngx-markdown';
+import {
+  getPricingMap,
+  resetPricingMapForTesting,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import { ChatAgentFeedbackSender } from '../../../services/agent-feedback/chat-agent-feedback-sender.service';
@@ -164,40 +169,50 @@ describe('SubagentLaneComponent', () => {
   });
 
   it('uses the shared header, an always-visible stats bar, and details facts', () => {
-    const fixture = setup({
-      ...base,
-      taskDescription: 'Map the repository',
-      description: 'Reading files',
-      totalTokens: 1200,
-      usage: { input: 1000, output: 200, model: 'claude-sonnet' },
+    const previousPricing = getPricingMap();
+    // This tests stats presentation, not unavailable pricing.
+    updatePricingMap({
+      'claude-sonnet': { inputCostPerToken: 3e-6, outputCostPerToken: 15e-6 },
     });
-    const root: HTMLElement = fixture.nativeElement;
-    const row = root.querySelector<HTMLButtonElement>(
-      '[data-test="turn-disclosure-row"]',
-    )!;
-    expect(row.getAttribute('aria-label')).toContain('4 tools');
-    // Tokens moved from the header meta into the stats bar.
-    expect(row.getAttribute('aria-label')).not.toContain('tokens');
-    expect(
-      root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
-    ).toBe('subagent');
-    expect(root.textContent).toContain('Starting agent');
-    // Collapsed header, stats still shown.
-    expect(root.querySelector('#subagent-lane-details-tool-1')).toBeNull();
-    const stats = root.querySelector('ptah-agent-lane-stats');
-    expect(
-      stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
-    ).toContain('1.2k');
-    expect(
-      stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
-    ).toContain('claude-sonnet');
-    row.click();
-    fixture.detectChanges();
-    const details = root.querySelector('#subagent-lane-details-tool-1')!;
-    expect(details.textContent).not.toContain('Model:');
-    expect(details.textContent).toMatch(/Task:\s*Map the repository/);
-    expect(details.textContent).not.toContain('Reading files');
-    expect(details.textContent).toMatch(/Parent:\s*session-/);
+    try {
+      const fixture = setup({
+        ...base,
+        taskDescription: 'Map the repository',
+        description: 'Reading files',
+        totalTokens: 1200,
+        usage: { input: 1000, output: 200, model: 'claude-sonnet' },
+      });
+      const root: HTMLElement = fixture.nativeElement;
+      const row = root.querySelector<HTMLButtonElement>(
+        '[data-test="turn-disclosure-row"]',
+      )!;
+      expect(row.getAttribute('aria-label')).toContain('4 tools');
+      // Tokens moved from the header meta into the stats bar.
+      expect(row.getAttribute('aria-label')).not.toContain('tokens');
+      expect(
+        root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
+      ).toBe('subagent');
+      expect(root.textContent).toContain('Starting agent');
+      // Collapsed header, stats still shown.
+      expect(root.querySelector('#subagent-lane-details-tool-1')).toBeNull();
+      const stats = root.querySelector('ptah-agent-lane-stats');
+      expect(
+        stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
+      ).toContain('1.2k');
+      expect(
+        stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
+      ).toContain('claude-sonnet');
+      row.click();
+      fixture.detectChanges();
+      const details = root.querySelector('#subagent-lane-details-tool-1')!;
+      expect(details.textContent).not.toContain('Model:');
+      expect(details.textContent).toMatch(/Task:\s*Map the repository/);
+      expect(details.textContent).not.toContain('Reading files');
+      expect(details.textContent).toMatch(/Parent:\s*session-/);
+    } finally {
+      resetPricingMapForTesting();
+      updatePricingMap(previousPricing);
+    }
   });
 
   it('hides the Task row when the start carried no task', () => {
@@ -292,6 +307,9 @@ describe('SubagentLaneComponent', () => {
       latestSummary: 'Investigation finished',
     });
     await fixture.whenStable();
+    // ngx-markdown parsing is not tracked by zoneless stability.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain(
       'Investigation finished',
     );

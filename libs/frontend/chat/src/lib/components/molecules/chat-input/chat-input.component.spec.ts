@@ -75,6 +75,7 @@ import {
   ClaudeRpcService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { rpcSuccess } from '@ptah-extension/core/testing';
 import { VoiceInputService } from '../../../services/voice-input.service';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
 import {
@@ -164,7 +165,13 @@ describe('ChatInputComponent', () => {
   };
 
   const mockRpcService = {
-    call: jest.fn().mockResolvedValue({ isSuccess: () => false, data: null }),
+    call: jest.fn(async (method: string) => {
+      if (method === 'config:models-list') return rpcSuccess({ models: [] });
+      if (method === 'config:pricing-get') {
+        return rpcSuccess({ pricing: {}, hydrated: false });
+      }
+      return { isSuccess: () => false, data: null };
+    }),
   };
 
   let mockIsElectron = false;
@@ -755,14 +762,8 @@ describe('ChatInputComponent', () => {
       for (let i = 0; i < 10; i += 1) await Promise.resolve();
     }
 
-    let consoleSpies: jest.SpyInstance[] = [];
-
     beforeEach(() => {
       jest.useFakeTimers();
-      consoleSpies = [
-        jest.spyOn(console, 'info').mockImplementation(),
-        jest.spyOn(console, 'warn').mockImplementation(),
-      ];
       const tabs = [
         { id: TAB, status: 'loaded', claudeSessionId: SESS, messages: [] },
       ];
@@ -817,7 +818,6 @@ describe('ChatInputComponent', () => {
     afterEach(() => {
       lifecycle.clearCompactionState();
       jest.useRealTimers();
-      for (const spy of consoleSpies) spy.mockRestore();
     });
 
     it('agree through start and authoritative completion', async () => {
@@ -839,30 +839,49 @@ describe('ChatInputComponent', () => {
     });
 
     it('agree through the PostCompact advisory fallback', async () => {
-      lifecycle.handleCompactionStart(SESS);
-      expect(component.resolvedIsCompacting()).toBe(banner());
-      lifecycle.handleCompactionCompleteNotification({
-        sessionId: SESS,
-        cwd: '/workspace',
-        trigger: 'auto',
-        compactSummary: 'recap',
-        timestamp: 1_700_000_000_000,
-      });
-      expect(component.resolvedIsCompacting()).toBe(banner());
-      jest.advanceTimersByTime(250);
-      await flushMicrotasks();
-      expect(switchSession).toHaveBeenCalledTimes(1);
-      expect(component.resolvedIsCompacting()).toBe(false);
-      expect(banner()).toBe(false);
+      const debug = jest.spyOn(console, 'debug').mockImplementation(() => undefined);
+      try {
+        lifecycle.handleCompactionStart(SESS);
+        expect(component.resolvedIsCompacting()).toBe(banner());
+        lifecycle.handleCompactionCompleteNotification({
+          sessionId: SESS,
+          cwd: '/workspace',
+          trigger: 'auto',
+          compactSummary: 'recap',
+          timestamp: 1_700_000_000_000,
+        });
+        expect(component.resolvedIsCompacting()).toBe(banner());
+        jest.advanceTimersByTime(250);
+        await flushMicrotasks();
+        expect(switchSession).toHaveBeenCalledTimes(1);
+        expect(component.resolvedIsCompacting()).toBe(false);
+        expect(banner()).toBe(false);
+        expect(debug).toHaveBeenCalledTimes(1);
+        expect(debug).toHaveBeenCalledWith(
+          expect.stringContaining('[ChatStore] PostCompact advisory received; waiting briefly for real compact_boundary'),
+          { sessionId: SESS },
+        );
+      } finally {
+        debug.mockRestore();
+      }
     });
 
     it('agree through the safety timeout', () => {
-      lifecycle.handleCompactionStart(SESS);
-      expect(component.resolvedIsCompacting()).toBe(true);
-      expect(banner()).toBe(true);
-      jest.advanceTimersByTime(600000);
-      expect(component.resolvedIsCompacting()).toBe(false);
-      expect(banner()).toBe(false);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        lifecycle.handleCompactionStart(SESS);
+        expect(component.resolvedIsCompacting()).toBe(true);
+        expect(banner()).toBe(true);
+        jest.advanceTimersByTime(600000);
+        expect(component.resolvedIsCompacting()).toBe(false);
+        expect(banner()).toBe(false);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('[ChatStore] Compaction safety timeout reached'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 
