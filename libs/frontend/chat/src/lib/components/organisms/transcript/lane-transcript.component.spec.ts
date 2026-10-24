@@ -215,6 +215,31 @@ describe('LaneTranscriptComponent', () => {
     fixture.destroy();
   });
 
+  // TASK_2026_717 D7: a tab switch destroys the lane; main keeps the choice.
+  it('keeps the work-log choice when the lane is recreated', () => {
+    const render = () => {
+      const fixture = TestBed.createComponent(LaneTranscriptComponent);
+      fixture.componentRef.setInput('laneId', 'cli-1');
+      fixture.componentRef.setInput('nodes', cliLaneNodes());
+      fixture.detectChanges();
+      return fixture;
+    };
+    const rowOf = (fixture: ReturnType<typeof render>) =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+        '[data-test="turn-disclosure-row"]',
+      );
+    const first = render();
+    expect(rowOf(first)?.getAttribute('aria-expanded')).toBe('false');
+    rowOf(first)?.click();
+    first.detectChanges();
+    expect(rowOf(first)?.getAttribute('aria-expanded')).toBe('true');
+    first.destroy();
+
+    const second = render();
+    expect(rowOf(second)?.getAttribute('aria-expanded')).toBe('true');
+    second.destroy();
+  });
+
   it('shows a loaded artifact read-only, without dead Open actions', () => {
     TestBed.overrideProvider(ArtifactStore, {
       useValue: {

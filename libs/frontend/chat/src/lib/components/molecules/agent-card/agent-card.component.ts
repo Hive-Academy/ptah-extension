@@ -12,9 +12,12 @@ import {
   computed,
   signal,
   inject,
+  effect,
+  viewChild,
   ChangeDetectionStrategy,
+  type TemplateRef,
 } from '@angular/core';
-import { SlicePipe } from '@angular/common';
+import { NgTemplateOutlet, SlicePipe } from '@angular/common';
 import { LucideAngularModule, Play, Square, X } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
@@ -26,6 +29,7 @@ import { AgentCardHeaderComponent } from './agent-card-header.component';
 import { laneGuardStopText } from './agent-card-header.component';
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import { ExecutionHeaderComponent } from '../execution-header/execution-header.component';
+import { LaneControlsOutlet } from '../execution-header/lane-controls-outlet';
 import { cliActivity } from '../../../services/session-agents/session-agent-roster';
 import { cliLaneStats } from '../../../utils/lane-stats.adapters';
 import {
@@ -45,6 +49,7 @@ import {
   selector: 'ptah-agent-card',
   standalone: true,
   imports: [
+    NgTemplateOutlet,
     SlicePipe,
     LucideAngularModule,
     AgentCardHeaderComponent,
@@ -65,9 +70,92 @@ import {
       [class.leading-[1.6]]="presentation() === 'flat'"
     >
       @if (presentation() === 'flat') {
+        @if (!controlsOutlet) {
+          <ng-container [ngTemplateOutlet]="laneControls" />
+        }
+      } @else {
+        <!-- Card header -->
+        <ptah-agent-card-header
+          class="block flex-shrink-0"
+          [agent]="agent()"
+          [elapsedDisplay]="elapsedDisplay()"
+          [isStopping]="isStopping()"
+          [isResuming]="isResuming()"
+          [closable]="closable()"
+          presentation="card"
+          (toggleExpanded)="toggleExpanded.emit()"
+          (stopAgent)="stopAgent($event)"
+          (resumeAgent)="resumeAgent($event)"
+          (closeLane)="closeLane.emit(agent().agentId)"
+        />
+
+        <ptah-cli-lane-usage-summary
+          class="block px-2 pt-1.5 flex-shrink-0"
+          [agent]="agent()"
+        />
+      }
+
+      @if (presentation() === 'flat' || agent().expanded) {
+        <!-- Task description (collapsible, default collapsed) -->
+        @if (presentation() === 'card') {
+          <details class="border-t border-base-content/10 flex-shrink-0">
+            <summary
+              class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
+              [class.!px-0]="presentation() === 'flat'"
+            >
+              <span class="text-[10px] font-medium text-base-content-muted"
+                >Task</span
+              >
+              @if (agent().parentSessionId) {
+                <span
+                  class="text-[9px] text-base-content-muted ml-auto"
+                  [title]="'Parent session: ' + agent().parentSessionId!"
+                  >Parent:
+                  {{ agent().parentSessionId! | slice: 0 : 8 }}&hellip;</span
+                >
+              }
+            </summary>
+            <div class="px-2 pb-1" [class.!px-0]="presentation() === 'flat'">
+              <p
+                class="text-[11px] leading-snug text-base-content-muted line-clamp-3"
+              >
+                {{ agent().task }}
+              </p>
+            </div>
+          </details>
+        }
+
+        <!-- Output -->
+        @if (
+          agent().stdout ||
+          agent().stderr ||
+          agent().segments.length > 0 ||
+          agent().streamEvents.length > 0
+        ) {
+          <ptah-cli-agent-output
+            class="block flex-1 min-h-0 overflow-hidden"
+            [agentId]="agent().agentId"
+            [segments]="agent().segments"
+            [stdoutSegments]="parsedOutput()"
+            [streamEvents]="agent().streamEvents"
+            [streamRevision]="agent().streamRevision"
+            [stderrSegments]="parsedStderr()"
+            [isStreaming]="agent().status === 'running'"
+            [scrollTrigger]="scrollTrigger()"
+            [presentation]="presentation()"
+            [(rawStdoutOpen)]="rawStdoutOpen"
+            [(rawStdoutAutoCollapsed)]="rawStdoutAutoCollapsed"
+          />
+        }
+      }
+    </div>
+    <!-- The flat lane's control row; in the host's header strip when it
+         provides LaneControlsOutlet. -->
+    <ng-template #laneControls>
         <ptah-execution-header
           class="block flex-shrink-0"
           kind="cli"
+          [placement]="controlsOutlet ? 'strip' : 'column'"
           [label]="laneLabel()"
           [live]="agent().status === 'running'"
           [peek]="lanePeek()"
@@ -172,82 +260,7 @@ import {
             }
           </dl>
         </ptah-execution-header>
-      } @else {
-        <!-- Card header -->
-        <ptah-agent-card-header
-          class="block flex-shrink-0"
-          [agent]="agent()"
-          [elapsedDisplay]="elapsedDisplay()"
-          [isStopping]="isStopping()"
-          [isResuming]="isResuming()"
-          [closable]="closable()"
-          presentation="card"
-          (toggleExpanded)="toggleExpanded.emit()"
-          (stopAgent)="stopAgent($event)"
-          (resumeAgent)="resumeAgent($event)"
-          (closeLane)="closeLane.emit(agent().agentId)"
-        />
-
-        <ptah-cli-lane-usage-summary
-          class="block px-2 pt-1.5 flex-shrink-0"
-          [agent]="agent()"
-        />
-      }
-
-      @if (presentation() === 'flat' || agent().expanded) {
-        <!-- Task description (collapsible, default collapsed) -->
-        @if (presentation() === 'card') {
-          <details class="border-t border-base-content/10 flex-shrink-0">
-            <summary
-              class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
-              [class.!px-0]="presentation() === 'flat'"
-            >
-              <span class="text-[10px] font-medium text-base-content-muted"
-                >Task</span
-              >
-              @if (agent().parentSessionId) {
-                <span
-                  class="text-[9px] text-base-content-muted ml-auto"
-                  [title]="'Parent session: ' + agent().parentSessionId!"
-                  >Parent:
-                  {{ agent().parentSessionId! | slice: 0 : 8 }}&hellip;</span
-                >
-              }
-            </summary>
-            <div class="px-2 pb-1" [class.!px-0]="presentation() === 'flat'">
-              <p
-                class="text-[11px] leading-snug text-base-content-muted line-clamp-3"
-              >
-                {{ agent().task }}
-              </p>
-            </div>
-          </details>
-        }
-
-        <!-- Output -->
-        @if (
-          agent().stdout ||
-          agent().stderr ||
-          agent().segments.length > 0 ||
-          agent().streamEvents.length > 0
-        ) {
-          <ptah-cli-agent-output
-            class="block flex-1 min-h-0 overflow-hidden"
-            [agentId]="agent().agentId"
-            [segments]="agent().segments"
-            [stdoutSegments]="parsedOutput()"
-            [streamEvents]="agent().streamEvents"
-            [streamRevision]="agent().streamRevision"
-            [stderrSegments]="parsedStderr()"
-            [isStreaming]="agent().status === 'running'"
-            [scrollTrigger]="scrollTrigger()"
-            [presentation]="presentation()"
-            [(rawStdoutOpen)]="rawStdoutOpen"
-            [(rawStdoutAutoCollapsed)]="rawStdoutAutoCollapsed"
-          />
-        }
-      }
-    </div>
+    </ng-template>
   `,
 })
 export class AgentCardComponent {
@@ -259,6 +272,20 @@ export class AgentCardComponent {
 
   private readonly store = inject(AgentMonitorStore);
   private readonly rpcService = inject(ClaudeRpcService);
+  protected readonly controlsOutlet = inject(LaneControlsOutlet, {
+    optional: true,
+  });
+  private readonly laneControls =
+    viewChild<TemplateRef<unknown>>('laneControls');
+
+  constructor() {
+    effect((onCleanup) => {
+      const outlet = this.controlsOutlet;
+      const controls = this.laneControls();
+      if (outlet && controls && this.presentation() === 'flat')
+        onCleanup(outlet.attach(controls));
+    });
+  }
   protected readonly SquareIcon = Square;
   protected readonly PlayIcon = Play;
   protected readonly XIcon = X;

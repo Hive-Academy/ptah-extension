@@ -150,6 +150,7 @@ export * from './organisms/workspace-sidebar.component';
 export * from './templates/chat-view.component';
 export * from './templates/chat-session-layout.component';
 export { LANE_COLUMN_CLASS } from './molecules/execution-header/lane-column';
+export { LaneControlsOutlet } from './molecules/execution-header/lane-controls-outlet';
 export * from './templates/session-embed.component';
 export * from './templates/app-shell.component';
 export * from './templates/electron-shell.component';

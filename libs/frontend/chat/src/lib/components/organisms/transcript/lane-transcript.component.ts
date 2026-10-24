@@ -5,7 +5,6 @@ import {
   inject,
   input,
   output,
-  signal,
 } from '@angular/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import type {
@@ -24,6 +23,7 @@ import {
   turnLogOpenOf,
 } from './transcript-turn-contexts';
 import { laneTranscriptMessages } from './lane-transcript-messages';
+import { LaneLogChoicesStore } from './lane-log-choices.store';
 
 /** Message chrome is owned by MessageBubbleComponent for every transcript host. */
 @Component({
@@ -76,9 +76,8 @@ export class LaneTranscriptComponent {
   readonly permissionResponded = output<PermissionResponse>();
   private readonly monitor = inject(AgentMonitorStore);
   private readonly turnContexts = new TranscriptTurnContexts();
-  protected readonly logChoices = signal<ReadonlyMap<string, boolean>>(
-    new Map(),
-  );
+  /** Kept outside the component so a tab switch keeps the user's choice. */
+  private readonly logChoices = inject(LaneLogChoicesStore);
   protected readonly messages = computed(() =>
     laneTranscriptMessages(this.laneId(), this.nodes(), this.events()),
   );
@@ -101,14 +100,12 @@ export class LaneTranscriptComponent {
   /** The main transcript's rule (`turnLogOpenOf`); a lane is always `full`. */
   protected logOpenFor(turnId: string): boolean | null {
     return turnLogOpenOf(
-      this.logChoices().get(turnId),
+      this.logChoices.choicesFor(this.laneId()).get(turnId),
       'full',
       this.liveTurns().has(turnId),
     );
   }
   protected toggleLog(toggle: TurnLogToggle): void {
-    this.logChoices.update((choices) =>
-      new Map(choices).set(toggle.turnId, toggle.open),
-    );
+    this.logChoices.set(this.laneId(), toggle.turnId, toggle.open);
   }
 }

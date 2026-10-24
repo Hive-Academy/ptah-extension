@@ -56,6 +56,7 @@ import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import { LaneTranscriptComponent } from './lane-transcript.component';
 import { turnLogOpenOf } from './transcript-turn-contexts';
+import { splitTurnMessage } from '../../../utils/turn-answer-split.utils';
 import {
   TranscriptMessageBubbleStub,
   configureTranscriptTestBed,
@@ -145,7 +146,10 @@ function mainInputs(streaming: boolean): WorkLogInputs {
   return result;
 }
 
-function laneInputs(streaming: boolean): WorkLogInputs {
+function laneInputs(
+  streaming: boolean,
+  nodes: readonly ExecutionNode[] = [turnRoot(streaming)],
+): WorkLogInputs {
   TestBed.configureTestingModule({
     imports: [LaneTranscriptComponent],
     providers: [{ provide: AgentMonitorStore, useValue: { tick: signal(0) } }],
@@ -156,7 +160,7 @@ function laneInputs(streaming: boolean): WorkLogInputs {
   });
   const fixture = TestBed.createComponent(LaneTranscriptComponent);
   fixture.componentRef.setInput('laneId', 'lane-1');
-  fixture.componentRef.setInput('nodes', [turnRoot(streaming)]);
+  fixture.componentRef.setInput('nodes', nodes);
   fixture.componentRef.setInput('isStreaming', streaming);
   fixture.detectChanges();
   const bubbles = fixture.debugElement
@@ -191,6 +195,21 @@ describe('main and lane transcript work-log parity', () => {
       expect(main.children).toEqual(['th', 't1', 'read', 'grep', 't2']);
     },
   );
+
+  // TASK_2026_717 item 4: a CLI lane is a flat node list. With one text
+  // node per provider message, the lane bubble gets the same children as a
+  // main message, so the bubble splits log and answer the same way.
+  it('gives a CLI lane turn the same work-log inputs as main', () => {
+    const main = mainInputs(false);
+    const lane = laneInputs(false, turnRoot(false).children);
+    expect(lane).toEqual(main);
+    const split = splitTurnMessage(turnRoot(false), {
+      isLastAssistant: true,
+      streaming: false,
+    });
+    expect(split.answer.map((node) => node.id)).toEqual(['t2']);
+    expect(split.log.map((node) => node.id)).toContain('t1');
+  });
 
   it('keeps a user choice over the streaming default', () => {
     expect(turnLogOpenOf(false, 'full', true)).toBe(false);

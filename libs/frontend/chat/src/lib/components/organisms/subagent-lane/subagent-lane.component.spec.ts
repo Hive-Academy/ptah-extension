@@ -1,5 +1,12 @@
 import { ChatStore } from '../../../services/chat.store';
-import { signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   AgentMonitorStore,
@@ -23,6 +30,28 @@ import { ChatAgentFeedbackSender } from '../../../services/agent-feedback/chat-a
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { SubagentLaneComponent } from './subagent-lane.component';
+import { LaneControlsOutlet } from '../../molecules/execution-header/lane-controls-outlet';
+
+/** A host like the canvas focus area: a header strip, then the lane. */
+@Component({
+  selector: 'ptah-test-lane-host',
+  standalone: true,
+  imports: [NgTemplateOutlet, SubagentLaneComponent],
+  providers: [LaneControlsOutlet],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div data-testid="strip">
+      @if (outlet.template(); as controls) {
+        <ng-container [ngTemplateOutlet]="controls" />
+      }
+    </div>
+    <ptah-subagent-lane [record]="record()" sessionId="session-123456" />
+  `,
+})
+class LaneHostComponent {
+  readonly record = input.required<SubagentRecord>();
+  protected readonly outlet = inject(LaneControlsOutlet);
+}
 
 describe('SubagentLaneComponent', () => {
   const contexts = signal<ReadonlyMap<string, TrayAgentContext>>(new Map());
@@ -219,7 +248,9 @@ describe('SubagentLaneComponent', () => {
     ).toBe('subagent');
     expect(root.textContent).toContain('Starting agent');
     // Collapsed header, stats still shown.
-    expect(root.querySelector('#subagent-lane-details-tool-1')).toBeNull();
+    expect(
+      root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')?.hidden,
+    ).toBe(true);
     const stats = root.querySelector('ptah-agent-lane-stats');
     expect(
       stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
@@ -234,6 +265,41 @@ describe('SubagentLaneComponent', () => {
     expect(details.textContent).toMatch(/Task:\s*Map the repository/);
     expect(details.textContent).not.toContain('Reading files');
     expect(details.textContent).toMatch(/Parent:\s*session-/);
+  });
+
+  // TASK_2026_717 D6: in the canvas the control row sits in the header
+  // strip beside the dock, so the lane column starts with the transcript.
+  it('renders its control row in a host strip when one is provided', () => {
+    const fixture = TestBed.createComponent(LaneHostComponent);
+    fixture.componentRef.setInput('record', base);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const strip = root.querySelector('[data-testid="strip"]');
+    const lane = root.querySelector('ptah-subagent-lane');
+    expect(strip?.querySelector('[data-test="execution-header-row"]')).not.toBeNull();
+    expect(strip?.querySelector('ptah-agent-lane-stats')).not.toBeNull();
+    expect(lane?.querySelector('ptah-execution-header')).toBeNull();
+    // The relocated toggle still controls exactly one region in the strip.
+    const toggle = strip!.querySelector<HTMLButtonElement>(
+      '[data-test="execution-header-details"]',
+    )!;
+    const regions = () =>
+      root.querySelectorAll<HTMLElement>(
+        `#${toggle.getAttribute('aria-controls')}[role="region"]`,
+      );
+    expect(regions()).toHaveLength(1);
+    expect(regions()[0].hidden).toBe(true);
+    expect(strip!.contains(regions()[0])).toBe(true);
+    toggle.click();
+    fixture.detectChanges();
+    expect(regions()).toHaveLength(1);
+    expect(regions()[0].hidden).toBe(false);
+    toggle.click();
+    fixture.detectChanges();
+    expect(regions()).toHaveLength(1);
+    expect(regions()[0].hidden).toBe(true);
+    fixture.destroy();
   });
 
   it('leaves the tool count to the transcript bubble once the tree has a tool', () => {
@@ -331,7 +397,7 @@ describe('SubagentLaneComponent', () => {
         'ptah-subagent-lane-composer',
       );
       expect(
-        composer?.querySelector('ptah-agent-steer-input input'),
+        composer?.querySelector('ptah-agent-steer-input textarea'),
       ).not.toBeNull();
     },
   );
@@ -526,8 +592,8 @@ describe('SubagentLaneComponent', () => {
     steer.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const fixture = setup();
     const root: HTMLElement = fixture.nativeElement;
-    const field = root.querySelector<HTMLInputElement>(
-      'ptah-agent-steer-input input',
+    const field = root.querySelector<HTMLTextAreaElement>(
+      'ptah-agent-steer-input textarea',
     )!;
     field.value = 'Check tests';
     field.dispatchEvent(new Event('input'));
@@ -543,7 +609,7 @@ describe('SubagentLaneComponent', () => {
     );
     expect(root.textContent).toContain('Could not send your message');
     expect(
-      root.querySelector<HTMLInputElement>('ptah-agent-steer-input input')
+      root.querySelector<HTMLTextAreaElement>('ptah-agent-steer-input textarea')
         ?.value,
     ).toBe('Check tests');
     root
@@ -552,7 +618,7 @@ describe('SubagentLaneComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(
-      root.querySelector<HTMLInputElement>('ptah-agent-steer-input input')
+      root.querySelector<HTMLTextAreaElement>('ptah-agent-steer-input textarea')
         ?.value,
     ).toBe('');
     expect(root.textContent).not.toContain('Could not send your message');

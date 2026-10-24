@@ -58,6 +58,9 @@ export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.comp
 export {
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,
+  COMPOSER_SEND_BUTTON_CLASS,
+  COMPOSER_TEXTAREA_CLASS,
+  COMPOSER_TOOLBAR_CLASS,
 } from './lib/molecules/composer-card';
 export {
   AgentLaneStatsComponent,

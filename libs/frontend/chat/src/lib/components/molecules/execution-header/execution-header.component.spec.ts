@@ -42,11 +42,22 @@ describe('ExecutionHeaderComponent', () => {
     expect(toggle.getAttribute('aria-label')).toBe('Worked for 2s details');
     expect(toggle.getAttribute('aria-controls')).toBe('lane-details');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(root.querySelector('#lane-details')).toBeNull();
+    // aria-controls always resolves to exactly one region (open or not).
+    const regions = () =>
+      root.querySelectorAll(`#${toggle.getAttribute('aria-controls')}[role="region"]`);
+    expect(regions()).toHaveLength(1);
+    expect((regions()[0] as HTMLElement).hidden).toBe(true);
     toggle.click();
     fixture.detectChanges();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(regions()).toHaveLength(1);
+    expect((regions()[0] as HTMLElement).hidden).toBe(false);
     expect(root.querySelector('#lane-details')?.textContent).toContain('Task: inspect files');
     expect(root.querySelector('#lane-details')?.getAttribute('aria-label')).toBe('Worked for 2s details');
+    toggle.click();
+    fixture.detectChanges();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(regions()).toHaveLength(1);
+    expect((regions()[0] as HTMLElement).hidden).toBe(true);
   });
 });

@@ -8,11 +8,14 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, SendHorizontal, X } from 'lucide-angular';
+import { ArrowUp, LucideAngularModule, SendHorizontal, X } from 'lucide-angular';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,
+  COMPOSER_SEND_BUTTON_CLASS,
+  COMPOSER_TEXTAREA_CLASS,
+  COMPOSER_TOOLBAR_CLASS,
 } from '@ptah-extension/chat-ui';
 import {
   AgentFollowUpQueueService,
@@ -33,28 +36,36 @@ import {
           data-glass-surface="tile"
           data-testid="continue-composer-card"
         >
-          <div class="flex items-end gap-2 px-3 py-2">
-            <textarea
-              class="min-h-[1.75rem] min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-[1.6] outline-none placeholder:text-base-content-muted disabled:opacity-60"
-              rows="1"
-              placeholder="Send a follow-up…"
-              [attr.aria-label]="subtitle()"
-              [disabled]="disabled()"
-              [value]="draft()"
-              (input)="onInput($event)"
-              (keydown.enter)="onEnter($event)"
-            ></textarea>
+          <!-- The main chat composer's shape: textarea, then a bottom row
+               with its send button. No model or mode toolbar. -->
+          <textarea
+            style="field-sizing: content"
+            rows="2"
+            [class]="textareaClass"
+            placeholder="Send a follow-up…"
+            [attr.aria-label]="subtitle()"
+            [disabled]="disabled()"
+            [value]="draft()"
+            (input)="onInput($event)"
+            (keydown.enter)="onEnter($event)"
+          ></textarea>
+          <div [class]="toolbarClass">
             <button
               type="button"
-              class="btn btn-sm btn-circle btn-primary"
+              [class]="sendButtonClass"
               aria-label="Send follow-up"
+              title="Send follow-up"
               [disabled]="sendDisabled()"
               (click)="submit()"
             >
               @if (submitting()) {
                 <span class="loading loading-spinner loading-xs"></span>
               } @else {
-                <lucide-angular [img]="SendIcon" class="w-3.5 h-3.5" />
+                <lucide-angular
+                  [img]="ArrowUpIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
               }
             </button>
           </div>
@@ -144,6 +155,10 @@ export class AgentContinueInputComponent {
   /** `panel` in the agent monitor; `composer` in a canvas lane's column. */
   readonly variant = input<'panel' | 'composer'>('panel');
   protected readonly composerCardClass = `${COMPOSER_CARD_CLASS} ${COMPOSER_CARD_BORDER_CLASS}`;
+  protected readonly textareaClass = COMPOSER_TEXTAREA_CLASS;
+  protected readonly toolbarClass = COMPOSER_TOOLBAR_CLASS;
+  protected readonly sendButtonClass = COMPOSER_SEND_BUTTON_CLASS;
+  readonly ArrowUpIcon = ArrowUp;
 
   readonly SendIcon = SendHorizontal;
   readonly CancelIcon = X;
