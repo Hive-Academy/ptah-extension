@@ -1,5 +1,10 @@
 import {
   CodexParityGate,
+  registerCodexRuntime,
+  resolveGatedCodexRuntime,
+  type CodexRuntimeRegistrationPorts,
+  type CodexExecutionProfile,
+  type CodexThreadIdentity,
   type ApprovalSink,
   type CodexContext,
   type CodexParityPlatform,
@@ -8,22 +13,51 @@ import {
   type CodexTurnInput,
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 
-/**
- * Presentation only. Composition opens/resumes the exact context through
- * resolveGatedCodexRuntime and supplies the same sink registered with that runtime.
- * No SDK fallback, protocol parsing, identity storage or process ownership here.
- */
+const gatedConstruction = Symbol('gated Codex gateway context');
+
+/** Owns admission and context creation; the host owns the registered runtime lifecycle. */
 export class CodexGatewayAdapter {
   private readonly gate = new CodexParityGate();
 
-  constructor(
+  private constructor(
+    proof: typeof gatedConstruction,
     private readonly context: CodexContext,
     private readonly sink: ApprovalSink,
     private readonly logger: Pick<Logger, 'warn'>,
     private readonly platform: CodexParityPlatform,
-  ) {}
+  ) {
+    if (proof !== gatedConstruction) {
+      throw new Error('Codex gateway context must be opened through the gate');
+    }
+  }
+
+  /** Supply a fresh host-owned container; pre-registered runtimes are refused. */
+  static async open(
+    container: DependencyContainer,
+    ports: Omit<CodexRuntimeRegistrationPorts, 'sink'>,
+    sink: ApprovalSink,
+    logger: Pick<Logger, 'warn'>,
+    platform: CodexParityPlatform,
+    profile: CodexExecutionProfile,
+    resume?: CodexThreadIdentity,
+  ): Promise<CodexGatewayAdapter> {
+    if (!sink || typeof sink.request !== 'function') {
+      throw new Error('Codex gateway approval sink is required');
+    }
+    registerCodexRuntime(container, { ...ports, sink });
+    const runtime = resolveGatedCodexRuntime(container, 'gateway', platform);
+    const context = await runtime.open(profile, resume);
+    return new CodexGatewayAdapter(
+      gatedConstruction,
+      context,
+      sink,
+      logger,
+      platform,
+    );
+  }
 
   startTurn(input: CodexTurnInput): AsyncIterable<FlatStreamEventUnion> {
     return this.stream(input);
@@ -64,18 +98,21 @@ export class CodexGatewayAdapter {
     const projection = new GatewayEventProjection();
     // Core registers synchronously, so even events before the receipt are retained.
     let terminal = false;
+    let sequence = -1;
     try {
       const events = this.context.events(subscription.signal);
       const receipt = await this.context.startTurn(input);
       for await (const event of events) {
         if (subscription.signal.aborted) break;
         if (
+          event.sequence <= sequence ||
           event.contextId !== identity.contextId ||
           event.processGeneration !== identity.processGeneration ||
           event.threadId !== receipt.threadId ||
           event.turnId !== receipt.turnId
         )
           continue;
+        sequence = event.sequence;
         if (event.type === 'terminal') terminal = true;
         for (const projected of projection.project(event)) yield projected;
         if (terminal) return;
@@ -135,7 +172,7 @@ class GatewayEventProjection {
         const previous = this.text.get(event.itemId) ?? '';
         const delta = event.text.startsWith(previous)
           ? event.text.slice(previous.length)
-          : '';
+          : event.text;
         this.text.set(event.itemId, event.text);
         if (delta)
           yield { ...base, eventType: 'text_delta', delta, blockIndex: 0 };
@@ -148,7 +185,7 @@ class GatewayEventProjection {
             ? event.text
             : event.text.startsWith(previous)
               ? event.text.slice(previous.length)
-              : '';
+              : event.text;
         this.reasoning.set(
           event.itemId,
           event.phase === 'delta' ? previous + delta : event.text,
@@ -183,21 +220,15 @@ class GatewayEventProjection {
         break;
       case 'usage':
         this.usage = event.usage;
-        if (
-          event.usage.inputTokens !== undefined &&
-          event.usage.outputTokens !== undefined
-        )
-          yield {
-            ...base,
-            eventType: 'message_delta',
-            tokenUsage: {
-              input: event.usage.inputTokens,
-              output: event.usage.outputTokens,
-            },
-          };
         break;
       case 'error':
-        throw new Error(event.error.message);
+        yield {
+          ...base,
+          eventType: 'text_delta',
+          delta: 'Codex reported a runtime error.',
+          blockIndex: 0,
+        };
+        break;
       case 'terminal': {
         if (event.status === 'failed')
           throw new Error(event.error?.message ?? 'Codex gateway turn failed');

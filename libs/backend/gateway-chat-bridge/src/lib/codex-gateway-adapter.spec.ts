@@ -1,13 +1,17 @@
 import 'reflect-metadata';
 import {
-  CodexParityGate,
+  registerCodexRuntime,
+  resolveGatedCodexRuntime,
   type CodexContext,
   type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
+import { container } from 'tsyringe';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import { CodexGatewayAdapter } from './codex-gateway-adapter';
 
 jest.mock('@ptah-extension/codex-runtime', () => ({
+  registerCodexRuntime: jest.fn(),
+  resolveGatedCodexRuntime: jest.fn(),
   CodexParityGate: jest
     .fn()
     .mockImplementation(() => ({ isEnabled: () => true })),
@@ -35,12 +39,12 @@ const terminal: CodexRuntimeEvent = {
   status: 'completed',
 };
 
-function setup(events: CodexRuntimeEvent[] = [terminal]) {
+async function setup(events: CodexRuntimeEvent[] = [terminal]) {
   const context: jest.Mocked<CodexContext> = {
     identity,
     events: jest.fn().mockImplementation(() =>
       (async function* () {
-        yield* events;
+        yield* events.map((event, sequence) => ({ ...event, sequence }));
       })(),
     ),
     startTurn: jest
@@ -57,12 +61,36 @@ function setup(events: CodexRuntimeEvent[] = [terminal]) {
   const sink = { request: jest.fn().mockResolvedValue('decline') };
   const logger = { warn: jest.fn() };
   const platform = { platform: 'win32', arch: 'x64' };
+  const runtime = { open: jest.fn().mockResolvedValue(context) };
+  jest
+    .mocked(resolveGatedCodexRuntime)
+    .mockReturnValue(
+      runtime as unknown as ReturnType<typeof resolveGatedCodexRuntime>,
+    );
+  const scope = container.createChildContainer();
+  const ports = {} as Parameters<typeof CodexGatewayAdapter.open>[1];
+  const profile = {} as Parameters<typeof CodexGatewayAdapter.open>[5];
+  const open = () =>
+    CodexGatewayAdapter.open(
+      scope,
+      ports,
+      sink,
+      logger,
+      platform,
+      profile,
+      identity,
+    );
   return {
+    runtime,
+    scope,
+    ports,
+    profile,
+    open,
     context,
     sink,
     logger,
     platform,
-    adapter: new CodexGatewayAdapter(context, sink, logger, platform),
+    adapter: await open(),
   };
 }
 async function collect(stream: AsyncIterable<FlatStreamEventUnion>) {
@@ -77,36 +105,87 @@ function text(events: FlatStreamEventUnion[]) {
 }
 
 describe('CodexGatewayAdapter', () => {
-  it('keeps the real production gate disabled before any turn or subscription', async () => {
+  it('opens through the gate using the registered sink and exact resume identity', async () => {
+    const { runtime, scope, ports, profile, sink, platform } = await setup();
+    expect(registerCodexRuntime).toHaveBeenLastCalledWith(scope, {
+      ...ports,
+      sink,
+    });
+    expect(resolveGatedCodexRuntime).toHaveBeenLastCalledWith(
+      scope,
+      'gateway',
+      platform,
+    );
+    expect(runtime.open).toHaveBeenCalledWith(profile, identity);
+  });
+
+  it('keeps the real production gate disabled before opening a context', async () => {
+    const { runtime, open } = await setup();
+    runtime.open.mockClear();
     const actual = jest.requireActual<
       typeof import('@ptah-extension/codex-runtime')
     >('@ptah-extension/codex-runtime');
     jest
-      .mocked(CodexParityGate)
-      .mockImplementationOnce(() => new actual.CodexParityGate());
-    const { adapter, context } = setup();
-    await expect(collect(adapter.startTurn({ text: 'hi' }))).rejects.toThrow(
-      'parity gate',
-    );
-    expect(() => adapter.steer({ text: 'edit' })).toThrow('parity gate');
-    expect(context.startTurn).not.toHaveBeenCalled();
-    expect(context.events).not.toHaveBeenCalled();
+      .mocked(resolveGatedCodexRuntime)
+      .mockImplementationOnce((scope, consumer, platform) => {
+        scope.register(actual.CODEX_RUNTIME_TOKENS.ParityGate, {
+          useValue: new actual.CodexParityGate(),
+        });
+        scope.register(actual.CODEX_RUNTIME_TOKENS.Runtime, {
+          useValue: runtime,
+        });
+        return actual.resolveGatedCodexRuntime(scope, consumer, platform);
+      });
+    await expect(open()).rejects.toThrow('parity gate');
+    expect(runtime.open).not.toHaveBeenCalled();
   });
 
-  it('rejects a missing sink before starting', async () => {
-    const { context, logger, platform } = setup();
-    const adapter: CodexGatewayAdapter = Reflect.construct(
-      CodexGatewayAdapter,
-      [context, undefined, logger, platform],
-    );
-    await expect(collect(adapter.startTurn({ text: 'hi' }))).rejects.toThrow(
-      'sink is required',
-    );
+  it('refuses a pre-registered runtime whose sink cannot be proven', async () => {
+    const { scope, runtime, open } = await setup();
+    const actual = jest.requireActual<
+      typeof import('@ptah-extension/codex-runtime')
+    >('@ptah-extension/codex-runtime');
+    scope.register(actual.CODEX_RUNTIME_TOKENS.Runtime, { useValue: runtime });
+    jest
+      .mocked(registerCodexRuntime)
+      .mockImplementationOnce(actual.registerCodexRuntime);
+    runtime.open.mockClear();
+    await expect(open()).rejects.toThrow('already registered');
+    expect(runtime.open).not.toHaveBeenCalled();
+  });
+
+  it('refuses an arbitrary context that was not opened through the gate', async () => {
+    const { context, sink, logger, platform } = await setup();
+    expect(() =>
+      Reflect.construct(CodexGatewayAdapter, [
+        undefined,
+        context,
+        sink,
+        logger,
+        platform,
+      ]),
+    ).toThrow('opened through the gate');
     expect(context.startTurn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing sink before registration or opening', async () => {
+    const { scope, ports, logger, platform, profile } = await setup();
+    jest.mocked(registerCodexRuntime).mockClear();
+    await expect(
+      CodexGatewayAdapter.open(
+        scope,
+        ports,
+        undefined as unknown as Parameters<typeof CodexGatewayAdapter.open>[2],
+        logger,
+        platform,
+        profile,
+      ),
+    ).rejects.toThrow('sink is required');
+    expect(registerCodexRuntime).not.toHaveBeenCalled();
   });
 
   it('subscribes before starting, preserves deltas and final-only text, and stops on the first terminal', async () => {
-    const { adapter, context } = setup([
+    const { adapter, context } = await setup([
       { ...base, type: 'textDelta', itemId: 'a', delta: 'hel' },
       { ...base, sequence: 2, type: 'textFinal', itemId: 'a', text: 'hello' },
       { ...base, sequence: 3, type: 'textFinal', itemId: 'b', text: ' world' },
@@ -127,7 +206,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('does not duplicate final text after deltas or another final', async () => {
-    const { adapter } = setup([
+    const { adapter } = await setup([
       { ...base, type: 'textDelta', itemId: 'a', delta: 'hello' },
       { ...base, type: 'textFinal', itemId: 'a', text: 'hello' },
       { ...base, type: 'textFinal', itemId: 'a', text: 'hello' },
@@ -139,7 +218,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('projects tool lifecycle, reasoning and reported usage without exposing them as chat text', async () => {
-    const { adapter } = setup([
+    const { adapter } = await setup([
       {
         ...base,
         type: 'toolStarted',
@@ -180,11 +259,10 @@ describe('CodexGatewayAdapter', () => {
       'tool_start',
       'tool_result',
       'thinking_delta',
-      'message_delta',
       'message_complete',
     ]);
     expect(result[1]).toMatchObject({ toolCallId: 'tool', isError: true });
-    expect(result[4]).toMatchObject({
+    expect(result[3]).toMatchObject({
       tokenUsage: { input: 3, output: 2 },
       cost: 0.1,
     });
@@ -192,7 +270,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('never invents missing token counters', async () => {
-    const { adapter } = setup([
+    const { adapter } = await setup([
       { ...base, type: 'usage', usage: { inputTokens: 3 } },
       terminal,
     ]);
@@ -208,7 +286,7 @@ describe('CodexGatewayAdapter', () => {
       itemId: 'a',
       delta: 'wrong',
     };
-    const { adapter } = setup([
+    const { adapter } = await setup([
       { ...delta, contextId: 'other' },
       { ...delta, processGeneration: 0 },
       { ...delta, threadId: 'other' },
@@ -219,7 +297,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('keeps files, images, compaction and approval events out of outbound text', async () => {
-    const { adapter, sink } = setup([
+    const { adapter, sink } = await setup([
       { ...base, type: 'file', itemId: 'f', path: '/file', operation: 'add' },
       {
         ...base,
@@ -254,7 +332,7 @@ describe('CodexGatewayAdapter', () => {
           : kind === 'failed'
             ? [{ ...terminal, status: 'failed', error }]
             : [];
-      const { adapter, context } = setup(events);
+      const { adapter, context } = await setup(events);
       await expect(
         collect(adapter.startTurn({ text: 'hi' })),
       ).rejects.toThrow();
@@ -264,7 +342,7 @@ describe('CodexGatewayAdapter', () => {
   );
 
   it('releases the subscription and closes abandoned work on consumer return', async () => {
-    const { adapter, context } = setup([
+    const { adapter, context } = await setup([
       { ...base, type: 'textDelta', itemId: 'a', delta: 'hi' },
       terminal,
     ]);
@@ -277,7 +355,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('releases a subscription when start fails', async () => {
-    const { adapter, context } = setup();
+    const { adapter, context } = await setup();
     context.startTurn.mockRejectedValue(new Error('start failed'));
     await expect(collect(adapter.startTurn({ text: 'hi' }))).rejects.toThrow(
       'start failed',
@@ -287,7 +365,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('forwards steer, interrupt and close to the exact context', async () => {
-    const { adapter, context } = setup();
+    const { adapter, context } = await setup();
     await adapter.steer({ text: 'follow-up' });
     await expect(adapter.interrupt('turn')).resolves.toBe(true);
     await adapter.close();
@@ -297,7 +375,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('does not start an already cancelled turn', async () => {
-    const { adapter, context } = setup();
+    const { adapter, context } = await setup();
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -307,7 +385,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('cancels a running subscription and closes the context on input abort', async () => {
-    const { adapter, context } = setup();
+    const { adapter, context } = await setup();
     const controller = new AbortController();
     context.events.mockImplementation((signal) =>
       (async function* () {
@@ -324,7 +402,7 @@ describe('CodexGatewayAdapter', () => {
   });
 
   it('settles interrupted turns once without waiting for context close', async () => {
-    const { adapter, context } = setup([
+    const { adapter, context } = await setup([
       { ...terminal, status: 'interrupted' },
     ]);
     const result = await collect(adapter.startTurn({ text: 'hi' }));
@@ -334,5 +412,91 @@ describe('CodexGatewayAdapter', () => {
       stopReason: 'interrupted',
     });
     expect(context.close).not.toHaveBeenCalled();
+  });
+  it('surfaces a non-terminal error and continues until terminal without closing', async () => {
+    const { adapter, context } = await setup([
+      {
+        ...base,
+        type: 'error',
+        error: {
+          code: 'retry',
+          message: 'secret vendor error',
+          retryable: true,
+        },
+      },
+      { ...base, type: 'textFinal', itemId: 'a', text: 'recovered' },
+      terminal,
+    ]);
+    const result = await collect(adapter.startTurn({ text: 'hi' }));
+    expect(text(result)).toBe('Codex reported a runtime error.recovered');
+    expect(result.at(-1)?.eventType).toBe('message_complete');
+    expect(context.close).not.toHaveBeenCalled();
+  });
+
+  it('emits divergent final text and reasoning in full', async () => {
+    const { adapter } = await setup([
+      { ...base, type: 'textDelta', itemId: 'a', delta: 'draft' },
+      { ...base, type: 'textFinal', itemId: 'a', text: 'final' },
+      { ...base, type: 'reasoning', itemId: 'r', phase: 'delta', text: 'old' },
+      { ...base, type: 'reasoning', itemId: 'r', phase: 'final', text: 'new' },
+      terminal,
+    ]);
+    const result = await collect(adapter.startTurn({ text: 'hi' }));
+    expect(text(result)).toBe('draftfinal');
+    expect(
+      result
+        .filter((e) => e.eventType === 'thinking_delta')
+        .map((e) => e.delta),
+    ).toEqual(['old', 'new']);
+  });
+
+  it('emits usage once at terminal, preferring the terminal snapshot', async () => {
+    const { adapter } = await setup([
+      { ...base, type: 'usage', usage: { inputTokens: 1, outputTokens: 2 } },
+      { ...base, type: 'usage', usage: { inputTokens: 3, outputTokens: 4 } },
+      { ...terminal, usage: { inputTokens: 5, outputTokens: 6 } },
+    ]);
+    const result = await collect(adapter.startTurn({ text: 'hi' }));
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      eventType: 'message_complete',
+      tokenUsage: { input: 5, output: 6 },
+    });
+  });
+
+  it('ignores repeated and older sequences without accepting a stale terminal', async () => {
+    const { adapter, context } = await setup();
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...base,
+          sequence: 2,
+          type: 'textDelta' as const,
+          itemId: 'a',
+          delta: 'once',
+        };
+        yield {
+          ...base,
+          sequence: 2,
+          type: 'textDelta' as const,
+          itemId: 'a',
+          delta: 'duplicate',
+        };
+        yield { ...terminal, sequence: 1 };
+        yield {
+          ...base,
+          sequence: 3,
+          type: 'textFinal' as const,
+          itemId: 'b',
+          text: 'after',
+        };
+        yield { ...terminal, sequence: 4 };
+      })(),
+    );
+    const result = await collect(adapter.startTurn({ text: 'hi' }));
+    expect(text(result)).toBe('onceafter');
+    expect(
+      result.filter((e) => e.eventType === 'message_complete'),
+    ).toHaveLength(1);
   });
 });

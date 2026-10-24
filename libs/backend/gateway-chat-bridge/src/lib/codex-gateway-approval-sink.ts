@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type {
   ApprovalSink,
   CodexApprovalDecision,
@@ -8,6 +9,15 @@ import type { Logger } from '@ptah-extension/vscode-core';
 export const CODEX_GATEWAY_APPROVAL_CHOICES: readonly CodexApprovalDecision[] =
   Object.freeze(['accept', 'acceptForSession', 'decline', 'cancel']);
 
+const approvalReplySchema = z
+  .object({
+    requestId: z.union([z.string(), z.number()]),
+    decision: z.enum(['accept', 'acceptForSession', 'decline', 'cancel']),
+  })
+  .strict();
+
+export type CodexGatewayApprovalReply = z.infer<typeof approvalReplySchema>;
+
 /** Bound to one conversation by composition; notices never carry decisions. */
 export interface CodexGatewayApprovalPresentation {
   sendNotice(text: string): Promise<void>;
@@ -16,7 +26,7 @@ export interface CodexGatewayApprovalPresentation {
     request: CodexApprovalRequest,
     choices: readonly CodexApprovalDecision[],
     signal: AbortSignal,
-  ) => Promise<unknown>;
+  ) => Promise<CodexGatewayApprovalReply>;
   /** Remove only this correlated prompt, including after a timeout. */
   dismiss(request: CodexApprovalRequest): void;
 }
@@ -32,23 +42,22 @@ export class CodexGatewayApprovalSink implements ApprovalSink {
     request: CodexApprovalRequest,
     signal: AbortSignal,
   ): ReturnType<ApprovalSink['request']> {
-    if (signal.aborted) return 'cancel';
-    if (!this.presentation.present || request.kind === 'userInput') {
-      this.notice(
-        'Ptah could not route the required Codex interaction and declined it.',
-      );
-      return 'decline';
-    }
-
-    this.notice(
-      'Ptah needs Codex approval in the connected approval surface: accept, accept for session, decline, or cancel. To edit, decline and send a follow-up message. Unanswered requests are cancelled.',
-    );
     let abort: () => void = () => undefined;
-    const cancelled = new Promise<'cancel'>((resolve) => {
-      abort = () => resolve('cancel');
-      signal.addEventListener('abort', abort, { once: true });
-    });
     try {
+      if (signal.aborted) return 'cancel';
+      if (!this.presentation.present || request.kind === 'userInput') {
+        this.notice(
+          'Ptah could not route the required Codex interaction and declined it.',
+        );
+        return 'decline';
+      }
+      this.notice(
+        'Ptah needs Codex approval in the connected approval surface: accept, accept for session, decline, or cancel. To edit, decline and send a follow-up message. Unanswered requests are cancelled.',
+      );
+      const cancelled = new Promise<'cancel'>((resolve) => {
+        abort = () => resolve('cancel');
+        signal.addEventListener('abort', abort, { once: true });
+      });
       const reply = await Promise.race([
         this.presentation.present(
           request,
@@ -59,13 +68,6 @@ export class CodexGatewayApprovalSink implements ApprovalSink {
       ]);
       if (signal.aborted) return 'cancel';
       if (
-        reply === 'accept' ||
-        reply === 'acceptForSession' ||
-        reply === 'decline' ||
-        reply === 'cancel'
-      )
-        return reply;
-      if (
         typeof reply === 'object' &&
         reply !== null &&
         ('updatedInput' in reply ||
@@ -73,7 +75,10 @@ export class CodexGatewayApprovalSink implements ApprovalSink {
           'editedInput' in reply)
       )
         return { decision: 'decline', editNotSupported: true };
-      return 'decline';
+      const parsed = approvalReplySchema.safeParse(reply);
+      return parsed.success && parsed.data.requestId === request.requestId
+        ? parsed.data.decision
+        : 'decline';
     } catch {
       this.logger.warn('[codex-gateway] approval presentation failed');
       return signal.aborted ? 'cancel' : 'decline';

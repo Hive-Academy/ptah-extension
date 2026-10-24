@@ -3,6 +3,7 @@ import {
   CODEX_GATEWAY_APPROVAL_CHOICES,
   CodexGatewayApprovalSink,
   type CodexGatewayApprovalPresentation,
+  type CodexGatewayApprovalReply,
 } from './codex-gateway-approval-sink';
 
 const request: CodexApprovalRequest = {
@@ -24,10 +25,10 @@ function setup() {
     sendNotice: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
     present: jest
       .fn<
-        Promise<unknown>,
+        Promise<CodexGatewayApprovalReply>,
         Parameters<NonNullable<CodexGatewayApprovalPresentation['present']>>
       >()
-      .mockResolvedValue('decline'),
+      .mockResolvedValue({ requestId: request.requestId, decision: 'decline' }),
     dismiss: jest.fn<void, [CodexApprovalRequest]>(),
   };
   const logger = { warn: jest.fn() };
@@ -43,7 +44,10 @@ describe('CodexGatewayApprovalSink', () => {
     'returns only the selected %s decision',
     async (decision) => {
       const { sink, presentation } = setup();
-      presentation.present.mockResolvedValue(decision);
+      presentation.present.mockResolvedValue({
+        requestId: request.requestId,
+        decision,
+      });
       const signal = new AbortController().signal;
       await expect(sink.request(request, signal)).resolves.toBe(decision);
       expect(presentation.present).toHaveBeenCalledWith(
@@ -82,7 +86,7 @@ describe('CodexGatewayApprovalSink', () => {
       presentation.present.mockResolvedValue({
         decision: 'accept',
         [key]: 'replacement',
-      });
+      } as unknown as CodexGatewayApprovalReply);
       await expect(
         sink.request(request, new AbortController().signal),
       ).resolves.toEqual({ decision: 'decline', editNotSupported: true });
@@ -93,7 +97,9 @@ describe('CodexGatewayApprovalSink', () => {
     'declines malformed replies: %p',
     async (reply) => {
       const { sink, presentation } = setup();
-      presentation.present.mockResolvedValue(reply);
+      presentation.present.mockResolvedValue(
+        reply as unknown as CodexGatewayApprovalReply,
+      );
       await expect(
         sink.request(request, new AbortController().signal),
       ).resolves.toBe('decline');
@@ -102,7 +108,7 @@ describe('CodexGatewayApprovalSink', () => {
 
   it('cancels an unanswered prompt on core timeout, dismisses it and ignores late acceptance', async () => {
     const { sink, presentation } = setup();
-    let reply: (value: unknown) => void = () => undefined;
+    let reply: (value: CodexGatewayApprovalReply) => void = () => undefined;
     presentation.present.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -114,7 +120,7 @@ describe('CodexGatewayApprovalSink', () => {
     const result = sink.request(request, controller.signal);
     controller.abort();
     await expect(result).resolves.toBe('cancel');
-    reply('accept');
+    reply({ requestId: request.requestId, decision: 'accept' });
     await expect(result).resolves.toBe('cancel');
     expect(presentation.dismiss).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
@@ -160,4 +166,57 @@ describe('CodexGatewayApprovalSink', () => {
     ).resolves.toBe('decline');
     expect(presentation.present).not.toHaveBeenCalled();
   });
+  it('declines a reply bound to the wrong request', async () => {
+    const { sink, presentation } = setup();
+    presentation.present.mockResolvedValue({
+      requestId: 'other',
+      decision: 'accept',
+    });
+    await expect(
+      sink.request(request, new AbortController().signal),
+    ).resolves.toBe('decline');
+    expect(presentation.dismiss).toHaveBeenCalledWith(request);
+  });
+
+  it('cannot use an earlier prompt reply to approve the next prompt', async () => {
+    const { sink, presentation } = setup();
+    let reply: (value: CodexGatewayApprovalReply) => void = () => undefined;
+    const sharedReply = new Promise<CodexGatewayApprovalReply>((resolve) => {
+      reply = resolve;
+    });
+    presentation.present.mockReturnValue(sharedReply);
+    const controller = new AbortController();
+    const earlier = sink.request(request, controller.signal);
+    controller.abort();
+    await expect(earlier).resolves.toBe('cancel');
+    const next = { ...request, requestId: 8 };
+    const later = sink.request(next, new AbortController().signal);
+    reply({ requestId: request.requestId, decision: 'accept' });
+    await expect(later).resolves.toBe('decline');
+    expect(presentation.dismiss).toHaveBeenCalledWith(next);
+    expect(presentation.dismiss).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['aborted', 'unroutable', 'userInput'] as const)(
+    'dismisses on the %s early exit',
+    async (kind) => {
+      const { sink, presentation, logger } = setup();
+      const controller = new AbortController();
+      if (kind === 'aborted') controller.abort();
+      const target =
+        kind === 'userInput'
+          ? { ...request, kind: 'userInput' as const }
+          : request;
+      const active =
+        kind === 'unroutable'
+          ? new CodexGatewayApprovalSink(
+              { ...presentation, present: undefined },
+              logger,
+            )
+          : sink;
+      await active.request(target, controller.signal);
+      expect(presentation.dismiss).toHaveBeenCalledTimes(1);
+      expect(presentation.dismiss).toHaveBeenCalledWith(target);
+    },
+  );
 });
