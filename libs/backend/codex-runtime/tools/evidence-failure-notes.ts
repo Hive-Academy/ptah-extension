@@ -2,6 +2,10 @@ import { homedir, tmpdir } from 'node:os';
 import type { Experiment } from './evidence-harness';
 // Only literal harness messages, bounded RPC codes and known error names enter notes.
 export const failureMessages = new Set([
+  'Tolerated marker read before command',
+  'Tolerated read asked for approval',
+  'exec-policy rule location unverified',
+  'unverified: rule did not prompt',
   'frame too large',
   'Experiment path is a symlink',
   'Experiment overlaps a real Codex home',

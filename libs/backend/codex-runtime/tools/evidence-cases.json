@@ -34,6 +34,15 @@
     "purpose": "Decline original command, steer to a replacement marker, approve only the replacement; observe turn charging and usage"
   },
   {
+    "id": "ask-read-rule",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "read-rule",
+    "level": "ask",
+    "decision": "deny",
+    "purpose": "Probe a prompt exec-policy rule for a sandbox-allowed fixture read; decline any exact-command approval"
+  },
+  {
     "id": "modified-input-schema",
     "turnCost": 0,
     "observations": [1, 2],

@@ -35,6 +35,7 @@ import {
   assertThreadApprovalPolicy,
   shouldNoteMissingApproval,
   commandMatches,
+  isToleratedMarkerRead,
   markerCommand,
   markerApprovalDecision,
   markerExists,
@@ -53,6 +54,61 @@ import {
   recordCaseFailure,
   recordCommandShape,
 } from './evidence-failure-notes';
+
+describe('tolerated marker read identity', () => {
+  const marker = 'C:\\work\\ask-command-edit.marker';
+  it.each(['powershell', 'pwsh'])(
+    'accepts the run 6f %s wrapper and slash variants',
+    (shell) => {
+      for (const path of [marker, marker.replace(/\\/g, '/')]) {
+        for (const verb of ['Get-Content', 'Test-Path', 'Get-Item']) {
+          for (const flag of ['-LiteralPath', '-Path']) {
+            const inner = `${verb} ${flag} '${path}'`;
+            expect(isToleratedMarkerRead(inner, marker, 'win32')).toBe(true);
+            expect(
+              isToleratedMarkerRead(
+                `"C:\\Windows\\${shell}.exe" -Command "${inner}"`,
+                marker,
+                'win32',
+              ),
+            ).toBe(true);
+          }
+        }
+      }
+    },
+  );
+  it.each([
+    "Get-Content -LiteralPath 'C:/work/other.marker'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker' 'other'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker'; Get-Item 'other'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker' | Out-Null",
+    "Set-Content -LiteralPath 'C:/work/ask-command-edit.marker'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker' -Raw",
+    "Get-Content -LiteralPath 'C:/WORK/ask-command-edit.marker'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker' > 'other'",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker' & whoami",
+    "Get-Content -LiteralPath 'C:/work/ask-command-edit.marker'`",
+    "Get-Content -LiteralPath '$(whoami)'",
+  ])('rejects %s', (command) => {
+    expect(isToleratedMarkerRead(command, marker, 'win32')).toBe(false);
+  });
+  it('accepts only fixed POSIX reads on non-Windows platforms', () => {
+    const path = '/work/ask-command-edit.marker';
+    for (const verb of ['cat', 'test -e'])
+      expect(isToleratedMarkerRead(`${verb} '${path}'`, path, 'linux')).toBe(
+        true,
+      );
+    expect(isToleratedMarkerRead(`cat '${path}' | cat`, path, 'linux')).toBe(
+      false,
+    );
+    expect(isToleratedMarkerRead(`cat '${path}' 'other'`, path, 'linux')).toBe(
+      false,
+    );
+    expect(
+      isToleratedMarkerRead(`Get-Content -Path '${path}'`, path, 'linux'),
+    ).toBe(false);
+  });
+});
 
 describe('strict command identity', () => {
   const expected =
@@ -107,7 +163,9 @@ describe('strict command identity', () => {
 
   it('builds a file-backed marker command without inline code or double quotes', () => {
     const source = readFileSync(join(__dirname, 'evidence-harness.ts'), 'utf8');
-    expect(source).toContain('const expectedCommand = markerCommand([');
+    expect(source).toMatch(
+      /const expectedCommand = readRule\s*\?[^;]+:\s*markerCommand\(\[\s*process\.execPath,\s*markerScript,\s*experiment\.root,\s*target,?\s*\]\)/,
+    );
     expect(source).not.toContain("[process.execPath, '-e'");
     expect(source).toContain("if (command.includes('\"'))");
     expect(source).toContain('writeMarker(process.argv[2],process.argv[3]);');
@@ -1374,7 +1432,13 @@ describe('ask-command-edit evidence flow', () => {
       | 'per-turn'
       | 'cumulative'
       | 'trailing-usage'
-      | 'terminal-usage',
+      | 'terminal-usage'
+      | 'marker-read'
+      | 'second-read'
+      | 'late-read'
+      | 'read-approval'
+      | 'rule-approval'
+      | 'rule-no-approval',
     cap = TURN_CAP,
   ) {
     const root = mkdtempSync(join(tmpdir(), 'ptah-edit-spec-'));
@@ -1396,10 +1460,29 @@ describe('ask-command-edit evidence flow', () => {
       jest.requireActual<typeof import('node:child_process')>(
         'node:child_process',
       );
-    const spy = jest.spyOn(spawnModule, 'spawn').mockReturnValue(processChild);
+    const readRule = mode === 'rule-approval' || mode === 'rule-no-approval';
+    let rulesAtSpawn: string | undefined;
+    const spy = jest
+      .spyOn(spawnModule, 'spawn')
+      .mockImplementation((_binary, _args, options) => {
+        if (readRule) {
+          expect(options?.env?.['CODEX_HOME']).toBe(experiment.home);
+          rulesAtSpawn = readFileSync(
+            join(experiment.home, 'rules/default.rules'),
+            'utf8',
+          );
+          expect(
+            readFileSync(
+              join(experiment.workspace, 'ask-read-rule.fixture.txt'),
+              'utf8',
+            ),
+          ).toBe('fixture');
+        }
+        return processChild;
+      });
     processChild.stdin.on('finish', () => processChild.emit('close', 0));
     const result: Parameters<typeof runCase>[1] = {
-      id: 'ask-command-edit',
+      id: readRule ? 'ask-read-rule' : 'ask-command-edit',
       status: '',
       turns: 0,
       events: [],
@@ -1426,6 +1509,37 @@ describe('ask-command-edit evidence flow', () => {
     const send = (frame: object) =>
       child.stdout.write(JSON.stringify(frame) + '\n');
     const notify = (method: string, params: object) => send({ method, params });
+    const readCommand = (path: string) =>
+      process.platform === 'win32'
+        ? `Get-Content -LiteralPath '${path.replace(/\\/g, '/')}'`
+        : `cat '${path}'`;
+    const notifyRead = (id: string, command: string, completed = false) =>
+      notify(completed ? 'item/completed' : 'item/started', {
+        threadId: 'thread',
+        item: {
+          id,
+          type: 'commandExecution',
+          command,
+          ...(completed
+            ? { status: 'completed', aggregatedOutput: 'fixture' }
+            : {}),
+        },
+      });
+    const requestRead = (id: string, command: string) =>
+      send({
+        id,
+        method: approvalMethod,
+        params: {
+          threadId: 'thread',
+          turnId: activeTurn,
+          itemId: id,
+          cwd: experiment.workspace,
+          command,
+          reason: `Contact person@example.com with Bearer secret-token ${'word '.repeat(120)}`,
+          kind: 'command',
+          proposedExecpolicyAmendment: ['private-amendment-content'],
+        },
+      });
     let activeTurn = 'turn-one';
     const requestApproval = (id: string, target: string) => {
       notify('item/started', {
@@ -1485,10 +1599,44 @@ describe('ask-command-edit evidence flow', () => {
                 },
               },
             });
+            if (readRule) {
+              const command = readCommand(
+                join(experiment.workspace, 'ask-read-rule.fixture.txt'),
+              );
+              notifyRead('rule', command);
+              if (mode === 'rule-approval') requestRead('rule', command);
+              else {
+                notifyRead('rule', command, true);
+                notify('turn/completed', {
+                  threadId: 'thread',
+                  turn: { id: activeTurn, status: 'completed' },
+                });
+              }
+              return;
+            }
+            if (
+              ['marker-read', 'second-read', 'read-approval'].includes(mode)
+            ) {
+              notifyRead('read', readCommand(original));
+              if (mode === 'read-approval') {
+                requestRead('read', readCommand(original));
+                return;
+              }
+              notifyRead('read', readCommand(original), true);
+              if (mode === 'second-read') {
+                notifyRead('read-two', readCommand(original));
+                return;
+              }
+            }
             requestApproval('first', original);
           });
           break;
         case 'turn/steer':
+          if (mode === 'late-read') {
+            reply({ turnId: activeTurn });
+            setImmediate(() => notifyRead('late-read', readCommand(original)));
+            break;
+          }
           if (mode === 'refused') {
             send({
               id: frame['id'],
@@ -1527,6 +1675,28 @@ describe('ask-command-edit evidence flow', () => {
             }, 30);
           break;
         default:
+          if (frame['id'] === 'read') {
+            expect(frame['result']).toEqual({ decision: 'decline' });
+            setImmediate(() => {
+              notifyRead('read', readCommand(original), true);
+              requestApproval('first', original);
+            });
+          }
+          if (frame['id'] === 'rule') {
+            expect(frame['result']).toEqual({ decision: 'decline' });
+            notify('item/completed', {
+              threadId: 'thread',
+              item: {
+                id: 'rule',
+                type: 'commandExecution',
+                command: readCommand(
+                  join(experiment.workspace, 'ask-read-rule.fixture.txt'),
+                ),
+                status: 'declined',
+                aggregatedOutput: '',
+              },
+            });
+          }
           if (
             frame['id'] === 'second' &&
             JSON.stringify(frame['result']).includes('accept')
@@ -1568,9 +1738,9 @@ describe('ask-command-edit evidence flow', () => {
           id: result.id,
           turnCost: 1,
           observations: [1, 2],
-          kind: 'command',
+          kind: readRule ? 'read-rule' : 'command',
           level: 'ask',
-          decision: 'edit',
+          decision: readRule ? 'deny' : 'edit',
           purpose: 'test',
         },
         result,
@@ -1602,6 +1772,10 @@ describe('ask-command-edit evidence flow', () => {
       failure = error;
     } finally {
       spy.mockRestore();
+      cleanupExperiment(experiment, true);
+      expect(() =>
+        lstatSync(join(experiment.home, 'rules/default.rules')),
+      ).toThrow();
       rmSync(root, { recursive: true, force: true });
     }
     return {
@@ -1610,6 +1784,14 @@ describe('ask-command-edit evidence flow', () => {
       failure,
       budget,
       usage,
+      rulesAtSpawn,
+      readFixture: join(
+        experiment.workspace,
+        'ask-read-rule.fixture.txt',
+      ).replace(/\\/g, '/'),
+      expectedReadCommand: readCommand(
+        join(experiment.workspace, 'ask-read-rule.fixture.txt'),
+      ),
       editedCommand: command(replacement),
     };
   }
@@ -1654,13 +1836,131 @@ describe('ask-command-edit evidence flow', () => {
     expect(result.notes).toContain('steer stayed in the same turn');
   });
 
+  it.each(['marker-read', 'read-approval'] as const)(
+    'continues the edit flow after %s',
+    async (mode) => {
+      const { result, failure, sent } = await exercise(mode);
+      expect(failure).toBeUndefined();
+      expect(result.status).toBe('observed');
+      expect(result.notes).toContain('Tolerated marker read before command');
+      expect(result.approvals.map((entry) => entry.response)).toEqual(
+        mode === 'read-approval'
+          ? ['decline', 'decline', 'accept']
+          : ['decline', 'accept'],
+      );
+      if (mode === 'read-approval') {
+        expect(result.notes).toContain('Tolerated read asked for approval');
+        expect(
+          sent.find((frame) => frame['id'] === 'read')?.['result'],
+        ).toEqual({ decision: 'decline' });
+      }
+    },
+  );
+
+  it.each(['second-read', 'late-read'] as const)('rejects %s', async (mode) => {
+    const { result, failure } = await exercise(mode);
+    expect(failure).toBeDefined();
+    expect(result.notes).toContain('Unexpected command');
+  });
+
+  it('observes rule approval before output, declines it, and records completion status', async () => {
+    const { result, failure, rulesAtSpawn, readFixture } =
+      await exercise('rule-approval');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('observed');
+    expect(result.approvals.map((entry) => entry.response)).toEqual([
+      'decline',
+    ]);
+    expect(result.execPolicyRule).toEqual({
+      path: 'rules/default.rules',
+      content: rulesAtSpawn,
+      completedStatus: 'declined',
+    });
+    const patterns =
+      process.platform === 'win32'
+        ? [
+            ['Get-Content', '-LiteralPath', readFixture],
+            ['Get-Content'],
+            ['powershell.exe'],
+          ]
+        : [['cat', readFixture], ['cat']];
+    expect(rulesAtSpawn).toBe(
+      patterns
+        .map(
+          (pattern) =>
+            `prefix_rule(pattern=${JSON.stringify(pattern)}, decision="prompt")\n`,
+        )
+        .join(''),
+    );
+    expect(result.notes).toContain('exec-policy rule location unverified');
+  });
+
+  it('uses a neutral read-rule prompt without requesting approval', async () => {
+    const { sent, expectedReadCommand } = await exercise('rule-approval');
+    expect(
+      sent.find((frame) => frame['method'] === 'turn/start'),
+    ).toMatchObject({
+      params: {
+        input: [
+          {
+            type: 'text',
+            text: `Run exactly this command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${expectedReadCommand}\nNo other tools or retries.`,
+          },
+        ],
+      },
+    });
+  });
+
+  it.each(['rule-approval', 'read-approval'] as const)(
+    'records sanitised approval evidence for %s without amendment content',
+    async (mode) => {
+      const { result, failure } = await exercise(mode);
+      expect(failure).toBeUndefined();
+      expect(result.approvals[0]).toMatchObject({
+        paramKeys: [
+          'command',
+          'cwd',
+          'itemId',
+          'kind',
+          'proposedExecpolicyAmendment',
+          'reason',
+          'threadId',
+          'turnId',
+        ],
+        reason: String(
+          sanitize(
+            `Contact person@example.com with Bearer secret-token ${'word '.repeat(120)}`,
+          ),
+        ).slice(0, 400),
+        kind: 'command',
+        hasProposedExecpolicyAmendment: true,
+        response: 'decline',
+      });
+      expect(result.approvals[0].reason).toHaveLength(400);
+      expect(JSON.stringify(result.approvals)).not.toMatch(
+        /person@example\.com|secret-token|private-amendment-content/,
+      );
+    },
+  );
+
+  it('records a read without approval as unverified, not a harness failure', async () => {
+    const { result, failure } = await exercise('rule-no-approval');
+    expect(failure).toBeUndefined();
+    expect(result.status).toBe('unverified: rule did not prompt');
+    expect(result.notes).toContain('unverified: rule did not prompt');
+    expect(result.approvals).toEqual([]);
+    expect(result.execPolicyRule?.completedStatus).toBe('completed');
+  });
+
   it('rejects a second approval repeating the original command', async () => {
     const { result, failure } = await exercise('repeat');
     expect(failure).toBeDefined();
     expect(result.notes).toContain('Unexpected command');
     expect(result.approvals.map((entry) => entry.response)).toEqual([
       'decline',
+      'decline',
     ]);
+    expect(result.approvals[1].hasProposedExecpolicyAmendment).toBe(false);
   });
 
   it('fails cleanly with the RPC code when turn/steer is refused', async () => {
@@ -1825,6 +2125,13 @@ describe('ask-command-edit evidence flow', () => {
           id: 'ask-command-edit',
           turnCost: 1,
           decision: 'edit',
+        }),
+        expect.objectContaining({
+          id: 'ask-read-rule',
+          turnCost: 1,
+          kind: 'read-rule',
+          level: 'ask',
+          decision: 'deny',
         }),
       ]),
     );
