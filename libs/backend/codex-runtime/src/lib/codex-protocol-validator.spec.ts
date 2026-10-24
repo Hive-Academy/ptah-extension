@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { CodexEventTranslator } from './codex-event-translator';
 import {
   CodexProtocolError,
   codexRequestSchemas,
@@ -10,6 +11,17 @@ import {
   validateCodexParams,
   validateCodexResult,
 } from './codex-protocol-validator';
+
+const pinnedNotificationMethods = z
+  .object({ methods: z.object({ serverNotifications: z.array(z.string()) }) })
+  .parse(
+    JSON.parse(
+      readFileSync(
+        join(__dirname, 'protocol/codex-app-server-protocol.manifest.json'),
+        'utf8',
+      ),
+    ),
+  ).methods.serverNotifications;
 
 const ids = { threadId: 'thread', turnId: 'turn', itemId: 'item' };
 const approval = { ...ids, startedAtMs: 1 };
@@ -127,6 +139,16 @@ const requests: [string, unknown, unknown][] = [
   ],
 ];
 const notifications: [string, unknown][] = [
+  ['account/rateLimits/updated', { rateLimits: {} }],
+  ['mcpServer/startupStatus/updated', { name: 'mcp', status: 'starting' }],
+  [
+    'remoteControl/status/changed',
+    { installationId: 'install', serverName: 'server', status: 'disabled' },
+  ],
+  ['serverRequest/resolved', { threadId: 'thread', requestId: 1 }],
+  ['thread/started', { thread: threadResult.thread }],
+  ['thread/status/changed', { threadId: 'thread', status: { type: 'idle' } }],
+  ['turn/moderationMetadata', { ...ids, metadata: null }],
   ['initialized', undefined],
   [
     'item/started',
@@ -172,6 +194,213 @@ const notifications: [string, unknown][] = [
 ];
 
 describe('Codex protocol validation', () => {
+  it('replays every inbound method from spike runs 6e through 6j', () => {
+    const methods = new Set<string>();
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+      } else if (value !== null && typeof value === 'object') {
+        const node = z.record(z.string(), z.unknown()).parse(value);
+        if (node['direction'] === 'in' && typeof node['method'] === 'string')
+          methods.add(node['method']);
+        Object.values(node).forEach(visit);
+      }
+    };
+    for (const suffix of ['e', 'f', 'g', 'h', 'i', 'j']) {
+      visit(
+        JSON.parse(
+          readFileSync(
+            join(
+              __dirname,
+              '../../../../..',
+              '.ptah/specs/TASK_2026_714_c8a2',
+              `spike-run-6${suffix}.json`,
+            ),
+            'utf8',
+          ),
+        ),
+      );
+    }
+    expect(methods.size).toBe(16);
+    for (const method of methods) {
+      const request = requests.find(([name]) => name === method);
+      const notification = notifications.find(([name]) => name === method);
+      expect(request ?? notification).toBeDefined();
+      const params = (request ?? notification)?.[1];
+      const frame = validateCodexFrame({
+        method,
+        params,
+        ...(request ? { id: 1 } : {}),
+      });
+      if (!('method' in frame)) throw new Error('Expected inbound method');
+      const events = new CodexEventTranslator('replay', 1).translate(frame);
+      if (!request)
+        expect(events.some((event) => event.type === 'error')).toBe(false);
+    }
+  });
+
+  it.each(
+    pinnedNotificationMethods.filter(
+      (method) => !Object.hasOwn(codexNotificationSchemas, method),
+    ),
+  )('accepts pinned unmodeled %s only as a notification', (method) => {
+    const params = {
+      threadId: 'thread',
+      turnId: 'turn',
+      opaque: { values: [null, 1] },
+    };
+    const frame = validateCodexFrame({ method, params });
+    expect(frame).toEqual({ method, params, modeled: false });
+    if (!('method' in frame)) throw new Error('Expected notification');
+    expect(new CodexEventTranslator('context', 1).translate(frame)).toEqual([]);
+    expect(() => validateCodexFrame({ id: 1, method, params })).toThrow(
+      CodexProtocolError,
+    );
+    expect(() => validateCodexFrame({ id: 1, result: {} }, method)).toThrow(
+      CodexProtocolError,
+    );
+    for (const invalid of [undefined, null, [], 1, 'text'])
+      expect(() => validateCodexFrame({ method, params: invalid })).toThrow(
+        CodexProtocolError,
+      );
+  });
+
+  it('rejects a notification outside the pinned manifest', () => {
+    expect(() =>
+      validateCodexFrame({ method: 'future/notification', params: {} }),
+    ).toThrow(expect.objectContaining({ code: 'unknownMethod' }));
+  });
+
+  it.each(notifications.slice(0, 7))(
+    'checks required fields and allows extensions for %s',
+    (method, params) => {
+      const data = z.record(z.string(), z.unknown()).parse(params);
+      expect(() =>
+        validateCodexFrame({ method, params: { ...data, futureField: true } }),
+      ).not.toThrow();
+      for (const key of Object.keys(data).filter((key) => key !== 'itemId')) {
+        const missing = { ...data };
+        delete missing[key];
+        expect(() => validateCodexFrame({ method, params: missing })).toThrow(
+          CodexProtocolError,
+        );
+      }
+    },
+  );
+
+  it.each([
+    [
+      'account/rateLimits/updated',
+      { rateLimits: { primary: { usedPercent: 'bad' } } },
+    ],
+    [
+      'account/rateLimits/updated',
+      { rateLimits: { credits: { hasCredits: true } } },
+    ],
+    ['account/rateLimits/updated', { rateLimits: { planType: 'invalid' } }],
+    ['mcpServer/startupStatus/updated', { name: 'mcp', status: 'invalid' }],
+    [
+      'mcpServer/startupStatus/updated',
+      { name: 'mcp', status: 'failed', failureReason: 'invalid' },
+    ],
+    [
+      'remoteControl/status/changed',
+      { installationId: 'i', serverName: 's', status: 'invalid' },
+    ],
+    ['serverRequest/resolved', { threadId: 't', requestId: 1.5 }],
+    [
+      'thread/started',
+      { thread: { ...threadResult.thread, projectId: undefined } },
+    ],
+    ['thread/status/changed', { threadId: 't', status: { type: 'active' } }],
+    [
+      'thread/status/changed',
+      { threadId: 't', status: { type: 'active', activeFlags: ['invalid'] } },
+    ],
+    ['turn/moderationMetadata', { threadId: 't', turnId: 1, metadata: null }],
+  ])('rejects malformed new %s payload', (method, params) => {
+    expect(() => validateCodexFrame({ method, params })).toThrow(
+      CodexProtocolError,
+    );
+  });
+
+  it('accepts optional fields, sparse limits, arbitrary metadata and nested extensions', () => {
+    const samples = [
+      [
+        'account/rateLimits/updated',
+        {
+          rateLimits: {
+            primary: { usedPercent: 1, resetsAt: null, extension: true },
+            credits: {
+              hasCredits: false,
+              unlimited: false,
+              balance: null,
+              extension: 1,
+            },
+            individualLimit: {
+              limit: '1',
+              used: '0',
+              remainingPercent: 100,
+              resetsAt: 1,
+              extension: true,
+            },
+            planType: 'pro',
+            secondary: null,
+            extension: true,
+          },
+        },
+      ],
+      [
+        'mcpServer/startupStatus/updated',
+        {
+          name: 'mcp',
+          status: 'failed',
+          error: null,
+          failureReason: 'reauthenticationRequired',
+          threadId: null,
+        },
+      ],
+      [
+        'remoteControl/status/changed',
+        {
+          installationId: 'i',
+          serverName: 's',
+          status: 'connected',
+          environmentId: null,
+        },
+      ],
+      ['serverRequest/resolved', { threadId: 't', requestId: 'request' }],
+      [
+        'thread/started',
+        {
+          thread: {
+            ...threadResult.thread,
+            extension: true,
+            status: { type: 'idle', extension: true },
+          },
+        },
+      ],
+      [
+        'thread/status/changed',
+        {
+          threadId: 't',
+          status: {
+            type: 'active',
+            activeFlags: ['waitingOnApproval', 'waitingOnUserInput'],
+            extension: true,
+          },
+        },
+      ],
+      ...[null, true, 1, 'metadata', [], { arbitrary: [1] }].map(
+        (metadata): [string, unknown] => [
+          'turn/moderationMetadata',
+          { ...ids, metadata },
+        ],
+      ),
+    ] satisfies [string, unknown][];
+    for (const [method, params] of samples)
+      expect(() => validateCodexFrame({ method, params })).not.toThrow();
+  });
   it.each(requests)(
     'validates %s request and its correlated result',
     (method, params, result) => {
@@ -389,6 +618,19 @@ function fields(value: unknown): Record<string, unknown> {
 
 describe('pinned schema contract', () => {
   const definitions = record.parse(schema['definitions']);
+  it('has exactly the same server notification methods as the pinned manifest', () => {
+    const variants = z
+      .array(record)
+      .parse(record.parse(definitions['ServerNotification'])['oneOf']);
+    const methods = variants.flatMap((variant) =>
+      z
+        .array(z.string())
+        .parse(
+          record.parse(record.parse(variant['properties'])['method'])['enum'],
+        ),
+    );
+    expect(methods.sort()).toEqual([...pinnedNotificationMethods].sort());
+  });
   const groups = [
     ['ClientRequest', codexRequestSchemas],
     ['ServerRequest', codexServerRequestSchemas],

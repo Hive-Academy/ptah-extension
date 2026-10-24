@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { codexNotificationSchemas } from './codex-protocol-validator';
+import {
+  codexNotificationSchemas,
+  isUnmodeledCodexNotification,
+} from './codex-protocol-validator';
 import type {
   CodexRuntimeEvent,
   CodexRuntimeError,
@@ -60,6 +63,12 @@ export class CodexEventTranslator {
         return [];
       // Approval correlation and decisions belong to the approval bridge (2g).
       case 'serverRequest/resolved':
+      case 'account/rateLimits/updated':
+      case 'thread/status/changed':
+      case 'thread/started':
+      case 'turn/moderationMetadata':
+      case 'mcpServer/startupStatus/updated':
+      case 'remoteControl/status/changed':
         return [];
       case 'item/agentMessage/delta': {
         const parsed = codexNotificationSchemas[method].safeParse(params);
@@ -144,6 +153,7 @@ export class CodexEventTranslator {
         return events;
       }
       default:
+        if (isUnmodeledCodexNotification(method)) return [];
         return this.invalid(params);
     }
   }

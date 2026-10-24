@@ -2,6 +2,63 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { CodexEventTranslator } from './codex-event-translator';
+import {
+  codexNotificationSchemas,
+  validateCodexFrame,
+} from './codex-protocol-validator';
+const pinnedNotificationMethods = z
+  .object({ methods: z.object({ serverNotifications: z.array(z.string()) }) })
+  .parse(
+    JSON.parse(
+      readFileSync(
+        resolve(__dirname, 'protocol/codex-app-server-protocol.manifest.json'),
+        'utf8',
+      ),
+    ),
+  ).methods.serverNotifications;
+
+describe('ignored pinned notifications', () => {
+  it.each([
+    'account/rateLimits/updated',
+    'serverRequest/resolved',
+    'thread/status/changed',
+    'thread/started',
+    'turn/moderationMetadata',
+    'mcpServer/startupStatus/updated',
+    'remoteControl/status/changed',
+    ...pinnedNotificationMethods.filter(
+      (method) => !Object.hasOwn(codexNotificationSchemas, method),
+    ),
+  ])('ignores %s without changing event sequence or usage', (method) => {
+    const translator = new CodexEventTranslator('context', 1);
+    expect(
+      translator.translate({
+        method,
+        params: { threadId: 'thread', turnId: 'turn' },
+      }),
+    ).toEqual([]);
+    expect(translator.translate({ method, params: null })).toEqual([]);
+    const events = translator.translate(terminal());
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: 'terminal', sequence: 1 });
+    expect(events[0]).not.toHaveProperty('usage');
+  });
+
+  it('keeps the unknown-method boundary and existing translator fallback', () => {
+    const frame = {
+      method: 'future/notification',
+      params: { threadId: 'thread', turnId: 'turn' },
+    };
+    expect(() => validateCodexFrame(frame)).toThrow(
+      expect.objectContaining({ code: 'unknownMethod' }),
+    );
+    expect(
+      new CodexEventTranslator('context', 1).translate(frame),
+    ).toMatchObject([
+      { type: 'error', error: { code: 'unsupportedNotification' } },
+    ]);
+  });
+});
 
 const ids = { threadId: 'thread', turnId: 'turn' };
 const counts = {
