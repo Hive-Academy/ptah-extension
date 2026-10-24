@@ -1,6 +1,6 @@
 # Batches - TASK_2026_714_c8a2
 
-Total tasks: 48 | Batches: 41 | Complete: 0/41
+Total tasks: 48 | Batches: 41 | Complete: 3/41
 (Not #808-blocked: 15 batches in P2/P3/P4, plus 9a, 10a, 10b once P2 is done. Blocked on
 #808: 18 in P5-P10. Blocked on evidence: 5 in P11.)
 
@@ -108,7 +108,8 @@ Verification command for every P2 batch:
 `npx nx run-many -t test typecheck lint -p @ptah-extension/codex-runtime --parallel=1`
 (Jest inside uses the project config; output tailed.)
 
-## Batch 2a: Core contracts and ports — IN_PROGRESS
+## Batch 2a: Core contracts and ports — COMPLETE (verified; 4212bb4e7)
+- Verification (Wave 1, team-leader): see 2b line; 2a and 2b share the codex-runtime run.
 
 - Recommended executor: CLI lane, Codex family, backend capability
 - Execution mode: sequential
@@ -119,7 +120,7 @@ Verification command for every P2 batch:
 - Tasks: 2 | Depends on: none | Runnable now: YES
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2a.1: Runtime domain types — IN_PROGRESS
+### Task 2a.1: Runtime domain types — COMPLETE
 
 - Files (CREATE): W/libs/backend/codex-runtime/src/lib/codex-runtime.types.ts,
   W/libs/backend/codex-runtime/src/lib/codex-account-usage.types.ts
@@ -139,7 +140,7 @@ Verification command for every P2 batch:
   in 3b).
 - Quality requirements: no `any`; readonly fields; no import from auth-providers/agent-sdk/apps.
 
-### Task 2a.2: Ports, DI tokens and initial exports — IN_PROGRESS
+### Task 2a.2: Ports, DI tokens and initial exports — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-runtime-ports.ts,
   W/libs/backend/codex-runtime/src/lib/codex-home-auth-reader.ts,
@@ -162,7 +163,10 @@ editNotSupported:true}>`, `CodexThreadIdentityStore` (persist/markInactive/read)
 - Files exist with real types; `npx nx run-many -t test typecheck lint -p
 @ptah-extension/codex-runtime --parallel=1` passes; existing 175 tools specs still pass.
 
-## Batch 2b: Protocol validator and version pin — IN_PROGRESS
+## Batch 2b: Protocol validator and version pin — COMPLETE (verified; 2a0fe0ff8)
+- Verification (Wave 1, team-leader): codex-runtime test 3 suites / 295 passed; typecheck OK; lint
+  0 errors, 4 warnings. Phase-review note: CodexProtocolManifest (codex-protocol-manifest.ts:2) and
+  CodexExecutableManifestRow (codex-runtime-ports.ts:8) overlap; 2d/2k must pick one.
 
 - Recommended executor: CLI lane, Codex family, backend capability
 - Execution mode: sequential
@@ -174,7 +178,7 @@ editNotSupported:true}>`, `CodexThreadIdentityStore` (persist/markInactive/read)
 - Tasks: 2 | Depends on: none | Runnable now: YES
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2b.1: Method-specific Zod validation — IN_PROGRESS
+### Task 2b.1: Method-specific Zod validation — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-protocol-validator.ts,
   W/libs/backend/codex-runtime/src/lib/codex-protocol-validator.spec.ts; MODIFY
@@ -197,7 +201,7 @@ editNotSupported:true}>`, `CodexThreadIdentityStore` (persist/markInactive/read)
   schema JSON in the spec (load schema, assert each modeled method exists).
 - Quality requirements: validation happens before correlation/dispatch.
 
-### Task 2b.2: Manifest and version pin check — IN_PROGRESS
+### Task 2b.2: Manifest and version pin check — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-protocol-manifest.ts,
   W/libs/backend/codex-runtime/src/lib/codex-protocol-manifest.spec.ts
@@ -442,7 +446,12 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude.
 
-## Batch 2c: Legacy Codex lane reads auth from its execution home — IN_PROGRESS
+## Batch 2c: Legacy Codex lane reads auth from its execution home — COMPLETE (verified; commit fix(cli-agent-runtime) read codex lane auth)
+- Verification (Wave 1, team-leader): cli-agent-runtime test 111 suites / 2385 passed, 1 skipped;
+  typecheck OK; lint 0 errors, 51 warnings. Scope exception recorded: one-line prefer-const fix in
+  agent-process-manager.service.spec.ts:608-610 (pre-existing on main, blocks project lint).
+  Per-spawn CODEX_HOME is not a CliCommandOptions field, so the order is env CODEX_HOME >
+  HOME/USERPROFILE/homedir + .codex (codex-cli.adapter.ts:429-432). Phase P3 code-logic review due.
 
 - Recommended executor: CLI lane, Codex family, backend capability
 - Execution mode: sequential
@@ -454,7 +463,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude.
 - Tasks: 1 | Depends on: none | Runnable now: YES
 - Phase: P3 | Phase review: code-logic
 
-### Task 2c.1: Explicit/env CODEX_HOME for credential reads — IN_PROGRESS
+### Task 2c.1: Explicit/env CODEX_HOME for credential reads — COMPLETE
 
 - Files: MODIFY
   W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex-cli.adapter.ts,
