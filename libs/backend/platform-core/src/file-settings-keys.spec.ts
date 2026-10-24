@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   ADVANCED_SETTINGS,
+  CLAUDE_REASONING_EFFORT_VALUES,
   SCOPED_SETTING_KEYS,
   SESSION_BUDGET_SETTINGS,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
@@ -322,6 +323,34 @@ describe('isFileBasedSettingKey', () => {
     });
 
     it('is a global-only scoped key', () => {
+      expect(SCOPED_SETTING_KEYS[key]).toEqual({
+        appScopable: false,
+        supportedTargets: ['global'],
+      });
+    });
+  });
+
+  describe('Claude system-lane keys (TASK_2026_712)', () => {
+    // Written through `agent:setConfig`; unrouted, the write would be dropped
+    // while the read still served the default.
+    const keys = [
+      'agentOrchestration.claudeModel',
+      'agentOrchestration.claudeReasoningEffort',
+    ] as const;
+
+    it.each(keys)('%s is file-based and defaults to the SDK default', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('');
+    });
+
+    it('defaults the effort to a value the setting accepts', () => {
+      expect(CLAUDE_REASONING_EFFORT_VALUES).toContain(
+        FILE_BASED_SETTINGS_DEFAULTS['agentOrchestration.claudeReasoningEffort'],
+      );
+    });
+
+    it.each(keys)('%s is a global-only scoped key', (key) => {
       expect(SCOPED_SETTING_KEYS[key]).toEqual({
         appScopable: false,
         supportedTargets: ['global'],

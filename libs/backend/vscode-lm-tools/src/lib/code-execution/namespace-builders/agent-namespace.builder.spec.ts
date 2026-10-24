@@ -1570,3 +1570,119 @@ describe('buildAgentNamespace — spawn boundary', () => {
     expect(options).not.toHaveProperty('effort');
   });
 });
+
+/**
+ * `accountSelection` at the `execute_code` boundary (TASK_2026_712, Batch 28b).
+ * The same rules as the MCP spawn schema: claude-only, named refused while
+ * named admission is release-held (D7), and a resume never takes a named
+ * account. Nothing is spawned when the value is refused.
+ */
+describe('buildAgentNamespace — spawn accountSelection', () => {
+  type AccountSpawnRequest = SpawnAgentRequest & {
+    readonly accountSelection?: unknown;
+  };
+
+  async function spawnWith(request: AccountSpawnRequest) {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'a',
+    } as SpawnAgentResult);
+    const outcome = buildAgentNamespace(deps).spawn(request);
+    return { outcome, mocks };
+  }
+
+  it.each([
+    ['ambient', { kind: 'ambient' }],
+    ['omitted', { kind: 'omitted' }],
+  ])(
+    'spawns a claude lane with an %s selection on the existing route',
+    async (_label, accountSelection) => {
+      const { outcome, mocks } = await spawnWith({
+        task: 't',
+        cli: 'claude',
+        accountSelection,
+      });
+
+      await expect(outcome).resolves.toEqual({ agentId: 'a' });
+      const forwarded = mocks.processManager.spawn.mock.calls[0][0];
+      expect(forwarded.cli).toBe('claude');
+      expect(forwarded).not.toHaveProperty('accountSelection');
+    },
+  );
+
+  it('keeps an ambient claude resume on its stored account', async () => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      cli: 'claude',
+      resumeSessionId: 'sdk-session-1',
+      accountSelection: { kind: 'ambient' },
+    });
+
+    await expect(outcome).resolves.toEqual({ agentId: 'a' });
+    expect(mocks.processManager.spawn.mock.calls[0][0].resumeSessionId).toBe(
+      'sdk-session-1',
+    );
+  });
+
+  it('refuses a named claude account before spawn (release-held)', async () => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      cli: 'claude',
+      accountSelection: { kind: 'named', profileId: 'profile-0001' },
+    });
+
+    await expect(outcome).rejects.toThrow(
+      /named Claude account lanes are not available.*not spawned/,
+    );
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a named account on resume instead of overriding the stored one', async () => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      cli: 'claude',
+      resumeSessionId: 'sdk-session-1',
+      accountSelection: { kind: 'named', profileId: 'profile-0001' },
+    });
+
+    await expect(outcome).rejects.toThrow(/keeps the account stored/);
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another system CLI', { cli: 'codex' as const }],
+    ['an auto-detected lane', {}],
+    ['a Ptah CLI agent', { ptahCliId: 'agent-a' }],
+  ])('refuses a selection for %s', async (_label, target) => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      ...target,
+      accountSelection: { kind: 'ambient' },
+    });
+
+    await expect(outcome).rejects.toThrow(
+      /applies only to cli "claude" lanes/,
+    );
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+    expect(mocks.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['null', null],
+    ['a bare string', 'ambient'],
+    ['an unknown kind', { kind: 'default' }],
+    ['a path field', { kind: 'ambient', configDir: '/home/u/.claude' }],
+    ['an env bag', { kind: 'named', profileId: 'profile-0001', env: {} }],
+    ['a token field', { kind: 'ambient', token: 'secret' }],
+    ['a malformed profile id', { kind: 'named', profileId: '../x' }],
+  ])('refuses a malformed selection (%s) without spawning', async (_l, value) => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      cli: 'claude',
+      accountSelection: value,
+    });
+
+    await expect(outcome).rejects.toThrow(/"accountSelection" must be/);
+    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+  });
+});

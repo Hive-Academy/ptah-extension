@@ -30,6 +30,8 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
 
 jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: { SDK_CODEX_AUTH: Symbol.for('CodexAuthService') },
+  // Class token only: the handler resolves the account service lazily.
+  ProviderAccountService: class ProviderAccountService {},
 }));
 
 import type {
@@ -58,6 +60,8 @@ import type { AgentResumeOutcome } from '@ptah-extension/shared';
 import type { CliModelListService } from '../services/cli-model-list.service';
 import type { DependencyContainer } from 'tsyringe';
 
+import { ProviderAccountService } from '@ptah-extension/auth-providers';
+
 import { AgentRpcHandlers } from './agent-rpc.handlers';
 
 const WORKSPACE = 'D:/ws';
@@ -83,9 +87,17 @@ interface Harness {
   /** Stored `ptah` settings, keyed by the full key (`agentOrchestration.x`). */
   settings: Map<string, unknown>;
   setConfiguration: jest.Mock;
+  /** `ProviderAccountService.lookupBySdkSession`, when the service is registered. */
+  accountLookup: jest.Mock | undefined;
 }
 
-function makeHarness(): Harness {
+interface HarnessOptions {
+  /** Registers a fake account service whose lookup is this mock. */
+  readonly accountLookup?: jest.Mock;
+}
+
+function makeHarness(options: HarnessOptions = {}): Harness {
+  const { accountLookup } = options;
   const rpcHandler = createMockRpcHandler();
   const logger = createMockLogger();
   const settings = new Map<string, unknown>();
@@ -143,6 +155,7 @@ function makeHarness(): Harness {
     rpcHandler as unknown as RpcHandler,
     {
       getAdapter: jest.fn().mockReturnValue(undefined),
+      detectAll: jest.fn().mockResolvedValue([]),
     } as unknown as CliDetectionService,
     registry as unknown as PtahCliRegistry,
     processManager as unknown as AgentProcessManager,
@@ -153,8 +166,15 @@ function makeHarness(): Harness {
     stateStorage as unknown as IStateStorage,
     {} as unknown as CliModelListService,
     {
-      isRegistered: jest.fn().mockReturnValue(false),
-      resolve: jest.fn(),
+      isRegistered: jest.fn(
+        (token: unknown) =>
+          accountLookup !== undefined && token === ProviderAccountService,
+      ),
+      resolve: jest.fn((token: unknown) =>
+        token === ProviderAccountService
+          ? { lookupBySdkSession: accountLookup }
+          : undefined,
+      ),
     } as unknown as DependencyContainer,
     {
       hasProviderKey: jest.fn().mockResolvedValue(false),
@@ -181,7 +201,14 @@ function makeHarness(): Harness {
   );
   handlers.register();
 
-  return { rpcHandler, logger, processManager, settings, setConfiguration };
+  return {
+    rpcHandler,
+    logger,
+    processManager,
+    settings,
+    setConfiguration,
+    accountLookup,
+  };
 }
 
 async function call<T>(
@@ -438,5 +465,383 @@ describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
       'a-1',
       'next step',
     );
+  });
+});
+
+/**
+ * TASK_2026_712 Batch 28a: Claude system-lane config keys. Before this batch
+ * `agent:setConfig` passed them through the schema and dropped them.
+ */
+describe('AgentRpcHandlers — Claude lane config keys', () => {
+  it('writes claudeModel trimmed and claudeReasoningEffort as sent', async () => {
+    const h = makeHarness();
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      claudeModel: '  claude-opus-4-1  ',
+      claudeReasoningEffort: 'xhigh',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(h.settings.get('agentOrchestration.claudeModel')).toBe(
+      'claude-opus-4-1',
+    );
+    expect(h.settings.get('agentOrchestration.claudeReasoningEffort')).toBe(
+      'xhigh',
+    );
+  });
+
+  it.each(['minimal', 'turbo', 5])(
+    'refuses claudeReasoningEffort %p before any write',
+    async (value) => {
+      const h = makeHarness();
+
+      const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+        claudeModel: 'claude-opus-4-1',
+        claudeReasoningEffort: value,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Unsupported claudeReasoningEffort value',
+      });
+      expect(h.setConfiguration).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses a non-string claudeModel before any write', async () => {
+    const h = makeHarness();
+
+    const result = await call<SetConfigResult>(h, 'agent:setConfig', {
+      claudeModel: 42,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Unsupported claudeModel value',
+    });
+    expect(h.setConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('reads both keys back on agent:getConfig', async () => {
+    const h = makeHarness();
+    h.settings.set('agentOrchestration.claudeModel', 'claude-sonnet-4-5');
+    h.settings.set('agentOrchestration.claudeReasoningEffort', 'inherit');
+
+    const config = await call<Record<string, unknown>>(
+      h,
+      'agent:getConfig',
+      {},
+    );
+
+    expect(config).toEqual(
+      expect.objectContaining({
+        claudeModel: 'claude-sonnet-4-5',
+        claudeReasoningEffort: 'inherit',
+      }),
+    );
+  });
+
+  it('reads the SDK default when nothing is stored', async () => {
+    const h = makeHarness();
+
+    const config = await call<Record<string, unknown>>(
+      h,
+      'agent:getConfig',
+      {},
+    );
+
+    expect(config).toEqual(
+      expect.objectContaining({ claudeModel: '', claudeReasoningEffort: '' }),
+    );
+  });
+});
+
+const PROFILE_ID = 'profile-aaaa1111';
+
+const STORED_BINDING = {
+  version: 1,
+  provider: 'claude',
+  profileId: PROFILE_ID,
+  routeRevision: 0,
+  routeFingerprint: 'f'.repeat(32),
+  authEpoch: 0,
+  runId: 'run-00000001',
+  identity: { kind: 'unknown' },
+} as const;
+
+function resumeParams(
+  cli: string,
+  accountSelection?: unknown,
+): Record<string, unknown> {
+  return {
+    cliSessionId: CLI_SESSION_ID,
+    cli,
+    task: 'continue the work',
+    ...(accountSelection === undefined ? {} : { accountSelection }),
+  };
+}
+
+/**
+ * TASK_2026_712 plan 237: a resume never switches accounts. A supplied
+ * selection is compared with the stored binding before spawn.
+ */
+describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => {
+  it('needs no account argument and reads no account store', async () => {
+    const lookup = jest.fn();
+    const h = makeHarness({ accountLookup: lookup });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude'),
+    );
+
+    expect(result).toEqual({ success: true, agentId: 'a-1' });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('treats an omitted selection as no selection', async () => {
+    const lookup = jest.fn();
+    const h = makeHarness({ accountLookup: lookup });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'omitted' }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('resumes an ambient session that restates ambient', async () => {
+    const lookup = jest.fn().mockResolvedValue({ status: 'absent' });
+    const h = makeHarness({ accountLookup: lookup });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'ambient' }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(lookup).toHaveBeenCalledWith({
+      provider: 'claude',
+      sdkSessionId: CLI_SESSION_ID,
+    });
+    expect(h.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cli: 'claude',
+        resumeSessionId: CLI_SESSION_ID,
+      }),
+    );
+  });
+
+  it('refuses ambient on a bound session before spawn', async () => {
+    const h = makeHarness({
+      accountLookup: jest
+        .fn()
+        .mockResolvedValue({ status: 'bound', binding: STORED_BINDING }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'ambient' }),
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Agent resume account refused (conflict).',
+    });
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:resumeCliSession account refused',
+      { cli: 'claude', code: 'conflict' },
+    );
+  });
+
+  it('refuses a different named account before spawn', async () => {
+    const h = makeHarness({
+      accountLookup: jest
+        .fn()
+        .mockResolvedValue({ status: 'bound', binding: STORED_BINDING }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'named', profileId: 'profile-bbbb2222' }),
+    );
+
+    expect(result.error).toBe('Agent resume account refused (conflict).');
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a named account on an ambient session before spawn', async () => {
+    const h = makeHarness({
+      accountLookup: jest.fn().mockResolvedValue({ status: 'absent' }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'named', profileId: PROFILE_ID }),
+    );
+
+    expect(result.error).toBe('Agent resume account refused (conflict).');
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('lets the runtime keep a restated named binding release-held (D7)', async () => {
+    const h = makeHarness({
+      accountLookup: jest
+        .fn()
+        .mockResolvedValue({ status: 'bound', binding: STORED_BINDING }),
+    });
+    h.processManager.spawn.mockRejectedValueOnce(
+      laneAccountResumeError(
+        'release-held',
+        'C:/Users/someone/.claude-profiles/work refused',
+      ),
+    );
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'named', profileId: PROFILE_ID }),
+    );
+
+    expect(h.processManager.spawn).toHaveBeenCalledTimes(1);
+    expect(h.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
+      'accountSelection',
+    );
+    expect(result).toEqual({
+      success: false,
+      error: 'Agent resume account refused (release-held).',
+    });
+    expect(JSON.stringify(result)).not.toContain('claude-profiles');
+    expect(h.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unreadable stored binding as invalid-bound', async () => {
+    const h = makeHarness({
+      accountLookup: jest.fn().mockResolvedValue({ status: 'invalid-bound' }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'ambient' }),
+    );
+
+    expect(result.error).toBe('Agent resume account refused (invalid-bound).');
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stored binding that fails validation as invalid-bound', async () => {
+    const h = makeHarness({
+      accountLookup: jest.fn().mockResolvedValue({
+        status: 'bound',
+        binding: { ...STORED_BINDING, runId: 'C:/not/an/id' },
+      }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'named', profileId: PROFILE_ID }),
+    );
+
+    expect(result.error).toBe('Agent resume account refused (invalid-bound).');
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when no account service is registered', async () => {
+    const h = makeHarness();
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'ambient' }),
+    );
+
+    expect(result.error).toBe(
+      'Agent resume account refused (unavailable-storage).',
+    );
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('fails closed, path-free, when the lookup throws', async () => {
+    const h = makeHarness({
+      accountLookup: jest
+        .fn()
+        .mockRejectedValue(new Error('EACCES C:/Users/someone/.claude.json')),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'ambient' }),
+    );
+
+    expect(result.error).toBe(
+      'Agent resume account refused (unavailable-storage).',
+    );
+    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
+      'EACCES',
+    );
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a named account on a CLI without account bindings', async () => {
+    const lookup = jest.fn();
+    const h = makeHarness({ accountLookup: lookup });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('codex', { kind: 'named', profileId: PROFILE_ID }),
+    );
+
+    expect(result.error).toBe('Agent resume account refused (conflict).');
+    expect(lookup).not.toHaveBeenCalled();
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
+  });
+
+  it('resumes a CLI without account bindings on ambient', async () => {
+    const h = makeHarness();
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('codex', { kind: 'ambient' }),
+    );
+
+    expect(result).toEqual({ success: true, agentId: 'a-1' });
+  });
+
+  it.each([
+    { kind: 'named', profileId: PROFILE_ID, path: 'C:/Users/someone/.claude' },
+    { kind: 'named', profileId: PROFILE_ID, env: { CLAUDE_CONFIG_DIR: 'x' } },
+    { kind: 'ambient', token: 'sk-secret' },
+    { kind: 'named', profileId: PROFILE_ID, ownerKey: 'o'.repeat(32) },
+    { kind: 'named', profileId: 'x' },
+    { kind: 'default' },
+    'ambient',
+  ])('rejects malformed selection %p before spawn', async (selection) => {
+    const lookup = jest.fn();
+    const h = makeHarness({ accountLookup: lookup });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', selection),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('invalid params');
+    expect(lookup).not.toHaveBeenCalled();
+    expect(h.processManager.spawn).not.toHaveBeenCalled();
   });
 });

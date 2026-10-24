@@ -118,6 +118,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.grokModel',
   'agentOrchestration.opencodeModel',
   'agentOrchestration.piModel',
+  // Claude system lane (TASK_2026_712): written through `agent:setConfig`.
+  'agentOrchestration.claudeModel',
+  'agentOrchestration.claudeReasoningEffort',
   'agentOrchestration.subagentPromptCacheTtl',
   // Lane tool-call guards (TASK_2026_597 Wave D).
   'agentOrchestration.laneToolCallSteerAt',
@@ -333,6 +336,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'agentOrchestration.grokModel': '',
   'agentOrchestration.opencodeModel': '',
   'agentOrchestration.piModel': '',
+  // Claude system lane: '' = SDK default for both.
+  'agentOrchestration.claudeModel': '',
+  'agentOrchestration.claudeReasoningEffort': '',
   // Subagent prompt-cache TTL: 'auto' | '5m' | '1h'. 'auto' asks for 1h only when the session can spawn subagents.
   'agentOrchestration.subagentPromptCacheTtl': 'auto',
   // Lane tool-call guards: steer at N calls, stop at N calls, stop at N identical calls.

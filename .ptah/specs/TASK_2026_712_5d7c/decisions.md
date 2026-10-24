@@ -204,3 +204,27 @@ Each document gets one initial cross-side review and at most two author/reviewer
   - **27a** (unregistered domain endpoint): CREATE `provider-account-rpc.schema.ts`, `provider-account-rpc.handlers.ts`, `provider-account-rpc.handlers.spec.ts`; MODIFY `libs/shared/src/lib/types/messages/message-constants.ts` (push type). The handler class is not yet registered, so no method is reachable.
   - **27b** (registration, atomic): MODIFY `libs/shared/src/lib/types/rpc.types.ts` (registry + `RPC_METHOD_ENTRIES`), `host-profile/manifest.ts`, `register-shared-rpc-handlers.ts`, `host-profile/host-profile.ts`, `apps/ptah-electron/src/rpc-host-profile.ts`, plus at most one guard spec. Further guard specs (rpc-surface, surface-composition, expected-resolvable) are reported and become 27c if needed.
 - Reason: lane cap (≤6 files) and the D27 rule that the registry and the manifest change in one commit. Reversible.
+
+## D30 — Batch 27a acceptance and 27b/27c split (2026-10-24, orchestrator)
+
+- 27a accepted (be9ea2f25): spec 44/44, typecheck + lint rpc-handlers and shared 0 errors. Orchestrator bounded correction: `safeStoreSummary` no longer forwards the store's generic default sentence, so a `conflict` shows its fixed copy ("Refresh and try again"); the real `ProviderAccountStoreError` default (`provider-account-route.ts:18`) is the same generic sentence.
+- Recorded gap (owner: certification): the handler keeps its own revision seeded from `Date.now()`; account changes made outside the handler do not bump it or push. `ProviderAccountStoreError` is matched structurally (not exported from the auth-providers barrel).
+- 27b needs 7 source files (27a report: + `host-profile/capabilities.ts`, + `rpc-handlers/src/index.ts`). Split, file-disjoint, run in parallel, committed together:
+  - **27b** (registration core): `libs/shared/src/lib/types/rpc.types.ts`, `host-profile/manifest.ts`, `host-profile/capabilities.ts`, `host-profile/host-profile.ts`, `register-shared-rpc-handlers.ts`, `rpc-handlers/src/index.ts`.
+  - **27c** (Electron enable + guards): `apps/ptah-electron/src/rpc-host-profile.ts`, `apps/ptah-extension-vscode/src/di/expected-absent.ts`, `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, `host-profile/manifest.spec.ts`, `host-profile/resolve-handler-plan.spec.ts`, plus at most one CLI/TUI absent list.
+  - Shared contract: capability key `providerAccounts` (true in Electron only, false in `ALL_DISABLED`); handler class `ProviderAccountRpcHandlers`; method names from `PROVIDER_ACCOUNT_RPC_METHOD_NAMES`.
+
+## D31 — Batch 28 split (2026-10-24, orchestrator)
+
+- Batch 28 owns 6 files plus `platform-core/src/file-settings-keys.ts` (D27) = 7. Split, file-disjoint, parallel with 27b/27c (no shared files):
+  - **28a** (agent RPC + settings routing): `rpc-handlers/.../agent-rpc.schema.ts`, `agent-rpc.handlers.ts`, `platform-core/src/file-settings-keys.ts`, plus their specs (≤6 files).
+  - **28b** (MCP/namespace parity): `vscode-lm-tools/.../agent-spawn-args.schema.ts`, `tool-description.builder.ts`, `agent-namespace.builder.ts`, `system-namespace.builders.ts`, plus ≤2 specs.
+- `rpc-chat.types.ts` accountSelection (D22) stays out of Batch 28 → Batch 34 (file cap). `PENDING_USER_REVIEW_IDS` for the claude permission note → Batch 29 (frontend owner).
+- Both use the Batch 25 contracts in `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`; neither edits shared.
+
+## D32 — Batches 27b/27c/28a/28b acceptance (2026-10-24, orchestrator)
+
+- Verification (slot held): typecheck shared, rpc-handlers, platform-core, vscode-lm-tools, cli-engine, ptah-electron, ptah-extension-vscode, ptah-cli OK; tests shared 124/3754, platform-core 48/961, rpc-handlers 176/4601, cli-engine 25/230, vscode-lm-tools 99/3213; Electron rpc-surface + surface-composition + container.smoke 42/42; VS Code rpc-surface + container.smoke 54/54; lint of the five libs 0 errors.
+- Orchestrator corrections: shared `rpc-provider-accounts.spec.ts` now asserts each account method is registered exactly once (27b registered them by design); 28b `ptah_agent_spawn` top-level description exceeded its 1568-char budget (1900) → the claude sentence moved into the `cli` property description, the top-level text is unchanged; `agent-spawn-args.schema.spec.ts` imports `reflect-metadata` (it now loads the builder).
+- For the P1-E review: 28a reads the stored account through the handler's container instead of a constructor `@inject` (keeps 7 agent-rpc specs that build the handler directly); 27b registers `ProviderAccountRpcHandlers` as a singleton (request ledger + revision state). `SpawnAgentRequest` has no account field, so a selection is validated but not forwarded → Batch 34. Recommended, not done: Electron `container.smoke.spec.ts` resolve test for `ProviderAccountRpcHandlers`.
+- Out-of-scope observation (28a): `grokReasoningEffort` / `antigravityReasoningEffort` may not be routed in `file-settings-keys.ts` → check in Batch 34.
