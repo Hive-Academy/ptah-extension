@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_718_15b7
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Test hygiene for chat unit tests and the webview session-create e2e flake
 description: >-
