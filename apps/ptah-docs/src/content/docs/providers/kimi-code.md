@@ -17,15 +17,15 @@ Ptah no longer offers the Moonshot Platform (pay-as-you-go) provider. An old Moo
 
 Which models you can use depends on your Kimi Code plan.
 
-| Model                        | Context | Plan                     |
-| ---------------------------- | ------- | ------------------------ |
-| `k3.1-pro`                   | 256K    | Plus / Moderato and up   |
-| `k3.1-pro[1m]`               | 1M      | Pro / Allegretto and up  |
-| `k3.1-pro-highspeed`         | 1M      | Pro / Allegretto and up  |
-| `k3`                         | 256K    | Plus and up              |
-| `k3-256k`                    | 256K    | Plus and up              |
-| `kimi-for-coding`            | 1M      | Andante and up           |
-| `kimi-for-coding-highspeed`  | 256K    | Pro / Allegretto and up  |
+| Model                       | Context | Plan                    |
+| --------------------------- | ------- | ----------------------- |
+| `k3.1-pro`                  | 256K    | Plus / Moderato and up  |
+| `k3.1-pro[1m]`              | 1M      | Pro / Allegretto and up |
+| `k3.1-pro-highspeed`        | 1M      | Pro / Allegretto and up |
+| `k3`                        | 256K    | Plus and up             |
+| `k3-256k`                   | 256K    | Plus and up             |
+| `kimi-for-coding`           | 1M      | Andante and up          |
+| `kimi-for-coding-highspeed` | 256K    | Pro / Allegretto and up |
 
 Ptah maps its capability tiers to these defaults:
 
