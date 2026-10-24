@@ -276,3 +276,10 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - ptah-cli: `agent-cli resume --account ambient` (claude only; other values refused with a usage error that does not echo the value). Orchestrator bounded corrections: wired `--account` in `apps/ptah-cli/src/cli/router.ts` (the lane left the option unread); updated the stale comment in `agent-spawn-args.schema.ts`.
 - Not covered by Batch 34 (for the Batch 35 checkpoint): "list/message capabilities match handle". D22 chat RPC `accountSelection` → own batch (D37). D28 `laneAccountRefusalCode` name match stays open.
 - Verification: typecheck shared, platform-core, vscode-lm-tools, rpc-handlers, cli-agent-runtime, cli-engine, ptah-cli, ptah-electron, ptah-extension-vscode OK; tests vscode-lm-tools 100/3266, shared 124/3754, rpc-handlers 176/4604, platform-core 48/963, ptah-cli `agent-cli.spec.ts` 82/82; lint of changed files 0 errors.
+
+## D39 — Batch 35 acceptance (2026-10-24, orchestrator)
+
+- Executor: senior-tester subagent (Claude). 12 tests in 5 specs: registry/manifest/allowlist partition, Electron-only capability, refusal paths, CAS and durable request-id Add, sanitized snapshots, push ordering, Electron container resolves `ProviderAccountRpcHandlers` (D32). VS Code `expected-resolvable.ts` unchanged: the handler is absent there by design and listed in `expected-absent.ts`.
+- Checkpoint table in `implementation-report-batch-35.md`; no omitted capability found against `parity-inventory.md`. Review item: confirm the stderr-severity and session-name behavior moved from `ptah-cli-registry.ts` into `claude-sdk-lane-runner` still reaches the non-Claude Ptah CLI path.
+- OPEN (by design, held): live named auth, installed-runtime compatibility A1-A3, rendered Electron evidence (visual review running), user-reserved release; "list/message capabilities match handle" for the claude lane → follow-up in `claude-cli.adapter.spec.ts`. The Claude exit gate stays NOT SATISFIED.
+- Verification: rpc-handlers 176 suites / 4614; Electron `container.smoke` + `rpc-surface` + `surface-composition` 44/44; typecheck rpc-handlers, ptah-electron OK; lint 0 errors.

@@ -572,6 +572,70 @@ describe('ProviderAccountRpcHandlers', () => {
     });
   });
 
+  describe('construction and notification evidence (Batch 35)', () => {
+    it('registration and construction read no account storage', () => {
+      const { service, rpcHandler } = setup();
+      expect(service.calls).toEqual([]);
+      expect(rpcHandler.registerMethod).toHaveBeenCalledTimes(
+        PROVIDER_ACCOUNT_RPC_METHOD_NAMES.length,
+      );
+    });
+
+    it('pushes a sanitized snapshot: no path, email, token or fingerprint', async () => {
+      const { call, flush, service, sent } = setup();
+      // A variable, not a literal: extra fields model a richer store row.
+      const leaky = {
+        configDir: 'C:\\Users\\me\\.claude-profiles\\work',
+        email: 'me@example.com',
+        accessToken: 'sk-ant-secret',
+        routeFingerprint: 'f'.repeat(40),
+        profileId: PROFILE_A,
+        label: 'Work',
+        provider: 'claude' as const,
+        state: 'signed-in' as const,
+        owner: 'unknown' as const,
+        revision: 0,
+        activeRunCount: 0,
+      };
+      service.profiles.set(PROFILE_A, leaky);
+      const result = await call('provider:addAccount', addParams(1));
+      await flush();
+      expect(sent).toHaveLength(1);
+      for (const text of [JSON.stringify(result), JSON.stringify(sent)]) {
+        for (const forbidden of [
+          '.claude-profiles',
+          'me@example.com',
+          'sk-ant',
+          'routeFingerprint',
+          'configDir',
+          'accessToken',
+        ]) {
+          expect(text).not.toContain(forbidden);
+        }
+      }
+    });
+
+    it('a refused write pushes nothing and leaves revisions consecutive', async () => {
+      const { call, flush, service, sent } = setup();
+      seedProfile(service, 3);
+      await call('provider:addAccount', addParams(1));
+      await expect(
+        call('provider:renameAccount', {
+          provider: 'claude',
+          workspaceRoot: ROOT,
+          requestId: REQ(2),
+          profileId: PROFILE_A,
+          expectedRevision: 0,
+          label: 'Stale',
+        }),
+      ).resolves.toMatchObject({ ok: false, result: { code: 'conflict' } });
+      await call('provider:addAccount', addParams(3));
+      await flush();
+      expect(sent.map((n) => n.requestId)).toEqual([REQ(1), REQ(3)]);
+      expect(sent[1].snapshot.revision).toBe(sent[0].snapshot.revision + 1);
+    });
+  });
+
   describe('redaction', () => {
     it('maps a coded store failure to fixed copy, never its message', async () => {
       const { call, flush, service, sent, logger } = setup();
