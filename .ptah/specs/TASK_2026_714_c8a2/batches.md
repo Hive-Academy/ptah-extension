@@ -263,7 +263,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Scoped command passes; spec covers fragmentation, oversize, timeout, crash mid-request,
   double close, terminal-before-exit.
 
-## Batch 2e: Execution profile builder — IN_PROGRESS
+## Batch 2e: Execution profile builder — COMPLETE (verified by orchestrator: 17/17 spec, project typecheck+lint by lane; P2 review note: experimentalApi only for ask here vs always true in 2d; approvalsReviewer field not in 2a contract)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential | Review family:
   Claude | Subagent reason: N/A
