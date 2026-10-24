@@ -781,6 +781,8 @@ export class ProvidersSettingsStateService {
           piModel: config.piModel,
           codexReasoningEffort: config.codexReasoningEffort,
           copilotReasoningEffort: config.copilotReasoningEffort,
+          grokReasoningEffort: config.grokReasoningEffort,
+          antigravityReasoningEffort: config.antigravityReasoningEffort,
           piReasoningEffort: config.piReasoningEffort,
           claudeModel: config.claudeModel,
           claudeReasoningEffort: config.claudeReasoningEffort,

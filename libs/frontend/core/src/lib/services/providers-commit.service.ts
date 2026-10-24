@@ -158,6 +158,8 @@ export class ProvidersCommitService {
       'claudeModel',
       'codexReasoningEffort',
       'copilotReasoningEffort',
+      'grokReasoningEffort',
+      'antigravityReasoningEffort',
       'piReasoningEffort',
       'claudeReasoningEffort',
       'disabledClis',
