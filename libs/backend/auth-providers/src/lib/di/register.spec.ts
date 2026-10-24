@@ -38,10 +38,15 @@ class AccountChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
-  readonly whenSpawned = Promise.resolve(4321);
-  readonly pid = 4321;
   readonly killed = false;
   readonly exitCode = null;
+  /** Defaults to a spawned child; `null`/`undefined` models one that never started. */
+  constructor(
+    readonly whenSpawned: Promise<number | null> = Promise.resolve(4321),
+    readonly pid: number | undefined = 4321,
+  ) {
+    super();
+  }
   kill(): boolean { return true; }
 }
 
@@ -106,6 +111,23 @@ describe('required auth registration without the memory curator', () => {
     await c.dispose();
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(disposeActions).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands out fail-closed admission when the SQL connection is not registered', async () => {
+    // VS Code never registers SQLITE_CONNECTION; resolution must not throw.
+    const { c } = setup();
+    const admission = c.resolve<ProviderAccountAdmissionPort>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION);
+    expect(admission).not.toBeInstanceOf(ProviderAccountService);
+    expect(c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION)).toBe(admission);
+    const lease = { reservationId: 'reservation-0001', operationId: 'operation-0001', authEpoch: 0 };
+    await expect(admission.admitClaudeRoute({
+      provider: 'claude', scope: 'main', selection: { kind: 'ambient' },
+      operationId: 'operation-0001', runId: 'run-00001',
+    })).resolves.toEqual({ code: 'release-held', summary: expect.any(String) });
+    await expect(admission.releaseReservation({ ...lease, reason: 'cancel' }))
+      .resolves.toEqual({ code: 'conflict', summary: expect.any(String) });
+    await expect(admission.retainUnresolvedReservation(lease))
+      .resolves.toEqual({ code: 'conflict', summary: expect.any(String) });
   });
 
   it('returns typed busy refusals through every account port surface with an injected busy database', async () => {
@@ -187,6 +209,51 @@ describe('required auth registration without the memory curator', () => {
         actions.signOut(command), actions.cancelSignIn(command),
       ])) expect(result).toMatchObject({ code: 'unavailable-storage' });
       expect(spawnProcess).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+      db.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('releases a never-spawned sign-in at once on disposal without waiting out the grace', async () => {
+    jest.useFakeTimers();
+    const directory = mkdtempSync(join(tmpdir(), 'ptah-account-di-'));
+    const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
+    const db = new Database(':memory:');
+    try {
+      const schema = MIGRATIONS.find(entry => entry.version === 58)?.sql;
+      if (!schema) throw new Error('Provider account migration is missing');
+      db.exec(schema);
+      const { c } = setup();
+      c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, { db, dbPath: join(directory, 'isolated.sqlite') });
+      const child = new AccountChild(Promise.resolve(null), undefined);
+      const spawnProcess = jest.fn(() => child);
+      c.registerInstance(SDK_TOKENS.SDK_PROCESS_SPAWNER, { spawnProcess });
+      c.registerInstance(SDK_TOKENS.SDK_CLI_DETECTOR, {
+        findExecutable: jest.fn().mockResolvedValue({ path: 'fixture-only', isWSL: false }),
+      });
+      jest.mocked(killProcessTree).mockClear();
+      const commands = c.resolve(ClaudeAccountCommand);
+      jest.spyOn(commands, 'authorization').mockReturnValue('ok');
+      jest.spyOn(commands, 'environment').mockReturnValue({});
+      const profile = c.resolve(ProviderAccountService).add('Never spawned fixture');
+      const store = c.resolve(ProviderAccountStore);
+      const actions = c.resolve<ProviderAccountActionPort>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS);
+      const command = { provider: 'claude' as const, profileId: profile.profileId,
+        expectedRevision: profile.revision, operationId: 'operation-never-spawned' };
+      const pending = actions.startSignIn(command);
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+      // No timer advance: the 2 s grace must not be what settles this lease.
+      await c.dispose();
+      expect(await pending).toMatchObject({ code: 'cancelled' });
+      expect(store.get(profile.profileId).state).toBe('cancelled');
+      expect(db.prepare('SELECT * FROM provider_account_operations').all()).toHaveLength(0);
+      expect(killProcessTree).not.toHaveBeenCalled();
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+      expect(jest.getTimerCount()).toBe(0);
     } finally {
       jest.useRealTimers();
       db.close();

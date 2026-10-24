@@ -415,11 +415,14 @@ export class ClaudeNamedLaneAdmission {
   }
 
   private sameIdentity(identity: ProviderAccountIdentityEvidence): boolean {
+    // `unknown` is absent proof, never an identity: it equals nothing, not
+    // even itself. A known identity matches only the same owner key.
+    const baseline = this.identity;
     return (
-      !!this.identity &&
-      (this.identity.kind === 'known' && identity.kind === 'known'
-        ? this.identity.ownerKey === identity.ownerKey
-        : this.identity.kind === identity.kind)
+      !!baseline &&
+      baseline.kind === 'known' &&
+      identity.kind === 'known' &&
+      baseline.ownerKey === identity.ownerKey
     );
   }
 
@@ -440,6 +443,9 @@ export class ClaudeNamedLaneAdmission {
     this.gates.push(gate);
     const child = this.open(queryFn, gate.prompt, options);
     this.identity = await this.readIdentity();
+    // Refuse an unproved identity before any binding is committed or any
+    // prompt is sent, including on a fresh lane with no stored binding.
+    if (this.identity.kind !== 'known') throw claudeLaneRefusal();
     if (
       this.stored &&
       (this.stored.identity.kind !== 'known' ||

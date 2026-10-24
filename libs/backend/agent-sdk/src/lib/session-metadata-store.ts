@@ -364,6 +364,25 @@ export function sessionIndexEntry(metadata: SessionMetadata): SessionMetadata {
   return entry;
 }
 
+/**
+ * Index entry for a row this store did not just write. A stored row whose
+ * account binding no longer parses keeps its stored binding and stays in the
+ * index (one bad row must not fail every write); the row a write targets
+ * stays strict in `_saveInternal` before it is staged.
+ */
+function preservedIndexEntry(metadata: SessionMetadata): SessionMetadata {
+  try {
+    return sessionIndexEntry(metadata);
+  } catch (error: unknown) {
+    // Only an unparseable stored binding is tolerated here; reads of that row
+    // through get() and every account gate still refuse it.
+    if (!(error instanceof SessionAccountBindingError)) throw error;
+    const entry = { ...metadata };
+    delete entry.cliSessions;
+    return entry;
+  }
+}
+
 /** A session as a global-store row. */
 export function toSessionRecordInput(
   detail: SessionMetadata,
@@ -873,7 +892,7 @@ export class SessionMetadataStore {
       isAsyncStateStorage(this.storage)
         ? {
             schemaVersion: SESSION_INDEX_SCHEMA_VERSION,
-            items: snapshot.map((item) => this.indexEntry(item)),
+            items: snapshot.map(preservedIndexEntry),
           }
         : snapshot,
     );

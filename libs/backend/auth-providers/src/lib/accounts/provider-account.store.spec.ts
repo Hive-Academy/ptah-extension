@@ -17,7 +17,8 @@ class DisposalChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
-  readonly whenSpawned = Promise.resolve(null);
+  // Spawn never settles: `null` would mean "never started" (proved termination).
+  readonly whenSpawned = new Promise<number | null>(() => undefined);
   readonly pid = undefined;
   readonly killed = false;
   readonly exitCode = null;

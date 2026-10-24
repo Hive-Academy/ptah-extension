@@ -1,12 +1,18 @@
 import 'reflect-metadata';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ClaudeAccountNamedRoute,
+  ClaudeAccountRunReservation,
+  ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import {
   buildFlagSettingsArg,
   buildSafeEnv,
   buildSessionName,
   deriveWorkspaceLabel,
+  type Options,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
@@ -16,7 +22,9 @@ import {
   type ClaudeSdkLaneOptionsInput,
 } from './claude-sdk-lane-options';
 import {
+  ClaudeNamedLaneAdmission,
   ClaudeSdkLaneRunner,
+  type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunContext,
 } from './claude-sdk-lane-runner';
 import { PtahCliStreamLoop } from '../ptah-cli/helpers/ptah-cli-stream-loop.service';
@@ -487,6 +495,76 @@ describe('named runner handoff', () => {
   });
 });
 
+describe('named lane identity proof', () => {
+  type QueryFn = ClaudeSdkLaneRunContext['queryFn'];
+  const notReached = async (): Promise<never> => {
+    throw new Error('Not reached during bootstrap');
+  };
+
+  function bootstrapFixture(stored?: ProviderAccountBinding) {
+    const route = {
+      kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
+      canonicalConfigDir: 'D:/accounts/selected',
+      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+    } as ClaudeAccountNamedRoute;
+    const commitRunBinding = jest.fn(notReached);
+    const assertRouteCurrent = jest.fn(async () => undefined);
+    const persistence: ClaudeLaneAccountPersistence = {
+      available: true,
+      lookupBySdkSession: notReached,
+      validateResume: notReached,
+      persistReference: notReached,
+      commitRunBinding,
+      attachSdkSession: notReached,
+      saveAccountBound: notReached,
+      assertRouteCurrent,
+      onAuthEpochChanged: () => () => undefined,
+    };
+    const admissionPort: ProviderAccountAdmissionPort = {
+      admitClaudeRoute: notReached,
+      releaseReservation: notReached,
+      retainUnresolvedReservation: notReached,
+    };
+    const close = jest.fn();
+    // No email in the account info: the child cannot prove an identity.
+    const query = { accountInfo: async () => ({}), close: (): void => close() };
+    const queryMock = jest.fn(() => query as ReturnType<QueryFn>);
+    const queryFn: QueryFn = queryMock;
+    const options: Options = {
+      spawnClaudeCodeProcess: () => {
+        throw new Error('The fake query never spawns');
+      },
+    };
+    const abort = new AbortController();
+    // A long deadline: a refusal must come from the identity check, not a timeout.
+    const admission = new ClaudeNamedLaneAdmission(
+      route, {} as ClaudeAccountRunReservation, admissionPort, persistence,
+      abort, { warn: jest.fn() }, stored, 60_000,
+    );
+    return { admission, queryFn, queryMock, options, abort, close, commitRunBinding, assertRouteCurrent };
+  }
+
+  it.each<[string, ProviderAccountBinding | undefined]>([
+    ['no stored binding', undefined],
+    ['a stored unknown identity', {
+      version: 1, provider: 'claude', profileId: 'profile', runId: 'run',
+      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+      identity: { kind: 'unknown' },
+    } satisfies ProviderAccountBinding],
+  ])('refuses an unproved identity before any binding with %s', async (_label, stored) => {
+    const f = bootstrapFixture(stored);
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.queryMock).toHaveBeenCalledTimes(1);
+    expect(f.assertRouteCurrent).toHaveBeenCalledTimes(1);
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    // Refused at the identity check: the bootstrap child was never released
+    // as proved, and no deadline fired.
+    expect(f.close).not.toHaveBeenCalled();
+    expect(f.abort.signal.aborted).toBe(false);
+  });
+});
 
 // A2 mocked evidence only; no live SDK compatibility claim.
 describe('A2 mocked-evidence lane route and policy matrix', () => {

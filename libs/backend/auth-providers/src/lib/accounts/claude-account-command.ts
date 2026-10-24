@@ -186,7 +186,13 @@ export class ClaudeAccountCommand {
         output = '';
         grace = setTimeout(() => finish({ code, terminated: false }), 2_000);
         void child.whenSpawned.then(pid => {
-          if (settled || pid === null) return;
+          if (settled) return;
+          if (pid === null) {
+            // Never spawned: no process exists, so termination is established
+            // and the reservation can release now instead of after the grace.
+            finish({ code, terminated: true });
+            return;
+          }
           // Tree kill is best effort. Only close proves termination for this lease.
           return killProcessTree(pid, 'SIGKILL');
         }).catch((error: unknown) => {
