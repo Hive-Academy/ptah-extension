@@ -72,8 +72,10 @@ import type {
   SessionId,
   SubagentPromptCacheTtlSetting,
   TabId,
+  ProviderAccountResultCode,
 } from '@ptah-extension/shared';
 import {
+  PROVIDER_ACCOUNT_RESULT_CODES,
   CLI_REASONING_EFFORT_VALUES,
   PI_REASONING_EFFORT_VALUES,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
@@ -321,6 +323,26 @@ function decisionModelRefusal(
     if (fields.has('model')) return DECISION_MODEL_INVALID_MODEL;
   }
   return 'Unsupported decisionModel value';
+}
+
+/**
+ * The refusal code of a `LaneAccountResumeError` (cli-agent-runtime
+ * `lane-resume-gate.ts`), or undefined for any other error. Matched by its
+ * fixed name and a code from the provider-account whitelist; anything else is
+ * not an account refusal. The class is now on the lib barrel, but the agent-rpc
+ * specs mock that barrel without it, so `instanceof` waits for those mocks.
+ */
+function laneAccountRefusalCode(
+  error: unknown,
+): Exclude<ProviderAccountResultCode, 'ok'> | undefined {
+  if (!(error instanceof Error) || error.name !== 'LaneAccountResumeError') {
+    return undefined;
+  }
+  const code = 'code' in error ? error.code : undefined;
+  return PROVIDER_ACCOUNT_RESULT_CODES.find(
+    (known): known is Exclude<ProviderAccountResultCode, 'ok'> =>
+      known !== 'ok' && known === code,
+  );
 }
 
 @injectable()
@@ -1248,6 +1270,22 @@ export class AgentRpcHandlers {
             code: error.code,
           });
           return { success: false, code: error.code, error: error.message };
+        }
+        const accountRefusal = laneAccountRefusalCode(error);
+        if (accountRefusal) {
+          // Account-scoped `claude` lane continue refused by the resume gate
+          // (TASK_2026_712 D25 F3). Wire code `unknown`, not a resume-fallback
+          // code: a resume would hit the same account gate. The reply is
+          // rebuilt from the whitelisted refusal code only.
+          this.logger.warn('RPC: agent:continue account refused', {
+            agentId: params.agentId,
+            code: accountRefusal,
+          });
+          return {
+            success: false,
+            code: 'unknown',
+            error: `Claude lane account resume refused (${accountRefusal}).`,
+          };
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);

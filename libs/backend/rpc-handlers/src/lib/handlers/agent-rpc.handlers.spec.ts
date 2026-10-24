@@ -78,6 +78,7 @@ interface Harness {
     spawnFromSdkHandle: jest.Mock;
     reserveAgentId: jest.Mock;
     prepareSdkHandleSpawn: jest.Mock;
+    continueConversation: jest.Mock;
   };
   /** Stored `ptah` settings, keyed by the full key (`agentOrchestration.x`). */
   settings: Map<string, unknown>;
@@ -109,6 +110,7 @@ function makeHarness(): Harness {
         resumeSessionId: input.resumeSessionId,
       }),
     ),
+    continueConversation: jest.fn().mockResolvedValue(undefined),
   };
 
   // Each write yields to the event loop before it lands, the way the file
@@ -344,5 +346,97 @@ describe('AgentRpcHandlers — agent:setConfig serialisation', () => {
     });
     expect(next).toEqual({ success: true });
     expect(h.settings.get('agentOrchestration.piModel')).toBe('pi-1');
+  });
+});
+
+/**
+ * TASK_2026_712 D25 F3: an account-scoped `claude` lane continue that the
+ * resume gate refuses throws `LaneAccountResumeError` (not on the barrel, so
+ * built here by name + code, as the handler matches it). The reply carries the
+ * whitelisted refusal code only, never the thrown text.
+ */
+function laneAccountResumeError(code: string, message: string): Error {
+  const error = Object.assign(new Error(message), { code });
+  error.name = 'LaneAccountResumeError';
+  return error;
+}
+
+type ContinueResult = { success: boolean; error?: string; code?: string };
+
+describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
+  it('maps LaneAccountResumeError to a typed, path-free refusal', async () => {
+    const h = makeHarness();
+    h.processManager.continueConversation.mockRejectedValueOnce(
+      laneAccountResumeError(
+        'unavailable-storage',
+        'EACCES C:/Users/someone/.claude-profiles/work/.credentials.json',
+      ),
+    );
+
+    const result = await call<ContinueResult>(h, 'agent:continue', {
+      agentId: 'a-1',
+      message: 'next step',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      code: 'unknown',
+      error: 'Claude lane account resume refused (unavailable-storage).',
+    });
+    expect(JSON.stringify(result)).not.toContain('credentials');
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:continue account refused',
+      { agentId: 'a-1', code: 'unavailable-storage' },
+    );
+    expect(h.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps the specific refusal code', async () => {
+    const h = makeHarness();
+    h.processManager.continueConversation.mockRejectedValueOnce(
+      laneAccountResumeError('identity-unproved', 'refused'),
+    );
+
+    const result = await call<ContinueResult>(h, 'agent:continue', {
+      agentId: 'a-1',
+      message: 'next step',
+    });
+
+    expect(result.error).toBe(
+      'Claude lane account resume refused (identity-unproved).',
+    );
+  });
+
+  it('treats a non-whitelisted code as an ordinary failure', async () => {
+    const h = makeHarness();
+    h.processManager.continueConversation.mockRejectedValueOnce(
+      laneAccountResumeError('C:/secret/path', 'C:/secret/path'),
+    );
+
+    const result = await call<ContinueResult>(h, 'agent:continue', {
+      agentId: 'a-1',
+      message: 'next step',
+    });
+
+    expect(result).toEqual({
+      success: false,
+      code: 'unknown',
+      error: 'Failed to continue agent conversation',
+    });
+  });
+
+  it('leaves an ambient (unbound) continue unchanged', async () => {
+    const h = makeHarness();
+
+    const result = await call<ContinueResult>(h, 'agent:continue', {
+      agentId: 'a-1',
+      message: 'next step',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(h.processManager.continueConversation).toHaveBeenCalledWith(
+      'a-1',
+      'next step',
+    );
   });
 });

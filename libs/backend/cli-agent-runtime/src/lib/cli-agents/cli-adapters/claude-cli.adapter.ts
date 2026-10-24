@@ -52,7 +52,14 @@ export interface ClaudeCliAdapterDependencies {
   readonly syncHarness: (policy: EffectiveCapabilitySet) => Promise<void>;
   readonly planLimits: () => ClaudeSdkLaneRunContext['lanePlanLimits'];
   readonly admission: () => ProviderAccountAdmissionPort | null;
+  /** Full persistence; the only port that may admit or persist a named lane. */
   readonly accountPersistence?: () => ClaudeLaneAccountPersistence | null;
+  /**
+   * Read-only binding authority used when full persistence is absent, so an
+   * ambient continue of a never-bound session still resumes. It can never
+   * admit, validate or persist a named binding.
+   */
+  readonly accountBindings?: () => LaneAccountBindingPort | null;
   readonly defaults: () => {
     model?: string;
     effort?: string;
@@ -73,7 +80,11 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
   ) {}
 
   get accountBindings(): LaneAccountBindingPort | undefined {
-    return this.deps.accountPersistence?.() ?? undefined;
+    return (
+      this.deps.accountPersistence?.() ??
+      this.deps.accountBindings?.() ??
+      undefined
+    );
   }
 
   capabilities() {
