@@ -23,6 +23,10 @@
  *   - Every write carries a `requestId`. A repeat with the same request
  *     returns the first outcome; the same ID with different params is
  *     `conflict`. Stale revisions are refused by the service (`conflict`).
+ *     The ledger is a bounded in-process fast path; Add is also idempotent
+ *     in storage (the profile ID derives from `requestId`), so a replay after
+ *     eviction or restart returns the stored account instead of a second one.
+ *     Rename/remove/selection replays are stopped by their expected revision.
  *   - A committed write bumps the snapshot revision and pushes exactly one
  *     sanitized `provider:accountsChanged` notification. Refusals push nothing.
  *
@@ -160,7 +164,11 @@ export class ProviderAccountRpcHandlers {
     this.on('provider:getAccountStatus', (p) => this.getAccountStatus(p));
     this.on('provider:addAccount', (p) =>
       withAccount(
-        this.write('provider:addAccount', p, () => this.accounts.add(p.label)),
+        // The service keys the new profile by requestId, so a replay the
+        // in-memory ledger no longer holds (eviction, restart) cannot add twice.
+        this.write('provider:addAccount', p, () =>
+          this.accounts.add(p.label, p.requestId),
+        ),
       ),
     );
     this.on('provider:renameAccount', (p) =>

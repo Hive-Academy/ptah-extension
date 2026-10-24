@@ -79,9 +79,16 @@ class FakeAccountService implements ProviderAccountRpcService {
     return [...this.profiles.values()];
   }
 
-  add(label: string): ProviderAccountSummary {
+  /** Mirrors the real service: a requestId keys the profile durably. */
+  add(label: string, requestId?: string): ProviderAccountSummary {
     this.guard('add');
-    const profileId = `profile-${String(this.nextId++).padStart(4, '0')}-new`;
+    const keyed = requestId === undefined ? undefined : `profile-${requestId}`;
+    const prior = keyed === undefined ? undefined : this.profiles.get(keyed);
+    if (prior) {
+      if (prior.label !== label) throw new FakeStoreError('conflict');
+      return prior;
+    }
+    const profileId = keyed ?? `profile-${String(this.nextId++).padStart(4, '0')}-new`;
     const summary: ProviderAccountSummary = {
       profileId,
       label,
@@ -164,7 +171,7 @@ function seedProfile(service: FakeAccountService, revision = 0): void {
 
 type MethodHandler = (params: unknown) => Promise<unknown>;
 
-function setup(options: { folders?: string[] } = {}) {
+function setup(options: { folders?: string[]; service?: FakeAccountService } = {}) {
   const methods = new Map<string, MethodHandler>();
   const rpcHandler = {
     registerMethod: jest.fn((name: string, handler: MethodHandler) => {
@@ -187,7 +194,7 @@ function setup(options: { folders?: string[] } = {}) {
       sent.push(payload as ProviderAccountsChangedNotification);
     }),
   };
-  const service = new FakeAccountService();
+  const service = options.service ?? new FakeAccountService();
   // Resolve through DI so every @inject token the handler declares is proved.
   const scope = container.createChildContainer();
   scope.register(TOKENS.LOGGER, { useValue: logger });
@@ -376,6 +383,43 @@ describe('ProviderAccountRpcHandlers', () => {
       expect(service.calls).toEqual(['add']);
       expect(service.profiles.size).toBe(1);
       expect(sent).toHaveLength(1);
+    });
+
+    it('forwards the request ID so a repeated Add after ledger eviction adds no duplicate', async () => {
+      const { call, service } = setup();
+      const first = (await call('provider:addAccount', addParams(1))) as {
+        account: ProviderAccountSummary;
+      };
+      // 256 later writes push REQ(1) out of the in-memory ledger.
+      for (let n = 2; n <= 257; n++) await call('provider:addAccount', addParams(n));
+      const replay = await call('provider:addAccount', addParams(1));
+      expect(replay).toMatchObject({ ok: true, account: { profileId: first.account.profileId } });
+      expect(service.profiles.size).toBe(257);
+      expect(service.calls.filter((name) => name === 'add')).toHaveLength(258);
+    });
+
+    it('a repeated Add on a new handler instance (restart) adds no duplicate', async () => {
+      const service = new FakeAccountService();
+      const before = setup({ service });
+      const first = (await before.call('provider:addAccount', addParams(1))) as {
+        account: ProviderAccountSummary;
+      };
+      const after = setup({ service });
+      const replay = await after.call('provider:addAccount', addParams(1));
+      expect(replay).toMatchObject({ ok: true, account: { profileId: first.account.profileId } });
+      expect(service.profiles.size).toBe(1);
+    });
+
+    it('a different request ID still creates a new account', async () => {
+      const { call, service } = setup();
+      const one = (await call('provider:addAccount', addParams(1))) as {
+        account: ProviderAccountSummary;
+      };
+      const two = (await call('provider:addAccount', addParams(2))) as {
+        account: ProviderAccountSummary;
+      };
+      expect(two.account.profileId).not.toBe(one.account.profileId);
+      expect(service.profiles.size).toBe(2);
     });
 
     it('refuses a reused request ID carrying different params', async () => {
