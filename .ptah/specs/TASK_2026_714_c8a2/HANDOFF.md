@@ -1,8 +1,9 @@
-# Session handoff — TASK_2026_714_c8a2 (session 4)
+# Session handoff — TASK_2026_714_c8a2 (session 5)
 
-Written 2026-10-23 at the user's request (session at 27.6M tokens). Replaces the session 3 handoff.
-No lane, subagent or background command of this task is running. This session holds no heavy-check
-slot.
+Written 2026-10-24 at the user's request (session at 35.4M tokens). Replaces the session 4 handoff.
+No lane, subagent or background command of this task is running. This session does NOT hold the
+heavy-check slot: it is queued (717 holds it → 712 next → 714). Wait for "released" before any
+heavy check.
 
 ## Goal
 
@@ -14,89 +15,76 @@ proxy, Removal B: codex-sdk lanes). Claude behavior stays unchanged. Electron fi
 runtime-selector UI. A visible refusal is not parity. Production stays disabled until the evidence
 spike proves the required observations (`implementation-plan.md:262-270`).
 
-## Done this session (pushed unless stated)
+## Git state
 
 Worktree `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat`, branch
 `feat/codex-sdk-main-chat`, draft PR https://github.com/Hive-Academy/ptah-extension/pull/809.
-Remote head `bacc19168`.
 
-| Commit | Content | Review (Review family: Claude reviewer, Codex implementer) |
-| --- | --- | --- |
-| `4f52c5913` | style: prettier on harness/spec/cases (HEAD was never formatted; token-identical) | none (format only) |
-| `60a4833a0` | Batch 1c + fix round: sanitized command shapes (experiment, home, temp, cwd, CODEX_HOME, auth paths -> placeholders, other abs paths -> `<PATH>`, sanitize before 400 cap), granular all-true ask policy + approvalsReviewer "user", separate approval-policy mismatch message, missing-approval note gating; frames/failure notes extracted | `code-logic-review-batch-1c.md` REVISE 7 -> fixes -> `code-logic-review-batch-1c-fixes.md` APPROVED 8.5 |
-| `80574a804` | Batch 1d: `initialize` declares `capabilities.experimentalApi=true` for granular cases only; granular policy + reviewer confirmed from the `thread/start` response; `RPC error <code>` recorded | `code-logic-review-batch-1d.md` APPROVED 8.5 |
-| `51781113c` | Batch 1e: marker writer as per-case script file; `commandMatches` accepts exact or exactly `"<abs>\(powershell|pwsh).exe" -Command "<expected>"` on win32, in both gates | `code-logic-review-batch-1e.md` APPROVED 8 |
-| `f63d64d58` | Batch 1f: forward-slash paths in the expected command (no backslash, no `"`); differs-by labels | `code-logic-review-batch-1f.md` APPROVED 7 |
-| `0237d33ca` | Batch 1g: command on its own line in the prompt (run 6d copied a trailing period) | none (prompt text = measurement, rule 3) |
-| `36fb38bca`, `000489ef7`, `94488fb0e`, `7bcb5e106`, `7b6adc876`, `bacc19168` | docs: reviews, reports, spike runs 6–6d, decisions | — |
-| `5485eba33` | docs: spike run 6e, `native-route-evidence.md` update | **LOCAL ONLY, not pushed** |
+- Local head `c9187f9d9`. Remote head is older (`d74295bdc`).
+- **Six commits are local only** (two pushes failed: github.com:443 unreachable; api.github.com
+  worked, per peer 718): `d22e61e1e`, `21f7f49fe`, `ce6dd5104`, `d432b55ee`, `cfb45cd73`,
+  `c9187f9d9`. CI has not run on any of them.
+- **Uncommitted (Batch 1k + docs), formatted with prettier, NOT yet nx-checked:**
+  - code: `libs/backend/codex-runtime/tools/evidence-harness.ts`, `evidence-harness.spec.ts`
+  - docs: `.ptah/specs/TASK_2026_714_c8a2/decisions.md`, `spike-runner.ts`, `HANDOFF.md`,
+    `batch-1k-report.md`, `batch-1k-fixes-report.md`, `code-logic-review-batch-1k.md`,
+    `code-logic-review-batch-1k-fixes.md`
 
-Uncommitted: `decisions.md` (2 rows: usage bound approval, Batch 1h plan), `spike-runner.ts`, this
-`HANDOFF.md`. Commit them as docs and push with the next code batch (needs the heavy-check slot:
-the pre-push gate runs di-lint + Electron validate-deps).
+## Spike results (model gpt-6-luna, bundled codex 0.155.1, copied auth only)
 
-Last scoped checks (on `0237d33ca`): `nx run-many -t test typecheck lint -p codex-runtime` ->
-test 104/104, typecheck pass, lint 0 errors, 2 old warnings (max-lines 1717 > 700, accepted for
-this spike tool; no-useless-assignment).
+Turns: **15 of 20 used, 5 remain.** Bounds: 30000 per turn, 100000 cumulative per run.
 
-CI: `bacc19168` all jobs pending at handoff, none failed. Earlier heads were not watched to the end.
-Run `gh pr checks 809` first.
+| Observation | Status | Run |
+|---|---|---|
+| Command accept / deny (granular all-true + read-only) | Observed | 6e / 6f |
+| Compaction | Observed | 6e |
+| File-change accept, plan read-only boundary, auto-edit boundary, YOLO interrupt | Observed | 6h |
+| MCP approval via `mcpServer/elicitation/request` | OPEN — 6h waited for a wrong method and broke the old 15000 bound; fixed in Batch 1k | — |
+| Edited input via decline + `turn/steer` | OPEN — 6f/6g failed because developerInstructions leaked the plan; fixed in `d432b55ee` | — |
+| Ask-level exec-policy read prompt | DROPPED by user decision (below) | — |
 
-## Spike results (runs 6–6e, model gpt-6-luna, bundled codex 0.155.1, copied auth only)
+## User decisions this session (all in `decisions.md`)
 
-Turns: **7 of 14 used, 7 remain**. No `%TEMP%\ptah-codex-evidence-*` leftover after any run.
+1. Turn budget 20 total. Per-turn usage bound 30000 (cumulative 100000 unchanged).
+2. Allow one marker read in the edit case.
+3. "We need to get everything working as expected."
+4. **Ask level = Codex granular (all true) + `read-only` sandbox, matching Claude Code and current
+   Ptah ask.** Reads and other sandbox-allowed actions run without a prompt; writes, file changes,
+   escalated commands and MCP tool calls ask first. The exec-policy read rule is not needed;
+   `ask-read-rule` stays in the harness but is not run. This settles the granular adoption
+   question for the core batch.
 
-| Run | Turns | Result |
-| --- | --- | --- |
-| 6 | 0 | `thread/start` -32600 "askForApproval.granular requires experimentalApi capability" |
-| 6b | 1 | identity gate: Codex wraps as `"<abs>\powershell.exe" -Command "<cmd>"`; inline `-e` script escaped |
-| 6c | 1 | wrapper accepted; inner-path backslashes came back doubled |
-| 6d | 1 | forward slashes matched except a copied trailing period; first granular `requestApproval` |
-| 6e | 3 | **ask-command-accept OBSERVED** (granular all-true + read-only: request arrived with marker absent; accept -> marker written). ask-command-deny: request, decline, no marker, then "Cumulative usage ceiling reached" (23425 > 12000). **compaction OBSERVED** |
+Context given to the user: granular is a Codex approval policy, not Ptah state. Ptah only answers
+Codex's JSON-RPC approval requests with its own prompt UI; Codex enforces the sandbox. Nothing is
+wired in production yet — the current lane builder hard-codes `approval_policy="never"`
+(`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder.ts:129`).
+Ptah levels: `PermissionLevel` in `libs/shared/src/lib/types/model-autopilot.types.ts:20`.
 
-Facts learned: `item/started` for a command arrives BEFORE `item/commandExecution/requestApproval`.
-Each turn reports ~11.7k tokens (~11.5k input). `thread/start` echoes `approvalPolicy` and
-`approvalsReviewer`. Granular approvals need the experimental API opt-in (stability risk to carry
-into the core design and gap table).
+## Batch 1k (done, approved, uncommitted)
 
-## User decisions this session (in `decisions.md`)
+- Event summaries: item type/status, MCP server/tool, error flag, startup status/name.
+- MCP approval via `mcpServer/elicitation/request` (thread + turnId (null allowed) + server
+  `marker` + approvalRounds 0; required fields only if all boolean, answered true); dead
+  `item/mcpToolCall/requestApproval` path removed; `openai/form` modes dropped;
+  `default_tools_approval_mode="prompt"` for the mcp case only (missing key in config/read → note,
+  not throw); `USAGE_TURN_LIMIT = 30_000`.
+- Review: REVISE 7/10 → lane fixed S1/S2 → re-review REVISE 8/10 for one spec assertion → fixed by
+  orchestrator (config-wrong spec asserts on `String(failure)` + non-observed status). Jest 167/167.
 
-1. Turn budget raised to **14 total** (same bounds otherwise).
-2. Usage bound: stop a run when one turn reports **> 15000** tokens or the cumulative observed total
-   passes **100000** (replaces the 12000 ceiling). One-turn overshoot remains possible.
-3. Earlier decisions still stand: edited input -> prove a native alternative (decline +
-   `turn/steer`); ask level -> adopt granular only if it proves ask-before-effect, else back to the
-   user.
+## Run 6i plan (`spike-runner.ts`, already edited)
 
-## In progress — Batch 1h (NOT started; plan recorded in `decisions.md`, last row)
+Cases: `schema-handshake`, `modified-input-schema`, `mcp-approval`, `ask-command-edit` = 2 planned
+turns, `--turn-cap 3` (one steer slot), 2 of 5 turns in reserve. A failed gate stops later cases.
 
-1. Usage bounds in `evidence-harness.ts`: `USAGE_CEILING` (:43) -> cumulative 100000 plus a
-   per-turn 15000 bound (`UsageBudget` :422-434; observe sites ~:923, :1341; run loop :1664).
-2. New case `ask-command-edit` in `evidence-cases.json` (kind command, level ask, turnCost 1):
-   first `requestApproval` for the original command -> decline + `turn/steer` (schema
-   `TurnSteerParams` at `codex-app-server-protocol.schema.json:25233`) with the edited command that
-   writes the replacement marker (`${item.id}.replacement.marker`, harness ~:1090) -> the second
-   request must match the edited command exactly (`commandMatches`) -> accept -> replacement marker
-   written, original never written. Record whether steer is charged as a turn and its usage.
-3. Spec coverage for both. Then scoped checks, a different-family review, commit, push.
-4. Runner for run 6f (`spike-runner.ts`, copy to `/tmp/run6/runner.ts` or run in place): drop the
-   proved `ask-command-accept` and `compaction`; run deny, edit, file, plan, auto-edit, yolo, mcp
-   = 7 turns, refuse a plan above the remaining 7. Note: `ask-command-accept` is the compaction
-   source (`item.id === 'ask-command-accept'` flag), so dropping both together is consistent.
+## Open problems / recorded, not fixed
 
-## Open problems
-
-- Granular for sandbox-ALLOWED commands is untested (sandbox_approval asks only on escalation);
-  run 5 shows on-request also asked for the same write. Ask-level parity is not proved yet. Bring
-  the granular adoption question to the user after run 6f.
-- Edited input: decline + `turn/steer` unproved (Batch 1h).
-- Experimental API dependency for granular approvals.
-- Usage is observed, not enforced mid-turn (run 6e overshoot shows it).
-- Review leftovers recorded, not fixed: 1c M2 (file-change note has no detail), 1d M1 (no spec
-  drives runCase order), 1e Moderate (UNC/any abs powershell path; note hidden after deadline),
-  1f Moderate ("doubled backslashes" label can no longer fire; no forward-slash outside-root spec),
-  GLM F2 (cleanup status when createExperiment throws early). Later task: split the 1717-line
-  harness if it outlives the spike.
+- Edited input and MCP approval still unproved (run 6i).
+- Experimental API dependency for granular approvals (`capabilities.experimentalApi=true`).
+- Usage is observed, not enforced mid-turn; one-turn overshoot possible.
+- Review leftovers: 1h M1 ("usage after terminal: not observed" can be false), one usage wait per
+  case, 1h M3/M4 spec gaps, 1i paramKeys uncapped, 1k M4 (repeat message) and Minors, earlier
+  1c–1f leftovers (see session 4 notes in git history of this file). Lint warnings: `max-lines`,
+  `preserve-caught-error`, `no-useless-assignment`. Split the harness if it outlives the spike.
 - Version drift: global codex 0.163.0, bundled 0.155.1; core must check the manifest pin.
 
 ## Peer coordination
@@ -105,52 +93,43 @@ into the core design and gap table).
   `session-query-executor.service.ts`, `sdk-query-options-builder.ts`, `sdk-query-runner.service.ts`,
   `session-registry.service.ts`, `session-metadata-store.ts`, `session-quota-probe.service.ts`,
   `sdk-model-service.ts`, agent-sdk `di/register.ts`; rpc-handlers `chat-session.service.ts`,
-  `chat-slash-command-router.service.ts`, `session-rpc.handlers.ts`; NEW Batch 21:
-  `chat-session.account-binding.spec.ts`, `chat/session/child-chat-session-host.adapter.ts`,
-  cli-agent-runtime `session-children/session-spawner.{port,service}.ts` (714 acked). Rebase on
-  #808 before any 714 batch touches these. Migration 0059 is theirs; 714 uses 0060+.
-- tsyringe: use `{ useFactory: () => null }`, never `{ useValue: null }`.
-- Heavy-check slot: sessions `ptah-ptah-extension-providers-account-v3-…` (712),
-  `ptah-ptah-extension-fixing-designs-…` (717), `ptah-ptah-extension-nx-upgrade-…`. Claim by
-  message, wait for "slot free"/"released", send "released" after your push gate. Use ListAgents
-  for current addresses.
-- Shared `node_modules` (no own copy). Never `npm ci`/`npm install` in this worktree.
+  `chat-slash-command-router.service.ts`, `session-rpc.handlers.ts`, `chat-session.account-binding.spec.ts`,
+  `chat/session/child-chat-session-host.adapter.ts`; cli-agent-runtime
+  `session-children/session-spawner.{port,service}.ts`. Rebase on #808 before touching these.
+  Migration 0059 is theirs; 714 uses 0060+.
+- tsyringe: `{ useFactory: () => null }`, never `{ useValue: null }`.
+- Heavy-check slot: coordinate with ListAgents + SendMessage. Current queue: 717 (Electron visual
+  review) → 712 → 714. 712 and 717 promised to send "released" to this task. A new session has a
+  new address: re-announce yourself in the queue. Send "released" after your push gate.
+- Shared `node_modules`. Never `npm ci`/`npm install` in this worktree.
 
 ## Key files
 
 Task folder `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/`:
-`decisions.md`, `native-route-evidence.md`, `implementation-plan.md`, `batch-1c/1d/1e/1f-report.md`,
-`code-logic-review-batch-1c*.md` … `-1f.md`, `spike-run-6.md` … `spike-run-6e.md` (+ `.json`),
-`spike-runner.ts`, `codex-version-contract-report.md`.
+`decisions.md`, `native-route-evidence.md`, `implementation-plan.md`, `spike-runner.ts`,
+`spike-run-6*.{md,json}`, `batch-1*-report.md`, `code-logic-review-batch-1*.md`.
 Code: `libs/backend/codex-runtime/tools/` (`evidence-harness.ts`, `evidence-harness.spec.ts`,
 `evidence-cases.json`, `evidence-failure-notes.ts`, `evidence-frames.ts`).
 Bundled binary: `D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe` (0.155.1).
 
 ## Next steps
 
-1. Read this file, the last 12 rows of `decisions.md`, and `native-route-evidence.md` (Summary and
-   Next spike step).
-2. `gh pr checks 809`; read failed job logs if any.
-3. Batch 1h via a fresh Codex lane (`backend-developer`, workingDirectory = worktree, the three
-   tools files + `evidence-cases.json` only, ≤ 30 tool calls, no checks, no git). Run
-   `ptah_agent_list` first.
-4. Different-family review (Claude `code-logic-reviewer` subagent), deliverable
-   `code-logic-review-batch-1h.md`. One fix round.
-5. Claim the heavy-check slot, then
-   `npx prettier --write libs/backend/codex-runtime/tools/*.ts libs/backend/codex-runtime/tools/*.json`
-   and `npx nx run-many -t test typecheck lint -p codex-runtime --parallel=1 --output-style=static --skip-nx-cache`.
-6. Commit in the foreground (code: `fix(codex-runtime): ...`; docs incl. `5485eba33` follow-ups,
-   `decisions.md`, `spike-runner.ts`, `HANDOFF.md`: `docs(task-specs): ...`), push in the
-   background, release the slot.
-7. Adjust `spike-runner.ts` per Batch 1h item 4, dry run, then real run 6f:
-   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json <runner> --dry-run`
-   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json <runner> --run --binary 'D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe' --auth-source "$USERPROFILE/.codex/auth.json" --model gpt-6-luna --out 'D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/spike-run-6f.md'`
-   After the run: `ls -d "$TEMP"/ptah-codex-evidence-*` must list nothing. Record turns and usage
-   (7 turns remain; 100000 cumulative bound).
-8. Update `native-route-evidence.md`; bring the granular/ask-level result, the edited-input result
-   and any further turn or usage request to the user.
-9. Then team-leader decomposition of the core batch, respecting the 712 claims.
-
-Rules: CLAUDE.md (memory-safe scoped checks, one heavy check at a time, commit in the foreground,
-push in the background, never commit to main, never `npm ci` in this worktree). The temporary
-"CLI lanes first" rule expires 2026-10-24; the user allowed Claude subagents, Codex and GLM lanes.
+1. Read this file and the last 8 rows of `decisions.md`. `git status` in the worktree.
+2. ListAgents; re-join the heavy-check queue (717 → 712 → 714). Wait for "released".
+3. With the slot:
+   `npx nx run-many -t test typecheck lint -p codex-runtime --parallel=1 --output-style=static --skip-nx-cache 2>&1 | tail -40`
+   (prettier already applied; rerun `npx prettier --write` on the changed files only if you edit).
+4. Commit in the foreground, explicit paths (check `.commitlintrc.json`):
+   - `fix(codex-runtime): approve mcp calls through elicitation requests` — harness + spec.
+   - `docs(task-specs): record codex batch 1k and ask-level decision` — the docs listed above.
+5. Push in the background (`git push`); if github.com:443 still times out, report it and keep the
+   commits local. Send "released" to the peers. Then `gh pr checks 809` and watch CI.
+6. Run 6i from the worktree root:
+   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run`
+   then
+   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --run --binary 'D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe' --auth-source "$USERPROFILE/.codex/auth.json" --model gpt-6-luna --out 'D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/spike-run-6i.md'`
+   After: `ls -d "$TEMP"/ptah-codex-evidence-*` must list nothing. Record turns and usage.
+7. Update `native-route-evidence.md` and `decisions.md`, commit, push. Report the MCP and
+   edited-input results to the user; ask before spending more than the 5 remaining turns.
+8. Then team-leader decomposition of the core batch (ask = granular + read-only per decision 4),
+   respecting the 712 claims.

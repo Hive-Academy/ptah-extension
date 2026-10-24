@@ -11,22 +11,17 @@ const all: EvidenceCase[] = JSON.parse(
     'utf8',
   ),
 );
-// Run 6h. User budget: 20 total, 10 used, 10 remain; one run is capped at 8 (TURN_CAP). Proved and
-// dropped: ask-command-accept, compaction (run 6e), ask-command-deny (run 6f). A failed gate or an
-// unverified result stops every later case, so the open cases run first, ask-command-edit next and
-// ask-read-rule (most likely unverified) last. 7 planned + 1 possible steer turn = cap 8.
-const REMAINING = 10;
-const CAP = Math.min(REMAINING, 8);
+// Run 6i. User budget: 20 total, 15 used, 5 remain. Observed and dropped: command accept/deny,
+// compaction, file change, plan, auto-edit, YOLO (runs 6e-6h). The user kept ask as granular +
+// read-only (sandbox-allowed reads run without a prompt), so ask-read-rule is not run. 2 planned
+// + 1 possible steer turn = cap 3, two turns stay in reserve.
+const REMAINING = 5;
+const CAP = 3;
 const order = [
   'schema-handshake',
   'modified-input-schema',
-  'file-change-accept',
-  'plan-read-only',
-  'auto-edit-boundary',
-  'yolo-interrupt',
   'mcp-approval',
   'ask-command-edit',
-  'ask-read-rule',
 ];
 const cases = order.map((id) => {
   const found = all.find((item) => item.id === id);
