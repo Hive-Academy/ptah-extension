@@ -148,6 +148,8 @@ export * from './organisms/transcript/chat-transcript.component';
 export * from './organisms/agent-monitor-panel.component';
 export * from './organisms/workspace-sidebar.component';
 export * from './templates/chat-view.component';
+export * from './templates/chat-session-layout.component';
+export { LANE_COLUMN_CLASS } from './molecules/execution-header/lane-column';
 export * from './templates/session-embed.component';
 export * from './templates/app-shell.component';
 export * from './templates/electron-shell.component';

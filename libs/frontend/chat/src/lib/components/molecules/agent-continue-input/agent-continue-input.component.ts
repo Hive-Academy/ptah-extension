@@ -11,6 +11,10 @@ import {
 import { LucideAngularModule, SendHorizontal, X } from 'lucide-angular';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import {
+  COMPOSER_CARD_BORDER_CLASS,
+  COMPOSER_CARD_CLASS,
+} from '@ptah-extension/chat-ui';
+import {
   AgentFollowUpQueueService,
   followUpResumesInstead,
 } from '../../../services/agent-follow-up-queue.service';
@@ -21,7 +25,65 @@ import {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (visible()) {
+    @if (visible() && variant() === 'composer') {
+      <!-- A canvas lane: the main chat composer's card, hint below it. -->
+      <div class="flex flex-col gap-1 pb-2">
+        <div
+          [class]="composerCardClass"
+          data-glass-surface="tile"
+          data-testid="continue-composer-card"
+        >
+          <div class="flex items-end gap-2 px-3 py-2">
+            <textarea
+              class="min-h-[1.75rem] min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-[1.6] outline-none placeholder:text-base-content-muted disabled:opacity-60"
+              rows="1"
+              placeholder="Send a follow-up…"
+              [attr.aria-label]="subtitle()"
+              [disabled]="disabled()"
+              [value]="draft()"
+              (input)="onInput($event)"
+              (keydown.enter)="onEnter($event)"
+            ></textarea>
+            <button
+              type="button"
+              class="btn btn-sm btn-circle btn-primary"
+              aria-label="Send follow-up"
+              [disabled]="sendDisabled()"
+              (click)="submit()"
+            >
+              @if (submitting()) {
+                <span class="loading loading-spinner loading-xs"></span>
+              } @else {
+                <lucide-angular [img]="SendIcon" class="w-3.5 h-3.5" />
+              }
+            </button>
+          </div>
+        </div>
+        <span class="px-1 text-[11px] text-base-content-muted">
+          {{ subtitle() }}
+        </span>
+        @if (queued(); as pending) {
+          <button
+            type="button"
+            class="flex items-start gap-1.5 rounded border border-base-content/10 bg-base-200/60 px-2 py-1 text-left text-[11px] text-base-content-muted hover:bg-base-200"
+            title="Click to edit — puts the message back in the box"
+            (click)="unqueue()"
+          >
+            <lucide-angular
+              [img]="CancelIcon"
+              class="w-3 h-3 mt-0.5 shrink-0"
+            />
+            <span class="flex-1">
+              <span class="font-medium">Queued</span> — sends when this run
+              finishes: {{ pending }}
+            </span>
+          </button>
+        }
+        @if (error(); as message) {
+          <span class="px-1 text-[11px] text-warning">{{ message }}</span>
+        }
+      </div>
+    } @else if (visible()) {
       <div
         class="flex flex-col gap-1.5 border-t border-base-content/10 px-2.5 py-2"
       >
@@ -79,6 +141,9 @@ export class AgentContinueInputComponent {
   private readonly followUps = inject(AgentFollowUpQueueService);
 
   readonly agent = input.required<MonitoredAgent>();
+  /** `panel` in the agent monitor; `composer` in a canvas lane's column. */
+  readonly variant = input<'panel' | 'composer'>('panel');
+  protected readonly composerCardClass = `${COMPOSER_CARD_CLASS} ${COMPOSER_CARD_BORDER_CLASS}`;
 
   readonly SendIcon = SendHorizontal;
   readonly CancelIcon = X;

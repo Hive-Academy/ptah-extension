@@ -90,6 +90,9 @@ function sameLaneSummary(
     a.counts.running === b.counts.running &&
     a.counts.done === b.counts.done &&
     a.counts.stopped === b.counts.stopped &&
+    a.kinds.cli === b.kinds.cli &&
+    a.kinds.subagent === b.kinds.subagent &&
+    a.kinds.background === b.kinds.background &&
     a.rows.length === b.rows.length &&
     a.rows.every((row, index) => {
       const other = b.rows[index];

@@ -48,6 +48,18 @@ const cli = (
   ...partial,
 });
 
+/** `count` owned CLI lanes; the dock adds the orchestrator chip. */
+const cliRoster = (count: number): CliFixture[] =>
+  Array.from({ length: count }, (_, i) =>
+    cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` }),
+  );
+
+// jsdom has no PointerEvent constructor.
+const mousePointer = (type: string, pointerType = 'mouse'): Event =>
+  Object.defineProperty(new MouseEvent(type, { bubbles: true }), 'pointerType', {
+    value: pointerType,
+  });
+
 function fireResize(callback: ResizeObserverCallback, width: number): void {
   const target = document.createElement('div');
   callback(
@@ -149,6 +161,83 @@ describe('CanvasLaneTabsComponent', () => {
       jest.advanceTimersByTime(220);
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('[role="tooltip"]')).toBeNull();
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('names every chip and opens no card when five or fewer agents', () => {
+    agents.set(cliRoster(2));
+    jest.useFakeTimers();
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const tabs = [...root.querySelectorAll<HTMLElement>('[role="tab"]')];
+      expect(tabs).toHaveLength(3);
+      expect(
+        tabs.map((tab) => tab.querySelector('[data-testid="dock-chip-name"]')?.textContent?.trim()),
+      ).toEqual(['Orchestrator', 'CLI 0', 'CLI 1']);
+      const unselected = tabs.filter((tab) => tab.getAttribute('aria-selected') === 'false');
+      expect(unselected).toHaveLength(2);
+      for (const tab of unselected) {
+        expect(tab.classList.contains('border-secondary')).toBe(false);
+        expect(tab.classList.contains('hover:bg-base-200')).toBe(true);
+        expect(tab.classList.contains('max-w-[140px]')).toBe(true);
+        expect(tab.classList.contains('w-[38px]')).toBe(false);
+        expect(tab.tabIndex).toBe(-1);
+        expect(
+          tab.querySelector('[data-testid="dock-chip-name"]')?.classList.contains('truncate'),
+        ).toBe(true);
+      }
+      expect(root.querySelector('[aria-haspopup="menu"]')).toBeNull();
+
+      const tab = unselected[0];
+      tab.dispatchEvent(mousePointer('pointerenter'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(root.querySelector('[role="tooltip"]')).toBeNull();
+
+      const matches = HTMLElement.prototype.matches;
+      jest.spyOn(tab, 'matches').mockImplementation((selector) =>
+        selector === ':focus-visible' ? true : matches.call(tab, selector),
+      );
+      tab.focus();
+      fixture.detectChanges();
+      expect(root.querySelector('[role="tooltip"]')).toBeNull();
+      expect(tab.getAttribute('aria-describedby')).toBeNull();
+      fixture.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows avatar circles with a card when more than five agents', () => {
+    agents.set(cliRoster(5));
+    jest.useFakeTimers();
+    try {
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const selected = root.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      expect(selected?.querySelector('[data-testid="dock-chip-name"]')?.textContent).toContain(
+        'Orchestrator',
+      );
+      const circles = [
+        ...root.querySelectorAll<HTMLElement>('[role="tab"][aria-selected="false"]'),
+      ];
+      expect(circles).toHaveLength(5);
+      for (const circle of circles) {
+        expect(circle.classList.contains('w-[38px]')).toBe(true);
+        expect(circle.querySelector('[data-testid="dock-chip-name"]')).toBeNull();
+      }
+      circles[0].dispatchEvent(mousePointer('pointerenter'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(root.querySelector('[role="tooltip"]')).not.toBeNull();
       fixture.destroy();
     } finally {
       jest.useRealTimers();
@@ -585,7 +674,7 @@ describe('CanvasLaneTabsComponent', () => {
   });
 
   it('closes the card after the pointer leaves the tab and card without keyboard focus', () => {
-    agents.set([cli({ agentId: 'c', parentSessionId: 'owner', cli: 'CLI' })]);
+    agents.set(cliRoster(5));
     jest.useFakeTimers();
     try {
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
@@ -625,14 +714,12 @@ describe('CanvasLaneTabsComponent', () => {
   it('closes the open card after a quick pointer sweep across two tabs', () => {
     jest.useFakeTimers();
     try {
-      agents.set([
-        cli({ agentId: 'b', parentSessionId: 'owner', cli: 'Codex' }),
-      ]);
+      agents.set(cliRoster(5));
       const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
       fixture.componentRef.setInput('tabId', TAB_ID);
       fixture.detectChanges();
       const tabs: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('[role="tab"]');
-      expect(tabs).toHaveLength(2);
+      expect(tabs).toHaveLength(6);
       const [tabB, tabA] = [...tabs];
       const pointer = (type: string) => new MouseEvent(type, { bubbles: true });
       const enter = () => Object.defineProperty(pointer('pointerenter'), 'pointerType', { value: 'mouse' });

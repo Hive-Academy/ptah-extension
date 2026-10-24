@@ -134,12 +134,21 @@ export function buildLaneSummary(
     done: 0,
     stopped: 0,
   };
-  for (const row of rows) counts[row.status]++;
+  const kinds: Record<CompactLaneKind, number> = {
+    cli: 0,
+    subagent: 0,
+    background: 0,
+  };
+  for (const row of rows) {
+    counts[row.status]++;
+    kinds[row.kind]++;
+  }
   const visible = rows.slice(0, Math.max(0, max));
   return {
     rows: visible,
     moreCount: rows.length - visible.length,
     total: rows.length,
     counts,
+    kinds,
   };
 }

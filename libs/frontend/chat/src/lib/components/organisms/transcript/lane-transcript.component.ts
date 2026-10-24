@@ -21,6 +21,7 @@ import {
 import {
   TranscriptTurnContexts,
   streamingTurnIdsOf,
+  turnLogOpenOf,
 } from './transcript-turn-contexts';
 import { laneTranscriptMessages } from './lane-transcript-messages';
 
@@ -53,7 +54,7 @@ import { laneTranscriptMessages } from './lane-transcript-messages';
             [turn]="turn"
             [turnLive]="live"
             [now]="live ? now() : 0"
-            [logOpen]="turn ? (logChoices().get(turn.turnId) ?? null) : null"
+            [logOpen]="turn ? logOpenFor(turn.turnId) : null"
             [permissionLookup]="getPermissionForTool()"
             [userActions]="false"
             (permissionResponded)="permissionResponded.emit($event)"
@@ -97,6 +98,14 @@ export class LaneTranscriptComponent {
     this.monitor.tick();
     return Date.now();
   });
+  /** The main transcript's rule (`turnLogOpenOf`); a lane is always `full`. */
+  protected logOpenFor(turnId: string): boolean | null {
+    return turnLogOpenOf(
+      this.logChoices().get(turnId),
+      'full',
+      this.liveTurns().has(turnId),
+    );
+  }
   protected toggleLog(toggle: TurnLogToggle): void {
     this.logChoices.update((choices) =>
       new Map(choices).set(toggle.turnId, toggle.open),

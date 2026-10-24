@@ -26,6 +26,7 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
+import { LANE_COLUMN_CLASS } from '../../molecules/execution-header/lane-column';
 import { LaneTranscriptComponent } from '../transcript/lane-transcript.component';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
@@ -46,17 +47,25 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
     SubagentLaneComposerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Same shell as the main chat: a control row and the composer in the
+  // centered column, and the transcript in its own scroller between them.
+  host: { class: 'flex min-h-0 flex-col' },
   template: `
     <ptah-execution-header
+      class="shrink-0"
       kind="subagent"
       [label]="label()"
       [live]="live()"
       [peek]="progress()"
-      [toolCount]="summary().toolCount || (record().toolUses ?? 0)"
-      [filesChanged]="summary().filesChanged"
+      [toolCount]="headerToolCount()"
       [extraMeta]="meta()"
       [controlsId]="'subagent-lane-details-' + record().parentToolUseId"
     >
+      <ptah-agent-lane-stats
+        executionHeaderStats
+        class="block min-w-0"
+        [stats]="stats()"
+      />
       @if (context(); as ctx) {
         <div executionHeaderActions class="flex shrink-0 items-center gap-0.5">
           @if (ctx.entry.canBackground) {
@@ -111,18 +120,20 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
         }
       </dl>
     </ptah-execution-header>
-    <!-- Outside the collapsible details, so it is always visible. -->
-    <ptah-agent-lane-stats class="block" [stats]="stats()" />
     @if (commandError(); as err) {
       <p
         role="alert"
-        class="py-1 text-xs text-error"
+        [class]="columnClass + ' shrink-0 py-1 text-xs text-error'"
         data-testid="subagent-command-error"
       >
         {{ err.message }}
       </p>
     }
-    <div class="space-y-2 pt-2">
+    <div
+      class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+      data-testid="lane-scroll"
+    >
+    <div [class]="columnClass + ' space-y-2 pt-2'">
       @if (entry()?.truncated || entry()?.spilled) {
         <p class="text-xs text-base-content-muted">
           Earlier output trimmed
@@ -177,6 +188,7 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
           No saved output for this agent
         </p>
       }
+      </div>
       <ptah-lane-transcript
         [laneId]="key()"
         [nodes]="messageNodes()"
@@ -186,6 +198,7 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
         (permissionResponded)="permissionResponded.emit($event)"
       />
       @if (nodes().length === 0) {
+        <div [class]="columnClass">
         @if (
           !finishedSummary() &&
           (!entry() ||
@@ -196,10 +209,11 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
             {{ live() ? 'Starting agent' : 'No output recorded' }}
           </p>
         }
+        </div>
       }
     </div>
     <ptah-subagent-lane-composer
-      class="mt-2"
+      [class]="columnClass + ' shrink-0 pb-2'"
       [record]="record()"
       [context]="context()"
       [sessionId]="sessionId()"
@@ -214,6 +228,7 @@ export class SubagentLaneComponent {
   >();
   readonly permissionResponded = output<PermissionResponse>();
 
+  protected readonly columnClass = LANE_COLUMN_CLASS;
   protected readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly store = inject(SubagentExecutionStore);
@@ -283,8 +298,16 @@ export class SubagentLaneComponent {
   protected readonly progress = computed(() =>
     subagentProgressText(this.record()),
   );
-  protected readonly summary = computed(() =>
-    summarizeExecutionNodes(this.nodes()),
+  /**
+   * The transcript's message bubbles carry the per-turn tool and file counts,
+   * so the header repeats none. When the tree has no tool node (no history
+   * yet, or only text so far) no bubble shows a count, and the header keeps
+   * the record's count.
+   */
+  protected readonly headerToolCount = computed(() =>
+    summarizeExecutionNodes(this.nodes()).toolCount > 0
+      ? 0
+      : (this.record().toolUses ?? 0),
   );
   /** Tokens live in the stats bar; the header meta keeps the run mode only. */
   protected readonly meta = computed(() =>

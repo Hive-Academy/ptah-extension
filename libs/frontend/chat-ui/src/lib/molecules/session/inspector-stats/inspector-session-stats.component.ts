@@ -38,9 +38,9 @@ let nextSessionId = 0;
           </button>
         </p>
       }
-      <div class="grid grid-cols-3 gap-1.5">
+      <div class="grid grid-cols-2 gap-1.5" data-testid="inspector-stats-grid">
         @if (s.cache; as cache) { <ptah-inspector-cache-tile [cache]="cache" /> }
-        <div class="relative min-w-0 rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile">
+        <div class="relative min-w-0 rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-context')">
           <div class="flex flex-wrap items-center gap-1"
             [attr.role]="s.context.known ? 'progressbar' : null"
             [attr.aria-valuemin]="s.context.known ? 0 : null" [attr.aria-valuemax]="s.context.known ? 100 : null"
@@ -62,7 +62,7 @@ let nextSessionId = 0;
           </div>
           @if (contextDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Context', key: 'sd-context', text: details }" /> }
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-3]="isOpen('sd-tokens')">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-tokens')">
           <div class="pr-4 text-[10px] text-base-content-muted">Tokens</div>
           <div class="text-xs font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
@@ -78,7 +78,7 @@ let nextSessionId = 0;
           }
           <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Tokens', key: 'sd-tokens', text: tokenDetails() }" />
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-3]="isOpen('sd-cost')">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-cost')">
           <div class="pr-4 text-[10px] text-base-content-muted">Cost</div>
           <div class="flex items-center gap-1 text-xs font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
@@ -106,7 +106,7 @@ let nextSessionId = 0;
           </div>
         }
         @if (agents(); as count) {
-          <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-3]="isOpen('sd-agents')">
+          <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-agents')">
             <div class="pr-4 text-[10px] text-base-content-muted">Agents</div>
             <div class="text-xs font-semibold tabular-nums">{{ count }}</div>
             <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Agents', key: 'sd-agents', text: agentsDetails }" />

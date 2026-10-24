@@ -32,6 +32,7 @@ const EMPTY_LANES: CompactLaneSummary = {
   moreCount: 0,
   total: 0,
   counts: { running: 0, waiting: 0, error: 0, done: 0, stopped: 0 },
+  kinds: { cli: 0, subagent: 0, background: 0 },
 };
 
 @Component({
@@ -432,13 +433,8 @@ export class CompactRailCardComponent implements DoCheck {
     () =>
       `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
   );
-  // Capped rows cannot supply an exact CLI count; unknown badges stay hidden.
-  readonly cliCount = computed(() => {
-    const lanes = this.lanes();
-    return lanes.rows.length === lanes.total
-      ? lanes.rows.filter((row) => row.kind === 'cli').length
-      : null;
-  });
+  /** Every CLI lane of the session, including rows capped into `+N more`. */
+  readonly cliCount = computed(() => this.lanes().kinds.cli);
   readonly todoCount = computed(() => {
     const t = this.todos();
     return t.kind === 'known' ? `${t.done}/${t.total}` : '—';

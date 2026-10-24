@@ -119,7 +119,7 @@ describe('unified CLI agent output', () => {
     );
     const el = fixture.nativeElement as HTMLElement;
     const row = el.querySelector<HTMLButtonElement>(
-      '[data-test="turn-disclosure-row"]',
+      '[data-test="execution-header-details"]',
     )!;
     const detailsId = row.getAttribute('aria-controls')!;
     expect(row.getAttribute('aria-expanded')).toBe('false');

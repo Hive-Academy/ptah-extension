@@ -8,14 +8,20 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import {
+  ClaudeRpcService,
+  FILE_LINK_OPENER,
   ModelStateService,
   SURFACE_ACTIVE,
   VSCodeService,
 } from '@ptah-extension/core';
+import { createMockRpcService } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
+import { createExecutionNode } from '@ptah-extension/shared';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import { ChatAgentFeedbackSender } from '../../../services/agent-feedback/chat-agent-feedback-sender.service';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { ArtifactStore } from '../../../services/artifact.store';
 import { SubagentLaneComponent } from './subagent-lane.component';
 
 describe('SubagentLaneComponent', () => {
@@ -172,6 +178,14 @@ describe('SubagentLaneComponent', () => {
           provide: ModelStateService,
           useValue: { availableModels: signal([]) },
         },
+        // A tool node renders a real tool row, which reads these two.
+        {
+          provide: ArtifactStore,
+          useValue: { recordById: () => null },
+        },
+        { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
+        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       ],
     });
   });
@@ -186,11 +200,20 @@ describe('SubagentLaneComponent', () => {
     });
     const root: HTMLElement = fixture.nativeElement;
     const row = root.querySelector<HTMLButtonElement>(
-      '[data-test="turn-disclosure-row"]',
+      '[data-test="execution-header-details"]',
     )!;
-    expect(row.getAttribute('aria-label')).toContain('4 tools');
+    const meta = () =>
+      root.querySelector('[data-test="execution-header-meta"]')?.textContent;
+    // No tree yet, so no bubble: the control row keeps the record's count.
+    expect(meta()).toContain('4 tools');
     // Tokens moved from the header meta into the stats bar.
-    expect(row.getAttribute('aria-label')).not.toContain('tokens');
+    expect(meta()).not.toContain('tokens');
+    // Stats chips sit in the control row, in the chat column.
+    expect(
+      root
+        .querySelector('[data-test="execution-header-row"]')
+        ?.contains(root.querySelector('ptah-agent-lane-stats')),
+    ).toBe(true);
     expect(
       root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
     ).toBe('subagent');
@@ -213,11 +236,67 @@ describe('SubagentLaneComponent', () => {
     expect(details.textContent).toMatch(/Parent:\s*session-/);
   });
 
+  it('leaves the tool count to the transcript bubble once the tree has a tool', () => {
+    const text = createExecutionNode({
+      id: 'msg-1-text-0',
+      type: 'text',
+      status: 'complete',
+      content: 'Reading files',
+    });
+    const tool = createExecutionNode({
+      id: 'msg-1-tool-1',
+      type: 'tool',
+      status: 'complete',
+      content: null,
+      toolName: 'Read',
+      toolInput: { file_path: 'C:\\ws\\a.ts' },
+    });
+    treeFor.mockImplementation(() => [text, tool] as never[]);
+    try {
+      const fixture = setup({ ...base, status: 'background' });
+      const root: HTMLElement = fixture.nativeElement;
+      const header = root.querySelector('ptah-execution-header')!;
+      expect(header.querySelector('ptah-turn-disclosure-row')).toBeNull();
+      // The header keeps its run mode under its own hook, never the bubble's.
+      expect(
+        header.querySelector('[data-test="execution-header-meta"]')
+          ?.textContent,
+      ).toBe('Background');
+      expect(header.querySelector('[data-test="turn-disclosure-meta"]')).toBeNull();
+    } finally {
+      treeFor.mockImplementation(() => []);
+    }
+  });
+
+  it('keeps the record tool count while the tree has text only', () => {
+    const text = createExecutionNode({
+      id: 'msg-1-text-0',
+      type: 'text',
+      status: 'complete',
+      content: 'Reading files',
+    });
+    treeFor.mockImplementation(() => [text] as never[]);
+    try {
+      const fixture = setup({ ...base, status: 'background' });
+      const root: HTMLElement = fixture.nativeElement;
+      // No bubble shows a count for a text-only turn, so the header does,
+      // exactly once.
+      expect(
+        root.querySelector('[data-test="execution-header-meta"]')?.textContent,
+      ).toBe('4 tools · Background');
+      expect(root.textContent?.match(/4 tools/g)).toHaveLength(1);
+    } finally {
+      treeFor.mockImplementation(() => []);
+    }
+  });
+
   it('hides the Task row when the start carried no task', () => {
     const fixture = setup({ ...base, description: 'Reading files' });
     const root: HTMLElement = fixture.nativeElement;
     root
-      .querySelector<HTMLButtonElement>('[data-test="turn-disclosure-row"]')!
+      .querySelector<HTMLButtonElement>(
+        '[data-test="execution-header-details"]',
+      )!
       .click();
     fixture.detectChanges();
     expect(
@@ -291,9 +370,7 @@ describe('SubagentLaneComponent', () => {
     const root: HTMLElement = fixture.nativeElement;
     expect(root.querySelector('[executionHeaderActions]')).toBeNull();
     expect(
-      root
-        .querySelector('[data-test="turn-disclosure-row"]')
-        ?.getAttribute('aria-label'),
+      root.querySelector('[data-test="execution-header-row"]')?.textContent,
     ).not.toContain('tokens');
     expect(root.textContent).toContain('No output recorded');
   });
@@ -435,15 +512,13 @@ describe('SubagentLaneComponent', () => {
       status: 'background',
       latestSummary: 'Reviewing tests',
     });
-    const row = fixture.nativeElement.querySelector(
-      '[data-test="turn-disclosure-row"]',
-    ) as HTMLButtonElement;
-    const label = row.getAttribute('aria-label') as string;
-    expect(label).toContain('Background');
+    const root = fixture.nativeElement as HTMLElement;
     expect(
-      row.querySelector('[data-test="turn-disclosure-peek"]')?.textContent,
+      root.querySelector('[data-test="execution-header-meta"]')?.textContent,
+    ).toContain('Background');
+    expect(
+      root.querySelector('[data-test="execution-header-peek"]')?.textContent,
     ).toBe('Reviewing tests');
-    expect(label).not.toContain('Reviewing tests');
   });
 
   it('keeps the draft after a failed steer and clears it after success', async () => {

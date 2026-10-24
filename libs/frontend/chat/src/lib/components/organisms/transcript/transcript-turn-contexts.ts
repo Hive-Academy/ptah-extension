@@ -182,6 +182,20 @@ export function turnAgentsOf(
   return result.size === 0 ? NO_TURN_AGENTS : result;
 }
 
+/**
+ * Work-log open state of a turn (§3.1), shared by the main transcript and the
+ * lane transcript: the user's choice, else open while the turn streams in
+ * `full` mode, else `null` (the bubble's own rule).
+ */
+export function turnLogOpenOf(
+  chosen: boolean | undefined,
+  viewMode: 'full' | 'compact',
+  streaming: boolean,
+): boolean | null {
+  if (chosen !== undefined) return chosen;
+  return viewMode === 'full' && streaming ? true : null;
+}
+
 /** Turn ids with a message at or past `streamingBoundary` (still streaming). */
 export function streamingTurnIdsOf(
   messages: readonly ExecutionChatMessage[],

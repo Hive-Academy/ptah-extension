@@ -17,6 +17,11 @@ const CHIP_STEP_PX = 40;
 const MENU_WIDTH_PX = 112;
 const MENU_WIDTH_COMPACT_PX = 44;
 const COMPACT_BELOW_PX = 480;
+/**
+ * Rosters up to this size stay inline with a named chip per agent and no
+ * overflow menu; the row wraps instead of hiding anyone.
+ */
+export const DOCK_INLINE_MAX = 5;
 
 const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
   running: 'text-state-run',
@@ -63,16 +68,17 @@ function overflowRank(agent: SessionAgent, selectedKey: string): number {
 }
 
 /**
- * Rosters of five or fewer stay inline. Larger rosters fill `capacity + 1` slots (the extra slot is the pill) by
- * rank, then both lists are returned in dock order. A worse rank is never
- * visible while a better rank is hidden.
+ * Rosters of `DOCK_INLINE_MAX` or fewer stay inline. Larger rosters fill
+ * `capacity + 1` slots (the extra slot is the pill) by rank, then both lists
+ * are returned in dock order. A worse rank is never visible while a better
+ * rank is hidden.
  */
 export function planDockOverflow(
   agents: readonly SessionAgent[],
   selectedKey: string,
   capacity: number,
 ): { visible: readonly SessionAgent[]; hidden: readonly SessionAgent[] } {
-  if (agents.length <= 5 || !Number.isFinite(capacity)) return { visible: agents, hidden: [] };
+  if (agents.length <= DOCK_INLINE_MAX ||!Number.isFinite(capacity)) return { visible: agents, hidden: [] };
   const slots = Math.max(0, Math.floor(capacity)) + 1;
   const chosen = new Set(
     agents

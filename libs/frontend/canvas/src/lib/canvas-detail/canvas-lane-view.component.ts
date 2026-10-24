@@ -13,7 +13,9 @@ import {
   AgentCardComponent,
   AgentContinueInputComponent,
   AgentPermissionResponder,
+  ChatSessionLayoutComponent,
   ChatStore,
+  LANE_COLUMN_CLASS,
   SubagentLaneComponent,
   ownedBySession,
   parseLaneKey,
@@ -63,10 +65,18 @@ export function effectiveCanvasLaneKind(
   return 'orchestrator';
 }
 
+/**
+ * A lane's panel: the main chat view's chrome surface, and the size container
+ * that `LANE_COLUMN_CLASS` and the lane transcript measure their column from.
+ */
+const LANE_PANEL_CLASS =
+  'relative flex h-full min-h-0 min-w-0 flex-col pt-2 [container-type:inline-size]';
+
 @Component({
   selector: 'ptah-canvas-lane-view',
   standalone: true,
   imports: [
+    ChatSessionLayoutComponent,
     AgentCardComponent,
     AgentContinueInputComponent,
     SubagentLaneComponent,
@@ -131,13 +141,16 @@ export function effectiveCanvasLaneKind(
           @switch (selectedKind()) {
             @case ('cli') {
               @if (selectedCli(); as agent) {
-                <div class="h-full flex flex-col gap-2 pt-2">
+                <!-- The main chat shell: the chrome panel, the session layout
+                     (column width) and one centered column for every row. -->
+                <div [class]="lanePanelClass" data-glass-surface="chrome" data-testid="lane-panel">
+                  <ptah-chat-session-layout>
                   @for (
                     permission of agent.permissionQueue;
                     track permission.requestId
                   ) {
                     <div
-                      class="rounded-box border border-warning/40 bg-warning/10 p-2 text-xs"
+                      [class]="laneColumnClass + ' mb-2 shrink-0 rounded-box border border-warning/40 bg-warning/10 p-2 text-xs'"
                     >
                       <div>Permission: {{ permission.toolName }}</div>
                       <div class="flex gap-2 mt-1">
@@ -177,9 +190,11 @@ export function effectiveCanvasLaneKind(
                   <!-- Hides itself when the agent cannot continue; queues
                        while it runs (AgentFollowUpQueueService). -->
                   <ptah-agent-continue-input
-                    class="flex-shrink-0"
+                    [class]="laneColumnClass + ' block flex-shrink-0 pt-2'"
+                    variant="composer"
                     [agent]="agent"
                   />
+                  </ptah-chat-session-layout>
                 </div>
               }
             }
@@ -212,14 +227,16 @@ export function effectiveCanvasLaneKind(
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
-          <div class="flex h-full min-h-0 flex-col gap-2 pt-2">
+          <div [class]="lanePanelClass" data-glass-surface="chrome" data-testid="lane-panel">
+            <ptah-chat-session-layout>
             <ptah-subagent-lane
-              class="block flex-1 min-h-0"
+              class="flex-1"
               [record]="sub"
               [sessionId]="sessionId()"
               [getPermissionForTool]="getPermissionForTool"
               (permissionResponded)="chatStore.handlePermissionResponse($event)"
             />
+            </ptah-chat-session-layout>
           </div>
         }
       </ng-template>
@@ -227,6 +244,8 @@ export function effectiveCanvasLaneKind(
   `,
 })
 export class CanvasLaneViewComponent {
+  protected readonly lanePanelClass = LANE_PANEL_CLASS;
+  protected readonly laneColumnClass = LANE_COLUMN_CLASS;
   readonly monitor = inject(AgentMonitorStore);
   readonly chatStore = inject(ChatStore);
   private readonly detail = inject(CanvasDetailService);

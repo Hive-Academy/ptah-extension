@@ -7,6 +7,7 @@ import {
   computed,
 } from '@angular/core';
 import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
+import { COMPOSER_CARD_BORDER_CLASS, COMPOSER_CARD_CLASS } from './composer-card';
 
 /**
  * AgentSteerInputComponent — single-line "steer" input for a running or
@@ -18,7 +19,9 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
  * (`sendMessageToAgent`), keeping this component free of store coupling.
  *
  * Consumed by {@link BackgroundAgentStripComponent}, which expands it inline
- * beneath a chip when the user clicks that chip's steer icon.
+ * beneath a chip when the user clicks that chip's steer icon (`inline`), and
+ * by the sub-agent lane, which shows it in the main chat composer's card
+ * (`composer`).
  */
 @Component({
   selector: 'ptah-agent-steer-input',
@@ -26,7 +29,43 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (steerable()) {
+    @if (steerable() && variant() === 'composer') {
+      <div
+        [class]="composerCardClass"
+        data-glass-surface="tile"
+        data-testid="steer-composer-card"
+      >
+        <div class="flex items-center gap-2 px-3 py-2">
+          <input
+            type="text"
+            class="min-w-0 flex-1 bg-transparent text-[13px] leading-[1.6] outline-none placeholder:text-base-content-muted disabled:opacity-60"
+            [placeholder]="placeholder()"
+            [disabled]="pending()"
+            [value]="draft()"
+            [attr.aria-label]="placeholder()"
+            (input)="onInput($event)"
+            (keydown.enter)="onEnter($event)"
+          />
+          <button
+            type="button"
+            class="btn btn-sm btn-circle btn-primary"
+            [disabled]="sendDisabled()"
+            [attr.aria-label]="sendLabel()"
+            (click)="submit()"
+          >
+            @if (pending()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            } @else {
+              <lucide-angular
+                [img]="SendIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+            }
+          </button>
+        </div>
+      </div>
+    } @else if (steerable()) {
       <div
         class="flex items-center gap-1.5 border-t border-base-content/10 px-2.5 py-1.5"
       >
@@ -72,6 +111,8 @@ export class AgentSteerInputComponent {
   readonly placeholder = input<string>('Steer this agent…');
   /** Accessible label of the send button. */
   readonly sendLabel = input<string>('Send steer message');
+  /** `inline` under a chip; `composer` in the main chat composer's card. */
+  readonly variant = input<'inline' | 'composer'>('inline');
 
   /** Emits the trimmed steer text. Parent clears `pending` when done. */
   readonly steer = output<string>();
@@ -83,6 +124,7 @@ export class AgentSteerInputComponent {
   readonly draft = model('');
 
   protected readonly SendIcon = SendHorizontal;
+  protected readonly composerCardClass = `${COMPOSER_CARD_CLASS} ${COMPOSER_CARD_BORDER_CLASS}`;
 
   protected readonly sendDisabled = computed(
     () => this.pending() || this.draft().trim().length === 0,

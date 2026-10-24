@@ -45,6 +45,7 @@ const lanes = (total: number): CompactLaneSummary => ({
   moreCount: Math.max(0, total - 3),
   total,
   counts: { running: total, waiting: 0, error: 0, done: 0, stopped: 0 },
+  kinds: { cli: total, subagent: 0, background: 0 },
 });
 const permission = (requestId: string): CompactPermissionCallout => ({
   kind: 'permission',
@@ -115,7 +116,14 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('contextPercent', 0);
     f.componentRef.setInput('lanes', lanes(4));
     f.detectChanges();
-    expect(badges()).toEqual([]);
+    // Three rows plus "+1 more": the badge still counts every CLI lane.
+    expect(badges()).toEqual(['4 CLI']);
+    f.componentRef.setInput('lanes', {
+      ...lanes(6),
+      kinds: { cli: 2, subagent: 4, background: 0 },
+    });
+    f.detectChanges();
+    expect(badges()).toEqual(['2 CLI']);
   });
 
   it('uses the shared height for both densities', () => {

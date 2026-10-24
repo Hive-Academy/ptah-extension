@@ -41,6 +41,19 @@ function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   };
 }
 
+/** The lane control row's meta text (end status, guard reason). */
+function metaText(root: HTMLElement): string {
+  return (
+    root.querySelector('[data-test="execution-header-meta"]')?.textContent ?? ''
+  );
+}
+
+function detailsToggle(root: HTMLElement): HTMLButtonElement {
+  return root.querySelector<HTMLButtonElement>(
+    '[data-test="execution-header-details"]',
+  )!;
+}
+
 describe('AgentCardComponent flat execution header', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -66,20 +79,24 @@ describe('AgentCardComponent flat execution header', () => {
     });
   });
 
-  it('moves usage and facts behind one label with a separate Resume action', () => {
+  it('puts stats, facts and Resume in one control row without a turn label', () => {
     const fixture = TestBed.createComponent(AgentCardComponent);
     fixture.componentRef.setInput('agent', lane());
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
-    const row = root.querySelector<HTMLButtonElement>(
-      '[data-test="turn-disclosure-row"]',
+    const row = root.querySelector<HTMLElement>(
+      '[data-test="execution-header-row"]',
     )!;
-    expect(row.getAttribute('aria-label')).toContain('Worked for 2s');
-    // Tokens moved from the header meta into the always-visible stats bar.
-    expect(row.getAttribute('aria-label')).not.toContain('tokens');
-    expect(row.getAttribute('aria-label')).not.toContain('Completed');
+    const toggle = detailsToggle(root);
+    // The transcript bubble owns "Worked for …" and the tool counts.
+    expect(root.querySelector('ptah-turn-disclosure-row')).toBeNull();
+    expect(toggle.getAttribute('aria-label')).toBe('Worked for 2s details');
+    // Tokens live in the stats chips, a completed run has no status meta.
+    expect(metaText(root)).not.toContain('tokens');
+    expect(metaText(root)).not.toContain('Completed');
     const stats = root.querySelector<HTMLElement>('ptah-agent-lane-stats')!;
+    expect(row.contains(stats)).toBe(true);
     expect(
       stats.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
     ).toContain('≥ 1.3k');
@@ -94,14 +111,10 @@ describe('AgentCardComponent flat execution header', () => {
     const resume = root.querySelector<HTMLButtonElement>(
       '[aria-label="Resume codex session"]',
     )!;
-    expect(
-      row
-        .closest('ptah-turn-disclosure-row')
-        ?.nextElementSibling?.contains(resume),
-    ).toBe(true);
-    expect(row.contains(resume)).toBe(false);
+    expect(row.contains(resume)).toBe(true);
+    expect(toggle.contains(resume)).toBe(false);
     expect(root.querySelector('ptah-cli-lane-usage-summary')).toBeNull();
-    row.click();
+    toggle.click();
     fixture.detectChanges();
     const details = root.querySelector<HTMLElement>(
       '#cli-lane-details-lane-1',
@@ -127,11 +140,7 @@ describe('AgentCardComponent flat execution header', () => {
     expect(
       root.querySelector('[aria-label="Resume codex session"]'),
     ).toBeNull();
-    expect(
-      root
-        .querySelector('[data-test="turn-disclosure-row"]')
-        ?.getAttribute('aria-label'),
-    ).not.toContain('tokens');
+    expect(metaText(root)).not.toContain('tokens');
   });
 
   it.each([
@@ -146,14 +155,11 @@ describe('AgentCardComponent flat execution header', () => {
       fixture.componentRef.setInput('presentation', 'flat');
       fixture.detectChanges();
       const root: HTMLElement = fixture.nativeElement;
-      const row = root.querySelector<HTMLButtonElement>(
-        '[data-test="turn-disclosure-row"]',
-      )!;
-      expect(row.getAttribute('aria-label')).toContain(label);
+      expect(metaText(root)).toContain(label);
       expect(
-        root.querySelector('[data-test="turn-disclosure-meta"]')?.className,
+        root.querySelector('[data-test="execution-header-meta"]')?.className,
       ).toContain('!text-warning');
-      row.click();
+      detailsToggle(root).click();
       fixture.detectChanges();
       expect(
         root.querySelector('#cli-lane-details-lane-1')?.textContent,
@@ -169,9 +175,7 @@ describe('AgentCardComponent flat execution header', () => {
     );
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
-    const label = fixture.nativeElement
-      .querySelector('[data-test="turn-disclosure-row"]')
-      ?.getAttribute('aria-label');
+    const label = metaText(fixture.nativeElement);
     expect(label).toContain('Stopped');
     expect(label).toContain('Stopped: tool-call limit reached');
   });
@@ -183,11 +187,7 @@ describe('AgentCardComponent flat execution header', () => {
       fixture.componentRef.setInput('agent', lane({ usageTotals }));
       fixture.componentRef.setInput('presentation', 'flat');
       fixture.detectChanges();
-      expect(
-        fixture.nativeElement
-          .querySelector('[data-test="turn-disclosure-row"]')
-          ?.getAttribute('aria-label'),
-      ).not.toContain('tokens');
+      expect(metaText(fixture.nativeElement)).not.toContain('tokens');
     },
   );
 
@@ -208,7 +208,7 @@ describe('AgentCardComponent flat execution header', () => {
     ).toBe('1.3k');
   });
 
-  it('constructs the lane tree builder only for flat presentation', () => {
+  it('builds no lane tree of its own in either presentation', () => {
     const treeBuilderFactory = jest.fn(() => ({
       buildTreeFromSegments: jest.fn(() => []),
     }));
@@ -221,7 +221,8 @@ describe('AgentCardComponent flat execution header', () => {
     expect(treeBuilderFactory).not.toHaveBeenCalled();
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
-    expect(treeBuilderFactory).toHaveBeenCalledTimes(1);
+    // The header no longer counts tools, so only the output builds a tree.
+    expect(treeBuilderFactory).not.toHaveBeenCalled();
   });
 
   it('marks segment totals as partial and displays a guard stop reason', () => {
@@ -242,19 +243,15 @@ describe('AgentCardComponent flat execution header', () => {
     );
     fixture.componentRef.setInput('presentation', 'flat');
     fixture.detectChanges();
-    const row: HTMLButtonElement = fixture.nativeElement.querySelector(
-      '[data-test="turn-disclosure-row"]',
-    );
-    expect(row.getAttribute('aria-label')).not.toContain('tokens');
+    const meta = metaText(fixture.nativeElement);
+    expect(meta).not.toContain('tokens');
     expect(
       fixture.nativeElement.querySelector('[data-testid="lane-stats-tokens"]')
         ?.textContent,
     ).toContain('≥ 1.3k');
-    expect(row.getAttribute('aria-label')).toContain(
-      'Stopped: tool-call limit reached',
-    );
+    expect(meta).toContain('Stopped: tool-call limit reached');
     expect(
-      fixture.nativeElement.querySelector('[data-test="turn-disclosure-meta"]')
+      fixture.nativeElement.querySelector('[data-test="execution-header-meta"]')
         ?.className,
     ).toContain('!text-warning');
   });
