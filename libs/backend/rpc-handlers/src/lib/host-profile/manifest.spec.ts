@@ -8,10 +8,63 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 }));
 
 import 'reflect-metadata';
-import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
+import {
+  PROVIDER_ACCOUNT_RPC_METHOD_NAMES,
+  RPC_METHOD_NAMES,
+} from '@ptah-extension/shared';
 import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './manifest';
+import type { HostCapabilities } from './capabilities';
 import { capabilities, type HostProfile } from './host-profile';
 import { deriveRpcSurface } from './register-rpc-surface';
+import { ProviderAccountRpcHandlers } from '../handlers/provider-account-rpc.handlers';
+
+function surfaceFor(caps: HostCapabilities) {
+  return deriveRpcSurface({
+    host: 'electron',
+    platform: 'electron',
+    capabilities: caps,
+    hostHandlers: {},
+    wiring: {
+      worktree: false,
+      copilotPermission: false,
+      persistCliSession: false,
+      sdkSessionIdLookup: false,
+      sessionMetadataEvents: false,
+    },
+    assertOnDrift: false,
+  });
+}
+
+describe('provider account RPC manifest (TASK_2026_712 D30)', () => {
+  const accountMethods: string[] = [
+    ...PROVIDER_ACCOUNT_RPC_METHOD_NAMES,
+  ].sort();
+
+  it('gates exactly the account methods behind providerAccounts', () => {
+    const entry = RPC_HANDLER_MANIFEST.find(
+      (candidate) => candidate.key === 'providerAccounts',
+    );
+    expect(entry?.requires).toEqual(['providerAccounts']);
+    expect(entry?.handler).toBe(ProviderAccountRpcHandlers);
+    expect([...(entry?.methods ?? [])].sort()).toEqual(accountMethods);
+  });
+
+  it('keeps every account method in the RPC registry', () => {
+    expect(RPC_METHOD_NAMES).toEqual(expect.arrayContaining(accountMethods));
+  });
+
+  it('serves the account methods only when providerAccounts is on', () => {
+    const off = surfaceFor(capabilities({}));
+    expect(off.excluded).toEqual(expect.arrayContaining(accountMethods));
+    expect(off.registered.filter((m) => accountMethods.includes(m))).toEqual(
+      [],
+    );
+
+    const on = surfaceFor(capabilities({ providerAccounts: true }));
+    expect(on.registered).toEqual(expect.arrayContaining(accountMethods));
+    expect(on.excluded.filter((m) => accountMethods.includes(m))).toEqual([]);
+  });
+});
 
 const generationMethods = [
   'enhancedPrompts:cancel',

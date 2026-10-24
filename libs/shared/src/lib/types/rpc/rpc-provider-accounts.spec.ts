@@ -185,12 +185,12 @@ describe('provider account RPC contracts', () => {
       ]);
     });
 
-    it('do not collide with existing methods or match the host-source pattern', () => {
+    it('are registered exactly once and do not match the host-source pattern', () => {
       const hostSource =
         /turn|recap|ptah-?ui|change-?set|host-?source|turn-?tests|usage/i;
       for (const name of PROVIDER_ACCOUNT_RPC_METHOD_NAMES) {
         expect(hostSource.test(name)).toBe(false);
-        expect(RPC_METHOD_NAMES).not.toContain(name);
+        expect(RPC_METHOD_NAMES.filter((n) => n === name)).toHaveLength(1);
       }
     });
   });

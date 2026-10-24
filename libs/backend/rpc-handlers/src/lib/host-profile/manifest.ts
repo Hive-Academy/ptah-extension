@@ -85,6 +85,7 @@ import {
 } from '../handlers';
 import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-rpc.handlers';
 import { ArtifactRpcHandlers } from '../handlers/artifact-rpc.handlers';
+import { ProviderAccountRpcHandlers } from '../handlers/provider-account-rpc.handlers';
 
 /**
  * Structural shape every RPC handler class satisfies. tsyringe's
@@ -507,6 +508,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: LanePlanLimitsRpcHandlers.METHODS,
     requires: ['lanePlanLimits'],
     handler: LanePlanLimitsRpcHandlers,
+  },
+  {
+    // Named provider accounts (TASK_2026_712). Electron-only: VS Code and the
+    // CLI leave the capability off, so the methods are excluded there.
+    // Sign-in, cancel and sign-out stay release-held inside the handler (D7).
+    key: 'providerAccounts',
+    methods: ProviderAccountRpcHandlers.METHODS,
+    requires: ['providerAccounts'],
+    handler: ProviderAccountRpcHandlers,
   },
 
   // --- host-owned (unification pending) -------------------------------------

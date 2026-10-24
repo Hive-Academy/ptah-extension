@@ -46,6 +46,9 @@ export function createElectronRpcHostProfile(
       // Serves `agent:getLanePlanLimits` (the `$limits` host source); its
       // lookup is the `PtahAPIBuilder` bound in `phase-3-storage.ts`.
       lanePlanLimits: true,
+      // Serves the `provider:*Account*` methods (Claude account management);
+      // `ProviderAccountService` is bound by the shared auth registration.
+      providerAccounts: true,
     }),
     hostHandlers: {
       'host.fileOpen': ElectronFileOpenRpcHandlers,

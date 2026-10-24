@@ -35,6 +35,7 @@ import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorde
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 import { GuidanceGenerationRunSupervisor } from './handlers/guidance-generation-run.supervisor';
 import { GenerationRunSupervisor } from './handlers/wizard-generation-run.supervisor';
+import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 
 /**
  * Register the shared RPC handler classes that every app wires the same way,
@@ -96,6 +97,11 @@ export function registerSharedRpcHandlers(
   // Usage dashboard (TASK_2026_707 PR 2). Needs the usage-analytics service,
   // which every host registers in its libraries phase.
   container.registerSingleton(AnalyticsRpcHandlers);
+  // Provider accounts (TASK_2026_712). A singleton because the handler keeps
+  // the request ledger and snapshot revision; a second instance would forget
+  // a repeated requestId. Registration is lazy: only hosts whose profile
+  // enables `providerAccounts` (Electron) resolve it through the manifest.
+  container.registerSingleton(ProviderAccountRpcHandlers);
 }
 
 /**
