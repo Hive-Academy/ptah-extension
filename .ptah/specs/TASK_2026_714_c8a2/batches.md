@@ -1,6 +1,7 @@
 # Batches - TASK_2026_714_c8a2
 
-Total tasks: 48 | Batches: 41 | Complete: 3/41
+Total tasks: 48 | Batches: 41 | Complete: 6/41 (2a, 2b, 2c, 2d, 2f, 2h; 2d/2f/2h commit pending)
+In flight (Wave 2): 2e, 3c. Phase P3 review: APPROVED (code-logic-review-batch-2c.md).
 (Not #808-blocked: 15 batches in P2/P3/P4, plus 9a, 10a, 10b once P2 is done. Blocked on
 #808: 18 in P5-P10. Blocked on evidence: 5 in P11.)
 
@@ -217,7 +218,22 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Scoped command passes; spec proves unknown method, wrong result shape, mismatched version,
   mismatched sha, missing platform row all fail.
 
-## Batch 2d: App Server process and JSONL transport — PENDING
+## Batch 2d: App Server process and JSONL transport — COMPLETE (verified Wave 2; commit pending)
+
+- Verification (Wave 2, team-leader): codex-runtime Jest 7/7 suites, 372 tests passed (only
+  the in-flight 2e spec excluded); typecheck OK; lint 0 errors, 4 warnings. On disk:
+  pin check via verifyCodexBinary before spawn (:88-93) plus spawn-time launchGuard digest;
+  IProcessSpawner with args ['app-server'], no shell; 1 MiB fixed frame buffer, strict UTF-8,
+  frames validated before correlation/dispatch (:201-230); 4 MiB queued bytes; 128 pending
+  requests/approvals; 10 s / 30 s / 5 min timeouts; idempotent close with 1 s kill timer
+  and listener cleanup; remote error text never copied. experimentalApi always true because
+  the 2b validator requires literal true (validator :539). Manifest duplication resolved via
+  CodexExecutableSource.expectedManifestRow (ports :10-22).
+- Carried RISK for the P2 code-logic review (not a 2d rejection): child env is
+  `{...process.env, CODEX_HOME}` (:98), so host ANTHROPIC_* proxy tokens and any
+  OPENAI_API_KEY/CODEX_API_KEY reach the Codex child; the spike harness used an allowlist
+  (tools/evidence-harness.ts:304-322). Reviewer decides allowlist vs denylist; fix lands with
+  2i or a P2 fix batch.
 
 - Recommended executor: CLI lane, Codex family, backend capability
 - Execution mode: sequential | Subagent reason: N/A | Review family: Claude
@@ -226,7 +242,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Tasks: 1 | Depends on: 2a, 2b | Runnable now: after 2a+2b
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2d.1: Process lifecycle — PENDING
+### Task 2d.1: Process lifecycle — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-app-server-process.ts,
   W/libs/backend/codex-runtime/src/lib/codex-app-server-process.spec.ts
@@ -247,7 +263,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Scoped command passes; spec covers fragmentation, oversize, timeout, crash mid-request,
   double close, terminal-before-exit.
 
-## Batch 2e: Execution profile builder — PENDING
+## Batch 2e: Execution profile builder — IN_PROGRESS
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential | Review family:
   Claude | Subagent reason: N/A
@@ -255,7 +271,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Tasks: 1 | Depends on: 2a | Runnable now: after 2a
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2e.1: buildCodexExecutionProfile — PENDING
+### Task 2e.1: buildCodexExecutionProfile — IN_PROGRESS
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-execution-profile.ts,
   W/libs/backend/codex-runtime/src/lib/codex-execution-profile.spec.ts
@@ -275,7 +291,14 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 
 - Scoped command passes.
 
-## Batch 2f: Permission policy and rule store — PENDING
+## Batch 2f: Permission policy and rule store — COMPLETE (verified Wave 2; commit pending)
+
+- Verification (Wave 2, team-leader): same codex-runtime run as 2d. Policy (:11-25):
+  userInput always presented; plan declines every approval (a rule hit cannot exit plan);
+  rule hit -> acceptForSession; yolo accepts ordinary classes; auto-edit accepts only
+  fileChange; returns only present/accept/acceptForSession/decline. RuleStore: in-memory,
+  scope provider+home+workspace+thread, exact command+cwd / exact file set / MCP server+tool,
+  only acceptForSession records, clear(scope), dispose; no agent-sdk import.
 
 - Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
   Subagent reason: N/A
@@ -283,7 +306,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Tasks: 2 | Depends on: 2a, 2b | Runnable now: after 2a+2b
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2f.1: CodexPermissionPolicy — PENDING
+### Task 2f.1: CodexPermissionPolicy — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-permission-policy.ts,
   W/libs/backend/codex-runtime/src/lib/codex-permission-policy.spec.ts
@@ -293,7 +316,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
   fileChange; commands/MCP/permissions keep a prompt; yolo auto-accepts ordinary classes but
   never userInput (questions stay interactive); plan never auto-accepts writes.
 
-### Task 2f.2: CodexPermissionRuleStore — PENDING
+### Task 2f.2: CodexPermissionRuleStore — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-permission-rule-store.ts,
   W/libs/backend/codex-runtime/src/lib/codex-permission-rule-store.spec.ts
@@ -307,7 +330,15 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 
 - Scoped command passes; spec proves cross-home/workspace/tool isolation.
 
-## Batch 2h: Event translator — PENDING
+## Batch 2h: Event translator — COMPLETE (verified Wave 2; commit pending)
+
+- Verification (Wave 2, team-leader): same codex-runtime run as 2d. Covers every validated
+  notification; tool ids = item ids; one terminal per thread+turn with late events
+  suppressed; usage from tokenUsage.last only when reported, no cost; fixed sanitized error
+  messages. Recorded-order replay reads tracked spike-run-6h/6i/6j.json with synthetic
+  payloads (spec :342-426). Lint fix for no-fallthrough at :49 applied by the lane.
+- Notes for the P2 review: item/started emits `toolStarted` for commandExecution (start, not
+  "ran"; decline maps to `cancelled`); the spec depends on the task-spec folder for fixtures.
 
 - Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
   Subagent reason: N/A
@@ -315,7 +346,7 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 - Tasks: 1 | Depends on: 2a, 2b | Runnable now: after 2a+2b
 - Phase: P2 | Phase review: code-logic + style
 
-### Task 2h.1: CodexEventTranslator — PENDING
+### Task 2h.1: CodexEventTranslator — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-event-translator.ts,
   W/libs/backend/codex-runtime/src/lib/codex-event-translator.spec.ts
@@ -445,6 +476,10 @@ arch}, manifest)` -> ok | mismatch(reason). Compares pinnedVersion (0.155.1), bi
 # Phase P3 — Legacy lane home correction (@ptah-extension/cli-agent-runtime) — runnable now
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude.
+Phase P3 — COMPLETE. Review: code-logic-review-batch-2c.md, APPROVED 8/10 (implementer Codex,
+reviewer Claude). Moderate finding carried to Batch 3a: the Windows default prefers HOME over
+USERPROFILE, and harness-sync codexHomeDir() resolves differently; 3a adds one shared Codex
+home resolver.
 
 ## Batch 2c: Legacy Codex lane reads auth from its execution home — COMPLETE (verified; commit fix(cli-agent-runtime) read codex lane auth)
 - Verification (Wave 1, team-leader): cli-agent-runtime test 111 suites / 2385 passed, 1 skipped;
@@ -499,6 +534,11 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 - Fallback order: other family same capability -> same family other provider/model -> subagent
 - Tasks: 2 | Depends on: 2a | Runnable now: after 2a
 - Phase: P4 | Phase review: code-logic
+- Carried from P3 review (code-logic-review-batch-2c.md, moderate): add one shared Codex home
+  resolver (CODEX_HOME > USERPROFILE on Windows / HOME elsewhere > os.homedir(), + `.codex`)
+  and use it in the legacy adapter (codex-cli.adapter.ts:429-432) and harness-sync
+  codexHomeDir() so both resolve the same home; spec covers Windows HOME vs USERPROFILE.
+  If the resolver must live outside auth-providers, the executor reports where and why.
 
 ### Task 3a.1: CodexHomeAuthService — PENDING
 
@@ -526,7 +566,7 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 
 - Scoped command passes; existing codex-auth behavior specs unchanged.
 
-## Batch 3c: AuthOperationContext and CodexProxyPolicy — PENDING
+## Batch 3c: AuthOperationContext and CodexProxyPolicy — IN_PROGRESS
 
 - Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
   Subagent reason: N/A
@@ -534,7 +574,7 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 - Tasks: 2 | Depends on: none (eligible for Wave 1) | Runnable now: YES
 - Phase: P4 | Phase review: code-logic
 
-### Task 3c.1: Proxy policy — PENDING
+### Task 3c.1: Proxy policy — IN_PROGRESS
 
 - Files: CREATE W/libs/backend/auth-providers/src/lib/auth/codex-proxy-policy.ts,
   W/libs/backend/auth-providers/src/lib/auth/codex-proxy-policy.spec.ts; MODIFY
@@ -544,7 +584,7 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
   normalizedHome?}; policy decides native-return-before-env-teardown vs legacy proxy start.
   Omitted context = current behavior (hostNativeCodex defaults false; nothing enables it here).
 
-### Task 3c.2: Keyed AuthManager flights — PENDING
+### Task 3c.2: Keyed AuthManager flights — IN_PROGRESS
 
 - Files: MODIFY W/libs/backend/auth-providers/src/lib/auth/auth-manager.ts and its spec
 - Depends on: Task 3c.1
