@@ -52,6 +52,7 @@ import {
 } from './evidence-harness';
 import { FrameDecoder, MAX_FRAME_BYTES } from './evidence-frames';
 import {
+  createPathRedactor,
   recordCaseFailure,
   recordCommandShape,
 } from './evidence-failure-notes';
@@ -1439,7 +1440,12 @@ describe('ask-command-edit evidence flow', () => {
       | 'late-read'
       | 'read-approval'
       | 'rule-approval'
-      | 'rule-no-approval',
+      | 'rule-no-approval'
+      | 'messages-only'
+      | 'empty-turn'
+      | 'steer-messages-only'
+      | 'interrupted-empty'
+      | 'accept-empty',
     cap = TURN_CAP,
   ) {
     const root = mkdtempSync(join(tmpdir(), 'ptah-edit-spec-'));
@@ -1600,6 +1606,31 @@ describe('ask-command-edit evidence flow', () => {
                 },
               },
             });
+            if (
+              [
+                'messages-only',
+                'empty-turn',
+                'interrupted-empty',
+                'accept-empty',
+              ].includes(mode)
+            ) {
+              if (mode === 'messages-only')
+                notify('item/completed', {
+                  item: {
+                    type: 'agentMessage',
+                    text: 'Unable to run the command.',
+                  },
+                });
+              notify('turn/completed', {
+                threadId: 'thread',
+                turn: {
+                  id: activeTurn,
+                  status:
+                    mode === 'interrupted-empty' ? 'interrupted' : 'completed',
+                },
+              });
+              return;
+            }
             if (readRule) {
               const command = readCommand(
                 join(experiment.workspace, 'ask-read-rule.fixture.txt'),
@@ -1653,6 +1684,21 @@ describe('ask-command-edit evidence flow', () => {
             });
           }
           reply({ turnId: activeTurn });
+          if (mode === 'steer-messages-only') {
+            setImmediate(() => {
+              notify('item/completed', {
+                item: {
+                  type: 'agentMessage',
+                  text: 'Unable to run the new command.',
+                },
+              });
+              notify('turn/completed', {
+                threadId: 'thread',
+                turn: { id: activeTurn, status: 'completed' },
+              });
+            });
+            break;
+          }
           setImmediate(() =>
             requestApproval(
               'second',
@@ -1741,7 +1787,11 @@ describe('ask-command-edit evidence flow', () => {
           observations: [1, 2],
           kind: readRule ? 'read-rule' : 'command',
           level: 'ask',
-          decision: readRule ? 'deny' : 'edit',
+          decision: readRule
+            ? 'deny'
+            : mode === 'accept-empty'
+              ? 'accept'
+              : 'edit',
           purpose: 'test',
         },
         result,
@@ -1835,6 +1885,56 @@ describe('ask-command-edit evidence flow', () => {
       usageAfter: [{ turnId: 'turn-one', totalTokens: 200 }],
     });
     expect(result.notes).toContain('steer stayed in the same turn');
+    expect(
+      result.notes?.some((note) => note.includes('recorded agent messages:')),
+    ).toBe(false);
+    expect(
+      sent.find((frame) => frame['method'] === 'thread/start'),
+    ).toMatchObject({
+      params: {
+        developerInstructions:
+          'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action per user message; a later user message may request a different single marker.',
+      },
+    });
+  });
+
+  it.each([
+    ['messages-only', 1, 0, 2],
+    ['empty-turn', 0, 0, 2],
+    ['steer-messages-only', 1, 1, 2],
+    ['accept-empty', 0, 0, 1],
+  ] as const)(
+    'reports recorded message count for %s without approval',
+    async (mode, count, approvals, expected) => {
+      const { result, failure } = await exercise(mode);
+      expect(failure).toBeUndefined();
+      expect(result.status).toBe('unverified: required gate not observed');
+      expect(result.approvals).toHaveLength(approvals);
+      expect(result.notes).not.toContain(
+        'granular ask: no approval request observed',
+      );
+      expect(
+        result.notes?.filter((note) =>
+          note.startsWith('Command turn completed with'),
+        ),
+      ).toHaveLength(1);
+      expect(result.notes).toContain(
+        `Command turn completed with ${approvals} of ${expected} expected approval requests; recorded agent messages: ${count}`,
+      );
+      expect(result.agentMessages ?? []).toHaveLength(count);
+    },
+  );
+
+  it('does not add missing command approval notes for interrupted turns', async () => {
+    const { result, failure } = await exercise('interrupted-empty');
+    expect(failure).toBeUndefined();
+    expect(result.terminal).toBe('interrupted');
+    expect(
+      result.notes?.some((note) => note.includes('expected approval requests')),
+    ).toBe(false);
+    expect(result.notes).not.toContain(
+      'granular ask: no approval request observed',
+    );
   });
 
   it.each(['marker-read', 'read-approval'] as const)(
@@ -2571,4 +2671,95 @@ describe('MCP elicitation evidence flow', () => {
     );
     rpc.stopSync();
   });
+
+  it('records only completed agent text, sanitized and bounded outside event summaries', () => {
+    const child = fakeChild();
+    const result: Parameters<typeof runCase>[1] = {
+      id: 'agent-text',
+      status: '',
+      turns: 0,
+      events: [],
+      approvals: [],
+    };
+    const rpc = new RpcChild(child, result);
+    const send = (method: string, type: string, text: unknown) =>
+      child.stdout.write(
+        JSON.stringify({ method, params: { item: { type, text } } }) + '\n',
+      );
+    send('item/started', 'agentMessage', 'private-started');
+    send('item/completed', 'reasoning', 'private-reasoning');
+    send('item/completed', 'agentMessage', { text: 'private-malformed' });
+    expect(result.agentMessages).toBeUndefined();
+    send(
+      'item/completed',
+      'agentMessage',
+      'private-completed person@example.com Bearer secret-value',
+    );
+    send('item/completed', 'agentMessage', 'bounded text '.repeat(50));
+    send('item/completed', 'agentMessage', 'third-completed');
+    expect(result.agentMessages).toEqual([
+      'private-completed [REDACTED] Bearer [REDACTED]',
+      'bounded text '.repeat(50).slice(0, 400),
+      'third-completed',
+    ]);
+    expect(result.agentMessages?.[1]).toHaveLength(400);
+    send('item/completed', 'agentMessage', 'fourth-completed');
+    expect(result.agentMessages).toEqual([
+      'bounded text '.repeat(50).slice(0, 400),
+      'third-completed',
+      'fourth-completed',
+    ]);
+    expect(JSON.stringify(result.events)).not.toMatch(
+      /private-|person@example.com|secret-value|bounded text|third-completed|fourth-completed/,
+    );
+    rpc.stopSync();
+  });
+
+  it.each(['\\', '/'])(
+    'redacts experiment paths and usernames with %s separators before retaining text',
+    (separator) => {
+      const root =
+        'C:/Users/alice/AppData/Local/Temp/ptah-codex-evidence-test'.replaceAll(
+          '/',
+          separator,
+        );
+      const experiment: Experiment = {
+        root,
+        workspace: `${root}${separator}workspace`,
+        home: `${root}${separator}home`,
+        scratch: `${root}${separator}scratch`,
+      };
+      const child = fakeChild();
+      const result: Parameters<typeof runCase>[1] = {
+        id: 'paths',
+        status: '',
+        turns: 0,
+        events: [],
+        approvals: [],
+      };
+      const rpc = new RpcChild(child, result, createPathRedactor(experiment));
+      const text = [
+        `${experiment.workspace}${separator}marker`,
+        `${experiment.home}${separator}config`,
+        `${experiment.scratch}${separator}marker`,
+        `${experiment.root}${separator}script`,
+        `C:${separator}Users${separator}bob${separator}other`,
+        '/home/carol/file',
+        '/Users/dana/file',
+      ].join(' ');
+      child.stdout.write(
+        JSON.stringify({
+          method: 'item/completed',
+          params: { item: { type: 'agentMessage', text } },
+        }) + '\n',
+      );
+      expect(result.agentMessages).toEqual([
+        `<WORKSPACE>${separator}marker <HOME>${separator}config <SCRATCH>${separator}marker <ROOT>${separator}script <USER_HOME>${separator}other <USER_HOME>/file <USER_HOME>/file`,
+      ]);
+      expect(JSON.stringify(result)).not.toMatch(
+        /alice|bob|carol|dana|AppData|ptah-codex-evidence-test/,
+      );
+      rpc.stopSync();
+    },
+  );
 });

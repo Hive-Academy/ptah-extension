@@ -108,6 +108,57 @@ interface CommandShapeContext {
   sanitize: (value: unknown) => unknown;
 }
 
+export function createPathRedactor(
+  experiment?: Experiment,
+  authDirectory?: string,
+): (text: string) => string {
+  const variants = (value: string): string[] => [
+    value,
+    value.replace(/'/g, "''"),
+    value.replace(/'/g, "'\\''"),
+    JSON.stringify(value).slice(1, -1),
+  ];
+  const escape = (value: string): string =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const paths = [
+    [experiment?.root ?? '', '<ROOT>'],
+    [experiment?.home ?? '', '<HOME>'],
+    [experiment?.scratch ?? '', '<SCRATCH>'],
+    [experiment?.workspace ?? '', '<WORKSPACE>'],
+    [process.execPath, '<NODE>'],
+    [homedir(), '<USER_HOME>'],
+    [tmpdir(), '<TMP>'],
+    [process.cwd(), '<CWD>'],
+    [process.env['CODEX_HOME'] ?? '', '<CODEX_HOME>'],
+    [authDirectory ?? '', '<AUTH_DIR>'],
+  ];
+  const replacements = paths
+    .flatMap(([path, placeholder]) =>
+      [
+        ...new Set(
+          [path, path.replace(/\\/g, '/'), path.replace(/\//g, '\\')].flatMap(
+            variants,
+          ),
+        ),
+      ].map((value) => ({ value, placeholder })),
+    )
+    .sort((left, right) => right.value.length - left.value.length);
+  return (text: string): string => {
+    let value = text;
+    for (const replacement of replacements) {
+      if (replacement.value)
+        value = value.replace(
+          new RegExp(
+            escape(replacement.value),
+            process.platform === 'win32' ? 'gi' : 'g',
+          ),
+          replacement.placeholder,
+        );
+    }
+    return value;
+  };
+}
+
 /** Diagnostic only: never use normalized command text to make an approval decision. */
 export function recordCommandShape(
   result: { notes?: string[] },
@@ -125,31 +176,10 @@ export function recordCommandShape(
     value.replace(/'/g, "'\\''"),
     JSON.stringify(value).slice(1, -1),
   ];
-  const escape = (value: string): string =>
-    value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const paths = [
-    [context.experiment.root, '<ROOT>'],
-    [context.experiment.home, '<HOME>'],
-    [context.experiment.scratch, '<SCRATCH>'],
-    [context.experiment.workspace, '<WORKSPACE>'],
-    [process.execPath, '<NODE>'],
-    [homedir(), '<USER_HOME>'],
-    [tmpdir(), '<TMP>'],
-    [process.cwd(), '<CWD>'],
-    [process.env['CODEX_HOME'] ?? '', '<CODEX_HOME>'],
-    [context.authDirectory ?? '', '<AUTH_DIR>'],
-  ];
-  const replacements = paths
-    .flatMap(([path, placeholder]) =>
-      [
-        ...new Set(
-          [path, path.replace(/\\/g, '/'), path.replace(/\//g, '\\')].flatMap(
-            variants,
-          ),
-        ),
-      ].map((value) => ({ value, placeholder })),
-    )
-    .sort((left, right) => right.value.length - left.value.length);
+  const redactPaths = createPathRedactor(
+    context.experiment,
+    context.authDirectory,
+  );
   const shape = (command: string): string => {
     let value = command.replace(
       /"(?:[A-Za-z]:[\\/]|\\\\)[^"\r\n]*[\\/](powershell\.exe|pwsh\.exe|cmd\.exe|bash|sh)"/gi,
@@ -164,16 +194,7 @@ export function recordCommandShape(
       .sort((left, right) => right.length - left.length)) {
       if (script) value = value.split(script).join('<MARKER_SCRIPT>');
     }
-    for (const replacement of replacements) {
-      if (replacement.value)
-        value = value.replace(
-          new RegExp(
-            escape(replacement.value),
-            process.platform === 'win32' ? 'gi' : 'g',
-          ),
-          replacement.placeholder,
-        );
-    }
+    value = redactPaths(value);
     return value.replace(/\s+/g, ' ').trim();
   };
   // Select command fields only; never stringify the request, environment, errors or model messages.

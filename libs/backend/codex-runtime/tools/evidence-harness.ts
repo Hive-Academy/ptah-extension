@@ -34,6 +34,7 @@ import {
   type RequestFrame,
 } from './evidence-frames';
 import {
+  createPathRedactor,
   failureMessages,
   recordCaseFailure,
   recordCommandShape,
@@ -432,6 +433,7 @@ interface CaseResult {
   turns: number;
   events: EventSummary[];
   approvals: ApprovalSummary[];
+  agentMessages?: string[];
   markers?: { original: boolean; replacement: boolean; outside: boolean };
   terminal?: string;
   usage?: unknown;
@@ -573,6 +575,7 @@ export class RpcChild {
   constructor(
     private readonly child: RpcProcess,
     private readonly result: CaseResult,
+    private readonly redactPaths = createPathRedactor(),
   ) {
     this.exited = new Promise((done) => child.once('close', done));
     child.stderr.resume(); // Never retain stderr: it can include credentials and prompts.
@@ -617,6 +620,7 @@ export class RpcChild {
         item: z
           .object({
             type: z.string(),
+            text: z.unknown().optional(),
             status: z.string().optional(),
             server: z.string().optional(),
             tool: z.string().optional(),
@@ -633,6 +637,28 @@ export class RpcChild {
       const capped = (value: string) => String(sanitize(value)).slice(0, 80);
       if ((method === 'item/started' || method === 'item/completed') && item) {
         summary.itemType = capped(item.type);
+        if (
+          method === 'item/completed' &&
+          item.type === 'agentMessage' &&
+          typeof item.text === 'string'
+        ) {
+          const messages = (this.result.agentMessages ??= []);
+          messages.push(
+            String(
+              sanitize(
+                this.redactPaths(item.text)
+                  .replace(
+                    /[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s"'<>]+/gi,
+                    '<USER_HOME>',
+                  )
+                  .replace(/\/(?:home|Users)\/[^/\s"'<>]+/g, '<USER_HOME>'),
+              ),
+            )
+              .slice(0, 400)
+              .replace(/(?:<[^>]*|\[[^\]]*)$/, ''),
+          );
+          if (messages.length > 3) messages.shift();
+        }
         if (item.status !== undefined) summary.itemStatus = capped(item.status);
         if (item.type === 'mcpToolCall') {
           if (item.server !== undefined) summary.server = capped(item.server);
@@ -1370,7 +1396,11 @@ export async function runCase(
       detached: process.platform !== 'win32',
     },
   );
-  const rpc = new RpcChild(child, result);
+  const rpc = new RpcChild(
+    child,
+    result,
+    createPathRedactor(experiment, authDirectory),
+  );
   // Only validated command approvals participate in marker outcome checks.
   const validatedApprovals: ApprovalSummary[] = [];
   children.add(rpc);
@@ -1940,8 +1970,8 @@ export async function runCase(
       developerInstructions: readRule
         ? 'Evidence experiment. Only read the single requested fixture. Do not inspect credentials, config, home, environment or network. No subagents or retries. Stop after one tool action.'
         : editing
-          ? // Runs 6f/6g: naming the decline and replacement plan here made the model skip the requested command.
-            'Evidence experiment. Only the marker in the latest requested command may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries.'
+          ? // Match accept/deny while allowing one action for each user message.
+            'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action per user message; a later user message may request a different single marker.'
           : 'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
     });
     if (typeof selected.approvalPolicy !== 'string') {
@@ -2041,7 +2071,17 @@ export async function runCase(
     harnessFailed = true;
     throw error;
   } finally {
+    const expectedApprovals = editing ? 2 : 1;
     if (
+      item.kind === 'command' &&
+      terminal === 'completed' &&
+      validatedApprovals.length < expectedApprovals
+    )
+      (result.notes ??= []).push(
+        `Command turn completed with ${validatedApprovals.length} of ${expectedApprovals} expected approval requests; recorded agent messages: ${result.agentMessages?.length ?? 0}`,
+      );
+    if (
+      item.kind !== 'command' &&
       shouldNoteMissingApproval(
         turnId,
         item.level,
