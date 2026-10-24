@@ -11,20 +11,22 @@ const all: EvidenceCase[] = JSON.parse(
     'utf8',
   ),
 );
-// Run 6f. User budget: 14 total, 7 used, 7 remain. ask-command-accept and compaction are proved
-// (run 6e) and dropped. ask-command-edit runs second so a steer-created turn skips the last case,
-// never the edit case. The harness enforces the remaining budget through --turn-cap.
-const REMAINING = 7;
+// Run 6g. User budget: 20 total, 9 used, 11 remain; one run is capped at 8 (TURN_CAP). Proved and
+// dropped: ask-command-accept, compaction (run 6e), ask-command-deny (run 6f). ask-command-edit runs
+// first so a steer-created turn can only skip the last case. ask-read-rule runs last because an
+// "unverified" result stops every later case. The harness enforces the cap through --turn-cap.
+const REMAINING = 11;
+const CAP = Math.min(REMAINING, 8);
 const order = [
   'schema-handshake',
-  'ask-command-deny',
-  'ask-command-edit',
   'modified-input-schema',
+  'ask-command-edit',
   'file-change-accept',
   'plan-read-only',
   'auto-edit-boundary',
   'yolo-interrupt',
   'mcp-approval',
+  'ask-read-rule',
 ];
 const cases = order.map((id) => {
   const found = all.find((item) => item.id === id);
@@ -32,15 +34,18 @@ const cases = order.map((id) => {
   return found;
 });
 const cost = cases.reduce((sum, item) => sum + item.turnCost, 0);
-if (cost > REMAINING) throw new Error(`planned turns ${cost} > ${REMAINING}`);
+if (cost >= CAP)
+  throw new Error(
+    `planned turns ${cost} leave no slot for a steer turn under cap ${CAP}`,
+  );
 const args = process.argv.slice(2);
 if (args.includes('--turn-cap'))
   throw new Error('runner sets --turn-cap itself');
 process.stdout.write(
-  `runner: ${cases.length} cases, planned turns ${cost}, cap ${REMAINING}\n`,
+  `runner: ${cases.length} cases, planned turns ${cost}, cap ${CAP}, budget left ${REMAINING}\n`,
 );
 void runHarness(
-  parseOptions([...args, '--turn-cap', String(REMAINING)]),
+  parseOptions([...args, '--turn-cap', String(CAP)]),
   cases,
 ).catch(() => {
   process.stderr.write('Evidence harness failed; details withheld.\n');
