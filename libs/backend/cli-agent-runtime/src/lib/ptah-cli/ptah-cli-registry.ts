@@ -1,3 +1,5 @@
+import { buildClaudeSdkLaneOptions } from '../claude/claude-sdk-lane-options';
+import { ClaudeSdkLaneRunner } from '../claude/claude-sdk-lane-runner';
 import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
@@ -13,7 +15,6 @@ import {
   type ProviderProfile,
   createEmptyAuthEnv,
   isOpenCodeProviderId,
-  SessionId,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
 } from '@ptah-extension/shared';
 import {
@@ -23,8 +24,6 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from '../cli-agents/cli-adapters';
-import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
-import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import {
   SDK_TOKENS,
   HARNESS_PREFLIGHT_TOKEN,
@@ -40,9 +39,6 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
-  buildFlagSettingsArg,
-  buildSessionName,
-  deriveWorkspaceLabel,
   resolveSessionCapabilityPolicy,
   type AnthropicProvider,
   type HarnessPolicySync,
@@ -66,10 +62,8 @@ import {
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
 import type { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
-import { PtahCliStreamLoop } from './helpers/ptah-cli-stream-loop.service';
 import {
   PtahCliLanePlanLimits,
-  isPlanBilledLaneProvider,
   type LaneOwnerReader,
   type LanePlanLimitWriter,
 } from './helpers/ptah-cli-lane-plan-limits';
@@ -78,7 +72,6 @@ import { createPromptMailbox } from './helpers/ptah-cli-prompt-mailbox';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import {
   PTAH_CLI_KEY_PREFIX,
-  blankToUndefined,
   generateAgentId,
   sanitizeErrorMessage,
 } from './helpers/ptah-cli-registry.utils';
@@ -746,255 +739,44 @@ export class PtahCliRegistry {
       const queryFn = await this.moduleLoader.getQueryFunction();
       const abortController = new AbortController();
       const mailbox = createPromptMailbox(task);
-      abortController.signal.addEventListener('abort', () => {
-        mailbox.close();
-      });
-
-      const handleChildStderr = (data: string) => {
-        const isError =
-          classifyCliStderr(stripAnsiCodes(data).trim()) === 'error';
-        const message = `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`;
-        if (isError) {
-          this.logger.warn(message);
-        } else {
-          this.logger.debug(message);
-        }
-      };
-
-      // A session with no `--name` gets a CLI-derived one, which is what ANOTHER
-      // agent sees when it lists sessions — unstable and unhelpful there. The
-      // chat path composes its own name through the same builder; this is the
-      // spawn path's half of it (TASK_2026_402 Req 1.2). The uniqueness suffix is
-      // the reserved agent id, which is unique per spawn; the agent's configured
-      // name is user DATA and is slugified by the builder like any other input.
-      // `--replay-user-messages` is what makes an inbound peer turn OBSERVABLE
-      // here (TASK_2026_466 defect 1). The CLI accepts the turn either way —
-      // `crossSessionInbound: 'accept'` below sees to that, and the model reads
-      // it mid-turn — but without this flag the CLI echoes NO user message back
-      // on the SDK stream, so `PtahCliStreamLoop` never sees it, the lane's tile
-      // records nothing, and a message that DID land reads as lost. The chat path
-      // has sent this flag since TASK_2026_402 (`sdk-query-options-builder.ts`
-      // `buildExtraArgs`), which is why the child-to-parent direction was visible
-      // and this one was not. It is a null-valued flag, not a value arg.
-      //
-      // It does not double-render the lane's own prompts: every non-peer replay
-      // is dropped in `SdkMessageTransformer`, and the stream loop below admits
-      // a replay ONLY when its origin is `peer`.
-      const extraArgs: Record<string, string | null> = {
-        'replay-user-messages': null,
-      };
-      const sessionName = buildSessionName({
-        role: agentConfig.name,
-        workspaceLabel: deriveWorkspaceLabel(cwd),
-        uniqueSuffix: (options?.agentId ?? '').slice(0, 6),
-      });
-      if (sessionName) {
-        extraArgs['name'] = sessionName;
-      } else if (options?.agentId) {
-        // An id WAS reserved and the name still would not compose, so the inputs
-        // sanitised to nothing. That is a naming problem worth seeing — but it
-        // must never cost the session, hence the omission rather than a throw.
-        this.logger.warn(
-          '[PtahCliRegistry] Could not compose a session name — spawning without ' +
-            '--name, so the CLI derives one',
-          { agentConfigId: id },
-        );
-      } else {
-        // No id was reserved, which is simply a caller that does not go through
-        // `buildAgentNamespace.spawn` (the resume path is one). Nothing is wrong
-        // — there is just no uniqueness to build a stable name from — so this is
-        // `debug`, not a warning about a misconfiguration that does not exist.
-        this.logger.debug(
-          '[PtahCliRegistry] No reserved agent id for this spawn — the CLI ' +
-            'derives the session name',
-          { agentConfigId: id },
-        );
-      }
-
-      const sdkQuery = queryFn({
-        prompt: mailbox.prompt,
-        options: {
-          abortController,
-          model,
-          effort: agentConfig.reasoningEffort || undefined,
-          cwd,
-          systemPrompt:
-            assembly.systemPromptMode === 'standalone' &&
-            assembly.systemPromptContent
-              ? assembly.systemPromptContent
-              : {
-                  type: 'preset' as const,
-                  preset: 'claude_code' as const,
-                  append: assembly.systemPromptContent,
-                },
-          tools: {
-            type: 'preset' as const,
-            preset: 'claude_code' as const,
-          },
-          mcpServers: assembly.mcpServers,
-          // Output-style FLAG tier (TASK_2026_197). `buildFlagSettings` is the
-          // ONE builder of this object — hand-rolling `{ outputStyle: name }`
-          // here would be a second flag-tier definition, and it omits the
-          // `outputStyle`-key-absent rule that stops a spawn from clobbering a
-          // style the user chose for their own CLI sessions (G4b).
-          //
-          // It also carries `PTAH_DISABLE_SDK_AUTO_MEMORY`, which spawns did not
-          // send before. That is deliberate: Ptah runs its own memory curator,
-          // and a spawned agent writing SDK auto-memory was an inconsistency
-          // with every other session Ptah starts.
-          //
-          // Auto-compaction keys ride the same builder: the pinned runtime reads
-          // `autoCompactEnabled` / `autoCompactWindow` from this flag tier, and
-          // there is no `Options.compactionControl` (see auto-compact-control.ts).
-          // Serialized through `buildFlagSettingsArg` rather than
-          // `buildFlagSettings` so `crossSessionInbound: 'accept'` can ride
-          // along: the installed `Settings` interface models no such key, and
-          // `accept` is what makes a turn injected by a peer session ARRIVE
-          // instead of being held until it expires (TASK_2026_402 Req 1.1). The
-          // chat path already sends it; without it here, only half the fleet
-          // could receive one.
-          //
-          // The capability flags ride the same tier (TASK_2026_560), which is
-          // what makes a custom-base-URL provider enforce exactly the lists a
-          // direct one does.
-          settings: buildFlagSettingsArg(
-            { outputStyleName: assembly.outputStyleName },
-            'accept',
-            this.logger,
-            assembly.autoCompact,
-            assembly.capabilityFlags,
-          ),
-          // Strict MCP with `skills: []` when the policy is unverified.
-          ...assembly.capabilityIsolation,
-          extraArgs,
-          ...this.resolvePermissionOptions(
-            blankToUndefined(options?.resumeSessionId) ??
-              blankToUndefined(options?.parentSessionId) ??
-              `ptah-cli:${id}`,
-            () => agentIdHolder.value,
-          ),
-          settingSources: ['user', 'project', 'local'] as const,
-          includePartialMessages: true,
-          persistSession: true,
-          ...(options?.resumeSessionId && { resume: options.resumeSessionId }),
-          env: buildSafeEnv(authEnv),
-          stderr: handleChildStderr,
-          spawnClaudeCodeProcess: (spawnOptions) =>
-            this.processSpawner.spawn(spawnOptions, {
-              onStderr: handleChildStderr,
-            }),
-          hooks: assembly.hooks,
-          pathToClaudeCodeExecutable:
-            (await this.moduleLoader.getCliJsPath()) ?? undefined,
-        } as Options,
-      });
-      let resolvedSessionId: string | null = null;
-      const sessionResolvedCallbacks: Array<(sessionId: string) => void> = [];
-      const pendingTurns: Array<(exitCode: number) => void> = [];
-      const enqueueTurn = (): Promise<number> =>
-        new Promise<number>((resolve) => {
-          pendingTurns.push(resolve);
-        });
-      const turn1Done = enqueueTurn();
-      const lanePlanLimits = this.createLanePlanLimits(
-        id,
-        agentConfig.providerId,
-      );
-      const attachAgentId = (agentId: string): void => {
-        agentIdHolder.value = agentId;
-        lanePlanLimits.attach(agentId);
-      };
-      const streamLoop = new PtahCliStreamLoop({
+      const effectiveOptions = buildClaudeSdkLaneOptions({
+        assembly,
+        authEnv,
+        abortController,
+        model,
+        cwd,
+        effort: agentConfig.reasoningEffort || undefined,
+        agentName: agentConfig.name,
+        agentId: options?.agentId,
+        routingId: `ptah-cli:${id}`,
+        resumeSessionId: options?.resumeSessionId,
+        parentSessionId: options?.parentSessionId,
+        cliAgentResolver: () => agentIdHolder.value,
+        permissionHandler: this.permissionHandler,
         logger: this.logger,
-        messageTransformer: this.messageTransformer,
+        processSpawner: this.processSpawner,
+        executable: (await this.moduleLoader.getCliJsPath()) ?? undefined,
+      });
+      const { handle, setAgentId: attachAgentId } = new ClaudeSdkLaneRunner(
+        this.logger,
+        this.messageTransformer,
+      ).run({
+        queryFn,
+        options: { ...effectiveOptions, abortController },
+        mailbox,
+        providerId: agentConfig.providerId,
+        agentName: agentConfig.name,
+        agentIdHolder,
+        lanePlanLimits: this.createLanePlanLimits(id, agentConfig.providerId),
+        outputCallbacks,
+        onSegment,
+        onStreamEvent,
         emitOutput,
         emitSegment,
         emitStreamEvent,
-        agentName: agentConfig.name,
-        onSessionResolved: (sessionId: string) => {
-          resolvedSessionId = sessionId;
-          // The system init: the lane's own account can be read from here.
-          lanePlanLimits.onSystemInit(sdkQuery);
-          for (const cb of sessionResolvedCallbacks) {
-            cb(sessionId);
-          }
-        },
-        // A turn is released to the manager only once the lane's owner read
-        // has settled (bounded at 3 s), so the exit it triggers is classified
-        // and persisted with the owner (Batch 11 carry-forward).
-        onTurnComplete: (exitCode: number) => {
-          const resolve = pendingTurns.shift();
-          if (resolve) {
-            void lanePlanLimits.settled.then(() => resolve(exitCode));
-          }
-        },
-        onPlanLimitSignal: (signal) => lanePlanLimits.onSignal(signal),
-        planBilledSuccess: isPlanBilledLaneProvider(agentConfig.providerId),
+        disposeCallbacks,
+        stopProxy,
       });
-      streamLoop
-        .run(sdkQuery)
-        .catch((error: unknown) => {
-          // The loop normally returns 1 on failure. If its error handling itself
-          // rejects, pending turns still need that verdict and proxy teardown.
-          this.logger.error(
-            `[PtahCliRegistry] spawnAgent stream loop error: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          return 1;
-        })
-        .then((exitCode) => {
-          disposeCallbacks();
-          void stopProxy();
-          sessionResolvedCallbacks.length = 0;
-          lanePlanLimits.end();
-          void lanePlanLimits.settled.then(() => {
-            while (pendingTurns.length > 0) {
-              const resolve = pendingTurns.shift();
-              resolve?.(exitCode);
-            }
-          });
-        });
-
-      // No `getPid`, deliberately, and it is not an oversight the way it looks.
-      // Every other adapter here spawns its own `child_process` and can hand the
-      // manager a PID to tree-kill. This path does not spawn anything: `query()`
-      // owns the `claude` child, exposes no handle to it anywhere in the SDK's
-      // public surface, and reaps it itself when `abortController` fires — which
-      // is also what closes the prompt mailbox above and ends the stream loop. So
-      // for this handle the abort IS the kill, and `AgentProcessManager.killProcess`
-      // waits on `done` rather than tree-killing a PID it cannot be given.
-      // Inventing one (e.g. from a process scan) would be guessing at which
-      // `claude.exe` on the machine is ours.
-      const handle: SdkHandle = {
-        providerId: agentConfig.providerId,
-        abort: abortController,
-        done: turn1Done,
-        onOutput: (callback) => {
-          outputCallbacks.push(callback);
-        },
-        onSegment,
-        onStreamEvent,
-        onSessionResolved: (callback) => {
-          sessionResolvedCallbacks.push(callback);
-          if (resolvedSessionId) {
-            callback(resolvedSessionId);
-          }
-        },
-        supportsContinuation: () => true,
-        // Called by the manager as soon as it tracks the run, which is when
-        // the lane's owner can be recorded on it.
-        setAgentId: attachAgentId,
-        continue: (message: string) => {
-          const done = enqueueTurn();
-          this.logger.info(
-            `[PtahCliRegistry] continue() pushing follow-up turn for "${agentConfig.name}"`,
-            { sessionId: resolvedSessionId, messageLength: message.length },
-          );
-          mailbox.push(message, resolvedSessionId ?? undefined);
-          return Promise.resolve({ done });
-        },
-      };
 
       this.logger.info(
         `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) ` +
@@ -1332,79 +1114,6 @@ export class PtahCliRegistry {
       effectiveTiers?.opus ?? '',
       effectiveTiers?.haiku ?? '',
     ].join('\u0000');
-  }
-
-  /**
-   * Resolve SDK permission options based on user's current autopilot level.
-   *
-   * When the user is in YOLO mode, we use `bypassPermissions` so the SDK
-   * auto-approves ALL tools without calling canUseTool. This eliminates
-   * permission-handling overhead and prevents potential deadlocks where a
-   * subagent's Bash permission request blocks while the parent session waits.
-   *
-   * For other modes ('ask', 'auto-edit'), we keep `default` and provide
-   * the canUseTool callback so the user sees permission prompts.
-   *
-   * @param routingId - The caller's RAW routing id, which may not be a session
-   *   at all: a spawn with neither a resume nor a parent falls back to
-   *   `ptah-cli:${id}`. It is parsed here exactly once — see the body.
-   */
-  private resolvePermissionOptions(
-    routingId: string,
-    cliAgentResolver?: () => string | undefined,
-  ): {
-    permissionMode: string;
-    canUseTool?: ReturnType<SdkPermissionHandler['createCallback']>;
-    allowDangerouslySkipPermissions?: boolean;
-  } {
-    const level = this.permissionHandler.getPermissionLevel();
-    const LEVEL_TO_SDK_MODE: Record<string, string> = {
-      yolo: 'bypassPermissions',
-      'auto-edit': 'acceptEdits',
-      ask: 'default',
-      plan: 'plan',
-    };
-
-    const sdkMode = LEVEL_TO_SDK_MODE[level] ?? 'default';
-
-    if (sdkMode === 'bypassPermissions') {
-      this.logger.info(
-        '[PtahCliRegistry] YOLO mode: using bypassPermissions for subagent',
-      );
-      return {
-        permissionMode: sdkMode,
-        allowDangerouslySkipPermissions: true,
-      };
-    }
-
-    // Two wrong branches used to live here. A non-UUID routing id (`''` from a
-    // caller that minted an empty parent session) collapsed to `undefined`,
-    // which makes the request unroutable and auto-denies every tool prompt on
-    // timeout; anything else non-UUID (the `ptah-cli:${id}` fallback) reached
-    // `SessionId.from`, which THROWS — taking the whole spawn down. Parse once,
-    // keep the raw id as the routing hint so out-of-band observers can still
-    // match the prompt, and say out loud when there is no routable surface.
-    const routableSessionId = SessionId.safeParse(routingId) ?? undefined;
-    if (!routableSessionId) {
-      this.logger.warn(
-        `[PtahCliRegistry] Spawned agent has no routable session id — tool prompts reach the agent monitor panel only, and auto-deny on timeout if that panel is not listening`,
-        { routingHint: routingId, sdkMode, level },
-      );
-    }
-    this.logger.info(
-      `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
-      { sessionId: routableSessionId ?? null, hasCanUseTool: true },
-    );
-    return {
-      permissionMode: sdkMode,
-      canUseTool: this.permissionHandler.createCallback(
-        routableSessionId,
-        cliAgentResolver,
-        undefined,
-        undefined,
-        routingId,
-      ),
-    };
   }
 
   /**

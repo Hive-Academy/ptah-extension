@@ -98,11 +98,13 @@ function createPerTurnProbe(
       return cached;
     },
     readPlanUsage: async () => null,
+    readAccountForRoute: jest.fn(),
+    readPlanUsageForRoute: jest.fn(),
     sessionRoute: (sessionId: string) =>
       sessionId === SESSION_ID
         ? { providerId: 'anthropic', routeKind: 'native' }
         : null,
-  } as SessionQuotaProbe;
+  } satisfies SessionQuotaProbe;
 }
 
 function createManager(
