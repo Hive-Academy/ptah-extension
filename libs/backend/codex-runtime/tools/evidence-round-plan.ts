@@ -65,6 +65,8 @@ export const ROUND_ORDER = {
     'resume-history',
     'profile-inputs',
   ],
+  // 7e stopped at the rollback probe after resume; profile inputs run alone.
+  '7f': ['schema-handshake', 'modified-input-schema', 'profile-inputs'],
 } as const;
 
 export function parseRoundArgs(args: readonly string[]): {
@@ -84,8 +86,8 @@ export function parseRoundArgs(args: readonly string[]): {
     return value;
   };
   const round = take('--round') ?? '7c';
-  if (round !== '7c' && round !== '7d' && round !== '7e')
-    throw new Error('Round must be 7c, 7d or 7e');
+  if (round !== '7c' && round !== '7d' && round !== '7e' && round !== '7f')
+    throw new Error('Round must be 7c, 7d, 7e or 7f');
   const used = take('--prior-turns-used');
   if (round !== '7c' && used === undefined)
     throw new Error(
