@@ -44,6 +44,46 @@ function result(
 }
 
 describe('Codex plan-usage reader', () => {
+  it('reads the supplied home on every call and preserves the clock and cancellation', async () => {
+    const getAccountUsage = jest.fn(async () =>
+      result({ fetchedAt: undefined }),
+    );
+    let home = '/accounts/a';
+    const reader = createCodexPlanUsageReader(
+      { getAccountUsage },
+      () => NOW,
+      () => home,
+    );
+    const signal = new AbortController().signal;
+    expect(
+      (await reader({ target: TARGET, refresh: true, signal })).fetchedAt,
+    ).toBe(NOW);
+    home = '/accounts/b';
+    await reader({ target: TARGET, refresh: false });
+    expect(getAccountUsage.mock.calls).toEqual([
+      [{ home: '/accounts/a', refresh: true, signal }],
+      [{ home: '/accounts/b', refresh: false }],
+    ]);
+  });
+
+  it('does not invent absent account, activity or quota values', async () => {
+    const reader = createCodexPlanUsageReader(
+      {
+        getAccountUsage: async () => ({
+          status: 'available',
+          providerId: 'openai-codex',
+        }),
+      },
+      () => NOW,
+    );
+    expect(await reader({ target: TARGET, refresh: false })).toEqual({
+      status: 'available',
+      fetchedAt: NOW,
+      windowSetEstablished: true,
+      windows: [],
+    });
+  });
+
   it('F29: kinds come from the duration; primary/secondary order and the existing fields are kept (Req 2.10)', async () => {
     const getAccountUsage = jest.fn(async () => result());
     const reader = createCodexPlanUsageReader({ getAccountUsage }, () => NOW);

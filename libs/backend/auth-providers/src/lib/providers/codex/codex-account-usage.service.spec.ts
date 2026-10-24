@@ -227,6 +227,17 @@ describe('CodexAccountUsageService', () => {
     expect(h.requests[0].args).toEqual(['app-server']);
   });
 
+  it('refuses an explicit home instead of returning default-home usage', async () => {
+    const h = harness();
+    await expect(
+      h.service.getAccountUsage({ home: '/other/codex-home' }),
+    ).resolves.toEqual({
+      status: 'service-unavailable',
+      providerId: 'openai-codex',
+    });
+    expect(h.requests).toHaveLength(0);
+  });
+
   it('reports cli-unavailable without spawning when no native binary is found', async () => {
     mockResolveCodexNativeBinaryPath.mockImplementation(() => undefined);
     const h = harness();
