@@ -263,7 +263,16 @@ class GatewayEventProjection {
           cost: usage?.costUsd,
           tokenUsage:
             usage?.inputTokens !== undefined && usage.outputTokens !== undefined
-              ? { input: usage.inputTokens, output: usage.outputTokens }
+              ? {
+                  input: usage.inputTokens - (usage.cachedInputTokens ?? 0),
+                  output: usage.outputTokens,
+                  ...(usage.cachedInputTokens === undefined
+                    ? {}
+                    : { cacheRead: usage.cachedInputTokens }),
+                  ...(usage.cacheWriteInputTokens === undefined
+                    ? {}
+                    : { cacheCreation: usage.cacheWriteInputTokens }),
+                }
               : undefined,
         };
         break;

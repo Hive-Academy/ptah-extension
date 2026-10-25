@@ -358,6 +358,32 @@ describe('CodexAppServerProcess', () => {
     expect(child.stdin.writableEnded).toBe(true);
   });
 
+  it('rejects only the invalid catalog result and releases its timer', async () => {
+    await start();
+    const catalog = runtime.request('model/list', {});
+    const other = runtime.request('turn/interrupt', ids);
+    child.send({ id: 2, result: { secret: 'credential' } });
+    await expect(catalog).rejects.toMatchObject({
+      code: 'invalidResult',
+      message: 'Codex protocol validation failed: invalidResult',
+    });
+    expect(child.stdin.writableEnded).toBe(false);
+    child.send({ id: 3, result: {} });
+    await expect(other).resolves.toEqual({});
+    expect(jest.getTimerCount()).toBe(0);
+    const retry = runtime.request('model/list', {});
+    child.send({ id: 4, result: { data: [], nextCursor: null } });
+    await expect(retry).resolves.toEqual({ data: [], nextCursor: null });
+  });
+
+  it('still fails closed on a malformed catalog response envelope', async () => {
+    await start();
+    const catalog = runtime.request('model/list', {});
+    child.send({ id: 2, result: {}, unexpected: 'secret' });
+    await expect(catalog).rejects.toThrow('Codex invalid protocol frame');
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
   it('replies method-not-found and keeps the session alive', async () => {
     await start();
     child.send({ id: 'unknown', method: 'future/request', params: {} });

@@ -266,6 +266,7 @@ describe('CodexRuntime', () => {
     await expect(context.listModels()).resolves.toEqual([
       {
         id: 'catalog-id',
+        model: 'wire-model',
         displayName: 'Catalog model',
         description: 'Model description',
         isDefault: true,
@@ -279,6 +280,26 @@ describe('CodexRuntime', () => {
       }),
     );
     expect(children[0].fixtureErrors).toEqual([]);
+  });
+
+  it('sends the model slug rather than the catalog key on thread and turn start', async () => {
+    const catalog = await runtime.open(profile);
+    const [selected] = await catalog.listModels();
+    expect(selected.id).not.toBe(selected.model);
+    const context = await runtime.open({
+      ...profile,
+      contextId: 'selected-model',
+      model: selected.model,
+    });
+    await context.startTurn({ text: 'hi' });
+    for (const method of ['thread/start', 'turn/start']) {
+      expect(children[1].frames).toContainEqual(
+        expect.objectContaining({
+          method,
+          params: expect.objectContaining({ model: 'wire-model' }),
+        }),
+      );
+    }
   });
 
   it('fetches all model pages using opaque cursors including an empty cursor', async () => {
@@ -321,6 +342,14 @@ describe('CodexRuntime', () => {
       await expect(context.listModels()).rejects.toThrow(
         'Codex model listing failed',
       );
+      expect(children[0].stdin.writableEnded).toBe(false);
+      children[0].modelPages = [{ data: [catalogModel] }];
+      await expect(context.listModels()).resolves.toMatchObject([
+        { id: 'catalog-id', model: 'wire-model' },
+      ]);
+      await expect(
+        context.startTurn({ text: 'still usable' }),
+      ).resolves.toMatchObject({ turnId: 'turn-1' });
     },
   );
 
@@ -336,6 +365,9 @@ describe('CodexRuntime', () => {
     expect(
       children[0].frames.filter((frame) => frame['method'] === 'model/list'),
     ).toHaveLength(2);
+    await expect(
+      context.startTurn({ text: 'still usable' }),
+    ).resolves.toMatchObject({ turnId: 'turn-1' });
   });
 
   it('stops after 100 model pages even when every cursor is distinct', async () => {
@@ -350,12 +382,20 @@ describe('CodexRuntime', () => {
     expect(
       children[0].frames.filter((frame) => frame['method'] === 'model/list'),
     ).toHaveLength(100);
+    await expect(
+      context.startTurn({ text: 'still usable' }),
+    ).resolves.toMatchObject({ turnId: 'turn-1' });
   });
 
   it('sanitizes model request rejections', async () => {
     const context = await runtime.open(profile);
     children[0].failMethod = 'model/list';
-    await expect(context.listModels()).rejects.not.toThrow('secret raw error');
+    await expect(context.listModels()).rejects.toThrow(
+      'Codex model listing failed',
+    );
+    await expect(
+      context.startTurn({ text: 'still usable' }),
+    ).resolves.toMatchObject({ turnId: 'turn-1' });
   });
 
   it('rejects model listing on a closed context without sending a request', async () => {

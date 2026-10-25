@@ -143,9 +143,18 @@ export interface CodexApprovalRequest extends CodexApprovalCorrelation {
   readonly details: Readonly<Record<string, CodexJsonValue>>;
 }
 /** Only values reported by the server; missing counters are not zero. */
+/**
+ * Whole-turn usage: cumulative thread total minus the turn-start baseline,
+ * including every model request/tool continuation. Updates are snapshots, not deltas.
+ * OpenAI inputTokens INCLUDES cachedInputTokens; consumers with separate buckets
+ * use inputTokens - cachedInputTokens for input and cachedInputTokens for cacheRead.
+ * cacheWriteInputTokens is reported separately (wire omission defaults to zero).
+ * reasoningOutputTokens is a subset of outputTokens. No cost is inferred.
+ */
 export interface CodexReportedUsage {
   readonly inputTokens?: number;
   readonly cachedInputTokens?: number;
+  readonly cacheWriteInputTokens?: number;
   readonly outputTokens?: number;
   readonly reasoningOutputTokens?: number;
   readonly totalTokens?: number;
@@ -236,7 +245,9 @@ export interface CodexRuntime {
   ): Promise<CodexContext>;
 }
 export interface CodexModelInfo {
+  /** Catalog key; use model for thread/start and turn/start. */
   readonly id: string;
+  readonly model: string;
   readonly displayName: string;
   readonly description?: string;
   readonly isDefault: boolean;

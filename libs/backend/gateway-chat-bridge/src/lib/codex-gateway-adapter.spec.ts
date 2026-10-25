@@ -371,7 +371,13 @@ describe('CodexGatewayAdapter', () => {
       {
         ...base,
         type: 'usage',
-        usage: { inputTokens: 3, outputTokens: 2, costUsd: 0.1 },
+        usage: {
+          inputTokens: 3,
+          cachedInputTokens: 2,
+          cacheWriteInputTokens: 1,
+          outputTokens: 2,
+          costUsd: 0.1,
+        },
       },
       terminal,
     ]);
@@ -384,7 +390,7 @@ describe('CodexGatewayAdapter', () => {
     ]);
     expect(result[1]).toMatchObject({ toolCallId: 'tool', isError: true });
     expect(result[3]).toMatchObject({
-      tokenUsage: { input: 3, output: 2 },
+      tokenUsage: { input: 1, cacheRead: 2, cacheCreation: 1, output: 2 },
       cost: 0.1,
     });
     expect(text(result)).toBe('');

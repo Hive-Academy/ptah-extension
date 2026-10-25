@@ -685,6 +685,7 @@ class RuntimeContext implements CodexContext {
           models.push(
             ...result.data.map((model) => ({
               id: model.id,
+              model: model.model,
               displayName: model.displayName,
               description: model.description,
               isDefault: model.isDefault,
@@ -699,9 +700,7 @@ class RuntimeContext implements CodexContext {
           cursor = result.nextCursor;
         }
         throw new Error('Codex model pagination limit reached');
-      } catch (error) {
-        if (error instanceof CodexRequestRejectedError) throw error;
-        this.onFailure();
+      } catch {
         throw new Error('Codex model listing failed');
       }
     });

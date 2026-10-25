@@ -22,6 +22,23 @@ const correlation = z.object({ threadId: z.string(), turnId: z.string() });
 const itemEnvelope = correlation.extend({
   item: z.object({ id: z.string(), type: z.string() }),
 });
+type Usage = z.infer<
+  (typeof codexNotificationSchemas)['thread/tokenUsage/updated']
+>['tokenUsage']['total'];
+function difference(total: Usage, baseline: Usage): Usage {
+  return {
+    inputTokens: total.inputTokens - baseline.inputTokens,
+    cachedInputTokens: total.cachedInputTokens - baseline.cachedInputTokens,
+    cacheWriteInputTokens:
+      (total.cacheWriteInputTokens ?? 0) -
+      (baseline.cacheWriteInputTokens ?? 0),
+    outputTokens: total.outputTokens - baseline.outputTokens,
+    reasoningOutputTokens:
+      total.reasoningOutputTokens - baseline.reasoningOutputTokens,
+    totalTokens: total.totalTokens - baseline.totalTokens,
+  };
+}
+
 type Identity = z.infer<typeof correlation>;
 
 function safeError(code: string, retryable = false): CodexRuntimeError {
@@ -43,6 +60,8 @@ export class CodexEventTranslator {
   private sequence = 0;
   private readonly terminals = new Set<string>();
   private readonly usage = new Map<string, CodexReportedUsage>();
+  private readonly totals = new Map<string, Usage>();
+  private readonly baselines = new Map<string, Usage>();
   private disposed = false;
 
   constructor(
@@ -59,8 +78,20 @@ export class CodexEventTranslator {
     const { method, params } = notification;
     switch (method) {
       case 'initialized':
-      case 'turn/started':
         return [];
+      case 'turn/started': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        const identity = {
+          threadId: parsed.data.threadId,
+          turnId: parsed.data.turn.id,
+        };
+        const total = this.totals.get(identity.threadId);
+        const key = this.key(identity);
+        if (total && !this.baselines.has(key) && !this.terminals.has(key))
+          this.baselines.set(key, total);
+        return [];
+      }
       // Approval correlation and decisions belong to the approval bridge (2g).
       case 'serverRequest/resolved':
       case 'account/rateLimits/updated':
@@ -103,21 +134,15 @@ export class CodexEventTranslator {
         if (!parsed.success) return this.invalid(params);
         const data = parsed.data;
         if (this.terminals.has(this.key(data))) return [];
-        // `last` is turn usage; `total` is cumulative thread usage. No inferred cost.
-        const {
-          inputTokens,
-          cachedInputTokens,
-          outputTokens,
-          reasoningOutputTokens,
-          totalTokens,
-        } = data.tokenUsage.last;
-        const usage = {
-          inputTokens,
-          cachedInputTokens,
-          outputTokens,
-          reasoningOutputTokens,
-          totalTokens,
-        };
+        // last is one model request; total accumulates all requests in the thread.
+        const key = this.key(data);
+        const baseline =
+          this.baselines.get(key) ??
+          this.totals.get(data.threadId) ??
+          difference(data.tokenUsage.total, data.tokenUsage.last);
+        this.baselines.set(key, baseline);
+        this.totals.set(data.threadId, data.tokenUsage.total);
+        const usage = difference(data.tokenUsage.total, baseline);
         this.usage.set(this.key(data), usage);
         return this.emit(data, [{ type: 'usage', usage }]);
       }
@@ -150,6 +175,7 @@ export class CodexEventTranslator {
         ]);
         this.terminals.add(key);
         this.usage.delete(key);
+        this.baselines.delete(key);
         return events;
       }
       default:
@@ -163,6 +189,8 @@ export class CodexEventTranslator {
     this.disposed = true;
     this.terminals.clear();
     this.usage.clear();
+    this.totals.clear();
+    this.baselines.clear();
   }
 
   private key(identity: Identity): string {

@@ -185,7 +185,7 @@ describe('CodexEventTranslator', () => {
     ]);
   });
 
-  it('reports last usage, preserves reported zero, and never fabricates cost', () => {
+  it('derives the first baseline, preserves reported zero, and never fabricates cost', () => {
     const events = translator.translate({
       method: 'thread/tokenUsage/updated',
       params: {
@@ -207,6 +207,112 @@ describe('CodexEventTranslator', () => {
         },
       })[0],
     ).not.toHaveProperty('usage');
+  });
+
+  it.each([false, true])(
+    'counts every request with cached input (prior total: %s)',
+    (priorTotal) => {
+      const previous = {
+        inputTokens: 100,
+        cachedInputTokens: 40,
+        cacheWriteInputTokens: 6,
+        outputTokens: 20,
+        reasoningOutputTokens: 5,
+        totalTokens: 120,
+      };
+      const first = {
+        inputTokens: 110,
+        cachedInputTokens: 44,
+        cacheWriteInputTokens: 8,
+        outputTokens: 23,
+        reasoningOutputTokens: 6,
+        totalTokens: 133,
+      };
+      const last = {
+        inputTokens: 10,
+        cachedInputTokens: 4,
+        cacheWriteInputTokens: 2,
+        outputTokens: 3,
+        reasoningOutputTokens: 1,
+        totalTokens: 13,
+      };
+      if (priorTotal) {
+        translator.translate({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread',
+            turnId: 'previous',
+            tokenUsage: { last: previous, total: previous },
+          },
+        });
+        translator.translate({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread',
+            turn: { id: 'previous', items: [], status: 'completed' },
+          },
+        });
+      }
+      translator.translate({
+        method: 'turn/started',
+        params: {
+          threadId: 'thread',
+          turn: { id: 'turn', items: [], status: 'inProgress' },
+        },
+      });
+      translator.translate({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          ...ids,
+          tokenUsage: { last, total: first },
+        },
+      });
+      const latest = {
+        inputTokens: 125,
+        cachedInputTokens: 50,
+        cacheWriteInputTokens: 9,
+        outputTokens: 28,
+        reasoningOutputTokens: 8,
+        totalTokens: 153,
+      };
+      const second = {
+        inputTokens: 15,
+        cachedInputTokens: 6,
+        cacheWriteInputTokens: 1,
+        outputTokens: 5,
+        reasoningOutputTokens: 2,
+        totalTokens: 20,
+      };
+      const update = {
+        method: 'thread/tokenUsage/updated',
+        params: { ...ids, tokenUsage: { last: second, total: latest } },
+      };
+      translator.translate(update);
+      translator.translate(update); // Repeated snapshots must not double count.
+      expect(translator.translate(terminal())[0]).toMatchObject({
+        usage: {
+          inputTokens: 25,
+          cachedInputTokens: 10,
+          cacheWriteInputTokens: 3,
+          outputTokens: 8,
+          reasoningOutputTokens: 3,
+          totalTokens: 33,
+        },
+      });
+    },
+  );
+
+  it('defaults omitted cache writes to zero on the first turn', () => {
+    translator.translate({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        ...ids,
+        tokenUsage: { last: counts, total: counts },
+      },
+    });
+    expect(translator.translate(terminal())[0]).toMatchObject({
+      usage: { ...counts, cacheWriteInputTokens: 0 },
+    });
   });
 
   it.each(['completed', 'failed', 'interrupted'])(

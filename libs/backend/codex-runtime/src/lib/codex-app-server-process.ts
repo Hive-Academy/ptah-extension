@@ -11,6 +11,7 @@ import {
   type CodexBinaryIdentity,
 } from './codex-protocol-manifest';
 import {
+  CodexProtocolError,
   codexRequestSchemas,
   codexServerRequestSchemas,
   validateCodexFrame,
@@ -304,7 +305,26 @@ export class CodexAppServerProcess {
       );
       return;
     }
-    const frame = validateCodexFrame(value, pending?.method);
+    let frame: CodexProtocolFrame;
+    try {
+      frame = validateCodexFrame(value, pending?.method);
+    } catch (error) {
+      // Catalog payload drift is request-local. The validator checks the envelope
+      // first, so malformed framing still fails closed in onData.
+      if (
+        pending?.method === 'model/list' &&
+        typeof id === 'number' &&
+        error instanceof CodexProtocolError &&
+        error.code === 'invalidResult' &&
+        error.method === 'model/list'
+      ) {
+        clearTimeout(pending.timer);
+        this.pending.delete(id);
+        pending.reject(error);
+        return;
+      }
+      throw error;
+    }
     if ('method' in frame) {
       if ('id' in frame) {
         if (
