@@ -1,0 +1,447 @@
+import 'reflect-metadata';
+import { container } from 'tsyringe';
+import {
+  CODEX_RUNTIME_TOKENS,
+  CodexParityGate,
+  type ApprovalSink,
+  type CodexContext,
+  type CodexExecutionProfile,
+  type CodexRuntimeEvent,
+} from '@ptah-extension/codex-runtime';
+import { SessionId } from '@ptah-extension/shared';
+import {
+  CodexChatAdapter,
+  CodexChatAdapterError,
+  type CodexChatAdapterPorts,
+} from './codex-chat-adapter';
+import { SessionApprovalRouter } from './session-approval-router';
+
+const id = SessionId.from('11111111-1111-4111-8111-111111111111');
+const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
+const identity = {
+  contextId: 'context',
+  threadId: id,
+  processGeneration: 1,
+  normalizedHome: '/home',
+  workspaceId: '/workspace',
+  providerId: 'openai-codex',
+  profileFingerprint: 'fp',
+};
+const profile: CodexExecutionProfile = {
+  ...identity,
+  consumer: 'chat',
+  cwd: '/workspace',
+  model: 'gpt',
+  permissionLevel: 'ask',
+  approvalPolicy: 'on-request',
+  sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
+  instructionSources: [],
+  mcpServers: [],
+  attachments: [],
+};
+const terminal: CodexRuntimeEvent = {
+  ...identity,
+  turnId: 'turn',
+  sequence: 2,
+  type: 'terminal',
+  status: 'completed',
+};
+
+function setup(override = true) {
+  const context: jest.Mocked<CodexContext> = {
+    identity,
+    events: jest.fn<
+      ReturnType<CodexContext['events']>,
+      Parameters<CodexContext['events']>
+    >(() =>
+      (async function* () {
+        yield terminal;
+        yield terminal;
+      })(),
+    ),
+    startTurn: jest.fn<
+      ReturnType<CodexContext['startTurn']>,
+      Parameters<CodexContext['startTurn']>
+    >(async () => ({
+      threadId: id,
+      turnId: 'turn',
+      revision: 1,
+    })),
+    steer: jest.fn<
+      ReturnType<CodexContext['steer']>,
+      Parameters<CodexContext['steer']>
+    >(async () => ({ threadId: id, turnId: 'turn', revision: 2 })),
+    interrupt: jest.fn<
+      ReturnType<CodexContext['interrupt']>,
+      Parameters<CodexContext['interrupt']>
+    >(async () => true),
+    updateNextTurn: jest.fn<
+      ReturnType<CodexContext['updateNextTurn']>,
+      Parameters<CodexContext['updateNextTurn']>
+    >(async () => ({
+      timing: 'nextTurn' as const,
+      revision: 2,
+    })),
+    compact: jest.fn(async () => undefined),
+    close: jest.fn(async () => undefined),
+  };
+  const callbacks = {
+    result: jest.fn(),
+    content: jest.fn(),
+    live: jest.fn(),
+    compaction: jest.fn(),
+    error: jest.fn(),
+  };
+  const scope = container.createChildContainer();
+  const open = jest.fn(async () => context);
+  scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
+    useValue: new CodexParityGate(),
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.DevRouteOverride, {
+    useFactory: () => (override ? { consumer: 'chat' } : null),
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.Logger, {
+    useValue: { warn: jest.fn() },
+  });
+  scope.register(CODEX_RUNTIME_TOKENS.Runtime, { useValue: { open } });
+  const dispose = jest.fn(async () => {
+    await scope.dispose();
+  });
+  let sink: ApprovalSink | undefined;
+  const approvals = new SessionApprovalRouter(
+    { handleResponse: jest.fn() },
+    jest.fn(),
+  );
+  const ports: CodexChatAdapterPorts = {
+    platform: { platform: 'win32', arch: 'x64' },
+    info: {
+      id: 'ptah-cli',
+      name: 'Codex',
+      vendor: 'OpenAI',
+      version: '1',
+      description: 'Native chat',
+      capabilities: {
+        streaming: true,
+        fileAttachments: true,
+        contextManagement: true,
+        sessionPersistence: true,
+        multiTurn: true,
+        codeGeneration: true,
+        imageAnalysis: true,
+        functionCalling: true,
+      },
+    },
+    profile: jest.fn(async (_config, resumeId) => ({
+      profile,
+      ...(resumeId ? { resume: identity } : {}),
+    })),
+    createScope: (value) => {
+      sink = value;
+      return { container: scope, dispose };
+    },
+    metadata: { save: jest.fn(async () => undefined) },
+    approvals,
+    presentation: {
+      present: jest.fn(),
+      dismiss: jest.fn(),
+      cancelPrompt: jest.fn(),
+    },
+    replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
+    callbacks: () => callbacks,
+    publish: jest.fn(async (_id, stream) => {
+      for await (const event of stream) void event;
+    }),
+  };
+  return {
+    adapter: new CodexChatAdapter(ports),
+    ports,
+    context,
+    open,
+    dispose,
+    callbacks,
+    sink: () => {
+      if (!sink) throw new Error('Expected an approval sink after opening');
+      return sink;
+    },
+  };
+}
+
+describe('CodexChatAdapter', () => {
+  it('opens through the DS1 gate, persists native identity and emits one terminal result', async () => {
+    const { adapter, context, ports, callbacks } = setup();
+    const resolved = jest.fn();
+    const stats = jest.fn();
+    adapter.setSessionIdResolvedCallback(resolved);
+    adapter.setResultStatsCallback(stats);
+    const stream = await adapter.startChatSession({
+      tabId,
+      prompt: 'hello',
+    });
+    const output = [];
+    for await (const event of stream) output.push(event);
+    expect(context.events.mock.invocationCallOrder[0]).toBeLessThan(
+      context.startTurn.mock.invocationCallOrder[0],
+    );
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, undefined);
+    expect(resolved).toHaveBeenCalledWith(tabId, id);
+    expect(output).toHaveLength(1);
+    expect(callbacks.result).toHaveBeenCalledTimes(1);
+    expect(stats).not.toHaveBeenCalled();
+    await adapter.interruptSession(id);
+  });
+  it('refuses a closed gate without opening a context', async () => {
+    const { adapter, open, dispose } = setup(false);
+    await expect(
+      adapter.startChatSession({ tabId }),
+    ).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(open).not.toHaveBeenCalled();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+  it('sanitizes native open and cleanup failures', async () => {
+    const { adapter, open, dispose } = setup();
+    open.mockRejectedValue(new Error('secret token'));
+    dispose.mockRejectedValue(new Error('secret cleanup'));
+    await expect(adapter.startChatSession({ tabId })).rejects.toThrow(
+      'Codex chat open: runtime-failed',
+    );
+  });
+  it('resumes native identity, supports settings and compaction without SDK aliases', async () => {
+    const { adapter, open, context } = setup();
+    const stream = await adapter.resumeSession(id, { prompt: 'continue' });
+    for await (const event of stream) void event;
+    expect(open).toHaveBeenCalledWith(profile, identity);
+    await adapter.setSessionPermissionLevel(id, 'yolo');
+    await adapter.setSessionModel(id, 'next');
+    await adapter.setSessionEffort(id, undefined);
+    expect(context.updateNextTurn).toHaveBeenCalledWith({
+      permissionLevel: 'yolo',
+    });
+    expect(context.updateNextTurn).toHaveBeenCalledWith({ effort: undefined });
+    await adapter.executeSlashCommand(id, '/compact', {});
+    expect(context.compact).toHaveBeenCalledTimes(1);
+    await expect(
+      adapter.setSessionPermissionLevel(id, 'bypassPermissions'),
+    ).rejects.toMatchObject({ code: 'unsupported' });
+    await adapter.interruptSession(id);
+  });
+  it('fails unsupported methods visibly', async () => {
+    const { adapter } = setup();
+    for (const action of [
+      () => adapter.verifyInstallation(),
+      () => adapter.getSupportedModels(),
+      () => adapter.getApiModels(),
+      () => adapter.getDefaultModel(),
+      () => adapter.executeSlashCommand(id, '/unknown', {}),
+    ])
+      await expect(action()).rejects.toBeInstanceOf(CodexChatAdapterError);
+    for (const action of [
+      () => adapter.setLiveStatsCallback(),
+      () => adapter.setCompactionStartCallback(),
+      () => adapter.setWorktreeCreatedCallback(),
+      () => adapter.setWorktreeRemovedCallback(),
+    ])
+      expect(action).toThrow(CodexChatAdapterError);
+  });
+  it('closes abandoned streams and sanitizes missing terminal errors', async () => {
+    const { adapter, context, dispose } = setup();
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...identity,
+          turnId: 'turn',
+          sequence: 1,
+          type: 'textDelta' as const,
+          itemId: 'item',
+          delta: 'hello',
+        };
+      })(),
+    );
+    const stream = await adapter.startChatSession({ tabId });
+    await expect(
+      (async () => {
+        for await (const event of stream) void event;
+      })(),
+    ).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.isSessionActive(id)).toBe(false);
+  });
+  it('binds approval ownership to the context and releases it on end', async () => {
+    const { adapter, ports, sink } = setup();
+    await adapter.startChatSession({ tabId });
+    const request = {
+      ...identity,
+      turnId: 'turn',
+      requestId: 1,
+      kind: 'command' as const,
+      message: 'Run?',
+      details: {},
+    };
+    const pending = sink().request(request, new AbortController().signal);
+    expect(ports.presentation.present).toHaveBeenCalledWith(
+      id,
+      request,
+      expect.any(Array),
+    );
+    const token = adapter.getSessionToken(id);
+    if (!token) throw new Error('Expected a token for the active session');
+    expect(await adapter.endSessionIfTokenMatches(id, 'stale')).toBe(false);
+    expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(true);
+    await expect(pending).resolves.toBe('decline');
+    expect(
+      ports.approvals.respond(
+        { sessionId: id, threadId: id, requestId: '1' },
+        {
+          kind: 'codex',
+          response: { ...request, sessionId: id, decision: 'accept' },
+        },
+      ),
+    ).toBe(false);
+    const release = ports.approvals.register(
+      { sessionId: id, threadId: id, requestId: '1' },
+      { kind: 'claude' },
+    );
+    release();
+    await expect(
+      sink().request(
+        { ...request, requestId: 2 },
+        new AbortController().signal,
+      ),
+    ).resolves.toBe('decline');
+  });
+  it('releases approval ownership on timeout without a user reply', async () => {
+    jest.useFakeTimers();
+    const { adapter, ports, sink } = setup();
+    try {
+      await adapter.startChatSession({ tabId });
+      const request = {
+        ...identity,
+        turnId: 'turn',
+        requestId: 7,
+        kind: 'command' as const,
+        message: 'Run?',
+        details: {},
+      };
+      const pending = sink().request(request, new AbortController().signal);
+      jest.advanceTimersByTime(60_000);
+      await expect(pending).resolves.toBe('decline');
+      const release = ports.approvals.register(
+        { sessionId: id, threadId: id, requestId: '7' },
+        { kind: 'claude' },
+      );
+      release();
+      expect(ports.presentation.cancelPrompt).toHaveBeenCalledWith({
+        sessionId: id,
+        requestId: '7',
+        reason: 'timeout',
+      });
+      await adapter.interruptSession(id);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it('does not publish a session whose open was invalidated by reset', async () => {
+    const { adapter, open, context, ports } = setup();
+    let release!: (value: typeof context) => void;
+    open.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = adapter.startChatSession({ tabId });
+    // profile resolution yields before runtime.open.
+    await Promise.resolve();
+    await adapter.reset();
+    release(context);
+    await expect(pending).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(adapter.isSessionActive(id)).toBe(false);
+    expect(ports.metadata.save).not.toHaveBeenCalled();
+    expect(context.close).toHaveBeenCalledTimes(1);
+  });
+  it('cancels a pending open when its tab is ended', async () => {
+    const { adapter, open, context, ports } = setup();
+    let release!: (value: typeof context) => void;
+    open.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const pending = adapter.startChatSession({ tabId });
+    await Promise.resolve();
+    adapter.endSession(tabId);
+    release(context);
+    await expect(pending).rejects.toMatchObject({ code: 'runtime-failed' });
+    expect(ports.metadata.save).not.toHaveBeenCalled();
+    expect(context.close).toHaveBeenCalledTimes(1);
+  });
+  it('rejects live resume configuration rather than silently ignoring it', async () => {
+    const { adapter } = setup();
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    await expect(
+      adapter.resumeSession(id, { model: 'other' }),
+    ).rejects.toMatchObject({
+      code: 'unsupported',
+      operation: 'activeResumeConfig',
+    });
+    await adapter.interruptSession(id);
+  });
+  it('emits only reported usage, with unknown cost, once per turn', async () => {
+    const { adapter, context } = setup();
+    const stats = jest.fn();
+    adapter.setResultStatsCallback(stats);
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...terminal,
+          usage: { inputTokens: 12, outputTokens: 5, cachedInputTokens: 3 },
+        };
+        yield terminal;
+      })(),
+    );
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnCost: null,
+        tokens: { input: 12, output: 5, cacheRead: 3 },
+      }),
+    );
+    await adapter.interruptSession(id);
+  });
+  it('blocks overlapping turns and follow-ups after a failed interrupt', async () => {
+    const { adapter, context } = setup();
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...identity,
+          turnId: 'turn',
+          sequence: 1,
+          type: 'textDelta' as const,
+          itemId: 'item',
+          delta: 'hello',
+        };
+        yield terminal;
+      })(),
+    );
+    const stream = await adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    context.interrupt.mockRejectedValue(new Error('secret'));
+    await expect(adapter.interruptCurrentTurn(id)).rejects.toMatchObject({
+      code: 'runtime-failed',
+    });
+    await expect(
+      adapter.sendMessageToSession(id, 'next'),
+    ).rejects.toBeInstanceOf(CodexChatAdapterError);
+    await iterator.next();
+    await iterator.next();
+    await expect(
+      adapter.sendMessageToSession(id, 'next'),
+    ).rejects.toMatchObject({ code: 'unavailable' });
+    await adapter.interruptSession(id);
+  });
+});
