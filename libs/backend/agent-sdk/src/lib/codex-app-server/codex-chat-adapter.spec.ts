@@ -544,38 +544,45 @@ it('queries the session context model list and rejects closed sessions', async (
     code: 'unavailable',
   });
 });
-it('reports compaction tokens from the latest native usage', async () => {
-  const { adapter, context } = setup();
-  context.events.mockImplementation(() =>
-    (async function* () {
-      yield {
-        ...identity,
-        turnId: 'turn',
-        sequence: 1,
-        type: 'usage' as const,
-        usage: {
-          inputTokens: 10,
-          outputTokens: 3,
-          cachedInputTokens: 4,
-          totalTokens: 13,
-        },
-      };
-      yield terminal;
-    })(),
-  );
-  const callback = jest.fn();
-  adapter.setCompactionStartCallback(callback);
-  const stream = await adapter.startChatSession({ tabId });
-  for await (const event of stream) void event;
-  await adapter.executeSlashCommand(id, '/compact', {});
-  expect(callback).toHaveBeenCalledWith({
-    sessionId: id,
-    trigger: 'manual',
-    timestamp: expect.any(Number),
-    preTokens: 13,
-  });
-  await adapter.interruptSession(id);
-});
+it.each([7, undefined])(
+  'reports only last-request compaction tokens (%s)',
+  async (lastRequestTotalTokens) => {
+    const { adapter, context } = setup();
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...identity,
+          turnId: 'turn',
+          sequence: 1,
+          type: 'usage' as const,
+          usage: {
+            inputTokens: 10,
+            outputTokens: 3,
+            cachedInputTokens: 4,
+            totalTokens: 13,
+            lastRequestTotalTokens,
+          },
+        };
+        yield terminal;
+      })(),
+    );
+    const callback = jest.fn();
+    adapter.setCompactionStartCallback(callback);
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    await adapter.executeSlashCommand(id, '/compact', {});
+    if (lastRequestTotalTokens === undefined)
+      expect(callback).not.toHaveBeenCalled();
+    else
+      expect(callback).toHaveBeenCalledWith({
+        sessionId: id,
+        trigger: 'manual',
+        timestamp: expect.any(Number),
+        preTokens: 7,
+      });
+    await adapter.interruptSession(id);
+  },
+);
 
 function deferred<T>() {
   let complete: ((value: T) => void) | undefined;
@@ -590,6 +597,101 @@ function deferred<T>() {
     },
   };
 }
+
+it('rejects overlapping resumes of one thread before creating another scope', async () => {
+  const { adapter, ports, open, context, dispose } = setup();
+  const entered = deferred<void>();
+  const finishSave = deferred<void>();
+  ports.metadata.save = jest.fn(async () => {
+    entered.resolve();
+    await finishSave.promise;
+  });
+  const first = adapter.resumeSession(id, { tabId });
+  await entered.promise;
+  await expect(
+    adapter.resumeSession(id, {
+      tabId: SessionId.from('33333333-3333-4333-8333-333333333333'),
+    }),
+  ).rejects.toMatchObject({ code: 'busy', operation: 'open' });
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(context.close).not.toHaveBeenCalled();
+  expect(dispose).not.toHaveBeenCalled();
+  finishSave.resolve();
+  await first;
+  expect(adapter.owns(tabId)).toBe(false);
+  expect(adapter.owns(id)).toBe(true);
+  await adapter.interruptSession(id);
+  expect(context.close).toHaveBeenCalledTimes(1);
+  expect(dispose).toHaveBeenCalledTimes(1);
+});
+
+it('closes the losing context when another open publishes during metadata save', async () => {
+  const first = setup();
+  const second = setup();
+  first.ports.createScope = jest
+    .fn()
+    .mockImplementationOnce(first.ports.createScope)
+    .mockImplementationOnce(second.ports.createScope);
+  const entered = deferred<void>();
+  const finishSave = deferred<void>();
+  first.ports.metadata.save = jest
+    .fn()
+    .mockImplementationOnce(async () => {
+      entered.resolve();
+      await finishSave.promise;
+    })
+    .mockResolvedValue(undefined);
+  const losing = first.adapter.startChatSession({ tabId });
+  const rejected = expect(losing).rejects.toMatchObject({
+    code: 'busy',
+    operation: 'open',
+  });
+  await entered.promise;
+  await first.adapter.startChatSession({
+    tabId: SessionId.from('33333333-3333-4333-8333-333333333333'),
+  });
+  finishSave.resolve();
+  await rejected;
+  expect(first.context.close).toHaveBeenCalledTimes(1);
+  expect(first.dispose).toHaveBeenCalledTimes(1);
+  expect(second.context.close).not.toHaveBeenCalled();
+  expect(first.adapter.owns(id)).toBe(true);
+  await first.adapter.interruptSession(id);
+  expect(second.context.close).toHaveBeenCalledTimes(1);
+  expect(second.dispose).toHaveBeenCalledTimes(1);
+});
+
+it.each(['end', 'interrupt'] as const)(
+  'cancels a pending resume by thread id (%s)',
+  async (method) => {
+    const { adapter, open, context, ports, dispose } = setup();
+    const entered = deferred<void>();
+    const pending = deferred<jest.Mocked<CodexContext>>();
+    open.mockImplementation(async () => {
+      entered.resolve();
+      return pending.promise;
+    });
+    const opening = adapter.resumeSession(id, { tabId });
+    const rejected = expect(opening).rejects.toMatchObject({
+      code: 'cancelled',
+    });
+    await entered.promise;
+    expect(adapter.owns(id)).toBe(true);
+    expect(adapter.owns(tabId)).toBe(true);
+    if (method === 'end') adapter.endSession(id);
+    else await expect(adapter.interruptSession(id)).resolves.toBeUndefined();
+    expect(adapter.isSessionActive(id)).toBe(false);
+    expect(adapter.isSessionActive(tabId)).toBe(false);
+    pending.resolve(context);
+    await rejected;
+    expect(ports.metadata.save).not.toHaveBeenCalled();
+    expect(context.startTurn).not.toHaveBeenCalled();
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.owns(id)).toBe(false);
+    expect(adapter.owns(tabId)).toBe(false);
+  },
+);
 
 it.each(['end', 'interrupt'] as const)(
   'close the tab during a native open (%s)',
@@ -658,7 +760,7 @@ it('applies Stop requested before the startTurn receipt arrives', async () => {
   const stream = await adapter.startChatSession({ tabId });
   const iterator = stream[Symbol.asyncIterator]();
   const next = iterator.next();
-  expect(await adapter.interruptCurrentTurn(id)).toBe(false);
+  expect(await adapter.interruptCurrentTurn(id)).toBe(true);
   expect(adapter.canSendFollowUp(id)).toBe(false);
   receipt.resolve({ threadId: id, turnId: 'turn', revision: 1 });
   await next;

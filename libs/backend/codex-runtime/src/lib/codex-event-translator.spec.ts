@@ -260,13 +260,20 @@ describe('CodexEventTranslator', () => {
           turn: { id: 'turn', items: [], status: 'inProgress' },
         },
       });
-      translator.translate({
-        method: 'thread/tokenUsage/updated',
-        params: {
-          ...ids,
-          tokenUsage: { last, total: first },
+      expect(
+        translator.translate({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            ...ids,
+            tokenUsage: { last, total: first },
+          },
+        }),
+      ).toMatchObject([
+        {
+          type: 'usage',
+          usage: { totalTokens: 13, lastRequestTotalTokens: 13 },
         },
-      });
+      ]);
       const latest = {
         inputTokens: 125,
         cachedInputTokens: 50,
@@ -287,7 +294,12 @@ describe('CodexEventTranslator', () => {
         method: 'thread/tokenUsage/updated',
         params: { ...ids, tokenUsage: { last: second, total: latest } },
       };
-      translator.translate(update);
+      expect(translator.translate(update)).toMatchObject([
+        {
+          type: 'usage',
+          usage: { totalTokens: 33, lastRequestTotalTokens: 20 },
+        },
+      ]);
       translator.translate(update); // Repeated snapshots must not double count.
       expect(translator.translate(terminal())[0]).toMatchObject({
         usage: {
@@ -297,6 +309,7 @@ describe('CodexEventTranslator', () => {
           outputTokens: 8,
           reasoningOutputTokens: 3,
           totalTokens: 33,
+          lastRequestTotalTokens: 20,
         },
       });
     },

@@ -1,13 +1,13 @@
 export type CodexRuntimeCompositionErrorCode =
-  | 'missing-admission-port'
+  | 'partial-native-binding'
   | 'unstable-binding'
   | 'identity-lookup-disposed'
   | 'persisted-identity-unavailable'
   | 'session-thread-mismatch';
 
 const messages: Record<CodexRuntimeCompositionErrorCode, string> = {
-  'missing-admission-port':
-    'Native runtime composition requires the missing token',
+  'partial-native-binding':
+    'Native runtime composition requires all four host bindings; missing tokens',
   'unstable-binding':
     'Runtime ports must be bound before resolving the agent adapter; bind a stable instance using registerInstance or a cached factory; use a fresh container for native activation',
   'identity-lookup-disposed': 'Session runtime identity lookup is disposed',

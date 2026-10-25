@@ -205,9 +205,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
     const key = config.tabId ?? resumeId;
     if (!key || this.disposed)
       throw new CodexChatAdapterError('unavailable', 'open');
-    if (this.opening.has(key)) throw new CodexChatAdapterError('busy', 'open');
+    if (this.opening.has(key) || (resumeId && this.opening.has(resumeId)))
+      throw new CodexChatAdapterError('busy', 'open');
     const opening = { cancelled: false };
     this.opening.set(key, opening);
+    if (resumeId) this.opening.set(resumeId, opening);
     const generation = this.generation;
     let scope: CodexChatScope | undefined;
     let sink: CodexChatApprovalSink | undefined;
@@ -225,6 +227,8 @@ export class CodexChatAdapter implements NativeChatAdapter {
       sink = this.buildSink(id, context, () => session);
       await this.persistMetadata(id, context, config);
       this.checkOpening(opening, generation);
+      if (this.sessions.has(id))
+        throw new CodexChatAdapterError('busy', 'open');
       session = this.publishSession(id, context, sink, scope);
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
@@ -240,6 +244,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       throw new CodexChatAdapterError('runtime-failed', 'open');
     } finally {
       this.opening.delete(key);
+      if (resumeId) this.opening.delete(resumeId);
     }
   }
 
@@ -428,12 +433,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   }
 
   private notifyCompaction(session: Session, trigger: 'manual' | 'auto'): void {
-    const usage = session.usage;
-    const preTokens =
-      usage?.totalTokens ??
-      (usage?.inputTokens !== undefined && usage.outputTokens !== undefined
-        ? usage.inputTokens + usage.outputTokens
-        : undefined);
+    const preTokens = session.usage?.lastRequestTotalTokens;
     if (preTokens !== undefined)
       this.compactionStart?.({
         sessionId: session.id,
@@ -683,7 +683,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (!turnId) {
       session.pendingInterrupt = session.busy;
       session.blocked = session.busy;
-      return false;
+      return session.pendingInterrupt;
     }
     session.blocked = true;
     const accepted = await this.safe('interrupt', () =>

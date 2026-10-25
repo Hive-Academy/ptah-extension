@@ -92,7 +92,7 @@ describe('Codex runtime composition', () => {
         );
         expect(() => scope.resolve(alias)).toThrow(
           expect.objectContaining({
-            code: 'missing-admission-port',
+            code: 'partial-native-binding',
             message: expect.stringContaining('RUNTIME_ADMISSION_PORT'),
           }),
         );
@@ -139,6 +139,10 @@ describe('native adapter routing', () => {
     scope.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, legacy);
     registerCodexChatServices(scope);
     scope.registerInstance(SDK_TOKENS.CODEX_CHAT_ADAPTER, native);
+    scope.registerInstance(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {});
+    scope.registerInstance(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
+      nativeCodex: true,
+    });
     scope.registerInstance(SDK_TOKENS.RUNTIME_ADMISSION_PORT, {
       servingProviderId: async () => 'openai-codex',
     });

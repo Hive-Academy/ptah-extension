@@ -42,10 +42,17 @@ export const SDK_TOKENS = {
   CODEX_CHAT_ADAPTER: Symbol.for('CodexChatAdapter'),
   /** Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   CODEX_CHAT_ADAPTER_PORTS: Symbol.for('CodexChatAdapterPorts'),
-  /** Nullable RuntimeAdmissionPort; required when lookup or native ports are bound.
+  /** Nullable RuntimeAdmissionPort; native composition is all-or-nothing:
+   * SESSION_RUNTIME_IDENTITY_LOOKUP, CODEX_CHAT_ADAPTER_PORTS,
+   * RUNTIME_ADMISSION_PORT and host RUNTIME_HOST_CAPABILITIES must all be bound.
+   * A partial composition throws partial-native-binding naming every missing token.
    * Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   RUNTIME_ADMISSION_PORT: Symbol.for('RuntimeAdmissionPort'),
   /** Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
+  /** Host binding participates in the all-or-nothing native contract even when
+   * nativeCodex is false. Only agent-sdk's own default provider is exempt;
+   * provenance is tracked by provider execution, never by capability values.
+   * Leave all four defaults untouched for the exact plain SDK adapter. */
   RUNTIME_HOST_CAPABILITIES: Symbol.for('RuntimeHostCapabilities'),
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),

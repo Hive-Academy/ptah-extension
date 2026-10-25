@@ -142,7 +142,10 @@ export class CodexEventTranslator {
           difference(data.tokenUsage.total, data.tokenUsage.last);
         this.baselines.set(key, baseline);
         this.totals.set(data.threadId, data.tokenUsage.total);
-        const usage = difference(data.tokenUsage.total, baseline);
+        const usage: CodexReportedUsage = {
+          ...difference(data.tokenUsage.total, baseline),
+          lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
+        };
         this.usage.set(this.key(data), usage);
         return this.emit(data, [{ type: 'usage', usage }]);
       }

@@ -1,6 +1,23 @@
 import type { DependencyContainer } from 'tsyringe';
+import type { RuntimeHostCapabilities } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { CodexRuntimeCompositionError } from './codex-runtime-composition-error';
+
+// Record which provider actually ran, including inherited defaults. A host may
+// bind the same value (or even the same object); neither makes it our default.
+const defaultCapabilityResolutions = new WeakSet<DependencyContainer>();
+
+export function registerDefaultRuntimeHostCapabilities(
+  container: DependencyContainer,
+): void {
+  const capabilities: RuntimeHostCapabilities = { nativeCodex: false };
+  container.register(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
+    useFactory: (scope) => {
+      defaultCapabilityResolutions.add(scope);
+      return capabilities;
+    },
+  });
+}
 
 /** Guard cached adapters against late activation and unstable host factories. */
 export function guardRuntimeComposition(
@@ -26,20 +43,29 @@ export function guardRuntimeComposition(
   );
   return () => {
     const current: unknown[] = [];
-    for (const token of tokens) {
+    defaultCapabilityResolutions.delete(container);
+    for (const token of tokens.slice(0, 4)) {
       const value = container.resolve<unknown>(token);
       current.push(value);
-      if (
-        token === SDK_TOKENS.RUNTIME_ADMISSION_PORT &&
-        value == null &&
-        (current[0] != null || current[1] != null)
-      ) {
-        throw new CodexRuntimeCompositionError(
-          'missing-admission-port',
-          'RUNTIME_ADMISSION_PORT (RuntimeAdmissionPort)',
-        );
-      }
     }
+    const bound = current.map((value, index) =>
+      index === 3
+        ? value != null && !defaultCapabilityResolutions.has(container)
+        : value != null,
+    );
+    if (bound.some(Boolean) && !bound.every(Boolean)) {
+      const names = [
+        'SESSION_RUNTIME_IDENTITY_LOOKUP',
+        'CODEX_CHAT_ADAPTER_PORTS',
+        'RUNTIME_ADMISSION_PORT',
+        'RUNTIME_HOST_CAPABILITIES',
+      ];
+      throw new CodexRuntimeCompositionError(
+        'partial-native-binding',
+        names.filter((_name, index) => !bound[index]).join(', '),
+      );
+    }
+    current.push(container.resolve<unknown>(SDK_TOKENS.CODEX_CHAT_ADAPTER));
     snapshot ??= current;
   };
 }

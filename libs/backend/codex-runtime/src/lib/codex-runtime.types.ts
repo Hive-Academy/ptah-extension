@@ -158,6 +158,8 @@ export interface CodexReportedUsage {
   readonly outputTokens?: number;
   readonly reasoningOutputTokens?: number;
   readonly totalTokens?: number;
+  /** Context-window occupancy of the most recent model request in this turn (wire tokenUsage.last.totalTokens). NOT a whole-turn quantity; use it for compaction preTokens / context fill, never for turn cost. */
+  readonly lastRequestTotalTokens?: number;
   readonly costUsd?: number;
 }
 /** Sanitized, consumer-safe information, never raw errors or credentials. */
