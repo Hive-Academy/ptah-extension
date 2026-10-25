@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 7/22 (B1-B7)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 9/22 (B1-B9)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -251,14 +251,14 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - Implementation details: bare static ALTERs as in `0055:16-25` (`auth_epoch`, `route_revision`, `lease_state` with CHECKs on leases; `identity_ref` on profiles); backfill from a consistent binding (same four-column predicate in both subqueries); quarantine inconsistent rows; nothing deleted.
 - Acceptance: backfill cases (a)-(e): unbound ambient row stays 0/0 `live`; named row with consistent binding gets binding epoch/revision `live`; named row without consistent binding and ambient row with binding become `quarantined`; no row lost; head version 60; `identity_ref` NULL.
 
-## Batch 8: Account core — store, service, command, actions, registration (D-M, 10 files) — PENDING
+## Batch 8: Account core — store, service, command, actions, registration (D-M, 10 files) — COMPLETE (28e3bbd4d)
 
 - Recommended executor: subagent backend-developer (WP-a then WP-b) | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 (2 WPs) | Depends on: B6, B7 (hard) | Phase: P2
 - Verify once after WP-b: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` (N = 6)
 - One commit for all 10 files.
 
-### Task 8.1: Store API, service, registration, command rewrite, actions — PENDING
+### Task 8.1: Store API, service, registration, command rewrite, actions — COMPLETE
 
 - WP-a (6): M `libs/backend/auth-providers/src/lib/accounts/provider-account.store.ts`; M `libs/backend/auth-providers/src/lib/accounts/provider-account.store.spec.ts`; M `libs/backend/auth-providers/src/lib/accounts/provider-account.service.ts`; M `libs/backend/auth-providers/src/lib/di/register.ts`; M `libs/backend/auth-providers/src/lib/di/register.spec.ts`; M `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.activation.spec.ts`
 - WP-b (4): R `libs/backend/auth-providers/src/lib/accounts/claude-account-command.ts`; R `libs/backend/auth-providers/src/lib/accounts/provider-account-auth-env.spec.ts` (becomes the command/process-owner spec); M `libs/backend/auth-providers/src/lib/accounts/provider-account-actions.service.ts`; M `libs/backend/auth-providers/src/lib/accounts/provider-account-actions.service.spec.ts`
@@ -271,13 +271,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
   - No-SQLite admission refuses `unavailable-storage` (was `release-held`); `release-held` COPY becomes "Named accounts are not available on this host."
 - Acceptance: `acquireRunLease` / `commitRunBinding` / `held()` semantics; post-migration release/retain; pre-binding nonzero-epoch release; quarantine blocks; pre-commit settlement (closed release, unproved retain); resume without second binding/lease; three-route coexistence; `reg.exe` argv (absolute, `/reg:64`), 5 s kill, output bound, close proof; version cache (same fingerprint one spawn; mtime change re-probes; stat `ENOENT` -> `unsupported-store`); actions: coverage refusal makes zero `status`/`logout`/console calls for sign-in, `readStatus`, sign-out, refusal between polls stops polling; fallback-mode unproved child blocks `completeAuth` on success/cancel/deadline/disposal; console mode unclosed console blocks then late close allows; `fallback.script` returned; class O sign-in completes `signed-in`; no accessor exposes the console handle. Deleted members (`authorization`, `environment`, `execute`, `certifyClaudeAccountEnvironment`, old `parseClaudeAccountStatus`, `CLAUDE_ACCOUNT_SELECTOR_KEYS`) have no remaining references.
 
-## Batch 9: Named account persistence adapter — PENDING
+## Batch 9: Named account persistence adapter — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B8 (hard) | Phase: P2 (last; request P2 review after commit)
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers` (N = 1)
 
-### Task 9.1: `ClaudeNamedAccountPersistence` with `checkLaunchBoundary` — PENDING
+### Task 9.1: `ClaudeNamedAccountPersistence` with `checkLaunchBoundary` — COMPLETE
 
 - Files: C `libs/backend/auth-providers/src/lib/accounts/claude-named-account-persistence.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-named-account-persistence.spec.ts`; M `libs/backend/auth-providers/src/index.ts`
 - Plan reference: implementation-plan.md:743-756 (Component 8), 1030; regression row 908

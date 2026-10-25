@@ -107,3 +107,10 @@
 
 - `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers`: typecheck passes; test 79/81 suites pass (all new B5/B6 specs included), 6 tests fail in `translation/translation-proxy.sdk.integration.spec.ts` (untouched; `EPERM` in its `removeTree` temp-dir cleanup on Windows); lint has 3 errors, all in files unchanged from main (`auth-providers/package.json` dependency-check for persistence-sqlite, `provider-account.store.ts:16` no-control-regex, `provider-account.store.spec.ts:132` no-unexpected-multiline). ESLint on the 8 new B5/B6 files: 0 errors.
 - Decision: commit B5 and B6. The orchestrator added `import 'reflect-metadata';` to the two B5 specs (B6 developer found the agent-sdk barrel needs it). B8 owns `provider-account.store.ts` and its spec: the B8 executor must fix those two lint errors while it edits them. The package.json dependency-check error and the integration-spec EPERM stay main-branch debt; report them in the PR. Reversible.
+
+## D19 — B8/B9 verify: pre-existing failures only (2026-10-25, orchestrator, evidence step)
+
+- B8 verify (6 projects, 64 tasks): 62 pass. `auth-providers:test` fails only in the unchanged `translation-proxy.sdk.integration.spec.ts` (5 tests, `EPERM` cleanup). `auth-providers:lint` has 1 error: the unchanged `package.json` `@nx/dependency-checks` (persistence-sqlite). The two D18 store lint errors are fixed. B9 verify (auth-providers): same two pre-existing failures (4 EPERM tests this run), typecheck passes.
+- WP-a hit its tool-call ceiling after 4 files and was resumed inside the cache window to finish 2 files (rule: resume only under 5 minutes).
+- `register.spec.ts:145` keeps the string `'certifyClaudeAccountEnvironment'` in its "must not be exported" list. It is a negative guard for the deleted member, not a reference. Kept.
+- Decision: commit B8 (`28e3bbd4d`) and B9. Reversible.
