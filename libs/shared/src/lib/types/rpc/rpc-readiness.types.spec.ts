@@ -11,12 +11,15 @@ import type { MessagePayloadMap } from '../messages/payload-map';
 import {
   BACKEND_READINESS_VALUES,
   BOOT_PHASE_VALUES,
+  BOOT_PROGRESS_STEP_IDS,
+  BootProgressPayloadSchema,
   DEFAULT_READINESS_RETRY_AFTER_MS,
   isBackendReadiness,
   isBootPhase,
   isRpcReadinessError,
   rpcReadinessError,
   type BootGetReadinessResult,
+  type BootProgressPayload,
   type BootReadinessChangedPayload,
   type RpcReadinessError,
 } from './rpc-readiness.types';
@@ -172,5 +175,60 @@ describe('BootReadinessChangedPayload', () => {
     };
 
     expect(settled.detail).toBeUndefined();
+  });
+});
+
+describe('BootProgressPayloadSchema', () => {
+  const active: BootProgressPayload = {
+    stepId: 'verify',
+    index: 0,
+    total: 3,
+    state: 'active',
+    startedAt: 1_700_000_000_000,
+  };
+
+  it('lists the three host boot steps in start order', () => {
+    expect(BOOT_PROGRESS_STEP_IDS).toEqual(['verify', 'restore', 'agents']);
+  });
+
+  it('is the payload-map shape for boot:progress', () => {
+    const push: MessagePayloadMap['boot:progress'] = active;
+
+    expect(BootProgressPayloadSchema.safeParse(push).success).toBe(true);
+  });
+
+  it.each<[string, BootProgressPayload]>([
+    ['an indeterminate active step', active],
+    [
+      'a counted active step',
+      { ...active, stepId: 'restore', index: 1, done: 3, count: 12 },
+    ],
+    [
+      'a finished step with elapsed time',
+      { ...active, state: 'done', elapsedMs: 840 },
+    ],
+    [
+      'a failed step',
+      { ...active, stepId: 'agents', index: 2, state: 'failed', elapsedMs: 12 },
+    ],
+    ['done equal to count', { ...active, done: 5, count: 5 }],
+    ['done without count', { ...active, done: 5 }],
+  ])('accepts %s', (_label, value) => {
+    expect(BootProgressPayloadSchema.safeParse(value).success).toBe(true);
+  });
+
+  it.each<[string, unknown]>([
+    ['done greater than count', { ...active, done: 6, count: 5 }],
+    ['an unknown key', { ...active, detail: 'Opening the database' }],
+    ['an unknown step id', { ...active, stepId: 'index' }],
+    ['an unknown state', { ...active, state: 'pending' }],
+    ['an out-of-range index', { ...active, index: 3 }],
+    ['a total other than 3', { ...active, total: 4 }],
+    ['a fractional count', { ...active, done: 1, count: 2.5 }],
+    ['a negative elapsedMs', { ...active, elapsedMs: -1 }],
+    ['a missing startedAt', { ...active, startedAt: undefined }],
+    ['a non-object', 'boot:progress'],
+  ])('rejects %s', (_label, value) => {
+    expect(BootProgressPayloadSchema.safeParse(value).success).toBe(false);
   });
 });

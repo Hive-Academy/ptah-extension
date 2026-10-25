@@ -35,6 +35,8 @@
  * import runs — is correct and must not be turned into a readiness error.
  */
 
+import { z } from 'zod';
+
 /**
  * Coarse boot state, mirrored from the Electron host's `BootCoordinator`.
  *
@@ -161,6 +163,60 @@ export interface BootReadinessChangedPayload {
  * received, so one consumer path handles both.
  */
 export type BootGetReadinessResult = BootReadinessChangedPayload;
+
+/**
+ * The three host boot steps a boot screen shows, in the order they start:
+ * `verify` (workspace storage), `restore` (session copy-forward) and `agents`
+ * (agent adapter initialization).
+ */
+export const BOOT_PROGRESS_STEP_IDS = ['verify', 'restore', 'agents'] as const;
+
+/** One of {@link BOOT_PROGRESS_STEP_IDS}. */
+export type BootProgressStepId = (typeof BOOT_PROGRESS_STEP_IDS)[number];
+
+const bootProgressCount = z.number().int().nonnegative().safe();
+
+/**
+ * Backend to renderer push for one host boot step (Electron only).
+ *
+ * Unlike {@link BootReadinessChangedPayload}, this is a **progress tick**: a
+ * step may send several `active` messages as its counts move, and the latest
+ * message per `stepId` replaces the previous one. It never changes readiness,
+ * which stays edge-triggered.
+ *
+ * - `index` is the step's position in {@link BOOT_PROGRESS_STEP_IDS}.
+ * - `done` / `count` are present only when the step can count its work; a step
+ *   without them is indeterminate.
+ * - `elapsedMs` is set once the step is `done` or `failed`.
+ * - `startedAt` is the epoch ms at which the step became active.
+ *
+ * Consumers `safeParse` the payload and drop anything invalid.
+ */
+export const BootProgressPayloadSchema = z
+  .object({
+    stepId: z.enum(BOOT_PROGRESS_STEP_IDS),
+    index: z.number().int().min(0).max(2),
+    total: z.literal(3),
+    state: z.enum(['active', 'done', 'failed']),
+    done: bootProgressCount.optional(),
+    count: bootProgressCount.optional(),
+    elapsedMs: bootProgressCount.optional(),
+    startedAt: z.number().int().nonnegative(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.done === undefined ||
+      value.count === undefined ||
+      value.done <= value.count,
+    { message: 'done must not exceed count', path: ['done'] },
+  );
+
+/** The validated `boot:progress` payload. */
+export type BootProgressPayload = z.infer<typeof BootProgressPayloadSchema>;
+
+/** State of one boot step, as carried by {@link BootProgressPayload}. */
+export type BootProgressStepState = BootProgressPayload['state'];
 
 /** True when `value` is a {@link BackendReadiness} literal. */
 export function isBackendReadiness(value: unknown): value is BackendReadiness {
