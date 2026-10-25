@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 11/22 (B1-B9, B11, B12)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 12/22 (B1-B9, B11-B13)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -316,13 +316,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: `register.agent-process-manager.smoke.spec.ts` (edited); host smokes run
 - Acceptance: named without launch throws `identity-unproved`, no SDK call; bootstrap uses `assertCertifiedLaunch(...,'bootstrap')`; named final uses `launch.cwd` and `launch.settingSources`; `claudeLaneRefusal(code)` carries the real code; `checkLaunchBoundary` awaited before both `this.open(...)`; boundary refusal at bootstrap and between bootstrap and final -> `unsupported-source`, no `queryFn` call, no task text, release once or retain from `terminated`; tripwire (`tokenSource` not `claude.ai`, `apiKeySource:'apiKeyHelper'`, `subscriptionType:'team'`) refuses before the gate; drift refused before task text; resume without second binding/lease; cancellation during commit settled once; options carry no `managedSettings` key or `managed-settings` extra arg; read-only bindings return `unavailable-storage`; stale D7 comment updated.
 
-## Batch 13: Main chat executor and options builder — PENDING
+## Batch 13: Main chat executor and options builder — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B11, B12 (hard) | Phase: P3
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime` (N = 2)
 
-### Task 13.1: Certified named main-chat run with boundary checks — PENDING
+### Task 13.1: Certified named main-chat run with boundary checks — COMPLETE
 
 - Files (D21: + runner deletion moved from B11): M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts`
 - Plan reference: implementation-plan.md:772-804 (Component 9 executor/builder/route-env), 1034; regression rows 880, 887, 890, 891, 892, 910, 911, 912

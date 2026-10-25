@@ -1,9 +1,14 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
-import type { ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ProviderAccountAdmissionPort } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ClaudeCertifiedLaunchContext, ClaudeLaunchBoundary,
+  ClaudeLaunchBoundaryOutcome, ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import type { AccountInfo, Options, QueryFunction, SDKMessage, SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
 import { SdkQueryRunner } from '../sdk-query-runner.service';
+import { CLAUDE_CERTIFIED_ENV_KEYS, certifiedEnvDigest } from '../claude-certified-launch';
+import { claudeIdentityReference } from '../claude-identity-reference';
 import { NamedAccountQueryAdmission, type NamedAccountPersistencePort } from './session-query-executor.service';
 
 function deferred<T>() {
@@ -20,12 +25,30 @@ const reservation: ClaudeAccountRunReservation & { phase: 'reserved' } = {
   kind: 'run', phase: 'reserved', provider: 'claude', routeKind: 'named', reservationId: 'reservation-a',
   routeFingerprint: route.routeFingerprint, routeRevision: 0, authEpoch: 0, operationId: 'operation-a', runId: route.runId,
 };
-const account: AccountInfo = { email: 'person@example.test', organization: 'org' };
+const account: AccountInfo = { email: 'person@example.test', organization: 'org', tokenSource: 'claude.ai',
+  subscriptionType: 'max' };
 const binding: ProviderAccountBinding = {
   version: 1, provider: 'claude', profileId: route.profileId, routeRevision: 0,
   routeFingerprint: route.routeFingerprint, authEpoch: 0, runId: route.runId,
   identity: { kind: 'known', ownerKey: createHash('sha256').update('ptah-quota-owner\0person@example.test\0org').digest('hex') },
 };
+const launchEnv: Record<string, string> = {
+  [CLAUDE_CERTIFIED_ENV_KEYS[0]]: 'certified-value',
+  CLAUDE_CONFIG_DIR: route.canonicalConfigDir,
+  CLAUDE_SECURESTORAGE_CONFIG_DIR: route.canonicalConfigDir,
+};
+const launchContext: ClaudeCertifiedLaunchContext = {
+  executable: { command: 'claude-fixture', prefixArgs: [], sdkExecutablePath: '/certified/claude',
+    version: '2.1.310', fingerprint: { size: 1, mtimeMs: 1 } },
+  env: launchEnv, envDigest: certifiedEnvDigest(launchEnv), cwd: '/certified-workspace',
+  settingSources: ['user', 'project', 'local'],
+  policy: { coverage: 'win32@2.1.310', managedFile: 'absent', managedDropIn: 'absent', registry: 'absent',
+    remoteSignals: 'absent' },
+  accountClass: 'personal',
+  identityReference: claudeIdentityReference('person@example.test', 'org') ?? '',
+};
+const resources = { kind: 'named' as const, route, accountDataDir: '/metadata',
+  filesystemIdentity: { volumeId: 'v', fileId: 'f' }, launch: launchContext };
 const metadata = { name: 'private title', workspaceId: '/workspace', createdAt: 1, lastActiveAt: 1,
   totalCost: 0, totalTokens: { input: 0, output: 0 } };
 const message: SDKUserMessage = { type: 'user', session_id: '', parent_tool_use_id: null,
@@ -34,7 +57,9 @@ const flush = async () => { for (let index = 0; index < 30; index++) await Promi
 
 function fixture(settings: { fail?: string; cancel?: string; unproved?: string; unknown?: boolean;
   mismatch?: boolean; pause?: string; held?: boolean; resumeUnknown?: boolean;
-  finalIdentity?: AccountInfo; changedAtFinalRead?: number } = {}) {
+  finalIdentity?: AccountInfo; changedAtFinalRead?: number; noLaunch?: boolean;
+  boundary?: { at: ClaudeLaunchBoundary; terminated: boolean }; identityPatch?: Partial<AccountInfo>;
+  initPatch?: Record<string, unknown>; finalOptions?: Partial<Options> } = {}) {
   const controller = new AbortController();
   const events: string[] = [];
   const paused = deferred<void>();
@@ -55,10 +80,12 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   const admission: ProviderAccountAdmissionPort = {
     admitClaudeRoute: jest.fn(async (): ReturnType<ProviderAccountAdmissionPort['admitClaudeRoute']> => {
       await step('admit');
-      return settings.held ? { code: 'release-held', summary: 'Held.' } : {
-        code: 'ok', resources: { kind: 'named', route, accountDataDir: '/metadata',
-          filesystemIdentity: { volumeId: 'v', fileId: 'f' } }, reservation,
-      };
+      if (settings.held) return { code: 'release-held', summary: 'Held.' };
+      if (settings.noLaunch) {
+        const { launch: _omitted, ...withoutLaunch } = resources;
+        return { code: 'ok', resources: withoutLaunch, reservation };
+      }
+      return { code: 'ok', resources, reservation };
     }),
     releaseReservation: jest.fn(async (): ReturnType<ProviderAccountAdmissionPort['releaseReservation']> => {
       events.push('release');
@@ -81,6 +108,11 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
     saveAccountBound: jest.fn(async (_metadata, evidence) => { await step('metadata'); saved = evidence; }),
     assertRouteCurrent: jest.fn(async () => { await step('current'); }),
     onAuthEpochChanged: jest.fn((listener) => { epochListener = listener; return () => { epochListener = undefined; }; }),
+    checkLaunchBoundary: jest.fn(async (_route, _launch, boundary): Promise<ClaudeLaunchBoundaryOutcome> => {
+      await step('boundary');
+      return settings.boundary?.at === boundary
+        ? { ok: false, code: 'unsupported-source', terminated: settings.boundary.terminated } : { ok: true };
+    }),
   };
   const registry = {
     bindAccountRoute: jest.fn(() => {
@@ -111,12 +143,14 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
           await step(`${stage}-identity`);
           if (stage === 'final' && settings.changedAtFinalRead === occurrences.get('final-identity'))
             return settings.finalIdentity ?? {};
-          return settings.unknown ? {} : settings.mismatch && stage === 'final'
-            ? { ...account, email: 'different@example.test' } : account;
+          if (settings.unknown) return {};
+          const info = settings.mismatch && stage === 'final' ? { ...account, email: 'different@example.test' } : account;
+          return { ...info, ...settings.identityPatch };
         }),
         next: jest.fn(async () => {
           await step('init');
-          return { done: false as const, value: { type: 'system', subtype: 'init', session_id: 'sdk-session-a' } as SDKMessage };
+          return { done: false as const, value: { type: 'system', subtype: 'init', session_id: 'sdk-session-a',
+            claude_code_version: '2.1.310', apiKeySource: 'none', ...settings.initPatch } as SDKMessage };
         }),
         close: jest.fn(() => {
           events.push(`${stage}-close`);
@@ -132,11 +166,15 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   const queryFn = jest.fn() as QueryFunction;
   const source = { async *[Symbol.asyncIterator]() { yield message; } };
   const bootstrap = (resume?: string) => flow.bootstrap(queryFn, { kind: 'named', profileId: route.profileId }, resume);
+  // The builder's named final options: certified executable, env, cwd and sources.
   const launch = () => flow.launch(queryFn, source, { systemPrompt: 'private system role', resume: 'prior-session',
-    title: 'private title', canUseTool: async () => ({ behavior: 'allow', updatedInput: {} }) }, 'tab-a', metadata);
+    title: 'private title', canUseTool: async () => ({ behavior: 'allow', updatedInput: {} }),
+    pathToClaudeCodeExecutable: launchContext.executable.sdkExecutablePath, env: { ...launchEnv },
+    cwd: launchContext.cwd, settingSources: [...launchContext.settingSources], ...settings.finalOptions },
+  'tab-a', metadata);
   const run = async (resume?: string) => { await bootstrap(resume); return launch(); };
   return { flow, events, reads, options, registry, persistence, admission, controller, log, bootstrap, launch, run,
-    paused, entered, terminations, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
+    paused, entered, terminations, runner, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
 }
 
 describe('named SDK bootstrap and final admission', () => {
@@ -170,6 +208,134 @@ describe('named SDK bootstrap and final admission', () => {
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
   });
 
+  it('bootstraps with the certified env and executable, and no managed settings', async () => {
+    const f = fixture();
+    await f.run();
+    expect(f.options[0].env).toEqual(launchEnv);
+    expect(f.options[0].pathToClaudeCodeExecutable).toBe(launchContext.executable.sdkExecutablePath);
+    for (const options of f.options) {
+      expect(options).not.toHaveProperty('managedSettings');
+      expect(Object.keys(options.extraArgs ?? {}).join(' ')).not.toContain('managed-settings');
+    }
+    await f.flow.dispose();
+  });
+
+  it('refuses a named route without a certified launch before any child or boundary check', async () => {
+    const f = fixture({ noLaunch: true });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.runner.invokeNamedQuery).not.toHaveBeenCalled();
+    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+  });
+
+  it('awaits each boundary check after route revalidation and before its own child', async () => {
+    const f = fixture();
+    await f.run();
+    const at = (name: string, from = 0) => f.events.indexOf(name, from);
+    expect(at('current')).toBeLessThan(at('boundary'));
+    expect(at('boundary')).toBeLessThan(at('bootstrap'));
+    const second = at('boundary', at('bootstrap'));
+    expect(second).toBeGreaterThan(at('bootstrap-close'));
+    expect(second).toBeLessThan(at('final'));
+    expect(f.persistence.checkLaunchBoundary).toHaveBeenNthCalledWith(1, route, launchContext, 'bootstrap',
+      f.controller.signal);
+    expect(f.persistence.checkLaunchBoundary).toHaveBeenNthCalledWith(2, route, launchContext, 'final',
+      f.controller.signal);
+    await f.flow.dispose();
+  });
+
+  it('holds the bootstrap child until its boundary check resolves', async () => {
+    const f = fixture({ pause: 'boundary:1' });
+    const pending = f.run();
+    await f.entered.promise;
+    await flush();
+    expect(f.runner.invokeNamedQuery).not.toHaveBeenCalled();
+    f.paused.resolve();
+    await pending;
+    await f.flow.dispose();
+  });
+
+  it.each([
+    ['bootstrap', true, 0], ['bootstrap', false, 0], ['final', true, 1], ['final', false, 1],
+  ] as const)('refuses a %s boundary (terminated %p) with no query for that child and one settlement',
+    async (at, terminated, children) => {
+      const f = fixture({ boundary: { at, terminated } });
+      await expect(f.run()).rejects.toMatchObject({ code: 'unsupported-source' });
+      await f.flow.dispose();
+      expect(f.options).toHaveLength(children);
+      expect(f.yielded()).toBe(0);
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(terminated ? 1 : 0);
+      expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(terminated ? 0 : 1);
+    });
+
+  it('retains when the boundary check itself fails, and maps the foreign error to release-held', async () => {
+    const f = fixture({ fail: 'boundary' });
+    await expect(f.run()).rejects.toEqual({ code: 'release-held',
+      summary: 'Named account admission could not be completed.' });
+    expect(f.runner.invokeNamedQuery).not.toHaveBeenCalled();
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+    expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, Partial<AccountInfo>]>([
+    ['console token', { tokenSource: 'none' }],
+    ['api key helper', { apiKeySource: 'apiKeyHelper' }],
+    ['team subscription', { subscriptionType: 'team' }],
+    ['unknown subscription word', { subscriptionType: 'ultra' }],
+    ['no subscription', { subscriptionType: undefined }],
+    ['bedrock provider', { apiProvider: 'bedrock' }],
+  ])('tripwire refuses %s before the gate opens', async (_name, identityPatch) => {
+    const f = fixture({ identityPatch });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.options).toHaveLength(1);
+    expect(await f.reads[0]).toEqual({ done: true, value: undefined });
+    expect(f.yielded()).toBe(0);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+  });
+
+  it('accepts an explicit apiKeySource of none', async () => {
+    const f = fixture({ identityPatch: { apiKeySource: 'none' } });
+    await f.run();
+    await f.flow.dispose();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['another CLI version', { claude_code_version: '9.9.9' }],
+    ['an API key source', { apiKeySource: 'ANTHROPIC_API_KEY' }],
+  ])('refuses an init message with %s before any binding', async (_name, initPatch) => {
+    const f = fixture({ initPatch });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.yielded()).toBe(0);
+  });
+
+  it('accepts an oauth init key source', async () => {
+    const f = fixture({ initPatch: { apiKeySource: 'oauth' } });
+    await f.run();
+    await flush();
+    expect(f.yielded()).toBe(1);
+    await f.flow.dispose();
+  });
+
+  it.each<[string, Partial<Options>, string]>([
+    ['a flag-tier credential override', { settings: { apiKeyHelper: 'helper' } }, 'identity-unproved'],
+    ['a flag-tier override as JSON', { settings: JSON.stringify({ forceLoginOrgUUID: 'x' }) }, 'identity-unproved'],
+    ['managed settings', { managedSettings: {} }, 'identity-unproved'],
+    ['a managed-settings extra arg', { extraArgs: { 'managed-settings': 'x' } }, 'identity-unproved'],
+    ['a drifted env', { env: { ...launchEnv, EXTRA_SELECTOR: 'x' } }, 'route-changed'],
+    ['another cwd', { cwd: '/elsewhere' }, 'route-changed'],
+  ])('refuses %s in the final options before invoke', async (_name, finalOptions, code) => {
+    const f = fixture({ finalOptions });
+    await expect(f.run()).rejects.toMatchObject({ code });
+    expect(f.options).toHaveLength(1);
+    expect(f.persistence.checkLaunchBoundary).toHaveBeenCalledTimes(1);
+    await f.flow.dispose();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
     const f = fixture({ fail });
     await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
@@ -178,14 +344,17 @@ describe('named SDK bootstrap and final admission', () => {
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(fail === 'admit' ? 0 : 1);
   });
 
-  it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
+  it.each(['lookup', 'admit', 'current', 'boundary', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
     const f = fixture({ cancel });
     await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'release-held' });
     await flush();
+    await f.flow.dispose();
     expect(f.yielded()).toBe(0);
     // A cancelled storage promise may finish, but can only persist bound metadata.
     if (f.saved()) expect(f.saved()).toEqual(binding);
-    expect(jest.mocked(f.admission.releaseReservation).mock.calls.length).toBeLessThanOrEqual(1);
+    const settlements = jest.mocked(f.admission.releaseReservation).mock.calls.length +
+      jest.mocked(f.admission.retainUnresolvedReservation).mock.calls.length;
+    expect(settlements).toBeLessThanOrEqual(1);
   });
 
   it('retains the reservation when bootstrap termination cannot be proved', async () => {
@@ -213,25 +382,24 @@ describe('named SDK bootstrap and final admission', () => {
 
   it('never downgrades a known final identity mismatch', async () => {
     const f = fixture({ mismatch: true });
-    await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.yielded()).toBe(0);
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
   });
 
   it('refuses an unknown resume before bootstrap or final conversation options', async () => {
     const f = fixture({ resumeUnknown: true });
-    await expect(f.run('prior-session')).rejects.toMatchObject({ code: 'release-held' });
+    await expect(f.run('prior-session')).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.options).toHaveLength(0);
     expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
   });
 
-  it('persists fresh unknown identity only after certified admission', async () => {
+  it('refuses a fresh unknown identity before the final child; a held admission keeps its code', async () => {
     const f = fixture({ unknown: true });
-    await f.run();
-    await flush();
-    expect(f.saved()?.identity).toEqual({ kind: 'unknown' });
-    expect(f.yielded()).toBe(1);
-    await f.flow.dispose();
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.options).toHaveLength(1);
+    expect(f.saved()).toBeUndefined();
+    expect(f.yielded()).toBe(0);
     const held = fixture({ unknown: true, held: true });
     await expect(held.run()).rejects.toMatchObject({ code: 'release-held' });
     expect(held.options).toHaveLength(0);
@@ -246,10 +414,11 @@ describe('named SDK bootstrap and final admission', () => {
     expect(f.controller.signal.aborted).toBe(true);
   });
 
-
   it('reuses the durable binding and attachment for a known resume', async () => {
     const f = fixture();
     await f.run('sdk-session-a');
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({ runId: binding.runId }));
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
     expect(f.persistence.attachSdkSession).toHaveBeenCalledWith(expect.objectContaining({ runId: binding.runId, sdkSessionId: 'sdk-session-a' }));
     expect(f.saved()).toEqual(binding);
@@ -329,7 +498,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
   it.each([{}, { ...account, email: 'other@example.test' }])(
     'refuses changed own-query identity after durable writes: %p', async finalIdentity => {
       const f = fixture({ changedAtFinalRead: 2, finalIdentity });
-      await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+      await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
       expect(f.saved()).toEqual(binding);
       expect(f.yielded()).toBe(0);
       expect(f.events.filter(event => event === 'final-identity')).toHaveLength(2);
@@ -366,9 +535,23 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
   });
 
+  it('retains when a boundary check is cancelled before it proves its children closed', async () => {
+    const f = fixture({ pause: 'boundary:2' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    await f.entered.promise;
+    f.controller.abort();
+    await rejected;
+    f.paused.resolve();
+    await flush();
+    await f.flow.dispose();
+    expect(f.options).toHaveLength(1);
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+    expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+  });
+
   it('never promotes an old unknown binding using a newly known query', async () => {
     const f = fixture({ resumeUnknown: true });
-    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'release-held' });
+    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.options).toEqual([]);
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
     expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
@@ -379,8 +562,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
   it('resumes after same-identity re-auth without rewriting the old binding epoch', async () => {
     const f = fixture();
     jest.mocked(f.admission.admitClaudeRoute).mockResolvedValue({
-      code: 'ok', resources: { kind: 'named', route: { ...route, authEpoch: 1 },
-        accountDataDir: '/metadata', filesystemIdentity: { volumeId: 'v', fileId: 'f' } },
+      code: 'ok', resources: { ...resources, route: { ...route, authEpoch: 1 } },
       reservation: { ...reservation, authEpoch: 1 },
     });
     await f.run('sdk-session-a');
@@ -393,7 +575,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
 
   it('refuses a previously known resume when the current query identity is unknown', async () => {
     const f = fixture({ unknown: true });
-    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'release-held' });
+    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.options).toHaveLength(1);
     expect(f.yielded()).toBe(0);
     expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();

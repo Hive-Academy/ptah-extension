@@ -48,9 +48,17 @@ import {
 import { SDK_TOKENS } from '../di/tokens';
 import {
   AUTH_PROVIDERS_TOKENS,
+  type ClaudeAccountNamedRoute,
   type ClaudeAccountRoute,
+  type ClaudeCertifiedLaunchContext,
 } from '@ptah-extension/auth-providers-tokens';
-import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
+import {
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
+  certifiedNamedEnv,
+  type ClaudeActualLaunch,
+  type ClaudeRunPolicyKey,
+} from './claude-certified-launch';
 import { SdkError, ModelNotAvailableError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -739,6 +747,11 @@ export function buildFlagSettingsArg(
 export interface QueryOptionsInput {
   /** Certified account route supplied by admission; omitted preserves ambient auth. */
   accountRoute?: ClaudeAccountRoute;
+  /**
+   * Certified launch for a named `accountRoute`. A named route without it
+   * refuses `identity-unproved`; an ambient route ignores it.
+   */
+  accountLaunch?: ClaudeCertifiedLaunchContext;
   /** Async iterable stream of user messages */
   userMessageStream: AsyncIterable<SDKUserMessage>;
   /** Controller to abort the query */
@@ -895,17 +908,39 @@ export interface QueryOptionsInput {
   capabilityPolicy?: EffectiveCapabilitySet;
 }
 
-/** Fixed bootstrap: never spread conversation options into this object. */
-export function buildNamedAccountBootstrapOptions(
-  route: ClaudeAccountRoute,
-  abortController: AbortController,
-  pathToClaudeCodeExecutable?: string,
-): Options {
+/** The launch values a set of SDK options would start one child with. */
+export function namedActualLaunch(options: Options): ClaudeActualLaunch {
+  const settings = options.settings;
   return {
+    executablePath: options.pathToClaudeCodeExecutable,
+    env: options.env ?? {},
+    cwd: options.cwd,
+    settingSources: options.settingSources,
+    flagSettings:
+      settings === undefined || typeof settings === 'string'
+        ? settings
+        : JSON.stringify(settings),
+    managedSettings: options.managedSettings,
+    extraArgs: options.extraArgs,
+  };
+}
+
+/**
+ * Fixed bootstrap: never spread conversation options into this object.
+ * Throws `ClaudeCertifiedLaunchRefusal` without a launch, or when the options
+ * do not pass the `bootstrap` check against it.
+ */
+export function buildNamedAccountBootstrapOptions(
+  route: ClaudeAccountNamedRoute,
+  abortController: AbortController,
+  launch: ClaudeCertifiedLaunchContext | undefined,
+): Options {
+  if (!launch) throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
+  const options: Options = {
     cwd: tmpdir(),
     abortController,
-    pathToClaudeCodeExecutable,
-    env: applyClaudeAccountRouteEnv({ ...process.env }, route),
+    pathToClaudeCodeExecutable: launch.executable.sdkExecutablePath,
+    env: certifiedNamedEnv(route, launch),
     systemPrompt: '',
     settingSources: [],
     tools: [],
@@ -915,6 +950,30 @@ export function buildNamedAccountBootstrapOptions(
     maxTurns: 1,
     canUseTool: async () => ({ behavior: 'deny', message: 'Account admission pending.' }),
   };
+  assertCertifiedLaunch(launch, namedActualLaunch(options), 'bootstrap');
+  return options;
+}
+
+/** The certified launch of a named input; `undefined` for an ambient input. */
+function namedInputLaunch(
+  input: QueryOptionsInput,
+): { route: ClaudeAccountNamedRoute; launch: ClaudeCertifiedLaunchContext } | undefined {
+  if (input.accountRoute?.kind !== 'named') return undefined;
+  if (!input.accountLaunch) throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
+  return { route: input.accountRoute, launch: input.accountLaunch };
+}
+
+/** Run-policy env keys the named final run requests, each set to `'1'`. */
+function namedRunPolicy(
+  workflowsDisabled: boolean | undefined,
+  betaEnv: Readonly<Record<string, string>>,
+): ClaudeRunPolicyKey[] {
+  const policy: ClaudeRunPolicyKey[] = [];
+  if (workflowsDisabled) policy.push('CLAUDE_CODE_DISABLE_WORKFLOWS');
+  if (betaEnv['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'] === '1') {
+    policy.push('CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS');
+  }
+  return policy;
 }
 
 /**
@@ -1080,8 +1139,9 @@ export class SdkQueryOptionsBuilder {
       capabilityPolicy,
     } = input;
 
-    const effectiveAuthEnv: AuthEnv = input.accountRoute?.kind === 'named'
-      ? applyClaudeAccountRouteEnv({}, input.accountRoute)
+    const named = namedInputLaunch(input);
+    const effectiveAuthEnv: AuthEnv = named
+      ? certifiedNamedEnv(named.route, named.launch)
       : authEnvOverride ?? this.authEnv;
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
@@ -1089,7 +1149,7 @@ export class SdkQueryOptionsBuilder {
     this.warnIfForkOptionsDroppedSilently(input);
     const model = this.modelService.resolveModelId(
       sessionConfig.model,
-      input.accountRoute?.kind === 'named' ? effectiveAuthEnv : authEnvOverride,
+      named ? effectiveAuthEnv : authEnvOverride,
     );
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
@@ -1097,7 +1157,8 @@ export class SdkQueryOptionsBuilder {
           'Callers must resolve workspace path from IWorkspaceProvider before reaching here.',
       );
     }
-    const cwd = sessionConfig.projectPath;
+    // A named run starts in the directory its launch was certified for.
+    const cwd = named ? named.launch.cwd : sessionConfig.projectPath;
     const envSonnet =
       effectiveAuthEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default';
     const envOpus = effectiveAuthEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default';
@@ -1117,6 +1178,7 @@ export class SdkQueryOptionsBuilder {
       this.isProfiledCrossProvider(authEnvOverride),
       input.accountRoute,
       abortController.signal,
+      named?.launch,
     );
     if (!model.startsWith('claude-')) {
       const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
@@ -1356,30 +1418,37 @@ export class SdkQueryOptionsBuilder {
         // Host-loop entry point for path A (translation proxy): a localhost
         // base URL drops the user tier, so only project/local `.claude/`
         // skills and commands load. See .ptah/specs/TASK_2026_408/ownership.md.
-        settingSources: includesUserSettingSource(
-          effectiveAuthEnv.ANTHROPIC_BASE_URL,
-        )
-          ? ['user', 'project', 'local']
-          : ['project', 'local'],
-        env: applyClaudeAccountRouteEnv(
-          {
-            ...process.env,
-            ...buildTierEnvDefaults(effectiveAuthEnv),
-            ...effectiveAuthEnv,
-            NO_PROXY: '127.0.0.1,localhost',
-            ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
-            // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
-            // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
-            // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
-            // keyword) only when the persisted `workflows.disabled` config resolved
-            // to true at the session origination point (chat-session.service). When
-            // absent/false the env is untouched so workflows stay ON.
-            ...(sessionConfig?.workflowsDisabled
-              ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
-              : {}),
-          },
-          input.accountRoute,
-        ),
+        settingSources: named
+          ? [...named.launch.settingSources]
+          : includesUserSettingSource(effectiveAuthEnv.ANTHROPIC_BASE_URL)
+            ? ['user', 'project', 'local']
+            : ['project', 'local'],
+        // A named run gets the certified env only, plus run-policy keys.
+        env: named
+          ? certifiedNamedEnv(
+              named.route,
+              named.launch,
+              namedRunPolicy(
+                sessionConfig?.workflowsDisabled,
+                experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
+              ),
+            )
+          : {
+              ...process.env,
+              ...buildTierEnvDefaults(effectiveAuthEnv),
+              ...effectiveAuthEnv,
+              NO_PROXY: '127.0.0.1,localhost',
+              ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
+              // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
+              // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
+              // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+              // keyword) only when the persisted `workflows.disabled` config resolved
+              // to true at the session origination point (chat-session.service). When
+              // absent/false the env is untouched so workflows stay ON.
+              ...(sessionConfig?.workflowsDisabled
+                ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+                : {}),
+            },
         stderr: (data: string) => {
           this.mcpBackoffService?.checkStderrForFailure(
             data,
@@ -1421,7 +1490,9 @@ export class SdkQueryOptionsBuilder {
         hooks,
         thinking: sessionConfig?.thinking,
         effort: sessionConfig?.effort,
-        pathToClaudeCodeExecutable,
+        pathToClaudeCodeExecutable: named
+          ? named.launch.executable.sdkExecutablePath
+          : pathToClaudeCodeExecutable,
         betas: this.buildBetas(effectiveAuthEnv),
         enableFileCheckpointing: enableFileCheckpointing ?? true,
         // ONE merged extraArgs object. `--name` cannot be appended beside the
@@ -1644,9 +1715,10 @@ export class SdkQueryOptionsBuilder {
     skipCrossProvider = false,
     accountRoute?: ClaudeAccountRoute,
     signal?: AbortSignal,
+    accountLaunch?: ClaudeCertifiedLaunchContext,
   ): Promise<void> {
     if (accountRoute?.kind === 'named') {
-      const models = await this.modelService.getSupportedModels(accountRoute, signal);
+      const models = await this.modelService.getSupportedModels(accountRoute, signal, accountLaunch);
       if (models.length && !models.some((model) => model.value === resolvedModel)) {
         throw new SdkError('Selected model is unavailable for this account.');
       }
