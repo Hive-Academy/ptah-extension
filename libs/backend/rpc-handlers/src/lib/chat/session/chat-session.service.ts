@@ -96,6 +96,7 @@ import {
   gateMainSessionAccount,
   mainSessionAccountFailure,
   type MainSessionAccountSelection,
+  type ResolvedMainAccountSelection,
   type ChatSlashCommandRouterService,
 } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
@@ -206,6 +207,8 @@ interface SdkSessionLaunch {
   /** Only the Apps page sets `apps`; absent means the coding tool profile. */
   readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
   readonly ptahUiFence?: ChatStartParams['ptahUiFence'];
+  /** The gate's resolved named selection; absent on the ambient path. */
+  readonly accountSelection?: ResolvedMainAccountSelection;
 }
 
 /** What `chat:resume` needs from the session budget (N7). */
@@ -592,7 +595,7 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -634,6 +637,7 @@ export class ChatSessionService {
         surfaceMode: params.surfaceMode,
         mcpToolProfile: params.mcpToolProfile,
         ptahUiFence: params.ptahUiFence,
+        accountSelection,
       });
 
       return { success: true };
@@ -683,8 +687,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
-        accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -707,6 +711,7 @@ export class ChatSessionService {
         mcpServersOverride: undefined,
         permissionLevel,
         surfaceMode: undefined,
+        accountSelection,
       });
 
       return { success: true };
@@ -777,8 +782,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
-        accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -800,6 +805,7 @@ export class ChatSessionService {
         mcpServersOverride: undefined,
         permissionLevel,
         surfaceMode: undefined,
+        accountSelection,
       });
 
       return { success: true };
@@ -935,6 +941,8 @@ export class ChatSessionService {
       ...(input.ptahUiFence !== undefined
         ? { ptahUiFence: input.ptahUiFence }
         : {}),
+      // Named only; the ambient launch config keeps its existing fields.
+      ...(input.accountSelection ? { accountSelection: input.accountSelection } : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -1535,8 +1543,9 @@ export class ChatSessionService {
      */
     mcpRegisteredForSubagents = true,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
+    let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
-      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
@@ -1659,6 +1668,8 @@ export class ChatSessionService {
         ...(params.ptahUiFence !== undefined
           ? { ptahUiFence: params.ptahUiFence }
           : {}),
+        // Named only: the resume reuses the stored binding (no second lease).
+        ...(accountSelection ? { accountSelection } : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
@@ -1669,6 +1680,15 @@ export class ChatSessionService {
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
       return { justResumed: true };
     } catch (resumeError) {
+      // A named run's refusal keeps its typed code; the conversation is kept.
+      const refusal = mainSessionAccountFailure(resumeError);
+      if (refusal) {
+        this.logger.warn('[RPC] chat:continue - resume account refused', {
+          sessionId,
+          code: refusal.accountRefusal.code,
+        });
+        return { error: { ...refusal, sessionId } };
+      }
       const message =
         resumeError instanceof Error
           ? resumeError.message
@@ -1751,25 +1771,26 @@ export class ChatSessionService {
   }
 
   /** Check the original session account before fork/rewind without resuming it. */
-  public gateSessionAccount(sessionId: SessionId): Promise<void> {
-    return this.gateAccount({ sessionId });
+  public async gateSessionAccount(sessionId: SessionId): Promise<void> {
+    await this.gateAccount({ sessionId });
   }
 
-  private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean }): Promise<void> {
+  private async gateAccount(
+    input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean },
+  ): Promise<ResolvedMainAccountSelection | undefined> {
     // A separate child/handoff inherits only on the native Claude route.
     // Resume/fork/rewind calls are not inherited launches and must always
     // validate their original binding, irrespective of today's provider.
     if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
         this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
-      await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+      return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
         metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
         accountSelection: input.accountSelection });
-      return;
     }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
-    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return;
-    await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return undefined;
+    return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
       metadata: this.sessionMetadataStore }, input);
   }
 

@@ -58,10 +58,11 @@ const BINDING: ProviderAccountBinding = {
   runId: '33333333-3333-4333-8333-333333333333',
   identity: { kind: 'known', ownerKey: 'b'.repeat(64) },
 };
-const HELD = {
-  code: 'release-held',
-  summary: 'Named account admission is release held.',
-};
+/** A typed run refusal as the SDK named lifecycle throws it. */
+const REFUSED = (code: string) => ({
+  code,
+  summary: 'The account route was refused.',
+});
 const continueParams = (prompt = 'Continue') => ({
   sessionId: SESSION,
   tabId: TAB,
@@ -78,8 +79,9 @@ function harness(bound = false) {
         ? { status: 'bound', binding: BINDING }
         : { status: 'absent' };
     }),
-    admitClaudeRoute: jest.fn().mockResolvedValue(HELD),
-    releaseReservation: jest.fn().mockResolvedValue({ code: 'ok' }),
+    // Tripwires: the gate resolves a selection; the SDK run owns admission.
+    admitClaudeRoute: jest.fn(),
+    releaseReservation: jest.fn(),
   };
   const activeProvider = {
     resolveActiveAuthForPath: jest
@@ -268,6 +270,14 @@ function expectNoContext(h: ReturnType<typeof harness>) {
   expect(h.broadcast.broadcastMessage).not.toHaveBeenCalled();
 }
 
+const named = (profileId: string) => ({ kind: 'named' as const, profileId });
+
+function expectNoRouteReservation(h: ReturnType<typeof harness>) {
+  // The gate resolves a selection only; admission belongs to the SDK run.
+  expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+  expect(h.accounts.releaseReservation).not.toHaveBeenCalled();
+}
+
 describe('main session account selection before context', () => {
   it('explicit ambient leaves the SDK path and account call count unchanged', async () => {
     const h = harness();
@@ -279,10 +289,13 @@ describe('main session account selection before context', () => {
       }),
     ).toEqual({ success: true });
     expect(h.accounts.selection).not.toHaveBeenCalled();
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
     expect(h.activeProvider.resolveActiveAuthForPath).not.toHaveBeenCalled();
     expect(h.get).not.toHaveBeenCalled();
     expect(h.sdk.startChatSession).toHaveBeenCalledTimes(1);
+    expect(h.sdk.startChatSession.mock.calls[0][0]).not.toHaveProperty(
+      'accountSelection',
+    );
   });
 
   it.each(['apiKey', 'thirdParty'])(
@@ -304,33 +317,31 @@ describe('main session account selection before context', () => {
           await h.service.startSession({
             tabId: TAB,
             workspacePath: ROOT,
-            accountSelection: { kind: 'named', profileId: ORIGINAL },
+            accountSelection: named(ORIGINAL),
           })
         ).success,
       ).toBe(true);
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+      expectNoRouteReservation(h);
       expect(h.sdk.startChatSession).toHaveBeenCalledWith(
         expect.objectContaining({ providerProfile: profile }),
+      );
+      expect(h.sdk.startChatSession.mock.calls[0][0]).not.toHaveProperty(
+        'accountSelection',
       );
     },
   );
 
-  it('only reads the main default and surfaces the port refusal before context', async () => {
+  it('fresh omitted selection forwards only the main default to the SDK run', async () => {
     const h = harness();
-    const result = await h.service.startSession({
-      tabId: TAB,
-      workspacePath: ROOT,
-    });
-    expect(result).toMatchObject({ success: false, accountRefusal: HELD });
+    expect(
+      await h.service.startSession({ tabId: TAB, workspacePath: ROOT }),
+    ).toEqual({ success: true });
     expect(h.accounts.selection).toHaveBeenCalledWith(ROOT, 'main');
-    expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scope: 'main',
-        selection: { kind: 'named', profileId: NEXT },
-      }),
+    expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+      expect.objectContaining({ accountSelection: named(NEXT) }),
     );
-    expectNoContext(h);
+    expectNoRouteReservation(h);
   });
 
   it('explicit named selection bypasses the default', async () => {
@@ -338,15 +349,28 @@ describe('main session account selection before context', () => {
     await h.service.startSession({
       tabId: TAB,
       workspacePath: ROOT,
-      accountSelection: { kind: 'named', profileId: ORIGINAL },
+      accountSelection: named(ORIGINAL),
     });
     expect(h.accounts.selection).not.toHaveBeenCalled();
-    expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        selection: { kind: 'named', profileId: ORIGINAL },
-      }),
+    expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+      expect.objectContaining({ accountSelection: named(ORIGINAL) }),
     );
-    expectNoContext(h);
+    expectNoRouteReservation(h);
+  });
+
+  it('fresh named run refusal from the SDK keeps its typed code', async () => {
+    const h = harness();
+    h.sdk.startChatSession.mockRejectedValue(REFUSED('unavailable-storage'));
+    expect(
+      await h.service.startSession({
+        tabId: TAB,
+        workspacePath: ROOT,
+        accountSelection: named(ORIGINAL),
+      }),
+    ).toMatchObject({
+      success: false,
+      accountRefusal: { code: 'unavailable-storage' },
+    });
   });
 
   it('old truly unbound sessions ignore a newly selected default', async () => {
@@ -355,7 +379,10 @@ describe('main session account selection before context', () => {
       true,
     );
     expect(h.accounts.selection).not.toHaveBeenCalled();
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
+    expect(h.sdk.resumeSession.mock.calls[0][1]).not.toHaveProperty(
+      'accountSelection',
+    );
     expect(h.sdk.sendMessageToSession).toHaveBeenCalledTimes(1);
   });
 
@@ -364,7 +391,7 @@ describe('main session account selection before context', () => {
     expect(
       await h.service.continueSession({
         ...continueParams(),
-        accountSelection: { kind: 'named', profileId: NEXT },
+        accountSelection: named(NEXT),
       }),
     ).toMatchObject({
       success: false,
@@ -375,51 +402,67 @@ describe('main session account selection before context', () => {
 });
 
 describe('immutable authoritative continuation binding', () => {
-  it.each([false, true])(
-    'omitted selection retains original binding with active=%s despite default/label changes',
-    async (active) => {
+  it.each(['absent', 'omitted', 'same'] as const)(
+    'inactive bound resume with %s selection forwards the original binding despite default changes',
+    async (kind) => {
       const h = harness(true);
-      h.sdk.isSessionActive.mockReturnValue(active);
-      h.broadcaster.isStreaming.mockReturnValue(active);
-      expect(await h.service.continueSession(continueParams())).toMatchObject({
-        success: false,
-        accountRefusal: HELD,
-      });
+      const accountSelection =
+        kind === 'omitted'
+          ? { kind }
+          : kind === 'same'
+            ? named(ORIGINAL)
+            : undefined;
+      expect(
+        await h.service.continueSession({
+          ...continueParams(),
+          ...(accountSelection ? { accountSelection } : {}),
+        }),
+      ).toMatchObject({ success: true });
       expect(h.accounts.lookupBySdkSession).toHaveBeenCalledWith({
         provider: 'claude',
         sdkSessionId: SESSION,
       });
       expect(h.calls[0]).toBe('authoritative');
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          selection: { kind: 'named', profileId: ORIGINAL },
-        }),
+      expect(h.sdk.resumeSession).toHaveBeenCalledTimes(1);
+      expect(h.sdk.resumeSession).toHaveBeenCalledWith(
+        SESSION,
+        expect.objectContaining({ accountSelection: named(ORIGINAL) }),
       );
-      expectNoContext(h);
+      expectNoRouteReservation(h);
     },
   );
+
+  it('live bound session continues on the owner without a resume, binding or lease', async () => {
+    const h = harness(true);
+    h.sdk.isSessionActive.mockReturnValue(true);
+    h.broadcaster.isStreaming.mockReturnValue(true);
+    expect(await h.service.continueSession(continueParams())).toMatchObject({
+      success: true,
+    });
+    expect(h.sdk.resumeSession).not.toHaveBeenCalled();
+    expect(h.sdk.startChatSession).not.toHaveBeenCalled();
+    expect(h.sdk.sendMessageToSession).toHaveBeenCalledTimes(1);
+    expectNoRouteReservation(h);
+  });
 
   it.each([
     'missing-profile',
     'route-changed',
     'identity-mismatch',
     'identity-unproved',
-    'release-held',
+    'unavailable-storage',
   ])(
-    'preserves conversation on %s refusal including sign-out or identity changes',
+    'preserves conversation on a %s run refusal including sign-out or identity changes',
     async (code) => {
       const h = harness(true);
-      h.accounts.admitClaudeRoute.mockResolvedValue({
-        code,
-        summary: 'The account route was refused.',
-      });
+      h.sdk.resumeSession.mockRejectedValue(REFUSED(code));
       expect(await h.service.continueSession(continueParams())).toMatchObject({
         success: false,
         accountRefusal: { code },
       });
-      expect(h.history.readForResume).not.toHaveBeenCalled();
-      expectNoContext(h);
+      expect(h.sdk.sendMessageToSession).not.toHaveBeenCalled();
+      expectNoRouteReservation(h);
     },
   );
 
@@ -446,7 +489,7 @@ describe('immutable authoritative continuation binding', () => {
       success: false,
       accountRefusal: { code: expect.stringMatching(/invalid-bound|conflict/) },
     });
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
     expectNoContext(h);
   });
 
@@ -462,7 +505,7 @@ describe('immutable authoritative continuation binding', () => {
       success: false,
       accountRefusal: { code: 'identity-unproved' },
     });
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
     expectNoContext(h);
   });
 
@@ -480,7 +523,7 @@ describe('immutable authoritative continuation binding', () => {
   );
 
   it.each([false, true])(
-    'explicit resume activate=%s gates before history and budget work',
+    'explicit resume activate=%s refuses a conflicting selection before history and budget work',
     async (activate) => {
       const h = harness(true);
       expect(
@@ -488,25 +531,57 @@ describe('immutable authoritative continuation binding', () => {
           sessionId: SESSION,
           tabId: TAB,
           activate,
+          accountSelection: { kind: 'ambient' },
         }),
-      ).toMatchObject({ success: false, accountRefusal: HELD });
+      ).toMatchObject({ success: false, accountRefusal: { code: 'conflict' } });
       expect(h.history.readForResume).not.toHaveBeenCalled();
       expectNoContext(h);
     },
   );
 
-  it.each([false, true])(
-    'rewind active=%s gates before returning active or resuming',
-    async (active) => {
-      const h = harness(true);
-      h.sdk.isSessionActive.mockReturnValue(active);
-      h.broadcaster.isStreaming.mockReturnValue(active);
-      expect(
-        await h.service.ensureSessionActiveForRewind(SESSION, TAB, ROOT),
-      ).toMatchObject({ resumed: false });
-      expectNoContext(h);
-    },
-  );
+  it('explicit resume with activate forwards the original binding to the SDK resume', async () => {
+    const h = harness(true);
+    await h.service.resumeSession({
+      sessionId: SESSION,
+      tabId: TAB,
+      activate: true,
+    });
+    expect(h.sdk.resumeSession).toHaveBeenCalledWith(
+      SESSION,
+      expect.objectContaining({ accountSelection: named(ORIGINAL) }),
+    );
+    expectNoRouteReservation(h);
+  });
+
+  it('rewind of a live bound session returns active without a second run', async () => {
+    const h = harness(true);
+    h.sdk.isSessionActive.mockReturnValue(true);
+    h.broadcaster.isStreaming.mockReturnValue(true);
+    expect(
+      await h.service.ensureSessionActiveForRewind(SESSION, TAB, ROOT),
+    ).toEqual({ alreadyActive: true });
+    expect(h.sdk.resumeSession).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
+  });
+
+  it('rewind of an inactive bound session resumes on the original binding', async () => {
+    const h = harness(true);
+    expect(
+      await h.service.ensureSessionActiveForRewind(SESSION, TAB, ROOT),
+    ).toEqual({ resumed: true });
+    expect(h.sdk.resumeSession).toHaveBeenCalledWith(
+      SESSION,
+      expect.objectContaining({ accountSelection: named(ORIGINAL) }),
+    );
+  });
+
+  it('rewind reports a run refusal as not resumed', async () => {
+    const h = harness(true);
+    h.sdk.resumeSession.mockRejectedValue(REFUSED('route-changed'));
+    expect(
+      await h.service.ensureSessionActiveForRewind(SESSION, TAB, ROOT),
+    ).toMatchObject({ resumed: false });
+  });
 
   it('fresh-context handoff with source id inherits the original binding', async () => {
     const h = harness(true);
@@ -519,17 +594,15 @@ describe('immutable authoritative continuation binding', () => {
         sessionName: 'handoff',
         sourceSessionId: SESSION,
       }),
-    ).toMatchObject({ success: false, accountRefusal: HELD });
-    expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        selection: { kind: 'named', profileId: ORIGINAL },
-      }),
+    ).toEqual({ success: true });
+    expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+      expect.objectContaining({ accountSelection: named(ORIGINAL) }),
     );
     expect(h.accounts.selection).not.toHaveBeenCalled();
-    expectNoContext(h);
+    expectNoRouteReservation(h);
   });
 
-  it('child launch with source id is gated before MCP/context', async () => {
+  it('child launch with source id refuses a conflicting selection before MCP/context', async () => {
     const h = harness(true);
     expect(
       await h.service.startAgentChildSession({
@@ -539,14 +612,15 @@ describe('immutable authoritative continuation binding', () => {
         prompt: 'child task',
         sessionName: 'child',
         sourceSessionId: SESSION,
+        accountSelection: named(NEXT),
       }),
-    ).toMatchObject({ success: false, accountRefusal: HELD });
+    ).toMatchObject({ success: false, accountRefusal: { code: 'conflict' } });
     expectNoContext(h);
   });
 });
 
-describe('slash routes and release hold', () => {
-  it('direct slash resume is gated before compact cost admission and context', async () => {
+describe('slash routes on a bound session', () => {
+  it('direct slash relaunch carries the original binding into the SDK run', async () => {
     const h = harness(true);
     expect(
       await h.router.routeFollowUpSlashCommand(
@@ -556,44 +630,50 @@ describe('slash routes and release hold', () => {
         ROOT,
         continueParams('/compact'),
       ),
-    ).toMatchObject({ success: false, accountRefusal: HELD });
+    ).toEqual({ success: true, sessionId: SESSION });
+    expect(h.sdk.executeSlashCommand).toHaveBeenCalledWith(
+      SESSION,
+      '/compact',
+      expect.objectContaining({ accountSelection: named(ORIGINAL) }),
+    );
+    expectNoRouteReservation(h);
+  });
+
+  it('direct slash with a conflicting selection refuses before compact cost admission and context', async () => {
+    const h = harness(true);
+    expect(
+      await h.router.routeFollowUpSlashCommand('/compact', SESSION, TAB, ROOT, {
+        ...continueParams('/compact'),
+        accountSelection: { kind: 'ambient' },
+      }),
+    ).toMatchObject({ success: false, accountRefusal: { code: 'conflict' } });
     expect(h.compact.requestManualCompact).not.toHaveBeenCalled();
     expect(h.compact.admitManualCompact).not.toHaveBeenCalled();
     expectNoContext(h);
   });
 
-  it('central slash resume refuses before dead-session cleanup', async () => {
+  it('central slash with a conflicting selection refuses before dead-session cleanup', async () => {
     const h = harness(true);
     h.sdk.isSessionActive.mockReturnValue(true);
     expect(
-      await h.service.continueSession(continueParams('/compact')),
-    ).toMatchObject({ success: false, accountRefusal: HELD });
+      await h.service.continueSession({
+        ...continueParams('/compact'),
+        accountSelection: named(NEXT),
+      }),
+    ).toMatchObject({ success: false, accountRefusal: { code: 'conflict' } });
     expect(h.compact.requestManualCompact).not.toHaveBeenCalled();
     expectNoContext(h);
   });
 
-  it('future successful preflight cannot accidentally enable a prompt without lease transfer', async () => {
+  it('the gate resolves a named selection without reserving a route', async () => {
     const h = harness();
-    h.accounts.admitClaudeRoute.mockResolvedValue({
-      code: 'ok',
-      reservation: {
-        reservationId: 'reservation-123',
-        operationId: 'operation-123',
-        authEpoch: 0,
-      },
-    });
     await expect(
       gateMainSessionAccount(h, {
         workspacePath: ROOT,
-        accountSelection: { kind: 'named', profileId: ORIGINAL },
+        accountSelection: named(ORIGINAL),
       }),
-    ).rejects.toMatchObject({ code: 'release-held' });
-    expect(h.accounts.releaseReservation).toHaveBeenCalledWith({
-      reservationId: 'reservation-123',
-      operationId: 'operation-123',
-      authEpoch: 0,
-      reason: 'startup-failure',
-    });
+    ).resolves.toEqual(named(ORIGINAL));
+    expectNoRouteReservation(h);
     expectNoContext(h);
   });
 
@@ -628,7 +708,7 @@ describe('slash routes and release hold', () => {
       }),
     ).rejects.toMatchObject({ code: 'conflict' });
     expect(h.accounts.selection).not.toHaveBeenCalled();
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
     expectNoContext(h);
   });
 });
@@ -651,22 +731,16 @@ describe('separate child account inheritance (Batch 21)', () => {
     'inherits account A despite default B, handoff=%s',
     async (handoff) => {
       const h = harness(true);
-      expect(await launch(h, handoff)).toMatchObject({
-        success: false,
-        accountRefusal: HELD,
-      });
+      expect(await launch(h, handoff)).toEqual({ success: true });
       expect(h.accounts.lookupBySdkSession).toHaveBeenCalledWith({
         provider: 'claude',
         sdkSessionId: SESSION,
       });
-      expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          selection: { kind: 'named', profileId: ORIGINAL },
-          runId: BINDING.runId,
-        }),
+      expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ accountSelection: named(ORIGINAL) }),
       );
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expectNoContext(h);
+      expectNoRouteReservation(h);
     },
   );
 
@@ -675,18 +749,14 @@ describe('separate child account inheritance (Batch 21)', () => {
     'route-changed',
     'identity-mismatch',
     'identity-unproved',
-  ])('refuses %s before child content', async (code) => {
+  ])('keeps the typed %s refusal of the child run', async (code) => {
     const h = harness(true);
-    h.accounts.admitClaudeRoute.mockResolvedValue({
-      code,
-      summary: 'The account route was refused.',
-    });
+    h.sdk.startChatSession.mockRejectedValue(REFUSED(code));
     expect(await launch(h)).toMatchObject({
       success: false,
       accountRefusal: { code },
     });
-    expect(h.accounts.releaseReservation).not.toHaveBeenCalled();
-    expectNoContext(h);
+    expectNoRouteReservation(h);
   });
 
   it.each(['invalid-bound', 'unavailable-storage'])(
@@ -699,7 +769,7 @@ describe('separate child account inheritance (Batch 21)', () => {
         accountRefusal: { code: status },
       });
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+      expectNoRouteReservation(h);
       expectNoContext(h);
     },
   );
@@ -716,7 +786,7 @@ describe('separate child account inheritance (Batch 21)', () => {
       success: false,
       accountRefusal: { code: 'identity-unproved' },
     });
-    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoRouteReservation(h);
     expectNoContext(h);
   });
 
@@ -726,8 +796,11 @@ describe('separate child account inheritance (Batch 21)', () => {
       const h = harness();
       expect(await launch(h, handoff)).toEqual({ success: true });
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+      expectNoRouteReservation(h);
       expect(h.sdk.startChatSession).toHaveBeenCalledTimes(1);
+      expect(h.sdk.startChatSession.mock.calls[0][0]).not.toHaveProperty(
+        'accountSelection',
+      );
     },
   );
 
@@ -761,36 +834,9 @@ describe('separate child account inheritance (Batch 21)', () => {
         fresh.sdk.startChatSession.mock.calls,
       );
       expect(inherited.accounts.lookupBySdkSession).not.toHaveBeenCalled();
-      expect(inherited.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+      expectNoRouteReservation(inherited);
     },
   );
-
-  it('releases only the child preflight reservation and retains the release hold', async () => {
-    const h = harness(true);
-    h.accounts.admitClaudeRoute.mockResolvedValue({
-      code: 'ok',
-      reservation: {
-        reservationId: 'child-reservation',
-        operationId: 'child-operation',
-        authEpoch: 0,
-      },
-    });
-    expect(await launch(h)).toMatchObject({
-      success: false,
-      accountRefusal: { code: 'release-held' },
-    });
-    expect(h.accounts.releaseReservation.mock.calls).toEqual([
-      [
-        {
-          reservationId: 'child-reservation',
-          operationId: 'child-operation',
-          authEpoch: 0,
-          reason: 'startup-failure',
-        },
-      ],
-    ]);
-    expectNoContext(h);
-  });
 });
 
 describe('host passes authoritative source IDs (D22)', () => {
@@ -798,6 +844,7 @@ describe('host passes authoritative source IDs (D22)', () => {
     'passes the SDK source and retains typed refusal, handoff=%s',
     async (handoff) => {
       const h = harness(true);
+      h.sdk.startChatSession.mockRejectedValue(REFUSED('identity-unproved'));
       const host = new ChildChatSessionHostAdapter(
         createMockLogger() as unknown as Logger,
         {
@@ -844,13 +891,18 @@ describe('host passes authoritative source IDs (D22)', () => {
               startedAt: 1,
             },
           });
-      expect(result).toMatchObject({ started: false, accountRefusal: HELD });
+      expect(result).toMatchObject({
+        started: false,
+        accountRefusal: { code: 'identity-unproved' },
+      });
       expect(h.accounts.lookupBySdkSession).toHaveBeenCalledWith({
         provider: 'claude',
         sdkSessionId: SESSION,
       });
+      expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+        expect.objectContaining({ accountSelection: named(ORIGINAL) }),
+      );
       expect(h.accounts.selection).not.toHaveBeenCalled();
-      expectNoContext(h);
     },
   );
 });

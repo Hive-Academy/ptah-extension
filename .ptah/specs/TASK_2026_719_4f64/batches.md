@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 12/22 (B1-B9, B11-B13)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 14/22 (B1-B9, B11-B15)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -330,13 +330,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: missing launch refuses `identity-unproved` before bootstrap (factory never called); `certifiedNamedEnv` used; named branch of `applyClaudeAccountRouteEnv` throws `ClaudeCertifiedLaunchRefusal`, ambient early return unchanged; final passes the final options' `settings` as `flagSettings` and an override in the flag tier refuses before invoke; init requires `claude_code_version === launch.executable.version` and `apiKeySource` in `{'none','oauth'}`; `checkLaunchBoundary` awaited at bootstrap (after `assertRouteCurrent`, before `invokeNamedQuery`) and at the top of `launch()`; refusal -> no query for that child, lease released once when all closed, retained when `terminated:false`; tripwire refuses before the gate; `namedAccountRefusal` default `identity-unproved`; options carry no `managedSettings` / `managed-settings`; resume without second binding/lease; cancellation during commit settled once.
 
-## Batch 14: Lane account precedence in AgentProcessManager — PENDING
+## Batch 14: Lane account precedence in AgentProcessManager — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B1 (token), B8 (token registered), order after B13 | Phase: P3
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/cli-agent-runtime,ptah-electron` (N = 2)
 
-### Task 14.1: Optional selection reader and Claude precedence — PENDING
+### Task 14.1: Optional selection reader and Claude precedence — COMPLETE
 
 - Files: M `libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts`; M `libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.account-binding.spec.ts`
 - Plan reference: implementation-plan.md:834-845 (Component 10 B14), 1035; regression row 890 (lane precedence)
@@ -344,13 +344,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: `register.agent-process-manager.smoke.spec.ts` and Electron smoke run unchanged
 - Acceptance: trailing `@inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER, { isOptional: true })`; explicit named -> admission request with `workingDirectory`; explicit ambient -> today's path; omitted -> `readStoredSelection(workspaceRoot, 'lane')`; no reader -> ambient; reader error -> `unavailable-storage`; non-Claude CLIs unchanged.
 
-## Batch 15: Main chat holds lifted (adapter, router, chat session) — PENDING
+## Batch 15: Main chat holds lifted (adapter, router, chat session) — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B13 (hard) | Phase: P3 (last; request P3 review after commit)
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers` (N = 2)
 
-### Task 15.1: Live-resume and slash-command holds replaced; router gate — PENDING
+### Task 15.1: Live-resume and slash-command holds replaced; router gate — COMPLETE
 
 - Files: M `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts`; M `libs/backend/agent-sdk/src/lib/sdk-agent-adapter.spec.ts`; M `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.service.ts`; C `libs/backend/rpc-handlers/src/lib/chat/session/chat-slash-command-router.accounts.spec.ts`; M `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts`; M `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.account-binding.spec.ts`
 - Plan reference: implementation-plan.md:768-771, 812-813 (Component 9), 1036; regression rows 889, 888 (chat), 890 (main chat selection), live session row

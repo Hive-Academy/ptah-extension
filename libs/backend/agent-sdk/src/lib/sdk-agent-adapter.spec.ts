@@ -38,6 +38,7 @@ import type {
   AuthEnv,
   FlatStreamEventUnion,
   ModelPricing,
+  ProviderAccountSelection,
   ProviderProfile,
   SessionBudgetState,
   SessionId,
@@ -3958,4 +3959,196 @@ describe('SdkAgentAdapter', () => {
       });
     });
   });
+});
+
+describe('SdkAgentAdapter account selection on live and relaunched runs (B15)', () => {
+  const PROFILE_A = '11111111-1111-4111-8111-111111111111';
+  const PROFILE_B = '22222222-2222-4222-8222-222222222222';
+  const FINGERPRINT = 'f'.repeat(64);
+  const LIVE_BINDING = {
+    provider: 'claude' as const,
+    routeFingerprint: FINGERPRINT,
+    routeRevision: 0,
+    authEpoch: 0,
+  };
+  const STORED = {
+    version: 1,
+    provider: 'claude',
+    profileId: PROFILE_A,
+    routeRevision: 0,
+    routeFingerprint: FINGERPRINT,
+    authEpoch: 0,
+    runId: '33333333-3333-4333-8333-333333333333',
+    identity: { kind: 'known', ownerKey: 'b'.repeat(64) },
+  };
+
+  function liveRecord(
+    query: ReturnType<typeof createFakeQuery>,
+    accountBinding?: typeof LIVE_BINDING,
+  ) {
+    return {
+      token: 'record-token-live',
+      tabId: 'sess-live',
+      realSessionId: 'sess-live',
+      query,
+      config: {} as AISessionConfig,
+      abortController: new AbortController(),
+      messageQueue: [],
+      resolveNext: null,
+      turnInFlight: false,
+      activityHold: null,
+      currentModel: 'claude-sonnet-4-20250514',
+      permissionLevel: 'ask' as const,
+      lastActivityAt: 0,
+      usageCostSource: 'reported' as const,
+      accountingAuthEnv: {} as AuthEnv,
+      capacityRoute: { kind: 'proxy' as const, providerId: 'anthropic' },
+      ...(accountBinding ? { accountBinding } : {}),
+    };
+  }
+
+  async function liveHarness(accountBinding?: typeof LIVE_BINDING) {
+    const h = makeAdapter();
+    await h.adapter.initialize();
+    const query = createFakeQuery();
+    h.sessionLifecycle.find.mockReturnValue(liveRecord(query, accountBinding));
+    h.metadataStore.get.mockResolvedValue({ accountBinding: STORED } as never);
+    return { h, query };
+  }
+
+  const resume = (
+    h: ReturnType<typeof makeAdapter>,
+    accountSelection?: ProviderAccountSelection,
+  ) =>
+    h.adapter.resumeSession('sess-live' as SessionId, {
+      tabId: 'tab-live',
+      ...(accountSelection ? { accountSelection } : {}),
+    } as AISessionConfig & { tabId: string });
+
+  it.each<[string, ProviderAccountSelection | undefined]>([
+    ['absent', undefined],
+    ['omitted', { kind: 'omitted' }],
+    ['the same profile', { kind: 'named', profileId: PROFILE_A }],
+  ])(
+    'a live named session with %s selection continues on its owner without a new run',
+    async (_label, selection) => {
+      const { h, query } = await liveHarness(LIVE_BINDING);
+      await expect(resume(h, selection)).resolves.toBeDefined();
+      expect(h.sessionLifecycle.executeQuery).not.toHaveBeenCalled();
+      expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
+      expect(h.streamTransformer.transform.mock.calls[0][0].sdkQuery).toBe(
+        query,
+      );
+    },
+  );
+
+  it.each<[string, ProviderAccountSelection]>([
+    ['a different profile', { kind: 'named', profileId: PROFILE_B }],
+    ['ambient', { kind: 'ambient' }],
+  ])(
+    'a live named session refuses %s with conflict and keeps the run',
+    async (_label, selection) => {
+      const { h } = await liveHarness(LIVE_BINDING);
+      await expect(resume(h, selection)).rejects.toMatchObject({
+        code: 'conflict',
+      });
+      expect(h.sessionLifecycle.executeQuery).not.toHaveBeenCalled();
+      expect(h.streamTransformer.transform).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a live named session whose stored binding names another route refuses invalid-bound', async () => {
+    const { h } = await liveHarness(LIVE_BINDING);
+    h.metadataStore.get.mockResolvedValue({
+      accountBinding: { ...STORED, routeFingerprint: 'e'.repeat(64) },
+    } as never);
+    await expect(
+      resume(h, { kind: 'named', profileId: PROFILE_A }),
+    ).rejects.toMatchObject({ code: 'invalid-bound' });
+    expect(h.streamTransformer.transform).not.toHaveBeenCalled();
+  });
+
+  it('a live ambient session refuses an explicit named selection with conflict', async () => {
+    const { h } = await liveHarness();
+    await expect(
+      resume(h, { kind: 'named', profileId: PROFILE_A }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(h.streamTransformer.transform).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, ProviderAccountSelection | undefined]>([
+    ['absent', undefined],
+    ['ambient', { kind: 'ambient' }],
+  ])(
+    'a live ambient session with %s selection keeps the existing path and reads no binding',
+    async (_label, selection) => {
+      const { h } = await liveHarness();
+      await expect(resume(h, selection)).resolves.toBeDefined();
+      expect(h.streamTransformer.transform).toHaveBeenCalledTimes(1);
+      expect(h.metadataStore.get).not.toHaveBeenCalled();
+    },
+  );
+
+  it('an inactive named resume hands the selection and resume id to one executor run', async () => {
+    const h = makeAdapter();
+    await h.adapter.initialize();
+    h.sessionLifecycle.find.mockReturnValue(undefined);
+    h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+      sdkQuery: createFakeQuery(),
+      initialModel: 'claude-sonnet-4-20250514',
+      abortController: new AbortController(),
+    } as ExecuteQueryResult);
+    const accountSelection = { kind: 'named' as const, profileId: PROFILE_A };
+    await resume(h, accountSelection);
+    expect(h.sessionLifecycle.executeQuery).toHaveBeenCalledTimes(1);
+    const input = h.sessionLifecycle.executeQuery.mock.calls[0][0];
+    expect(input.resumeSessionId).toBe('sess-live');
+    expect(input.sessionConfig).toMatchObject({ accountSelection });
+  });
+
+  function slashHarness() {
+    const h = makeAdapter();
+    h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValue({
+      sdkQuery: createFakeQuery(),
+      initialModel: 'claude',
+      abortController: new AbortController(),
+    } as ExecuteQueryResult);
+    return h;
+  }
+
+  it('a named slash relaunch runs the named lifecycle with the resolved selection', async () => {
+    const h = slashHarness();
+    await h.adapter.initialize();
+    const accountSelection = { kind: 'named' as const, profileId: PROFILE_A };
+    await expect(
+      h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
+        sessionConfig: { projectPath: '/fake/workspace' } as AISessionConfig,
+        accountSelection,
+      }),
+    ).resolves.toBeDefined();
+    const options = h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0][2];
+    expect(options.sessionConfig).toEqual({
+      projectPath: '/fake/workspace',
+      accountSelection,
+    });
+  });
+
+  it.each<[string, ProviderAccountSelection | undefined]>([
+    ['absent', undefined],
+    ['ambient', { kind: 'ambient' }],
+  ])(
+    'an ambient slash relaunch (%s) passes its session config unchanged',
+    async (_label, accountSelection) => {
+      const h = slashHarness();
+      await h.adapter.initialize();
+      const sessionConfig = { projectPath: '/fake/workspace' } as AISessionConfig;
+      await h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
+        sessionConfig,
+        ...(accountSelection ? { accountSelection } : {}),
+      });
+      const options =
+        h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0][2];
+      expect(options.sessionConfig).toBe(sessionConfig);
+    },
+  );
 });

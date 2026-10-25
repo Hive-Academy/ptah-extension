@@ -1163,6 +1163,31 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return tap;
   }
 
+  /**
+   * Account precedence for a live continuation. Omitted (or the bound profile
+   * itself) continues on the owner's lease; the owner re-checks its route and
+   * identity before every turn it admits. Anything else would need a second
+   * route on a running child, so it refuses `conflict` and keeps the session.
+   */
+  private async assertLiveAccountSelection(
+    sessionId: SessionId,
+    live: { readonly provider: string; readonly routeFingerprint: string } | undefined,
+    selection: ProviderAccountSelection | undefined,
+  ): Promise<void> {
+    if (!live) {
+      if (selection?.kind === 'named') throw namedAccountRefusal('conflict');
+      return;
+    }
+    if (selection === undefined || selection.kind === 'omitted') return;
+    if (selection.kind === 'ambient') throw namedAccountRefusal('conflict');
+    const stored = (await this.metadataStore.get(sessionId))?.accountBinding;
+    if (!stored || stored.provider !== live.provider ||
+        stored.routeFingerprint !== live.routeFingerprint) {
+      throw namedAccountRefusal('invalid-bound');
+    }
+    if (stored.profileId !== selection.profileId) throw namedAccountRefusal('conflict');
+  }
+
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
@@ -1180,11 +1205,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
-    if (existingSession && existingSession.query && config?.accountSelection?.kind === 'named') {
-      // A live continuation needs Batch 18's bound-turn route revalidation.
-      throw namedAccountRefusal();
-    }
     if (existingSession && existingSession.query) {
+      // The live owner keeps its lease; this call never admits a second one.
+      await this.assertLiveAccountSelection(
+        sessionId,
+        existingSession.accountBinding,
+        config?.accountSelection,
+      );
       this.logger.info(
         `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
       );
@@ -1650,12 +1677,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       throw this.notInitializedError();
     }
 
-    if (config.accountSelection?.kind === 'named') throw namedAccountRefusal();
-
     // Same per-session provider pinning as start/resume: the relaunch runs on
     // the profile's isolated auth env, model and cli.js when one is supplied.
-    const { providerProfile } = config;
-    const sessionConfig =
+    const { providerProfile, accountSelection } = config;
+    const profiledConfig =
       providerProfile && config.sessionConfig
         ? {
             ...config.sessionConfig,
@@ -1665,6 +1690,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
               : {}),
           }
         : config.sessionConfig;
+    // The router resolved the selection from the session's binding. A named
+    // relaunch resumes through the certified named lifecycle with that stored
+    // binding; ambient relaunches keep their config object unchanged.
+    const sessionConfig: (AISessionConfig & {
+      accountSelection?: ProviderAccountSelection;
+    }) | undefined =
+      accountSelection?.kind === 'named'
+        ? { ...profiledConfig, accountSelection }
+        : profiledConfig;
 
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
