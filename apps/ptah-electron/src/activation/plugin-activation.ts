@@ -529,11 +529,9 @@ export function refreshUserLayer(
   workspaceRoot: string | undefined,
   reason: string,
 ): Promise<void> {
-  return userLayerJobFor(container).request(
-    normalizeWorkspaceRoot(workspaceRoot),
-    reason,
-    { workspaceRoot },
-  );
+  return userLayerJobFor(container)
+    .request(normalizeWorkspaceRoot(workspaceRoot), reason, { workspaceRoot })
+    .then(() => undefined);
 }
 
 /**
