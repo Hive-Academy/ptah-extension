@@ -1,9 +1,12 @@
 # Batches - TASK_2026_714_c8a2
 
-Total tasks: 48 | Batches: 41 | Complete: 6/41 (2a, 2b, 2c, 2d, 2f, 2h; 2d/2f/2h commit pending)
-In flight (Wave 2): 2e, 3c. Phase P3 review: APPROVED (code-logic-review-batch-2c.md).
-(Not #808-blocked: 15 batches in P2/P3/P4, plus 9a, 10a, 10b once P2 is done. Blocked on
-#808: 18 in P5-P10. Blocked on evidence: 5 in P11.)
+Total tasks: 48 | Batches: 41 | Complete: see per-batch headers. P2, P3, P4 (3a/3c/3d, 3b.2),
+9a and 10a are merged to main through PR #809 (the per-batch headers in P2-P4 below were not all
+updated by the earlier runs; `git log origin/main` is the record). PR #808 merged 2026-10-25:
+nothing is #808-blocked any more. Session 7 (2026-10-25) re-validated P5 against main 16c6455e1
+and runs P5 (5a-5c, with 3b.1 as 5b). Blocked on evidence: 5 in P11.
+From P5 on, W means `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration`
+(branch feat/codex-runtime-integration from origin/main 16c6455e1).
 
 Batch ids start at 2a because 1a-1l were the evidence spike. W below means the worktree root
 `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat` (every path is absolute under
@@ -616,7 +619,7 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 
 - Scoped command passes.
 
-## Batch 3b: Home-bound usage service and quota reader — PENDING
+## Batch 3b: Home-bound usage service and quota reader — PARTIAL (3b.2 COMPLETE, merged in #809; 3b.1 moved to P5 Batch 5b)
 
 - Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
   Subagent reason: N/A
@@ -647,65 +650,235 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 
 ---
 
-# Phase P5 — Shared contracts, profile seam, auth exports — BLOCKED on #808 merge + rebase
+# Phase P5 — Shared contracts, usage home API, profile seam — UNBLOCKED (#808 merged 2026-10-25)
 
-Phase review: code-logic + style (new public API). Implementer: Codex; reviewer: Claude.
-First step of every P5 batch: confirm #808 merged, this branch rebased, re-read the touched files.
+Phase review: code-logic + style (new public API). Implementer family: Codex (CLI lane).
+Reviewer family: Claude (in-process code-logic-reviewer + code-style-reviewer subagents).
+Re-validated 2026-10-25 against main 16c6455e1 (after #808, #809, #818). Execution order:
+5a and 5b in parallel (file-disjoint: shared vs auth-providers/auth-providers-tokens; neither
+depends on the other), then 5c (needs 5a types and 5b interfaces). Last batch 5c -> phase review.
+Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLAUDE.md).
 
-## Batch 5a: SessionRuntimeIdentity and shared contracts — PENDING (blocked on #808)
+### P5 re-validation against main (what #808 and the P2-P4 merges changed)
 
-- Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
-  Subagent reason: N/A
+- `ProviderAccountBinding` / `accountBindingId` (712) now live on `ProviderProfile`
+  (`libs/shared/src/lib/types/provider-profile.types.ts:22-24`). SessionRuntimeIdentity does NOT
+  copy them: Codex account selection is TASK_2026_715 and binds through the home.
+- `PermissionLevel` exists (`libs/shared/src/lib/types/model-autopilot.types.ts:20`),
+  `EffortLevel` exists (`ai-provider.types.ts:137`). Core `AppliedSettings`
+  (`libs/backend/codex-runtime/src/lib/codex-runtime.types.ts:116-119`) cannot be imported by
+  shared (shared is the bottom layer; core does not import shared).
+- `PermissionRequest` lives in `libs/shared/src/lib/types/permission.types.ts:30` (not in
+  rpc.types.ts). `PERMISSION_AUTO_RESOLVED` / `PERMISSION_SESSION_CLEANUP` exist
+  (`message-constants.ts:229-230`) with untyped payloads; a per-request cancel does not exist.
+- AUTH_PROVIDERS_TOKENS moved to `libs/backend/auth-providers-tokens/src/lib/tokens.ts:38-41`
+  (re-exported by `auth-providers/src/lib/di/tokens.ts`).
+- Codex registrations are in `auth-providers/src/lib/providers/register-providers.ts:66-97`
+  (`di/register.ts` has no Codex usage registration to change; `:296` only resolves the usage
+  token for plan usage).
+- CodexHomeAuthService is not DI-registered; it is a per-host owner via
+  `CodexHomeAuthService.forHost(logger, workspaceProvider)`
+  (`codex-home-auth.service.ts:67-100`, comment "until DI registration in 5c").
+- The proxy policy is a pure function `resolveCodexProxyPolicy`
+  (`auth/codex-proxy-policy.ts:6`); it needs no DI registration (plan 5c item dropped).
+- Owner resolver Codex methods moved to `quota/provider-owner.resolver.ts:565-588`
+  (`ownerForCodexHome()`, `resolveCodexHomeOwner()`), constructor `:466-476`.
+- `WorkspaceProviderProfileResolver.resolveProviderProfileForWorkspace` is at
+  `workspace-provider-profile-resolver.ts:127-171`, constructor `:94-109`.
+- Usage service: legacy default-home App Server read `codex-account-usage.service.ts:155-313`;
+  owner key = `accountOwnerKey('openai-codex', home\0email)` (`:262-264`); returns activity
+  (`account/usage/read`, `:277-305`). Core `CodexAccountUsageClient`
+  (`codex-runtime/src/lib/codex-account-usage-client.ts`) differs: no activity read, owner key
+  from `accountId` (`:305`), and the process verifies the pinned binary digest. See decision
+  P5-D1.
+- DI guards (`apps/*/src/di/expected-resolvable.ts`) list handler classes only; no RPC method is
+  added in P5, so `rpc-surface.spec.ts` / `surface-composition.spec.ts` stay unchanged unless a
+  run proves otherwise.
+
+### P5 decisions (team-leader, 2026-10-25)
+
+| Id | Decision | Options | Evidence | Reversible |
+| --- | --- | --- | --- | --- |
+| P5-D1 | 3b.1: the usage service delegates EXPLICIT non-default homes to an injected nullable core client; the default home keeps the existing App Server read until a parity item closes | Full replacement now; defer all of 3b.1; explicit-home delegation with nullable client | Full replacement changes user-visible usage now: core drops `activity` (service `:277-305` vs client `usageResult`), changes owner keys (email vs accountId, breaks 712 owner-keyed quota rows), and fails on a non-pinned codex binary. Hard constraint: no user-visible change while the gate is closed. Nullable client follows the core's own `{useFactory: () => null}` pattern (`registration.ts:62-72`) | Yes: P8 composition binds the client; default-home cutover is a recorded parity item |
+| P5-D2 | Shared defines its own `AppliedSettings` (same shape as core) and `SessionApprovalDecision` | Import core from shared; duplicate structurally | Shared cannot depend on a backend lib | Yes |
+| P5-D3 | `RuntimeHostCapabilities` and `CodexProfileSeed` live in shared `session-runtime.types.ts` | Core; auth-providers; shared | Seed crosses auth-providers -> rpc-handlers/agent-sdk/gateway/lanes; must be credential-free plain data | Yes |
+| P5-D4 | 5a does not modify `agent-adapter.types.ts` or `rpc.types.ts` | Additive edits now; defer to the consumer batch (P6/P7) | No P5 consumer; replace-not-accumulate; plan :363 says "only as needed" | Yes |
+| P5-D5 | Per-request approval cancel = new constant `PERMISSION_PROMPT_CANCELLED` with a typed payload; frontend wiring stays in 8b | Reuse auto-resolved; reuse session-cleanup; new typed message | Auto-resolved means "resolved without the user"; session-cleanup is whole-session. Plan :199 asks for a typed session-scoped message | Yes |
+| P5-D6 | Native branch of resolveExecutionProfile only when `hostCapabilities.nativeCodex === true`; every host passes false while the parity gate is closed (no caller until P7) | Read the gate inside auth-providers; host-supplied capability | Plan :85 `hostCapabilities`; gate stays in composition (`resolveGatedCodexRuntime`) | Yes |
+
+## Batch 5a: SessionRuntimeIdentity and shared contracts — COMPLETE (verified; commit below)
+
+- Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
+  Review family: Claude (different from implementer) | Subagent reason: N/A
 - Fallback order: other family same capability -> same family other provider/model -> subagent
-- Tasks: 1 | Depends on: #808 merge | Phase: P5
+- Rationale: bounded additive contracts in one project; runs in parallel with 5b (disjoint files)
+- Tasks: 1 | Depends on: none | Phase: P5 | Phase review: code-logic + style (new public API)
+
+### Task 5a.1: Session runtime contracts — COMPLETE
+
 - Files: CREATE W/libs/shared/src/lib/types/session-runtime.types.ts and
-  `session-runtime.types.spec.ts` (same dir); MODIFY W/libs/shared/src/index.ts,
-  W/libs/shared/src/lib/types/agent-adapter.types.ts (additive only),
-  W/libs/shared/src/lib/types/rpc.types.ts,
-  W/libs/shared/src/lib/types/messages/message-constants.ts
-- Plan reference: implementation-plan.md:49, :167-181, :199, :360-363
-- Details: SessionRuntimeIdentity, SessionRuntimeControls, PermissionLevel reuse, AppliedSettings
-  re-use; typed session-scoped approval cancel message; Codex approval request payload carries
-  `allowedDecisions` (accept, acceptForSession, decline, cancel) so the UI can render them (C1).
-  RPC names/result shapes unchanged.
-- Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/shared --parallel=1`,
-  then typecheck of dependents changed later phases cover (shared is wide: run
-  `npx nx run-many -t typecheck -p ptah-electron ptah-extension-vscode ptah-cli --parallel=1`).
+  W/libs/shared/src/lib/types/session-runtime.types.spec.ts; MODIFY W/libs/shared/src/index.ts,
+  W/libs/shared/src/lib/types/permission.types.ts (additive optional field),
+  W/libs/shared/src/lib/types/messages/message-constants.ts (one constant), plus
+  W/libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts ONLY if a shared spec requires
+  the new message type there.
+- Plan reference: implementation-plan.md:76-90, :147-161, :193-199, :358-363; decisions P5-D2..D6
+- Pattern to follow: `libs/shared/src/lib/types/provider-account.types.ts` +
+  `provider-account.schemas.ts` (readonly interfaces + Zod schema next to them)
+- Implementation details:
+  - `SessionRuntimeKind = 'claude-sdk' | 'codex-app-server'`.
+  - `SessionRuntimeIdentity` (readonly): `version: 1`, `sessionId: SessionId`, `providerId`,
+    `workspaceId`, `runtime: SessionRuntimeKind`, `codex?: { normalizedHome: string }` required
+    when runtime is codex-app-server and absent for claude-sdk (discriminated union on runtime).
+    Zod schema `SessionRuntimeIdentitySchema` + `parseSessionRuntimeIdentity(value)` returning a
+    result (no throw) for persisted/IPC boundaries; unknown version rejected.
+  - `sessionRuntimeIdentityMismatch(a, b)` pure helper: returns the first mismatching field
+    among providerId / workspaceId / runtime / normalizedHome, or null (resume must fail on a
+    mismatch, plan :78).
+  - `RuntimeHostCapabilities` (readonly `{ nativeCodex: boolean }`), `RuntimeConsumer =
+    'chat' | 'gateway' | 'lane'`.
+  - `CodexProfileSeed` (readonly, credential-free): `providerId: 'openai-codex'`,
+    `consumer: RuntimeConsumer`, `workspacePath`, `home` (case-preserving resolved path),
+    `normalizedHome` (identity key), `model`, `existingIdentity?: SessionRuntimeIdentity`.
+    Doc comment: never carries tokens, env, proxy URLs or headers.
+  - `AppliedSettings` `{ timing: 'effectiveNow' | 'nextTurn'; revision: number }` (same shape as
+    core, P5-D2).
+  - `SessionRuntimeControls` exactly as plan :151-158 (setPermission(PermissionLevel),
+    setModel, setEffort(EffortLevel | undefined), interrupt, compact) using existing SessionId,
+    PermissionLevel, EffortLevel.
+  - `SessionApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel'`;
+    `PermissionRequest.allowedDecisions?: readonly SessionApprovalDecision[]` (doc: present only
+    for Codex requests; absent = existing Claude prompt).
+  - `PERMISSION_PROMPT_CANCELLED: 'permission:prompt-cancelled'` + exported
+    `PermissionPromptCancelledPayload { sessionId: string; requestId: string; reason:
+    'timeout' | 'disposed' | 'turn-ended' | 'superseded' }`.
+  - Export all from `libs/shared/src/index.ts`. No existing name or shape changes.
+- Spec: schema accepts both runtimes, rejects codex identity without home, claude identity with
+  home, unknown version, unknown extra keys (strict); mismatch helper per field.
+- Validation notes: shared is imported by every host — additive only; no existing export
+  renamed; no `any`/`@ts-ignore`/`as unknown as`.
 
-## Batch 5b: resolveExecutionProfile seam — PENDING (blocked on #808, needs 5a, P2)
+### Batch 5a verification
 
-- Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
-  Subagent reason: N/A
+- `npm run verify -- -p @ptah-extension/shared` passes (header names 1 project).
+- Team-leader then runs host typecheck once for the phase:
+  `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
+
+## Batch 5b: Usage service home API delegates to the core client (was 3b.1) — IN_PROGRESS
+
+- Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
+  Review family: Claude | Subagent reason: N/A
 - Fallback order: other family same capability -> same family other provider/model -> subagent
-- Tasks: 1 | Depends on: 5a, 2k | Phase: P5
+- Rationale: one service + its contract + its registration; disjoint from 5a
+- Tasks: 1 | Depends on: 2k, 3a (merged) | Phase: P5
+
+### Task 5b.1: Home-aware usage service and registrations — IN_PROGRESS
+
+- Files: MODIFY W/libs/backend/auth-providers-tokens/src/lib/tokens.ts,
+  W/libs/backend/auth-providers/src/lib/providers/codex/codex-account-usage.service.ts and
+  `codex-account-usage.service.spec.ts` (same dir),
+  W/libs/backend/auth-providers/src/lib/providers/codex/codex-provider.types.ts,
+  W/libs/backend/auth-providers/src/lib/providers/register-providers.ts (+ its spec in the same
+  directory if one asserts the registration list).
+- Plan reference: implementation-plan.md:147-152; batches.md Task 3b.1; decision P5-D1;
+  batch-3b-report.md "Blocked on #808"; code-logic-review-batch-3b.md (finding 1 closure).
+- Pattern to follow: nullable registration `registration.ts:62-72` in codex-runtime;
+  `instanceCachingFactory` usage at `register-providers.ts:66-68`.
+- Implementation details:
+  - Tokens: `SDK_CODEX_HOME_AUTH: Symbol.for('SdkCodexHomeAuth')` (the single
+    CodexHomeAuthReader owner) and `SDK_CODEX_USAGE_CLIENT: Symbol.for('SdkCodexUsageClient')`
+    (nullable core `CodexAccountUsageClient`).
+  - register-providers: `SDK_CODEX_HOME_AUTH` = `instanceCachingFactory(c =>
+    CodexHomeAuthService.forHost(c.resolve(TOKENS.LOGGER), c.resolve(PLATFORM_TOKENS
+    .WORKSPACE_PROVIDER)))` — the SAME owner the CodexAuthService facade uses (forHost is keyed by
+    workspace provider). `SDK_CODEX_USAGE_CLIENT` = `{ useFactory: () => null }` unless already
+    registered (`isRegistered(token, true)`): host composition (P8) binds the real client.
+  - `ICodexAccountUsageService.getAccountUsage({home?, refresh?, signal?})`,
+    `clearCache(home?)`; `ICodexOwnerKeySource.currentOwnerKey(home?)` (update doc comments).
+  - Service: inject `SDK_CODEX_USAGE_CLIENT` (`CodexAccountUsageClient | null`). A home that is
+    omitted or whose `normalizeCodexHomeKey(home, process.platform)` equals the default
+    resolver's key takes the EXISTING default-home path unchanged. Any other home delegates to
+    the core client (`read(home, {refresh, signal})`, `currentOwnerKey(home)`,
+    `clearCache(home)`); with a null client it returns `service-unavailable` / `null` / no-op
+    exactly as today's refusal. Never answer an explicit home with default-home data, never the
+    last-focused account. `close()` does not close the core client (composition owns it).
+  - Keep the DTO re-export from core (`codex-provider.types.ts:90-93`).
+- Spec: default home and omitted home hit the legacy path (existing tests keep passing
+  unchanged); Windows-case/trailing-separator alias of the default home is the default home;
+  explicit other home -> client.read with home/refresh/signal; null client -> service-unavailable;
+  owner key and clearCache per home do not touch the default-home cache; abort propagation.
+- Validation notes: Risk R5-1 (P5-D1) — the default-home user-visible result must be
+  unchanged; record in the report the parity items that block a default-home cutover (activity
+  read, owner-key derivation, binary pin).
+
+### Batch 5b verification
+
+- `npm run verify -- -p @ptah-extension/auth-providers,@ptah-extension/auth-providers-tokens`
+  (header names 2 projects). Known noise: translation-proxy.sdk.integration.spec.ts EPERM on
+  Windows; 3 pre-existing auth-providers lint errors.
+
+## Batch 5c: resolveExecutionProfile seam, same-home owner resolution, exports — IN_PROGRESS
+
+- Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
+  Review family: Claude | Subagent reason: N/A
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Rationale: three auth-providers seams in one project, 5 files; needs 5a types and 5b interfaces
+- Tasks: 2 | Depends on: 5a, 5b | Phase: P5 (last batch -> phase review)
+
+### Task 5c.1: resolveExecutionProfile — IN_PROGRESS
+
 - Files: MODIFY W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts
-  and its spec
-- Plan reference: implementation-plan.md:51-74
-- Details: native branch returns a credential-safe CodexProfileSeed without proxyPool.acquire,
-  global proxy start, configureAuthentication or env mutation; legacy branch unchanged; failed
-  workspace resolution never falls back to global credentials.
-- Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/auth-providers
---parallel=1`
+  and `workspace-provider-profile-resolver.spec.ts` (same dir)
+- Plan reference: implementation-plan.md:76-94; decision P5-D6
+- Implementation details: add `resolveExecutionProfile(input)` with the plan :82-90 signature
+  using the 5a types. Order: (1) existing identity with runtime `claude-sdk` -> legacy branch;
+  (2) existing identity with runtime `codex-app-server` -> requires `hostCapabilities
+  .nativeCodex`, else throw a typed error (never fall back to proxy); provider/workspace/home
+  mismatch (`sessionRuntimeIdentityMismatch`) throws; (3) no identity: active provider for the
+  workspace (`activeProviderResolver.resolveActiveAuthForPath`) is `openai-codex` AND
+  `nativeCodex` -> native seed; otherwise legacy. Native branch builds a `CodexProfileSeed` from
+  the injected `SDK_CODEX_HOME_RESOLVER` path (`home`) and `normalizeCodexHomeKey`
+  (`normalizedHome`) and the resolved model, and calls NONE of proxyPool.acquire, AuthManager
+  .configureAuthentication, buildProfile or any AuthEnv mutation. Legacy branch returns
+  `{ runtime: 'claude-sdk', providerProfile: await this.resolveProviderProfileForWorkspace(...) }`
+  unchanged (including its AuthRequiredError refusal — no global fallback).
+- Spec: native branch with spies proving zero proxy/auth calls; nativeCodex false -> legacy for
+  openai-codex; codex identity on a non-native host throws; each mismatch throws; claude identity
+  stays legacy even when native is available; legacy result equals the existing method's.
 
-## Batch 5c: auth-providers registration, owner resolver, exports — PENDING (blocked on #808)
+### Task 5c.2: Same-home owner resolution and public exports — IN_PROGRESS
 
-- Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
-  Subagent reason: N/A
-- Fallback order: other family same capability -> same family other provider/model -> subagent
-- Tasks: 1 | Depends on: 3a, 3b, 5b | Phase: P5 (last batch -> phase review)
-- Files: MODIFY W/libs/backend/auth-providers/src/lib/di/register.ts,
-  W/libs/backend/auth-providers/src/lib/providers/register-providers.ts,
-  W/libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts and its spec,
-  W/libs/backend/auth-providers/src/index.ts
-- Plan reference: implementation-plan.md:151 (`provider-owner.resolver.ts:458`), :369
-- Details: register CodexHomeAuthService (single owner), proxy policy; owner resolution uses the
-  same home as the read; nullable registrations `{ useFactory: () => null }`.
-- Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/auth-providers
---parallel=1`
+- Files: MODIFY W/libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts and
+  `provider-owner.resolver.spec.ts` (same dir), W/libs/backend/auth-providers/src/index.ts
+- Plan reference: implementation-plan.md:150 (owner resolver must use the same home), :369
+- Implementation details: `ownerForCodexHome(home?)` and `resolveCodexHomeOwner(home?)` pass the
+  same `home` to `currentOwnerKey(home)` / `getAccountUsage({ home })`; the unknown key uses
+  `home ?? this.codexHome.path`. Omitted home = today's behaviour (callers at `:713` unchanged).
+  index.ts exports `CodexHomeAuthService`, `resolveCodexProxyPolicy` + `CodexProxyPolicy` type,
+  and `ICodexOwnerKeySource` if not already exported; nothing removed.
+- Spec: explicit home owner never returns the default-home owner key; unknown owner keyed by
+  the explicit home; default path unchanged.
+
+### Batch 5c verification
+
+- `npm run verify -- -p @ptah-extension/auth-providers` (1 project).
+- Phase P5 gate (team-leader): host typecheck
+  `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`,
+  then NEEDS REVIEW (code-logic + style) on the combined P5 diff.
+
+### P5 risks
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R5-1 usage default-home result changes for users | HIGH | P5-D1; 5b spec pins default path unchanged |
+| R5-2 shared additive change breaks a host | MEDIUM | Host typecheck at the phase gate |
+| R5-3 native seed path touches proxy/global auth | HIGH | 5c.1 spies assert zero calls |
+| R5-4 parallel 5a/5b lanes see each other's half edits | LOW | Disjoint projects; lanes report, never fix, foreign failures |
+| R5-5 owner key for explicit home leaks default owner | MEDIUM | 5b + 5c.2 specs |
 
 ---
 
-# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — BLOCKED on #808 merge + rebase
+# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
 
 Phase review: code-logic + style. Implementer: Codex; reviewer: Claude.
 Verification for every P6 batch:
@@ -742,7 +915,7 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (new directory).
   apply-before-save with rollback; failed interrupt blocks follow-up.
 - Executor/review/fallback as 6a.
 
-## Batch 6d: Metadata identity and legacy auth propagation — PENDING (blocked on #808)
+## Batch 6d: Metadata identity and legacy auth propagation — PENDING (#808 merged; re-validate)
 
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts and
   `session-metadata-store.spec.ts`, W/libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts;
@@ -763,13 +936,13 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (new directory).
 
 ---
 
-# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — BLOCKED on #808 merge + rebase
+# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude.
 Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/rpc-handlers
 --parallel=1`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
 
-## Batch 7a: ChatRuntimeProfileService — PENDING (needs 5b, 6e)
+## Batch 7a: ChatRuntimeProfileService — PENDING (needs 5c [resolveExecutionProfile, was 5b], 6e)
 
 - Files: CREATE R+chat/session/chat-runtime-profile.service.ts and same-stem spec
 - Plan reference: implementation-plan.md:95 (G1)
@@ -796,7 +969,7 @@ Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/rpc-han
 
 ---
 
-# Phase P8 — Host composition (disabled) and approval presentation — BLOCKED on #808 merge + rebase
+# Phase P8 — Host composition (disabled) and approval presentation — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
 
 Phase review: code-logic; visual review (Electron, dark + light) for 8c. Electron first; VS Code
 and CLI get compatible bindings only (no feature work).
@@ -863,7 +1036,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 `npx nx run-many -t test typecheck lint -p @ptah-extension/gateway-chat-bridge --parallel=1`.
 Prefix G = W/libs/backend/gateway-chat-bridge/src/lib/.
 
-## Batch 9a: Gateway adapter and approval sink — PENDING (runnable after P2; not #808-blocked)
+## Batch 9a: Gateway adapter and approval sink — COMPLETE (merged in #809)
 
 - Files: CREATE G+codex-gateway-adapter.ts, G+codex-gateway-approval-sink.ts, each with same-stem
   spec
@@ -872,7 +1045,7 @@ Prefix G = W/libs/backend/gateway-chat-bridge/src/lib/.
   before a turn); unroutable interaction declines, never auto-allows; a notice is not an approval.
 - Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
-## Batch 9b: Gateway profile and bridge integration — PENDING (BLOCKED: needs 5b)
+## Batch 9b: Gateway profile and bridge integration — PENDING (needs 5c [resolveExecutionProfile, was 5b])
 
 - Files: CREATE G+codex-gateway-profile.ts and spec, G+gateway-chat-bridge.native.spec.ts; MODIFY
   G+gateway-chat-bridge.ts (native branch only at `:689-697`, `:794-865`), G+di/register.ts,
@@ -890,7 +1063,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 `npx nx run-many -t test typecheck lint -p @ptah-extension/cli-agent-runtime --parallel=1`.
 Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/.
 
-## Batch 10a: Lane profile and events — PENDING (runnable after P2)
+## Batch 10a: Lane profile and events — COMPLETE (merged in #809)
 
 - Files: CREATE L+codex-lane-profile.ts, L+codex-lane-events.ts, each with same-stem spec
 - Plan reference: implementation-plan.md:246
@@ -909,7 +1082,7 @@ Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/code
   Uses the current `cli-adapter.interface.ts` unchanged (interface additions are 10c).
 - Executor/review as 10a.
 
-## Batch 10c: Detection factory and interface — PENDING (BLOCKED on #808)
+## Batch 10c: Detection factory and interface — PENDING (#808 merged; re-validate)
 
 - Files: MODIFY W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-detection.service.ts
   (factory instead of direct construction at :57),
@@ -943,12 +1116,12 @@ subagent controls) are proved by a user-approved spike, or the user approves a r
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-subagent-controls.ts and spec
 - Plan reference: implementation-plan.md:238
 
-## Batch 11d: History/rewind routers — PENDING (blocked on evidence + #808)
+## Batch 11d: History/rewind routers — PENDING (blocked on evidence; #808 merged)
 
 - Files: CREATE W/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts,
   `session-rewind-router.ts`, each with same-stem spec
 
-## Batch 11e: RPC history delegation — PENDING (blocked on evidence + #808)
+## Batch 11e: RPC history delegation — PENDING (blocked on evidence; #808 merged)
 
 - Files: MODIFY W/libs/backend/rpc-handlers/src/lib/chat/session/chat-history-read.service.ts,
   W/libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts; CREATE
