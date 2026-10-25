@@ -11,6 +11,9 @@ import {
   input,
   output,
   computed,
+  inject,
+  Injector,
+  untracked,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import {
@@ -24,6 +27,7 @@ import {
 import { SlicePipe } from '@angular/common';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
 import type { LaneStopReason } from '@ptah-extension/shared';
+import { ProviderAccountsStateService } from '@ptah-extension/core';
 
 /** Readable host stop reason for a lane the budget guard stopped. */
 export function laneGuardStopText(
@@ -100,6 +104,17 @@ export function laneGuardStopText(
           [title]="'Model: ' + agent().model"
         >
           {{ agent().model }}
+        </span>
+      }
+
+      <!-- Claude account the run used (label only; never an ID) -->
+      @if (accountText(); as account) {
+        <span
+          class="badge badge-sm badge-ghost text-[9px] text-base-content-muted max-w-[10rem] min-w-0 flex-shrink-0"
+          data-testid="lane-account"
+          [title]="account"
+        >
+          <span class="truncate">{{ account }}</span>
         </span>
       }
 
@@ -185,6 +200,30 @@ export class AgentCardHeaderComponent {
   readonly stopAgent = output<Event>();
   readonly resumeAgent = output<Event>();
   readonly closeLane = output<Event>();
+
+  /**
+   * "Account: <label>" for a named Claude account, "Default" for the ambient
+   * one, "Removed account" once the loaded account list no longer has the
+   * profile. Nothing while the list is not loaded or the lane has no known
+   * account. The account state is resolved only for a named account.
+   */
+  protected readonly accountText = computed<string | null>(() => {
+    const profileId = this.agent().accountProfileId;
+    if (profileId === null) return 'Default';
+    if (profileId === undefined) return null;
+    const accounts = untracked(() =>
+      this.injector.get(ProviderAccountsStateService),
+    );
+    const snapshot = accounts.state('claude')().snapshot;
+    if (!snapshot) return null;
+    const match = snapshot.accounts.find(
+      (account) =>
+        account.provider === 'claude' && account.profileId === profileId,
+    );
+    return match ? `Account: ${match.label}` : 'Removed account';
+  });
+
+  private readonly injector = inject(Injector);
 
   /** Shown once the lane has left `running` with a host budget stop reason. */
   protected readonly stopText = computed(() =>
