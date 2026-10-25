@@ -1194,7 +1194,15 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   typed AuthOperationContext propagation (`initialize(context?)`).
 - Executor/review/fallback as 6a.
 
-## Batch 6e: agent-sdk DI and exports — IN_PROGRESS (report batch-6e-report.md)
+## Batch 6e: agent-sdk DI and exports — COMPLETE (f660c19bf; report batch-6e-report.md; P6 phase review PENDING)
+
+- Result (team-leader, session 10): `npm run verify -- -p @ptah-extension/agent-sdk`: 189 suites
+  passed / 4054 tests passed (3 skipped), typecheck PASS, lint 2 known-noise errors
+  (session-query-executor.accounts.spec.ts:174,183), no 6e file in lint output. Host typecheck
+  `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`:
+  "Successfully ran target typecheck for 4 projects". Diff checked against the 6e decision row.
+- P6 phase review due: code-logic + code-style (new public API), Claude reviewer, combined diff
+  ef4e34932..f660c19bf (P6 commits a566781a5, a65ff9595, 8aaaa169c, 027cc1a69, f660c19bf).
 
 - Executor: Codex lane (backend-developer role); decision row "6e" in decisions.md
   (orchestrator, session 10): synchronous lookup + async `initializeSessionRuntimeIdentityLookup`,
