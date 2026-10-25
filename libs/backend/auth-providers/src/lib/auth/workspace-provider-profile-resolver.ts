@@ -30,6 +30,7 @@
  *   ({@link WorkspaceProviderProfileResolver.resolveProviderProfileForWorkspace}).
  */
 
+import * as path from 'node:path';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -38,6 +39,8 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import {
+  CODEX_PROVIDER_ENTRY,
+  CODEX_DEFAULT_TIERS,
   type AuthEnv,
   type ProviderProfile,
   type SessionRuntimeIdentity,
@@ -97,6 +100,18 @@ function createIsolatedSnapshot(): AuthEnv {
   return snapshot;
 }
 
+export interface ExecutionProfileRequest {
+  workspacePath: string;
+  requestedModel: string;
+  existingIdentity?: SessionRuntimeIdentity;
+  hostCapabilities: RuntimeHostCapabilities;
+  consumer: RuntimeConsumer;
+}
+
+export type ResolvedExecutionProfile =
+  | { runtime: 'claude-sdk'; providerProfile: ProviderProfile | undefined }
+  | { runtime: 'codex-app-server'; seed: CodexProfileSeed };
+
 @injectable()
 export class WorkspaceProviderProfileResolver {
   constructor(
@@ -119,68 +134,73 @@ export class WorkspaceProviderProfileResolver {
   ) {}
 
   /** Select a runtime before materializing credentials or starting a proxy. */
-  async resolveExecutionProfile(input: {
-    workspacePath: string;
-    requestedModel: string;
-    existingIdentity?: SessionRuntimeIdentity;
-    hostCapabilities: RuntimeHostCapabilities;
-    consumer: RuntimeConsumer;
-  }): Promise<
-    | { runtime: 'claude-sdk'; providerProfile: ProviderProfile | undefined }
-    | { runtime: 'codex-app-server'; seed: CodexProfileSeed }
-  > {
+  async resolveExecutionProfile(
+    input: ExecutionProfileRequest,
+  ): Promise<ResolvedExecutionProfile> {
     const {
       workspacePath,
       requestedModel,
       existingIdentity,
       hostCapabilities,
     } = input;
-    if (existingIdentity?.runtime !== 'claude-sdk') {
-      if (existingIdentity && !hostCapabilities.nativeCodex) {
+    const resumeNative = existingIdentity?.runtime === 'codex-app-server';
+    if (resumeNative && !hostCapabilities.nativeCodex) {
+      throw new AuthRequiredError(
+        'This session requires a host with native Codex support.',
+      );
+    }
+    const startNative = !existingIdentity && this.shouldStartNativeCodex(input);
+    if (resumeNative || startNative) {
+      const home = this.codexHome.path;
+      let normalizedHome: string;
+      let storedHome: string | undefined;
+      try {
+        normalizedHome = normalizeCodexHomeKey(home, process.platform);
+        if (resumeNative) {
+          storedHome = normalizeCodexHomeKey(
+            existingIdentity.codex.normalizedHome,
+            process.platform,
+          );
+        }
+      } catch {
         throw new AuthRequiredError(
-          'This session requires a host with native Codex support.',
+          'Cannot use native Codex session: normalizedHome is invalid.',
         );
       }
-      const active =
-        this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
-      if (
-        existingIdentity ||
-        (active.providerId === 'openai-codex' && hostCapabilities.nativeCodex)
-      ) {
-        const home = this.codexHome.path;
-        const normalizedHome = normalizeCodexHomeKey(home, process.platform);
-        if (existingIdentity) {
-          const mismatch = sessionRuntimeIdentityMismatch(existingIdentity, {
+      if (resumeNative) {
+        const mismatch = sessionRuntimeIdentityMismatch(
+          {
             ...existingIdentity,
-            providerId: active.providerId,
-            // This seam receives workspace paths, so its identity convention is the path.
-            workspaceId: workspacePath,
-            codex: { normalizedHome },
-          });
-          if (mismatch) {
-            throw new AuthRequiredError(
-              `Cannot resume native Codex session: ${mismatch} changed.`,
-            );
-          }
-        }
-        return {
-          runtime: 'codex-app-server',
-          seed: {
-            providerId: 'openai-codex',
-            consumer: input.consumer,
-            workspacePath,
-            home,
-            normalizedHome,
-            // Empty override prevents reads from the process-global auth environment.
-            model: this.resolveModel(
-              requestedModel,
-              {},
-              getAnthropicProvider('openai-codex'),
+            workspaceId: this.workspaceIdentityKey(
+              existingIdentity.workspaceId,
             ),
-            existingIdentity,
+            codex: { normalizedHome: storedHome ?? normalizedHome },
           },
-        };
+          {
+            ...existingIdentity,
+            providerId: 'openai-codex',
+            workspaceId: this.workspaceIdentityKey(workspacePath),
+            codex: { normalizedHome },
+          },
+        );
+        if (mismatch) {
+          throw new AuthRequiredError(
+            `Cannot resume native Codex session: ${mismatch} changed.`,
+          );
+        }
       }
+      return {
+        runtime: 'codex-app-server',
+        seed: {
+          providerId: 'openai-codex',
+          consumer: input.consumer,
+          workspacePath,
+          home,
+          normalizedHome,
+          model: this.resolveNativeCodexModel(requestedModel),
+          existingIdentity,
+        },
+      };
     }
     return {
       runtime: 'claude-sdk',
@@ -189,6 +209,40 @@ export class WorkspaceProviderProfileResolver {
         requestedModel,
       ),
     };
+  }
+
+  private shouldStartNativeCodex(input: ExecutionProfileRequest): boolean {
+    return (
+      input.hostCapabilities.nativeCodex &&
+      this.activeProviderResolver.resolveActiveAuthForPath(input.workspacePath)
+        .providerId === 'openai-codex'
+    );
+  }
+
+  private workspaceIdentityKey(workspacePath: string): string {
+    const resolved = path.resolve(workspacePath);
+    const root = path.parse(resolved).root;
+    const trimmed =
+      resolved.length > root.length
+        ? resolved.replace(/[\\/]+$/, '')
+        : resolved;
+    const key = trimmed.replace(/\\/g, '/');
+    return process.platform === 'win32' ? key.toLowerCase() : key;
+  }
+
+  private resolveNativeCodexModel(requestedModel: string): string {
+    const requested = requestedModel.trim();
+    const tier = requested.toLowerCase();
+    const candidate =
+      tier === 'opus' || tier === 'sonnet' || tier === 'haiku'
+        ? CODEX_DEFAULT_TIERS[tier]
+        : requested;
+    return CODEX_PROVIDER_ENTRY.staticModels?.some(
+      (model) => model.id === candidate,
+    )
+      ? candidate
+      : (CODEX_PROVIDER_ENTRY.staticModels?.[0]?.id ??
+          CODEX_DEFAULT_TIERS.opus);
   }
 
   /**

@@ -817,7 +817,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   (header names 2 projects). Known noise: translation-proxy.sdk.integration.spec.ts EPERM on
   Windows; 3 pre-existing auth-providers lint errors.
 
-## Batch 5c: resolveExecutionProfile seam, same-home owner resolution, exports — COMPLETE (verified; commit below)
+## Batch 5c: resolveExecutionProfile seam, same-home owner resolution, exports — COMPLETE (953fee97d)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
   Review family: Claude | Subagent reason: N/A
@@ -865,6 +865,25 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Phase P5 gate (team-leader): host typecheck
   `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`,
   then NEEDS REVIEW (code-logic + style) on the combined P5 diff.
+
+## Batch 5d: P5 review fix round — COMPLETE (verified; commit below; re-review PENDING)
+
+- Recommended executor: CLI lane, Codex family (resume of the 5c lane) | sequential |
+  Review family: Claude | Subagent reason: N/A
+- Tasks: 1 | Depends on: 5c | Phase: P5 (fix batch; its phase review is the one re-review,
+  scoped to the fix commit)
+- Source: code-logic-review-p5.md (REVISE 6.5/10) findings 1, 2 (Serious), 3 (Moderate, would
+  put a Claude model id into a Codex runtime config); code-style-review-p5.md (APPROVED 7/10)
+  findings 1 and 3 (Moderate, same function / owner-key split for a default-home alias).
+- Recorded, not fixed (named later work): logic 4 (schema accepts unnormalized strings —
+  P6/P7 identity writers normalize), logic 5 (payload-map entry for PERMISSION_PROMPT_CANCELLED —
+  8b), logic 6 (explicit-home auth-file invalidation — P8 composition), style 2 (exports and
+  SDK_CODEX_HOME_AUTH consumed in P6-P8), style 4-9 (Minor).
+
+### Task 5d.1: resolveExecutionProfile resume/model fixes and owner unknown-key alias — COMPLETE
+
+- Files: MODIFY W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts
+  and its spec; W/libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts and its spec.
 
 ### P5 risks
 

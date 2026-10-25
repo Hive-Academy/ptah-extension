@@ -41,6 +41,10 @@ export {
   ActiveProviderResolver,
   type ActiveAuth,
 } from './lib/auth/active-provider-resolver';
+export type {
+  ExecutionProfileRequest,
+  ResolvedExecutionProfile,
+} from './lib/auth/workspace-provider-profile-resolver';
 export { WorkspaceProviderProfileResolver } from './lib/auth/workspace-provider-profile-resolver';
 export { CodexHomeAuthService } from './lib/providers/codex/codex-home-auth.service';
 export {

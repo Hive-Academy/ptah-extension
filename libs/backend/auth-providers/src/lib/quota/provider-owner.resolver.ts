@@ -17,6 +17,7 @@
  * The key functions are module-level because the proxy base is not DI-built;
  * the `ProviderOwnerResolver` class wraps them for DI callers.
  */
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -559,13 +560,26 @@ export class ProviderOwnerResolver {
   }
 
   /**
-   * The Codex account last read from the resolved `CODEX_HOME`. Unknown —
-   * keyed by that home — before the first read and after the auth file changes.
+   * The Codex account last read from the requested home (default when omitted).
+   * Unknown owners use that home; lexical aliases of the default share its key.
    */
   ownerForCodexHome(home?: string): QuotaOwnerRef {
     const key = this.codexAccountUsage.currentOwnerKey(home);
+    let ownerHome = home ?? this.codexHome.path;
+    if (!key && home !== undefined) {
+      try {
+        if (
+          normalizeCodexHomeKey(home, process.platform) ===
+          normalizeCodexHomeKey(this.codexHome.path, process.platform)
+        ) {
+          ownerHome = this.codexHome.path;
+        }
+      } catch {
+        // Invalid homes remain isolated unknown owners, without failing discovery.
+      }
+    }
     const owner = quotaOwnerRefFromKey(
-      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, home ?? this.codexHome.path),
+      key ?? unknownOwnerKey(CODEX_PROVIDER_ID, ownerHome),
     );
     return key
       ? owner

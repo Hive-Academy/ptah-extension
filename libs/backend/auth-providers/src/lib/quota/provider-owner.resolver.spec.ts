@@ -864,6 +864,36 @@ describe('ProviderOwnerResolver', () => {
 });
 
 describe('Codex explicit-home owner resolution', () => {
+  it('shares the default unknown owner key with lexical aliases of the default home', () => {
+    const { resolver, codexHome } = harness();
+    const aliases = [
+      `${codexHome.path}/`,
+      `${codexHome.path}/../synthetic-codex-home`,
+    ];
+    if (process.platform === 'win32') {
+      aliases.push(
+        codexHome.path.toUpperCase(),
+        codexHome.path.replace(/\\/g, '/'),
+      );
+    }
+    for (const home of aliases) {
+      expect(resolver.ownerForCodexHome(home).key).toBe(
+        resolver.ownerForCodexHome().key,
+      );
+    }
+  });
+
+  it('keeps invalid homes unknown without throwing or merging into the default', () => {
+    const { resolver } = harness();
+    const home = 'relative-home';
+    expect(resolver.ownerForCodexHome(home).key).toBe(
+      unknownOwnerKey('openai-codex', home),
+    );
+    expect(resolver.ownerForCodexHome(home).key).not.toBe(
+      resolver.ownerForCodexHome().key,
+    );
+  });
+
   it('never substitutes the default owner and reads the requested home', async () => {
     const home = resolve('explicit-codex-home');
     const defaultKey = accountOwnerKey('openai-codex', 'default-account');
