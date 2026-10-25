@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 5/22 (B1-B4, B7)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 7/22 (B1-B7)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -197,13 +197,13 @@ Edge cases:
 - Implementation details: plan field `stdioMode: 'pipe'|'ignore'`; inline and worker paths use `['ignore','ignore','ignore']`; `windowsHide:false` stays an explicit key; non-win32 refuses with an `error` event and no child; `needsConsole` unchanged.
 - Acceptance: inline and worker modes give null streams and `windowsHide:false`; non-win32 refuses; all pipe cases unchanged.
 
-## Batch 5: Status parser and policy scan — IMPLEMENTED (verify running, not committed)
+## Batch 5: Status parser and policy scan — COMPLETE (e55625e3e)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B3 (hard) | Phase: P2
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers` (N = 1)
 
-### Task 5.1: `claude-account-status` and `claude-auth-settings-scan` — IMPLEMENTED
+### Task 5.1: `claude-account-status` and `claude-auth-settings-scan` — COMPLETE
 
 - Files: C `libs/backend/auth-providers/src/lib/accounts/claude-account-status.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-account-status.spec.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-auth-settings-scan.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-auth-settings-scan.spec.ts`
 - Plan reference: implementation-plan.md:261-467 (Component 4), 1026; D-S (plan Decisions); regression rows 882, 885-886, 897
@@ -212,13 +212,13 @@ Edge cases:
 - Validation notes (D14 note 2, parser side): the parser returns `accountClass`; `apiKeySource` other than absent/`'none'`, `apiProvider` other than `firstParty`, `forcedLoginMethod`, `allowedProviders`, `team`/`enterprise`/null/missing/unknown subscription and any unknown key all yield class O. `orgId`/`orgName` are not signals.
 - Acceptance: class P for `pro`/`max` with or without `orgId`; class O cases as above; no raw value leaks; identity formula equals the quota resolver; `CLAUDE_POLICY_COVERAGE` win32@2.1.310 only; registry absent / absent-parent / present / access-denied / generic failure / timeout / malformed, hive normalization, no output leak; darwin/linux/uncovered version refuse with no fs/registry call; drop-in, remote cache, ancestor `.git` + `settings.local.json`, `enabledPlugins` refuse; benign drop-in and home `.claude/settings.json` pass; `knownVersion` ordering fixture; S9 files are refusal signals only (no case asserts absence as proof).
 
-## Batch 6: Login console and route certifier — IMPLEMENTED (verify running, not committed)
+## Batch 6: Login console and route certifier — COMPLETE (4297c7a45)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B4, B5 (hard) | Phase: P2
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers` (N = 1)
 
-### Task 6.1: `ClaudeLoginConsole` and `ClaudeRouteCertifier` (unregistered) — IMPLEMENTED
+### Task 6.1: `ClaudeLoginConsole` and `ClaudeRouteCertifier` (unregistered) — COMPLETE
 
 - Files: C `libs/backend/auth-providers/src/lib/accounts/claude-login-console.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-login-console.spec.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-route-certifier.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-route-certifier.spec.ts`
 - Plan reference: implementation-plan.md:468-539 (Component 4a), 550-599 (console/fallback), 1027; regression rows 894-896, 898-899, 913
