@@ -28,7 +28,10 @@
 import 'reflect-metadata';
 import { resolve } from 'node:path';
 import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
-import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
+import {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from '@ptah-extension/codex-runtime';
 import type { SessionRuntimeIdentity } from '@ptah-extension/shared';
 
 import {
@@ -57,7 +60,10 @@ import type { AuthManager } from './auth-manager';
 import type { ActiveAuth } from './active-provider-resolver';
 import { AuthRequiredError } from '@ptah-extension/agent-sdk';
 
-const WORKSPACE = 'D:/projects/pinned-workspace';
+const WORKSPACE =
+  process.platform === 'win32'
+    ? 'D:/projects/pinned-workspace'
+    : '/projects/pinned-workspace';
 
 /** A router-shaped catalogue: the provider names the tiers itself. */
 const ROUTER_MODELS = [
@@ -764,23 +770,88 @@ describe('resolveExecutionProfile', () => {
   });
 
   it.each([
-    ['default', CODEX_DEFAULT_TIERS.opus],
-    ['', CODEX_DEFAULT_TIERS.opus],
     ['gpt-6-sol', 'gpt-6-sol'],
-    ['claude-sonnet-4.5', CODEX_DEFAULT_TIERS.opus],
-    ['unknown-model', CODEX_DEFAULT_TIERS.opus],
+    [' gpt-6-sol ', 'gpt-6-sol'],
     ['opus', CODEX_DEFAULT_TIERS.opus],
     ['sonnet', CODEX_DEFAULT_TIERS.sonnet],
     ['haiku', CODEX_DEFAULT_TIERS.haiku],
+    [' OPUS ', CODEX_DEFAULT_TIERS.opus],
+    ['Sonnet', CODEX_DEFAULT_TIERS.sonnet],
+    ['HAIKU', CODEX_DEFAULT_TIERS.haiku],
   ])(
-    'resolves native model %s to Codex catalog model %s',
+    'resolves native model %s to %s without a substitution',
     async (requestedModel, model) => {
       const { resolver } = nativeHarness();
-      await expect(
-        resolver.resolveExecutionProfile({ ...input, requestedModel }),
-      ).resolves.toMatchObject({ seed: { model } });
+      const result = await resolver.resolveExecutionProfile({
+        ...input,
+        requestedModel,
+      });
+      expect(result).toMatchObject({ seed: { model } });
+      expect(result).not.toHaveProperty('modelSubstitution');
     },
   );
+
+  it.each([
+    ['default', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
+    ['', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
+    ['claude-sonnet-4.5', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
+    [' unknown-model ', CODEX_DEFAULT_TIERS.opus, 'not-in-catalog'],
+    ['GPT-6-SOL', 'gpt-6-sol', 'case-mismatch'],
+    [' GpT-6-SoL ', 'gpt-6-sol', 'case-mismatch'],
+  ])(
+    'reports the substitution for %s as %s (%s) on start and resume',
+    async (requestedModel, used, reason) => {
+      const { resolver } = nativeHarness();
+      for (const existingIdentity of [undefined, identity]) {
+        await expect(
+          resolver.resolveExecutionProfile({
+            ...input,
+            requestedModel,
+            existingIdentity,
+          }),
+        ).resolves.toMatchObject({
+          seed: { model: used },
+          modelSubstitution: { requested: requestedModel, used, reason },
+        });
+      }
+    },
+  );
+
+  it.each(['', 'relative-private-workspace'])(
+    'refuses invalid current or stored workspace %p without exposing it',
+    async (invalid) => {
+      const h = nativeHarness();
+      const buildProfile = jest.spyOn(h.resolver, 'buildProfile' as never);
+      for (const overrides of [
+        { workspacePath: invalid },
+        { workspacePath: invalid, existingIdentity: identity },
+        { existingIdentity: { ...identity, workspaceId: invalid } },
+      ]) {
+        await expect(
+          h.resolver.resolveExecutionProfile({ ...input, ...overrides }),
+        ).rejects.toMatchObject({
+          constructor: AuthRequiredError,
+          message: 'Cannot use native Codex session: workspaceId is invalid.',
+        });
+      }
+      expect(buildProfile).not.toHaveBeenCalled();
+      expect(h.acquire).not.toHaveBeenCalled();
+      expect(h.configureAuthentication).not.toHaveBeenCalled();
+    },
+  );
+
+  it('accepts a workspace identity persisted through the shared helper', async () => {
+    const { resolver } = nativeHarness();
+    await expect(
+      resolver.resolveExecutionProfile({
+        ...input,
+        existingIdentity: {
+          ...identity,
+          workspaceId: normalizeCodexWorkspaceKey(WORKSPACE, process.platform),
+        },
+      }),
+    ).resolves.toMatchObject({ runtime: 'codex-app-server' });
+  });
 
   const workspaceVariants =
     process.platform === 'win32'
@@ -865,7 +936,7 @@ describe('resolveExecutionProfile', () => {
 
   it.each([
     ['providerId', { ...identity, providerId: 'other' }],
-    ['workspaceId', { ...identity, workspaceId: 'other-workspace' }],
+    ['workspaceId', { ...identity, workspaceId: resolve('other-workspace') }],
     [
       'normalizedHome',
       { ...identity, codex: { normalizedHome: resolve('other-home') } },

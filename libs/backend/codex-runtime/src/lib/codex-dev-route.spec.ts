@@ -37,4 +37,16 @@ describe('readCodexDevRouteOverride', () => {
       ).toBeNull();
     },
   );
+
+  it.each([{}, { isPackaged: undefined }])(
+    'rejects a host with missing or undefined packaging state: %p',
+    (host) => {
+      expect(
+        readCodexDevRouteOverride({
+          ...host,
+          env: { PTAH_CODEX_RUNTIME_DEV: '1' },
+        } as never),
+      ).toBeNull();
+    },
+  );
 });

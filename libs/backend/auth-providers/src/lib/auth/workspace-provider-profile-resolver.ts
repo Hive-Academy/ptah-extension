@@ -30,7 +30,6 @@
  *   ({@link WorkspaceProviderProfileResolver.resolveProviderProfileForWorkspace}).
  */
 
-import * as path from 'node:path';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -62,7 +61,10 @@ import {
   buildStaticTierCapabilityEnv,
 } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
-import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
+import {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from '@ptah-extension/codex-runtime';
 import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
@@ -110,7 +112,15 @@ export interface ExecutionProfileRequest {
 
 export type ResolvedExecutionProfile =
   | { runtime: 'claude-sdk'; providerProfile: ProviderProfile | undefined }
-  | { runtime: 'codex-app-server'; seed: CodexProfileSeed };
+  | {
+      runtime: 'codex-app-server';
+      seed: CodexProfileSeed;
+      modelSubstitution?: {
+        readonly requested: string;
+        readonly used: string;
+        readonly reason: 'not-in-catalog' | 'case-mismatch';
+      };
+    };
 
 @injectable()
 export class WorkspaceProviderProfileResolver {
@@ -167,19 +177,35 @@ export class WorkspaceProviderProfileResolver {
           'Cannot use native Codex session: normalizedHome is invalid.',
         );
       }
+      let workspaceId: string;
+      let storedWorkspaceId: string | undefined;
+      try {
+        workspaceId = normalizeCodexWorkspaceKey(
+          workspacePath,
+          process.platform,
+        );
+        if (resumeNative) {
+          storedWorkspaceId = normalizeCodexWorkspaceKey(
+            existingIdentity.workspaceId,
+            process.platform,
+          );
+        }
+      } catch {
+        throw new AuthRequiredError(
+          'Cannot use native Codex session: workspaceId is invalid.',
+        );
+      }
       if (resumeNative) {
         const mismatch = sessionRuntimeIdentityMismatch(
           {
             ...existingIdentity,
-            workspaceId: this.workspaceIdentityKey(
-              existingIdentity.workspaceId,
-            ),
+            workspaceId: storedWorkspaceId ?? workspaceId,
             codex: { normalizedHome: storedHome ?? normalizedHome },
           },
           {
             ...existingIdentity,
             providerId: 'openai-codex',
-            workspaceId: this.workspaceIdentityKey(workspacePath),
+            workspaceId,
             codex: { normalizedHome },
           },
         );
@@ -189,15 +215,18 @@ export class WorkspaceProviderProfileResolver {
           );
         }
       }
+      const { model, modelSubstitution } =
+        this.resolveNativeCodexModel(requestedModel);
       return {
         runtime: 'codex-app-server',
+        ...(modelSubstitution ? { modelSubstitution } : {}),
         seed: {
           providerId: 'openai-codex',
           consumer: input.consumer,
           workspacePath,
           home,
           normalizedHome,
-          model: this.resolveNativeCodexModel(requestedModel),
+          model,
           existingIdentity,
         },
       };
@@ -219,30 +248,31 @@ export class WorkspaceProviderProfileResolver {
     );
   }
 
-  private workspaceIdentityKey(workspacePath: string): string {
-    const resolved = path.resolve(workspacePath);
-    const root = path.parse(resolved).root;
-    const trimmed =
-      resolved.length > root.length
-        ? resolved.replace(/[\\/]+$/, '')
-        : resolved;
-    const key = trimmed.replace(/\\/g, '/');
-    return process.platform === 'win32' ? key.toLowerCase() : key;
-  }
-
-  private resolveNativeCodexModel(requestedModel: string): string {
+  private resolveNativeCodexModel(requestedModel: string): {
+    model: string;
+    modelSubstitution?: Extract<
+      ResolvedExecutionProfile,
+      { runtime: 'codex-app-server' }
+    >['modelSubstitution'];
+  } {
     const requested = requestedModel.trim();
     const tier = requested.toLowerCase();
-    const candidate =
-      tier === 'opus' || tier === 'sonnet' || tier === 'haiku'
-        ? CODEX_DEFAULT_TIERS[tier]
-        : requested;
-    return CODEX_PROVIDER_ENTRY.staticModels?.some(
-      (model) => model.id === candidate,
-    )
-      ? candidate
-      : (CODEX_PROVIDER_ENTRY.staticModels?.[0]?.id ??
-          CODEX_DEFAULT_TIERS.opus);
+    if (tier === 'opus' || tier === 'sonnet' || tier === 'haiku') {
+      return { model: CODEX_DEFAULT_TIERS[tier] };
+    }
+    const catalog = CODEX_PROVIDER_ENTRY.staticModels;
+    const exactMatch = catalog?.find((model) => model.id === requested);
+    if (exactMatch) return { model: exactMatch.id };
+    const caseMatch = catalog?.find((model) => model.id.toLowerCase() === tier);
+    const model = caseMatch?.id ?? catalog?.[0]?.id ?? CODEX_DEFAULT_TIERS.opus;
+    return {
+      model,
+      modelSubstitution: {
+        requested: requestedModel,
+        used: model,
+        reason: caseMatch ? 'case-mismatch' : 'not-in-catalog',
+      },
+    };
   }
 
   /**

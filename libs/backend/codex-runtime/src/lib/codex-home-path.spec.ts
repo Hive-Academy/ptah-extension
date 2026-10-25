@@ -1,4 +1,7 @@
-import { normalizeCodexHomeKey } from './codex-home-path';
+import {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from './codex-home-path';
 
 describe('normalizeCodexHomeKey', () => {
   it.each([
@@ -22,6 +25,63 @@ describe('normalizeCodexHomeKey', () => {
   it('preserves case on posix', () => {
     expect(normalizeCodexHomeKey('/Home', 'posix')).not.toBe(
       normalizeCodexHomeKey('/home', 'posix'),
+    );
+  });
+});
+
+describe('normalizeCodexWorkspaceKey', () => {
+  it.each([
+    ['C:/Projects/A/../B///', 'win32', 'c:/projects/b'],
+    ['C:\\PROJECTS\\B\\', 'win32', 'c:/projects/b'],
+    ['C:/', 'win32', 'c:/'],
+    ['C:\\\\', 'win32', 'c:/'],
+    ['//Server/Share/Repo/', 'win32', '//server/share/repo'],
+    ['\\\\Server\\Share\\', 'win32', '//server/share/'],
+    ['/Projects/A/../B///', 'linux', '/Projects/B'],
+    ['/Projects/B/', 'darwin', '/Projects/B'],
+    ['/', 'posix', '/'],
+    ['///', 'posix', '/'],
+    ['/Projects/A\\B/', 'posix', '/Projects/A\\B'],
+    ['/Projects/B\\', 'posix', '/Projects/B\\'],
+  ])('normalizes %s on %s and is idempotent', (workspace, platform, key) => {
+    expect(normalizeCodexWorkspaceKey(workspace, platform)).toBe(key);
+    expect(normalizeCodexWorkspaceKey(key, platform)).toBe(key);
+  });
+
+  it.each(['win32', 'linux', 'darwin', 'posix'])(
+    'rejects empty, relative and NUL-containing paths on %s',
+    (platform) => {
+      for (const workspace of [
+        '',
+        ' ',
+        '.',
+        'repo',
+        '~/repo',
+        'C:repo',
+        '/a\0b',
+      ]) {
+        expect(() => normalizeCodexWorkspaceKey(workspace, platform)).toThrow(
+          'Absolute Codex workspace required',
+        );
+      }
+    },
+  );
+
+  it.each(['/repo', '\\repo', '//server', '///repo', '//'])(
+    'rejects a drive-relative Windows root %s',
+    (workspace) => {
+      expect(() => normalizeCodexWorkspaceKey(workspace, 'win32')).toThrow(
+        'Absolute Codex workspace required',
+      );
+    },
+  );
+
+  it('keeps POSIX case and literal backslashes distinct', () => {
+    expect(normalizeCodexWorkspaceKey('/Projects/A\\B', 'posix')).not.toBe(
+      normalizeCodexWorkspaceKey('/Projects/A/B', 'posix'),
+    );
+    expect(normalizeCodexWorkspaceKey('/Projects/B', 'posix')).not.toBe(
+      normalizeCodexWorkspaceKey('/projects/b', 'posix'),
     );
   });
 });

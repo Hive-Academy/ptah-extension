@@ -70,4 +70,7 @@ export {
 // CodexExecutableManifestRow (ports above) is the canonical public pin; the
 // process and validator remain implementation details.
 export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';
-export { normalizeCodexHomeKey } from './lib/codex-home-path';
+export {
+  normalizeCodexHomeKey,
+  normalizeCodexWorkspaceKey,
+} from './lib/codex-home-path';
