@@ -212,8 +212,19 @@ export class ModelSelectorComponent {
           .find((candidate) => candidate.id === contextTabId)
       : this.tabManager.activeTab();
 
+    // An override the loaded list does not offer was picked under a provider
+    // the user switched away from. The send path drops it the same way
+    // (`MessageSenderService.resolveValidModel`), so showing it would name a
+    // model the next turn will not use.
+    const override = tab?.overrideModel;
+    const models = this.modelState.availableModels();
+    const overrideOffered =
+      !!override &&
+      (models.length === 0 || models.some((m) => m.id === override));
     return (
-      tab?.overrideModel ?? tab?.sessionModel ?? this.modelState.currentModel()
+      (overrideOffered ? override : null) ??
+      tab?.sessionModel ??
+      this.modelState.currentModel()
     );
   });
 

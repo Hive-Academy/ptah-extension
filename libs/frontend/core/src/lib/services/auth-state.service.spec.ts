@@ -35,6 +35,7 @@ import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
 import { EffortStateService } from './effort-state.service';
 import { AuthStateService } from './auth-state.service';
+import { PlanLimitsStore } from './plan-limits.store';
 import {
   createMockRpcService,
   rpcError,
@@ -75,6 +76,7 @@ describe('AuthStateService', () => {
   let rpc: MockRpcService;
   let modelState: jest.Mocked<Pick<ModelStateService, 'refreshModels'>>;
   let effortState: jest.Mocked<Pick<EffortStateService, 'refreshEffort'>>;
+  let planLimits: jest.Mocked<Pick<PlanLimitsStore, 'load'>>;
   let consoleError: jest.SpyInstance;
   let consoleWarn: jest.SpyInstance;
 
@@ -85,6 +87,7 @@ describe('AuthStateService', () => {
         { provide: ClaudeRpcService, useValue: rpc },
         { provide: ModelStateService, useValue: modelState },
         { provide: EffortStateService, useValue: effortState },
+        { provide: PlanLimitsStore, useValue: planLimits },
       ],
     });
     return TestBed.inject(AuthStateService);
@@ -98,6 +101,9 @@ describe('AuthStateService', () => {
     effortState = {
       refreshEffort: jest.fn(async () => undefined),
     } as jest.Mocked<Pick<EffortStateService, 'refreshEffort'>>;
+    planLimits = {
+      load: jest.fn(async () => undefined),
+    } as jest.Mocked<Pick<PlanLimitsStore, 'load'>>;
     consoleError = jest.spyOn(console, 'error').mockImplementation();
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
   });
@@ -942,6 +948,106 @@ describe('AuthStateService', () => {
   // These tests verify BOTH sides of the Promise.all wiring and cover the
   // second Promise.all in copilotLogin (lines 617-619 of auth-state.service.ts).
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Provider switch from any path (routing reassign, workspace switch) must
+  // re-sync the model list, effort and plan limits for the new provider.
+  // ---------------------------------------------------------------------------
+
+  describe('provider change re-sync', () => {
+    function statusOnce(authMethod: AuthMethod, anthropicProviderId: string) {
+      rpc.call.mockImplementation(async (method: string) =>
+        method === 'auth:getAuthStatus'
+          ? rpcSuccess(
+              makeAuthStatusResponse({ authMethod, anthropicProviderId }),
+            )
+          : rpcError('unused'),
+      );
+    }
+
+    it('does not re-sync on the first load', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+      expect(planLimits.load).not.toHaveBeenCalled();
+    });
+
+    it('does not re-sync when the provider is unchanged', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+      await service.refreshAuthStatus();
+
+      expect(modelState.refreshModels).not.toHaveBeenCalled();
+    });
+
+    it('re-syncs models, effort and plan limits when a refresh reveals a new provider', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+
+      // Routing reassign: Codex -> Claude CLI; the stale anthropicProviderId
+      // still names Codex, but the active provider is Anthropic.
+      statusOnce('claudeCli', 'openai-codex');
+      await service.refreshAuthStatus();
+
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(effortState.refreshEffort).toHaveBeenCalledTimes(1);
+      expect(planLimits.load).toHaveBeenCalledWith({ providerId: 'anthropic' });
+      expect(service.activeProviderId()).toBe('anthropic');
+
+      // And back to Codex.
+      statusOnce('thirdParty', 'openai-codex');
+      await service.refreshAuthStatus();
+
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(2);
+      expect(planLimits.load).toHaveBeenLastCalledWith({
+        providerId: 'openai-codex',
+      });
+    });
+
+    it('clears the loading state without waiting for the re-sync', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+      modelState.refreshModels.mockImplementationOnce(
+        () => new Promise<void>(() => undefined),
+      );
+
+      statusOnce('claudeCli', 'openai-codex');
+      await service.refreshAuthStatus();
+
+      expect(modelState.refreshModels).toHaveBeenCalledWith({ fresh: true });
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('re-syncs on the first successful read after a failed first read', async () => {
+      rpc.call.mockResolvedValueOnce(rpcError('backend offline'));
+      const service = createService();
+      await service.loadAuthStatus();
+
+      statusOnce('thirdParty', 'openai-codex');
+      await service.refreshAuthStatus();
+
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(planLimits.load).toHaveBeenCalledWith({
+        providerId: 'openai-codex',
+      });
+    });
+
+    it('keeps the auth refresh successful when the re-sync fails', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+      modelState.refreshModels.mockRejectedValueOnce(new Error('offline'));
+
+      statusOnce('thirdParty', 'kimi-code');
+      await expect(service.refreshAuthStatus()).resolves.toBeUndefined();
+      expect(service.persistedProviderId()).toBe('kimi-code');
+    });
+  });
 
   describe('Gap D — Promise.all signal propagation after auth save', () => {
     it('D1a — saveAndTest: both refreshModels AND refreshEffort are called on success', async () => {

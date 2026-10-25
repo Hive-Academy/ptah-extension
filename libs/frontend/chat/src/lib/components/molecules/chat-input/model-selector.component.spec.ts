@@ -18,6 +18,7 @@ function makeHarness(options: {
   activeTabId?: TabId | null;
   sessionContext?: Signal<TabId | null> | null;
   currentModel?: string;
+  availableIds?: string[];
 }) {
   const currentModel = signal(options.currentModel ?? 'default');
   const tabs = signal(options.tabs);
@@ -27,7 +28,9 @@ function makeHarness(options: {
 
   const modelStateStub = {
     currentModel: currentModel.asReadonly(),
-    availableModels: signal([]).asReadonly(),
+    availableModels: signal(
+      (options.availableIds ?? []).map((id) => ({ id, name: id })),
+    ).asReadonly(),
     isPending: signal(false).asReadonly(),
     isLoaded: signal(true).asReadonly(),
     switchModel: jest.fn().mockResolvedValue(undefined),
@@ -111,5 +114,29 @@ describe('ModelSelectorComponent.effectiveModel', () => {
     });
 
     expect(component.effectiveModel()).toBe('default');
+  });
+
+  it('drops an override the reloaded list no longer offers (provider switch)', () => {
+    const activeTabId = TabId.create();
+    const { component } = makeHarness({
+      tabs: [{ id: activeTabId, overrideModel: 'gpt-5.6-luna' }],
+      activeTabId,
+      currentModel: 'default',
+      availableIds: ['default', 'opus', 'sonnet', 'haiku'],
+    });
+
+    expect(component.effectiveModel()).toBe('default');
+  });
+
+  it('keeps an override the list still offers', () => {
+    const activeTabId = TabId.create();
+    const { component } = makeHarness({
+      tabs: [{ id: activeTabId, overrideModel: 'haiku' }],
+      activeTabId,
+      currentModel: 'default',
+      availableIds: ['default', 'haiku'],
+    });
+
+    expect(component.effectiveModel()).toBe('haiku');
   });
 });
