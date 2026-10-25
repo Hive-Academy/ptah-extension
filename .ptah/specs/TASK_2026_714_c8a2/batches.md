@@ -965,12 +965,12 @@ Assumptions:
 
 ---
 
-# Phase P5b — Dev route switch (@ptah-extension/codex-runtime) — IN_PROGRESS
+# Phase P5b — Dev route switch (@ptah-extension/codex-runtime) — COMPLETE pending phase review (code-logic)
 
 Phase review: code-logic (it is a bypass of the production gate). Implementer Codex lane,
 reviewer Claude subagent.
 
-## Batch DS1: Dev-only chat route override — IN_PROGRESS
+## Batch DS1: Dev-only chat route override — COMPLETE (0541f372b; plan docs 22f44920a; report batch-DS1-report.md; phase review PENDING)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential
 - Fallback order: other family same capability -> same family other provider/model -> subagent
@@ -981,7 +981,7 @@ reviewer Claude subagent.
   `npm run verify -- -t typecheck -p @ptah-extension/gateway-chat-bridge,@ptah-extension/auth-providers`
   (the two direct dependents of the registration API).
 
-### Task DS1.1: Pure dev-route reader — IN_PROGRESS
+### Task DS1.1: Pure dev-route reader — COMPLETE
 
 - Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-dev-route.ts and
   `codex-dev-route.spec.ts`
@@ -997,7 +997,7 @@ reviewer Claude subagent.
 - Validation notes: R7-1. Spec matrix: packaged + '1' -> null; unpackaged + '1' -> override;
   unpackaged + 'true' / '0' / ' 1' / undefined -> null; returned object frozen.
 
-### Task DS1.2: Gated resolver honors the override for chat only — IN_PROGRESS
+### Task DS1.2: Gated resolver honors the override for chat only — COMPLETE
 
 - Depends on: DS1.1
 - Files: MODIFY W/libs/backend/codex-runtime/src/lib/di/tokens.ts,
@@ -1020,6 +1020,11 @@ reviewer Claude subagent.
   `codex-gateway-adapter.ts:58` — it must compile unchanged (do not edit other projects).
 
 ### Batch DS1 verification
+
+- Result (team-leader, 2026-10-25): files verified on disk; `npm run verify -- -p
+  @ptah-extension/codex-runtime` PASS (lint 0 errors / 8 warnings in untouched files, 17 suites /
+  784 tests, typecheck); `-t typecheck -p @ptah-extension/gateway-chat-bridge,@ptah-extension/auth-providers`
+  PASS (2 projects). Implementer: Codex lane; reviewer for the phase: Claude.
 
 - Both artifacts exist with real logic; `npm run verify -- -p @ptah-extension/codex-runtime`
   passes (tailed); R7-1/R7-2 specs present. Last P5b batch -> NEEDS REVIEW (code-logic).
