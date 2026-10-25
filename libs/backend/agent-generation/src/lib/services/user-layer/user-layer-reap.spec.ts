@@ -512,4 +512,84 @@ describe('UserLayerMirrorService.reconcileAll — deleted-upstream reap (E8)', (
         .orphaned,
     ).toBe(true);
   });
+
+  describe('skills.sh source roots (TASK_2026_701 A-reap)', () => {
+    const rootId = 'ptah-skillssh-acme-tools';
+
+    function skillsShSources(over: Partial<MirrorSources> = {}): MirrorSources {
+      return sources({ pluginsBasePath: pluginRoot, ...over });
+    }
+
+    it('reaps an unedited clone when its skills.sh root vanishes, like a harness root', async () => {
+      const skillsShRoot = await seedPluginSkill(rootId, 'scroll', '# v1');
+      await service.mirrorAll(
+        skillsShSources({ harnessPluginRoots: [skillsShRoot] }),
+      );
+      const cloneDir = join(service.getUserLayerRoots().skills, 'scroll');
+      expect((await readSidecarDir(cloneDir)).pluginId).toBe(rootId);
+
+      // `skillsSh:uninstall` deletes the whole source root.
+      await rm(skillsShRoot, { recursive: true, force: true });
+      const result = await service.reconcileAll(
+        skillsShSources({ harnessPluginRoots: [] }),
+      );
+
+      expect(result.reapedClones).toEqual([{ kind: 'skill', slug: 'scroll' }]);
+      expect(await exists(cloneDir)).toBe(false);
+    });
+
+    it('keeps an edited clone of a vanished skills.sh root as orphaned, with its source fields', async () => {
+      const skillsShRoot = await seedPluginSkill(rootId, 'scroll', '# v1');
+      const pluginDescriptors = {
+        [skillsShRoot]: {
+          sourceRef: `skills-sh:${rootId}`,
+          label: 'Acme Tools',
+        },
+      };
+      await service.mirrorAll(
+        skillsShSources({ harnessPluginRoots: [skillsShRoot], pluginDescriptors }),
+      );
+      const cloneDir = join(service.getUserLayerRoots().skills, 'scroll');
+      await writeFile(join(cloneDir, 'SKILL.md'), '# my edit', 'utf8');
+
+      await rm(skillsShRoot, { recursive: true, force: true });
+      const result = await service.reconcileAll(
+        skillsShSources({ harnessPluginRoots: [] }),
+      );
+
+      expect(result.orphanedClones).toEqual([{ kind: 'skill', slug: 'scroll' }]);
+      expect(await readSidecarDir(cloneDir)).toMatchObject({
+        orphaned: true,
+        pluginId: rootId,
+        sourceRef: `skills-sh:${rootId}`,
+        sourceLabel: 'Acme Tools',
+      });
+    });
+  });
+
+  it('an orphaned command keeps sourceRef and sourceLabel', async () => {
+    const pluginPath = await seedPluginCommand('p', 'review', '# review v1');
+    const pluginDescriptors = {
+      [pluginPath]: { sourceRef: 'ptah:p', label: 'Plugin P' },
+    };
+    await service.mirrorAll(
+      sources({ pluginPaths: [pluginPath], pluginDescriptors }),
+    );
+    const roots = service.getUserLayerRoots();
+    const sidecarPath = join(roots.commands, 'review.ptah-origin.json');
+    expect(await readSidecarFile(sidecarPath)).toMatchObject({
+      sourceRef: 'ptah:p',
+      sourceLabel: 'Plugin P',
+    });
+
+    await writeFile(join(roots.commands, 'review.md'), '# edited', 'utf8');
+    await rm(join(pluginPath, 'commands', 'review.md'), { force: true });
+    await service.reconcileAll(sources({ pluginPaths: [pluginPath] }));
+
+    expect(await readSidecarFile(sidecarPath)).toMatchObject({
+      orphaned: true,
+      sourceRef: 'ptah:p',
+      sourceLabel: 'Plugin P',
+    });
+  });
 });

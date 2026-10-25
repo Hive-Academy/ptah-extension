@@ -128,6 +128,9 @@ export type {
   QuarantinedAgentsListing,
   QuarantineRestoreOutcome,
   QuarantineRestoreResult,
+  MirrorPluginDescriptor,
+  MirrorPluginDescriptors,
+  CloneEditState,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,

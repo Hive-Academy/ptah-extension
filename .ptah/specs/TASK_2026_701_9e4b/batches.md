@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 33 | Batches: 26 | Complete: 4/26
+Total tasks: 34 | Batches: 27 | Complete: 7/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -291,7 +291,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   needs the named type.
 - Report: reports/batch-3-report.md
 
-## Batch 4: Wizard agent-origin store (B4) — COMPLETE
+## Batch 4: Wizard agent-origin store (B4) — COMPLETE (commit: 20fd5a2a8)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -331,7 +331,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   Host guard specs (container.smoke, expected-resolvable, surface-composition) pass unedited.
 - Report: reports/batch-4-report.md
 
-## Batch 5: User-layer mirror library work (B10 library part) — PENDING
+## Batch 5: User-layer mirror library work (B10 library part) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -342,7 +342,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 1, 3, 4
 - Phase: P1 | Phase review: P1 code-logic + style
 
-### Task 5.1: Plugin-agent mirroring, clone edit state, source identity, skills.sh doc — PENDING
+### Task 5.1: Plugin-agent mirroring, clone edit state, source identity, skills.sh doc — COMPLETE
 
 - Files: CREATE `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-plugin-agents.ts` (+ spec), `user-layer-clone-state.ts` (+ spec), `user-layer-mirror.service.plugin-agents.spec.ts` (same folder); MODIFY `user-layer-mirror.service.ts`, `user-layer-reap.spec.ts` (the plan's `user-layer-mirror.service.reap.spec.ts` does not exist), sidecar writers found by A-sidecar inside `user-layer/`, `libs/backend/agent-generation/src/index.ts`; MODIFY `libs/backend/rpc-handlers/src/lib/skills-sh/skills-sh-source-root.ts` (doc block `:35-42` only)
 - Plan reference: implementation-plan.md:646-704
@@ -356,7 +356,25 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/agent-generation,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
 
-## Batch 6: Harness keep policy for edited managed copies (B9 part 1) — PENDING
+### Batch 5 outcome
+
+- Verified on disk by team-leader: `user-layer-plugin-agents.ts`, `user-layer-clone-state.ts`
+  (+ specs) and `user-layer-mirror.service.plugin-agents.spec.ts` created;
+  `MirrorSources.libraryScopeRoot?`/`pluginDescriptors?`, one `pluginAgentPass` delegate in
+  `mirrorAll`/`reconcile`, facade `readCloneEditState`; ownership by `pluginId` + `sourceRef`;
+  fresh sidecars go through `newSourcedSidecar`; the reap spec covers a vanished skills.sh
+  root. The `skills-sh-source-root.ts` change is the doc block only. No stubs, no `any`.
+- D22 confirmed: the final spec builds its workspace inside the mocked `homedir()` with a
+  `.git` marker and asserts `resolveHarnessWorkspaceRoot(workspace) === workspace`
+  (`user-layer-mirror.service.plugin-agents.spec.ts:82-85`).
+- Accepted decisions: legacy seed keyed on "no workspace clone" instead of "dir absent";
+  the seed quarantine knows plugin-owned slugs; the reap walks `libraryScopeRoot` when agent
+  sync is off; a relative `libraryScopeRoot` is refused and counted. All within the intent
+  of plan :646-704.
+- Verify: orchestrator combined run (8 projects, 70 tasks, 70 succeeded, exit 0).
+- Report: reports/batch-5-report.md
+
+## Batch 6: Harness keep policy for edited managed copies (B9 part 1) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -367,7 +385,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 2
 - Phase: P1 | Phase review: P1 code-logic
 
-### Task 6.1: Plan edited managed copies as kept; remove the dead overwrite branch — PENDING
+### Task 6.1: Plan edited managed copies as kept; remove the dead overwrite branch — COMPLETE
 
 - Files (MODIFY, `libs/backend/harness-sync/src/lib/`): `targets/claude-target.ts`, `targets/workspace-target.ts`, `targets/harness-target.port.ts`, `targets/mcp/mcp-facet-planner.ts`, `health/harness-health.ts`, `reconciler/harness-reconciler.service.ts`; specs `reconciler/harness-reconciler.local-edit-report.spec.ts`, `reconciler/harness-reconciler.foreign-edits.spec.ts`, `targets/workspace-target.overwrite-detach.spec.ts` and any other reconciler/target spec whose assertion encodes the old overwrite
 - Plan reference: implementation-plan.md:583-600,625-645; decisions.md D8
@@ -380,6 +398,27 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/harness-sync,@ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+
+### Batch 6 outcome
+
+- Verified on disk by team-leader: `planEntry` returns `'kept'` when
+  `actual !== null && actual !== owned.hash` (`claude-target.ts:528`); kept paths skip the
+  write and keep the manifest entry from `baseEntries`; `HarnessPlan.keptLocalEdit` is
+  required; the MCP facet checks the edit before the source change; health reads kept paths
+  off the plan; the shared `keptLocalEdit`/`localEdit` docs describe D8.
+- Accepted deviation (B6-1): `detachForOverwrite` is kept as the apply-time race guard and
+  now restores a found edit instead of overwriting it. A-retire did not hold (it is the only
+  defence against a save landing between plan and apply), and D8 requires that edit to
+  survive, so keeping it follows the plan's intent rather than redesigning it. The P1
+  code-logic review should examine `restoreDetachedEdit` (hard link / rename back, never
+  replaces a newer save).
+- Out of batch, now assigned: the marketplace wording `attention.ts:165` ("local edits
+  replaced") and the `harness-target-row.component.ts:130,142` testid
+  `harness-target-overwritten` are added to Task 7.1 (Batch 7 already edits marketplace
+  repair-outcome consumers and verifies marketplace).
+- Verify: orchestrator combined run (70/70, exit 0); the Batch 8 report's host failure was
+  this batch in progress and is superseded.
+- Report: reports/batch-6-report.md
 
 ## Batch 7: Destination scanner and digest-checked repair (B9 part 2) — PENDING
 
@@ -394,7 +433,11 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 ### Task 7.1: `HarnessDestinationScanner`, `expectedDigest` repair, outcome `changed-since-approval` — PENDING
 
-- Files: MODIFY `libs/shared/src/lib/types/harness-sync.types.ts` (`HarnessRepairBlockedPath.expectedDigest?`, outcome `'changed-since-approval'`); CREATE `libs/backend/harness-sync/src/lib/health/harness-destination-scanner.ts` (+ spec); MODIFY `libs/backend/harness-sync/src/lib/repair/blocked-repair.service.ts` (+ spec), `libs/backend/harness-sync/src/lib/di/register.ts`, `di/tokens.ts`, `libs/backend/harness-sync/src/index.ts`; MODIFY `libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.schema.ts` (strip client `expectedDigest`, A30); marketplace consumers of the repair outcome found by A-outcome (render "Kept: changed since approval")
+- Files: MODIFY `libs/shared/src/lib/types/harness-sync.types.ts` (`HarnessRepairBlockedPath.expectedDigest?`, outcome `'changed-since-approval'`); CREATE `libs/backend/harness-sync/src/lib/health/harness-destination-scanner.ts` (+ spec); MODIFY `libs/backend/harness-sync/src/lib/repair/blocked-repair.service.ts` (+ spec), `libs/backend/harness-sync/src/lib/di/register.ts`, `di/tokens.ts`, `libs/backend/harness-sync/src/index.ts`; MODIFY `libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.schema.ts` (strip client `expectedDigest`, A30); marketplace consumers of the repair outcome found by A-outcome (render "Kept: changed since approval"); MODIFY the marketplace wording left over from
+  Batch 6 / D8: `libs/frontend/marketplace/src/lib/data/attention.ts:165` labels
+  `keptLocalEdit` "local edits replaced" (change to kept wording, + `attention.spec.ts`), and
+  `harness/harness-target-row.component.ts:130,142` testid `harness-target-overwritten`
+  (rename to a kept testid; update any spec or e2e selector that reads it)
 - Plan reference: implementation-plan.md:583-645 (scanner, repair); A21, A30
 - Pattern to follow: `blocked-repair.service.ts:199-229` (`moveOccupants` under the workspace lock); `content-hash.ts:126-136,299-320`
 - Quality requirements: scanner read-only and never throws; digest is the current content digest (`hashFile`/`hashDir`), never the manifest hash; re-digest under the lock before `moveToQuarantine`; quarantine/restore unchanged.
@@ -406,7 +449,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/rpc-handlers,@ptah-extension/marketplace,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 8: Electron coalescer per-batch outcome (B11 part 1, A24) — PENDING
+## Batch 8: Electron coalescer per-batch outcome (B11 part 1, A24) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -417,7 +460,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: none in code (P1 order)
 - Phase: P1 | Phase review: P1 code-logic
 
-### Task 8.1: `createCoalescedJob<TPayload, TResult>` returns `CoalescedOutcome` per batch — PENDING
+### Task 8.1: `createCoalescedJob<TPayload, TResult>` returns `CoalescedOutcome` per batch — COMPLETE
 
 - Files: MODIFY `apps/ptah-electron/src/activation/coalesced-job.ts` + `coalesced-job.spec.ts`
 - Plan reference: implementation-plan.md:705-722,740-745
@@ -431,6 +474,56 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p ptah-electron` passes
 - No per-batch review
 
+### Batch 8 outcome
+
+- Verified on disk by team-leader: `CoalescedOutcome<TResult>` (`ran`/`skipped`/`threw`)
+  settles on each batch's own promise; admission skip gives `skipped`; a throw goes to
+  `onError` and gives `threw`; `TResult = void` by default. Spec: 22 cases (5 new
+  per-batch outcome cases).
+- Accepted deviation: `plugin-activation.ts` `refreshUserLayer()` gained
+  `.then(() => undefined)` because it returned `request(...)` directly (the TL5 assumption
+  was wrong for this caller). Task 9.2 replaces that line with the `UserLayerPassOutcome`
+  mapping. "Remove the per-root map": no such map existed, so nothing was removed.
+- Verify: orchestrator combined run (70/70, exit 0).
+- Report: reports/batch-8-report.md
+
+## Batch 8b: D23 degradation-audit fix (agent-generation ratchet) — PENDING
+
+- Recommended executor: subagent backend-developer
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: orchestrator pinned Claude subagents (D2)
+- Review family: codex (different from implementer)
+- Rationale: decisions.md D23. Batch 4's `wizard-agent-origin.store.ts` is owned by no later
+  batch, so this is a dedicated one-file fix. It is file-disjoint from Batch 7 and can run in
+  parallel with it.
+- Tasks: 1 | Depends on: Batch 4
+- Phase: P1 | Phase review: covered by the P1 code-logic review
+
+### Task 8b.1: Attach or remove the unattached suppression in `WizardAgentOriginStore.read` — PENDING
+
+- File: `libs/backend/agent-generation/src/lib/services/wizard-agent-origin.store.ts` (+ its
+  spec only if behaviour changes)
+- Plan reference: decisions.md D23; `tools/degradation-audit/check-degradation.ts:30-60,100-108`
+  (marker grammar `// degradation-audit: optional-capability|reported - <reason>` and the
+  zones in which a marker attaches to a `catch` clause)
+- Pattern to follow: an attached marker elsewhere in agent-generation that the audit counts
+  as suppressed (Grep `degradation-audit:`)
+- Quality requirements: the audit reports `libs/backend/agent-generation` at or below its
+  baseline (1) with no `orphaned-suppression`. Do not edit `baseline.json`. The catch at
+  `:88` keeps its behaviour (ENOENT gives `{}` silently; other errors warn and give `{}`).
+- Validation notes: the `:92` marker sits inside the catch after the `if`, outside every
+  attach zone, so it is orphaned and `:88` is flagged as catch-return-sentinel. Move the
+  marker into a zone the audit reads, or restructure so the audit accepts the reporting.
+- Implementation details: one catch site; no API change.
+
+### Batch 8b verification
+
+- `node scripts/verify.mjs --exec --task degradation-audit -- npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts`
+  reports `libs/backend/agent-generation` ok and no orphaned marker in agent-generation
+- `npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli` passes
+- No per-batch review
+
 ## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — PENDING
 
 - Recommended executor: subagent backend-developer
@@ -439,7 +532,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Subagent reason: orchestrator pinned Claude subagents (D2)
 - Review family: codex (different from implementer)
 - Rationale: the port return change compiles only with all three host adapters (plan :621-623); the same host files carry B10's wiring and B11's config-home options (TL6, TL10).
-- Tasks: 3 | Depends on: Batches 3, 5, 7, 8
+- Tasks: 3 | Depends on: Batches 3, 5, 7, 8, 8b
 - Phase: P1 (last) | Phase review: P1 code-logic + style — due after this batch commits
 
 ### Task 9.1: Port status and `propagateWithReport` (harness-sync) — PENDING
@@ -459,7 +552,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Pattern to follow: `boot-readiness-broadcaster.ts:40-67` (lazy WEBVIEW_MANAGER)
 - Quality requirements: pass steps keep swallowing errors and return `'ok' | 'failed' | 'skipped'`; `runUserLayerPass` aggregates and broadcasts `LIBRARY_CHANGED` with `resolveHarnessWorkspaceRoot(workspaceRoot)`; refresher maps outcomes; `initialize` gets `{harnessRootOf, homeStorage: STATE_STORAGE}`; mirror-source config reads pass the harness root; mirror sources include `libraryScopeRoot`, `pluginDescriptors` and `discoverSkillsShPluginPaths()` roots.
 - Validation notes: A-disabled (skills.sh roots filtered by `disabledPluginIds` like harness roots). Spec cases: step failure → refresher `failed` + broadcast `failed`; success → `updated`; no WEBVIEW_MANAGER → no throw; phase-2 reader: sub-folder opened, harness root unregistered → harness-root home config. Electron `container.smoke.spec.ts` unchanged (no new DI token).
-- Implementation details: `refreshUserLayer` returns `Promise<UserLayerPassOutcome>` via the Batch 8 coalescer.
+- Implementation details: `refreshUserLayer` returns `Promise<UserLayerPassOutcome>` via the Batch 8 coalescer, replacing Batch 8's interim `.then(() => undefined)` in `refreshUserLayer()` (`plugin-activation.ts:532-534`).
 
 ### Task 9.3: VS Code and CLI refresher adapters and mirror sources — PENDING
 
