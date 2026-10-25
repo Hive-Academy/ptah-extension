@@ -28,7 +28,9 @@ import type {
 import type { SessionImporterService } from '@ptah-extension/agent-sdk';
 import type { DependencyContainer } from 'tsyringe';
 
+import type { RecentWorkspace } from '@ptah-extension/shared';
 import { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
+import type { RecentWorkspacesService } from '../services/recent-workspaces.service';
 
 type Mocked<T> = jest.Mocked<T>;
 
@@ -59,6 +61,7 @@ interface Suite {
   contextManager: Mocked<WorkspaceContextManager>;
   sessionImporter: Mocked<SessionImporterService>;
   fileIndex: FileIndexDouble;
+  recentWorkspaces: Mocked<Pick<RecentWorkspacesService, 'record' | 'list'>>;
   switchHandler: SwitchHandler;
 }
 
@@ -124,6 +127,11 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
     resolve: jest.Mock;
   };
 
+  const recentWorkspaces = {
+    record: jest.fn().mockResolvedValue(undefined),
+    list: jest.fn().mockResolvedValue([]),
+  } as Mocked<Pick<RecentWorkspacesService, 'record' | 'list'>>;
+
   const handlers = new WorkspaceRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
@@ -134,12 +142,12 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
     sessionImporter,
     providerProxyPool,
     container,
+    recentWorkspaces as unknown as RecentWorkspacesService,
   );
   handlers.register();
 
   const switchHandler = rpc.__handlers().get('workspace:switch') as unknown as
-    | SwitchHandler
-    | undefined;
+    SwitchHandler | undefined;
   if (!switchHandler) {
     throw new Error('workspace:switch handler was not registered');
   }
@@ -152,6 +160,7 @@ function buildSuite(opts: SuiteOptions = {}): Suite {
     contextManager,
     sessionImporter,
     fileIndex,
+    recentWorkspaces,
     switchHandler,
   };
 }
@@ -413,5 +422,107 @@ describe('WorkspaceRpcHandlers — workspace:switch file re-index', () => {
       '[RPC] workspace:switch file re-index complete',
       expect.objectContaining({ cached: false }),
     );
+  });
+});
+
+describe('WorkspaceRpcHandlers — recent workspaces', () => {
+  type ListRecentHandler = (
+    params: unknown,
+  ) => Promise<{ workspaces: RecentWorkspace[] }>;
+  type RegisterFolderHandler = (
+    params: { path: string } | undefined,
+  ) => Promise<{ success: boolean; path: string; name: string }>;
+
+  function handlerFor<T>(s: Suite, method: string): T {
+    const handler = s.rpc.__handlers().get(method);
+    if (!handler) throw new Error(`${method} handler was not registered`);
+    return handler as unknown as T;
+  }
+
+  it('workspace:listRecent returns the service list', async () => {
+    const s = buildSuite();
+    const recent: RecentWorkspace[] = [
+      { path: WS_B, name: 'beta', lastOpenedAt: 2 },
+      { path: WS_A, name: 'alpha', lastOpenedAt: 1 },
+    ];
+    s.recentWorkspaces.list.mockResolvedValue(recent);
+
+    const listRecent = handlerFor<ListRecentHandler>(s, 'workspace:listRecent');
+
+    await expect(listRecent({})).resolves.toEqual({ workspaces: recent });
+    await expect(listRecent(undefined)).resolves.toEqual({
+      workspaces: recent,
+    });
+  });
+
+  it.each([[{ limit: 3 }], ['nope'], [[]]])(
+    'workspace:listRecent rejects invalid params %p with INVALID_PARAMS',
+    async (params) => {
+      const s = buildSuite();
+      const listRecent = handlerFor<ListRecentHandler>(
+        s,
+        'workspace:listRecent',
+      );
+
+      await expect(listRecent(params)).rejects.toMatchObject({
+        name: 'RpcUserError',
+        errorCode: 'INVALID_PARAMS',
+        message: 'workspace:listRecent: invalid params',
+      });
+      expect(s.recentWorkspaces.list).not.toHaveBeenCalled();
+    },
+  );
+
+  it('records the path after a successful switch', async () => {
+    const s = buildSuite();
+
+    await s.switchHandler({ path: WS_A });
+
+    expect(s.recentWorkspaces.record).toHaveBeenCalledWith(WS_A);
+  });
+
+  it('does not record when the switch fails', async () => {
+    const s = buildSuite();
+    s.contextManager.switchWorkspace.mockResolvedValue('');
+
+    const result = await s.switchHandler({ path: WS_A });
+
+    expect(result.success).toBe(false);
+    expect(s.recentWorkspaces.record).not.toHaveBeenCalled();
+  });
+
+  it('keeps the switch result when recording rejects', async () => {
+    const s = buildSuite();
+    s.recentWorkspaces.record.mockRejectedValue(new Error('disk full'));
+
+    const result = await s.switchHandler({ path: WS_A });
+    await flushMicrotasks();
+
+    expect(result).toEqual({
+      success: true,
+      path: WS_A,
+      name: 'alpha',
+      encodedPath: 'encoded-path',
+    });
+    expect(s.logger.warn).toHaveBeenCalledWith(
+      '[RPC] workspace:switch could not record a recent workspace',
+      { error: 'disk full' },
+    );
+  });
+
+  it('does not record a registered folder (only a switch records)', async () => {
+    const s = buildSuite();
+    s.contextManager.createWorkspace.mockResolvedValue({
+      success: true,
+    } as Awaited<ReturnType<WorkspaceContextManager['createWorkspace']>>);
+    const registerFolder = handlerFor<RegisterFolderHandler>(
+      s,
+      'workspace:registerFolder',
+    );
+
+    const result = await registerFolder({ path: WS_B });
+
+    expect(result.success).toBe(true);
+    expect(s.recentWorkspaces.record).not.toHaveBeenCalled();
   });
 });
