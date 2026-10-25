@@ -5,7 +5,7 @@
  * Before this, a read-only verify reported a hand-edited copy only as
  * `missing`, indistinguishable from a copy that was never written, and a
  * reconcile overwrote it with no saved copy — the only trace was
- * `overwrittenLocalEdit`, after the fact. Now:
+ * `keptLocalEdit`, after the fact. Now:
  *
  *   - `localEdit` lists the edited owned paths of every facet, on verify and on
  *     reconcile alike, so a UI can warn before anything is touched;
@@ -232,7 +232,7 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
     expect(exists(HISTORY)).toBe(false);
   });
 
-  it('(b) a reconcile snapshots each hand-edited copy, then overwrites it and reports overwrittenLocalEdit', async () => {
+  it('(b) a reconcile snapshots each hand-edited copy, then overwrites it and reports keptLocalEdit', async () => {
     writeSkillSource('tuned');
     await reconcile();
     const written = read(CODEX_ONE);
@@ -247,10 +247,10 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
     expect(codex.localEdit).toEqual(
       expect.arrayContaining([CODEX_ONE, CODEX_SKILL]),
     );
-    expect(codex.overwrittenLocalEdit).toEqual(
+    expect(codex.keptLocalEdit).toEqual(
       expect.arrayContaining([CODEX_ONE, CODEX_SKILL]),
     );
-    expect(codex.overwrittenLocalEdit).toHaveLength(2);
+    expect(codex.keptLocalEdit).toHaveLength(2);
 
     // Source wins on disk ...
     expect(read(CODEX_ONE)).toBe(written);
@@ -292,7 +292,7 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
     expect(failure?.reason).toMatch(
       /^could not save local edit before overwrite: /,
     );
-    expect(codex.overwrittenLocalEdit).toEqual([]);
+    expect(codex.keptLocalEdit).toEqual([]);
     expect(codex.localEdit).toEqual([CODEX_ONE]);
     expect(codex.missing).toContain(CODEX_ONE);
     expect(codex.agentsInSync).toEqual([CODEX_TWO]);
@@ -305,7 +305,7 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
     rmSync(abs(HISTORY), { force: true });
     const retried = row(await reconcile(), 'codex');
     expect(retried.writeFailed).toEqual([]);
-    expect(retried.overwrittenLocalEdit).toEqual([CODEX_ONE]);
+    expect(retried.keptLocalEdit).toEqual([CODEX_ONE]);
     const stamps = snapshotStamps('agent-one');
     expect(stamps).toHaveLength(1);
     expect(read(`${HISTORY}/agent-one/${stamps[0]}/${CODEX_ONE}`)).toBe(

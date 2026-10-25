@@ -246,7 +246,7 @@ function harnessTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     localEdit: [],
     agentsInSync: [],

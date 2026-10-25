@@ -69,7 +69,7 @@ function makeTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 8,
     ...over,
@@ -431,7 +431,7 @@ describe('HarnessHealthBadgeComponent', () => {
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),
@@ -449,7 +449,7 @@ describe('HarnessHealthBadgeComponent', () => {
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),
@@ -470,7 +470,7 @@ describe('HarnessHealthBadgeComponent', () => {
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),

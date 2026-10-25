@@ -166,7 +166,7 @@ export interface HarnessApplyResult {
   /** Relative paths successfully removed. */
   removed: string[];
   writeFailed: Array<{ relPath: string; reason: string }>;
-  overwrittenLocalEdit: string[];
+  keptLocalEdit: string[];
   /**
    * Manifest-owned paths that had been hand-edited, were snapshotted to
    * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`, and only then removed

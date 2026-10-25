@@ -405,7 +405,7 @@ describe('HarnessReconcilerService — the frozen plan', () => {
           written: {},
           removed: [],
           writeFailed: [],
-          overwrittenLocalEdit: [],
+          keptLocalEdit: [],
         };
       },
       verify: async () => {

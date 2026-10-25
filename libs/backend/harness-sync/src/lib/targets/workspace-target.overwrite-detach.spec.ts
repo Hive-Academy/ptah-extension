@@ -195,7 +195,7 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
 
     expect(codex.writeFailed).toEqual([]);
     expect(codex.localEdit).toEqual([COPY]);
-    expect(codex.overwrittenLocalEdit).toEqual([COPY]);
+    expect(codex.keptLocalEdit).toEqual([COPY]);
     expect(read(COPY)).toContain('model = "model-two"');
     expect(snapshots()).toEqual(['HAND EDITED']);
   });
@@ -208,7 +208,7 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
 
     expect(codex.writeFailed).toEqual([]);
     expect(codex.localEdit).toEqual([]);
-    expect(codex.overwrittenLocalEdit).toEqual([]);
+    expect(codex.keptLocalEdit).toEqual([]);
     expect(read(COPY)).toContain('model = "model-two"');
     expect(read(COPY)).not.toContain('model-one');
     expect(existsSync(abs(HISTORY))).toBe(false);
@@ -229,14 +229,14 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
     expect(failure?.reason).toMatch(
       /^a new copy appeared at .* while it was being replaced; kept it; the earlier local edit is saved at /,
     );
-    expect(codex.overwrittenLocalEdit).toEqual([]);
+    expect(codex.keptLocalEdit).toEqual([]);
     // Still owned with the old hash, so the next pass retries.
     expect(ownedHash()).toBe(hashBefore);
 
     jest.restoreAllMocks();
     const retried = codexRow(await reconcile());
     expect(retried.writeFailed).toEqual([]);
-    expect(retried.overwrittenLocalEdit).toEqual([COPY]);
+    expect(retried.keptLocalEdit).toEqual([COPY]);
     expect(read(COPY)).toContain('model = "model-two"');
     expect(snapshots()).toEqual(['HAND EDITED', 'NEWER SAVE']);
   });
@@ -255,7 +255,7 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
     expect(codex.localEdit).toEqual([]);
     // ... the apply decided on what was really there.
     expect(codex.writeFailed).toEqual([]);
-    expect(codex.overwrittenLocalEdit).toEqual([COPY]);
+    expect(codex.keptLocalEdit).toEqual([COPY]);
     expect(snapshots()).toEqual(['SAVED AFTER PLAN']);
     expect(read(COPY)).toContain('model = "model-two"');
   });
@@ -283,7 +283,7 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
     expect(
       codex.writeFailed.find((f) => f.relPath === COPY)?.reason,
     ).toMatch(/could not detach for overwrite: EXDEV/);
-    expect(codex.overwrittenLocalEdit).toEqual([]);
+    expect(codex.keptLocalEdit).toEqual([]);
     expect(ownedHash()).toBe(hashBefore);
     expect(existsSync(abs(HISTORY))).toBe(false);
   });

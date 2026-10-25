@@ -144,7 +144,7 @@ export interface HarnessTargetHealth {
   foreign: string[];
   writeFailed: HarnessWriteFailure[];
   /** Manifest-owned paths whose local edits were overwritten (source wins). */
-  overwrittenLocalEdit: string[];
+  keptLocalEdit: string[];
   /** Manifest-owned paths deleted because the source disappeared. */
   removed: string[];
   /**
@@ -175,7 +175,7 @@ export interface HarnessTargetHealth {
    * what Ptah wrote — a hand edit. On a read-only report these are what a
    * repair WOULD overwrite; on a `full` report they are what this pass found
    * edited, whether or not the overwrite then landed (see
-   * {@link overwrittenLocalEdit} for the ones that did). Every overwrite saves
+   * {@link keptLocalEdit} for the ones that did). Every overwrite saves
    * the edited copy to `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`
    * first (TASK_2026_609).
    *

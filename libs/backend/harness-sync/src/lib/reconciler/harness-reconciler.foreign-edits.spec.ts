@@ -133,7 +133,7 @@ describe('HarnessReconcilerService — foreign files and local edits', () => {
     expect(health.targets[0]?.foreign).toContain('.claude/skills/mine');
   });
 
-  it('[E10] a hand-edited managed copy is overwritten back to the source content and reported in overwrittenLocalEdit', async () => {
+  it('[E10] a hand-edited managed copy is overwritten back to the source content and reported in keptLocalEdit', async () => {
     const reconciler = buildReconciler(layoutWithSkills());
 
     // First pass creates the managed copy.
@@ -152,7 +152,7 @@ describe('HarnessReconcilerService — foreign files and local edits', () => {
     // Source wins: the edit is discarded, but reported so the user can find it.
     expect(readFileSync(managedFile, 'utf-8')).toContain('source content v1');
     expect(readFileSync(managedFile, 'utf-8')).not.toContain('HAND EDITED');
-    expect(health.targets[0]?.overwrittenLocalEdit).toContain(
+    expect(health.targets[0]?.keptLocalEdit).toContain(
       '.claude/skills/foo',
     );
   });

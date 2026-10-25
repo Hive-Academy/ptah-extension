@@ -122,7 +122,7 @@ import {
         </ul>
       }
 
-      @if (target().overwrittenLocalEdit.length > 0) {
+      @if (target().keptLocalEdit.length > 0) {
         @if (canOpenDivergedClones()) {
           <button
             type="button"
@@ -131,8 +131,8 @@ import {
             aria-label="Open the Skills library filtered to diverged entries"
             (click)="openDivergedClones.emit()"
           >
-            {{ target().overwrittenLocalEdit.length }} local
-            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            {{ target().keptLocalEdit.length }} local
+            {{ target().keptLocalEdit.length === 1 ? 'edit' : 'edits' }}
             replaced from the source. Edit skills in the Ptah user layer so your
             changes survive the next sync.
           </button>
@@ -141,8 +141,8 @@ import {
             class="text-[10px] text-base-content-muted"
             data-testid="harness-target-overwritten"
           >
-            {{ target().overwrittenLocalEdit.length }} local
-            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            {{ target().keptLocalEdit.length }} local
+            {{ target().keptLocalEdit.length === 1 ? 'edit' : 'edits' }}
             replaced from the source. Edit skills in the Ptah user layer so your
             changes survive the next sync.
           </p>

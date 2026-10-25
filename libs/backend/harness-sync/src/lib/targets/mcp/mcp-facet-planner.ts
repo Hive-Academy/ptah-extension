@@ -182,7 +182,7 @@ export async function applyMcpFacet(
         write.sourceHash,
       );
       if (write.overwritesLocalEdit) {
-        result.overwrittenLocalEdit.push(write.relPath);
+        result.keptLocalEdit.push(write.relPath);
       }
     } catch (error: unknown) {
       result.writeFailed.push({

@@ -146,7 +146,7 @@ class ProbeTarget implements IHarnessTarget {
       },
       removed: [],
       writeFailed: [],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
     };
   }
 

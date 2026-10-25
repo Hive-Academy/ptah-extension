@@ -323,7 +323,7 @@ export class ClaudeTarget implements IHarnessTarget {
       written: {},
       removed: [],
       writeFailed: [],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
     };
 
     // Junctions first: a desired slug whose copy is about to be written must
@@ -379,7 +379,7 @@ export class ClaudeTarget implements IHarnessTarget {
           write.kind,
         );
         if (write.overwritesLocalEdit) {
-          result.overwrittenLocalEdit.push(write.relPath);
+          result.keptLocalEdit.push(write.relPath);
         }
       } catch (error: unknown) {
         result.writeFailed.push({

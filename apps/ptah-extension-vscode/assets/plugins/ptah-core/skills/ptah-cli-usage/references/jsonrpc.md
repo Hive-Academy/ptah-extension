@@ -1,7 +1,7 @@
 # Ptah CLI — the JSON-RPC 2.0 stdio wire protocol
 
 Covers the NDJSON envelope shapes `ptah interact` speaks, schema version
-`0.2` and its negotiation, `session.ready` capabilities, exit codes,
+`1.0` and its negotiation, `session.ready` capabilities, exit codes,
 error codes, and the integration patterns (spawn-and-stream, daemon
 bridge, HTTP proxy) built on top of them.
 
@@ -70,7 +70,7 @@ Stdin (client → CLI):
 Stdout (CLI → client), one line per JSON object:
 
 ```
-{"jsonrpc":"2.0","method":"session.ready","params":{"session_id":"tab-abc","version":"0.1.0","schema_version":"0.2","capabilities":["chat","session","permission","question"],"protocol_version":"2.0"}}
+{"jsonrpc":"2.0","method":"session.ready","params":{"session_id":"tab-abc","version":"0.1.0","schema_version":"1.0","capabilities":["chat","session","permission","question"],"protocol_version":"2.0"}}
 {"jsonrpc":"2.0","method":"task.start","params":{"command":"task.submit","turn_id":"turn-1"}}
 {"jsonrpc":"2.0","method":"agent.thought","params":{"session_id":"tab-abc","turn_id":"turn-1","text":"I'll read utils.ts first"}}
 {"jsonrpc":"2.0","method":"agent.tool_use","params":{"session_id":"tab-abc","turn_id":"turn-1","tool_use_id":"tu-1","tool_name":"Read","input":{"file_path":"utils.ts"}}}
@@ -108,7 +108,7 @@ Source: `apps/ptah-cli/src/cli/commands/interact.ts`.
   "params": {
     "session_id": "<tabId>",
     "version": "<package.json version>",
-    "schema_version": "0.2",
+    "schema_version": "1.0",
     "capabilities": ["chat", "session", "permission", "question"],
     "protocol_version": "2.0",
   },
@@ -138,7 +138,7 @@ Lifecycle:
 
 ## 4. Schema-version negotiation
 
-- The CLI's emitted version is **`JSONRPC_SCHEMA_VERSION = '0.2'`**
+- The CLI's emitted version is **`JSONRPC_SCHEMA_VERSION = '1.0'`**
   (`apps/ptah-cli/src/cli/jsonrpc/types.ts`).
 - It appears in three places: the `system.schema.version` notification,
   the `schema_version` field on `session.ready`, and `schemaVersion` in

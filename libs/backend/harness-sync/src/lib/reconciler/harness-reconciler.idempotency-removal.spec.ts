@@ -150,7 +150,7 @@ describe('HarnessReconcilerService — idempotency and no-deactivate (E1)', () =
     expect(health.targets[0]?.found).toBe(health.targets[0]?.expected);
     expect(health.targets[0]?.writeFailed).toEqual([]);
     expect(health.targets[0]?.removed).toEqual([]);
-    expect(health.targets[0]?.overwrittenLocalEdit).toEqual([]);
+    expect(health.targets[0]?.keptLocalEdit).toEqual([]);
     // Byte content, not mtime — mtime granularity makes an mtime comparison
     // flaky on some filesystems even when nothing was written.
     expect(readFileSync(manifestPath, 'utf-8')).toBe(manifestBytesAfterFirst);

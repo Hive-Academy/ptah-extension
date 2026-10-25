@@ -290,7 +290,7 @@ describe('HumanFormatter', () => {
             missing: [],
             foreign: [],
             writeFailed: [],
-            overwrittenLocalEdit: [],
+            keptLocalEdit: [],
           },
         ],
       },
@@ -300,6 +300,41 @@ describe('HumanFormatter', () => {
 
     expect(text).toContain('agents');
     expect(text).toMatch(/claude\s+yes\s+yes\s+yes\s+source\s+yes/);
+  });
+
+  it('counts keptLocalEdit under the kept column of harness.doctor', async () => {
+    const cap = makeCapture();
+    const fmt = new HumanFormatter(cap.writer, { noColor: true });
+    await fmt.writeNotification('harness.doctor', {
+      health: {
+        sources: 'ok',
+        collisions: [],
+        targets: [
+          {
+            target: 'codex',
+            detected: true,
+            facets: {
+              skills: 'supported',
+              commands: 'supported',
+              agents: 'supported',
+              mcp: 'supported',
+            },
+            expected: 2,
+            found: 2,
+            missing: [],
+            foreign: [],
+            writeFailed: [],
+            keptLocalEdit: ['.codex/skills/a/SKILL.md', 'AGENTS.md'],
+          },
+        ],
+      },
+      summary: { level: 'warn', label: 'Harness kept 2 local edits' },
+    });
+    const text = await cap.read();
+
+    expect(text).toMatch(/writeFailed\s+kept\s*\n/);
+    expect(text).not.toContain('overwritten');
+    expect(text).toMatch(/codex\s+yes(\s+yes){4}\s+2\s+2\s+0\s+0\s+0\s+2/);
   });
 });
 

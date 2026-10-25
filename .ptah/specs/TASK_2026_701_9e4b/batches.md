@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 33 | Batches: 26 | Complete: 1/26
+Total tasks: 33 | Batches: 26 | Complete: 2/26
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -146,7 +146,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 ---
 
-## Batch 1: Shared contracts (B1) — COMPLETE (commit: PENDING_SHA)
+## Batch 1: Shared contracts (B1) — COMPLETE (commit: 2596f6fc4)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -193,7 +193,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (pre-existing circular dependency), accepted for every batch.
 - Report: reports/batch-1-report.md
 
-## Batch 2: D11 rename and D16 schema bump (B16) — PENDING
+## Batch 2: D11 rename and D16 schema bump (B16) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -204,7 +204,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 2 | Depends on: Batch 1
 - Phase: P1 | Phase review: P1 code-logic + style (breaking CLI JSON change)
 
-### Task 2.1: Rename `overwrittenLocalEdit` → `keptLocalEdit: string[]` in the type and every consumer — PENDING
+### Task 2.1: Rename `overwrittenLocalEdit` → `keptLocalEdit: string[]` in the type and every consumer — COMPLETE
 
 - Files (all MODIFY, root as above):
   - shared: `libs/shared/src/lib/types/harness-sync.types.ts`, `harness-sync.types.spec.ts`, `harness-sync.blocked.spec.ts`, `capability-id-codec.spec.ts`
@@ -220,7 +220,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: before and after, repo search `overwrittenLocalEdit` excluding `.ptah/specs` and `node_modules`; after = 0 hits. Any hit outside the list is reported and added only if needed to compile.
 - Implementation details: rename in the shared type, producers, formatter output key and every spec/fixture assertion.
 
-### Task 2.2: Bump `JSONRPC_SCHEMA_VERSION` to `1.0` and update docs (D16) — PENDING
+### Task 2.2: Bump `JSONRPC_SCHEMA_VERSION` to `1.0` and update docs (D16) — COMPLETE
 
 - Depends on: Task 2.1
 - Files (MODIFY): `apps/ptah-cli/src/cli/jsonrpc/types.ts` (`:32` `'0.2'` → `'1.0'`); `apps/ptah-cli/docs/jsonrpc-schema.md` (section 1.5 field rename; `schema_version`/`schemaVersion` examples at `:66,527,539`; the versioning note at `:69`); `.claude/skills/ptah-cli-usage/references/jsonrpc.md` (`:4,73,111,141`), `.claude/skills/ptah-cli-usage/references/mcp-serve.md` (`:170`); the identical copies under `apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/ptah-cli-usage/references/` (`jsonrpc.md`, `mcp-serve.md`)
@@ -235,6 +235,19 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `overwrittenLocalEdit` search = 0 outside `.ptah/specs`; `JSONRPC_SCHEMA_VERSION = '1.0'`; doc examples and note updated in all three doc locations; wire `2.0` untouched
 - `npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/rpc-handlers,@ptah-extension/marketplace,@ptah-extension/skill-synthesis-ui,@ptah-extension/webview-e2e-harness,@ptah-extension/cli-engine,ptah-cli,ptah-electron,ptah-extension-vscode,ptah-extension-webview` passes
 - No per-batch review; P1 review covers it
+
+### Batch 2 outcome
+
+- Verified on disk by team-leader: 48 modified files (40 rename sites, constant, 5 docs, plus
+  batches.md/decisions.md); `overwrittenLocalEdit` appears only in the two intentional
+  breaking-change notes in `apps/ptah-cli/docs/jsonrpc-schema.md:71,201`; constant is `'1.0'`;
+  wire `2.0` unchanged.
+- Verify re-run by team-leader: 78 tasks, 77 pass (75 cached); only `ptah-extension-webview:lint`
+  fails (D19, pre-existing). `harness-sync:test` passes after the D20 marker move.
+- Carried to Task 6.1: the doc comment at `libs/shared/src/lib/types/harness-sync.types.ts:146`
+  still says "overwritten (source wins)"; Batch 6 changes the behaviour and must update it, and
+  the `{@link keptLocalEdit}` wording near `:178`.
+- Report: reports/batch-2-report.md
 
 ## Batch 3: Plugin loader harness-root config home (B15) — PENDING
 

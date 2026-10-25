@@ -253,7 +253,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       written: {},
       removed: [],
       writeFailed: [],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
       removedLocalEdit,
     };
 
@@ -962,7 +962,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         write.sourceHash,
       );
       if (snapshotPath !== undefined) {
-        result.overwrittenLocalEdit.push(write.relPath);
+        result.keptLocalEdit.push(write.relPath);
       }
     } catch (error: unknown) {
       result.writeFailed.push({

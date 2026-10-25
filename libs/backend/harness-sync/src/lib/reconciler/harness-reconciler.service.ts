@@ -326,7 +326,7 @@ export class HarnessReconcilerService {
             missing: [],
             foreign: [],
             writeFailed: result.writeFailed,
-            overwrittenLocalEdit: [],
+            keptLocalEdit: [],
             removed: result.removed,
             removedLocalEdit: result.removedLocalEdit ?? [],
             durationMs: Date.now() - startedAt,
@@ -623,7 +623,7 @@ export class HarnessReconcilerService {
             written: {},
             removed: [],
             writeFailed: [],
-            overwrittenLocalEdit: [],
+            keptLocalEdit: [],
           },
           Date.now() - startedAt,
         );

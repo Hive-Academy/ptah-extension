@@ -165,7 +165,7 @@ const HARNESS_DOCTOR_COLUMNS = [
   'missing',
   'foreign',
   'writeFailed',
-  'overwritten',
+  'kept',
 ] as const;
 
 /**
@@ -480,7 +480,7 @@ export class HumanFormatter implements Formatter {
    * reap it. Without those columns a reader would see `expected 0` and assume
    * something failed.
    *
-   * `overwritten` is `overwrittenLocalEdit`, abbreviated to keep the row on one
+   * `kept` is `keptLocalEdit`, abbreviated to keep the row on one
    * terminal line.
    */
   private renderHarnessDoctor(obj: Record<string, unknown>): string {
@@ -518,7 +518,7 @@ export class HumanFormatter implements Formatter {
         countField(target, 'missing'),
         countField(target, 'foreign'),
         countField(target, 'writeFailed'),
-        countField(target, 'overwrittenLocalEdit'),
+        countField(target, 'keptLocalEdit'),
       ];
     });
     lines.push(renderTable([...HARNESS_DOCTOR_COLUMNS], rows).trimEnd());

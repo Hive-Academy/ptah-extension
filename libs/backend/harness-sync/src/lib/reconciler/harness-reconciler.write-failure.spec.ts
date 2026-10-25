@@ -123,7 +123,7 @@ class PartialFailureTarget implements IHarnessTarget {
       written: { 'ok-entry': managedEntry('hash-ok', '/src/ok', 'skill') },
       removed: [],
       writeFailed: [{ relPath: 'bad-entry', reason: 'simulated failure' }],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
     };
   }
 

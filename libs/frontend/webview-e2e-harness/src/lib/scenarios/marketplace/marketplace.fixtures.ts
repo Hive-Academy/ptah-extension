@@ -836,7 +836,7 @@ function harnessTargetHealth(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
   };
 }
