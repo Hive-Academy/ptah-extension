@@ -11,8 +11,9 @@ From P5 on, W means `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-
 Batch ids start at 2a because 1a-1l were the evidence spike. W below means the worktree root
 `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat` (every path is absolute under
 it). Production Codex App Server routing stays DISABLED for every batch in this file: no batch may
-enable a consumer, flip a capability default, or remove the translation proxy or the codex-sdk
-lane path (Removals A and B are out of scope).
+enable a consumer for production or flip a production capability default. Session 7 update: a
+dev-only route switch (Batch DS1, unpackaged builds only) may turn on the chat route, and
+Removals A and B are IN SCOPE as the last phases, each only after parity proof (decisions.md).
 
 ## Plan validation
 
@@ -100,7 +101,8 @@ Edge cases:
 - Wave 2: 2d, 2e, 2f, 2h, 3a, 3c (needs 2a; 2d/2f/2h also need 2b). Max 3 concurrent.
 - Wave 3: 2g, 2j, 3d. Wave 4: 2i. Wave 5: 2k, then 3b, 9a, 10a, 10b.
 - After #808 merges and this branch rebases: P5 -> P6 -> P7 -> P8 -> P9 (9b) -> P10 (10c).
-- P11 stays BLOCKED until new evidence or a user-approved reduction.
+- Superseded by the Session 7 plan (bottom of this file): P5b -> P6 -> P7 -> P8 -> P9 -> P10 ->
+  S0/S1 -> P11 -> P12 -> P13 -> S2 -> P14 -> P15 -> P16. Old P11 is replaced by P11-P13.
 
 ---
 
@@ -650,7 +652,7 @@ No P4 batch edits auth-providers `src/index.ts`, `di/register.ts`, `register-pro
 
 ---
 
-# Phase P5 — Shared contracts, usage home API, profile seam — UNBLOCKED (#808 merged 2026-10-25)
+# Phase P5 — Shared contracts, usage home API, profile seam — COMPLETE (gate closed 2026-10-25; re-review APPROVED 8.5/10)
 
 Phase review: code-logic + style (new public API). Implementer family: Codex (CLI lane).
 Reviewer family: Claude (in-process code-logic-reviewer + code-style-reviewer subagents).
@@ -866,7 +868,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`,
   then NEEDS REVIEW (code-logic + style) on the combined P5 diff.
 
-## Batch 5d: P5 review fix round — COMPLETE (verified; commit below; re-review PENDING)
+## Batch 5d: P5 review fix round — COMPLETE (52e06df02; re-review APPROVED 8.5/10, code-logic-review-p5-fixes.md)
 
 - Recommended executor: CLI lane, Codex family (resume of the 5c lane) | sequential |
   Review family: Claude | Subagent reason: N/A
@@ -885,6 +887,19 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Files: MODIFY W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts
   and its spec; W/libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts and its spec.
 
+### P5 gate — CLOSED (2026-10-25)
+
+- Phase P5 commits: 085a9341d (5a), 5a7e8f989 (5b), 953fee97d (5c), 52e06df02 (5d). Docs:
+  7335067e2. Host typecheck passed at the gate.
+- Reviews: code-logic-review-p5.md (REVISE 6.5) -> fix round 5d -> code-logic-review-p5-fixes.md
+  APPROVED 8.5/10 (implementer Codex, reviewer Claude); code-style-review-p5.md APPROVED 7/10.
+- Carried items (owner batch): persist normalized workspace ids with ONE shared helper for persist
+  and compare (6p + 6d); surface a silent case-mismatch model fallback to the Codex default (6p
+  + 7a); normalizedHome schema refine (6p); PERMISSION_PROMPT_CANCELLED payload-map entry (8b);
+  explicit-home auth-file invalidation (8a). Resume survives a workspace provider switch: P6
+  records this as the intended behavior (no block-on-switch rule) unless the user decides
+  otherwise.
+
 ### P5 risks
 
 | Risk | Severity | Mitigation |
@@ -897,32 +912,162 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
-# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
+# Session 7 plan (2026-10-25) — order, rules and validation
 
-Phase review: code-logic + style. Implementer: Codex; reviewer: Claude.
-Verification for every P6 batch:
-`npx nx run-many -t test typecheck lint -p @ptah-extension/agent-sdk --parallel=1`.
-Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (new directory).
+Order (user decision, decisions.md last rows): P5b dev route switch -> P6 -> P7 -> P8 -> P9 (9b)
+-> P10 (10b, 10c) -> S0/S1 gap spikes (paid) -> P11 native subagents -> P12 native sessions ->
+P13 file-rewind checkpoint -> S2 remaining spikes (paid) -> P14 parity ledger + live Electron
+parity run -> P15 Removal A -> P16 Removal B. Principle: use a native App Server feature wherever
+it exists; build only where it does not (file rewind is the one confirmed build).
 
-## Batch 6a: Chat events and approval routing — PENDING (needs 5a, P2)
+Rules for every batch below:
 
-- Recommended executor: CLI lane, Codex family | sequential | Review family: Claude |
-  Subagent reason: N/A
+- Verification is `npm run verify -- -p <projects>` (or `-t <target> -p <projects>`, extra Jest
+  flags after a second `--`), never `npx nx run-many` (CLAUDE.md supersedes the older P6-P11
+  commands; the per-batch commands below are rewritten). Confirm the "Running target ... for N
+  projects" header. Shared-lib phases add a host typecheck at the phase gate:
+  `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
+- Fix-PR fence: branch fix/provider-switch-model-sync owns config-rpc.handlers.ts (+spec),
+  config-saved-model-option.ts, auth-state.service.ts, model-state.service.ts,
+  model-selector.component.ts, provider-account-card.component.ts (+ specs). No batch here edits
+  them until the coordinator merges main in after that PR merges. Only 7c is affected; it is
+  sequenced behind that merge. P15/P16 re-check the fence before they start.
+- Default executor: CLI lane, Codex family (confirmed room in `ptah_agent_list` 2026-10-25);
+  reviewer: Claude subagent (different family). Fallback order: other family same capability ->
+  same family other provider/model -> subagent.
+- Lanes never commit, push or open PRs; the team-leader commits; the coordinator pushes.
+
+Plan validation for the session-7 additions: PASSED WITH RISKS.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| R7-1 dev switch leaks into a packaged build | HIGH | DS1 pure reader returns null when packaged; spec matrix; 8a asserts composition passes `app.isPackaged`; P5b review |
+| R7-2 dev switch bypasses the gate for gateway/lane | MEDIUM | DS1 override typed to consumer 'chat' only; spec asserts gateway/lane still throw |
+| R7-3 workspace-id persist/compare drift | MEDIUM | 6p one shared helper; 6d persists through it |
+| R7-4 silent model substitution | MEDIUM | 6p returns the substitution; 7a emits a user-visible notice |
+| R7-5 child-thread events pollute the main transcript | HIGH | 11a tags events by source threadId; 11b routes child events under the agent card; spec with interleaved parent/child frames |
+| R7-6 child approval answered by nobody (hang) or auto-allowed | HIGH | 11b routes child-thread approvals to the parent session's sink; unroutable -> decline, never accept |
+| R7-7 thread/revert shape differs from the schema reading | MEDIUM | S1 revert spike before 12a; 12a validates against the pinned schema |
+| R7-8 shadow-tree checkpoint touches the user's index/refs | HIGH | 13a temp GIT_INDEX_FILE and a private ref namespace; spec asserts status/HEAD/index unchanged |
+| R7-9 a removal drops a capability | HIGH | P15/P16 start with a parity-inventory refresh vs the base commit; removal only after P14 proof |
+| R7-10 a removal exceeds the 6-file batch cap | MEDIUM | Removal batches are staged inside ONE phase and land as ONE commit each (user decision) |
+
+Assumptions:
+
+- AS7-1 `agentRole` and `parentThreadId` in the pinned schema
+  (`protocol/codex-app-server-protocol.schema.json` ~:20378, ~:20462) are what personas and child
+  mapping need — unverified; 11c starts with a schema/source check and reports a gap if roles are
+  not configurable.
+- AS7-2 `thread/read` returns enough item detail to replay through `CodexEventTranslator` —
+  unverified; 12b spec replays a `thread/read` fixture captured in S1.
+- AS7-3 `thread/revert {threadId, beforeTurnId}` is accepted on paginated threads by the pinned
+  binary — unverified; S1 revert spike.
+
+---
+
+# Phase P5b — Dev route switch (@ptah-extension/codex-runtime) — IN_PROGRESS
+
+Phase review: code-logic (it is a bypass of the production gate). Implementer Codex lane,
+reviewer Claude subagent.
+
+## Batch DS1: Dev-only chat route override — IN_PROGRESS
+
+- Recommended executor: CLI lane, Codex family | Execution mode: sequential
 - Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: N/A | Review family: Claude (different from implementer)
+- Tasks: 2 | Depends on: P5 | Phase: P5b | Phase review: code-logic
+- Rationale: one project, six files, one coupled change (port + resolver + exports).
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime` (1 project), then
+  `npm run verify -- -t typecheck -p @ptah-extension/gateway-chat-bridge,@ptah-extension/auth-providers`
+  (the two direct dependents of the registration API).
+
+### Task DS1.1: Pure dev-route reader — IN_PROGRESS
+
+- Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-dev-route.ts and
+  `codex-dev-route.spec.ts`
+- Pattern to follow: W/apps/ptah-electron/src/main.ts:122 (`!app.isPackaged &&
+  process.env['PTAH_E2E'] === '1'`); W/libs/backend/codex-runtime/src/lib/codex-parity-gate.ts
+  (pure, frozen values, no I/O).
+- Implementation details: `export interface CodexDevRouteOverride { readonly consumer: 'chat';
+  readonly source: 'PTAH_CODEX_RUNTIME_DEV' }`; `readCodexDevRouteOverride(input: { readonly
+  isPackaged: boolean; readonly env: Readonly<Record<string, string | undefined>> }):
+  CodexDevRouteOverride | null` returns a frozen override only when `isPackaged === false` AND
+  `env['PTAH_CODEX_RUNTIME_DEV'] === '1'` exactly; otherwise null. No `process` access inside the
+  module — the host passes both inputs.
+- Validation notes: R7-1. Spec matrix: packaged + '1' -> null; unpackaged + '1' -> override;
+  unpackaged + 'true' / '0' / ' 1' / undefined -> null; returned object frozen.
+
+### Task DS1.2: Gated resolver honors the override for chat only — IN_PROGRESS
+
+- Depends on: DS1.1
+- Files: MODIFY W/libs/backend/codex-runtime/src/lib/di/tokens.ts,
+  W/libs/backend/codex-runtime/src/lib/di/registration.ts and `registration.spec.ts`,
+  W/libs/backend/codex-runtime/src/index.ts
+- Implementation details: add `CODEX_RUNTIME_TOKENS.DevRouteOverride`; extend
+  `CodexRuntimeRegistrationPorts` with OPTIONAL `devRoute?: CodexDevRouteOverride | null`
+  (absent = null; optional because `codex-gateway-adapter.ts:43,58` spreads
+  `Omit<CodexRuntimeRegistrationPorts, 'sink'>` from its callers, and a required field would break
+  the gateway project; 8a sets it explicitly for Electron). Register it (null via
+  `useFactory: () => null`). `resolveGatedCodexRuntime` keeps the gate unchanged (the
+  `enabled: false` literal stays) and, when the gate is disabled, returns the runtime ONLY if
+  consumer === 'chat' and the registered override's consumer is 'chat'; it logs one warning per
+  container through the registered Logger port (development-only wording naming
+  PTAH_CODEX_RUNTIME_DEV). Gateway and lane still throw 'Codex production routing disabled by
+  parity gate'. Export the type, the reader and the token from index.ts.
+- Validation notes: R7-1, R7-2. Spec: absent and null override -> chat throws; override -> chat
+  resolves the same cached runtime, gateway and lane throw; warning logged once; the gate
+  decision object is still `enabled: false`. The only caller outside codex-runtime is
+  `codex-gateway-adapter.ts:58` — it must compile unchanged (do not edit other projects).
+
+### Batch DS1 verification
+
+- Both artifacts exist with real logic; `npm run verify -- -p @ptah-extension/codex-runtime`
+  passes (tailed); R7-1/R7-2 specs present. Last P5b batch -> NEEDS REVIEW (code-logic).
+
+---
+
+# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — PENDING (after P5b review)
+
+Phase review: code-logic + style (new public API). Implementer: Codex; reviewer: Claude.
+Verification for every agent-sdk batch: `npm run verify -- -p @ptah-extension/agent-sdk`.
+Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent on disk
+2026-10-25 — every D file is CREATE). Phase gate adds the host typecheck.
+
+## Batch 6p: P5 carried items — shared workspace key and model substitution — PENDING
+
+- Executor: CLI lane, Codex family | sequential | Review: Claude | Subagent reason: N/A
+- Files (5, 2 projects): MODIFY W/libs/backend/codex-runtime/src/lib/codex-home-path.ts and
+  `codex-home-path.spec.ts`, W/libs/backend/codex-runtime/src/index.ts;
+  W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts and its spec
+- Details: move the private `workspaceIdentityKey` (resolver :222) to an exported
+  `normalizeCodexWorkspaceKey(path, platform)` next to `normalizeCodexHomeKey`; backslash ->
+  slash only on win32 (fixes the POSIX collision in code-logic-review-p5-fixes.md); a relative
+  stored id is rejected (resolver maps the throw to its content-free error) instead of resolving
+  against cwd. The resolver result gains `modelSubstitution?: { requested; used; reason:
+  'not-in-catalog' | 'case-mismatch' }` whenever the requested model is replaced; a case-only
+  match maps to the catalog id. normalizedHome schema refine if it lives in these files; else 6d.
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/auth-providers`
+  (2 projects; known noise: 3 pre-existing auth-providers lint errors).
+
+## Batch 6a: Chat events and approval routing — PENDING (needs 6p)
+
 - Files: CREATE D+codex-chat-events.ts, D+codex-chat-approval-sink.ts,
   D+session-approval-router.ts, each with same-stem spec (6 files)
 - Plan reference: implementation-plan.md:197-199, :244
 - Details: project CodexRuntimeEvent -> FlatStreamEventUnion; sink offers the four decisions; an
   edit reply returns decline + editNotSupported and the consumer posts the user's text as a
   follow-up (steer when a turn is active, else new turn); Claude requests keep the SDK handler.
+  The router keys requests by session AND thread id so 11b adds child threads without a rewrite.
+- Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
 ## Batch 6b: Codex chat adapter and routing adapter — PENDING (needs 6a)
 
 - Files: CREATE D+codex-chat-adapter.ts, D+routing-agent-adapter.ts, each with same-stem spec
 - Plan reference: implementation-plan.md:25, :187
 - Details: IAgentAdapter over the identity router; no proxy fallback after native selection;
-  routing decided by persisted identity, never the focused provider; native path guarded by
-  CodexParityGate (disabled).
+  routing decided by persisted identity, never the focused provider; the native runtime is
+  obtained ONLY through `resolveGatedCodexRuntime(container, 'chat', platform)`, so the DS1 dev
+  override is the single switch; with the gate closed and no override the legacy path runs.
 - Executor/review/fallback as 6a.
 
 ## Batch 6c: Runtime-neutral session controls — PENDING (needs 5a)
@@ -932,17 +1077,20 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (new directory).
 - Plan reference: implementation-plan.md:171-191
 - Details: SDK aliases (incl. live yolo -> bypassPermissions) only in LegacySessionControls;
   apply-before-save with rollback; failed interrupt blocks follow-up.
-- Executor/review/fallback as 6a.
+- Executor/review/fallback as 6a. File-disjoint from 6a/6b: may run parallel with 6a.
 
-## Batch 6d: Metadata identity and legacy auth propagation — PENDING (#808 merged; re-validate)
+## Batch 6d: Metadata identity and legacy auth propagation — PENDING (needs 6p)
 
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts and
   `session-metadata-store.spec.ts`, W/libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts;
   CREATE W/libs/backend/agent-sdk/src/lib/legacy-runtime-auth.spec.ts
 - Plan reference: implementation-plan.md:161, :230
 - Details: optional `codexExecution` metadata via `updateCodexExecution` (sole writer, existing
-  enqueueWrite); save preserves omitted runtime metadata; never converts a legacy row; SDK adapter
-  change limited to typed AuthOperationContext propagation (`initialize(context?)`).
+  enqueueWrite); workspaceId persisted through `normalizeCodexWorkspaceKey` (6p), the same helper
+  the resolver compares with; save preserves omitted runtime metadata; never converts a legacy
+  row; Codex metadata is keyed by thread id and carries only title, workspace, provider, runtime
+  and child agents (native-session decision — no transcript copy); SDK adapter change limited to
+  typed AuthOperationContext propagation (`initialize(context?)`).
 - Executor/review/fallback as 6a.
 
 ## Batch 6e: agent-sdk DI and exports — PENDING (needs 6a-6d)
@@ -950,91 +1098,100 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (new directory).
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/di/tokens.ts,
   W/libs/backend/agent-sdk/src/lib/di/register.ts, W/libs/backend/agent-sdk/src/index.ts
 - Details: register routers/adapters; native capability injected by host, default disabled;
-  `{ useFactory: () => null }` for nullable bindings. Last P6 batch -> phase review.
+  `{ useFactory: () => null }` for nullable bindings. Last P6 batch -> host typecheck -> phase
+  review (code-logic + style).
 - Executor/review/fallback as 6a.
 
 ---
 
-# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
+# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — PENDING (needs P6)
 
-Phase review: code-logic. Implementer: Codex; reviewer: Claude.
-Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/rpc-handlers
---parallel=1`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
+Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
+`npm run verify -- -p @ptah-extension/rpc-handlers`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
 
-## Batch 7a: ChatRuntimeProfileService — PENDING (needs 5c [resolveExecutionProfile, was 5b], 6e)
+## Batch 7a: ChatRuntimeProfileService — PENDING (needs 6e)
 
 - Files: CREATE R+chat/session/chat-runtime-profile.service.ts and same-stem spec
 - Plan reference: implementation-plan.md:95 (G1)
-- Executor: CLI lane, Codex family | Review: Claude | Fallback: standard order | Subagent reason:
-  N/A
+- Details: when the resolver returns `modelSubstitution` (6p), emit a user-visible session notice
+  naming the requested and the used model (carried P5 item).
+- Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
 ## Batch 7b: Chat start/resume and slash routing — PENDING (needs 7a)
 
 - Files: MODIFY R+chat/session/chat-session.service.ts,
   R+chat/session/chat-slash-command-router.service.ts; CREATE
   R+chat/session/chat-slash-command-router.native.spec.ts
-- Plan reference: implementation-plan.md:95, :189 (admission `:130-141`, `:169-185`,
-  release `:243-249` — re-locate after rebase)
+- Plan reference: implementation-plan.md:95, :189 (re-locate line anchors on disk)
 - Details: both start and resume delegate to prepare(); native /compact ->
-  SessionRuntimeControls.compact; legacy slash unchanged.
+  SessionRuntimeControls.compact; legacy slash unchanged; resume after a workspace provider switch
+  keeps the stored identity (recorded behavior, P5 gate).
 - Executor/review/fallback as 7a.
 
-## Batch 7c: Config RPC through SessionRuntimeControls — PENDING (needs 6c)
+## Batch 7c: Config RPC through SessionRuntimeControls — PENDING (BLOCKED on fix-PR merge)
 
 - Files: MODIFY R+handlers/config-rpc.handlers.ts; CREATE R+handlers/config-runtime-controls.spec.ts
+- Fence: config-rpc.handlers.ts is changed by fix/provider-switch-model-sync. Start only after
+  the coordinator merges main (with that PR) into this branch; re-read the file then. If the fix
+  PR is still open when P8 is ready, P8 proceeds: nothing in P8 needs 7c; the P7 phase review then
+  runs after 7c.
 - Plan reference: implementation-plan.md:181-185 (G2); remove `mapPermissionToSdkMode` direct SDK
   calls; audit auth/provider/config-scope callers.
 - Executor/review/fallback as 7a. Last P7 batch -> phase review.
 
 ---
 
-# Phase P8 — Host composition (disabled) and approval presentation — UNBLOCKED (#808 merged 2026-10-25; re-validate files before running)
+# Phase P8 — Host composition and approval presentation — PENDING (needs P6, P7 except 7c)
 
 Phase review: code-logic; visual review (Electron, dark + light) for 8c. Electron first; VS Code
 and CLI get compatible bindings only (no feature work).
 
-## Batch 8a: Electron DI composition — PENDING (needs P5-P7)
+## Batch 8a: Electron DI composition and dev switch wiring — PENDING
 
 - Recommended executor: CLI lane, Codex family | Review: Claude | Subagent reason: N/A
-- Fallback order: other family same capability -> same family other provider/model -> subagent
 - Files: MODIFY W/apps/ptah-electron/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`; CREATE
   W/apps/ptah-electron/src/di/codex-runtime-composition.spec.ts
-- Details: register core ports with the BUNDLED codex binary path (R4); real router resolves
-  native-off by default; spec asserts CodexParityGate disabled (R5).
-- Verification: `npx nx run-many -t test typecheck lint -p ptah-electron --parallel=1`
+- Details: register core ports with the BUNDLED codex binary path (R4); pass
+  `devRoute: readCodexDevRouteOverride({ isPackaged: app.isPackaged, env: process.env })` (DS1);
+  router resolves native-off by default; explicit-home auth-file invalidation (carried P5 logic
+  6). Spec: gate disabled (R5); packaged -> devRoute null; unpackaged + PTAH_CODEX_RUNTIME_DEV=1
+  -> chat routes native, gateway/lane do not.
+- Verification: `npm run verify -- -p ptah-electron`
 
 ## Batch 8b: Electron IPC approval ownership — PENDING (needs 8a)
 
 - Files: MODIFY W/apps/ptah-electron/src/ipc/ipc-bridge.ts; MODIFY
   W/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts and its spec
 - Details: IPC routes request ownership to SessionApprovalRouter; typed session-scoped cancel;
-  cancelPrompt posts no response.
-- Verification: `npx nx run-many -t test typecheck lint -p ptah-electron @ptah-extension/chat
---parallel=1` (confirm header says 2 projects)
+  cancelPrompt posts no response; PERMISSION_PROMPT_CANCELLED payload-map entry (carried P5
+  logic 5).
+- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/chat` (2 projects; chat has
+  pre-existing lint noise — compare with main before attributing)
 - Executor/review as 8a.
 
 ## Batch 8c: Codex approval decisions in the permission prompt — PENDING (needs 5a)
 
-- Recommended executor: frontend-developer subagent
+- Recommended executor: frontend-developer subagent (Claude family)
 - Subagent reason: rendered UI change needs Electron dark/light screenshots (visual work a lane
   cannot capture)
-- Review family: Codex CLI lane (code-logic), plus visual-reviewer in Electron
+- Review family: Codex CLI lane (code-logic review), plus visual-reviewer subagent in Electron
+  (dark + light; before screenshots from the base commit, after from the batch)
 - Files: MODIFY W/libs/frontend/chat-streaming/src/lib/permission-handler.service.ts and
   `permission-handler.service.spec.ts`; plus the existing permission prompt component that
-  renders decisions (executor locates it; max 4 files, chat-streaming + chat only)
+  renders decisions (executor locates it; max 4 files, chat-streaming + chat only; never a
+  fix-PR file)
 - Details: when a request carries `allowedDecisions`, render exactly those (accept, accept for
-  session, decline, cancel) and no edit control; Claude prompts unchanged. Before/after
-  screenshots (dark + light) from the base commit.
-- Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/chat-streaming
---parallel=1`
+  session, decline, cancel) and no edit control; Claude prompts unchanged.
+- Verification: `npm run verify -- -p @ptah-extension/chat-streaming,@ptah-extension/chat`
+- File-disjoint from 8a/8b: may run in parallel with 8a.
 
 ## Batch 8d: VS Code compatible bindings — PENDING (needs 8a)
 
 - Files: MODIFY W/apps/ptah-extension-vscode/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`
-- Details: compatible ports, legacy chat default; no UI rollout.
-- Verification: `npx nx run-many -t test typecheck lint -p ptah-extension-vscode --parallel=1`
+- Details: compatible ports, `devRoute: null`, legacy chat default; no UI rollout.
+- Verification: `npm run verify -- -p ptah-extension-vscode`
 - Executor/review as 8a.
 
 ## Batch 8e: CLI engine and ptah-cli bindings — PENDING (needs 8a)
@@ -1043,54 +1200,42 @@ and CLI get compatible bindings only (no feature work).
   W/libs/backend/cli-engine/src/lib/surface-composition.spec.ts,
   W/apps/ptah-cli/src/di/expected-resolvable.ts; CREATE
   W/libs/backend/cli-engine/src/lib/codex-runtime-composition.spec.ts
-- Verification: `npx nx run-many -t test typecheck lint -p @ptah-extension/cli-engine ptah-cli
---parallel=1`
-- Executor/review as 8a. Last P8 batch -> phase review.
+- Details: `devRoute: null`.
+- Verification: `npm run verify -- -p @ptah-extension/cli-engine,ptah-cli`
+- Executor/review as 8a. Last P8 batch -> host typecheck -> phase review (code-logic; visual
+  review for 8c).
 
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
-`npx nx run-many -t test typecheck lint -p @ptah-extension/gateway-chat-bridge --parallel=1`.
+`npm run verify -- -p @ptah-extension/gateway-chat-bridge`.
 Prefix G = W/libs/backend/gateway-chat-bridge/src/lib/.
 
 ## Batch 9a: Gateway adapter and approval sink — COMPLETE (merged in #809)
 
-- Files: CREATE G+codex-gateway-adapter.ts, G+codex-gateway-approval-sink.ts, each with same-stem
-  spec
-- Plan reference: implementation-plan.md:203, :250, :393
-- Details: thin projection to FlatStreamEventUnion; explicit sink required (missing sink fails
-  before a turn); unroutable interaction declines, never auto-allows; a notice is not an approval.
-- Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
-
-## Batch 9b: Gateway profile and bridge integration — PENDING (needs 5c [resolveExecutionProfile, was 5b])
+## Batch 9b: Gateway profile and bridge integration — PENDING (needs 6p)
 
 - Files: CREATE G+codex-gateway-profile.ts and spec, G+gateway-chat-bridge.native.spec.ts; MODIFY
-  G+gateway-chat-bridge.ts (native branch only at `:689-697`, `:794-865`), G+di/register.ts,
+  G+gateway-chat-bridge.ts (native branch only; re-locate anchors), G+di/register.ts,
   W/libs/backend/gateway-chat-bridge/src/index.ts
-- Details: no legacy new-session fallback on ambiguous native resume (`:835-845`); Claude gateway
-  unchanged; native branch gated off. Last P9 batch -> phase review.
-- Executor/review as 9a. (6 files incl. index; gateway-chat-bridge.spec.ts untouched unless a
-  regression requires it — then split.)
+- Details: no legacy new-session fallback on ambiguous native resume; Claude gateway unchanged;
+  native branch gated off (the DS1 dev override does NOT cover gateway). Note:
+  `codex-gateway-adapter.ts:23,52` constructs `new CodexParityGate()` directly instead of the
+  gated resolver — record for the P9 review (one gate per host); fix only if it fits the cap.
+  Last P9 batch -> phase review.
+- Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
 ---
 
 # Phase P10 — Lane consumer (@ptah-extension/cli-agent-runtime)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
-`npx nx run-many -t test typecheck lint -p @ptah-extension/cli-agent-runtime --parallel=1`.
-Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/.
+`npm run verify -- -p @ptah-extension/cli-agent-runtime` (known noise: 5-6 pre-existing lint
+errors). Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/.
 
 ## Batch 10a: Lane profile and events — COMPLETE (merged in #809)
-
-- Files: CREATE L+codex-lane-profile.ts, L+codex-lane-events.ts, each with same-stem spec
-- Plan reference: implementation-plan.md:246
-- Details: preserve suppression of user MCP/plugins/apps/skills, Ptah MCP attachment,
-  zero-omits-budget, role resend (replace, not append); do not copy approval_policy=never or
-  danger-full-access defaults; events -> CliOutputSegment; terminal settles without waiting for
-  exit (Windows).
-- Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
 ## Batch 10b: App Server lane adapter — PENDING (needs 10a)
 
@@ -1098,62 +1243,205 @@ Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/code
   CREATE W/libs/backend/cli-agent-runtime/src/lib/cli-agents/codex-native-selection.spec.ts
 - Details: implements CliAdapter.runSdk/SdkHandle over CodexContext; steer:false, interrupt:false
   capability preserved; abort disposes context; no Codex SDK import; never retries via SDK.
-  Uses the current `cli-adapter.interface.ts` unchanged (interface additions are 10c).
-- Executor/review as 10a.
+  Native subagents stay DISABLED for lanes (keeps `codex-lane-config.builder.ts:104` behavior) —
+  decision recorded at this lane migration (session 7 decisions below).
+- Executor/review as 9b.
 
-## Batch 10c: Detection factory and interface — PENDING (#808 merged; re-validate)
+## Batch 10c: Detection factory and interface — PENDING (needs 10b)
 
 - Files: MODIFY W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-detection.service.ts
-  (factory instead of direct construction at :57),
-  W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.interface.ts
-  (optional Codex context/policy), W/libs/backend/cli-agent-runtime/src/index.ts
+  (factory instead of direct construction), `cli-adapters/cli-adapter.interface.ts` (optional
+  Codex context/policy), W/libs/backend/cli-agent-runtime/src/index.ts
 - Details: legacy adapter remains default; native lane selection gated off. Last P10 batch ->
   phase review.
-- Executor/review as 10a.
+- Executor/review as 9b.
 
 ---
 
-# Phase P11 — Evidence-gated history, rewind, subagents — BLOCKED ON EVIDENCE
+# Phase S — Spike turns (paid; approved 8 turns, <=30000 tokens/turn, <=100000/run)
 
-No batch in this phase may start, and no refusal-only placeholder may be built, until the
-required observations (native-route-evidence.md rows 3-5: history/pages/stats, real file rewind,
-subagent controls) are proved by a user-approved spike, or the user approves a reduction.
-2 of 20 approved model turns remain; they are insufficient for these observations.
+Every paid run is a stop point: the team-leader returns to the coordinator before it starts.
 
-## Batch 11a: Native history reader — PENDING (blocked on evidence)
+## Batch S0: Gap spike cases in the evidence harness — PENDING (after P10)
 
-- Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-session-history.ts and spec
-- Plan reference: implementation-plan.md:232-234
+- Executor: CLI lane, Codex family | Review: folded into the P11 phase review
+- Files: MODIFY W/libs/backend/codex-runtime/tools/evidence-cases.json,
+  `evidence-cases-round.ts` and spec, `evidence-round-plan.ts` and spec
+- Details: round 8 cases — revert (2-3 turns: two turns, then `thread/revert {threadId,
+  beforeTurnId}` before the second, then `thread/read` to confirm; save the frames as a 12b
+  fixture); file edit via apply_patch vs shell edit (1 turn: approval kind and item type of
+  each); native subagent (1 turn spawning one child; save `collabAgentToolCall`,
+  `subAgentActivity`, `parentThreadId`, `agentRole` frames as an 11a fixture). Estimates use the
+  corrected ~24k/31k/38k per command turn (1n note).
+- Verification: `npm run verify -- -t test -p @ptah-extension/codex-runtime`
 
-## Batch 11b: Native file history — PENDING (blocked on evidence)
+## Batch S1: Gap spike run — PENDING (paid; stop and return before running)
 
-- Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-file-history.ts and spec
-- Plan reference: implementation-plan.md:236
+- Codex lane runs the harness under the verify lock; output `spike-run-8.json` / `.md`.
+- Budget: 4-5 of the 8 turns. Afterwards report the remaining count.
 
-## Batch 11c: Native subagent controls — PENDING (blocked on evidence)
+## Batch S2: Remaining spikes — PENDING (paid; after P13; stop and return before running)
 
-- Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-subagent-controls.ts and spec
-- Plan reference: implementation-plan.md:238
+- Always Allow different-command (must fit 30k/turn — 7c was ~92k, so redesign the case) and
+  remote MCP, within the turns left after S1.
 
-## Batch 11d: History/rewind routers — PENDING (blocked on evidence; #808 merged)
+---
 
-- Files: CREATE W/libs/backend/agent-sdk/src/lib/codex-app-server/session-history-router.ts,
-  `session-rewind-router.ts`, each with same-stem spec
+# Phase P11 — Native subagents — PENDING (needs P8, S1 fixture)
 
-## Batch 11e: RPC history delegation — PENDING (blocked on evidence; #808 merged)
+Phase review: code-logic. Implementer Codex, reviewer Claude. Native features only; the
+Ptah-owned spawn tool is dropped.
 
-- Files: MODIFY W/libs/backend/rpc-handlers/src/lib/chat/session/chat-history-read.service.ts,
-  W/libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts; CREATE
-  W/libs/backend/rpc-handlers/src/lib/handlers/session-native-history.spec.ts
+## Batch 11a: Translator maps native subagent items — PENDING
 
-All P11 batches: executor CLI lane, Codex family; reviewer Claude; phase review code-logic.
+- Files: MODIFY W/libs/backend/codex-runtime/src/lib/codex-event-translator.ts (start point :324:
+  `collabAgentToolCall` is a generic tool row today) and `codex-event-translator.spec.ts`,
+  `codex-runtime.types.ts`; CREATE `__fixtures__/subagent-frames.json` (from S1)
+- Details: new CodexRuntimeEvent variants `subagentStarted {parentThreadId, childThreadId,
+  toolId, agentRole?, prompt?}` / `subagentCompleted {childThreadId, status, summary?}` from
+  `collabAgentToolCall` + `subAgentActivity`; every event carries its source threadId so child
+  frames are distinguishable from the parent's (R7-5).
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime`
+
+## Batch 11b: Chat projection — agent cards and child approvals — PENDING (needs 11a)
+
+- Files: MODIFY D+codex-chat-events.ts and spec, D+session-approval-router.ts and spec; CREATE
+  D+codex-subagent-tracker.ts and spec
+- Details: subagentStarted -> `agent_start`, completion -> `agent_completed`
+  (`libs/shared/src/lib/types/execution/stream.ts:42-53`); child-thread events go under the agent
+  card, never into the main transcript; child-thread approvals route to the parent session's
+  sink with the agent label; unroutable -> decline (R7-6). The tracker supplies the child list
+  for metadata (6d).
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk`
+
+## Batch 11c: Personas — Ptah agent files to Codex named roles, or a gap report — PENDING
+
+- Step 1 (read-only, Codex lane): check the pinned schema (`agentRole` ~:20378) and Codex
+  source/docs for a configurable named-role mechanism; the answer goes into the lane report and
+  the team-leader records it in decisions.md.
+- Step 2 only if supported: map Ptah agent files to the role configuration in the execution
+  profile (codex-execution-profile.ts + spec; max 4 files, codex-runtime only). If NOT supported:
+  no code; the gap goes to the coordinator (no workaround — user decision).
+- Last P11 batch -> phase review.
+
+---
+
+# Phase P12 — Native sessions: history, resume, rollback — PENDING (needs P11, S1)
+
+Phase review: code-logic. Source of truth: the Codex rollout JSONL in each CODEX_HOME
+`sessions/`. Ptah keeps only metadata keyed by thread id (6d). No Ptah JSONL copy.
+
+## Batch 12a: Protocol methods thread/read and thread/revert — PENDING
+
+- Files: MODIFY W/libs/backend/codex-runtime/src/lib/codex-protocol-methods.ts,
+  `codex-protocol-schemas.ts`, `codex-protocol-validator.spec.ts`
+- Details: validate `thread/read` and `thread/revert {threadId, beforeTurnId}` from the pinned
+  schema (~:886, ~:718). Do NOT add `thread/rollback` (refuses paginated threads, removed by
+  0.163; 7e -32600).
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime`
+
+## Batch 12b: History reader and revert on the runtime — PENDING (needs 12a)
+
+- Files: CREATE W/libs/backend/codex-runtime/src/lib/codex-session-history.ts and spec; MODIFY
+  `codex-runtime.ts`, `codex-runtime.types.ts`, `codex-runtime.spec.ts`
+- Details: `readHistory(threadId)` = `thread/read` -> CodexEventTranslator replay -> ordered
+  events including child threads (rebuilds agent cards on resume); `revert(threadId,
+  beforeTurnId)` on CodexContext; resume stays `thread/resume`. Spec replays the S1 fixture
+  (AS7-2).
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime`
+
+## Batch 12c: History and rewind routers — PENDING (needs 12b, 6e)
+
+- Files: CREATE D+session-history-router.ts, D+session-rewind-router.ts, each with same-stem spec
+- Details: Codex sessions read native history; Claude sessions keep the existing reader; history
+  rollback calls `revert`; file rewind delegates to the P13 checkpoint (interface here, wired in
+  13b).
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk`
+
+## Batch 12d: RPC history delegation — PENDING (needs 12c)
+
+- Files: MODIFY R+chat/session/chat-history-read.service.ts, R+handlers/session-rpc.handlers.ts;
+  CREATE R+handlers/session-native-history.spec.ts
+- Verification: `npm run verify -- -p @ptah-extension/rpc-handlers`. Last P12 batch -> phase
+  review.
+
+---
+
+# Phase P13 — File-rewind checkpoint (built; not native) — PENDING (needs P12)
+
+Phase review: code-logic.
+
+## Batch 13a: Turn-start git shadow-tree checkpoint — PENDING
+
+- Files: CREATE D+turn-file-checkpoint.ts and spec
+- Details: at turn start, snapshot the workspace with a temporary `GIT_INDEX_FILE` (`git add -A`
+  into the temp index, `write-tree`, `commit-tree`) under a private ref
+  `refs/ptah/checkpoints/<threadId>/<turnId>`; rewind restores the files changed since that tree
+  and returns the existing `SessionRewindResult`
+  (`libs/shared/src/lib/types/rpc/rpc-session.types.ts:598`: canRewind, error, filesChanged,
+  insertions, deletions). Non-git workspace or git failure -> `canRewind: false` + error. Never
+  touches the user's index, HEAD, branches or stash (R7-8; spec in a temp repo asserts `git
+  status --porcelain`, HEAD and index unchanged). Ref pruning bounded per thread.
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk`
+
+## Batch 13b: Wire the checkpoint into turn start and the rewind router — PENDING (needs 13a)
+
+- Files: MODIFY D+codex-chat-adapter.ts and spec, D+session-rewind-router.ts and spec
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk`. Last P13 batch -> phase review.
+
+---
+
+# Phase P14 — Parity ledger and live Electron parity — PENDING (needs P13, S2)
+
+## Batch 14a: Reviewed parity-gate ledger update — PENDING
+
+- Files: MODIFY W/libs/backend/codex-runtime/src/lib/codex-parity-gate.ts and
+  `codex-parity-gate.spec.ts`
+- Details: update CODEX_PARITY_EVIDENCE from reviewed runs 7a2-7f (exact-command session grant,
+  same-home isolation, resume, profile-inputs) and S1/S2 (revert, file vs shell edit, subagents,
+  different-command Always Allow, remote MCP); each row cites its spike file; unproved rows stay
+  unproved. The gate stays `enabled: false` (production enablement is a separate user decision).
+- Phase review: code-logic (ledger accuracy against the spike JSON).
+
+## Batch 14b: Live Electron parity run on the new path — PENDING (stop and return before running)
+
+- Executor: visual-reviewer / Claude subagent (needs a running Electron build and screenshots).
+  HANDOFF.md Electron live-test procedure with `PTAH_CODEX_RUNTIME_DEV=1`; reruns the session-7
+  scenarios plus subagents, history, resume, revert, rewind and approvals; dark + light. Paid
+  model turns -> coordinator approval first.
+- Output: parity proof recorded per row in parity-inventory.md.
+
+---
+
+# Phase P15 — Removal A (Claude Agent SDK + Codex translation proxy for main chat) — PENDING (needs P14 proof)
+
+- 15a (read-only, Claude subagent): refresh parity-inventory.md against the OLD surface at the
+  base commit; list every file of the proxy path; a capability without proof blocks.
+- 15b..: file-disjoint removal batches (<=6 files each, Codex lanes), verified per batch and
+  committed ONCE for the whole removal with the proof reference (user decision). Claude provider
+  behavior unchanged; host typecheck for all four hosts; re-check the fix-PR fence.
+- Phase review: code-logic + style on the removal commit.
+
+# Phase P16 — Removal B (@openai/codex-sdk CLI lanes) — PENDING (needs P15, lane parity proof)
+
+- Same structure as P15 for the codex-sdk lane path; one commit with the proof.
 
 ---
 
 ## Out of scope for this batch plan
 
-- Enabling any consumer (chat, gateway, lane) for users: requires every required observation or
-  user-approved reductions, then a separate rollout decision.
-- Removal A (translation proxy) and Removal B (codex-sdk lanes): only after parity and separate
-  user confirmation.
+- Enabling any consumer for production (packaged builds): needs every required observation or
+  user-approved reductions, then a separate user rollout decision.
 - Runtime selector UI, TUI and VS Code feature work.
+
+## Session 7 decisions (team-leader)
+
+| Decision | Options | Evidence | Reversible |
+| --- | --- | --- | --- |
+| Dev switch = env `PTAH_CODEX_RUNTIME_DEV=1`, honored only when `app.isPackaged === false`, chat consumer only, read by the host and passed in as a port | Settings key; env var; build flag | Pattern `apps/ptah-electron/src/main.ts:122` (PTAH_E2E); the gate is documented as "no environment probes" (`codex-parity-gate.ts`), so the env read stays in the host; a settings key would need editing ~/.ptah/settings.json | Yes |
+| Dev switch is its own phase (P5b) with a code-logic review | Fold into P6 | It bypasses the production gate; smallest reviewable diff | Yes |
+| Shared workspace key helper lives in codex-runtime `codex-home-path.ts` | libs/shared; auth-providers | auth-providers and agent-sdk both depend on codex-runtime; libs/shared also feeds the frontend (no node `path`) | Yes |
+| Lanes keep native subagents disabled at the 10b migration | Enable for lanes | `codex-lane-config.builder.ts:104`; lane parity is about restrictions | Yes, user input to enable |
+| S0/S1 gap spikes run before P11/P12, not at the end | All spikes last | Subagent mapping and revert depend on observed frames (AS7-2, AS7-3) | Yes |
+| A removal phase may exceed the 6-file cap by staging several verified batches into one commit | One commit per batch | User decision: each removal is its own commit with its proof | Yes |
+| Old P11 (evidence-blocked history/file history/subagent controls) is replaced by P11-P13 | Keep blocked | User principle "native first" + research-codex-gaps.md | Yes |
