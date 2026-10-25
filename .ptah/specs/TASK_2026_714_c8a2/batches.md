@@ -706,7 +706,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 | P5-D5 | Per-request approval cancel = new constant `PERMISSION_PROMPT_CANCELLED` with a typed payload; frontend wiring stays in 8b | Reuse auto-resolved; reuse session-cleanup; new typed message | Auto-resolved means "resolved without the user"; session-cleanup is whole-session. Plan :199 asks for a typed session-scoped message | Yes |
 | P5-D6 | Native branch of resolveExecutionProfile only when `hostCapabilities.nativeCodex === true`; every host passes false while the parity gate is closed (no caller until P7) | Read the gate inside auth-providers; host-supplied capability | Plan :85 `hostCapabilities`; gate stays in composition (`resolveGatedCodexRuntime`) | Yes |
 
-## Batch 5a: SessionRuntimeIdentity and shared contracts — COMPLETE (verified; commit below)
+## Batch 5a: SessionRuntimeIdentity and shared contracts — COMPLETE (085a9341d)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
   Review family: Claude (different from implementer) | Subagent reason: N/A
@@ -764,7 +764,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Team-leader then runs host typecheck once for the phase:
   `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
 
-## Batch 5b: Usage service home API delegates to the core client (was 3b.1) — IN_PROGRESS
+## Batch 5b: Usage service home API delegates to the core client (was 3b.1) — COMPLETE (verified; fix round 1 for invalid homes)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
   Review family: Claude | Subagent reason: N/A
@@ -772,7 +772,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Rationale: one service + its contract + its registration; disjoint from 5a
 - Tasks: 1 | Depends on: 2k, 3a (merged) | Phase: P5
 
-### Task 5b.1: Home-aware usage service and registrations — IN_PROGRESS
+### Task 5b.1: Home-aware usage service and registrations — COMPLETE
 
 - Files: MODIFY W/libs/backend/auth-providers-tokens/src/lib/tokens.ts,
   W/libs/backend/auth-providers/src/lib/providers/codex/codex-account-usage.service.ts and

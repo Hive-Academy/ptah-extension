@@ -21,6 +21,9 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { OpenCodeProviderId } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { CodexAccountUsageClient } from '@ptah-extension/codex-runtime';
+import { CodexHomeAuthService } from './codex/codex-home-auth.service';
 import type { ApiKeyProxyBinding } from '../auth/auth-strategy.types';
 import {
   OpenCodeAuthService,
@@ -57,6 +60,22 @@ import {
  * previously occupied.
  */
 export function registerProviders(container: DependencyContainer): void {
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_AUTH, {
+    useFactory: instanceCachingFactory((c) =>
+      CodexHomeAuthService.forHost(
+        c.resolve(TOKENS.LOGGER),
+        c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+      ),
+    ),
+  });
+  if (
+    !container.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_USAGE_CLIENT, true)
+  ) {
+    container.register<CodexAccountUsageClient | null>(
+      AUTH_PROVIDERS_TOKENS.SDK_CODEX_USAGE_CLIENT,
+      { useFactory: () => null },
+    );
+  }
   // A factory, not `useClass`: `CodexHomeResolver`'s constructor parameters are
   // test seams that nothing registers, so container construction only ever
   // produced the no-argument instance this factory builds explicitly.

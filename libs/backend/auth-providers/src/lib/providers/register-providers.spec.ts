@@ -3,12 +3,42 @@ import { container } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockAuthSecretsService } from '@ptah-extension/vscode-core/testing';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
+import { CodexHomeAuthService } from './codex/codex-home-auth.service';
 import { AUTH_PROVIDERS_TOKENS as T } from '../di/tokens';
 import type { ApiKeyProxyBinding } from '../auth/auth-strategy.types';
 import { OpenCodeAuthService, OpenCodeTranslationProxy } from './opencode';
 import { registerProviders } from './register-providers';
 
 describe('registerProviders OpenCode bindings', () => {
+  it('registers the same per-host Codex auth owner and a nullable usage client', () => {
+    const c = container.createChildContainer();
+    const logger = createMockLogger();
+    const workspace = createMockWorkspaceProvider();
+    c.registerInstance(TOKENS.LOGGER, logger);
+    c.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspace);
+    registerProviders(c);
+    const owner = CodexHomeAuthService.forHost(logger, workspace);
+    expect(c.resolve(T.SDK_CODEX_HOME_AUTH)).toBe(owner);
+    expect(c.resolve(T.SDK_CODEX_HOME_AUTH)).toBe(owner);
+    expect(c.resolve(T.SDK_CODEX_USAGE_CLIENT)).toBeNull();
+    expect(T.SDK_CODEX_HOME_AUTH).toBe(Symbol.for('SdkCodexHomeAuth'));
+    expect(T.SDK_CODEX_USAGE_CLIENT).toBe(Symbol.for('SdkCodexUsageClient'));
+  });
+
+  it.each([false, true])(
+    'preserves a composition usage binding inherited=%s',
+    (inherited) => {
+      const parent = container.createChildContainer();
+      const c = inherited ? parent.createChildContainer() : parent;
+      const client = { read: jest.fn() };
+      parent.registerInstance(T.SDK_CODEX_USAGE_CLIENT, client);
+      registerProviders(c);
+      expect(c.resolve(T.SDK_CODEX_USAGE_CLIENT)).toBe(client);
+    },
+  );
+
   it('resolves four cached proxy bindings and separate subscription auth without starting servers', async () => {
     const c = container.createChildContainer();
     c.registerInstance(TOKENS.LOGGER, createMockLogger());
