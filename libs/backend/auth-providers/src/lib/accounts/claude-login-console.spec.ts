@@ -1,10 +1,12 @@
 import 'reflect-metadata';
+import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { buildCertifiedClaudeEnv, certifiedEnvDigest, CLAUDE_CERTIFIED_ENV_KEYS } from '@ptah-extension/agent-sdk';
 import type { IProcessSpawner, ProcessSpawnRequest, SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { ClaudeLoginConsole, quotePosix, quotePowerShell } from './claude-login-console';
 import { ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeCliProbe, type ClaudeRouteCertifierFs } from './claude-route-certifier';
+import { resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
 
 const SDK_PATH = 'C:\\tools\\claude\\cli.js';
 
@@ -115,9 +117,25 @@ function after(text: string, marker: string): number {
 }
 
 describe('ClaudeLoginConsole.launch', () => {
-  it('opens conhost.exe with the certified env, cwd and user console on win32', async () => {
+  let root: string;
+  let route: CanonicalProviderAccountRoute;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ptah-login-console-'));
+    mkdirSync(join(root, 'account'));
+    route = resolveProviderAccountRoute(join(root, 'account'));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  /** A context carrying the reserved route of a real temp directory. */
+  const reserved = (): ClaudeAuthContext => ({ ...context({ canonicalDir: route.canonicalPath }), route });
+  /** Moves the reserved directory away and puts a different directory at the same path. */
+  const replaceDirectory = (): void => {
+    renameSync(route.requestedPath, join(root, 'moved'));
+    mkdirSync(route.requestedPath);
+  };
+
+  it('opens conhost.exe with the certified env, cwd, user console and file-identity guard on win32', async () => {
     const { spawner, requests } = fakeSpawner();
-    const ctx = context();
+    const ctx = reserved();
     const result = await new ClaudeLoginConsole(spawner, 'win32').launch(ctx, signal());
 
     expect(result.kind).toBe('started');
@@ -128,19 +146,47 @@ describe('ClaudeLoginConsole.launch', () => {
         env: ctx.env,
         cwd: ctx.canonicalDir,
         userConsole: true,
+        launchGuard: { fileIdentities: [{ path: route.requestedPath, realpath: route.canonicalPath,
+          devIno: `${route.filesystemIdentity.volumeId}:${route.filesystemIdentity.fileId}` }] },
       },
     ]);
   });
 
+  it.each(['win32', 'linux'] as const)('launches nothing against a directory replaced after reservation and coverage on %s',
+    async (platform) => {
+      const { spawner, requests } = fakeSpawner();
+      const ctx = reserved();
+      replaceDirectory();
+      await expect(new ClaudeLoginConsole(spawner, platform).launch(ctx, signal())).resolves.toEqual({ kind: 'route-changed' });
+      expect(requests).toEqual([]);
+    });
+
+  it('launches nothing without a reserved route', async () => {
+    const { spawner, requests } = fakeSpawner();
+    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(context(), signal())).resolves.toEqual({ kind: 'route-changed' });
+    expect(requests).toEqual([]);
+  });
+
+  it('reports route-changed when the guard refused the spawn because the directory changed', async () => {
+    const spawner: IProcessSpawner = {
+      spawnProcess: () => {
+        // The spawner's creation-time check sees the replacement (simulated here).
+        replaceDirectory();
+        throw Object.assign(new Error('refused'), { code: 'ELAUNCHGUARD' });
+      },
+    };
+    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(reserved(), signal())).resolves.toEqual({ kind: 'route-changed' });
+  });
+
   it.each(['darwin', 'linux'] as const)('never sets userConsole on %s and returns unavailable', async (platform) => {
     const { spawner, requests } = fakeSpawner();
-    await expect(new ClaudeLoginConsole(spawner, platform).launch(context(), signal())).resolves.toEqual({ kind: 'unavailable' });
+    await expect(new ClaudeLoginConsole(spawner, platform).launch(reserved(), signal())).resolves.toEqual({ kind: 'unavailable' });
     expect(requests).toEqual([]);
   });
 
   it('is unavailable when no child started', async () => {
     const { spawner } = fakeSpawner(null);
-    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(context(), signal())).resolves.toEqual({ kind: 'unavailable' });
+    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(reserved(), signal())).resolves.toEqual({ kind: 'unavailable' });
   });
 
   it('is unavailable when the spawn throws', async () => {
@@ -149,13 +195,13 @@ describe('ClaudeLoginConsole.launch', () => {
         throw Object.assign(new Error('refused'), { code: 'ELAUNCHGUARD' });
       },
     };
-    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(context(), signal())).resolves.toEqual({ kind: 'unavailable' });
+    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(reserved(), signal())).resolves.toEqual({ kind: 'unavailable' });
   });
 
   it('is unavailable without SYSTEMROOT or after abort, with no spawn', async () => {
     const { spawner, requests } = fakeSpawner();
     const consoleWin = new ClaudeLoginConsole(spawner, 'win32');
-    const ctx = context();
+    const ctx = reserved();
     const withoutRoot = { ...ctx, env: Object.fromEntries(Object.entries(ctx.env).filter(([key]) => key.toUpperCase() !== 'SYSTEMROOT')) };
     await expect(consoleWin.launch(withoutRoot, signal())).resolves.toEqual({ kind: 'unavailable' });
     const controller = new AbortController();

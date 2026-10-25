@@ -1,5 +1,10 @@
 import 'reflect-metadata';
+import { EventEmitter } from 'node:events';
+import { tmpdir } from 'node:os';
 import { win32 } from 'node:path';
+import { PassThrough } from 'node:stream';
+import { killProcessTree, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { ClaudeAccountCommand } from './claude-account-command';
 import {
   CLAUDE_POLICY_COVERAGE,
   CLAUDE_REMOTE_SETTINGS_FILES,
@@ -11,6 +16,12 @@ import {
   type ClaudePolicyScanFs,
   type ClaudeRegistryQueryResult,
 } from './claude-auth-settings-scan';
+
+// The command's tree kill must never reach a real process from a spec.
+jest.mock('@ptah-extension/platform-core', () => ({
+  ...jest.requireActual<typeof import('@ptah-extension/platform-core')>('@ptah-extension/platform-core'),
+  killProcessTree: jest.fn().mockResolvedValue(undefined),
+}));
 
 const CWD = 'C:\\Users\\dev\\work\\proj';
 const CANONICAL_DIR = 'C:\\Users\\dev\\.ptah\\claude-accounts\\acct-1';
@@ -302,6 +313,39 @@ describe('scanClaudeAuthPolicy', () => {
       await expect(scanClaudeAuthPolicy(request({ queryRegistry: registry.queryRegistry }))).resolves.toEqual(REFUSED);
     });
 
+    const STRUCTURELESS: ReadonlyArray<[string, string]> = [
+      ['empty', ''],
+      ['whitespace-only', '\r\n   \r\n\t\r\n'],
+      ['value-only (no header)', `\r\n    Secret    REG_SZ    ${CANARY}\r\n    Other    REG_DWORD    0x1\r\n`],
+    ];
+
+    it.each(STRUCTURELESS)('malformed: %s exit-0 Policies listing refuses', async (_label, stdout) => {
+      const registry = fakeRegistry({ 'HKLM\\SOFTWARE\\Policies': done(stdout) });
+      await expect(scanClaudeAuthPolicy(request({ queryRegistry: registry.queryRegistry }))).resolves.toEqual(REFUSED);
+      expect(registry.calls).toEqual(['HKLM\\SOFTWARE\\Policies']);
+    });
+
+    it.each(STRUCTURELESS)('malformed: %s exit-0 parent fallback listing refuses', async (_label, stdout) => {
+      const registry = fakeRegistry({
+        'HKCU\\SOFTWARE\\Policies': done('', 1),
+        'HKCU\\SOFTWARE': done(stdout),
+      });
+      await expect(scanClaudeAuthPolicy(request({ queryRegistry: registry.queryRegistry }))).resolves.toEqual(REFUSED);
+      expect(registry.calls).toEqual(['HKLM\\SOFTWARE\\Policies', 'HKCU\\SOFTWARE\\Policies', 'HKCU\\SOFTWARE']);
+    });
+
+    it('a header-only listing (key with values, no subkeys) is well formed', async () => {
+      const registry = fakeRegistry({
+        'HKCU\\SOFTWARE\\Policies': done(
+          ['', 'HKEY_CURRENT_USER\\SOFTWARE\\Policies', `    Secret    REG_SZ    ${CANARY}`, ''].join('\r\n'),
+        ),
+      });
+      await expect(scanClaudeAuthPolicy(request({ queryRegistry: registry.queryRegistry }))).resolves.toMatchObject({
+        ok: true,
+        policy: { registry: 'absent' },
+      });
+    });
+
     it('passes the scan signal to every query', async () => {
       const controller = new AbortController();
       const registry = fakeRegistry();
@@ -511,5 +555,91 @@ describe('scanClaudeAuthPolicy', () => {
         expect(serialized).not.toContain(leak);
       }
     }
+  });
+});
+
+describe('scanClaudeAuthPolicy with a reg.exe child that outlives its limit (close receipts)', () => {
+  /** Fake `reg.exe` child: never a real process. */
+  class RegChild extends EventEmitter implements SpawnedProcessHandle {
+    readonly stdin = new PassThrough();
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly pid = 4321;
+    readonly killed = false;
+    readonly exitCode = null;
+    readonly whenSpawned = Promise.resolve(4321);
+    kill(): boolean { return true; }
+  }
+
+  const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  let children: RegChild[];
+  let command: ClaudeAccountCommand;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    children = [];
+    const host = {
+      platform: 'win32' as const, env: () => ({ SYSTEMROOT: 'C:\\Windows' }), tempDir: () => tmpdir(),
+      stat: jest.fn().mockResolvedValue({ size: 1, mtimeMs: 1 }),
+    };
+    command = new ClaudeAccountCommand({ findExecutable: jest.fn() }, { spawnProcess: () => {
+      const child = new RegChild(); children.push(child); return child;
+    } }, host);
+  });
+  afterEach(() => {
+    expect(jest.getTimerCount()).toBe(0);
+    jest.clearAllMocks(); jest.useRealTimers();
+  });
+
+  /** Runs the scan until the first query's limit (5 s) and kill grace (2 s) have passed. */
+  async function stalledScan() {
+    const pending = scanClaudeAuthPolicy(request({
+      queryRegistry: (path, signal) => command.queryRegistry(path, signal),
+    }));
+    // The scan reads every file source before its first registry query.
+    for (let i = 0; i < 1_000 && children.length === 0; i++) await Promise.resolve();
+    expect(children).toHaveLength(1);
+    await flush(); await jest.advanceTimersByTimeAsync(5_000); await flush();
+    expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
+    await jest.advanceTimersByTimeAsync(2_000); await flush();
+    return pending;
+  }
+
+  it('hands the unproved child receipt to the caller, and a late close proves termination', async () => {
+    const result = await stalledScan();
+    expect(result).toEqual({ ok: false, code: 'unsupported-source', terminated: false, closeReceipts: [expect.anything()] });
+    if (result.ok) throw new Error('expected a refusal');
+    const [receipt] = result.closeReceipts ?? [];
+    expect(children).toHaveLength(1);
+    expect(receipt.closed).toBe(false);
+    expect(children[0].listenerCount('close')).toBe(1);
+    const closed = jest.fn();
+    receipt.onClosed(closed);
+    children[0].emit('close', 1, null); await flush();
+    expect(receipt.closed).toBe(true);
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(children[0].listenerCount('close')).toBe(0);
+  });
+
+  it('control: a child that never closes stays unproved, and disposing the receipt removes its listeners', async () => {
+    const result = await stalledScan();
+    if (result.ok) throw new Error('expected a refusal');
+    const [receipt] = result.closeReceipts ?? [];
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(receipt.closed).toBe(false);
+    expect(children[0].listenerCount('close')).toBe(1);
+    receipt.dispose();
+    expect(children[0].listenerCount('close')).toBe(0);
+    expect(children[0].listenerCount('error')).toBe(0);
+    children[0].emit('close', 1, null); await flush();
+    expect(receipt.closed).toBe(false);
+  });
+
+  it('returns no receipt when an unproved child left none, so the refusal stays unobservable', async () => {
+    const registry = fakeRegistry({
+      'HKLM\\SOFTWARE\\Policies': { exitCode: null, stdout: '', terminated: false, timedOut: true, overflow: false },
+    });
+    await expect(scanClaudeAuthPolicy(request({ queryRegistry: registry.queryRegistry })))
+      .resolves.toEqual({ ok: false, code: 'unsupported-source', terminated: false });
   });
 });

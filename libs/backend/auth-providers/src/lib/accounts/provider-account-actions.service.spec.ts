@@ -9,7 +9,7 @@ import { isSafeProviderAccountSummary, PROVIDER_ACCOUNT_RESULT_CODES } from '@pt
 import { ProviderAccountStore } from './provider-account.store';
 import { ProviderAccountService } from './provider-account.service';
 import { ProviderAccountActionsService } from './provider-account-actions.service';
-import { accountActionResult, ClaudeAccountCommand } from './claude-account-command';
+import { accountActionResult, ClaudeAccountCommand, type ClaudeChildCloseReceipt } from './claude-account-command';
 import type { ClaudeAccountStatus } from './claude-account-status';
 import { ClaudeLoginConsole } from './claude-login-console';
 import { ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeStatusProbeResult } from './claude-route-certifier';
@@ -47,6 +47,28 @@ const signedIn = (accountClass: 'P' | 'O' = 'P'): ClaudeStatusProbeResult => ({
 const signedOut: ClaudeStatusProbeResult = { status: { loggedIn: false } as ClaudeAccountStatus, terminated: true };
 const unproved: ClaudeStatusProbeResult = { status: null, terminated: false };
 const refusal = { ok: false as const, code: 'unsupported-source' as const, terminated: true };
+
+/** A probe child that outlived its limit and kill grace; `close()` is its late close. */
+class FakeReceipt implements ClaudeChildCloseReceipt {
+  closed = false;
+  disposed = false;
+  readonly listeners = new Set<() => void>();
+  onClosed(listener: () => void): () => void {
+    if (this.closed) { listener(); return () => undefined; }
+    if (!this.disposed) this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  dispose(): void { this.disposed = true; this.listeners.clear(); }
+  close(): void {
+    if (this.closed || this.disposed) return;
+    this.closed = true;
+    const listeners = [...this.listeners];
+    this.listeners.clear();
+    for (const listener of listeners) listener();
+  }
+}
+const unprovedWith = (closeReceipt: FakeReceipt): ClaudeStatusProbeResult & { closeReceipt: FakeReceipt } =>
+  ({ status: null, terminated: false, closeReceipt });
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -343,6 +365,252 @@ describe('ProviderAccountActionsService', () => {
       expect(commands.status).not.toHaveBeenCalled();
       expect(completeAuth).not.toHaveBeenCalled();
       expect(operations()).toHaveLength(1);
+    });
+  });
+
+  describe('late probe close (close receipts)', () => {
+    it('a status child closed after its timeout and grace no longer blocks a later successful sign-in', async () => {
+      const late = new FakeReceipt();
+      commands.status.mockResolvedValueOnce(unprovedWith(late)).mockResolvedValue(signedIn());
+      await actions.startSignIn(command());
+      await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(1);
+      expect(late.listeners.size).toBe(1);
+      late.close();
+      await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(2);
+      expect(completeAuth).toHaveBeenCalledWith('operation-0001', expect.any(String), 1, 'signed-in', 'identity-ref-0001');
+      expect(store.get(id).state).toBe('signed-in');
+      expect(operations()).toEqual([]);
+    });
+
+    it('a gated sign-in completes when the unproved status child closes later', async () => {
+      const late = new FakeReceipt();
+      commands.status.mockResolvedValueOnce(unprovedWith(late)).mockResolvedValue(signedIn());
+      await actions.startSignIn(command());
+      await advance(2_000); await advance(2_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      late.close(); await flush();
+      expect(store.get(id).state).toBe('signed-in');
+      expect(operations()).toEqual([]);
+    });
+
+    it('control: a status child that never closes keeps the operation busy, whatever the elapsed time', async () => {
+      const never = new FakeReceipt();
+      commands.status.mockResolvedValueOnce(unprovedWith(never)).mockResolvedValue(signedIn());
+      await actions.startSignIn(command());
+      await advance(2_000); await advance(2_000);
+      await advance(600_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      expect((await actions.readStatus(target())).code).toBe('busy');
+      expect(operations()).toHaveLength(1);
+    });
+
+    it('resumes polling at the unproved limit once one of the children closes', async () => {
+      const receipts = [new FakeReceipt(), new FakeReceipt(), new FakeReceipt()];
+      for (const receipt of receipts) commands.status.mockResolvedValueOnce(unprovedWith(receipt));
+      commands.status.mockResolvedValue(signedOut);
+      await actions.startSignIn(command());
+      for (let i = 0; i < 4; i++) await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(3);
+      receipts[0].close();
+      await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(4);
+    });
+
+    it('an unproved logout child that closes later lets the gated sign-out settle', async () => {
+      signIn('signed-in');
+      const late = new FakeReceipt();
+      commands.logout.mockResolvedValue({ exitCode: null, terminated: false, closeReceipt: late });
+      expect((await actions.signOut(command())).code).toBe('busy');
+      expect(operations()).toHaveLength(1);
+      late.close(); await flush();
+      expect(completeAuth).toHaveBeenCalledTimes(1);
+      expect(store.get(id).state).toBe('disconnected');
+      expect(operations()).toEqual([]);
+    });
+
+    it('a status action releases its reservation only when the unproved child closes', async () => {
+      signIn('signed-in');
+      const late = new FakeReceipt();
+      commands.status.mockResolvedValue(unprovedWith(late));
+      expect((await actions.readStatus(target())).code).toBe('identity-unproved');
+      await advance(600_000);
+      expect(operations()).toHaveLength(1);
+      expect(store.get(id).state).toBe('signed-in');
+      late.close();
+      expect(operations()).toEqual([]);
+      expect(store.get(id).state).toBe('signed-in');
+    });
+
+    it('disposal removes every receipt listener and leaves the reservations held', async () => {
+      const signInChild = new FakeReceipt();
+      commands.status.mockResolvedValue(unprovedWith(signInChild));
+      await actions.startSignIn(command());
+      await advance(2_000);
+      expect(signInChild.listeners.size).toBe(1);
+      await actions.dispose();
+      expect(signInChild.disposed).toBe(true);
+      expect(signInChild.listeners.size).toBe(0);
+      signInChild.close();
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+    });
+
+    it('disposal removes the listener of a status-action child that outlived the action', async () => {
+      const late = new FakeReceipt();
+      commands.status.mockResolvedValue(unprovedWith(late));
+      expect((await actions.readStatus(target())).code).toBe('identity-unproved');
+      expect(late.listeners.size).toBe(1);
+      await actions.dispose();
+      expect(late.disposed).toBe(true);
+      expect(late.listeners.size).toBe(0);
+      expect(operations()).toHaveLength(1);
+    });
+  });
+
+  describe('late reg.exe close (policy scan close receipts)', () => {
+    const unprovedScan = (...closeReceipts: FakeReceipt[]) =>
+      ({ ok: false as const, code: 'unsupported-source' as const, terminated: false, closeReceipts });
+
+    it('an auth-context refusal with an unproved reg.exe child blocks sign-out until its late close', async () => {
+      signIn('signed-in');
+      const late = new FakeReceipt();
+      certifier.authContext.mockResolvedValue(unprovedScan(late));
+      expect((await actions.signOut(command())).code).toBe('busy');
+      expect(commands.logout).not.toHaveBeenCalled();
+      expect(late.listeners.size).toBe(1);
+      await advance(600_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(operations()).toHaveLength(1);
+      late.close(); await flush();
+      expect(completeAuth).toHaveBeenCalledTimes(1);
+      expect(store.get(id).state).toBe('disconnected');
+      expect(operations()).toEqual([]);
+    });
+
+    it('a coverage refusal unblocks sign-in only when every unproved reg.exe child closed', async () => {
+      const first = new FakeReceipt();
+      const second = new FakeReceipt();
+      certifier.checkCoverage.mockResolvedValue(unprovedScan(first, second));
+      await actions.startSignIn(command());
+      await flush();
+      expect(loginConsole.launch).not.toHaveBeenCalled();
+      expect(completeAuth).not.toHaveBeenCalled();
+      first.close(); await flush();
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(operations()).toHaveLength(1);
+      second.close(); await flush();
+      expect(completeAuth).toHaveBeenCalledTimes(1);
+      expect(store.get(id).state).toBe('failed');
+      expect(operations()).toEqual([]);
+    });
+
+    it('control: a reg.exe child that never closes keeps the operation busy, whatever the elapsed time', async () => {
+      const never = new FakeReceipt();
+      certifier.checkCoverage.mockResolvedValue(unprovedScan(never));
+      await actions.startSignIn(command());
+      await advance(600_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect((await actions.readStatus(target())).code).toBe('busy');
+      expect(operations()).toHaveLength(1);
+    });
+
+    it('an unterminated refusal without receipts stays unproved', async () => {
+      certifier.checkCoverage.mockResolvedValue({ ok: false, code: 'unsupported-source', terminated: false });
+      await actions.startSignIn(command());
+      await advance(600_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(operations()).toHaveLength(1);
+    });
+
+    it('disposal removes the reg.exe receipt listeners and leaves the reservation held', async () => {
+      const never = new FakeReceipt();
+      certifier.authContext.mockResolvedValue(unprovedScan(never));
+      await actions.startSignIn(command());
+      await flush();
+      expect(never.listeners.size).toBe(1);
+      await actions.dispose();
+      expect(never.disposed).toBe(true);
+      expect(never.listeners.size).toBe(0);
+      never.close();
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(operations()).toHaveLength(1);
+    });
+
+    it('a status action disposes reg.exe receipts and keeps its reservation', async () => {
+      signIn('signed-in');
+      const late = new FakeReceipt();
+      certifier.checkCoverage.mockResolvedValue(unprovedScan(late));
+      expect((await actions.readStatus(target())).code).toBe('unsupported-source');
+      expect(commands.status).not.toHaveBeenCalled();
+      expect(late.disposed).toBe(true);
+      expect(late.listeners.size).toBe(0);
+      expect(operations()).toHaveLength(1);
+      expect(store.get(id).state).toBe('signed-in');
+    });
+  });
+
+  describe('route-changed (reserved directory replaced)', () => {
+    const changed = (terminated: boolean): ClaudeStatusProbeResult => ({ status: null, terminated, routeChanged: true });
+
+    it('sign-in start-up: the console refusal ends the operation at once with no fallback', async () => {
+      loginConsole.launch.mockResolvedValue({ kind: 'route-changed' });
+      expect(await actions.startSignIn(command())).toEqual(accountActionResult('route-changed'));
+      expect(loginConsole.fallbackScript).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('failed');
+      expect(operations()).toEqual([]);
+    });
+
+    it('sign-in poll: records no signed-in state and releases a terminated child', async () => {
+      commands.status.mockResolvedValue(changed(true));
+      await actions.startSignIn(command());
+      await advance(2_000);
+      expect(completeAuth).toHaveBeenCalledWith('operation-0001', expect.any(String), 1, 'failed', undefined);
+      expect(store.get(id).state).toBe('failed');
+      expect(store.identityRef(id)).toBeNull();
+      expect(operations()).toEqual([]);
+    });
+
+    it('sign-in poll: an unproved child keeps the reservation (busy)', async () => {
+      commands.status.mockResolvedValue(changed(false));
+      await actions.startSignIn(command());
+      await advance(2_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      expect((await actions.readStatus(target())).code).toBe('busy');
+    });
+
+    it('sign-out: a changed route after logout or after the follow-up status records no signed-out state', async () => {
+      signIn('signed-in');
+      commands.logout.mockResolvedValueOnce({ exitCode: null, terminated: true, routeChanged: true });
+      expect((await actions.signOut(command())).code).toBe('route-changed');
+      expect(commands.status).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('disconnected');
+      expect(store.identityRef(id)).toBe('identity-ref-0001');
+      signIn('signed-in');
+      commands.status.mockResolvedValueOnce(changed(true));
+      expect((await actions.signOut(command('operation-0002'))).code).toBe('route-changed');
+      expect(store.get(id).state).toBe('disconnected');
+      expect(store.identityRef(id)).toBe('identity-ref-0001');
+      expect(operations()).toEqual([]);
+    });
+
+    it('status action: records neither signed-in nor signed-out, and an unproved child retains', async () => {
+      signIn('signed-out');
+      commands.status.mockResolvedValueOnce(changed(true));
+      expect((await actions.readStatus(target())).code).toBe('route-changed');
+      expect(store.get(id).state).toBe('failed');
+      expect(operations()).toEqual([]);
+      const late = new FakeReceipt();
+      commands.status.mockResolvedValueOnce({ ...changed(false), closeReceipt: late });
+      expect((await actions.readStatus(target())).code).toBe('route-changed');
+      expect(operations()).toHaveLength(1);
+      late.close();
+      expect(operations()).toEqual([]);
+      expect(store.get(id).state).toBe('failed');
     });
   });
 

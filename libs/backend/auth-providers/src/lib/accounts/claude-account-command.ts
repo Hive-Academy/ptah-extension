@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { win32 } from 'node:path';
 import { buildCertifiedClaudeEnv, type ClaudeCliDetector } from '@ptah-extension/agent-sdk';
 import type { ClaudeCertifiedExecutable, ClaudeCertifiedExecutableFingerprint } from '@ptah-extension/auth-providers-tokens';
-import { killProcessTree, type IProcessSpawner, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import {
+  killProcessTree, type IProcessSpawner, type SpawnedProcessHandle, type SpawnLaunchGuard,
+} from '@ptah-extension/platform-core';
 import type { ProviderAccountActionResult, ProviderAccountResultCode } from '@ptah-extension/shared';
 import { parseClaudeAccountStatus } from './claude-account-status';
 import type { ClaudeRegistryQueryResult } from './claude-auth-settings-scan';
@@ -14,6 +16,7 @@ import type {
   ClaudeLogoutProbeResult,
   ClaudeStatusProbeResult,
 } from './claude-route-certifier';
+import { revalidateProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
 
 const COPY: Record<ProviderAccountResultCode, string> = {
   ok: 'The account operation completed.',
@@ -79,6 +82,99 @@ export const NODE_COMMAND_HOST: ClaudeAccountCommandHost = Object.freeze({
   },
 });
 
+/**
+ * True only while the reserved route still resolves to the same physical
+ * directory (path, volume/file id and fingerprint). A missing route never holds.
+ * Directory strings alone are never identity proof.
+ */
+export function claudeAccountRouteHolds(route: CanonicalProviderAccountRoute | undefined): route is CanonicalProviderAccountRoute {
+  if (!route) return false;
+  try {
+    revalidateProviderAccountRoute(route);
+    return true;
+  } catch {
+    // degradation-audit: reported - revalidation throws only route-changed; the caller refuses route-changed.
+    return false;
+  }
+}
+
+/**
+ * File-identity guard the spawner re-checks at the instant of creation, on the
+ * thread that creates the child (the off-thread worker included).
+ */
+export function claudeAccountRouteGuard(route: CanonicalProviderAccountRoute): SpawnLaunchGuard {
+  return Object.freeze({
+    fileIdentities: Object.freeze([Object.freeze({
+      path: route.requestedPath,
+      realpath: route.canonicalPath,
+      devIno: `${route.filesystemIdentity.volumeId}:${route.filesystemIdentity.fileId}`,
+    })]),
+  });
+}
+
+/**
+ * Operation-owned proof of one probe child's close. A probe hands it out only
+ * when the child outlived its limit and kill grace (`terminated: false`). The
+ * child's listeners stay attached until `close` is seen or the owner disposes
+ * the receipt; elapsed time or a PID never stands in for the close.
+ */
+export interface ClaudeChildCloseReceipt {
+  /** True once `close` was seen (or the child turned out never to exist). */
+  readonly closed: boolean;
+  /** Calls `listener` once when the close is seen, at once when it already was. Returns an unsubscribe. */
+  onClosed(listener: () => void): () => void;
+  /** Removes the child's listeners; a later close is no longer observed. */
+  dispose(): void;
+}
+
+/** `closeReceipt` is present only when `terminated` is false and a process exists. */
+export interface ClaudeStatusProbeOutcome extends ClaudeStatusProbeResult {
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
+}
+
+/** `closeReceipt` is present only when `terminated` is false and a process exists. */
+export interface ClaudeLogoutProbeOutcome extends ClaudeLogoutProbeResult {
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
+}
+
+/** `closeReceipt` is present only when `terminated` is false and a process exists. */
+export interface ClaudeRegistryProbeOutcome extends ClaudeRegistryQueryResult {
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
+}
+
+class ChildCloseReceipt implements ClaudeChildCloseReceipt {
+  private seen = false;
+  private disposed = false;
+  private readonly listeners = new Set<() => void>();
+
+  constructor(private readonly detach: () => void) {}
+
+  get closed(): boolean { return this.seen; }
+
+  onClosed(listener: () => void): () => void {
+    if (this.seen) { listener(); return () => undefined; }
+    if (this.disposed) return () => undefined;
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  dispose(): void {
+    if (this.seen || this.disposed) return;
+    this.disposed = true;
+    this.listeners.clear();
+    this.detach();
+  }
+
+  markClosed(): void {
+    if (this.seen || this.disposed) return;
+    this.seen = true;
+    this.detach();
+    const listeners = [...this.listeners];
+    this.listeners.clear();
+    for (const listener of listeners) listener();
+  }
+}
+
 interface ChildRequest {
   readonly command: string;
   readonly args: readonly string[];
@@ -88,6 +184,7 @@ interface ChildRequest {
   /** Bytes of stdout kept; 0 drains and discards it. Exceeding it stops the child. */
   readonly outputBytes: number;
   readonly signal: AbortSignal;
+  readonly launchGuard?: SpawnLaunchGuard;
 }
 
 type ChildStop = 'timeout' | 'cancelled' | 'overflow' | 'error';
@@ -100,6 +197,8 @@ interface ChildOutcome {
   /** True only when `close` was observed or no process was ever created. */
   readonly terminated: boolean;
   readonly stopped?: ChildStop;
+  /** Present when `terminated` is false: reports the close when it is finally seen. */
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
 }
 
 interface CachedExecutable {
@@ -121,6 +220,10 @@ function belowMinimum(version: readonly number[]): boolean {
 function envValue(env: Readonly<Record<string, string>>, name: string): string | undefined {
   const key = Object.keys(env).find(candidate => candidate.toUpperCase() === name);
   return key === undefined ? undefined : env[key];
+}
+
+function closeReceiptOf(run: ChildOutcome): { readonly closeReceipt?: ClaudeChildCloseReceipt } {
+  return run.closeReceipt ? { closeReceipt: run.closeReceipt } : {};
 }
 
 const NO_REGISTRY: ClaudeRegistryQueryResult = Object.freeze({
@@ -207,29 +310,44 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
     return { ok: true, executable, terminated: true };
   }
 
-  async status(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeStatusProbeResult> {
+  /**
+   * `auth status --json` against the reserved route: revalidated before spawn,
+   * guarded at creation, and revalidated after close before any status is
+   * returned. A changed route yields `routeChanged` and no status.
+   */
+  async status(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeStatusProbeOutcome> {
+    const route = context.route;
+    if (!claudeAccountRouteHolds(route)) return { status: null, terminated: true, routeChanged: true };
     const run = await this.run({
       command: context.executable.command, args: [...context.executable.prefixArgs, 'auth', 'status', '--json'],
       env: context.env, cwd: context.cwd, limitMs: CLAUDE_ACCOUNT_CHILD_LIMITS.statusMs,
-      outputBytes: CLAUDE_ACCOUNT_CHILD_LIMITS.statusOutputBytes, signal,
+      outputBytes: CLAUDE_ACCOUNT_CHILD_LIMITS.statusOutputBytes, signal, launchGuard: claudeAccountRouteGuard(route),
     });
+    const receipt = closeReceiptOf(run);
+    if (!claudeAccountRouteHolds(route)) return { status: null, terminated: run.terminated, routeChanged: true, ...receipt };
     // Exit 0 (signed in) and 1 (signed out) both reach the parser; it checks the pairing.
     const status = run.stopped || !run.terminated
       ? null
       : parseClaudeAccountStatus(run.stdout, run.exitCode, context.canonicalDir, this.host.platform);
-    return { status, terminated: run.terminated };
+    return { status, terminated: run.terminated, ...receipt };
   }
 
-  async logout(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeLogoutProbeResult> {
+  /** `auth logout` with the same route checks as {@link status}. */
+  async logout(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeLogoutProbeOutcome> {
+    const route = context.route;
+    if (!claudeAccountRouteHolds(route)) return { exitCode: null, terminated: true, routeChanged: true };
     const run = await this.run({
       command: context.executable.command, args: [...context.executable.prefixArgs, 'auth', 'logout'],
       env: context.env, cwd: context.cwd, limitMs: CLAUDE_ACCOUNT_CHILD_LIMITS.logoutMs, outputBytes: 0, signal,
+      launchGuard: claudeAccountRouteGuard(route),
     });
-    return { exitCode: run.stopped ? null : run.exitCode, terminated: run.terminated };
+    const receipt = closeReceiptOf(run);
+    if (!claudeAccountRouteHolds(route)) return { exitCode: null, terminated: run.terminated, routeChanged: true, ...receipt };
+    return { exitCode: run.stopped ? null : run.exitCode, terminated: run.terminated, ...receipt };
   }
 
   /** `<SYSTEMROOT>\System32\reg.exe query <path> /reg:64`; win32 only, no other argv. */
-  async queryRegistry(path: string, signal: AbortSignal): Promise<ClaudeRegistryQueryResult> {
+  async queryRegistry(path: string, signal: AbortSignal): Promise<ClaudeRegistryProbeOutcome> {
     if (this.host.platform !== 'win32' || !REGISTRY_PATH.test(path) || signal.aborted) return NO_REGISTRY;
     let env: Readonly<Record<string, string>>;
     try {
@@ -251,6 +369,7 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       terminated: run.terminated,
       timedOut: run.stopped === 'timeout',
       overflow: run.stopped === 'overflow',
+      ...closeReceiptOf(run),
     };
   }
 
@@ -280,12 +399,17 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
     });
   }
 
-  /** Spawns one child and observes it until close, or until the kill grace after a stop. */
+  /**
+   * Spawns one child and waits for its close, or for the kill grace after a stop.
+   * A child still open after the grace resolves `terminated: false` with a close
+   * receipt; its listeners stay until the close is seen or the receipt is disposed.
+   */
   private run(request: ChildRequest): Promise<ChildOutcome> {
     let child: SpawnedProcessHandle;
     try {
       child = this.spawner.spawnProcess({
         command: request.command, args: request.args, env: request.env, cwd: request.cwd, detached: true,
+        ...(request.launchGuard ? { launchGuard: request.launchGuard } : {}),
       });
     } catch {
       // degradation-audit: reported - a refused spawn creates no process; reported as a stopped child.
@@ -297,16 +421,21 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       let stopped: ChildStop | undefined;
       let settled = false;
       let grace: ReturnType<typeof setTimeout> | undefined;
+      // Set only when the child outlived the grace; it then owns the listeners below.
+      let receipt: ChildCloseReceipt | undefined;
+      const detach = (): void => {
+        child.stdout?.off('data', data);
+        child.stderr?.off('data', discard);
+        child.off('close', close);
+        child.off('error', failed);
+      };
       const finish = (outcome: ChildOutcome): void => {
         if (settled) return;
         settled = true;
         clearTimeout(deadline);
         if (grace) clearTimeout(grace);
         request.signal.removeEventListener('abort', cancel);
-        child.stdout?.off('data', data);
-        child.stderr?.off('data', discard);
-        child.off('close', close);
-        child.off('error', failed);
+        if (!outcome.closeReceipt) detach();
         output = '';
         resolve(outcome);
       };
@@ -314,15 +443,19 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
         if (settled || stopped) return;
         stopped = reason;
         output = '';
-        grace = setTimeout(() => finish({ exitCode: null, stdout: '', terminated: false, stopped: reason }),
-          CLAUDE_ACCOUNT_CHILD_LIMITS.killGraceMs);
+        grace = setTimeout(() => {
+          // Close is still unseen: keep observing, and let the receipt report the close when it comes.
+          receipt = new ChildCloseReceipt(detach);
+          finish({ exitCode: null, stdout: '', terminated: false, stopped: reason, closeReceipt: receipt });
+        }, CLAUDE_ACCOUNT_CHILD_LIMITS.killGraceMs);
         void child.whenSpawned.then(pid => {
-          if (settled) return undefined;
           if (pid === null) {
             // Never spawned: no process exists, so termination is established now.
-            finish({ exitCode: null, stdout: '', terminated: true, stopped: reason });
+            if (settled) receipt?.markClosed();
+            else finish({ exitCode: null, stdout: '', terminated: true, stopped: reason });
             return undefined;
           }
+          if (settled) return undefined;
           // Tree kill is best effort. Only close proves termination.
           return killProcessTree(pid, 'SIGKILL');
         }).catch(() => {
@@ -345,6 +478,8 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       };
       const failed = (): void => stop('error');
       const close = (code: number | null): void => {
+        // A close after the grace is the late termination proof the receipt carries.
+        if (settled) { receipt?.markClosed(); return; }
         if (stopped) { finish({ exitCode: null, stdout: '', terminated: true, stopped }); return; }
         finish({ exitCode: code, stdout: output, terminated: true });
       };

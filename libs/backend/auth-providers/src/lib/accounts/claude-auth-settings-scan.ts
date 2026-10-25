@@ -1,6 +1,7 @@
 import { posix, win32 } from 'node:path';
 import { claudeSettingsOverride } from '@ptah-extension/agent-sdk';
 import type { ClaudeCertifiedLaunchPolicy } from '@ptah-extension/auth-providers-tokens';
+import type { ClaudeChildCloseReceipt } from './claude-account-command';
 
 /**
  * Policy sources of one inspected Claude CLI build (implementation-plan.md
@@ -72,6 +73,8 @@ export interface ClaudeRegistryQueryResult {
   readonly terminated: boolean;
   readonly timedOut: boolean;
   readonly overflow: boolean;
+  /** Present only when `terminated` is false and a process exists: reports its late close. */
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
 }
 
 export type ClaudeRegistryQuery = (path: string, signal: AbortSignal) => Promise<ClaudeRegistryQueryResult>;
@@ -92,10 +95,21 @@ export interface ClaudeAuthPolicyScanRequest {
  * Scan outcome. It carries no path, file content or registry output.
  * `terminated` is false when the close of a `reg.exe` child was not observed
  * (lease settlement retains in that case).
+ *
+ * `closeReceipts` is present only on an unterminated refusal whose every
+ * unproved `reg.exe` child handed out a close receipt. The caller owns them:
+ * each reports its child's late close, and disposing it removes the child's
+ * listeners. When any unproved child cannot be observed (the query threw or
+ * returned no receipt), no receipt is returned and the scan has disposed them.
  */
 export type ClaudeAuthPolicyScanResult =
   | { readonly ok: true; readonly policy: ClaudeCertifiedLaunchPolicy; readonly terminated: true }
-  | { readonly ok: false; readonly code: 'unsupported-source' | 'cancelled'; readonly terminated: boolean };
+  | {
+      readonly ok: false;
+      readonly code: 'unsupported-source' | 'cancelled';
+      readonly terminated: boolean;
+      readonly closeReceipts?: readonly ClaudeChildCloseReceipt[];
+    };
 
 const MAX_SETTINGS_BYTES = 256 * 1024;
 const MAX_ANCESTORS = 64;
@@ -134,23 +148,37 @@ function normalizeRegistryPath(path: string): string {
 
 /**
  * Lower-cased subkey names of a successful listing, or `null` when the output is
- * malformed. Blank lines, the queried-path header and four-space value lines are
- * ignored; value lines are never kept.
+ * malformed. Blank lines are ignored. `reg.exe` prints the queried-path header
+ * only when the key has values, followed by four-space value lines; a key
+ * without values prints its subkey lines alone (implementation-plan.md
+ * Component 4, verified output). So a well-formed listing names the queried key
+ * structurally: it has the header or at least one subkey line. Empty,
+ * whitespace-only and value-only output (a value line before any header) is
+ * malformed, so a missing subkey is never read from an unrecognised listing.
+ * Value lines are never kept.
  */
 function registrySubkeys(queriedPath: string, result: ClaudeRegistryQueryResult): ReadonlySet<string> | null {
   if (result.overflow) return null;
   const queried = normalizeRegistryPath(queriedPath).toLowerCase();
   const names = new Set<string>();
+  let headerSeen = false;
   for (const raw of result.stdout.split(/\r?\n/)) {
-    if (raw.trim() === '' || raw.startsWith('    ')) continue;
+    if (raw.trim() === '') continue;
+    if (raw.startsWith('    ')) {
+      if (!headerSeen) return null;
+      continue;
+    }
     const line = normalizeRegistryPath(raw.trimEnd()).toLowerCase();
-    if (line === queried) continue;
+    if (line === queried) {
+      headerSeen = true;
+      continue;
+    }
     if (!line.startsWith(`${queried}\\`)) return null;
     const name = line.slice(queried.length + 1);
     if (name === '' || name.includes('\\')) return null;
     names.add(name);
   }
-  return names;
+  return headerSeen || names.size > 0 ? names : null;
 }
 
 function pathsFor(platform: NodeJS.Platform): typeof win32 {
@@ -178,6 +206,10 @@ export async function claudeRemoteSignalsAbsent(
 class PolicyScanRun {
   private readonly paths: typeof win32;
   terminated = true;
+  /** Close receipts of unproved `reg.exe` children. */
+  private readonly receipts: ClaudeChildCloseReceipt[] = [];
+  /** True when an unproved child left no receipt (the query threw or returned none). */
+  private unobservable = false;
   managedFile: ClaudeCertifiedLaunchPolicy['managedFile'] = 'absent';
   managedDropIn: ClaudeCertifiedLaunchPolicy['managedDropIn'] = 'absent';
   registry: ClaudeCertifiedLaunchPolicy['registry'] = 'not-applicable';
@@ -300,15 +332,37 @@ class PolicyScanRun {
     return subkeys !== null && !subkeys.has('policies');
   }
 
+  /**
+   * The refusal for this run: unterminated runs hand their receipts to the
+   * caller only when every unproved child has one; otherwise they are disposed.
+   */
+  refusal(code: 'unsupported-source' | 'cancelled'): ClaudeAuthPolicyScanResult {
+    if (this.terminated) return { ok: false, code, terminated: true };
+    if (this.unobservable || this.receipts.length === 0) {
+      for (const receipt of this.receipts) receipt.dispose();
+      return { ok: false, code, terminated: false };
+    }
+    return { ok: false, code, terminated: false, closeReceipts: Object.freeze([...this.receipts]) };
+  }
+
   /** A completed query, or `null` when it threw, timed out or its close was not observed. */
   private async query(path: string): Promise<ClaudeRegistryQueryResult | null> {
     const run = await settle(() => this.request.queryRegistry(path, this.request.signal));
     if (!run.ok) {
       // The probe could not report a close, so no termination is proven.
       this.terminated = false;
+      this.unobservable = true;
       return null;
     }
-    if (!run.value.terminated) this.terminated = false;
+    const { closeReceipt } = run.value;
+    if (!run.value.terminated) {
+      this.terminated = false;
+      if (closeReceipt) this.receipts.push(closeReceipt);
+      else this.unobservable = true;
+    } else {
+      // A closed child needs no receipt; dropping it removes nothing that is still needed.
+      closeReceipt?.dispose();
+    }
     return run.value.timedOut || !run.value.terminated ? null : run.value;
   }
 }
@@ -329,12 +383,10 @@ export async function scanClaudeAuthPolicy(request: ClaudeAuthPolicyScanRequest)
   }
   const run = new PolicyScanRun(request, entry);
   for (const source of entry.sources) {
-    if (request.signal.aborted) return { ok: false, code: 'cancelled', terminated: run.terminated };
-    if (!(await run.resolve(source))) {
-      return { ok: false, code: 'unsupported-source', terminated: run.terminated };
-    }
+    if (request.signal.aborted) return run.refusal('cancelled');
+    if (!(await run.resolve(source))) return run.refusal('unsupported-source');
   }
-  if (!run.terminated) return { ok: false, code: 'unsupported-source', terminated: false };
+  if (!run.terminated) return run.refusal('unsupported-source');
   return {
     ok: true,
     terminated: true,

@@ -1,6 +1,7 @@
 import { win32 } from 'node:path';
 import { CLAUDE_CERTIFIED_ENV_KEYS } from '@ptah-extension/agent-sdk';
 import type { IProcessSpawner, SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { claudeAccountRouteGuard, claudeAccountRouteHolds } from './claude-account-command';
 import type { ClaudeAuthContext } from './claude-route-certifier';
 
 const LOGIN_ARGS = ['auth', 'login', '--claudeai'] as const;
@@ -12,7 +13,9 @@ const POWERSHELL_QUOTES = /['‘’‚‛]/g;
 
 export type ClaudeLoginConsoleStart =
   | { readonly kind: 'started'; readonly child: SpawnedProcessHandle }
-  | { readonly kind: 'unavailable' };
+  | { readonly kind: 'unavailable' }
+  /** The reserved route did not hold; no console started and no fallback may be offered. */
+  | { readonly kind: 'route-changed' };
 
 export interface ClaudeLoginFallbackScript {
   readonly dialect: 'powershell' | 'posix';
@@ -86,12 +89,22 @@ export class ClaudeLoginConsole {
     private readonly platform: NodeJS.Platform,
   ) {}
 
-  /** Opens `conhost.exe` running `auth login --claudeai` (win32 only). */
+  /**
+   * Opens `conhost.exe` running `auth login --claudeai` (win32 only). The
+   * reserved route is revalidated first (on every platform, so no fallback is
+   * offered for a replaced directory) and its file identity guards creation.
+   */
   async launch(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeLoginConsoleStart> {
-    if (this.platform !== 'win32' || signal.aborted) return { kind: 'unavailable' };
+    if (signal.aborted) return { kind: 'unavailable' };
+    const route = context.route;
+    if (!claudeAccountRouteHolds(route)) return { kind: 'route-changed' };
+    if (this.platform !== 'win32') return { kind: 'unavailable' };
     const systemRoot = envValue(context.env, 'SYSTEMROOT');
     if (!systemRoot || !win32.isAbsolute(systemRoot)) return { kind: 'unavailable' };
 
+    // No child started: a guard refusal and a route change found now both report route-changed.
+    const notStarted = (): ClaudeLoginConsoleStart =>
+      claudeAccountRouteHolds(route) ? { kind: 'unavailable' } : { kind: 'route-changed' };
     let child: SpawnedProcessHandle;
     try {
       child = this.spawner.spawnProcess({
@@ -100,13 +113,14 @@ export class ClaudeLoginConsole {
         env: context.env,
         cwd: context.cwd,
         userConsole: true,
+        launchGuard: claudeAccountRouteGuard(route),
       });
     } catch {
-      // degradation-audit: reported - a refused spawn starts no child; the caller offers the fallback script instead.
-      return { kind: 'unavailable' };
+      // degradation-audit: reported - a refused spawn starts no child; the caller offers the fallback script or refuses route-changed.
+      return notStarted();
     }
     // `whenSpawned` resolves null when no child started (an `error` event follows).
-    return (await child.whenSpawned) === null ? { kind: 'unavailable' } : { kind: 'started', child };
+    return (await child.whenSpawned) === null ? notStarted() : { kind: 'started', child };
   }
 
   /**

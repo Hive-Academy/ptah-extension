@@ -1,11 +1,13 @@
 import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { killProcessTree, type ProcessSpawnRequest, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { ClaudeAccountCommand, type ClaudeAccountCommandHost } from './claude-account-command';
 import type { ClaudeAuthContext } from './claude-route-certifier';
+import { resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
 
 // The command's tree kill must never reach a real process from a spec.
 jest.mock('@ptah-extension/platform-core', () => ({
@@ -95,7 +97,13 @@ describe('ClaudeAccountCommand (account child owner)', () => {
       jest.advanceTimersByTime(1); await flush();
       expect(killProcessTree).toHaveBeenCalledWith(1234, 'SIGKILL');
       jest.advanceTimersByTime(2_000); await flush();
-      expect(await pending).toEqual({ exitCode: null, stdout: '', terminated: false, timedOut: true, overflow: false });
+      const result = await pending;
+      expect(result).toEqual({ exitCode: null, stdout: '', terminated: false, timedOut: true, overflow: false,
+        closeReceipt: expect.anything() });
+      // The receipt keeps observing: a late close is still the termination proof.
+      nextChild().finish(1); await flush();
+      expect(result.closeReceipt?.closed).toBe(true);
+      expect(nextChild().listenerCount('close')).toBe(0);
     });
 
     it('treats only an observed close as termination proof after a kill', async () => {
@@ -190,13 +198,28 @@ describe('ClaudeAccountCommand (account child owner)', () => {
   });
 
   describe('status and logout', () => {
-    const dir = join(tmpdir(), 'ptah-account-fixture');
-    const context = (): ClaudeAuthContext => ({
+    let root: string;
+    let dir: string;
+    let route: CanonicalProviderAccountRoute;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'ptah-account-command-'));
+      mkdirSync(join(root, 'account'));
+      route = resolveProviderAccountRoute(join(root, 'account'));
+      dir = route.canonicalPath;
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+    const context = (withRoute = true): ClaudeAuthContext => ({
       canonicalDir: dir, cwd: dir, env: { CLAUDE_CONFIG_DIR: dir }, envDigest: 'digest',
       executable: { command: 'C:\\tools\\claude.exe', prefixArgs: [], sdkExecutablePath: 'C:\\tools\\claude.exe',
         version: '2.1.310', fingerprint: { size: 10, mtimeMs: 1 } },
       policy: { coverage: 'win32@2.1.310' } as ClaudeAuthContext['policy'],
+      ...(withRoute ? { route } : {}),
     });
+    /** Moves the reserved directory away and puts a different directory at the same path. */
+    const replaceDirectory = (): void => {
+      renameSync(route.requestedPath, join(root, 'moved'));
+      mkdirSync(route.requestedPath);
+    };
     const signedOut = () => JSON.stringify({ loggedIn: false, authMethod: 'none', apiProvider: 'firstParty', configDirectory: dir });
 
     it('parses exit 1 signed-out status with the context env and cwd', async () => {
@@ -214,7 +237,54 @@ describe('ClaudeAccountCommand (account child owner)', () => {
       expect(await big).toEqual({ status: null, terminated: true });
       const stalled = command.status(context(), new AbortController().signal);
       await flush(); jest.advanceTimersByTime(12_000); await flush();
-      expect(await stalled).toEqual({ status: null, terminated: false });
+      expect(await stalled).toEqual({ status: null, terminated: false, closeReceipt: expect.anything() });
+      nextChild().finish(0); await flush();
+    });
+
+    it('keeps observing a status child after timeout and kill grace, and reports its late close once', async () => {
+      const stalled = command.status(context(), new AbortController().signal);
+      await flush(); jest.advanceTimersByTime(10_000); await flush();
+      expect(killProcessTree).toHaveBeenCalledWith(1234, 'SIGKILL');
+      jest.advanceTimersByTime(2_000); await flush();
+      const result = await stalled;
+      expect(result.terminated).toBe(false);
+      const receipt = result.closeReceipt;
+      if (!receipt) throw new Error('expected a close receipt');
+      const child = nextChild();
+      expect(child.listenerCount('close')).toBe(1);
+      const seen = jest.fn();
+      receipt.onClosed(seen);
+      jest.advanceTimersByTime(60_000); await flush();
+      // Elapsed time proves nothing.
+      expect(receipt.closed).toBe(false);
+      expect(seen).not.toHaveBeenCalled();
+      child.finish(1, signedOut()); await flush();
+      expect(receipt.closed).toBe(true);
+      expect(seen).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+      expect(child.stdout.listenerCount('data')).toBe(0);
+      const late = jest.fn();
+      receipt.onClosed(late);
+      expect(late).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes the child listeners when the receipt owner disposes it', async () => {
+      const stalled = command.logout(context(), new AbortController().signal);
+      await flush(); jest.advanceTimersByTime(12_000); await flush();
+      const receipt = (await stalled).closeReceipt;
+      if (!receipt) throw new Error('expected a close receipt');
+      const child = nextChild();
+      const seen = jest.fn();
+      receipt.onClosed(seen);
+      receipt.dispose();
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+      expect(child.stdout.listenerCount('data')).toBe(0);
+      expect(child.stderr.listenerCount('data')).toBe(0);
+      child.finish(0); await flush();
+      expect(seen).not.toHaveBeenCalled();
+      expect(receipt.closed).toBe(false);
     });
 
     it('cancels on abort and releases at once when the child never spawned', async () => {
@@ -233,6 +303,53 @@ describe('ClaudeAccountCommand (account child owner)', () => {
       const pending = command.logout(context(), new AbortController().signal);
       await flush(); nextChild().finish(0, 'ignored output'); await flush();
       expect(await pending).toEqual({ exitCode: 0, terminated: true });
+    });
+
+    it('guards both children with the reserved directory file identity', async () => {
+      const status = command.status(context(), new AbortController().signal);
+      await flush(); nextChild().finish(1, signedOut()); await status;
+      const logout = command.logout(context(), new AbortController().signal);
+      await flush(); nextChild().finish(0); await logout;
+      const guard = { fileIdentities: [{ path: route.requestedPath, realpath: route.canonicalPath,
+        devIno: `${route.filesystemIdentity.volumeId}:${route.filesystemIdentity.fileId}` }] };
+      expect(requests.map(request => request.launchGuard)).toEqual([guard, guard]);
+    });
+
+    it('launches nothing against a directory replaced after reservation and coverage (route-changed)', async () => {
+      const ctx = context();
+      replaceDirectory();
+      expect(await command.logout(ctx, new AbortController().signal))
+        .toEqual({ exitCode: null, terminated: true, routeChanged: true });
+      expect(await command.status(ctx, new AbortController().signal))
+        .toEqual({ status: null, terminated: true, routeChanged: true });
+      expect(requests).toHaveLength(0);
+    });
+
+    it('launches nothing without a reserved route', async () => {
+      expect(await command.logout(context(false), new AbortController().signal))
+        .toEqual({ exitCode: null, terminated: true, routeChanged: true });
+      expect(requests).toHaveLength(0);
+    });
+
+    it('returns no status when the directory changed before close, and keeps the termination fact', async () => {
+      const pending = command.status(context(), new AbortController().signal);
+      await flush();
+      expect(requests).toHaveLength(1);
+      replaceDirectory();
+      nextChild().finish(1, signedOut()); await flush();
+      expect(await pending).toEqual({ status: null, terminated: true, routeChanged: true });
+    });
+
+    it('reports a route change after an unproved logout without claiming termination', async () => {
+      const stalled = command.logout(context(), new AbortController().signal);
+      await flush();
+      expect(requests).toHaveLength(1);
+      replaceDirectory();
+      jest.advanceTimersByTime(12_000); await flush();
+      // Unproved termination stays unproved: the caller retains its reservation.
+      expect(await stalled).toEqual({ exitCode: null, terminated: false, routeChanged: true,
+        closeReceipt: expect.anything() });
+      (await stalled).closeReceipt?.dispose();
     });
   });
 });

@@ -126,3 +126,19 @@
 - Deleting the runner's unused `accountRoute` field and wrapper (`sdk-query-runner.service.ts`) breaks typecheck in `claude-account-route-env.spec.ts` (one-shot cases at lines 156-183, the `'one-shot'` `describe.each` row at 291, the call at 347). That spec belongs to B13. The B11 executor reverted the runner to HEAD.
 - Decision: B11 ships the model-service change only. B13 takes `sdk-query-runner.service.ts` as a sixth file and does the runner deletion together with the spec edit (B11 report has the verified edit: env literal identical to its pre-`697b7e31a` form). File-disjointness holds; B13 grows from 5 to 6 files. Reversible.
 - B11 also removed the optional `cliDetector` constructor dependency from `SdkModelService` (its only use was the named path; only the two B11 specs passed it). Accepted; the agent-sdk verify covers DI.
+
+## D22 — P2 fix round details (2026-10-26, orchestrator, evidence step)
+
+- Fix run 1 (finding 1): reserved route carried in the auth context; revalidation and a file-identity launch guard before each status/logout/console spawn; revalidation after close; `route-changed` with real termination facts. Run 2 makes the route field required and adds service-level tests.
+- Fix run 3 (finding 3): a successful registry listing must contain the queried-key header or at least one subkey line; value lines count only after the header. Not "header in every listing": per the verified `reg.exe` output in implementation-plan.md:386-408 the header appears only when a key has values, so the literal fix would refuse every real machine. Side effect: a key with no values and no subkeys refuses (fail closed). Accepted; the re-review checks it.
+- Style note (explicit `implements`) deferred as Minor: `NamedAccountPersistencePort` is not in the `@ptah-extension/agent-sdk` public index. Recorded for a later task.
+
+## D23 — B12 refusal codes (2026-10-26, orchestrator, evidence step)
+
+- B12 WP-a chose `unsupported-source` for tripwire refusals and `route-changed` for an init CLI version change. implementation-plan.md:428-437 says any init or tripwire mismatch refuses `identity-unproved`. Decision: tripwire and version mismatch refuse `identity-unproved`; `unsupported-source` stays for a `checkLaunchBoundary` refusal (batches.md B12 acceptance). B13's main-chat tripwire uses the same codes. Three adapter-spec expectations moved from `release-held` to `identity-unproved` for identity mismatch (B12 removes the `release-held` default, plan line 94). Reversible.
+
+## D24 — P2 fix round closed; required route deferred (2026-10-26, orchestrator, evidence step)
+
+- Findings 1-3 fixed across fix runs 1-4 (p2-fix-1..4-report.md). Registry probes now return close receipts that the actions ledger tracks (late close unblocks; no close keeps the block; disposal removes listeners).
+- Making `ClaudeAuthContext.route` type-required was a fix-run-1 self-proposed hardening, not a review finding. Two runs hit the file cap on it (it fans out to 5 spec files). At runtime a missing route already fails closed (no spawn, `route-changed`). Decision: defer as Minor (later task); record in the PR. Reversible.
+- Verify: one combined run for the P2 fixes and B12 (both touch projects that ptah-electron depends on), then two commits with explicit paths.

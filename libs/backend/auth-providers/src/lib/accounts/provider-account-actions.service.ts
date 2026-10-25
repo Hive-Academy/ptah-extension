@@ -3,9 +3,13 @@ import { inject, injectable } from 'tsyringe';
 import type { ClaudeAccountActionCommand, ClaudeAccountActionTarget, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import { killProcessTree, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type { ProviderAccountActionResult, ProviderAccountResultCode, ProviderAccountState } from '@ptah-extension/shared';
-import { accountActionResult, CLAUDE_ACCOUNT_CHILD_LIMITS, ClaudeAccountCommand } from './claude-account-command';
+import {
+  accountActionResult, CLAUDE_ACCOUNT_CHILD_LIMITS, ClaudeAccountCommand, type ClaudeChildCloseReceipt,
+} from './claude-account-command';
 import { ClaudeLoginConsole } from './claude-login-console';
-import { ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeCoverageOutcome } from './claude-route-certifier';
+import {
+  ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeCoverageOutcome, type ClaudeProbeRefusal,
+} from './claude-route-certifier';
 import { ProviderAccountStore } from './provider-account.store';
 import { ProviderAccountStoreError, resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
 
@@ -40,45 +44,73 @@ interface TerminalOutcome {
   readonly identityRef?: string | null;
 }
 
-interface ConsoleEntry {
+interface LedgerEntry {
   closed: boolean;
-  readonly child: SpawnedProcessHandle;
-  readonly onClose: () => void;
-  readonly onError: () => void;
+  /** Console entries only: the window the gate kills. Probe children were already killed by the command. */
+  readonly console?: SpawnedProcessHandle;
+  /** Removes this entry's child listeners. */
+  readonly detach: () => void;
 }
 
 /**
- * Ptah-owned children of one auth operation (finding 3). Probe children
- * (status, logout, registry) are owned by `ClaudeAccountCommand`, which reports
- * whether their close was observed; an unproved one stays unproved. The
- * console keeps its listeners until release, so a late close still counts.
+ * Ptah-owned children of one auth operation (finding 3). One entry per child:
+ * the console and each status or logout probe that outlived its limit and kill
+ * grace (tracked through the command's close receipt). Listeners stay until
+ * release, so a late close still marks its entry closed. A child without a
+ * receipt whose close was not seen can never be proved, so it stays unproved.
  * The user's own terminal (fallback mode) is never an entry.
  */
 class OwnedChildLedger {
-  private unproved = 0;
-  private readonly consoles: ConsoleEntry[] = [];
+  /** Unclosed children with no way to observe their close (no receipt). */
+  private unobservable = 0;
+  private readonly entries: LedgerEntry[] = [];
   private waiter: (() => void) | null = null;
   private released = false;
 
   constructor(private readonly changed: () => void) {}
 
-  get unprovedProbes(): number { return this.unproved; }
+  /** Probe children whose close is not yet proved. */
+  get unprovedProbes(): number {
+    return this.unobservable + this.entries.filter(entry => !entry.console && !entry.closed).length;
+  }
 
-  recordProbe(terminated: boolean): void {
-    if (!terminated) this.unproved += 1;
+  /** A closed probe needs nothing; an open one is tracked through its receipt, or stays unproved without one. */
+  recordProbe(terminated: boolean, receipt?: ClaudeChildCloseReceipt): void {
+    if (terminated) return;
+    if (!receipt || this.released) {
+      receipt?.dispose();
+      this.unobservable += 1;
+      return;
+    }
+    const entry: LedgerEntry = { closed: false, detach: () => receipt.dispose() };
+    this.entries.push(entry);
+    receipt.onClosed(() => this.markClosed(entry));
+  }
+
+  /**
+   * A certifier refusal: each `reg.exe` close receipt becomes its own entry;
+   * an unterminated refusal without receipts stays unproved.
+   */
+  recordRefusal(refusal: ClaudeProbeRefusal): void {
+    if (!refusal.closeReceipts) {
+      this.recordProbe(refusal.terminated);
+      return;
+    }
+    for (const receipt of refusal.closeReceipts) this.recordProbe(false, receipt);
   }
 
   trackConsole(child: SpawnedProcessHandle): void {
-    const entry: ConsoleEntry = {
+    // An error after start proves nothing; the listener only keeps the event handled.
+    const onError = (): undefined => undefined;
+    const onClose = (): void => this.markClosed(entry);
+    const entry: LedgerEntry = {
       closed: false,
-      child,
-      onClose: () => this.markClosed(entry),
-      // An error after start proves nothing; the listener only keeps the event handled.
-      onError: () => undefined,
+      console: child,
+      detach: () => { child.off('close', onClose); child.off('error', onError); },
     };
-    this.consoles.push(entry);
-    child.on('close', entry.onClose);
-    child.on('error', entry.onError);
+    this.entries.push(entry);
+    child.on('close', onClose);
+    child.on('error', onError);
     void child.whenSpawned.then(pid => {
       // No pid: no process was created, so nothing can outlive the operation.
       if (pid === null) this.markClosed(entry);
@@ -86,15 +118,19 @@ class OwnedChildLedger {
   }
 
   allClosed(): boolean {
-    return this.unproved === 0 && this.consoles.every(entry => entry.closed);
+    return this.unobservable === 0 && this.entries.every(entry => entry.closed);
   }
 
-  /** Kills each unclosed console tree and waits up to the grace for its close. */
+  /**
+   * Kills each unclosed console tree and waits up to the grace for its close.
+   * Probe children were already killed, and waited on for the grace, by the command.
+   */
   async stop(): Promise<void> {
-    const open = this.consoles.filter(entry => !entry.closed);
-    if (open.length === 0) return;
-    for (const entry of open) {
-      void entry.child.whenSpawned
+    const consolesClosed = (): boolean => this.entries.every(entry => !entry.console || entry.closed);
+    if (consolesClosed()) return;
+    for (const entry of this.entries) {
+      if (entry.closed || !entry.console) continue;
+      void entry.console.whenSpawned
         .then(pid => (pid === null ? undefined : killProcessTree(pid, 'SIGKILL')))
         .catch(() => {
           // degradation-audit: optional-capability — a failed tree kill leaves the console unproved until its close
@@ -104,24 +140,22 @@ class OwnedChildLedger {
       const timer = setTimeout(done, CLAUDE_ACCOUNT_CHILD_LIMITS.killGraceMs);
       function done(): void { clearTimeout(timer); resolve(); }
       this.waiter = () => {
-        if (this.consoles.every(entry => entry.closed)) { this.waiter = null; done(); }
+        if (consolesClosed()) { this.waiter = null; done(); }
       };
       this.waiter();
     });
     this.waiter = null;
   }
 
+  /** Removes every child listener (console and probe receipts); later closes are no longer seen. */
   release(): void {
     if (this.released) return;
     this.released = true;
     this.waiter = null;
-    for (const entry of this.consoles) {
-      entry.child.off('close', entry.onClose);
-      entry.child.off('error', entry.onError);
-    }
+    for (const entry of this.entries) entry.detach();
   }
 
-  private markClosed(entry: ConsoleEntry): void {
+  private markClosed(entry: LedgerEntry): void {
     if (entry.closed || this.released) return;
     entry.closed = true;
     this.waiter?.();
@@ -173,6 +207,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   private readonly active = new Map<string, ActiveOperation>();
   private readonly listeners = new Set<(change: ProviderAccountStateChange) => void>();
   private readonly disposalController = new AbortController();
+  /** Close receipts of status-action children that outlived the action; disposed on `dispose`. */
+  private readonly statusReceipts = new Set<ClaudeChildCloseReceipt>();
   private disposal?: Promise<void>;
 
   constructor(
@@ -207,6 +243,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
         if (operation.kind !== 'status') this.stopTimers(operation);
         if (operation.kind !== 'status') operation.ledger.release();
       }
+      for (const receipt of this.statusReceipts) receipt.dispose();
+      this.statusReceipts.clear();
       this.active.clear();
       this.listeners.clear();
     });
@@ -313,7 +351,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
       priorState: profile.state,
       route,
       controller: new AbortController(),
-      ledger: new OwnedChildLedger(() => this.consoleChanged(operation)),
+      ledger: new OwnedChildLedger(() => this.childClosed(operation)),
       settled: false,
     };
     this.active.set(command.profileId, operation);
@@ -328,7 +366,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     const signal = operation.controller.signal;
     const prepared = await this.certifier.authContext({ route: operation.route, signal });
     if (!prepared.ok) {
-      operation.ledger.recordProbe(prepared.terminated);
+      operation.ledger.recordRefusal(prepared);
       return { ok: false, outcome: this.failure(operation, prepared.code) };
     }
     operation.context = prepared.context;
@@ -337,6 +375,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (coverage) return { ok: false, outcome: coverage };
     if (operation.terminal) return { ok: true };
     const start = await this.loginConsole.launch(prepared.context, signal);
+    // No child started, so the refusal settles at once (release); no fallback names a replaced directory.
+    if (start.kind === 'route-changed') return { ok: false, outcome: this.failure(operation, 'route-changed') };
     if (start.kind === 'started') {
       // Tracked even after a terminal transition, so the gate kills and waits for it.
       operation.ledger.trackConsole(start.child);
@@ -383,7 +423,9 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (before) return before;
     if (signal.aborted) return undefined;
     const probed = await this.commands.status(context, signal);
-    operation.ledger.recordProbe(probed.terminated);
+    operation.ledger.recordProbe(probed.terminated, probed.closeReceipt);
+    // An unproved child still keeps the reservation: the completion gate waits on the ledger.
+    if (probed.routeChanged) return this.failure(operation, 'route-changed');
     if (!probed.terminated || signal.aborted) return undefined;
     const after = await this.coverage(operation, context);
     if (after) return after;
@@ -398,7 +440,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     const signal = operation.controller.signal;
     const prepared = await this.certifier.authContext({ route: operation.route, signal });
     if (!prepared.ok) {
-      operation.ledger.recordProbe(prepared.terminated);
+      operation.ledger.recordRefusal(prepared);
       return this.failure(operation, prepared.code);
     }
     const context = prepared.context;
@@ -406,14 +448,16 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (beforeLogout) return beforeLogout;
     if (signal.aborted) return { code: 'cancelled', state: 'cancelled' };
     const logout = await this.commands.logout(context, signal);
-    operation.ledger.recordProbe(logout.terminated);
+    operation.ledger.recordProbe(logout.terminated, logout.closeReceipt);
+    if (logout.routeChanged) return this.failure(operation, 'route-changed');
     if (signal.aborted) return { code: 'cancelled', state: 'cancelled' };
     if (!logout.terminated) return this.failure(operation, 'identity-unproved');
     // The S9 re-check after logout is also the coverage check before the status child.
     const beforeStatus = await this.coverage(operation, context);
     if (beforeStatus) return beforeStatus;
     const probed = await this.commands.status(context, signal);
-    operation.ledger.recordProbe(probed.terminated);
+    operation.ledger.recordProbe(probed.terminated, probed.closeReceipt);
+    if (probed.routeChanged) return this.failure(operation, 'route-changed');
     if (signal.aborted) return { code: 'cancelled', state: 'cancelled' };
     if (!probed.terminated) return this.failure(operation, 'identity-unproved');
     const afterStatus = await this.coverage(operation, context);
@@ -434,15 +478,36 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
       if (signal.aborted || !terminated) return complete(signal.aborted ? 'cancelled' : code, priorState, terminated);
       return complete(code, priorState === 'signed-in' ? 'disconnected' : 'failed', true);
     };
+    // The status action does not follow registry probe closes: their receipts are
+    // disposed (listeners removed) and the unproved refusal keeps the reservation.
+    const refused = (refusal: ClaudeProbeRefusal): ProviderAccountActionResult => {
+      for (const receipt of refusal.closeReceipts ?? []) receipt.dispose();
+      return unobserved(refusal.code, refusal.terminated);
+    };
     const prepared = await this.certifier.authContext({ route, signal });
-    if (!prepared.ok) return unobserved(prepared.code, prepared.terminated);
+    if (!prepared.ok) return refused(prepared);
     const before = await this.certifier.checkCoverage(prepared.context, signal);
-    if (!before.ok) return unobserved(before.code, before.terminated);
+    if (!before.ok) return refused(before);
     if (signal.aborted) return unobserved('cancelled', true);
     const probed = await this.commands.status(prepared.context, signal);
-    if (!probed.terminated) return unobserved('identity-unproved', false);
+    // An unproved child keeps the reservation until its close is seen (prior state, so nothing else changes).
+    const unproved = (code: ProviderAccountResultCode): ProviderAccountActionResult => {
+      const receipt = probed.closeReceipt;
+      let result: ProviderAccountActionResult;
+      try {
+        result = unobserved(code, false);
+      } catch (error: unknown) {
+        receipt?.dispose();
+        throw error;
+      }
+      if (receipt) this.releaseStatusOnClose(receipt, () => complete(code, priorState, true));
+      return result;
+    };
+    // No status is recorded for a changed route.
+    if (probed.routeChanged) return probed.terminated ? unobserved('route-changed', true) : unproved('route-changed');
+    if (!probed.terminated) return unproved('identity-unproved');
     const after = await this.certifier.checkCoverage(prepared.context, signal);
-    if (!after.ok) return unobserved(after.code, after.terminated);
+    if (!after.ok) return refused(after);
     const status = probed.status;
     if (!status) return unobserved('unsupported-source', true);
     if (!status.loggedIn) return complete('ok', 'signed-out', true, null);
@@ -450,11 +515,29 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     return complete('ok', 'signed-in', true, status.identityReference);
   }
 
+  /**
+   * Keeps observing an unproved status-action child after the action returned.
+   * Only its close releases the reservation; disposal removes the listeners and
+   * leaves the reservation held.
+   */
+  private releaseStatusOnClose(receipt: ClaudeChildCloseReceipt, release: () => void): void {
+    this.statusReceipts.add(receipt);
+    receipt.onClosed(() => {
+      this.statusReceipts.delete(receipt);
+      if (this.disposalController.signal.aborted) return;
+      try {
+        release();
+      } catch {
+        // degradation-audit: reported - the store refused the late release (it changed); the reservation stays held for manual recovery.
+      }
+    });
+  }
+
   /** A coverage refusal starts no child and is a terminal failure of the operation. */
   private async coverage(operation: AuthOperation, context: ClaudeAuthContext): Promise<TerminalOutcome | undefined> {
     const checked: ClaudeCoverageOutcome = await this.certifier.checkCoverage(context, operation.controller.signal);
     if (checked.ok) return undefined;
-    operation.ledger.recordProbe(checked.terminated);
+    operation.ledger.recordRefusal(checked);
     return this.failure(operation, checked.code === 'cancelled' ? 'cancelled' : 'unsupported-source');
   }
 
@@ -506,10 +589,17 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     return accountActionResult(outcome.code);
   }
 
-  /** A late console close may unblock a gated operation (console mode). */
-  private consoleChanged(operation: AuthOperation): void {
-    if (!operation.blocked || operation.settled || this.disposalController.signal.aborted) return;
-    if (operation.ledger.allClosed()) this.complete(operation, operation.blocked);
+  /**
+   * A late close (console or probe child) may unblock a gated operation, or
+   * resume a sign-in poll that stopped at the unproved limit.
+   */
+  private childClosed(operation: AuthOperation): void {
+    if (operation.settled || this.disposalController.signal.aborted) return;
+    if (operation.blocked) {
+      if (operation.ledger.allClosed()) this.complete(operation, operation.blocked);
+      return;
+    }
+    if (operation.kind === 'sign-in' && operation.context && !operation.inFlight) this.schedulePoll(operation);
   }
 
   private stopTimers(operation: AuthOperation): void {

@@ -7,6 +7,7 @@ import type {
   ClaudeLaunchBoundaryOutcome,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountResultCode } from '@ptah-extension/shared';
+import type { ClaudeChildCloseReceipt } from './claude-account-command';
 import type { ClaudeAccountStatus } from './claude-account-status';
 import {
   claudePolicyCoverage,
@@ -33,6 +34,12 @@ export interface ClaudeAuthContext {
   readonly env: Readonly<Record<string, string>>;
   readonly envDigest: string;
   readonly policy: ClaudeCertifiedLaunchPolicy;
+  /**
+   * The route the store reserved. Every account child revalidates it before
+   * spawn, guards its creation with its file identity and revalidates it after
+   * close; an absent route never launches (refused as route-changed).
+   */
+  readonly route?: CanonicalProviderAccountRoute;
 }
 
 export type ClaudeExecutableProbeResult =
@@ -47,11 +54,15 @@ export type ClaudeExecutableProbeResult =
 export interface ClaudeStatusProbeResult {
   readonly status: ClaudeAccountStatus | null;
   readonly terminated: boolean;
+  /** The reserved route did not hold before spawn or after close; `status` is then null. */
+  readonly routeChanged?: true;
 }
 
 export interface ClaudeLogoutProbeResult {
   readonly exitCode: number | null;
   readonly terminated: boolean;
+  /** The reserved route did not hold before spawn or after close; `exitCode` is then null. */
+  readonly routeChanged?: true;
 }
 
 /**
@@ -87,9 +98,19 @@ export interface ClaudeCertificationRefusal {
   readonly terminated: boolean;
 }
 
-export type ClaudeAuthContextOutcome = { readonly ok: true; readonly context: ClaudeAuthContext } | ClaudeCertificationRefusal;
+/**
+ * A refusal of an auth-operation step. `closeReceipts` is present only when
+ * `terminated` is false and every unproved `reg.exe` child of the policy scan
+ * handed out a close receipt; the caller then owns (and must track or dispose)
+ * each one. Without it, an unterminated refusal has an unobservable child.
+ */
+export interface ClaudeProbeRefusal extends ClaudeCertificationRefusal {
+  readonly closeReceipts?: readonly ClaudeChildCloseReceipt[];
+}
 
-export type ClaudeCoverageOutcome = { readonly ok: true } | ClaudeCertificationRefusal;
+export type ClaudeAuthContextOutcome = { readonly ok: true; readonly context: ClaudeAuthContext } | ClaudeProbeRefusal;
+
+export type ClaudeCoverageOutcome = { readonly ok: true } | ClaudeProbeRefusal;
 
 export type ClaudeRouteCertification =
   | { readonly ok: true; readonly launch: ClaudeCertifiedLaunchContext }
@@ -124,6 +145,16 @@ function refuse(code: ClaudeCertificationRefusalCode, terminated: boolean): Clau
 }
 
 /**
+ * For callers that cannot follow a late close (run certification, run
+ * boundary): disposes the receipts, which removes the children's listeners,
+ * and keeps `terminated` false so the caller still retains its lease.
+ */
+function withoutReceipts(refusal: ClaudeProbeRefusal): ClaudeCertificationRefusal {
+  for (const receipt of refusal.closeReceipts ?? []) receipt.dispose();
+  return refuse(refusal.code, refusal.terminated);
+}
+
+/**
  * Certifies a named Claude route (implementation-plan.md Component 4a). Every
  * settings-reading child is preceded by the coverage entry and the policy scan
  * for its context. Results carry codes only: no path, value or CLI text.
@@ -137,8 +168,7 @@ export class ClaudeRouteCertifier {
 
   /** Steps 1-5 with `cwd = canonicalDir`, for sign-in, status and sign-out. */
   async authContext(request: ClaudeAuthContextRequest): Promise<ClaudeAuthContextOutcome> {
-    const canonicalDir = request.route.canonicalPath;
-    return this.prepare(canonicalDir, canonicalDir, request.signal);
+    return this.prepare(request.route.canonicalPath, request.route, request.signal);
   }
 
   /** Re-runs steps 1-2 (S9 signals included) before a settings-reading auth child. */
@@ -153,8 +183,8 @@ export class ClaudeRouteCertifier {
   async certify(request: ClaudeRouteCertifyRequest): Promise<ClaudeRouteCertification> {
     const { route, profile, signal } = request;
     const canonicalDir = route.canonicalPath;
-    const prepared = await this.prepare(request.cwd, canonicalDir, signal);
-    if (!prepared.ok) return prepared;
+    const prepared = await this.prepare(request.cwd, route, signal);
+    if (!prepared.ok) return withoutReceipts(prepared);
     const context = prepared.context;
     let terminated = true;
 
@@ -162,6 +192,7 @@ export class ClaudeRouteCertifier {
     if (signal.aborted) return refuse('cancelled', terminated);
     const probed = await this.probe.status(context, signal);
     terminated = terminated && probed.terminated;
+    if (probed.routeChanged) return refuse('route-changed', terminated);
     if (!probed.terminated) return refuse('identity-unproved', false);
     const status = probed.status;
     if (!status || !status.loggedIn) return refuse('identity-unproved', terminated);
@@ -213,6 +244,7 @@ export class ClaudeRouteCertifier {
 
     const scan = await this.scan(launch.cwd, canonicalDir, entry, signal, launch.executable.version);
     if (!scan.ok) {
+      withoutReceipts(scan);
       return { ok: false, code: scan.code === 'cancelled' ? 'identity-unproved' : 'unsupported-source', terminated: scan.terminated };
     }
 
@@ -230,7 +262,8 @@ export class ClaudeRouteCertifier {
   }
 
   /** Steps 1-5: coverage, scan, executable, env. */
-  private async prepare(cwd: string, canonicalDir: string, signal: AbortSignal): Promise<ClaudeAuthContextOutcome> {
+  private async prepare(cwd: string, route: CanonicalProviderAccountRoute, signal: AbortSignal): Promise<ClaudeAuthContextOutcome> {
+    const canonicalDir = route.canonicalPath;
     const entry = claudePolicyCoverage(this.platform);
     if (!entry) return refuse('unsupported-source', true);
 
@@ -262,6 +295,7 @@ export class ClaudeRouteCertifier {
         env,
         envDigest: certifiedEnvDigest(env),
         policy: scan.policy,
+        route,
       }),
     };
   }
@@ -272,7 +306,7 @@ export class ClaudeRouteCertifier {
     coverage: ClaudePolicyCoverageEntry,
     signal: AbortSignal,
     knownVersion?: string,
-  ): Promise<{ readonly ok: true; readonly policy: ClaudeCertifiedLaunchPolicy } | ClaudeCertificationRefusal> {
+  ): Promise<{ readonly ok: true; readonly policy: ClaudeCertifiedLaunchPolicy } | ClaudeProbeRefusal> {
     const result = await scanClaudeAuthPolicy({
       cwd,
       canonicalDir,
@@ -283,6 +317,8 @@ export class ClaudeRouteCertifier {
       queryRegistry: (path, querySignal) => this.probe.queryRegistry(path, querySignal),
       signal,
     });
-    return result.ok ? { ok: true, policy: result.policy } : refuse(result.code, result.terminated);
+    if (result.ok) return { ok: true, policy: result.policy };
+    const refusal = refuse(result.code, result.terminated);
+    return result.closeReceipts ? { ...refusal, closeReceipts: result.closeReceipts } : refusal;
   }
 }
