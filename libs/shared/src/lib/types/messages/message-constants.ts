@@ -339,6 +339,14 @@ export const MESSAGE_TYPES = {
   GIT_OPERATION_OUTPUT: 'git:operationOutput',
   /** Backend → Frontend: a specific workspace file's content changed on disk. */
   FILE_CONTENT_CHANGED: 'file:content-changed',
+  /**
+   * Backend → Frontend: provider account state committed a new revision.
+   * Carries `ProviderAccountsChangedNotification` (a sanitized snapshot plus
+   * the `requestId` of the write that caused it). Pushed once per committed
+   * revision; a consumer ignores a snapshot that is not newer than its own and
+   * re-reads with `provider:listAccounts` after a reconnect.
+   */
+  PROVIDER_ACCOUNTS_CHANGED: 'provider:accountsChanged',
 } as const;
 
 /**

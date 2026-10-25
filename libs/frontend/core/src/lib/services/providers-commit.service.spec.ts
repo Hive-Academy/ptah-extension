@@ -776,6 +776,141 @@ describe('ProvidersCommitService', () => {
           undefined,
         );
       });
+      it('writes the Claude lane model and effort one field per call and confirms each by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({
+            claudeModel: 'claude-opus-4-5',
+            claudeReasoningEffort: 'high',
+          }),
+        });
+        await service.run(
+          service.operations({
+            orchestration: {
+              claudeModel: 'claude-opus-4-5',
+              claudeReasoningEffort: 'high',
+            },
+          }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: [
+            'agentOrchestration.claudeModel',
+            'agentOrchestration.claudeReasoningEffort',
+          ],
+        });
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeModel: 'claude-opus-4-5' },
+          undefined,
+        );
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeReasoningEffort: 'high' },
+          undefined,
+        );
+      });
+      /** Typed one-field patch for the Grok / Antigravity effort rows. */
+      const effortPatch = (
+        field: 'grokReasoningEffort' | 'antigravityReasoningEffort',
+        value: string,
+      ) =>
+        field === 'grokReasoningEffort'
+          ? { grokReasoningEffort: value }
+          : { antigravityReasoningEffort: value };
+      it.each([
+        ['grokReasoningEffort', 'high'],
+        ['grokReasoningEffort', ''],
+        ['antigravityReasoningEffort', 'medium'],
+        ['antigravityReasoningEffort', ''],
+      ] as const)(
+        'writes %s alone (value "%s") in one call and confirms it by read-back',
+        async (field, value) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ [field]: value }),
+          });
+          await service.run(
+            service.operations({ orchestration: effortPatch(field, value) }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'saved',
+            saved: [`agentOrchestration.${field}`],
+          });
+          const writes = call.mock.calls.filter(
+            ([method]) => method === 'agent:setConfig',
+          );
+          expect(writes).toEqual([
+            ['agent:setConfig', { [field]: value }, undefined],
+          ]);
+          expect(methods()).toContain('agent:getConfig');
+        },
+      );
+      it.each([
+        ['grokReasoningEffort', 'low'],
+        ['grokReasoningEffort', undefined],
+        ['antigravityReasoningEffort', 'low'],
+        ['antigravityReasoningEffort', undefined],
+      ] as const)(
+        '%s read back as %s is not saved',
+        async (field, stored) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ [field]: stored }),
+          });
+          await service.run(
+            service.operations({ orchestration: effortPatch(field, 'high') }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'failed',
+            unsaved: [`agentOrchestration.${field}`],
+          });
+        },
+      );
+      it('writes an empty Claude lane model (SDK default) and confirms it by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({ claudeModel: '' }),
+        });
+        await service.run(
+          service.operations({ orchestration: { claudeModel: '' } }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: ['agentOrchestration.claudeModel'],
+        });
+      });
+      it.each([
+        ['a different value', 'low'],
+        ['no value (a host without the field)', undefined],
+      ])(
+        'a Claude lane effort read back as %s is not saved',
+        async (_label, stored) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ claudeReasoningEffort: stored }),
+          });
+          await service.run(
+            service.operations({
+              orchestration: { claudeReasoningEffort: 'high' },
+            }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'failed',
+            unsaved: ['agentOrchestration.claudeReasoningEffort'],
+          });
+        },
+      );
       it.each([
         ['a different value', '5m'],
         ['no value (a host without the field)', undefined],

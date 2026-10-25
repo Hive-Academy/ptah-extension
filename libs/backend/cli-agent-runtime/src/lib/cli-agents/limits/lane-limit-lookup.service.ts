@@ -40,9 +40,31 @@ import {
   type PlanLimitOwnerSnapshot,
   type QuotaOwnerRef,
 } from '@ptah-extension/shared';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../../di/tokens';
+import { laneAccountFields } from '../lane-resume-gate';
 import type { LaneOwnerResolver } from './lane-owner.resolver';
 import { planOwnerRead, snapshotWithoutRead } from './plan-owner-read';
+
+/**
+ * The route fingerprint a lane's owner is remembered under: `undefined` for
+ * the ambient login (key unchanged), the binding's fingerprint for a lane run
+ * on a named Claude account, `null` when a binding is present but unreadable
+ * (fail closed: such a lane is never keyed as ambient).
+ */
+export function laneRouteFingerprint(value: object): string | null | undefined {
+  const { accountBinding } = laneAccountFields(value);
+  if (accountBinding === undefined) return undefined;
+  if (
+    typeof accountBinding !== 'object' ||
+    accountBinding === null ||
+    !('routeFingerprint' in accountBinding) ||
+    typeof accountBinding.routeFingerprint !== 'string'
+  ) {
+    return null;
+  }
+  return accountBinding.routeFingerprint;
+}
 
 /** One lane to look up. `CliDetectionResult` rows fit as they are. */
 export interface LaneLimitLookupRow {
@@ -66,6 +88,13 @@ export interface LaneLimitLookupRow {
   readonly modelScope?: string | null;
   /** The model a spawn asks for; picks the OpenCode owner. */
   readonly model?: string;
+  /**
+   * The certified named Claude route the lane runs on. It keys the lane's
+   * remembered owner to that route and lets a Claude read ask only the query
+   * bound to it. Without it, a persisted `accountBinding` on the row still
+   * keys the remembered owner; with neither, the lane is ambient.
+   */
+  readonly claudeRoute?: ClaudeAccountNamedRoute;
 }
 
 export interface LaneLimitLookupOptions {
@@ -192,6 +221,7 @@ export class LaneLimitLookupService {
       const plan = planOwnerRead(owner, {
         ptahCliId: row.ptahCliId,
         cliSessionId: row.cliSessionId,
+        ...(row.claudeRoute && { claudeRoute: row.claudeRoute }),
       });
       if (!plan) return { kind: 'read', read: { owner } };
       const snapshot =
@@ -228,9 +258,17 @@ export class LaneLimitLookupService {
     if (row.providerId === 'ollama-cloud' && row.ptahCliId) {
       return this.owners.ownerForPtahCliKey(row.ptahCliId, row.providerId);
     }
+    // An account-bound lane reads only the owner remembered under its own
+    // route; an unreadable binding reads none rather than the ambient one.
+    const fingerprint =
+      row.claudeRoute?.routeFingerprint ?? laneRouteFingerprint(row);
+    if (fingerprint === null) return undefined;
     return this.owners.lastLaneOwner({
       cli: row.cli,
       ptahCliId: row.ptahCliId,
+      ...(fingerprint !== undefined && {
+        accountRouteFingerprint: fingerprint,
+      }),
     });
   }
 

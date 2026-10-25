@@ -618,6 +618,35 @@ describe('ProviderAccountStore transactions', () => {
     service.dispose();
   });
 
+  it('makes Add idempotent by request ID across a restart: same request returns the stored account', () => {
+    const before = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const added = before.add('Work', 'request-0001');
+    before.dispose();
+    // A new service on a new connection stands in for a host restart.
+    const after = new ProviderAccountService(b, { db: second, dbPath: join(root, 'isolated.sqlite') });
+    expect(after.add('Work', 'request-0001')).toEqual(added);
+    expect(after.list()).toEqual([added]);
+    expect(count('profiles')).toBe(1);
+  });
+
+  it('creates a new account for a different request ID and refuses a reused one with another label', () => {
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const one = service.add('Work', 'request-0001');
+    const two = service.add('Work', 'request-0002');
+    expect(two.profileId).not.toBe(one.profileId);
+    refuses(() => service.add('Personal', 'request-0001'), 'conflict');
+    expect(count('profiles')).toBe(2);
+  });
+
+  it('does not recreate a removed account when its Add request is replayed', () => {
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const added = service.add('Work', 'request-0001');
+    service.remove(added.profileId, added.revision);
+    refuses(() => service.add('Work', 'request-0001'), 'conflict');
+    expect(service.list()).toEqual([]);
+    expect(count('profiles')).toBe(1);
+  });
+
   it('keeps live admission release-held without discovering or spawning a provider command', async () => {
     add();
     const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });

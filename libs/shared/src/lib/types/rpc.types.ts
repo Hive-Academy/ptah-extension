@@ -16,6 +16,7 @@ import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
+export * from './rpc/rpc-provider-accounts.types';
 export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
@@ -58,6 +59,7 @@ import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
+import type { ProviderAccountRpcMethodRegistry } from './rpc/rpc-provider-accounts.types';
 import type {
   AttentionGetSnapshotParams,
   AttentionGetSnapshotResult,
@@ -776,8 +778,11 @@ import type {
  * 3. Give it an owner in RPC_HANDLER_MANIFEST (@ptah-extension/rpc-handlers)
  *
  * If a method is not in this registry, it CANNOT be called from frontend.
+ *
+ * Provider account methods (`provider:*Account*`, TASK_2026_712) are declared
+ * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
  */
-export interface RpcMethodRegistry {
+export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'artifacts:list': { params: ArtifactListRequest; result: ArtifactListResponse };
   'artifacts:openLink': { params: { url: string }; result: { opened: boolean } };
   'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
@@ -3183,6 +3188,19 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:testCustomEntry': true,
   'provider:getAccountUsage': true,
   'provider:getPlanLimits': true,
+  // TASK_2026_712 provider accounts (registry merged via `extends`). `provider:`
+  // is already in `ALLOWED_METHOD_PREFIXES`. Capability-gated to Electron in
+  // RPC_HANDLER_MANIFEST (`providerAccounts`).
+  'provider:listAccounts': true,
+  'provider:addAccount': true,
+  'provider:renameAccount': true,
+  'provider:removeAccount': true,
+  'provider:getAccountStatus': true,
+  'provider:startAccountSignIn': true,
+  'provider:cancelAccountSignIn': true,
+  'provider:signOutAccount': true,
+  'provider:setAccountSelection': true,
+  'provider:setAccountDefault': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

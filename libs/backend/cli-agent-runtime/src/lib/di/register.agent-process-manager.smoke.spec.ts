@@ -8,8 +8,14 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
+  ProviderAccountService,
   registerAuthProvidersServices,
 } from '@ptah-extension/auth-providers';
+import type {
+  ClaudeAccountAdmissionRequest,
+  ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 
 const ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
@@ -19,8 +25,13 @@ jest.mock('@ptah-extension/agent-generation', () => ({
   },
 }));
 
-import { registerCliAgentRuntimeServices } from './register';
-import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
+import {
+  createClaudeLaneReadOnlyBindings,
+  registerCliAgentRuntimeServices,
+} from './register';
+import { ClaudeCliAdapter } from '../cli-agents/cli-adapters/claude-cli.adapter';
+import { resolveLaneAccountResume } from '../cli-agents/lane-resume-gate';
+import { CLAUDE_LANE_ACCOUNT_PERSISTENCE, CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import { AgentRoleResolver } from '../roles';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
@@ -259,6 +270,116 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
     expect(
       container.resolve(CLI_AGENT_RUNTIME_TOKENS.PLAN_LIMIT_OWNER_DISCOVERY),
     ).toBe(discovery);
+  });
+
+  describe('ClaudeCliAdapter account persistence (TASK_2026_712 D25 F3)', () => {
+    const binding: ProviderAccountBinding = {
+      version: 1, provider: 'claude', profileId: 'account123', runId: 'run12345',
+      routeRevision: 0, authEpoch: 0, routeFingerprint: 'a'.repeat(64),
+      identity: { kind: 'known', ownerKey: 'b'.repeat(64) },
+    };
+    const continueInput = { cli: 'claude' as const, cliSessionId: 'sdk-session-1' };
+
+    function useAccountService(
+      lookupBySdkSession: ProviderAccountService['lookupBySdkSession'],
+    ): jest.Mock {
+      const lookup = jest.fn(lookupBySdkSession);
+      // Test double: the read-only bindings only call `lookupBySdkSession`.
+      const service = { lookupBySdkSession: lookup } as Pick<ProviderAccountService, 'lookupBySdkSession'>;
+      container.register(ProviderAccountService, {
+        useValue: service as ProviderAccountService,
+      });
+      return lookup;
+    }
+
+    it('gives the adapter the read-only bindings when no host registers full persistence', async () => {
+      expect(container.isRegistered(CLAUDE_LANE_ACCOUNT_PERSISTENCE, true)).toBe(false);
+      const lookup = useAccountService(async () => ({ status: 'absent' }));
+
+      const port = container.resolve(ClaudeCliAdapter).accountBindings;
+
+      expect(port).toBeDefined();
+      await expect(port?.persistReference(
+        { accountBinding: binding, accountBindingId: binding.runId }, 'sdk-session-1',
+      )).rejects.toMatchObject({ code: 'release-held' });
+      expect(lookup).not.toHaveBeenCalled();
+    });
+
+    it('treats an explicit null full-persistence binding as absent and falls back to read-only', () => {
+      container.register(CLAUDE_LANE_ACCOUNT_PERSISTENCE, { useFactory: () => null });
+
+      expect(container.resolve(ClaudeCliAdapter).accountBindings).toBeDefined();
+    });
+
+    it('(a) resumes an ambient continue of a never-bound session with no refusal', async () => {
+      const lookup = useAccountService(async () => ({ status: 'absent' }));
+      const accountBindings = container.resolve(ClaudeCliAdapter).accountBindings;
+
+      await expect(
+        resolveLaneAccountResume({ ...continueInput, accountBindings }),
+      ).resolves.toBeUndefined();
+      expect(lookup).toHaveBeenCalledWith({ provider: 'claude', sdkSessionId: 'sdk-session-1' });
+    });
+
+    it('(b) refuses a bound named session with release-held until certification', async () => {
+      useAccountService(async () => ({ status: 'bound', binding }));
+      const accountBindings = container.resolve(ClaudeCliAdapter).accountBindings;
+
+      await expect(
+        resolveLaneAccountResume({ ...continueInput, accountBindings }),
+      ).rejects.toMatchObject({ name: 'LaneAccountResumeError', code: 'release-held' });
+    });
+
+    it('(c) refuses unavailable-storage when the account service is missing or fails, without leaking', async () => {
+      const missing = createClaudeLaneReadOnlyBindings(() => null);
+      await expect(
+        resolveLaneAccountResume({ ...continueInput, accountBindings: missing }),
+      ).rejects.toMatchObject({ code: 'unavailable-storage' });
+
+      useAccountService(async () => {
+        throw new Error('SQLITE_CANTOPEN D:/secret/accounts.db');
+      });
+      const failing = container.resolve(ClaudeCliAdapter).accountBindings;
+      await expect(failing?.lookupBySdkSession({ provider: 'claude', sdkSessionId: 's' }))
+        .resolves.toEqual({ status: 'unavailable-storage' });
+      const refusal = resolveLaneAccountResume({ ...continueInput, accountBindings: failing });
+      await expect(refusal).rejects.toMatchObject({ code: 'unavailable-storage' });
+      await expect(refusal).rejects.not.toThrow(/secret|SQLITE/);
+    });
+
+    it('(d) still refuses named admission without full persistence, before admitting a route', async () => {
+      const lookup = useAccountService(async () => ({ status: 'absent' }));
+      const admitClaudeRoute = jest.fn();
+      const admission: ProviderAccountAdmissionPort = {
+        admitClaudeRoute,
+        releaseReservation: jest.fn(),
+        retainUnresolvedReservation: jest.fn(),
+      };
+      container.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, { useValue: admission });
+      const accountAdmission = {
+        provider: 'claude',
+        selection: { kind: 'named', profileId: 'profile' },
+      } as ClaudeAccountAdmissionRequest;
+
+      await expect(
+        container.resolve(ClaudeCliAdapter).runSdk({
+          task: 'do work', workingDirectory: '/workspace', accountAdmission,
+        }),
+      ).rejects.toMatchObject({ code: 'release-held' });
+      expect(admitClaudeRoute).not.toHaveBeenCalled();
+      expect(lookup).not.toHaveBeenCalled();
+    });
+
+    it('passes the host-registered persistence port to the adapter', () => {
+      const persistence = {
+        available: false,
+        lookupBySdkSession: jest.fn(async () => ({ status: 'absent' as const })),
+        validateResume: jest.fn(),
+      };
+      container.register(CLAUDE_LANE_ACCOUNT_PERSISTENCE, { useValue: persistence });
+
+      expect(container.resolve(ClaudeCliAdapter).accountBindings).toBe(persistence);
+    });
   });
 
   it('resolves CLI_AGENT_RUNTIME_TOKENS.AGENT_ROLE_RESOLVER as a singleton', () => {

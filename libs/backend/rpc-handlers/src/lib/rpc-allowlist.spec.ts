@@ -34,7 +34,10 @@ jest.mock('@ptah-extension/memory-curator', () => ({
 
 import 'reflect-metadata';
 import { ALLOWED_METHOD_PREFIXES } from '@ptah-extension/vscode-core';
-import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
+import {
+  PROVIDER_ACCOUNT_RPC_METHOD_NAMES,
+  RPC_METHOD_NAMES,
+} from '@ptah-extension/shared';
 import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './host-profile';
 
 describe('RPC handler manifest', () => {
@@ -146,5 +149,40 @@ describe('wizard:get-resumable-run registration (TASK_2026_361)', () => {
 
   it('is accepted by the existing `wizard:` runtime prefix', () => {
     expect(ALLOWED_METHOD_PREFIXES).toContain('wizard:');
+  });
+});
+
+describe('provider account methods (TASK_2026_712 Batch 35)', () => {
+  const accountMethods: readonly string[] = PROVIDER_ACCOUNT_RPC_METHOD_NAMES;
+
+  it('has ten distinct methods, all in the shared registry', () => {
+    expect(accountMethods).toHaveLength(10);
+    expect(new Set(accountMethods).size).toBe(accountMethods.length);
+    for (const method of accountMethods) {
+      expect(RPC_METHOD_NAMES).toContain(method);
+    }
+  });
+
+  it('each is claimed exactly once, by the providerAccounts entry', () => {
+    for (const method of accountMethods) {
+      const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+        (entry.methods as readonly string[]).includes(method),
+      ).map((entry) => entry.key);
+      expect(owners).toEqual(['providerAccounts']);
+    }
+  });
+
+  it('the providerAccounts entry claims nothing but the account methods', () => {
+    const entry = RPC_HANDLER_MANIFEST.find(
+      (candidate) => candidate.key === 'providerAccounts',
+    );
+    expect([...(entry?.methods ?? [])].sort()).toEqual([...accountMethods].sort());
+  });
+
+  it('every account method is under the allowlisted `provider:` prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('provider:');
+    for (const method of accountMethods) {
+      expect(method.startsWith('provider:')).toBe(true);
+    }
   });
 });

@@ -454,6 +454,14 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.grokReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.antigravityReasoningEffort': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.cursorModel': {
     appScopable: false,
     supportedTargets: ['global'],
@@ -471,6 +479,15 @@ export const SCOPED_SETTING_KEYS: Record<
     supportedTargets: ['global'],
   },
   'agentOrchestration.piModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  // Claude system lane. Global like every other per-CLI lane setting.
+  'agentOrchestration.claudeModel': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.claudeReasoningEffort': {
     appScopable: false,
     supportedTargets: ['global'],
   },

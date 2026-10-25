@@ -7,6 +7,12 @@
 import { z } from 'zod';
 import type { PtahCliSummary } from '../ptah-cli.types';
 import type { AgentPermissionDecision } from '../agent-permission.types';
+import type { EffortLevel } from '../ai-provider.types';
+import type { SystemCliType } from '../agent-process.types';
+import type {
+  ProviderAccountBindingPresence,
+  ProviderAccountSelectionField,
+} from '../provider-account.types';
 
 /** A skill entry from skills.sh search/browse results */
 export interface SkillShEntry {
@@ -240,6 +246,11 @@ export interface AgentOrchestrationConfig {
   opencodeModel?: string;
   /** Per-CLI model: Pi model (empty string = CLI default). Format is `provider/model`, e.g. `openai/gpt-4o`. */
   piModel?: string;
+  /**
+   * Per-CLI model: Claude system lane (empty string = SDK default). Absent
+   * when the host does not report the setting; never a guessed default.
+   */
+  claudeModel?: string;
   /** Whether a Cursor API key is configured (CURSOR_API_KEY or secrets store entry ptah.auth.provider.cursor). The raw key is never returned to the UI. */
   cursorApiKeyConfigured: boolean;
   /** Whether a Cursor API key is present in the secrets store (ptah.auth.provider.cursor), regardless of CURSOR_API_KEY. The raw key is never returned to the UI. */
@@ -256,6 +267,12 @@ export interface AgentOrchestrationConfig {
   antigravityReasoningEffort?: string;
   /** Pi reasoning effort mapped to `--thinking` (empty string = CLI default). Scale: off|minimal|low|medium|high|xhigh|max. */
   piReasoningEffort?: string;
+  /**
+   * Claude system-lane reasoning effort, one of
+   * {@link CLAUDE_REASONING_EFFORT_VALUES} (empty string = SDK default).
+   * Absent when the host does not report the setting.
+   */
+  claudeReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
   /** Codex lane `model_auto_compact_token_limit` (integer >= 0; 0 = Codex runtime default). Default: `FILE_BASED_SETTINGS_DEFAULTS`. */
@@ -302,16 +319,11 @@ export interface CliModelOption {
   readonly isFallback?: boolean;
 }
 
-/** Response from agent:listCliModels RPC method */
-export interface AgentListCliModelsResult {
-  codex: CliModelOption[];
-  copilot: CliModelOption[];
-  cursor: CliModelOption[];
-  antigravity: CliModelOption[];
-  opencode: CliModelOption[];
-  pi: CliModelOption[];
-  grok: CliModelOption[];
-}
+/**
+ * Response from agent:listCliModels RPC method: one list per system CLI. The keys are derived from
+ * `SYSTEM_CLI_TYPES`, so a new tuple member (e.g. `claude`) cannot be missing from the wire type.
+ */
+export type AgentListCliModelsResult = Record<SystemCliType, CliModelOption[]>;
 
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot
@@ -346,6 +358,73 @@ export const PI_REASONING_EFFORT_VALUES = [
   'max',
 ] as const;
 
+/**
+ * Reasoning-effort values `agent:setConfig` accepts for the Claude system
+ * lane: the SDK's {@link EffortLevel} scale, plus `''` (SDK default) and
+ * `'inherit'` (use the chat session's effort, resolved before spawn).
+ */
+export const CLAUDE_REASONING_EFFORT_VALUES = [
+  '',
+  'inherit',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const satisfies readonly ('' | 'inherit' | EffortLevel)[];
+
+export type ClaudeReasoningEffortSetting =
+  (typeof CLAUDE_REASONING_EFFORT_VALUES)[number];
+
+const claudeReasoningEffortValueSet: ReadonlySet<string> = new Set(
+  CLAUDE_REASONING_EFFORT_VALUES,
+);
+
+/** True only for a value the Claude lane setting can store as-is. */
+export function isClaudeReasoningEffortSetting(
+  value: string,
+): value is ClaudeReasoningEffortSetting {
+  return claudeReasoningEffortValueSet.has(value);
+}
+
+/**
+ * How a resume request's optional account selection relates to the run's
+ * stored binding. A resume never switches accounts:
+ * - `inherit`: nothing was supplied, or the supplied value restates the
+ *   stored route. Resume on the stored route.
+ * - `conflict`: the supplied value names a different route. Refuse before
+ *   spawn; do not fall back to the stored, the default or the ambient route.
+ * - `invalid`: the supplied value is malformed, or the stored binding is
+ *   present but unreadable. Refuse before spawn.
+ */
+export type AgentResumeAccountSelectionDecision =
+  | 'inherit'
+  | 'conflict'
+  | 'invalid';
+
+/**
+ * Classify a resume's supplied selection against the stored binding.
+ * An absent binding is a legacy or ambient run, whose route is ambient.
+ */
+export function classifyAgentResumeAccountSelection(
+  supplied: ProviderAccountSelectionField,
+  stored: ProviderAccountBindingPresence,
+): AgentResumeAccountSelectionDecision {
+  if (supplied.status === 'invalid' || stored.status === 'invalid-bound') {
+    return 'invalid';
+  }
+  if (supplied.status === 'omitted') return 'inherit';
+  const selection = supplied.selection;
+  if (selection.kind === 'omitted') return 'inherit';
+  if (selection.kind === 'ambient') {
+    return stored.status === 'absent' ? 'inherit' : 'conflict';
+  }
+  return stored.status === 'bound' &&
+    stored.binding.profileId === selection.profileId
+    ? 'inherit'
+    : 'conflict';
+}
+
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
   /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
@@ -366,6 +445,8 @@ export interface AgentSetConfigParams {
   opencodeModel?: string;
   /** Pi model override (empty string = CLI default). Format is `provider/model`. */
   piModel?: string;
+  /** Claude system-lane model override (empty string = SDK default). */
+  claudeModel?: string;
   /** Cursor API key. Written to the secrets store as ptah.auth.provider.cursor. Empty string clears it. */
   cursorApiKey?: string;
   /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
@@ -396,6 +477,8 @@ export interface AgentSetConfigParams {
   antigravityReasoningEffort?: string;
   /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */
   piReasoningEffort?: string;
+  /** Claude system-lane reasoning effort. Must be one of `CLAUDE_REASONING_EFFORT_VALUES`. */
+  claudeReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
   /** CLI types to disable (e.g., ['copilot']). Empty array enables all. */

@@ -650,7 +650,8 @@ export function buildAgentSpawnTool({
             'Only CLIs actually installed on this machine will spawn — check ' +
             'ptah_agent_list first; naming an uninstalled CLI fails at spawn time. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
-            'Not needed when using ptahCliId.',
+            'Not needed when using ptahCliId. "claude" is a Claude Agent SDK ' +
+            'session with Ptah tools over MCP, distinct from Ptah CLI agents.',
         },
         ptahCliId: {
           type: 'string',
@@ -713,13 +714,33 @@ export function buildAgentSpawnTool({
             "The tier maps to a concrete model through the chosen provider's own " +
             'tier mappings, so the same tier resolves differently per provider — ' +
             'you pick the tier, never the model id. ' +
-            'Only applies when ptahCliId is set. Ignored for standard CLI agents.',
+            'Only applies when ptahCliId is set. Ignored for system CLI agents, ' +
+            'including cli "claude".',
         },
         resume_session_id: {
           type: 'string',
           description:
             'Resume a previous CLI agent session by its CLI-native session ID. ' +
-            'The agent will continue from where the previous session left off.',
+            'The agent will continue from where the previous session left off. ' +
+            'For cli "claude" this is the SDK session id; the resumed lane keeps ' +
+            'the account stored with that session.',
+        },
+        accountSelection: {
+          type: 'object',
+          description:
+            'Optional account route, accepted only with cli "claude" and no ' +
+            'ptahCliId. {"kind":"ambient"} or {"kind":"omitted"} uses the ' +
+            'existing Claude login, the same as leaving this out. ' +
+            '{"kind":"named","profileId":"<id>"} is refused before spawn: named ' +
+            'Claude account lanes are not available in this release, and a ' +
+            'resume never takes a named account. Takes no path, environment, ' +
+            'token or owner.',
+          properties: {
+            kind: { type: 'string', enum: ['omitted', 'ambient', 'named'] },
+            profileId: { type: 'string' },
+          },
+          required: ['kind'],
+          additionalProperties: false,
         },
         role: {
           type: 'string',

@@ -10,7 +10,13 @@ const ORCHESTRATOR_TARGET: TaskAgentTarget = {
   description: 'Run the full task orchestration pipeline.',
 };
 
-const CLI_DISPLAY_NAMES: Readonly<Record<CliType, string>> = {
+/**
+ * Display names per CLI lane. `claude` is the system Claude CLI lane, typed
+ * explicitly so this table compiles before and after it joins `CliType`; it is
+ * listed only when `agent:detectClis` reports it installed. `ptah-cli` stays the
+ * configured Ptah CLI provider, named by `ptahCliName` when present.
+ */
+const CLI_DISPLAY_NAMES: Readonly<Record<CliType | 'claude', string>> = {
   codex: 'Codex',
   copilot: 'Copilot',
   cursor: 'Cursor',
@@ -19,6 +25,7 @@ const CLI_DISPLAY_NAMES: Readonly<Record<CliType, string>> = {
   pi: 'Pi',
   grok: 'Grok',
   'ptah-cli': 'Ptah CLI',
+  claude: 'Claude',
 };
 
 /** Resolves and caches the task-assignment roster from existing RPC methods. */

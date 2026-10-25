@@ -2055,6 +2055,21 @@ describe('ProvidersSettingsStateService', () => {
       });
     });
 
+    it('projects the stored Grok and Antigravity reasoning efforts', async () => {
+      handlers.set('agent:getConfig', async () =>
+        success({
+          ...fullConfig,
+          grokReasoningEffort: 'high',
+          antigravityReasoningEffort: '',
+        }),
+      );
+      await service.refreshOrchestration();
+      expect(service.orchestration().data).toMatchObject({
+        grokReasoningEffort: 'high',
+        antigravityReasoningEffort: '',
+      });
+    });
+
     it('reads an unknown subagent prompt-cache TTL value as auto', async () => {
       handlers.set('agent:getConfig', async () =>
         success({ ...fullConfig, subagentPromptCacheTtl: '10m' }),

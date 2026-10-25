@@ -5,7 +5,10 @@
  * by `AgentSpawnEnvironment`, which hands the raw values here; the manager
  * logs the result. Nothing in this file touches I/O.
  */
-import { PI_REASONING_EFFORT_VALUES } from '@ptah-extension/shared';
+import {
+  CLAUDE_REASONING_EFFORT_VALUES,
+  PI_REASONING_EFFORT_VALUES,
+} from '@ptah-extension/shared';
 import type { CliType } from '@ptah-extension/shared';
 import type { LaneModelSource } from './cli-adapters/cli-adapter.interface';
 
@@ -174,6 +177,8 @@ function effortMapperFor(
       return mapEffortToAgy;
     case 'pi':
       return mapEffortToPi;
+    case 'claude':
+      return mapEffortToClaude;
     default:
       return null;
   }
@@ -220,6 +225,19 @@ function mapEffortToAgy(effort: string): string | undefined {
 function mapEffortToPi(effort: string): string | undefined {
   if (effort === '' || effort === INHERIT) return undefined;
   return (PI_REASONING_EFFORT_VALUES as readonly string[]).includes(effort)
+    ? effort
+    : undefined;
+}
+
+/**
+ * Allowlist the Claude Agent SDK scale (`low|medium|high|xhigh|max`) as-is.
+ * No Codex `max` → `xhigh` and no `minimal` → `low`: an unsupported value is
+ * ignored, never coerced. The adapter then checks the selected model's own
+ * supported levels, so a level allowed here can still be "Not applied".
+ */
+function mapEffortToClaude(effort: string): string | undefined {
+  if (effort === '' || effort === INHERIT) return undefined;
+  return (CLAUDE_REASONING_EFFORT_VALUES as readonly string[]).includes(effort)
     ? effort
     : undefined;
 }

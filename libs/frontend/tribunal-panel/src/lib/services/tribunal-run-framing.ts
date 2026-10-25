@@ -262,6 +262,11 @@ function spawnArgsFor(lane: VendorLane): string {
       return `cli: "pi"${modelArg}`;
     case 'grok':
       return `cli: "grok"${modelArg}`;
+    case 'claude':
+      // The system Claude lane (Claude Agent SDK) takes a native model id;
+      // unset means the SDK default. The framing passes no account argument,
+      // so it never selects a named Claude account.
+      return `cli: "claude"${modelArg}`;
     case 'ptah-cli':
       return `ptahCliId: "${lane.ptahCliId ?? ''}"${modelArg}`;
   }

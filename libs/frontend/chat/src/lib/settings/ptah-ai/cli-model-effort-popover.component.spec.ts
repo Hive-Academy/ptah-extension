@@ -58,6 +58,8 @@ const CATALOGUE: AgentListCliModelsResult = {
   antigravity: [],
   opencode: [{ id: 'opencode/nemotron', name: 'nemotron' }],
   pi: [],
+  grok: [],
+  claude: [],
 };
 
 const system = (
