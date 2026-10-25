@@ -2819,7 +2819,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] :is(.modal-box, .dropdown-content) {
   background: transparent;
   border-radius: var(--glass-radius);
-  box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow);
+  box-shadow: var(--glass-pane-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow));
   color: var(--glass-ink);
   isolation: isolate;
 }
@@ -2840,7 +2840,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] [data-glass-surface='overlay'],
 :root[data-glass='on'] :is(.modal-box, .dropdown-content) {
   background: transparent;
-  box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow-overlay);
+  box-shadow: var(--glass-overlay-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow-overlay));
 }
 :root[data-glass='on'] [data-glass-surface='overlay']::after,
 :root[data-glass='on'] :is(.modal-box, .dropdown-content)::after {
@@ -2872,19 +2872,19 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] [data-glass-surface='content'] {
   background: var(--glass-fill-content);
   border-radius: var(--glass-radius-inner);
-  box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow);
+  box-shadow: var(--glass-content-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow));
   color: var(--glass-ink);
 }
 /* tile: nested block, fill + hairline, no blur */
 :root[data-glass='on'] [data-glass-surface='tile'] {
   background: var(--glass-fill-tile);
-  border: 1px solid var(--glass-line);
+  border: 1px solid var(--glass-frame, var(--glass-line));
   border-radius: var(--glass-radius-inner);
-  box-shadow: inset 0 1px 0 var(--glass-glint);
+  box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));
   color: var(--glass-ink);
 }
 :root[data-glass='on'][data-glass-mode='light'] [data-glass-surface='tile'] {
-  box-shadow: inset 0 1px 0 var(--glass-glint), 0 8px 18px -12px rgb(86 68 132 / 0.3);
+  box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint), 0 8px 18px -12px rgb(86 68 132 / 0.3));
 }
 
 /* directional rim: masked 1px gradient, strongest top-left, weakest bottom-right */
@@ -2967,21 +2967,21 @@ END OF ANUBIS DESIGN SYSTEM
 /* buttons */
 :root[data-glass='on'] .btn {
   background: var(--glass-fill-tile);
-  border: var(--border-btn, 1px) solid var(--glass-line);
+  border: var(--border-btn, 1px) solid var(--glass-frame, var(--glass-line));
   color: var(--glass-ink);
-  box-shadow: inset 0 1px 0 var(--glass-glint);
+  box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint));
   text-transform: none;
   font-weight: 550;
 }
-:root[data-glass='on'] .btn:hover { background: var(--glass-hover); border-color: var(--glass-line-strong); }
+:root[data-glass='on'] .btn:hover { background: var(--glass-hover); border-color: var(--glass-frame, var(--glass-line-strong)); }
 :root[data-glass='on'] .btn:active { transform: translateY(1px); }
 :root[data-glass='on'] .btn-active { background: var(--glass-sel); border-color: var(--glass-line-strong); }
 :root[data-glass='on'] .btn-ghost { background: transparent; border-color: transparent; box-shadow: none; }
-:root[data-glass='on'] .btn-ghost:hover { background: var(--glass-hover); border-color: var(--glass-line); }
+:root[data-glass='on'] .btn-ghost:hover { background: var(--glass-hover); border-color: var(--glass-frame, var(--glass-line)); }
 :root[data-glass='on'] .btn-link { background: transparent; border-color: transparent; box-shadow: none; color: var(--glass-ink); text-decoration: underline; }
 :root[data-glass='on'] .btn-link:hover { background: transparent; border-color: transparent; }
-:root[data-glass='on'] .btn-outline { background: transparent; border-color: var(--glass-line-strong); box-shadow: none; }
-:root[data-glass='on'] .btn-outline:hover { background: var(--glass-hover); }
+:root[data-glass='on'] .btn-outline { background: var(--glass-outline-fill, transparent); border-color: var(--glass-frame, var(--glass-line-strong)); box-shadow: var(--glass-outline-raise, var(--glass-raise, none)); }
+:root[data-glass='on'] .btn-outline:hover { background: var(--glass-outline-hover, var(--glass-hover)); }
 
 /* primary = the one saturated action (theme's own --p); filled, glint on top */
 :root[data-glass='on'] .btn-primary {
@@ -3076,7 +3076,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .tabs-boxed :is(input:checked) {
   background: var(--glass-sel);
   color: var(--glass-ink);
-  box-shadow: inset 0 1px 0 var(--glass-glint), 0 6px 14px -8px rgb(5 8 14 / 0.5);
+  box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint), 0 6px 14px -8px rgb(5 8 14 / 0.5));
 }
 :root[data-glass='on'] .tabs-bordered > .tab { border-bottom-color: var(--glass-line-strong); }
 :root[data-glass='on'] .tabs-bordered > .tab.tab-active:not(.tab-disabled):not([disabled]) { border-bottom-color: oklch(var(--p)); color: var(--glass-ink); }
@@ -3099,8 +3099,8 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .alert:is(.alert-info, .alert-success, .alert-warning, .alert-error) { background: oklch(var(--g-tone-fill) / 0.16); border-color: oklch(var(--g-tone-fill) / 0.55); color: var(--glass-ink); }
 :root[data-glass='on'] .alert > svg { color: var(--g-tone, var(--glass-ink)); flex-shrink: 0; }
 
-:root[data-glass='on'] :is(.collapse, .stats) { background: var(--glass-fill-tile); border: 1px solid var(--glass-line); border-radius: var(--glass-radius-inner); box-shadow: inset 0 1px 0 var(--glass-glint); color: var(--glass-ink); }
-:root[data-glass='on'][data-glass-mode='light'] :is(.collapse, .stats) { box-shadow: inset 0 1px 0 var(--glass-glint), 0 8px 18px -12px rgb(86 68 132 / 0.3); }
+:root[data-glass='on'] :is(.collapse, .stats) { background: var(--glass-fill-tile); border: 1px solid var(--glass-frame, var(--glass-line)); border-radius: var(--glass-radius-inner); box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint)); color: var(--glass-ink); }
+:root[data-glass='on'][data-glass-mode='light'] :is(.collapse, .stats) { box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint), 0 8px 18px -12px rgb(86 68 132 / 0.3)); }
 :root[data-glass='on'] .collapse-title { color: var(--glass-ink); }
 :root[data-glass='on'] .collapse:has(> input:focus-visible) { outline: 2px solid var(--glass-focus); outline-offset: 2px; }
 :root[data-glass='on'] .stats > :not([hidden]) ~ :not([hidden]) { border-color: var(--glass-divider); }
@@ -3121,14 +3121,14 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .tooltip:before { border-radius: 0.75rem; padding: 0.375rem 0.75rem; font-size: 0.75rem; box-shadow: inset 0 0 0 1px var(--glass-line-strong), 0 10px 24px -8px rgb(5 8 14 / 0.5); }
 
 /* chat: near-solid reading planes, never blurred */
-:root[data-glass='on'] .chat-bubble { background: var(--glass-fill-content); border: 1px solid var(--glass-line); color: var(--glass-ink); border-radius: var(--glass-radius-inner); box-shadow: inset 0 1px 0 var(--glass-glint); }
+:root[data-glass='on'] .chat-bubble { background: var(--glass-fill-content); border: 1px solid var(--glass-frame, var(--glass-line)); color: var(--glass-ink); border-radius: var(--glass-radius-inner); box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint)); }
 :root[data-glass='on'] .chat-bubble::before { display: none; }
 :root[data-glass='on'] .chat-start .chat-bubble { border-end-start-radius: 0.375rem; }
 :root[data-glass='on'] .chat-end .chat-bubble { border-end-end-radius: 0.375rem; }
-:root[data-glass='on'] .chat-bubble-primary { background: var(--glass-bubble-user); border-color: var(--glass-line-strong); color: var(--glass-ink); }
+:root[data-glass='on'] .chat-bubble-primary { background: var(--glass-bubble-user); border-color: var(--glass-frame, var(--glass-line-strong)); color: var(--glass-ink); }
 :root[data-glass='on'] .chat-header { color: oklch(var(--bcm, var(--bc))); background: var(--glass-plate); border-radius: 9999px; padding: 1px 9px; } /* message meta sits directly on the pane: it carries its own plate */
 :root[data-glass='on'] .kbd { background: var(--glass-fill-tile); border-color: var(--glass-line-strong); color: var(--glass-ink); }
-:root[data-glass='on'] .mockup-code { background: var(--glass-code); color: var(--glass-code-ink); border: 1px solid var(--glass-line); border-radius: var(--glass-radius-inner); box-shadow: inset 0 1px 0 var(--glass-glint); }
+:root[data-glass='on'] .mockup-code { background: var(--glass-code); color: var(--glass-code-ink); border: 1px solid var(--glass-frame, var(--glass-line)); border-radius: var(--glass-radius-inner); box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint)); }
 :root[data-glass='on'] .mockup-code::before { display: none; }
 
 /* -------------------------------------------------------------------------
@@ -3180,6 +3180,147 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-theme='ptah-glass-light'][data-accent='moonstone'] { --p: 39.4938% 0.0471 271.39; --pf: 33.6832% 0.0418 271; --pc: 97.3048% 0.007 268.55; }
 :root[data-theme='ptah-glass-light'][data-accent='moonstone'][data-glass='on'] { --g-ptah-focus: #363d58; --g-ptah-gold: #4a5273; --g-ptah-link: #363d58; --g-gold-a: #5d678a; --g-gold-b: #3f4766; --g-gold-ink: #f4f6fb; --g-hov-a: #6b759a; --g-hov-b: #4a5376; --g-btn-glow: rgb(61 69 96 / 0.45); }
 
+/* -------------------------------------------------------------------------
+   9. Glass elevation: shadow depth instead of light frames, for every theme
+   with glass on. Values per glass mode (data-glass-mode), never per theme
+   name. The selectors keep [data-theme] so their specificity matches the
+   shared token blocks above, and source order lets them win. Glass off is
+   untouched: none of this matches. The shared rules above read hook tokens;
+   their fallbacks are the old recipe, which the contrast hatches restore:
+     --glass-frame           border colour of a framed glass element
+     --glass-raise           shadow of a nested raised element (tile, btn, ...)
+     --glass-pane-shadow     chrome / bar
+     --glass-content-shadow  content
+     --glass-overlay-shadow  overlay / modal / dropdown
+     --glass-outline-fill, --glass-outline-hover, --glass-outline-raise
+                             neutral .btn-outline fill / hover / shadow
+     --glass-glow-ring/-halo (color-mix %), --glass-glow-ring-a/-halo-a
+     (alpha), --glass-glow-blur   selection and status glows (see the
+                             unlayered "Selection and status" block)
+   Model: elev-1 = nested tiles, cards, chips, buttons; elev-2 = panes, bars;
+   elev-3 = overlays. Each level opens with a 1px contact shadow (a dark edge,
+   never a light frame), then key + ambient blur with negative spread so a pane
+   does not darken its neighbour across the 8px gutter.
+   Light on glass is never a crisp line. The masked 1px ::before ring is off
+   (--glass-lip-display: none). A pane, bar or overlay instead carries
+   --glass-sheen as the top layer of its ::after fill: a glow that is
+   brightest at the top edge and fades out within a few px, then a faint
+   sheen that fades out by ~80px. It sits under the content and follows the
+   corner radius. --glass-rim, the top highlight of nested elements, is a
+   blurred inset glow that fades over ~5px, not a 1px inset line. The contrast
+   hatches turn the ring back on and the sheen off. Neutral hairlines
+   (--surface-border*) soften to separators.
+   ------------------------------------------------------------------------- */
+:root[data-theme][data-glass='on'][data-glass-mode='light'] {
+  --glass-line: rgb(255 255 255 / 0.5);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.62) 0, rgb(255 255 255 / 0.26) 6px, rgb(255 255 255 / 0) 96px);
+  --glass-elev-1: 0 0 0 1px rgb(36 44 72 / 0.05), 0 1px 2px rgb(36 44 72 / 0.08), 0 4px 12px -6px rgb(36 44 72 / 0.18);
+  --glass-elev-2: 0 0 0 1px rgb(36 44 72 / 0.06), 0 2px 6px -2px rgb(36 44 72 / 0.1), 0 10px 24px -12px rgb(36 44 72 / 0.26);
+  --glass-elev-3: 0 0 0 1px rgb(36 44 72 / 0.08), 0 10px 24px -8px rgb(36 44 72 / 0.18), 0 32px 70px -24px rgb(36 44 72 / 0.36);
+  --surface-border: oklch(var(--bc) / 0.08);
+  --surface-border-strong: oklch(var(--bc) / 0.14);
+  --glass-glow-ring: 36%;
+  --glass-glow-halo: 40%;
+  --glass-glow-ring-a: 0.3;
+  --glass-glow-halo-a: 0.34;
+  --glass-glow-blur: 12px;
+}
+:root[data-theme][data-glass='on'][data-glass-mode='dark'] {
+  --glass-line: rgb(255 255 255 / 0.06);
+  --glass-glint: rgb(255 255 255 / 0.14);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.075) 0, rgb(255 255 255 / 0.03) 6px, rgb(255 255 255 / 0) 80px);
+  /* "New session" and other neutral outline buttons: a lifted fill one step
+     above the pane, a soft inner glow and the contact shadow, so the edge
+     reads without a ring. */
+  --glass-outline-fill: oklch(var(--bc) / 0.075);
+  --glass-outline-hover: oklch(var(--bc) / 0.13);
+  --glass-outline-raise: var(--glass-rim), inset 0 0 8px rgb(255 255 255 / 0.05), var(--glass-elev-1);
+  --glass-elev-1: 0 0 0 1px rgb(4 6 12 / 0.26), 0 1px 2px rgb(4 6 12 / 0.28), 0 4px 12px -4px rgb(4 6 12 / 0.4);
+  --glass-elev-2: 0 0 0 1px rgb(4 6 12 / 0.32), 0 1px 3px rgb(4 6 12 / 0.3), 0 10px 24px -12px rgb(4 6 12 / 0.62);
+  --glass-elev-3: 0 0 0 1px rgb(4 6 12 / 0.4), 0 8px 20px -6px rgb(4 6 12 / 0.4), 0 32px 72px -20px rgb(4 6 12 / 0.66);
+  --surface-border: rgb(255 255 255 / 0.06);
+  --surface-border-strong: rgb(255 255 255 / 0.11);
+  --glass-glow-ring: 45%;
+  --glass-glow-halo: 55%;
+  --glass-glow-ring-a: 0.36;
+  --glass-glow-halo-a: 0.44;
+  --glass-glow-blur: 14px;
+}
+:root[data-theme][data-glass='on'] {
+  /* The hole is grown 4px and shifted 6px down: the glow shows at the top
+     edge only and fades over ~5px; the sides and bottom stay clear. */
+  --glass-rim: inset 0 6px 6px -4px var(--glass-glint);
+  --glass-frame: transparent;
+  --glass-raise: var(--glass-rim), var(--glass-elev-1);
+  --glass-pane-shadow: var(--glass-elev-2); /* the top light is the --glass-sheen fill layer */
+  --glass-content-shadow: var(--glass-elev-1);
+  --glass-overlay-shadow: var(--glass-elev-3);
+  --glass-lip-display: none;
+  --glass-outline-fill: var(--glass-fill-tile);
+  --elev-shadow: var(--glass-elev-1);
+  --elev-shadow-raised: var(--glass-elev-2);
+}
+/* A floating pane or overlay never draws a frame: its own edge utilities
+   (border-r, border-l, border-b) yield to the shadow. */
+:root[data-theme][data-glass='on'] :is([data-glass-surface='chrome'], [data-glass-surface='bar'], [data-glass-surface='overlay']),
+:root[data-theme][data-glass='on'] :is(.modal-box, .dropdown-content) {
+  border-color: var(--glass-frame);
+}
+/* The 1px ring is off; the hatches below turn it back on. */
+:root[data-theme][data-glass='on'] :is([data-glass-surface='chrome'], [data-glass-surface='bar'], [data-glass-surface='overlay'], [data-glass-surface='content'], .modal-box, .dropdown-content)::before {
+  display: var(--glass-lip-display, block);
+}
+/* Sheen: the top layer of the fill, under the content, clipped to the radius. */
+:root[data-theme][data-glass='on'] [data-glass-surface='chrome']::after {
+  background: var(--glass-sheen, none), var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under), var(--glass-under));
+  background-size: auto, 160px 160px, auto, auto;
+}
+:root[data-theme][data-glass='on'] [data-glass-surface='bar']::after {
+  background: var(--glass-sheen, none), var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under-bar), var(--glass-under-bar));
+  background-size: auto, 160px 160px, auto, auto;
+}
+:root[data-theme][data-glass='on'] :is([data-glass-surface='overlay'], .modal-box, .dropdown-content)::after {
+  background: var(--glass-sheen, none), var(--glass-grain), linear-gradient(var(--glass-fill-overlay), var(--glass-fill-overlay));
+  background-size: auto, 160px 160px, auto;
+}
+/* Contrast hatches: the token blocks above outrank the shared hatches, so
+   restore their values here; the hook tokens fall back to the stock recipe. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-theme][data-glass='on'][data-glass-mode] {
+    --glass-line: oklch(var(--bc) / 0.35);
+    --glass-glint: transparent;
+    --glass-frame: var(--glass-line);
+    --glass-raise: initial;
+    --glass-pane-shadow: initial;
+    --glass-content-shadow: initial;
+    --glass-overlay-shadow: initial;
+    --glass-outline-fill: initial;
+    --glass-outline-hover: initial;
+    --glass-outline-raise: initial;
+    --glass-lip-display: block;
+    --glass-sheen: none;
+    --glass-elev-1: 0 0 #0000;
+    --glass-elev-2: 0 0 #0000;
+    --glass-elev-3: 0 0 0 1px oklch(var(--bc) / 0.5);
+    --surface-border: var(--glass-line);
+    --surface-border-strong: var(--glass-line-strong);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-theme][data-glass='on'][data-glass-mode] {
+    --glass-edge-top: oklch(var(--bc) / 0.8);
+    --glass-edge-bottom: oklch(var(--bc) / 0.8);
+    --glass-line: oklch(var(--bc) / 0.6);
+  }
+}
+/* Forced colours draw a CanvasText border; keep the ring and sheen off. */
+@media (forced-colors: active) {
+  :root[data-theme][data-glass='on'][data-glass-mode] {
+    --glass-lip-display: none;
+    --glass-sheen: none;
+  }
+}
+
 
 }
 
@@ -3196,6 +3337,142 @@ END OF ANUBIS DESIGN SYSTEM
 ) { background-color: transparent; }
 :root[data-glass='on'] .bg-base-200 { background-color: var(--glass-fill-tile); }
 :root[data-glass='on'] .bg-base-300 { background-color: var(--glass-hover); }
+
+/* Glass elevation for hand-framed boxes (glass on, any theme). Neutral
+   hairline utilities soften to the separator tone (--surface-border), and a
+   rounded box framed by one of them (cards, chips, rail cards) takes elev-1 in
+   place of the frame. Utility-level specificity at most, so state wins:
+   hover/focus/selected utilities, component state styles (the rail card's gold
+   ring) and the dark focus halo. Inputs and role surfaces are excluded, and so
+   is a box whose frame a flat presentation removes (!border-0: the CLI lane's
+   agent card, whose rim would read as a line under the agent dock). */
+:where(:root[data-theme][data-glass='on']) .border-base-content\/10 {
+  border-color: var(--surface-border);
+}
+:where(:root[data-theme][data-glass='on'] :is(.card, .border:is(.rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl)):is(.border-surface-border, .border-base-300, .border-base-content\/10, .border-\[color\:var\(--surface-border\)\], .border-\[color\:var\(--surface-border-strong\)\]):not(.input, .select, .textarea, input, select, textarea, .btn, .\!border-0, [data-glass-surface])) {
+  box-shadow: var(--glass-rim), var(--glass-elev-1);
+}
+
+/* Chat column: one glass surface (glass on, any theme). A session layout
+   shows the pane it sits in from the title row to the window bottom:
+     - a chrome panel that hosts a session layout inside another glass pane
+       (the chat view's panel in an Electron rail pane, and the subagent and
+       CLI lane panels) paints no fill, sheen, ring, shadow or radius of its
+       own, so no lighter messages panel sits on the pane;
+     - the composer's band (.ptah-composer, bg-surface-0) is clear, so no
+       darker footer sits behind the composer card.
+   The layout is unchanged: the transcript scrolls, the composer stays at the
+   bottom. The rail pane's title row and agent dock clear themselves in their
+   components (canvas-focus-area / -header / -lane-tabs). Glass off keeps
+   both panels. */
+:root[data-theme][data-glass='on'] [data-glass-surface] [data-glass-surface='chrome']:has(> ptah-chat-session-layout) {
+  border-radius: 0;
+  box-shadow: none;
+}
+:root[data-theme][data-glass='on'] [data-glass-surface] [data-glass-surface='chrome']:has(> ptah-chat-session-layout)::after,
+:root[data-theme][data-glass='on'] [data-glass-surface] [data-glass-surface='chrome']:has(> ptah-chat-session-layout)::before {
+  display: none;
+}
+:root[data-theme][data-glass='on'] ptah-chat-session-layout .ptah-composer {
+  background-color: transparent;
+}
+/* A lane's control row sits right under the agent dock; its divider would
+   read as a separation under the dock, so the clear column drops it. */
+:root[data-theme][data-glass='on'] ptah-chat-session-layout ptah-execution-header .border-b {
+  border-bottom-color: transparent;
+}
+/* The composer card is the one raised block on the clear column: elev-2 and
+   the soft top glow give it an edge in light mode without a hard border; a
+   denser fill keeps the text plane calm over the scene. */
+:root[data-theme][data-glass='on'] .chat-composer-column[data-glass-surface='tile'] {
+  box-shadow: var(--glass-rim), var(--glass-elev-2);
+}
+:root[data-theme][data-glass='on'][data-glass-mode='light'] .chat-composer-column[data-glass-surface='tile'] {
+  background: oklch(var(--b1) / 0.74);
+  /* One step above elev-2 on a light column: a firmer contact shadow and a
+     deeper key shadow, still no border. */
+  box-shadow: var(--glass-rim), 0 0 0 1px rgb(36 44 72 / 0.08), 0 2px 6px -2px rgb(36 44 72 / 0.16), 0 12px 28px -12px rgb(36 44 72 / 0.36);
+}
+/* The transcript scroller's top edge under the dock: content that scrolls
+   out fades over 8px instead of being cut on a line (a clipped bubble
+   shadow or a row's bottom border read as a rule under the dock). The
+   content gets the same 8px at the top, so nothing is faded at rest. The
+   subagent lane's scroller does the same; its column already has an 8px
+   top padding (pt-2). More contrast, reduced transparency and forced
+   colours keep the hard edge: the fade would dim scrolled text. */
+@media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+  :root[data-theme][data-glass='on'] ptah-chat-session-layout :is(.chat-scroll-container, ptah-subagent-lane [data-testid='lane-scroll']) {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 8px);
+  }
+}
+:root[data-theme][data-glass='on'] ptah-chat-session-layout .chat-scroll-content {
+  padding-top: 8px;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-theme][data-glass='on'] .chat-composer-column[data-glass-surface='tile'] {
+    box-shadow: none;
+  }
+  :root[data-theme][data-glass='on'][data-glass-mode='light'] .chat-composer-column[data-glass-surface='tile'] {
+    background: var(--glass-fill-tile);
+  }
+}
+
+/* Selection and status: a tinted glow in place of a solid frame (glass on,
+   any theme). The ring is a low-alpha 1px contact edge, the halo a blurred
+   shadow of the same ink; strength comes from section 9 (--glass-glow-*,
+   per glass mode). Keyboard :focus-visible outlines and input edges are not
+   touched. More contrast, reduced transparency and forced colours keep the
+   solid frames, so these rules apply only without them.
+     - the selected session card (compact rail card, and its attention
+       frame), in its own focus ink --rc-focus-frame (the theme primary,
+       gold in ptah-glass). Its ring is the card's own border and its halo is
+       inset, because the card and its host clip overflow (an outer glow is
+       cut at the box). The attention frame's card fills the frame, so the
+       frame's halo is an overlay above its content;
+     - status-tone cards: a rounded, fully bordered box whose border utility
+       is a success / warning / error / info tone, and toned .alert boxes.
+       Buttons, badges, tabs and form controls keep their tone edge. */
+@media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+  :root[data-theme][data-glass='on'] ptah-compact-rail-card.rc-focused:not(.rail-attention-frame ptah-compact-rail-card),
+  :root[data-theme][data-glass='on'] .rail-attention-frame:has(.rc-focused) {
+    border-color: color-mix(in oklch, var(--rc-focus-frame) var(--glass-glow-ring), transparent);
+  }
+  :root[data-theme][data-glass='on'] ptah-compact-rail-card.rc-focused:not(.rail-attention-frame ptah-compact-rail-card) {
+    box-shadow: inset 0 0 var(--glass-glow-blur) 0 color-mix(in oklch, var(--rc-focus-frame) var(--glass-glow-halo), transparent);
+  }
+  :root[data-theme][data-glass='on'] .rail-attention-frame:has(.rc-focused) {
+    box-shadow: none;
+  }
+  :root[data-theme][data-glass='on'] .rail-attention-frame:has(.rc-focused)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 var(--glass-glow-blur) 0 color-mix(in oklch, var(--rc-focus-frame) var(--glass-glow-halo), transparent);
+  }
+  /* The rail card's state callout ("needs you", error): its state ink. */
+  :root[data-theme][data-glass='on'] ptah-compact-rail-card .rc-callout {
+    border-color: transparent;
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--rail-state-ink) var(--glass-glow-ring), transparent),
+      0 0 8px -2px color-mix(in oklch, var(--rail-state-ink) var(--glass-glow-halo), transparent);
+  }
+  :root[data-theme][data-glass='on'] .border:is([class^='border-success'], [class*=' border-success']) { --g-glow: var(--su); }
+  :root[data-theme][data-glass='on'] .border:is([class^='border-warning'], [class*=' border-warning']) { --g-glow: var(--wa); }
+  :root[data-theme][data-glass='on'] .border:is([class^='border-error'], [class*=' border-error']) { --g-glow: var(--er); }
+  :root[data-theme][data-glass='on'] .border:is([class^='border-info'], [class*=' border-info']) { --g-glow: var(--in); }
+  :root[data-theme][data-glass='on'] .alert:is(.alert-info, .alert-success, .alert-warning, .alert-error) { --g-glow: var(--g-tone-fill); }
+  :root[data-theme][data-glass='on'] .border:is(.rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-box):is([class^='border-success'], [class*=' border-success'], [class^='border-warning'], [class*=' border-warning'], [class^='border-error'], [class*=' border-error'], [class^='border-info'], [class*=' border-info']):not(.btn, .badge, .tab, .input, .select, .textarea, .checkbox, .radio, .toggle, input, select, textarea, button),
+  :root[data-theme][data-glass='on'] .alert:is(.alert-info, .alert-success, .alert-warning, .alert-error) {
+    border-color: transparent;
+    box-shadow:
+      0 0 0 1px oklch(var(--g-glow) / var(--glass-glow-ring-a)),
+      0 0 var(--glass-glow-blur) -3px oklch(var(--g-glow) / var(--glass-glow-halo-a));
+  }
+}
 
 /* A utility on a component must not erase its glass recipe. */
 :root[data-glass='on'] :is(.input, .select, .textarea):is(.bg-base-100, .bg-base-200, .bg-base-300, .bg-surface-0, .bg-surface-1) {
