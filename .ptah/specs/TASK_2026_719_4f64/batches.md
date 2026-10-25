@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 14/22 (B1-B9, B11-B15)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 17/22 (B1-B16, B19)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -359,13 +359,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - Safety: main chat named path opens here; persistence is still null until B17 (`unavailable-storage`).
 - Acceptance: omitted / same / conflicting / ambient selection on fresh and bound branches; live session omitted or same continues the owner's lease, different or ambient refuses `conflict`; live resume without second binding/lease; ambient resume and slash cases unchanged.
 
-## Batch 16: Agent and session RPC handlers — PENDING
+## Batch 16: Agent and session RPC handlers — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B12, B14 (hard) | Phase: P4 (first)
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/rpc-handlers` (N = 1)
 
-### Task 16.1: `account_refused` mapping and `accountProfileId` — PENDING
+### Task 16.1: `account_refused` mapping and `accountProfileId` — COMPLETE
 
 - Files: M `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.spec.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.spec.ts`
 - Plan reference: implementation-plan.md:848-850 (Component 11 B16), 1037
@@ -373,13 +373,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: `instanceof LaneAccountResumeError` maps to `account_refused` with fixed text; named resume selections forwarded for `claude`; `accountProfileId` from `metadata.accountBinding?.profileId`.
 
-## Batch 10: Lane card account label — PENDING
+## Batch 10: Lane card account label — COMPLETE
 
 - Recommended executor: subagent frontend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: none (runs after B16 by the recorded reorder) | Phase: P4
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/chat-streaming,@ptah-extension/chat` (N = 2)
 
-### Task 10.1: U5 "Account: <label>" / "Default" / "Removed account" — PENDING
+### Task 10.1: U5 "Account: <label>" / "Default" / "Removed account" — COMPLETE
 
 - Files: M `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts`; M `libs/frontend/chat-streaming/src/lib/agent-monitor.store.spec.ts`; M `libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-header.component.ts`; M `libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card-header.component.spec.ts`
 - Plan reference: implementation-plan.md:861-874 (Component 12 U5), 1031
@@ -417,13 +417,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - Safety: lanes open here.
 - Acceptance: named selection allowed for `cli: 'claude'` only; new text at `:55`; builder text updated; copy pins (no "release" hold wording).
 
-## Batch 19: CLI host copy — PENDING
+## Batch 19: CLI host copy — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: none (order) | Phase: P4
 - Verify: `npm run verify -- -t lint,test,typecheck -p ptah-cli` (N = 1)
 
-### Task 19.1: "named accounts are not available in the CLI host" — PENDING
+### Task 19.1: "named accounts are not available in the CLI host" — COMPLETE
 
 - Files: M `apps/ptah-cli/src/cli/commands/agent-cli.ts`; M `apps/ptah-cli/src/cli/commands/agent-cli.spec.ts`
 - Plan reference: implementation-plan.md:858-859, 1040
