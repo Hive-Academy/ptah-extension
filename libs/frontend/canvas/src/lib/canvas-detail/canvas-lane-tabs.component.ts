@@ -86,6 +86,34 @@ interface DockLayout {
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:keydown.escape)': 'onDocumentEscape($event)' },
+  styles: [
+    `
+      /* Glass on (any theme): the dock strip is part of the chat column's one
+         glass surface (styles.css "Ptah chat column"): no fill, no rule and no
+         drop shadow under it, and 20px of air before the messages. The lane
+         view below is flex-1 min-h-0, so the transcript still scrolls and the
+         composer stays at the bottom. The strip keeps relative z-10, so its
+         card and dropdown still stack above the content. */
+      :host-context([data-theme][data-glass='on']) > [role='tablist'] {
+        background-color: transparent;
+        border-bottom-color: transparent;
+        box-shadow: none;
+        margin-bottom: 20px;
+      }
+      /* The selected chip: a soft secondary glow (see styles.css section 9
+         --glass-glow-*) in place of the solid ring. The focus-visible
+         outline is separate and stays. The contrast and forced-colours
+         settings keep the solid ring. */
+      @media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+        :host-context([data-theme][data-glass='on']) [role='tab'][aria-selected='true'] {
+          border-color: transparent;
+          box-shadow:
+            0 0 0 1px color-mix(in oklch, oklch(var(--s)) var(--glass-glow-ring, 40%), transparent),
+            0 0 var(--glass-glow-blur, 12px) -2px color-mix(in oklch, oklch(var(--s)) var(--glass-glow-halo, 45%), transparent);
+        }
+      }
+    `,
+  ],
   template: `
     @let view = layout();
     <!-- Keep the dock at z-10 below the header menu (z-20); its card and dropdown share this stacking context. -->

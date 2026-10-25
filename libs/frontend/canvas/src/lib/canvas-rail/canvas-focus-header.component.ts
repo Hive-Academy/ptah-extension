@@ -97,6 +97,13 @@ let nextDetailsDescriptionId = 0;
       [data-limit='at'] {
         border-color: color-mix(in oklch, var(--state-ink-err, oklch(var(--er))) 55%, transparent);
       }
+      /* Glass on (any theme): the title row is part of the chat column's one glass
+         surface (see styles.css "Ptah chat column"), so no fill and no rule
+         under it. The split pane-active inset bar is a box-shadow and stays. */
+      :host-context([data-theme][data-glass='on']) > header {
+        background-color: transparent;
+        border-bottom-color: transparent;
+      }
     `,
   ],
   template: `
