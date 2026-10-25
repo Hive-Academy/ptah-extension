@@ -95,6 +95,7 @@ describe('SessionApprovalRouter', () => {
     });
     router.cancelPrompt(address, 'timeout');
     expect(sink.cancel).toHaveBeenCalledWith('thread', '7');
+    expect(cancelled).toHaveBeenCalledTimes(1);
     expect(cancelled).toHaveBeenCalledWith({
       sessionId: 'session',
       requestId: '7',
@@ -127,7 +128,12 @@ describe('SessionApprovalRouter', () => {
       sink.cancel.mockReturnValue(result);
       router.register(address, { kind: 'codex', sink });
       router.cancelPrompt(address, 'disposed');
-      router.cancelPrompt(address, 'disposed');
+      router.cancelPrompt(address, 'timeout');
+      expect(cancelled).toHaveBeenCalledWith({
+        sessionId: address.sessionId,
+        requestId: address.requestId,
+        reason: 'disposed',
+      });
       expect(sink.cancel).toHaveBeenCalledTimes(1);
       expect(cancelled).toHaveBeenCalledTimes(1);
     },

@@ -33,18 +33,18 @@ import {
   type RuntimeHostCapabilities,
   type IAgentAdapter,
 } from '@ptah-extension/shared';
-import type {
-  RuntimeAdmissionPort,
-  NativeChatAdapter,
+import {
+  RoutingAgentAdapter,
+  type RuntimeAdmissionPort,
+  type NativeChatAdapter,
 } from '../codex-app-server/routing-agent-adapter';
 import { createCodexChatMetadataPort } from '../wiring/codex-chat-metadata-port';
 import type { InitializedSessionRuntimeIdentityLookup } from '../wiring/session-runtime-identity-cache';
 import {
   createLegacySessionControls,
   type LegacySessionControlPorts,
-  guardRuntimeComposition,
-} from '../wiring/codex-runtime-composition';
-import { RoutingAgentAdapter } from '../codex-app-server/routing-agent-adapter';
+} from '../wiring/legacy-session-controls-composition';
+import { guardRuntimeComposition } from '../wiring/codex-runtime-composition';
 import { LegacySessionControls } from '../codex-app-server/legacy-session-controls';
 import {
   SessionRuntimeRouter,

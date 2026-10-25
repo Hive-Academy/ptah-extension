@@ -1,5 +1,5 @@
 import type { CodexRuntimeEvent } from '@ptah-extension/codex-runtime';
-import { CodexChatEvents } from './codex-chat-events';
+import { CodexChatEvents, tokenUsage } from './codex-chat-events';
 
 const identity = {
   contextId: 'context',
@@ -236,4 +236,36 @@ it('matches accumulator event order and stable message identity with live usage'
   expect(new Set(events.map((event) => event.messageId)).size).toBe(1);
   expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
   expect(events.at(-1)).toMatchObject({ tokenUsage: { input: 4, output: 2 } });
+});
+
+it('projects whole-turn snapshots without summing or double-counting cached and reasoning tokens', () => {
+  const { projection } = setup();
+  const usage = {
+    inputTokens: 12,
+    outputTokens: 5,
+    cachedInputTokens: 3,
+    cacheWriteInputTokens: 2,
+    reasoningOutputTokens: 4,
+  };
+  const expected = { input: 9, output: 5, cacheRead: 3, cacheCreation: 2 };
+  for (const sequence of [1, 2]) {
+    const events = projection.map({
+      ...identity,
+      sequence,
+      type: 'usage',
+      usage,
+    });
+    expect(events.at(-1)).toMatchObject({
+      eventType: 'message_delta',
+      tokenUsage: expected,
+    });
+  }
+  expect(
+    projection
+      .map({ ...identity, sequence: 3, type: 'terminal', status: 'completed' })
+      .at(-1),
+  ).toMatchObject({ eventType: 'message_complete', tokenUsage: expected });
+  expect(
+    tokenUsage({ inputTokens: 1, cachedInputTokens: 3, outputTokens: 2 }).input,
+  ).toBe(0);
 });

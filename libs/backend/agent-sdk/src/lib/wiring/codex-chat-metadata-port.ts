@@ -1,3 +1,4 @@
+import { CodexRuntimeCompositionError } from './codex-runtime-composition-error';
 import type { SessionMetadataStore } from '../session-metadata-store';
 import type { CodexChatMetadataPort } from '../codex-app-server/codex-chat-adapter';
 
@@ -9,7 +10,7 @@ export function createCodexChatMetadataPort(
     save: (sessionId, identity) => {
       if (sessionId !== identity.threadId) {
         return Promise.reject(
-          new Error('Codex session/thread identity mismatch'),
+          new CodexRuntimeCompositionError('session-thread-mismatch'),
         );
       }
       return store.updateCodexExecution(sessionId, () => ({

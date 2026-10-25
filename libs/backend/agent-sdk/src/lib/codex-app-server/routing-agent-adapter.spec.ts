@@ -25,6 +25,7 @@ function adapter(): jest.Mocked<NativeChatAdapter> {
         functionCalling: true,
       },
     },
+    owns: jest.fn().mockReturnValue(false),
     initialize: jest.fn(),
     dispose: jest.fn(),
     preloadSdk: jest.fn(),
@@ -73,6 +74,69 @@ const nativeIdentity: SessionRuntimeIdentity = {
 };
 
 describe('RoutingAgentAdapter', () => {
+  it('close the tab during a native open', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const lookup = jest.fn();
+    let cancelOpen: (() => void) | undefined;
+    const cancelled = new Error('Open cancelled');
+    native.startChatSession.mockImplementation(() => {
+      native.owns.mockImplementation((sessionId) => sessionId === id);
+      return new Promise((resolve, reject) => {
+        cancelOpen = () => reject(cancelled);
+      });
+    });
+    native.endSession.mockImplementation(() => {
+      cancelOpen?.();
+      native.owns.mockReturnValue(false);
+    });
+    const router = new RoutingAgentAdapter(
+      { lookup },
+      legacy,
+      native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
+      { nativeCodex: true },
+    );
+    const opening = router.startChatSession({ tabId: id });
+    const rejected = expect(opening).rejects.toBe(cancelled);
+    await Promise.resolve();
+    expect(native.startChatSession).toHaveBeenCalledWith({ tabId: id });
+    router.endSession(id);
+    await rejected;
+    expect(native.endSession).toHaveBeenCalledWith(id);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(legacy.endSession).not.toHaveBeenCalled();
+  });
+
+  it('prefers native ownership to persisted identity for session controls', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    native.owns.mockReturnValue(true);
+    const lookup = jest.fn(() => ({ persisted: legacyIdentity }));
+    const router = new RoutingAgentAdapter({ lookup }, legacy, native, {
+      servingProviderId: jest.fn(),
+    });
+    await router.resumeSession(id);
+    await router.interruptSession(id);
+    await router.setSessionModel(id, 'model');
+    router.isSessionActive(id);
+    router.getSessionToken(id);
+    await router.listSessionModels(id);
+    for (const method of [
+      'resumeSession',
+      'interruptSession',
+      'isSessionActive',
+      'getSessionToken',
+      'listSessionModels',
+    ] as const) {
+      expect(native[method]).toHaveBeenCalledWith(id);
+      expect(legacy[method]).not.toHaveBeenCalled();
+    }
+    expect(native.setSessionModel).toHaveBeenCalledWith(id, 'model');
+    expect(legacy.setSessionModel).not.toHaveBeenCalled();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
   it('defaults new and existing legacy sessions to SDK with no override/capability', async () => {
     const legacy = adapter();
     const native = adapter();

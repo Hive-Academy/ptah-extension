@@ -2287,6 +2287,26 @@ describe('Codex metadata identity', () => {
     },
   );
 
+  it('rejects a Codex write to inactive storage with unavailable-storage', async () => {
+    const storage = createMockStateStorage();
+    const routed = {
+      ...storage,
+      getActiveWorkspacePath: () => '/another-workspace',
+      getStorageForWorkspace: () => storage,
+    };
+    const store = new SessionMetadataStore(
+      routed,
+      asLogger(createMockLogger()),
+    );
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toMatchObject({
+      name: 'CodexSessionMetadataError',
+      code: 'unavailable-storage',
+    });
+    expect(storage.update).not.toHaveBeenCalled();
+  });
+
   it('exposes stable error codes for identity and direct-write refusals', async () => {
     const { store } = fixture();
     await expect(

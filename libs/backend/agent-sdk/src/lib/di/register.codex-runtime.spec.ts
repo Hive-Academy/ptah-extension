@@ -8,6 +8,7 @@ import { registerCodexChatServices, wireAgentAdapterAliases } from './register';
 import { initializeSessionRuntimeIdentityLookup } from '../wiring/session-runtime-identity-cache';
 import { createCodexChatMetadataPort } from '../wiring/codex-chat-metadata-port';
 import { SDK_TOKENS } from './tokens';
+import { CodexRuntimeCompositionError } from '../wiring/codex-runtime-composition-error';
 import { SessionMetadataStore } from '../session-metadata-store';
 import { RoutingAgentAdapter } from '../codex-app-server/routing-agent-adapter';
 
@@ -71,6 +72,34 @@ describe('Codex runtime composition', () => {
     expect(scope.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER)).toBe(legacy);
   });
 
+  it.each([
+    SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+    SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+  ])(
+    'rejects %s without admission before resolving either adapter alias',
+    (token) => {
+      const scope = container.createChildContainer();
+      scope.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {});
+      registerCodexChatServices(scope);
+      scope.registerInstance(token, {});
+      wireAgentAdapterAliases(scope);
+      for (const alias of [
+        TOKENS.AGENT_ADAPTER,
+        SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+      ]) {
+        expect(() => scope.resolve(alias)).toThrow(
+          CodexRuntimeCompositionError,
+        );
+        expect(() => scope.resolve(alias)).toThrow(
+          expect.objectContaining({
+            code: 'missing-admission-port',
+            message: expect.stringContaining('RUNTIME_ADMISSION_PORT'),
+          }),
+        );
+      }
+    },
+  );
+
   it('preserves host capability bindings inherited from a parent', () => {
     const parent = container.createChildContainer();
     const capabilities = { nativeCodex: true };
@@ -101,6 +130,9 @@ describe('native adapter routing', () => {
     const scope = container.createChildContainer();
     const legacy = { resumeSession: jest.fn() };
     const native = {
+      owns: (_sessionId: SessionId): boolean => false,
+      canSendFollowUp: (_sessionId: SessionId): boolean => false,
+      listSessionModels: async (_sessionId: SessionId) => [],
       resumeSession: jest.fn().mockRejectedValue(new Error('native failed')),
     };
     scope.registerInstance(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, lookup);

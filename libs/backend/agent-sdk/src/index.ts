@@ -148,12 +148,14 @@ export {
   initializeSessionRuntimeIdentityLookup,
   type InitializedSessionRuntimeIdentityLookup,
 } from './lib/wiring/session-runtime-identity-cache';
-export { createCodexChatMetadataPort } from './lib/wiring/codex-chat-metadata-port';
-export type { LegacySessionControlPorts } from './lib/wiring/codex-runtime-composition';
+export {
+  CodexRuntimeCompositionError,
+  type CodexRuntimeCompositionErrorCode,
+} from './lib/wiring/codex-runtime-composition-error';
+export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-controls-composition';
 export type { AuthOperationContext } from './lib/auth-env.port';
 export { SDK_TOKENS } from './lib/di/tokens';
 export {
-  CodexChatAdapter,
   CodexChatAdapterError,
   type CodexChatAdapterPorts,
   type CodexChatMetadataPort,

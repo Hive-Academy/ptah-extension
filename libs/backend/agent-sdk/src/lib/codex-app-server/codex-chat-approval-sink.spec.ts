@@ -159,6 +159,47 @@ describe('CodexChatApprovalSink', () => {
       expect(jest.getTimerCount()).toBe(0);
     },
   );
+  it('presents cancellation exactly once per settle path', async () => {
+    for (const mode of ['abort', 'dispose', 'router cancel'] as const) {
+      const { sink, presentation } = setup();
+      const controller = new AbortController();
+      const promise = sink.request(request, controller.signal);
+
+      if (mode === 'abort') {
+        controller.abort();
+        controller.abort();
+      } else if (mode === 'dispose') {
+        sink.dispose();
+        sink.dispose();
+      } else {
+        expect(sink.cancel(request.threadId, String(request.requestId))).toBe(
+          true,
+        );
+      }
+
+      await expect(promise).resolves.toBe(
+        mode === 'router cancel' ? 'cancel' : 'decline',
+      );
+      if (mode === 'router cancel') {
+        expect(presentation.cancelPrompt).not.toHaveBeenCalled();
+      } else {
+        expect(presentation.cancelPrompt).toHaveBeenCalledTimes(1);
+        expect(presentation.cancelPrompt).toHaveBeenCalledWith({
+          sessionId: reply.sessionId,
+          requestId: String(request.requestId),
+          reason: mode === 'abort' ? 'turn-ended' : 'disposed',
+        });
+      }
+      expect(presentation.dismiss).toHaveBeenCalledTimes(1);
+
+      controller.abort();
+      sink.dispose();
+      expect(presentation.cancelPrompt).toHaveBeenCalledTimes(
+        mode === 'router cancel' ? 0 : 1,
+      );
+      expect(presentation.dismiss).toHaveBeenCalledTimes(1);
+    }
+  });
   it('rejects foreign context, duplicate requests and pre-aborted requests', async () => {
     const { sink, presentation } = setup();
     const abort = new AbortController();
@@ -235,4 +276,15 @@ it('waits without a timer, cancels exactly the addressed request, and dismisses 
   } finally {
     jest.useRealTimers();
   }
+});
+
+it('router cancellation settles and dismisses without duplicating its cancel notification', async () => {
+  const { sink, presentation } = setup();
+  const pending = sink.request(request, new AbortController().signal);
+  expect(sink.cancel(request.threadId, String(request.requestId))).toBe(true);
+  await expect(pending).resolves.toBe('cancel');
+  expect(presentation.dismiss).toHaveBeenCalledTimes(1);
+  expect(presentation.cancelPrompt).not.toHaveBeenCalled();
+  sink.dispose();
+  expect(presentation.dismiss).toHaveBeenCalledTimes(1);
 });

@@ -1,3 +1,4 @@
+import type { NativeChatAdapter } from './routing-agent-adapter';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
@@ -7,9 +8,11 @@ import {
   type CodexContext,
   type CodexReportedUsage,
   type CodexExecutionProfile,
+  type CodexModelInfo,
   type CodexParityPlatform,
   type CodexThreadIdentity,
   type CodexTurnInput,
+  type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import {
   SessionId,
@@ -22,6 +25,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   CodexChatEvents,
+  tokenUsage,
   type CodexChatEventCallbacks,
 } from './codex-chat-events';
 import {
@@ -107,11 +111,12 @@ interface Session {
   busy: boolean;
   turnId?: string;
   blocked: boolean;
+  pendingInterrupt?: boolean;
   closing?: Promise<void>;
 }
 
 /** Thin native consumer. No SDK, proxy, transcript storage, or protocol parsing. */
-export class CodexChatAdapter implements IAgentAdapter {
+export class CodexChatAdapter implements NativeChatAdapter {
   private readonly sessions = new Map<SessionId, Session>();
   private readonly opening = new Map<string, { cancelled: boolean }>();
   private disposed = false;
@@ -197,7 +202,7 @@ export class CodexChatAdapter implements IAgentAdapter {
     config: AgentSessionStartConfig | AgentSessionResumeConfig,
     resumeId?: SessionId,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
-    const key = resumeId ?? config.tabId;
+    const key = config.tabId ?? resumeId;
     if (!key || this.disposed)
       throw new CodexChatAdapterError('unavailable', 'open');
     if (this.opening.has(key)) throw new CodexChatAdapterError('busy', 'open');
@@ -227,7 +232,7 @@ export class CodexChatAdapter implements IAgentAdapter {
         attachments: prepared.profile.attachments,
       });
     } catch (error) {
-      this.ports.logger.error('Codex chat open failed.');
+      this.ports.logger.error('[CodexChatAdapter] runtime-failed: open.');
       if (session) this.sessions.delete(session.id);
       sink?.dispose();
       await this.cleanupOpen(context, scope);
@@ -321,12 +326,16 @@ export class CodexChatAdapter implements IAgentAdapter {
     try {
       await context?.close();
     } catch {
-      this.ports.logger.error('Codex chat context cleanup failed.');
+      this.ports.logger.error(
+        '[CodexChatAdapter] runtime-failed: context cleanup.',
+      );
     }
     try {
       await scope?.dispose();
     } catch {
-      this.ports.logger.error('Codex chat scope cleanup failed.');
+      this.ports.logger.error(
+        '[CodexChatAdapter] runtime-failed: scope cleanup.',
+      );
     }
   }
 
@@ -402,15 +411,20 @@ export class CodexChatAdapter implements IAgentAdapter {
     sessionId: SessionId,
   ): Promise<readonly AgentModelInfo[]> {
     const context = this.session(sessionId).context;
-    return this.safe('listModels', async () =>
-      (await context.listModels()).map((model) => ({
-        value: model.id,
+    return this.safe('listModels', async () => {
+      const models = new Map<string, CodexModelInfo>();
+      for (const model of await context.listModels()) {
+        if (!models.has(model.model) || model.isDefault)
+          models.set(model.model, model);
+      }
+      return [...models.values()].map((model) => ({
+        value: model.model,
         displayName: model.displayName,
         ...(model.description === undefined
           ? {}
           : { description: model.description }),
-      })),
-    );
+      }));
+    });
   }
 
   private notifyCompaction(session: Session, trigger: 'manual' | 'auto'): void {
@@ -450,18 +464,22 @@ export class CodexChatAdapter implements IAgentAdapter {
     const abort = () => subscription.abort();
     session.abort.signal.addEventListener('abort', abort, { once: true });
     let terminal = false;
+    let exhausted = false;
     const started = Date.now();
+    let events: AsyncIterator<CodexRuntimeEvent> | undefined;
+    let projection: CodexChatEvents | undefined;
     try {
       if (session.abort.signal.aborted)
         throw new CodexChatAdapterError('unavailable', 'turn');
-      const events = session.context.events(subscription.signal);
+      const eventStream = session.context.events(subscription.signal);
+      events = eventStream[Symbol.asyncIterator]();
       const receipt = await session.context.startTurn({
         ...input,
         signal: subscription.signal,
       });
       session.turnId = receipt.turnId;
       const callbacks = this.ports.callbacks(session.id);
-      const projection = new CodexChatEvents(
+      projection = new CodexChatEvents(
         session.id,
         { ...session.context.identity, turnId: receipt.turnId },
         {
@@ -477,17 +495,23 @@ export class CodexChatAdapter implements IAgentAdapter {
               this.stats?.({
                 sessionId: session.id,
                 turnCost: null,
-                tokens: {
-                  input: usage.inputTokens,
-                  output: usage.outputTokens,
-                  cacheRead: usage.cachedInputTokens,
-                },
+                tokens: tokenUsage(usage),
                 duration: Date.now() - started,
               });
           },
         },
       );
-      for await (const event of events) {
+      if (session.pendingInterrupt) {
+        session.pendingInterrupt = false;
+        await this.interruptCurrentTurn(session.id);
+      }
+      while (true) {
+        const next = await events.next();
+        if (next.done) {
+          exhausted = true;
+          break;
+        }
+        const event = next.value;
         if (subscription.signal.aborted) break;
         const mappedEvents = projection.map(event);
         if (
@@ -508,15 +532,77 @@ export class CodexChatAdapter implements IAgentAdapter {
       }
       throw new CodexChatAdapterError('runtime-failed', 'stream');
     } catch (error) {
-      this.ports.logger.error('Codex chat turn failed.');
+      this.ports.logger.error('[CodexChatAdapter] runtime-failed: turn.');
       if (error instanceof CodexChatAdapterError) throw error;
       throw new CodexChatAdapterError('runtime-failed', 'turn');
     } finally {
-      subscription.abort();
-      session.abort.signal.removeEventListener('abort', abort);
-      session.busy = false;
-      session.turnId = undefined;
-      session.blocked = false;
+      const release = () => {
+        subscription.abort();
+        session.abort.signal.removeEventListener('abort', abort);
+        session.busy = false;
+        session.turnId = undefined;
+        session.blocked = false;
+        session.pendingInterrupt = false;
+      };
+      if (
+        !terminal &&
+        !exhausted &&
+        session.turnId &&
+        events &&
+        projection &&
+        !session.closing
+      ) {
+        // A detached consumer must not release the latch before the server terminal.
+        void this.drainInterruptedTurn(session, events, projection).finally(
+          release,
+        );
+      } else {
+        release();
+        try {
+          await events?.return?.();
+        } catch {
+          this.ports.logger.error(
+            '[CodexChatAdapter] runtime-failed: event subscription cleanup.',
+          );
+        }
+      }
+    }
+  }
+  private async drainInterruptedTurn(
+    session: Session,
+    events: AsyncIterator<CodexRuntimeEvent>,
+    projection: CodexChatEvents,
+  ): Promise<void> {
+    try {
+      await this.interruptCurrentTurn(session.id);
+      while (!session.abort.signal.aborted) {
+        const next = await events.next();
+        if (next.done) break;
+        const mapped = projection.map(next.value);
+        if (mapped.some((event) => event.eventType === 'message_complete'))
+          return;
+      }
+      // Without a terminal, close the context before permitting another turn.
+      await this.close(session);
+    } catch {
+      this.ports.logger.error(
+        '[CodexChatAdapter] runtime-failed: detached turn cleanup.',
+      );
+      try {
+        await this.close(session);
+      } catch {
+        this.ports.logger.error(
+          '[CodexChatAdapter] runtime-failed: detached context cleanup.',
+        );
+      }
+    } finally {
+      try {
+        await events.return?.();
+      } catch {
+        this.ports.logger.error(
+          '[CodexChatAdapter] runtime-failed: event subscription cleanup.',
+        );
+      }
     }
   }
   async sendMessageToSession(
@@ -541,8 +627,15 @@ export class CodexChatAdapter implements IAgentAdapter {
     ];
     await this.publish(this.session(id), { text, attachments });
   }
+  owns(id: SessionId): boolean {
+    return this.sessions.has(id) || this.opening.has(id);
+  }
   isSessionActive(id: SessionId): boolean {
-    return this.sessions.has(id);
+    return this.sessions.has(id) || this.opening.get(id)?.cancelled === false;
+  }
+  canSendFollowUp(id: SessionId): boolean {
+    const session = this.sessions.get(id);
+    return !!session && !session.busy && !session.blocked && !session.closing;
   }
   getSessionToken(id: SessionId): string | null {
     return this.sessions.get(id)?.token ?? null;
@@ -553,7 +646,9 @@ export class CodexChatAdapter implements IAgentAdapter {
     const session = this.sessions.get(id);
     if (session)
       void this.close(session).catch(() =>
-        this.ports.callbacks(id).error('Codex chat cleanup failed.'),
+        this.ports
+          .callbacks(id)
+          .error('[CodexChatAdapter] runtime-failed: cleanup.'),
       );
   }
   async endSessionIfTokenMatches(
@@ -586,7 +681,8 @@ export class CodexChatAdapter implements IAgentAdapter {
     const session = this.session(id);
     const turnId = session.turnId;
     if (!turnId) {
-      session.blocked = false;
+      session.pendingInterrupt = session.busy;
+      session.blocked = session.busy;
       return false;
     }
     session.blocked = true;
@@ -597,6 +693,11 @@ export class CodexChatAdapter implements IAgentAdapter {
     return accepted;
   }
   async interruptSession(id: SessionId): Promise<void> {
+    const opening = this.opening.get(id);
+    if (opening) {
+      opening.cancelled = true;
+      return;
+    }
     await this.close(this.session(id));
   }
   async executeSlashCommand(
@@ -653,7 +754,7 @@ export class CodexChatAdapter implements IAgentAdapter {
     this.compactionStart = cb;
   }
   setLiveStatsCallback(): void {
-    // SessionStatsEntry requires cacheCreation and session messageCount, neither reported by native usage.
+    // Resume supplies no prior assistant-message count or session-wide usage totals.
     this.unsupported('liveStats');
   }
   setWorktreeCreatedCallback(): void {
@@ -678,7 +779,9 @@ export class CodexChatAdapter implements IAgentAdapter {
     try {
       return await action();
     } catch (error) {
-      this.ports.logger.error(`Codex chat ${operation} failed.`);
+      this.ports.logger.error(
+        `[CodexChatAdapter] runtime-failed: ${operation}.`,
+      );
       if (error instanceof CodexChatAdapterError) throw error;
       throw new CodexChatAdapterError('runtime-failed', operation);
     }

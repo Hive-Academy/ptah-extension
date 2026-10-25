@@ -4,6 +4,19 @@ import type {
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 
+/** Convert a whole-turn OpenAI snapshot into Ptah's disjoint token buckets. */
+export function tokenUsage(usage: CodexReportedUsage) {
+  return {
+    input: Math.max(
+      0,
+      (usage.inputTokens ?? 0) - (usage.cachedInputTokens ?? 0),
+    ),
+    output: usage.outputTokens ?? 0,
+    cacheRead: usage.cachedInputTokens,
+    cacheCreation: usage.cacheWriteInputTokens,
+  };
+}
+
 export type CodexChatTurnIdentity = Pick<
   CodexRuntimeEvent,
   'contextId' | 'processGeneration' | 'threadId' | 'turnId'
@@ -189,10 +202,7 @@ export class CodexChatEvents {
               {
                 ...base,
                 eventType: 'message_delta',
-                tokenUsage: {
-                  input: event.usage.inputTokens,
-                  output: event.usage.outputTokens,
-                },
+                tokenUsage: tokenUsage(event.usage),
               },
             ]
           : [];
@@ -232,10 +242,7 @@ export class CodexChatEvents {
             ...(usage?.inputTokens !== undefined &&
             usage.outputTokens !== undefined
               ? {
-                  tokenUsage: {
-                    input: usage.inputTokens,
-                    output: usage.outputTokens,
-                  },
+                  tokenUsage: tokenUsage(usage),
                 }
               : {}),
           },

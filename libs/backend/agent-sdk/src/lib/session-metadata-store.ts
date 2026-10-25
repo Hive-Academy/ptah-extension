@@ -126,7 +126,7 @@ export class CodexSessionMetadataError extends Error {
       | 'legacy-conversion'
       | 'invalid-identity'
       | 'binding-change'
-      | 'storage-unavailable'
+      | 'unavailable-storage'
       | 'direct-runtime-write'
       | 'account-linkage',
     message: string,
@@ -948,7 +948,7 @@ export class SessionMetadataStore {
       }
       if (this.isForeignWorkspace(execution.workspaceId)) {
         throw new CodexSessionMetadataError(
-          'storage-unavailable',
+          'unavailable-storage',
           'Codex session storage is unavailable for this workspace',
         );
       }

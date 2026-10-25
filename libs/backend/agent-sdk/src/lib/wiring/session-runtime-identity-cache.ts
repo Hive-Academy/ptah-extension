@@ -1,3 +1,4 @@
+import { CodexRuntimeCompositionError } from './codex-runtime-composition-error';
 import { SessionId, type SessionRuntimeIdentity } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SessionRuntimeIdentityLookup } from '../codex-app-server/session-runtime-identity';
@@ -68,7 +69,7 @@ export async function initializeSessionRuntimeIdentityLookup(
       .catch(() => {
         if (!disposed)
           logger.warn(
-            '[AgentSDK] Runtime identity refresh failed; retaining binding',
+            '[CodexRuntimeComposition] Runtime identity refresh failed; retaining binding',
           );
       });
     refreshing.add(refresh);
@@ -101,23 +102,41 @@ export async function initializeSessionRuntimeIdentityLookup(
     },
     updateCodexExecution: async (id, updater) => {
       if (disposed)
-        throw new Error('Session runtime identity lookup is disposed');
+        throw new CodexRuntimeCompositionError('identity-lookup-disposed');
       const write = {};
       writes.set(id, write);
       try {
-        await store.updateCodexExecution(id, updater);
+        let written: SessionRuntimeIdentity | undefined;
+        await store.updateCodexExecution(id, (current) => {
+          const proposed = updater(current);
+          written = proposed;
+          return proposed;
+        });
         if (disposed || writes.get(id) !== write) return;
-        // Read the authoritative normalized value; never duplicate store normalization.
+        // Commit only after persistence succeeds; prefer the normalized re-read when available.
+        if (written) entries.set(id, written);
         const version = advance(id);
-        const metadata = await store.get(id);
-        if (!metadata?.codexExecution)
-          throw new Error('Persisted Codex identity is unavailable');
-        if (
-          !disposed &&
-          sequences.get(id) === version &&
-          writes.get(id) === write
-        )
-          replace(id, metadata);
+        try {
+          const metadata = await store.get(id);
+          if (!metadata?.codexExecution)
+            throw new CodexRuntimeCompositionError(
+              'persisted-identity-unavailable',
+            );
+          if (
+            !disposed &&
+            sequences.get(id) === version &&
+            writes.get(id) === write
+          )
+            replace(id, metadata);
+        } catch {
+          if (!disposed)
+            logger.warn(
+              '[CodexRuntimeComposition] Runtime identity re-read failed; retaining written binding',
+              {
+                code: 'persisted-identity-unavailable',
+              },
+            );
+        }
       } finally {
         if (writes.get(id) === write) writes.delete(id);
       }

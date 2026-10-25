@@ -118,6 +118,49 @@ describe('persisted runtime identity cache', () => {
     lookup.dispose();
   });
 
+  it.each(['rejected', 'missing'] as const)(
+    'retains the newly written identity when the authoritative re-read is %s',
+    async (result) => {
+      const f = fixture([]);
+      const logger = mockLogger();
+      const lookup = await initializeSessionRuntimeIdentityLookup(
+        f.store,
+        logger,
+      );
+      if (result === 'rejected')
+        f.store.get.mockRejectedValueOnce(new Error('private detail'));
+      else f.store.get.mockResolvedValueOnce(null);
+      await expect(
+        lookup.updateCodexExecution(id, () => identity),
+      ).resolves.toBeUndefined();
+      expect(lookup.lookup(id)?.persisted).toEqual(identity);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[CodexRuntimeComposition] Runtime identity re-read failed; retaining written binding',
+        { code: 'persisted-identity-unavailable' },
+      );
+      lookup.dispose();
+    },
+  );
+
+  it('does not cache a proposal whose persistence fails', async () => {
+    const f = fixture([]);
+    const lookup = await initializeSessionRuntimeIdentityLookup(
+      f.store,
+      mockLogger(),
+    );
+    f.store.updateCodexExecution.mockImplementationOnce(
+      async (_id, updater) => {
+        updater(undefined);
+        throw new Error('write failed');
+      },
+    );
+    await expect(
+      lookup.updateCodexExecution(id, () => identity),
+    ).rejects.toThrow('write failed');
+    expect(lookup.lookup(id)).toBeUndefined();
+    lookup.dispose();
+  });
+
   it('ignores an out-of-order change event response', async () => {
     const f = fixture();
     const lookup = await initializeSessionRuntimeIdentityLookup(
@@ -217,7 +260,7 @@ describe('persisted runtime identity cache', () => {
     await drain();
     expect(lookup.lookup(id)?.persisted).toEqual(identity);
     expect(logger.warn).toHaveBeenCalledWith(
-      '[AgentSDK] Runtime identity refresh failed; retaining binding',
+      '[CodexRuntimeComposition] Runtime identity refresh failed; retaining binding',
     );
     lookup.dispose();
   });

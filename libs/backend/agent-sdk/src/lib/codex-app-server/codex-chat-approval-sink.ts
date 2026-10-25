@@ -114,12 +114,16 @@ export class CodexChatApprovalSink implements ApprovalSink {
               reason,
             });
         } catch {
-          this.logger.error('Codex approval cancellation presentation failed.');
+          this.logger.error(
+            '[CodexChatApprovalSink] runtime-failed: cancellation presentation.',
+          );
         }
         try {
           this.presentation.dismiss(this.sessionId, request);
         } catch {
-          this.logger.error('Codex approval dismissal failed.');
+          this.logger.error(
+            '[CodexChatApprovalSink] runtime-failed: dismissal.',
+          );
         }
         resolve(outcome);
       };
@@ -134,7 +138,9 @@ export class CodexChatApprovalSink implements ApprovalSink {
             CODEX_CHAT_APPROVAL_CHOICES,
           );
       } catch {
-        this.logger.error('Codex approval presentation failed.');
+        this.logger.error(
+          '[CodexChatApprovalSink] runtime-failed: presentation.',
+        );
         settle('decline');
       }
     });
@@ -163,7 +169,9 @@ export class CodexChatApprovalSink implements ApprovalSink {
               )
             : reply.editedText;
       } catch {
-        this.logger.error('Codex approval replacement validation failed.');
+        this.logger.error(
+          '[CodexChatApprovalSink] runtime-failed: replacement validation.',
+        );
         text = undefined;
       }
       pending.settle({ decision: 'decline', editNotSupported: true });
@@ -179,11 +187,15 @@ export class CodexChatApprovalSink implements ApprovalSink {
             ),
           )
           .catch(() => {
-            this.logger.error('Codex approval follow-up failed.');
+            this.logger.error(
+              '[CodexChatApprovalSink] runtime-failed: follow-up.',
+            );
             try {
               this.followUp.failed();
             } catch {
-              this.logger.error('Codex approval follow-up reporting failed.');
+              this.logger.error(
+                '[CodexChatApprovalSink] runtime-failed: follow-up reporting.',
+              );
             }
           });
       }
@@ -200,7 +212,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
         pending.request.threadId === threadId &&
         String(pending.request.requestId) === requestId
       ) {
-        pending.settle('cancel', 'turn-ended');
+        pending.settle('cancel');
         return true;
       }
     }

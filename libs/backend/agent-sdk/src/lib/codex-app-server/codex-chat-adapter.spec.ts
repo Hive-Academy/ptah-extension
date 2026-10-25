@@ -57,7 +57,7 @@ function setup(override = true) {
   const logger = mockLogger();
   const context: jest.Mocked<CodexContext> = {
     listModels: jest.fn(async () => [
-      { id: 'gpt', displayName: 'GPT', isDefault: true },
+      { id: 'catalog-gpt', model: 'gpt', displayName: 'GPT', isDefault: true },
     ]),
     identity,
     events: jest.fn<
@@ -118,9 +118,10 @@ function setup(override = true) {
     await scope.dispose();
   });
   let sink: ApprovalSink | undefined;
+  const cancelPrompt = jest.fn();
   const approvals = new SessionApprovalRouter(
     { handleResponse: jest.fn() },
-    jest.fn(),
+    cancelPrompt,
   );
   const ports: CodexChatAdapterPorts = {
     logger,
@@ -155,7 +156,7 @@ function setup(override = true) {
     presentation: {
       present: jest.fn(),
       dismiss: jest.fn(),
-      cancelPrompt: jest.fn(),
+      cancelPrompt,
     },
     replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
     callbacks: () => callbacks,
@@ -357,6 +358,7 @@ describe('CodexChatAdapter', () => {
         requestId: '7',
         reason: 'turn-ended',
       });
+      expect(ports.presentation.cancelPrompt).toHaveBeenCalledTimes(1);
       await adapter.interruptSession(id);
     } finally {
       jest.useRealTimers();
@@ -422,7 +424,13 @@ describe('CodexChatAdapter', () => {
       (async function* () {
         yield {
           ...terminal,
-          usage: { inputTokens: 12, outputTokens: 5, cachedInputTokens: 3 },
+          usage: {
+            inputTokens: 12,
+            outputTokens: 5,
+            cachedInputTokens: 3,
+            cacheWriteInputTokens: 2,
+            reasoningOutputTokens: 4,
+          },
         };
         yield terminal;
       })(),
@@ -433,7 +441,7 @@ describe('CodexChatAdapter', () => {
     expect(stats).toHaveBeenCalledWith(
       expect.objectContaining({
         turnCost: null,
-        tokens: { input: 12, output: 5, cacheRead: 3 },
+        tokens: { input: 9, output: 5, cacheRead: 3, cacheCreation: 2 },
       }),
     );
     await adapter.interruptSession(id);
@@ -456,6 +464,7 @@ describe('CodexChatAdapter', () => {
     const stream = await adapter.startChatSession({ tabId });
     const iterator = stream[Symbol.asyncIterator]();
     await iterator.next();
+    expect(adapter.canSendFollowUp(id)).toBe(false);
     context.interrupt.mockRejectedValue(new Error('secret'));
     await expect(adapter.interruptCurrentTurn(id)).rejects.toMatchObject({
       code: 'runtime-failed',
@@ -466,6 +475,7 @@ describe('CodexChatAdapter', () => {
     while (!(await iterator.next()).done) {
       /* Finish the interrupted turn. */
     }
+    expect(adapter.canSendFollowUp(id)).toBe(true);
     await expect(
       adapter.sendMessageToSession(id, 'next'),
     ).resolves.toBeUndefined();
@@ -566,3 +576,182 @@ it('reports compaction tokens from the latest native usage', async () => {
   });
   await adapter.interruptSession(id);
 });
+
+function deferred<T>() {
+  let complete: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
+    complete = resolve;
+  });
+  return {
+    promise,
+    resolve(value: T) {
+      if (!complete) throw new Error('Deferred promise has no resolver');
+      complete(value);
+    },
+  };
+}
+
+it.each(['end', 'interrupt'] as const)(
+  'close the tab during a native open (%s)',
+  async (method) => {
+    const { adapter, open, context, ports, dispose } = setup();
+    const pending = deferred<jest.Mocked<CodexContext>>();
+    const entered = deferred<void>();
+    open.mockImplementation(async () => {
+      entered.resolve();
+      return pending.promise;
+    });
+    const resolved = jest.fn();
+    adapter.setSessionIdResolvedCallback(resolved);
+    const opening = adapter.startChatSession({ tabId });
+    const rejected = expect(opening).rejects.toMatchObject({
+      code: 'cancelled',
+    });
+    await entered.promise;
+    expect(adapter.owns(tabId)).toBe(true);
+    expect(adapter.isSessionActive(tabId)).toBe(true);
+    expect(adapter.canSendFollowUp(tabId)).toBe(false);
+    if (method === 'end') adapter.endSession(tabId);
+    else await adapter.interruptSession(tabId);
+    expect(adapter.isSessionActive(tabId)).toBe(false);
+    pending.resolve(context);
+    await rejected;
+    expect(ports.metadata.save).not.toHaveBeenCalled();
+    expect(resolved).not.toHaveBeenCalled();
+    expect(context.startTurn).not.toHaveBeenCalled();
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.owns(tabId)).toBe(false);
+    expect(adapter.owns(id)).toBe(false);
+  },
+);
+
+it('uses execution slugs and prefers the default catalog entry for duplicate slugs', async () => {
+  const { adapter, context, open } = setup();
+  context.listModels.mockResolvedValue([
+    { id: 'alias', model: 'gpt', displayName: 'Alias', isDefault: false },
+    {
+      id: 'default-key',
+      model: 'gpt',
+      displayName: 'Default',
+      isDefault: true,
+    },
+    { id: 'later', model: 'gpt', displayName: 'Later', isDefault: false },
+  ]);
+  const stream = await adapter.startChatSession({ tabId, model: 'gpt' });
+  for await (const event of stream) void event;
+  expect(open).toHaveBeenCalledWith(
+    expect.objectContaining({ model: 'gpt' }),
+    undefined,
+  );
+  const models = await adapter.listSessionModels(id);
+  expect(models).toEqual([{ value: 'gpt', displayName: 'Default' }]);
+  await adapter.setSessionModel(id, models[0].value);
+  expect(context.updateNextTurn).toHaveBeenCalledWith({ model: 'gpt' });
+  await adapter.interruptSession(id);
+});
+
+it('applies Stop requested before the startTurn receipt arrives', async () => {
+  const { adapter, context } = setup();
+  const receipt = deferred<Awaited<ReturnType<CodexContext['startTurn']>>>();
+  context.startTurn.mockReturnValue(receipt.promise);
+  const stream = await adapter.startChatSession({ tabId });
+  const iterator = stream[Symbol.asyncIterator]();
+  const next = iterator.next();
+  expect(await adapter.interruptCurrentTurn(id)).toBe(false);
+  expect(adapter.canSendFollowUp(id)).toBe(false);
+  receipt.resolve({ threadId: id, turnId: 'turn', revision: 1 });
+  await next;
+  expect(context.interrupt).toHaveBeenCalledWith('turn');
+  while (!(await iterator.next()).done) {
+    /* Drain terminal. */
+  }
+  expect(adapter.canSendFollowUp(id)).toBe(true);
+  await adapter.interruptSession(id);
+});
+
+it('keeps busy after consumer return until the interrupted turn terminal', async () => {
+  const { adapter, context, callbacks } = setup();
+  const finished = deferred<void>();
+  const delivered = deferred<void>();
+  callbacks.result.mockImplementation(() => delivered.resolve());
+  context.events.mockImplementation(() =>
+    (async function* () {
+      yield {
+        ...identity,
+        turnId: 'turn',
+        sequence: 1,
+        type: 'textDelta' as const,
+        itemId: 'item',
+        delta: 'hello',
+      };
+      await finished.promise;
+      yield terminal;
+    })(),
+  );
+  const stream = await adapter.startChatSession({ tabId });
+  const iterator = stream[Symbol.asyncIterator]();
+  await iterator.next();
+  await iterator.return?.();
+  expect(adapter.canSendFollowUp(id)).toBe(false);
+  await expect(
+    adapter.sendMessageToSession(id, 'too soon'),
+  ).rejects.toMatchObject({ code: 'busy' });
+  finished.resolve();
+  await delivered.promise;
+  // Cleanup completes after the result callback and iterator return.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(adapter.canSendFollowUp(id)).toBe(true);
+  expect(context.interrupt).toHaveBeenCalledTimes(1);
+  await adapter.interruptSession(id);
+});
+
+it('refuses live stats without exact resumed session history', () => {
+  const { adapter } = setup();
+  expect(() => adapter.setLiveStatsCallback()).toThrow(
+    'Codex chat liveStats: unsupported',
+  );
+});
+
+it.each(['end', 'interrupt'] as const)(
+  'cancel during save (%s)',
+  async (method) => {
+    const { adapter, context, ports, dispose } = setup();
+    const entered = deferred<void>();
+    const finishSave = deferred<void>();
+    const saved = jest.fn();
+    const save = jest.fn(async () => {
+      entered.resolve();
+      await finishSave.promise;
+      saved(id, identity);
+    });
+    ports.metadata.save = save;
+    const resolved = jest.fn();
+    adapter.setSessionIdResolvedCallback(resolved);
+    const opening = adapter.startChatSession({ tabId });
+    const rejected = expect(opening).rejects.toMatchObject({
+      code: 'cancelled',
+    });
+    await entered.promise;
+    expect(adapter.owns(tabId)).toBe(true);
+    if (method === 'end') adapter.endSession(tabId);
+    else await adapter.interruptSession(tabId);
+    expect(saved).not.toHaveBeenCalled();
+    expect(context.close).not.toHaveBeenCalled();
+    expect(adapter.canSendFollowUp(tabId)).toBe(false);
+    finishSave.resolve();
+    await rejected;
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(saved).toHaveBeenCalledWith(id, identity);
+    expect(resolved).not.toHaveBeenCalled();
+    expect(ports.publish).not.toHaveBeenCalled();
+    expect(context.startTurn).not.toHaveBeenCalled();
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.owns(tabId)).toBe(false);
+    expect(adapter.owns(id)).toBe(false);
+    expect(adapter.isSessionActive(tabId)).toBe(false);
+    expect(adapter.isSessionActive(id)).toBe(false);
+    expect(adapter.canSendFollowUp(id)).toBe(false);
+  },
+);

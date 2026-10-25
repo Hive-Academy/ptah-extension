@@ -6,7 +6,7 @@ import type {
 import type { CodexChatApprovalReply } from './codex-chat-approval-sink';
 
 export interface SessionApprovalAddress {
-  readonly sessionId: string;
+  readonly sessionId: PermissionPromptCancelledPayload['sessionId'];
   readonly threadId: string;
   readonly requestId: string;
 }
@@ -14,6 +14,7 @@ export interface CodexApprovalOwnerSink {
   readonly sessionId: string;
   readonly contextId: string;
   respond(value: unknown): boolean;
+  /** Settle ownership only; the router presents cancellation with its reason. */
   cancel(threadId: string, requestId: string): boolean;
 }
 
@@ -85,7 +86,7 @@ export class SessionApprovalRouter {
     return false;
   }
 
-  /** Settle native ownership before dismissing the UI; cancellation is not a user reply. */
+  /** Emit one cancellation with the caller's reason after settling native ownership. */
   cancelPrompt(
     address: SessionApprovalAddress,
     reason: PermissionPromptCancelledPayload['reason'],

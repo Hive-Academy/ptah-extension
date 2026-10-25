@@ -27,17 +27,25 @@ export const SDK_TOKENS = {
   SESSION_RUNTIME_ROUTER: Symbol.for('SessionRuntimeRouter'),
   /** Await initializeSessionRuntimeIdentityLookup(store, logger), then bind all runtime
    * ports before resolving AGENT_ADAPTER or ROUTING_AGENT_ADAPTER or any consumer.
+   * Bind stable instances using registerInstance or a cached factory.
    * Runtime bindings are immutable after first resolution; late activation requires
    * a fresh container. Hosts must not retain an SDK adapter before native setup. */
   SESSION_RUNTIME_IDENTITY_LOOKUP: Symbol.for('SessionRuntimeIdentityLookup'),
   LEGACY_SESSION_CONTROL_PORTS: Symbol.for('LegacySessionControlPorts'),
+  /** Bind before resolving SESSION_RUNTIME_ROUTER. Compose canSendFollowUp from
+   * the DI-resolved CODEX_CHAT_ADAPTER.canSendFollowUp(sessionId), preserving its receiver.
+   * Bind a stable instance using registerInstance or a cached factory. */
   NATIVE_SESSION_CONTROLS: Symbol.for('NativeSessionControls'),
   LEGACY_SESSION_CONTROLS: Symbol.for('LegacySessionControls'),
   ROUTING_AGENT_ADAPTER: Symbol.for('RoutingAgentAdapter'),
+  /** Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   CODEX_CHAT_ADAPTER: Symbol.for('CodexChatAdapter'),
+  /** Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   CODEX_CHAT_ADAPTER_PORTS: Symbol.for('CodexChatAdapterPorts'),
-  /** Nullable RuntimeAdmissionPort; required alongside lookup and native adapter. */
+  /** Nullable RuntimeAdmissionPort; required when lookup or native ports are bound.
+   * Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   RUNTIME_ADMISSION_PORT: Symbol.for('RuntimeAdmissionPort'),
+  /** Bind a stable instance using registerInstance or a cached factory before adapter resolution. */
   RUNTIME_HOST_CAPABILITIES: Symbol.for('RuntimeHostCapabilities'),
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),

@@ -16,6 +16,8 @@ export interface RuntimeAdmissionPort {
 }
 
 export interface NativeChatAdapter extends IAgentAdapter {
+  /** Includes open sessions and in-progress opens keyed by their tab id. */
+  owns(sessionId: SessionId): boolean;
   listSessionModels(sessionId: SessionId): Promise<readonly AgentModelInfo[]>;
 }
 
@@ -182,9 +184,18 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   }
 
   private adapter(id: SessionId): IAgentAdapter {
-    return resolveSessionRuntimeIdentity(this.identities, id)?.runtime ===
-      'codex-app-server'
-      ? this.native
-      : this.legacy;
+    if (this.native.owns(id)) return this.native;
+    const runtime = resolveSessionRuntimeIdentity(this.identities, id)?.runtime;
+    switch (runtime) {
+      case 'codex-app-server':
+        return this.native;
+      case 'claude-sdk':
+      case undefined:
+        return this.legacy;
+      default: {
+        const unsupported: never = runtime;
+        throw new Error(`Unsupported session runtime: ${unsupported}`);
+      }
+    }
   }
 }
