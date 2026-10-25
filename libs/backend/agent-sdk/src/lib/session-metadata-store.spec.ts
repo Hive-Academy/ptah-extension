@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AgentOutputCursorStaleError,
+  CodexSessionMetadataError,
   SessionMetadataStore,
   SESSION_METADATA_MIGRATION,
   flushSessionMetadataStores,
@@ -56,7 +57,11 @@ import type {
   QuotaOwnerRef,
   SubagentRecord,
 } from '@ptah-extension/shared';
-import { SessionId, type SessionRuntimeIdentity, ownerRelation } from '@ptah-extension/shared';
+import {
+  SessionId,
+  type SessionRuntimeIdentity,
+  ownerRelation,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
 
@@ -2004,7 +2009,6 @@ describe('SessionMetadataStore — sessions of an inactive workspace', () => {
   });
 });
 
-
 describe('Codex metadata identity', () => {
   const threadId = SessionId.from('12345678-1234-4234-8234-123456789abc');
   const workspaceId =
@@ -2067,16 +2071,19 @@ describe('Codex metadata identity', () => {
     },
   );
 
-  it.each([false, true])('preserves child references across runtime updates (async=%s)', async asyncStorage => {
-    const { store } = fixture(asyncStorage);
-    await store.updateCodexExecution(threadId, () => execution);
-    await store.addCliSession(threadId, cliRef());
-    await store.updateCodexExecution(threadId, current => {
-      if (!current) throw new Error('Missing runtime binding');
-      return current;
-    });
-    expect((await store.get(threadId))?.cliSessions).toEqual([cliRef()]);
-  });
+  it.each([false, true])(
+    'preserves child references across runtime updates (async=%s)',
+    async (asyncStorage) => {
+      const { store } = fixture(asyncStorage);
+      await store.updateCodexExecution(threadId, () => execution);
+      await store.addCliSession(threadId, cliRef());
+      await store.updateCodexExecution(threadId, (current) => {
+        if (!current) throw new Error('Missing runtime binding');
+        return current;
+      });
+      expect((await store.get(threadId))?.cliSessions).toEqual([cliRef()]);
+    },
+  );
 
   it('never converts a legacy row, including malformed account rows', async () => {
     const { store, storage } = fixture();
@@ -2154,7 +2161,10 @@ describe('Codex metadata identity', () => {
       store.save({ ...row, codexExecution: execution }),
     ).rejects.toThrow('updateCodexExecution');
     await expect(
-      store.updateCodexExecution('other', () => execution),
+      store.updateCodexExecution(
+        SessionId.from('99999999-9999-4999-8999-999999999999'),
+        () => execution,
+      ),
     ).rejects.toThrow('identity');
     await expect(
       store.updateCodexExecution(threadId, () => ({
@@ -2172,11 +2182,15 @@ describe('Codex metadata identity', () => {
 
   it('writes the global repository under the native thread id', async () => {
     const upsert = jest.fn().mockResolvedValue(undefined);
-    const records = {
+    const records: jest.Mocked<ISessionRecordRepository> = {
       listAll: jest.fn().mockResolvedValue([]),
       get: jest.fn().mockResolvedValue(null),
       upsert,
-    } as unknown as ISessionRecordRepository;
+      delete: jest.fn().mockResolvedValue(undefined),
+      listForWorkspace: jest.fn().mockResolvedValue([]),
+      hasMigrationSource: jest.fn().mockResolvedValue(false),
+      recordMigrationSource: jest.fn().mockResolvedValue(undefined),
+    };
     const store = new SessionMetadataStore(
       createMockStateStorage(),
       asLogger(createMockLogger()),
@@ -2195,11 +2209,117 @@ describe('Codex metadata identity', () => {
     expect(upsert.mock.calls[0][0].detail).not.toHaveProperty('accountBinding');
   });
 
+  it.each([false, true])(
+    'preserves resume state and accumulated totals (async=%s)',
+    async (asyncStorage) => {
+      const { store } = fixture(asyncStorage);
+      await store.updateCodexExecution(threadId, () => execution);
+      const row = await store.get(threadId);
+      if (!row) throw new Error('Missing Codex row');
+      await store.save({
+        ...row,
+        totalCost: 7,
+        totalTokens: { input: 23, output: 41 },
+      });
+      await store.saveResumeState(threadId, {
+        workingDirectory: '/work/project/worktree',
+        resumableSdkSubagents: [],
+      });
+      await store.updateCodexExecution(threadId, () => execution);
+      expect(await store.get(threadId)).toMatchObject({
+        workingDirectory: '/work/project/worktree',
+        resumableSdkSubagents: [],
+        totalCost: 7,
+        totalTokens: { input: 23, output: 41 },
+      });
+    },
+  );
+
+  it('emits created and updated only after durable writes', async () => {
+    const { store, storage } = fixture(true);
+    const writeCounts: number[] = [];
+    const changed = jest.fn(() => {
+      writeCounts.push(storage.update.mock.calls.length);
+    });
+    const unsubscribe = store.onMetadataChanged(changed);
+    await store.updateCodexExecution(threadId, () => execution);
+    await store.updateCodexExecution(threadId, () => execution);
+    expect(changed.mock.calls).toHaveLength(2);
+    expect(writeCounts[0]).toBeGreaterThan(0);
+    expect(writeCounts[1]).toBeGreaterThan(writeCounts[0]);
+    expect(changed).toHaveBeenNthCalledWith(1, {
+      kind: 'created',
+      sessionId: threadId,
+      workspaceId: canonicalWorkspace,
+    });
+    expect(changed).toHaveBeenNthCalledWith(2, {
+      kind: 'updated',
+      sessionId: threadId,
+      workspaceId: canonicalWorkspace,
+    });
+    unsubscribe();
+  });
+
+  it.each([false, true])(
+    'lists Windows paths regardless of casing and separators (async=%s)',
+    async (asyncStorage) => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        const { store } = fixture(asyncStorage);
+        await store.updateCodexExecution(threadId, () => ({
+          ...execution,
+          workspaceId: 'C:/Work/Project',
+        }));
+        expect(
+          (await store.getForWorkspace('C:\\WORK\\Project\\')).map(
+            (row) => row.sessionId,
+          ),
+        ).toEqual([threadId]);
+        expect(
+          (await store.getForWorkspace('c:/work/project')).map(
+            (row) => row.sessionId,
+          ),
+        ).toEqual([threadId]);
+      } finally {
+        if (platform) Object.defineProperty(process, 'platform', platform);
+      }
+    },
+  );
+
+  it('exposes stable error codes for identity and direct-write refusals', async () => {
+    const { store } = fixture();
+    await expect(
+      store.updateCodexExecution(
+        SessionId.from('99999999-9999-4999-8999-999999999999'),
+        () => execution,
+      ),
+    ).rejects.toMatchObject({
+      name: 'CodexSessionMetadataError',
+      code: 'invalid-identity',
+    });
+    await store.create(threadId, WORKSPACE, 'Legacy');
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toBeInstanceOf(CodexSessionMetadataError);
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toMatchObject({ code: 'legacy-conversion' });
+    const row = await store.get(threadId);
+    if (!row) throw new Error('Missing legacy row');
+    await expect(
+      store.save({ ...row, codexExecution: execution }),
+    ).rejects.toMatchObject({ code: 'direct-runtime-write' });
+  });
+
   it('propagates durable identity write failures', async () => {
     const { storage, store } = fixture(true);
+    const changed = jest.fn();
+    store.onMetadataChanged(changed);
     storage.update.mockRejectedValueOnce(new Error('disk unavailable'));
     await expect(
       store.updateCodexExecution(threadId, () => execution),
     ).rejects.toThrow('disk unavailable');
+    expect(changed).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,7 @@
+import 'reflect-metadata';
+import { SessionId } from '@ptah-extension/shared';
+import { Logger } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { CodexApprovalRequest } from '@ptah-extension/codex-runtime';
 import {
   CODEX_CHAT_APPROVAL_CHOICES,
@@ -18,7 +22,7 @@ const request: CodexApprovalRequest = {
   details: {},
 };
 const reply = {
-  sessionId: 'session',
+  sessionId: SessionId.from('11111111-1111-4111-8111-111111111111'),
   contextId: 'context',
   processGeneration: 2,
   threadId: 'thread',
@@ -26,7 +30,12 @@ const reply = {
   requestId: 7,
   decision: 'accept' as const,
 };
+function mockLogger(): Logger {
+  return Object.assign(Object.create(Logger.prototype), createMockLogger());
+}
+
 function setup() {
+  const logger = mockLogger();
   const presentation = {
     present: jest.fn(),
     dismiss: jest.fn(),
@@ -47,11 +56,11 @@ function setup() {
     presentation,
     followUp,
     sink: new CodexChatApprovalSink(
-      'session',
+      reply.sessionId,
       'context',
       presentation,
       followUp,
-      100,
+      logger,
     ),
   };
 }
@@ -64,7 +73,7 @@ describe('CodexChatApprovalSink', () => {
       const { sink, presentation } = setup();
       const promise = sink.request(request, new AbortController().signal);
       expect(presentation.present).toHaveBeenCalledWith(
-        'session',
+        reply.sessionId,
         request,
         CODEX_CHAT_APPROVAL_CHOICES,
       );
@@ -126,18 +135,17 @@ describe('CodexChatApprovalSink', () => {
     await promise;
     expect(followUp.post).not.toHaveBeenCalled();
   });
-  it.each(['timeout', 'abort', 'dispose'] as const)(
+  it.each(['abort', 'dispose'] as const)(
     'denies and removes the prompt on %s',
     async (mode) => {
       const { sink, presentation } = setup();
       const abort = new AbortController();
       const promise = sink.request(request, abort.signal);
-      if (mode === 'timeout') jest.advanceTimersByTime(100);
       if (mode === 'abort') abort.abort();
       if (mode === 'dispose') sink.dispose();
       await expect(promise).resolves.toBe('decline');
       expect(presentation.cancelPrompt).toHaveBeenCalledWith({
-        sessionId: 'session',
+        sessionId: SessionId.from('11111111-1111-4111-8111-111111111111'),
         requestId: '7',
         reason:
           mode === 'abort'
@@ -209,4 +217,22 @@ describe('CodexChatApprovalSink', () => {
     await expect(promise).resolves.toBe('decline');
     expect(jest.getTimerCount()).toBe(0);
   });
+});
+
+it('waits without a timer, cancels exactly the addressed request, and dismisses once', async () => {
+  jest.useFakeTimers();
+  try {
+    const { sink, presentation } = setup();
+    const pending = sink.request(request, new AbortController().signal);
+    jest.advanceTimersByTime(120_000);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(presentation.dismiss).not.toHaveBeenCalled();
+    expect(sink.cancel('wrong', '7')).toBe(false);
+    expect(sink.cancel('thread', '7')).toBe(true);
+    expect(sink.cancel('thread', '7')).toBe(false);
+    await expect(pending).resolves.toBe('cancel');
+    expect(presentation.dismiss).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
 });

@@ -1,13 +1,23 @@
 import {
-  sessionRuntimeIdentityMismatch,
+  type AgentModelInfo,
   type IAgentAdapter,
   type RuntimeHostCapabilities,
   type SessionId,
 } from '@ptah-extension/shared';
 import {
-  SessionRuntimeRoutingError,
+  resolveSessionRuntimeIdentity,
   type SessionRuntimeIdentityLookup,
-} from './session-runtime-router';
+} from './session-runtime-identity';
+
+export interface RuntimeAdmissionPort {
+  servingProviderId(
+    config: Parameters<IAgentAdapter['startChatSession']>[0],
+  ): Promise<string | undefined>;
+}
+
+export interface NativeChatAdapter extends IAgentAdapter {
+  listSessionModels(sessionId: SessionId): Promise<readonly AgentModelInfo[]>;
+}
 
 /** Capability is supplied by composition from the parity gate / DS1 override.
  * It is an admission hint only: CodexChatAdapter still uses the gated resolver.
@@ -16,7 +26,8 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   constructor(
     private readonly identities: SessionRuntimeIdentityLookup,
     private readonly legacy: IAgentAdapter,
-    private readonly native: IAgentAdapter,
+    private readonly native: NativeChatAdapter,
+    private readonly admission: RuntimeAdmissionPort,
     private readonly capabilities: RuntimeHostCapabilities = {
       nativeCodex: false,
     },
@@ -62,12 +73,14 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   getApiModels(): ReturnType<IAgentAdapter['getApiModels']> {
     return this.legacy.getApiModels();
   }
-  startChatSession(
+  async startChatSession(
     ...args: Parameters<IAgentAdapter['startChatSession']>
   ): ReturnType<IAgentAdapter['startChatSession']> {
-    return (
-      this.capabilities.nativeCodex ? this.native : this.legacy
-    ).startChatSession(...args);
+    // Admission lookup failures propagate: a failed workspace lookup is not consent to switch runtimes.
+    const useNative =
+      this.capabilities.nativeCodex &&
+      (await this.admission.servingProviderId(args[0])) === 'openai-codex';
+    return (useNative ? this.native : this.legacy).startChatSession(...args);
   }
   resumeSession(
     ...args: Parameters<IAgentAdapter['resumeSession']>
@@ -162,27 +175,16 @@ export class RoutingAgentAdapter implements IAgentAdapter {
     this.legacy.setWorktreeRemovedCallback(...args);
   }
 
+  listSessionModels(sessionId: SessionId): Promise<readonly AgentModelInfo[]> {
+    return this.adapter(sessionId) === this.native
+      ? this.native.listSessionModels(sessionId)
+      : this.legacy.getSupportedModels();
+  }
+
   private adapter(id: SessionId): IAgentAdapter {
-    const binding = this.identities.lookup(id);
-    if (!binding) throw new SessionRuntimeRoutingError('unknown-session', id);
-    const identity = binding.persisted ?? binding.live;
-    if (!identity) throw new SessionRuntimeRoutingError('missing-identity', id);
-    for (const candidate of [binding.live, binding.persisted]) {
-      if (candidate && candidate.sessionId !== id)
-        throw new SessionRuntimeRoutingError(
-          'identity-mismatch',
-          id,
-          'sessionId',
-        );
-    }
-    if (binding.live && binding.persisted) {
-      const field = sessionRuntimeIdentityMismatch(
-        binding.live,
-        binding.persisted,
-      );
-      if (field)
-        throw new SessionRuntimeRoutingError('identity-mismatch', id, field);
-    }
-    return identity.runtime === 'codex-app-server' ? this.native : this.legacy;
+    return resolveSessionRuntimeIdentity(this.identities, id)?.runtime ===
+      'codex-app-server'
+      ? this.native
+      : this.legacy;
   }
 }

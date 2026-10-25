@@ -1,12 +1,11 @@
+import { SessionId, type SessionRuntimeIdentity } from '@ptah-extension/shared';
 import {
-  SessionId,
-  type IAgentAdapter,
-  type SessionRuntimeIdentity,
-} from '@ptah-extension/shared';
-import { RoutingAgentAdapter } from './routing-agent-adapter';
-import { SessionRuntimeRoutingError } from './session-runtime-router';
+  RoutingAgentAdapter,
+  type NativeChatAdapter,
+} from './routing-agent-adapter';
+import { SessionRuntimeRoutingError } from './session-runtime-identity';
 
-function adapter(): jest.Mocked<IAgentAdapter> {
+function adapter(): jest.Mocked<NativeChatAdapter> {
   return {
     providerId: 'claude-cli',
     info: {
@@ -34,6 +33,7 @@ function adapter(): jest.Mocked<IAgentAdapter> {
     getHealth: jest.fn(),
     reset: jest.fn(),
     getSupportedModels: jest.fn(),
+    listSessionModels: jest.fn(),
     getDefaultModel: jest.fn(),
     getApiModels: jest.fn(),
     startChatSession: jest.fn(),
@@ -80,6 +80,7 @@ describe('RoutingAgentAdapter', () => {
       { lookup: () => ({ persisted: legacyIdentity }) },
       legacy,
       native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
     );
     await router.startChatSession({ tabId: 'tab' });
     await router.resumeSession(id);
@@ -95,6 +96,7 @@ describe('RoutingAgentAdapter', () => {
       { lookup: () => ({ persisted: legacyIdentity }) },
       legacy,
       native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
       { nativeCodex: true },
     );
     await router.startChatSession({ tabId: 'tab' });
@@ -109,6 +111,7 @@ describe('RoutingAgentAdapter', () => {
       { lookup: () => ({ persisted: nativeIdentity }) },
       legacy,
       native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
     );
     await router.resumeSession(id);
     await router.setSessionModel(id, 'model');
@@ -127,6 +130,7 @@ describe('RoutingAgentAdapter', () => {
       { lookup: () => ({ persisted: nativeIdentity }) },
       legacy,
       native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
       { nativeCodex: true },
     );
     await expect(router.startChatSession({ tabId: 'tab' })).rejects.toBe(error);
@@ -135,7 +139,6 @@ describe('RoutingAgentAdapter', () => {
     expect(legacy.resumeSession).not.toHaveBeenCalled();
   });
   it.each([
-    undefined,
     {},
     { live: legacyIdentity, persisted: nativeIdentity },
     {
@@ -151,9 +154,130 @@ describe('RoutingAgentAdapter', () => {
       { lookup: () => binding },
       legacy,
       native,
+      { servingProviderId: jest.fn().mockResolvedValue('openai-codex') },
     );
     expect(() => router.resumeSession(id)).toThrow(SessionRuntimeRoutingError);
     expect(legacy.resumeSession).not.toHaveBeenCalled();
     expect(native.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['tab', 'pre-metadata-claude'])(
+    'routes unknown %s to legacy',
+    async (value) => {
+      const sessionId = value as SessionId;
+      const legacy = adapter();
+      const native = adapter();
+      const router = new RoutingAgentAdapter(
+        { lookup: () => undefined },
+        legacy,
+        native,
+        { servingProviderId: jest.fn() },
+      );
+      legacy.isSessionActive.mockReturnValue(false);
+      expect(router.isSessionActive(sessionId)).toBe(false);
+      await router.resumeSession(sessionId);
+      expect(legacy.isSessionActive).toHaveBeenCalledWith(sessionId);
+      expect(legacy.resumeSession).toHaveBeenCalledWith(sessionId);
+      expect(native.isSessionActive).not.toHaveBeenCalled();
+      expect(native.resumeSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [false, 'openai-codex', false],
+    [true, 'openai-codex', true],
+    [true, 'anthropic', false],
+    [true, undefined, false],
+  ] as const)(
+    'admits by capability %s and serving provider %s',
+    async (nativeCodex, provider, useNative) => {
+      const legacy = adapter();
+      const native = adapter();
+      const admission = {
+        servingProviderId: jest.fn().mockResolvedValue(provider),
+      };
+      const router = new RoutingAgentAdapter(
+        { lookup: () => undefined },
+        legacy,
+        native,
+        admission,
+        { nativeCodex },
+      );
+      const config = { tabId: 'tab', cwd: '/workspace' };
+      await router.startChatSession(config);
+      expect(
+        (useNative ? native : legacy).startChatSession,
+      ).toHaveBeenCalledWith(config);
+      expect(
+        (useNative ? legacy : native).startChatSession,
+      ).not.toHaveBeenCalled();
+      if (nativeCodex)
+        expect(admission.servingProviderId).toHaveBeenCalledWith(config);
+      else expect(admission.servingProviderId).not.toHaveBeenCalled();
+    },
+  );
+
+  it('propagates admission errors without starting either runtime', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const error = new Error('workspace lookup failed');
+    const router = new RoutingAgentAdapter(
+      { lookup: () => undefined },
+      legacy,
+      native,
+      { servingProviderId: jest.fn().mockRejectedValue(error) },
+      { nativeCodex: true },
+    );
+    await expect(router.startChatSession({ tabId: 'tab' })).rejects.toBe(error);
+    expect(legacy.startChatSession).not.toHaveBeenCalled();
+    expect(native.startChatSession).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, legacyIdentity, nativeIdentity])(
+    'queries models using the session binding %s',
+    async (identity) => {
+      const legacy = adapter();
+      const native = adapter();
+      legacy.getSupportedModels.mockResolvedValue([]);
+      native.listSessionModels.mockResolvedValue([]);
+      const router = new RoutingAgentAdapter(
+        { lookup: () => (identity ? { persisted: identity } : undefined) },
+        legacy,
+        native,
+        { servingProviderId: jest.fn() },
+      );
+      await expect(router.listSessionModels(id)).resolves.toEqual([]);
+      if (identity?.runtime === 'codex-app-server') {
+        expect(native.listSessionModels).toHaveBeenCalledWith(id);
+        expect(legacy.getSupportedModels).not.toHaveBeenCalled();
+      } else {
+        expect(legacy.getSupportedModels).toHaveBeenCalledTimes(1);
+        expect(native.listSessionModels).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('keeps global models on legacy and propagates native session model failures', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const error = new Error('model/list failed');
+    native.listSessionModels.mockRejectedValue(error);
+    const router = new RoutingAgentAdapter(
+      { lookup: () => ({ live: nativeIdentity }) },
+      legacy,
+      native,
+      { servingProviderId: jest.fn() },
+    );
+    await expect(router.listSessionModels(id)).rejects.toBe(error);
+    expect(legacy.getSupportedModels).not.toHaveBeenCalled();
+    await router.getSupportedModels();
+    await router.getDefaultModel();
+    await router.getApiModels();
+    expect(legacy.getSupportedModels).toHaveBeenCalledTimes(1);
+    expect(legacy.getDefaultModel).toHaveBeenCalledTimes(1);
+    expect(legacy.getApiModels).toHaveBeenCalledTimes(1);
+    expect(native.getSupportedModels).not.toHaveBeenCalled();
+    expect(native.getDefaultModel).not.toHaveBeenCalled();
+    expect(native.getApiModels).not.toHaveBeenCalled();
   });
 });

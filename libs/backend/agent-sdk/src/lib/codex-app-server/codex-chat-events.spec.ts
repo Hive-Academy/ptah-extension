@@ -21,7 +21,7 @@ function setup() {
   };
 }
 describe('CodexChatEvents', () => {
-  it('keeps final text as replacement content without fabricated deltas', () => {
+  it('streams final-only text after message_start', () => {
     const { projection, callbacks } = setup();
     expect(
       projection.map({
@@ -31,7 +31,13 @@ describe('CodexChatEvents', () => {
         itemId: 'a',
         text: 'final only',
       }),
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        eventType: 'message_start',
+        role: 'assistant',
+      }),
+      expect.objectContaining({ eventType: 'text_delta', delta: 'final only' }),
+    ]);
     expect(callbacks.content).toHaveBeenCalledWith({
       itemId: 'a',
       text: 'final only',
@@ -58,7 +64,7 @@ describe('CodexChatEvents', () => {
         type: 'textDelta',
         itemId: 'a',
         delta: 'old',
-      })[0],
+      })[1],
     ).toMatchObject({
       eventType: 'text_delta',
       delta: 'old',
@@ -103,7 +109,7 @@ describe('CodexChatEvents', () => {
         toolId: 'stable',
         toolName: 'shell',
         input: { command: 'pwd' },
-      })[0],
+      })[1],
     ).toMatchObject({ toolCallId: 'stable', toolInput: { command: 'pwd' } });
     expect(
       projection.map({
@@ -188,4 +194,46 @@ describe('CodexChatEvents', () => {
     expect(callbacks.live).toHaveBeenCalledWith(file);
     expect(callbacks.compaction).toHaveBeenCalledWith('completed');
   });
+});
+
+it('matches accumulator event order and stable message identity with live usage', () => {
+  const { projection } = setup();
+  const events = [
+    ...projection.map({
+      ...identity,
+      sequence: 1,
+      type: 'textDelta',
+      itemId: 'a',
+      delta: 'hel',
+    }),
+    ...projection.map({
+      ...identity,
+      sequence: 2,
+      type: 'textFinal',
+      itemId: 'a',
+      text: 'hello',
+    }),
+    ...projection.map({
+      ...identity,
+      sequence: 3,
+      type: 'usage',
+      usage: { inputTokens: 4, outputTokens: 2 },
+    }),
+    ...projection.map({
+      ...identity,
+      sequence: 4,
+      type: 'terminal',
+      status: 'completed',
+    }),
+  ];
+  expect(events.map((event) => event.eventType)).toEqual([
+    'message_start',
+    'text_delta',
+    'text_delta',
+    'message_delta',
+    'message_complete',
+  ]);
+  expect(new Set(events.map((event) => event.messageId)).size).toBe(1);
+  expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
+  expect(events.at(-1)).toMatchObject({ tokenUsage: { input: 4, output: 2 } });
 });

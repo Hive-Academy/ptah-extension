@@ -5,9 +5,12 @@ import type {
 } from '@ptah-extension/shared';
 import {
   SessionRuntimeRouter,
+  type NativeSessionControls,
+} from './session-runtime-router';
+import {
   SessionRuntimeRoutingError,
   type SessionRuntimeIdentityLookup,
-} from './session-runtime-router';
+} from './session-runtime-identity';
 
 const id = 'session' as SessionId;
 const legacyIdentity: SessionRuntimeIdentity = {
@@ -43,7 +46,11 @@ function setup(
 ) {
   const lookup = jest.fn(() => binding);
   const legacy = controls();
-  const native = controls();
+  const native: jest.Mocked<NativeSessionControls> = {
+    ...controls(),
+    canSendFollowUp: jest.fn().mockReturnValue(true),
+    releaseSession: jest.fn(),
+  };
   return {
     router: new SessionRuntimeRouter({ lookup }, legacy, native),
     lookup,
@@ -100,7 +107,6 @@ describe('SessionRuntimeRouter', () => {
   });
 
   it.each([
-    [undefined, 'unknown-session'],
     [{}, 'missing-identity'],
     [{ live: nativeIdentity, persisted: legacyIdentity }, 'identity-mismatch'],
     [
@@ -147,39 +153,63 @@ describe('SessionRuntimeRouter', () => {
     expect(legacy.setModel).not.toHaveBeenCalled();
   });
 
-  it('blocks follow-ups on false or thrown interrupt until a successful interrupt', async () => {
-    const { router, native } = setup();
+  it.each(['tab', 'pre-metadata-claude'])(
+    'routes unknown %s to legacy controls',
+    async (value) => {
+      const { legacy, native } = setup();
+      const router = new SessionRuntimeRouter(
+        { lookup: () => undefined },
+        legacy,
+        native,
+      );
+      const sessionId = value as SessionId;
+      await router.setModel(sessionId, 'model');
+      await router.interrupt(sessionId);
+      expect(router.canSendFollowUp(sessionId)).toBe(true);
+      expect(legacy.setModel).toHaveBeenCalledWith(sessionId, 'model');
+      expect(legacy.interrupt).toHaveBeenCalledWith(sessionId);
+      expect(native.setModel).not.toHaveBeenCalled();
+      expect(native.interrupt).not.toHaveBeenCalled();
+      expect(native.canSendFollowUp).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not block Claude follow-ups after an interrupt timeout or failure', async () => {
+    const { router, legacy, native } = setup({ persisted: legacyIdentity });
+    legacy.interrupt
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('failed'));
+    await expect(router.interrupt(id)).resolves.toBe(false);
+    expect(router.canSendFollowUp(id)).toBe(true);
+    await expect(router.interrupt(id)).rejects.toThrow('failed');
+    expect(router.canSendFollowUp(id)).toBe(true);
+    expect(native.canSendFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('delegates native gating so turn end clears failed interrupt blocks', async () => {
+    const { router, native, legacy } = setup();
     native.interrupt
       .mockResolvedValueOnce(false)
       .mockRejectedValueOnce(new Error('failed'));
-    expect(router.canSendFollowUp(id)).toBe(true);
+    native.canSendFollowUp.mockReturnValue(false);
     await expect(router.interrupt(id)).resolves.toBe(false);
     expect(router.canSendFollowUp(id)).toBe(false);
     await expect(router.interrupt(id)).rejects.toThrow('failed');
     expect(router.canSendFollowUp(id)).toBe(false);
-    await router.interrupt(id);
+    // Native controls observe turn end without a second successful interrupt.
+    native.canSendFollowUp.mockReturnValue(true);
     expect(router.canSendFollowUp(id)).toBe(true);
+    expect(native.canSendFollowUp).toHaveBeenCalledWith(id);
+    expect(legacy.interrupt).not.toHaveBeenCalled();
   });
 
-  it('does not let a late successful interrupt clear a newer failed attempt', async () => {
-    const { router, native } = setup();
-    let finish: (value: boolean) => void = () => {
-      throw new Error('not started');
-    };
-    native.interrupt
-      .mockReturnValueOnce(
-        new Promise<boolean>((resolve) => {
-          finish = resolve;
-        }),
-      )
-      .mockResolvedValueOnce(false);
-    const first = router.interrupt(id);
-    expect(router.canSendFollowUp(id)).toBe(false);
-    await router.interrupt(id);
-    finish(true);
-    await first;
-    expect(router.canSendFollowUp(id)).toBe(false);
+  it('releases native lifecycle state without retaining router state', () => {
+    const { router, native, lookup } = setup();
     router.releaseSession(id);
+    expect(native.releaseSession).toHaveBeenCalledWith(id);
+    lookup.mockReturnValue({ persisted: legacyIdentity });
+    router.releaseSession(id);
+    expect(native.releaseSession).toHaveBeenCalledTimes(1);
     expect(router.canSendFollowUp(id)).toBe(true);
   });
 });

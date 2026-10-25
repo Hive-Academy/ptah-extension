@@ -1,9 +1,11 @@
+import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
 import {
   resolveGatedCodexRuntime,
   type ApprovalSink,
   type CodexContext,
+  type CodexReportedUsage,
   type CodexExecutionProfile,
   type CodexParityPlatform,
   type CodexThreadIdentity,
@@ -12,6 +14,7 @@ import {
 import {
   SessionId,
   type IAgentAdapter,
+  type AgentModelInfo,
   type AgentSessionStartConfig,
   type AgentSessionResumeConfig,
   type FlatStreamEventUnion,
@@ -26,11 +29,20 @@ import {
   type CodexChatApprovalPresentation,
   type CodexChatApprovalFollowUp,
 } from './codex-chat-approval-sink';
-import type { SessionApprovalRouter } from './session-approval-router';
+import {
+  sessionApprovalKey,
+  type SessionApprovalRouter,
+} from './session-approval-router';
 
 export class CodexChatAdapterError extends Error {
   constructor(
-    readonly code: 'unsupported' | 'unavailable' | 'busy' | 'runtime-failed',
+    readonly code:
+      | 'unsupported'
+      | 'unavailable'
+      | 'busy'
+      | 'runtime-failed'
+      | 'cancelled'
+      | 'identity-mismatch',
     readonly operation: string,
   ) {
     super(`Codex chat ${operation}: ${code}`);
@@ -39,6 +51,7 @@ export class CodexChatAdapterError extends Error {
 }
 
 export interface CodexChatMetadataPort {
+  /** Title is not persisted until the metadata writer contract gains a title field. */
   save(
     sessionId: SessionId,
     identity: CodexThreadIdentity,
@@ -54,6 +67,7 @@ export interface CodexChatScope {
 }
 
 export interface CodexChatAdapterPorts {
+  readonly logger: Logger;
   readonly platform: CodexParityPlatform;
   readonly info: ProviderInfo;
   /** Build a validated profile from this session (never focused provider state).
@@ -89,6 +103,7 @@ interface Session {
   readonly sink: CodexChatApprovalSink;
   readonly scope: CodexChatScope;
   readonly abort: AbortController;
+  usage?: CodexReportedUsage;
   busy: boolean;
   turnId?: string;
   blocked: boolean;
@@ -103,6 +118,9 @@ export class CodexChatAdapter implements IAgentAdapter {
   private generation = 0;
   private resolved?: Parameters<
     IAgentAdapter['setSessionIdResolvedCallback']
+  >[0];
+  private compactionStart?: Parameters<
+    IAgentAdapter['setCompactionStartCallback']
   >[0];
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
 
@@ -127,11 +145,7 @@ export class CodexChatAdapter implements IAgentAdapter {
   }
   getHealth(): ReturnType<IAgentAdapter['getHealth']> {
     return {
-      status: this.disposed
-        ? 'disabled'
-        : this.sessions.size
-          ? 'available'
-          : 'unavailable',
+      status: this.disposed ? 'disabled' : 'available',
       lastCheck: Date.now(),
     };
   }
@@ -168,7 +182,12 @@ export class CodexChatAdapter implements IAgentAdapter {
     config: AgentSessionResumeConfig = {},
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (this.sessions.has(id)) {
-      if (Object.keys(config).some((key) => !['prompt', 'tabId'].includes(key)))
+      if (
+        Object.entries(config).some(
+          ([key, value]) =>
+            value !== undefined && !['prompt', 'tabId'].includes(key),
+        )
+      )
         this.unsupported('activeResumeConfig');
       return this.turn(this.session(id), { text: config.prompt ?? '' });
     }
@@ -190,114 +209,224 @@ export class CodexChatAdapter implements IAgentAdapter {
     let context: CodexContext | undefined;
     let session: Session | undefined;
     try {
-      const prepared = await this.ports.profile(config, resumeId);
-      if (opening.cancelled || this.disposed || generation !== this.generation)
-        throw new CodexChatAdapterError('unavailable', 'open');
-      if (
-        prepared.profile.consumer !== 'chat' ||
-        !!resumeId !== !!prepared.resume ||
-        (resumeId && prepared.resume?.threadId !== resumeId)
-      )
-        throw new CodexChatAdapterError('unavailable', 'identity');
-      const releases = new Map<string, () => void>();
-      // Opening a context cannot authorize requests before its thread is bound.
-      scope = this.ports.createScope({
-        request: (request, signal) =>
-          sink ? sink.request(request, signal) : Promise.resolve('decline'),
-      });
-      const runtime = resolveGatedCodexRuntime(
-        scope.container,
-        'chat',
-        this.ports.platform,
-      );
-      context = await runtime.open(prepared.profile, prepared.resume);
+      const prepared = await this.prepareProfile(config, resumeId);
+      this.checkOpening(opening, generation);
+      scope = this.createScope(() => sink);
+      context = await this.openContext(scope, prepared);
       const id = SessionId.from(context.identity.threadId);
-      if (
-        opening.cancelled ||
-        this.disposed ||
-        generation !== this.generation ||
-        this.sessions.has(id)
-      )
-        throw new CodexChatAdapterError('unavailable', 'open');
-      sink = new CodexChatApprovalSink(
-        id,
-        context.identity.contextId,
-        {
-          present: (_id, request, choices) => {
-            const release = this.ports.approvals.register(
-              {
-                sessionId: id,
-                threadId: request.threadId,
-                requestId: String(request.requestId),
-              },
-              { kind: 'codex', sink: sink! },
-            );
-            releases.set(JSON.stringify(request), release);
-            this.ports.presentation.present(id, request, choices);
-          },
-          dismiss: (_id, request) => {
-            const key = JSON.stringify(request);
-            releases.get(key)?.();
-            releases.delete(key);
-            this.ports.presentation.dismiss(id, request);
-          },
-          cancelPrompt: (payload) =>
-            this.ports.presentation.cancelPrompt(payload),
-        },
-        {
-          ...this.ports.replacement,
-          isTurnActive: () => session?.turnId !== undefined,
-          post: async (text) => {
-            if (!session)
-              throw new CodexChatAdapterError('unavailable', 'followUp');
-            if (session.blocked)
-              throw new CodexChatAdapterError('unavailable', 'followUp');
-            if (session.turnId)
-              await this.safe('steer', () => session!.context.steer({ text }));
-            else await this.ports.publish(id, this.turn(session, { text }));
-          },
-        },
-      );
-      await this.ports.metadata.save(
-        id,
-        context.identity,
-        config.sessionTitle ?? config.sessionName,
-      );
-      if (opening.cancelled || this.disposed || generation !== this.generation)
-        throw new CodexChatAdapterError('unavailable', 'open');
-      session = {
-        id,
-        token: randomUUID(),
-        context,
-        sink,
-        scope,
-        abort: new AbortController(),
-        busy: false,
-        blocked: false,
-      };
-      this.sessions.set(id, session);
+      this.checkOpening(opening, generation);
+      if (this.sessions.has(id))
+        throw new CodexChatAdapterError('busy', 'open');
+      sink = this.buildSink(id, context, () => session);
+      await this.persistMetadata(id, context, config);
+      this.checkOpening(opening, generation);
+      session = this.publishSession(id, context, sink, scope);
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
         text: config.prompt ?? '',
         attachments: prepared.profile.attachments,
       });
-    } catch {
+    } catch (error) {
+      this.ports.logger.error('Codex chat open failed.');
       if (session) this.sessions.delete(session.id);
       sink?.dispose();
-      try {
-        await context?.close();
-      } catch {
-        /* Preserve sanitized admission failure. */
-      }
-      try {
-        await scope?.dispose();
-      } catch {
-        /* Preserve sanitized admission failure. */
-      }
+      await this.cleanupOpen(context, scope);
+      if (error instanceof CodexChatAdapterError) throw error;
       throw new CodexChatAdapterError('runtime-failed', 'open');
     } finally {
       this.opening.delete(key);
     }
+  }
+
+  private async prepareProfile(
+    config: AgentSessionStartConfig | AgentSessionResumeConfig,
+    resumeId?: SessionId,
+  ): ReturnType<CodexChatAdapterPorts['profile']> {
+    const prepared = await this.ports.profile(config, resumeId);
+    if (
+      prepared.profile.consumer !== 'chat' ||
+      !!resumeId !== !!prepared.resume ||
+      (resumeId && prepared.resume?.threadId !== resumeId)
+    )
+      throw new CodexChatAdapterError('identity-mismatch', 'identity');
+    return prepared;
+  }
+
+  private checkOpening(
+    opening: { cancelled: boolean },
+    generation: number,
+  ): void {
+    if (opening.cancelled || this.disposed || generation !== this.generation)
+      throw new CodexChatAdapterError('cancelled', 'open');
+  }
+
+  private createScope(
+    getSink: () => CodexChatApprovalSink | undefined,
+  ): CodexChatScope {
+    // Opening a context cannot authorize requests before its thread is bound.
+    return this.ports.createScope({
+      request: (request, signal) =>
+        getSink()?.request(request, signal) ?? Promise.resolve('decline'),
+    });
+  }
+
+  private openContext(
+    scope: CodexChatScope,
+    prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
+  ): Promise<CodexContext> {
+    const runtime = resolveGatedCodexRuntime(
+      scope.container,
+      'chat',
+      this.ports.platform,
+    );
+    return runtime.open(prepared.profile, prepared.resume);
+  }
+
+  private persistMetadata(
+    id: SessionId,
+    context: CodexContext,
+    config: AgentSessionStartConfig | AgentSessionResumeConfig,
+  ): Promise<void> {
+    return this.ports.metadata.save(
+      id,
+      context.identity,
+      config.sessionTitle ?? config.sessionName,
+    );
+  }
+
+  private publishSession(
+    id: SessionId,
+    context: CodexContext,
+    sink: CodexChatApprovalSink,
+    scope: CodexChatScope,
+  ): Session {
+    const session: Session = {
+      id,
+      token: randomUUID(),
+      context,
+      sink,
+      scope,
+      abort: new AbortController(),
+      busy: false,
+      blocked: false,
+    };
+    this.sessions.set(id, session);
+    return session;
+  }
+
+  private async cleanupOpen(
+    context?: CodexContext,
+    scope?: CodexChatScope,
+  ): Promise<void> {
+    try {
+      await context?.close();
+    } catch {
+      this.ports.logger.error('Codex chat context cleanup failed.');
+    }
+    try {
+      await scope?.dispose();
+    } catch {
+      this.ports.logger.error('Codex chat scope cleanup failed.');
+    }
+  }
+
+  private buildSink(
+    id: SessionId,
+    context: CodexContext,
+    getSession: () => Session | undefined,
+  ): CodexChatApprovalSink {
+    const releases = new Map<string, () => void>();
+    const address = (request: Parameters<ApprovalSink['request']>[0]) => ({
+      sessionId: id,
+      threadId: request.threadId,
+      requestId: String(request.requestId),
+    });
+    const sink = new CodexChatApprovalSink(
+      id,
+      context.identity.contextId,
+      {
+        present: (_id, request, choices) => {
+          const key = sessionApprovalKey(address(request));
+          releases.set(
+            key,
+            this.ports.approvals.register(address(request), {
+              kind: 'codex',
+              sink,
+            }),
+          );
+          this.ports.presentation.present(id, request, choices);
+        },
+        dismiss: (_id, request) => {
+          const key = sessionApprovalKey(address(request));
+          releases.get(key)?.();
+          releases.delete(key);
+          this.ports.presentation.dismiss(id, request);
+        },
+        cancelPrompt: (payload) =>
+          this.ports.presentation.cancelPrompt(payload),
+      },
+      {
+        ...this.ports.replacement,
+        isTurnActive: () => getSession()?.turnId !== undefined,
+        post: async (text) => {
+          const session = getSession();
+          if (!session || session.blocked || session.closing)
+            throw new CodexChatAdapterError('unavailable', 'followUp');
+          if (session.turnId)
+            await this.safe('steer', () => session.context.steer({ text }));
+          else await this.publish(session, { text });
+        },
+      },
+      this.ports.logger,
+    );
+    return sink;
+  }
+
+  private async publish(
+    session: Session,
+    input: CodexTurnInput,
+  ): Promise<void> {
+    const iterator = this.turn(session, input)[Symbol.asyncIterator]();
+    try {
+      await this.safe('publish', () =>
+        this.ports.publish(session.id, {
+          [Symbol.asyncIterator]: () => iterator,
+        }),
+      );
+    } finally {
+      await iterator.return?.();
+    }
+  }
+
+  async listSessionModels(
+    sessionId: SessionId,
+  ): Promise<readonly AgentModelInfo[]> {
+    const context = this.session(sessionId).context;
+    return this.safe('listModels', async () =>
+      (await context.listModels()).map((model) => ({
+        value: model.id,
+        displayName: model.displayName,
+        ...(model.description === undefined
+          ? {}
+          : { description: model.description }),
+      })),
+    );
+  }
+
+  private notifyCompaction(session: Session, trigger: 'manual' | 'auto'): void {
+    const usage = session.usage;
+    const preTokens =
+      usage?.totalTokens ??
+      (usage?.inputTokens !== undefined && usage.outputTokens !== undefined
+        ? usage.inputTokens + usage.outputTokens
+        : undefined);
+    if (preTokens !== undefined)
+      this.compactionStart?.({
+        sessionId: session.id,
+        trigger,
+        timestamp: Date.now(),
+        preTokens,
+      });
   }
 
   private turn(
@@ -307,13 +436,16 @@ export class CodexChatAdapter implements IAgentAdapter {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
       throw new CodexChatAdapterError('unavailable', 'turn');
-    session.busy = true;
     return this.stream(session, input);
   }
   private async *stream(
     session: Session,
     input: CodexTurnInput,
-  ): AsyncIterable<FlatStreamEventUnion> {
+  ): AsyncGenerator<FlatStreamEventUnion> {
+    if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
+    if (session.blocked || session.closing)
+      throw new CodexChatAdapterError('unavailable', 'turn');
+    session.busy = true;
     const subscription = new AbortController();
     const abort = () => subscription.abort();
     session.abort.signal.addEventListener('abort', abort, { once: true });
@@ -357,18 +489,34 @@ export class CodexChatAdapter implements IAgentAdapter {
       );
       for await (const event of events) {
         if (subscription.signal.aborted) break;
-        for (const mapped of projection.map(event)) yield mapped;
+        const mappedEvents = projection.map(event);
+        if (
+          event.contextId === session.context.identity.contextId &&
+          event.processGeneration ===
+            session.context.identity.processGeneration &&
+          event.threadId === session.id &&
+          event.turnId === receipt.turnId
+        ) {
+          if (event.type === 'usage') session.usage = event.usage;
+          if (event.type === 'terminal' && event.usage)
+            session.usage = event.usage;
+          if (event.type === 'compaction' && event.phase === 'started')
+            this.notifyCompaction(session, 'auto');
+        }
+        for (const mapped of mappedEvents) yield mapped;
         if (terminal) return;
       }
       throw new CodexChatAdapterError('runtime-failed', 'stream');
-    } catch {
+    } catch (error) {
+      this.ports.logger.error('Codex chat turn failed.');
+      if (error instanceof CodexChatAdapterError) throw error;
       throw new CodexChatAdapterError('runtime-failed', 'turn');
     } finally {
       subscription.abort();
       session.abort.signal.removeEventListener('abort', abort);
       session.busy = false;
       session.turnId = undefined;
-      if (!terminal) await this.close(session);
+      session.blocked = false;
     }
   }
   async sendMessageToSession(
@@ -391,12 +539,7 @@ export class CodexChatAdapter implements IAgentAdapter {
         ...image,
       })),
     ];
-    await this.safe('sendMessage', () =>
-      this.ports.publish(
-        id,
-        this.turn(this.session(id), { text, attachments }),
-      ),
-    );
+    await this.publish(this.session(id), { text, attachments });
   }
   isSessionActive(id: SessionId): boolean {
     return this.sessions.has(id);
@@ -426,6 +569,8 @@ export class CodexChatAdapter implements IAgentAdapter {
     if (session.closing) return session.closing;
     if (this.sessions.get(session.id) === session)
       this.sessions.delete(session.id);
+    session.busy = false;
+    session.blocked = false;
     session.abort.abort();
     session.sink.dispose();
     session.closing = this.safe('close', async () => {
@@ -439,10 +584,14 @@ export class CodexChatAdapter implements IAgentAdapter {
   }
   async interruptCurrentTurn(id: SessionId): Promise<boolean> {
     const session = this.session(id);
-    if (!session.turnId) return false;
+    const turnId = session.turnId;
+    if (!turnId) {
+      session.blocked = false;
+      return false;
+    }
     session.blocked = true;
     const accepted = await this.safe('interrupt', () =>
-      session.context.interrupt(session.turnId!),
+      session.context.interrupt(turnId),
     );
     if (accepted) session.blocked = false;
     return accepted;
@@ -454,7 +603,9 @@ export class CodexChatAdapter implements IAgentAdapter {
     ...[id, command]: Parameters<IAgentAdapter['executeSlashCommand']>
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (command !== '/compact') this.unsupported('slashCommand');
-    await this.safe('compact', () => this.session(id).context.compact());
+    const session = this.session(id);
+    this.notifyCompaction(session, 'manual');
+    await this.safe('compact', () => session.context.compact());
     return (async function* () {
       /* Compact has no assistant turn result. */
     })();
@@ -496,10 +647,13 @@ export class CodexChatAdapter implements IAgentAdapter {
   ): void {
     this.stats = cb;
   }
-  setCompactionStartCallback(): void {
-    this.unsupported('compactionStats');
+  setCompactionStartCallback(
+    cb: Parameters<IAgentAdapter['setCompactionStartCallback']>[0],
+  ): void {
+    this.compactionStart = cb;
   }
   setLiveStatsCallback(): void {
+    // SessionStatsEntry requires cacheCreation and session messageCount, neither reported by native usage.
     this.unsupported('liveStats');
   }
   setWorktreeCreatedCallback(): void {
@@ -524,6 +678,7 @@ export class CodexChatAdapter implements IAgentAdapter {
     try {
       return await action();
     } catch (error) {
+      this.ports.logger.error(`Codex chat ${operation} failed.`);
       if (error instanceof CodexChatAdapterError) throw error;
       throw new CodexChatAdapterError('runtime-failed', operation);
     }

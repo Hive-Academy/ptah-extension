@@ -1,3 +1,5 @@
+import type { Logger } from '@ptah-extension/vscode-core';
+import type { SessionId } from '@ptah-extension/shared';
 import { z } from 'zod';
 import type {
   ApprovalSink,
@@ -38,11 +40,11 @@ export interface CodexChatApprovalReply extends CodexApprovalCorrelation {
 }
 export interface CodexChatApprovalPresentation {
   present(
-    sessionId: string,
+    sessionId: SessionId,
     request: CodexApprovalRequest,
     choices: typeof CODEX_CHAT_APPROVAL_CHOICES,
   ): void;
-  dismiss(sessionId: string, request: CodexApprovalRequest): void;
+  dismiss(sessionId: SessionId, request: CodexApprovalRequest): void;
   cancelPrompt(payload: PermissionPromptCancelledPayload): void;
 }
 export interface CodexChatApprovalFollowUp {
@@ -75,15 +77,12 @@ export class CodexChatApprovalSink implements ApprovalSink {
   private disposed = false;
 
   constructor(
-    readonly sessionId: string,
+    readonly sessionId: SessionId,
     readonly contextId: string,
     private readonly presentation: CodexChatApprovalPresentation,
     private readonly followUp: CodexChatApprovalFollowUp,
-    private readonly timeoutMs = 60_000,
-  ) {
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
-      throw new Error('Invalid approval timeout');
-  }
+    private readonly logger: Logger,
+  ) {}
 
   request(
     request: CodexApprovalRequest,
@@ -100,16 +99,12 @@ export class CodexChatApprovalSink implements ApprovalSink {
     this.seen.add(key);
     return new Promise<Outcome>((resolve) => {
       const abort = () => settle('decline', 'turn-ended');
-      const timer = setTimeout(
-        () => settle('decline', 'timeout'),
-        this.timeoutMs,
-      );
       const settle = (
         outcome: Outcome,
         reason?: PermissionPromptCancelledPayload['reason'],
       ) => {
         if (!this.pending.delete(key)) return;
-        clearTimeout(timer);
+        this.seen.delete(key);
         signal.removeEventListener('abort', abort);
         try {
           if (reason)
@@ -119,12 +114,12 @@ export class CodexChatApprovalSink implements ApprovalSink {
               reason,
             });
         } catch {
-          /* Presentation failure cannot authorize or hold a request open. */
+          this.logger.error('Codex approval cancellation presentation failed.');
         }
         try {
           this.presentation.dismiss(this.sessionId, request);
         } catch {
-          /* Best-effort UI cleanup. */
+          this.logger.error('Codex approval dismissal failed.');
         }
         resolve(outcome);
       };
@@ -139,6 +134,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
             CODEX_CHAT_APPROVAL_CHOICES,
           );
       } catch {
+        this.logger.error('Codex approval presentation failed.');
         settle('decline');
       }
     });
@@ -167,6 +163,7 @@ export class CodexChatApprovalSink implements ApprovalSink {
               )
             : reply.editedText;
       } catch {
+        this.logger.error('Codex approval replacement validation failed.');
         text = undefined;
       }
       pending.settle({ decision: 'decline', editNotSupported: true });
@@ -182,10 +179,11 @@ export class CodexChatApprovalSink implements ApprovalSink {
             ),
           )
           .catch(() => {
+            this.logger.error('Codex approval follow-up failed.');
             try {
               this.followUp.failed();
             } catch {
-              /* Reporting cannot reopen an approval. */
+              this.logger.error('Codex approval follow-up reporting failed.');
             }
           });
       }
@@ -194,6 +192,19 @@ export class CodexChatApprovalSink implements ApprovalSink {
     // acceptForSession is scoped and validated by the core rule store, never here.
     pending.settle(reply.decision);
     return true;
+  }
+
+  cancel(threadId: string, requestId: string): boolean {
+    for (const pending of this.pending.values()) {
+      if (
+        pending.request.threadId === threadId &&
+        String(pending.request.requestId) === requestId
+      ) {
+        pending.settle('cancel', 'turn-ended');
+        return true;
+      }
+    }
+    return false;
   }
 
   dispose(): void {

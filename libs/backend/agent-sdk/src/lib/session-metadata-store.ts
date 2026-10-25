@@ -35,8 +35,7 @@ import EventEmitter from 'eventemitter3';
 import { z } from 'zod';
 import { normalizeCodexWorkspaceKey } from '@ptah-extension/codex-runtime';
 import { SessionRuntimeIdentitySchema } from '@ptah-extension/shared/schemas';
-import type { SessionRuntimeIdentity } from '@ptah-extension/shared';
-
+import type { SessionId, SessionRuntimeIdentity } from '@ptah-extension/shared';
 
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
@@ -68,31 +67,72 @@ import type {
   SubagentRecord,
 } from '@ptah-extension/shared';
 import {
-  blankToUndefined, isProviderAccountOpaqueId, isProviderAccountOwnerKey,
+  blankToUndefined,
+  isProviderAccountOpaqueId,
+  isProviderAccountOwnerKey,
   type ProviderAccountBinding,
 } from '@ptah-extension/shared';
 
-type CodexExecution = Extract<SessionRuntimeIdentity, { runtime: 'codex-app-server' }>;
+type CodexExecution = Extract<
+  SessionRuntimeIdentity,
+  { runtime: 'codex-app-server' }
+>;
 
 // Registry migration 58 uses zero-based epochs/revisions. Strict objects reject
 // accidental directory/identity fields instead of silently stripping them.
-const accountRevision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const accountBindingSchema = z.object({
-  version: z.literal(1), provider: z.literal('claude'),
-  profileId: z.string().refine(isProviderAccountOpaqueId),
-  runId: z.string().refine(isProviderAccountOpaqueId),
-  routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  routeRevision: accountRevision, authEpoch: accountRevision,
-  identity: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('unknown') }).strict(),
-    z.object({ kind: z.literal('known'), ownerKey: z.string().refine(isProviderAccountOwnerKey) }).strict(),
-  ]),
-}).strict();
+const accountRevision = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+const accountBindingSchema = z
+  .object({
+    version: z.literal(1),
+    provider: z.literal('claude'),
+    profileId: z.string().refine(isProviderAccountOpaqueId),
+    runId: z.string().refine(isProviderAccountOpaqueId),
+    routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    routeRevision: accountRevision,
+    authEpoch: accountRevision,
+    identity: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unknown') }).strict(),
+      z
+        .object({
+          kind: z.literal('known'),
+          ownerKey: z.string().refine(isProviderAccountOwnerKey),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 export class SessionAccountBindingError extends Error {
-  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'linkage-incomplete' | 'identity-unproved' | 'unavailable-storage') {
+  constructor(
+    readonly code:
+      | 'invalid-bound'
+      | 'binding-conflict'
+      | 'linkage-incomplete'
+      | 'identity-unproved'
+      | 'unavailable-storage',
+  ) {
     super(`Session account linkage refused: ${code}`);
     this.name = 'SessionAccountBindingError';
+  }
+}
+
+export class CodexSessionMetadataError extends Error {
+  constructor(
+    readonly code:
+      | 'legacy-conversion'
+      | 'invalid-identity'
+      | 'binding-change'
+      | 'storage-unavailable'
+      | 'direct-runtime-write'
+      | 'account-linkage',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CodexSessionMetadataError';
   }
 }
 
@@ -104,7 +144,10 @@ export type SessionAccountBindingLookup =
 function parseSessionAccountBinding(value: unknown): ProviderAccountBinding {
   const parsed = accountBindingSchema.safeParse(value);
   if (!parsed.success) throw new SessionAccountBindingError('invalid-bound');
-  return Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) });
+  return Object.freeze({
+    ...parsed.data,
+    identity: Object.freeze(parsed.data.identity),
+  });
 }
 
 function validateAccountLinkage(value: unknown): SessionMetadata {
@@ -112,8 +155,12 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
     throw new SessionAccountBindingError('invalid-bound');
   }
   const metadata = value as SessionMetadata;
-  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
-  return { ...metadata, accountBinding: parseSessionAccountBinding(metadata.accountBinding) };
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding'))
+    return metadata;
+  return {
+    ...metadata,
+    accountBinding: parseSessionAccountBinding(metadata.accountBinding),
+  };
 }
 
 /**
@@ -123,15 +170,32 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
  */
 function listAccountLinkage(value: unknown): SessionMetadata {
   const metadata = value as SessionMetadata;
-  if (typeof value !== 'object' || value === null || Array.isArray(value) ||
-      !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')
+  )
+    return metadata;
   const parsed = accountBindingSchema.safeParse(metadata.accountBinding);
   if (!parsed.success) return metadata;
-  return { ...metadata, accountBinding: Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) }) };
+  return {
+    ...metadata,
+    accountBinding: Object.freeze({
+      ...parsed.data,
+      identity: Object.freeze(parsed.data.identity),
+    }),
+  };
 }
 
-function sameAccountBinding(left: ProviderAccountBinding, right: ProviderAccountBinding): boolean {
-  return JSON.stringify(parseSessionAccountBinding(left)) === JSON.stringify(parseSessionAccountBinding(right));
+function sameAccountBinding(
+  left: ProviderAccountBinding,
+  right: ProviderAccountBinding,
+): boolean {
+  return (
+    JSON.stringify(parseSessionAccountBinding(left)) ===
+    JSON.stringify(parseSessionAccountBinding(right))
+  );
 }
 
 /**
@@ -252,8 +316,10 @@ function isWorkspaceRouted(
   );
 }
 
-const normalizeWorkspaceId = (workspaceId: string): string =>
-  workspaceId.replace(/\\/g, '/');
+const normalizeWorkspaceId = (workspaceId: string): string => {
+  const normalized = workspaceId.replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+};
 const SESSION_DETAIL_KEY_PREFIX = 'ptah.session:';
 
 /** Key prefix for per-agent bulk output. One key per agent, written once. */
@@ -806,29 +872,45 @@ export class SessionMetadataStore {
   }
 
   /** The only writer of native runtime identity. The session key is the thread id. */
-  updateCodexExecution(
-    sessionId: string,
+  async updateCodexExecution(
+    sessionId: SessionId,
     updater: (current: CodexExecution | undefined) => CodexExecution,
   ): Promise<void> {
-    return this.enqueueWrite(async () => {
+    let kind: SessionMetadataChangeKind = 'created';
+    let workspaceId = '';
+    await this.enqueueWrite(async () => {
       // Read authoritative detail without invoking Claude account gates. Lean
       // listings omit child references and must not replace an existing detail.
       let existing = this.strays.get(sessionId);
       if (!existing && this.records) {
         await this.gate?.whenReady();
         const record = await this.records.get(sessionId);
-        existing = record ? record.detail as unknown as SessionMetadata : undefined;
+        existing = record ? validateAccountLinkage(record.detail) : undefined;
       } else if (!existing && isAsyncStateStorage(this.storage)) {
         existing = await this.storage.getAsync<SessionMetadata>(
-          sessionDetailKey(sessionId), undefined, DETAIL_READ_OPTIONS,
+          sessionDetailKey(sessionId),
+          undefined,
+          DETAIL_READ_OPTIONS,
         );
       }
       if (!existing && !this.records) {
-        existing = (await this.getAll()).find(row => row.sessionId === sessionId);
+        existing = (await this.getAll()).find(
+          (row) => row.sessionId === sessionId,
+        );
       }
       if (existing && !existing.codexExecution) {
-        throw new Error('Cannot convert a legacy session to Codex');
+        throw new CodexSessionMetadataError(
+          'legacy-conversion',
+          'Cannot convert a legacy session to Codex',
+        );
       }
+      if (existing?.accountBinding) {
+        throw new CodexSessionMetadataError(
+          'account-linkage',
+          'Codex sessions cannot carry account linkage',
+        );
+      }
+      kind = existing ? 'updated' : 'created';
       const proposed = updater(
         existing?.codexExecution
           ? structuredClone(existing.codexExecution)
@@ -846,7 +928,10 @@ export class SessionMetadataStore {
         parsed.data.runtime !== 'codex-app-server' ||
         parsed.data.sessionId !== sessionId
       ) {
-        throw new Error('Invalid Codex session identity');
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Invalid Codex session identity',
+        );
       }
       const execution = parsed.data;
       if (
@@ -856,15 +941,21 @@ export class SessionMetadataStore {
           existing.codexExecution.codex.normalizedHome !==
             execution.codex.normalizedHome)
       ) {
-        throw new Error('Cannot change a Codex session binding');
+        throw new CodexSessionMetadataError(
+          'binding-change',
+          'Cannot change a Codex session binding',
+        );
       }
       if (this.isForeignWorkspace(execution.workspaceId)) {
-        throw new Error(
+        throw new CodexSessionMetadataError(
+          'storage-unavailable',
           'Codex session storage is unavailable for this workspace',
         );
       }
+      workspaceId = execution.workspaceId;
       const now = Date.now();
       const detail: SessionMetadata = {
+        ...existing,
         sessionId,
         name: existing?.name ?? sessionId,
         workspaceId: execution.workspaceId,
@@ -872,15 +963,14 @@ export class SessionMetadataStore {
         codexExecution: execution,
         createdAt: existing?.createdAt ?? now,
         lastActiveAt: now,
-        totalCost: 0,
-        totalTokens: { input: 0, output: 0 },
-        ...(existing?.isChildSession ? { isChildSession: true } : {}),
-        ...(existing?.cliSessions ? { cliSessions: existing.cliSessions } : {}),
+        totalCost: existing?.totalCost ?? 0,
+        totalTokens: existing?.totalTokens ?? { input: 0, output: 0 },
       };
       await this.persistMetadata(detail);
       // Identity is a launch checkpoint, durable even when other writes are queued.
       await this.flush();
     });
+    this.emitChange(kind, sessionId, workspaceId);
   }
 
   /**
@@ -899,17 +989,26 @@ export class SessionMetadataStore {
       JSON.stringify(metadata.codexExecution) !==
         JSON.stringify(existing?.codexExecution)
     ) {
-      throw new Error('Use updateCodexExecution to write runtime metadata');
+      throw new CodexSessionMetadataError(
+        'direct-runtime-write',
+        'Use updateCodexExecution to write runtime metadata',
+      );
     }
     if (
       existing?.codexExecution &&
       providerOverride &&
       providerOverride !== existing.providerId
     ) {
-      throw new Error('Cannot change a Codex session binding');
+      throw new CodexSessionMetadataError(
+        'binding-change',
+        'Cannot change a Codex session binding',
+      );
     }
     if (existing?.codexExecution && metadata.accountBinding) {
-      throw new Error('Codex sessions cannot carry account linkage');
+      throw new CodexSessionMetadataError(
+        'account-linkage',
+        'Codex sessions cannot carry account linkage',
+      );
     }
     if (
       metadata.accountBinding &&
@@ -949,26 +1048,25 @@ export class SessionMetadataStore {
     await this.persistMetadata(merged);
   }
 
-  private async persistMetadata(merged: SessionMetadata): Promise<void> {
-    const metadata = merged;
-    if (this.isForeignWorkspace(merged.workspaceId)) {
-      if (merged.accountBinding)
+  private async persistMetadata(metadata: SessionMetadata): Promise<void> {
+    if (this.isForeignWorkspace(metadata.workspaceId)) {
+      if (metadata.accountBinding)
         throw new SessionAccountBindingError('unavailable-storage');
-      if (!this.strays.has(merged.sessionId)) {
+      if (!this.strays.has(metadata.sessionId)) {
         this.logger.info(
           '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
-          { sessionId: merged.sessionId, workspaceId: merged.workspaceId },
+          { sessionId: metadata.sessionId, workspaceId: metadata.workspaceId },
         );
       }
-      this.strays.set(merged.sessionId, merged);
+      this.strays.set(metadata.sessionId, metadata);
       return;
     }
-    this.strays.delete(merged.sessionId);
-    const strippedBulkRefCount = countReferencesWithBulk(merged);
+    this.strays.delete(metadata.sessionId);
+    const strippedBulkRefCount = countReferencesWithBulk(metadata);
     const detail =
       strippedBulkRefCount > 0
-        ? omitJsonPaths(merged, DETAIL_PROJECTION.omit)
-        : merged;
+        ? omitJsonPaths(metadata, DETAIL_PROJECTION.omit)
+        : metadata;
     if (strippedBulkRefCount > 0) {
       this.logger.info(
         '[SessionMetadataStore] Stripped bulk output from CLI session references',
@@ -998,7 +1096,7 @@ export class SessionMetadataStore {
     }
     // A named checkpoint must flush even when another write is queued. The
     // ordinary coalesced queue may otherwise resolve this caller before I/O.
-    if (merged.accountBinding) await this.flush();
+    if (metadata.accountBinding) await this.flush();
     this.logger.debug(
       `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
@@ -1165,11 +1263,11 @@ export class SessionMetadataStore {
       return rows.map((r) => listAccountLinkage(r.summary));
     }
     const all = await this.getAll();
-    const normalizedQuery = workspaceId.replace(/\\/g, '/');
+    const normalizedQuery = normalizeWorkspaceId(workspaceId);
     return all
       .filter(
         (m) =>
-          m.workspaceId.replace(/\\/g, '/') === normalizedQuery &&
+          normalizeWorkspaceId(m.workspaceId) === normalizedQuery &&
           (includeChildren || !m.isChildSession),
       )
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);

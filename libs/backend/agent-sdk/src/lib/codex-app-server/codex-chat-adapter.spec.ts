@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { Logger } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
@@ -47,8 +49,16 @@ const terminal: CodexRuntimeEvent = {
   status: 'completed',
 };
 
+function mockLogger(): Logger {
+  return Object.assign(Object.create(Logger.prototype), createMockLogger());
+}
+
 function setup(override = true) {
+  const logger = mockLogger();
   const context: jest.Mocked<CodexContext> = {
+    listModels: jest.fn(async () => [
+      { id: 'gpt', displayName: 'GPT', isDefault: true },
+    ]),
     identity,
     events: jest.fn<
       ReturnType<CodexContext['events']>,
@@ -113,6 +123,7 @@ function setup(override = true) {
     jest.fn(),
   );
   const ports: CodexChatAdapterPorts = {
+    logger,
     platform: { platform: 'win32', arch: 'x64' },
     info: {
       id: 'ptah-cli',
@@ -184,16 +195,16 @@ describe('CodexChatAdapter', () => {
     );
     expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, undefined);
     expect(resolved).toHaveBeenCalledWith(tabId, id);
-    expect(output).toHaveLength(1);
+    expect(output).toHaveLength(2);
     expect(callbacks.result).toHaveBeenCalledTimes(1);
     expect(stats).not.toHaveBeenCalled();
     await adapter.interruptSession(id);
   });
   it('refuses a closed gate without opening a context', async () => {
     const { adapter, open, dispose } = setup(false);
-    await expect(
-      adapter.startChatSession({ tabId }),
-    ).rejects.toMatchObject({ code: 'runtime-failed' });
+    await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
+      code: 'runtime-failed',
+    });
     expect(open).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
@@ -236,13 +247,12 @@ describe('CodexChatAdapter', () => {
       await expect(action()).rejects.toBeInstanceOf(CodexChatAdapterError);
     for (const action of [
       () => adapter.setLiveStatsCallback(),
-      () => adapter.setCompactionStartCallback(),
       () => adapter.setWorktreeCreatedCallback(),
       () => adapter.setWorktreeRemovedCallback(),
     ])
       expect(action).toThrow(CodexChatAdapterError);
   });
-  it('closes abandoned streams and sanitizes missing terminal errors', async () => {
+  it('keeps the session after a missing terminal error', async () => {
     const { adapter, context, dispose } = setup();
     context.events.mockImplementation(() =>
       (async function* () {
@@ -262,9 +272,16 @@ describe('CodexChatAdapter', () => {
         for await (const event of stream) void event;
       })(),
     ).rejects.toMatchObject({ code: 'runtime-failed' });
-    expect(context.close).toHaveBeenCalledTimes(1);
-    expect(dispose).toHaveBeenCalledTimes(1);
-    expect(adapter.isSessionActive(id)).toBe(false);
+    expect(context.close).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(adapter.isSessionActive(id)).toBe(true);
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield terminal;
+      })(),
+    );
+    await adapter.sendMessageToSession(id, 'retry');
+    await adapter.interruptSession(id);
   });
   it('binds approval ownership to the context and releases it on end', async () => {
     const { adapter, ports, sink } = setup();
@@ -309,7 +326,7 @@ describe('CodexChatAdapter', () => {
       ),
     ).resolves.toBe('decline');
   });
-  it('releases approval ownership on timeout without a user reply', async () => {
+  it('holds approval beyond sixty seconds and releases on cancellation', async () => {
     jest.useFakeTimers();
     const { adapter, ports, sink } = setup();
     try {
@@ -324,7 +341,12 @@ describe('CodexChatAdapter', () => {
       };
       const pending = sink().request(request, new AbortController().signal);
       jest.advanceTimersByTime(60_000);
-      await expect(pending).resolves.toBe('decline');
+      expect(ports.presentation.dismiss).not.toHaveBeenCalled();
+      ports.approvals.cancelPrompt(
+        { sessionId: id, threadId: id, requestId: '7' },
+        'turn-ended',
+      );
+      await expect(pending).resolves.toBe('cancel');
       const release = ports.approvals.register(
         { sessionId: id, threadId: id, requestId: '7' },
         { kind: 'claude' },
@@ -333,7 +355,7 @@ describe('CodexChatAdapter', () => {
       expect(ports.presentation.cancelPrompt).toHaveBeenCalledWith({
         sessionId: id,
         requestId: '7',
-        reason: 'timeout',
+        reason: 'turn-ended',
       });
       await adapter.interruptSession(id);
     } finally {
@@ -352,9 +374,11 @@ describe('CodexChatAdapter', () => {
     const pending = adapter.startChatSession({ tabId });
     // profile resolution yields before runtime.open.
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     await adapter.reset();
     release(context);
-    await expect(pending).rejects.toMatchObject({ code: 'runtime-failed' });
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
     expect(adapter.isSessionActive(id)).toBe(false);
     expect(ports.metadata.save).not.toHaveBeenCalled();
     expect(context.close).toHaveBeenCalledTimes(1);
@@ -370,9 +394,11 @@ describe('CodexChatAdapter', () => {
     );
     const pending = adapter.startChatSession({ tabId });
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     adapter.endSession(tabId);
     release(context);
-    await expect(pending).rejects.toMatchObject({ code: 'runtime-failed' });
+    await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
     expect(ports.metadata.save).not.toHaveBeenCalled();
     expect(context.close).toHaveBeenCalledTimes(1);
   });
@@ -437,11 +463,106 @@ describe('CodexChatAdapter', () => {
     await expect(
       adapter.sendMessageToSession(id, 'next'),
     ).rejects.toBeInstanceOf(CodexChatAdapterError);
-    await iterator.next();
-    await iterator.next();
+    while (!(await iterator.next()).done) {
+      /* Finish the interrupted turn. */
+    }
     await expect(
       adapter.sendMessageToSession(id, 'next'),
-    ).rejects.toMatchObject({ code: 'unavailable' });
+    ).resolves.toBeUndefined();
     await adapter.interruptSession(id);
   });
+});
+
+it.each(['unconsumed', 'returned', 'publish-failure'] as const)(
+  'does not latch busy for %s streams',
+  async (mode) => {
+    const { adapter, ports, context } = setup();
+    const stream = await adapter.startChatSession({ tabId });
+    if (mode === 'returned') await stream[Symbol.asyncIterator]().return?.();
+    if (mode === 'publish-failure') {
+      ports.publish = jest.fn(async () => {
+        throw new Error('publish failed');
+      });
+      await expect(
+        adapter.sendMessageToSession(id, 'fail'),
+      ).rejects.toMatchObject({ code: 'runtime-failed' });
+    }
+    const retry = await adapter.resumeSession(id, {
+      prompt: 'retry',
+      model: undefined,
+    });
+    for await (const event of retry) void event;
+    expect(context.startTurn).toHaveBeenCalledTimes(1);
+    await adapter.interruptSession(id);
+  },
+);
+it('retains context and releases busy after a transient start rejection', async () => {
+  const { adapter, context } = setup();
+  context.startTurn.mockRejectedValueOnce(new Error('temporary'));
+  const stream = await adapter.startChatSession({ tabId });
+  await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
+    code: 'runtime-failed',
+  });
+  await adapter.sendMessageToSession(id, 'retry');
+  expect(context.close).not.toHaveBeenCalled();
+  await adapter.interruptSession(id);
+});
+it('clears a rejected interrupt when the turn ends', async () => {
+  const { adapter, context } = setup();
+  const stream = await adapter.startChatSession({ tabId });
+  const iterator = stream[Symbol.asyncIterator]();
+  await iterator.next();
+  context.interrupt.mockResolvedValue(false);
+  expect(await adapter.interruptCurrentTurn(id)).toBe(false);
+  while (!(await iterator.next()).done) {
+    /* Drain the terminal event. */
+  }
+  expect(await adapter.interruptCurrentTurn(id)).toBe(false);
+  await adapter.sendMessageToSession(id, 'retry');
+  await adapter.interruptSession(id);
+});
+it('queries the session context model list and rejects closed sessions', async () => {
+  const { adapter, context } = setup();
+  expect(adapter.getHealth().status).toBe('available');
+  await adapter.startChatSession({ tabId });
+  await expect(adapter.listSessionModels(id)).resolves.toEqual([
+    { value: 'gpt', displayName: 'GPT' },
+  ]);
+  expect(context.listModels).toHaveBeenCalledTimes(1);
+  await adapter.interruptSession(id);
+  await expect(adapter.listSessionModels(id)).rejects.toMatchObject({
+    code: 'unavailable',
+  });
+});
+it('reports compaction tokens from the latest native usage', async () => {
+  const { adapter, context } = setup();
+  context.events.mockImplementation(() =>
+    (async function* () {
+      yield {
+        ...identity,
+        turnId: 'turn',
+        sequence: 1,
+        type: 'usage' as const,
+        usage: {
+          inputTokens: 10,
+          outputTokens: 3,
+          cachedInputTokens: 4,
+          totalTokens: 13,
+        },
+      };
+      yield terminal;
+    })(),
+  );
+  const callback = jest.fn();
+  adapter.setCompactionStartCallback(callback);
+  const stream = await adapter.startChatSession({ tabId });
+  for await (const event of stream) void event;
+  await adapter.executeSlashCommand(id, '/compact', {});
+  expect(callback).toHaveBeenCalledWith({
+    sessionId: id,
+    trigger: 'manual',
+    timestamp: expect.any(Number),
+    preTokens: 13,
+  });
+  await adapter.interruptSession(id);
 });

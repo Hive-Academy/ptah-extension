@@ -1,4 +1,7 @@
-import { SessionApprovalRouter } from './session-approval-router';
+import {
+  SessionApprovalRouter,
+  sessionApprovalKey,
+} from './session-approval-router';
 
 const address = { sessionId: 'session', threadId: 'thread', requestId: '7' };
 const response = {
@@ -16,6 +19,7 @@ function setup() {
     sessionId: 'session',
     contextId: 'context',
     respond: jest.fn().mockReturnValue(true),
+    cancel: jest.fn().mockReturnValue(true),
   };
   return {
     claude,
@@ -82,10 +86,15 @@ describe('SessionApprovalRouter', () => {
     expect(router.respond(address, { kind: 'codex', response })).toBe(false);
     expect(router.respond(address, { kind: 'codex', response })).toBe(true);
   });
-  it('cancels the UI without posting a response', () => {
+  it('closes the native request before notifying UI cancellation', () => {
     const { router, sink, claude, cancelled } = setup();
     router.register(address, { kind: 'codex', sink });
+    sink.cancel.mockImplementation(() => {
+      expect(cancelled).not.toHaveBeenCalled();
+      return true;
+    });
     router.cancelPrompt(address, 'timeout');
+    expect(sink.cancel).toHaveBeenCalledWith('thread', '7');
     expect(cancelled).toHaveBeenCalledWith({
       sessionId: 'session',
       requestId: '7',
@@ -109,5 +118,39 @@ describe('SessionApprovalRouter', () => {
     );
     release();
     expect(router.respond(address, { kind: 'codex', response })).toBe(false);
+  });
+
+  it.each([true, false])(
+    'notifies cancellation once when sink cancellation returns %s',
+    (result) => {
+      const { router, sink, cancelled } = setup();
+      sink.cancel.mockReturnValue(result);
+      router.register(address, { kind: 'codex', sink });
+      router.cancelPrompt(address, 'disposed');
+      router.cancelPrompt(address, 'disposed');
+      expect(sink.cancel).toHaveBeenCalledTimes(1);
+      expect(cancelled).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('cancels Claude ownership without a native request or user response', () => {
+    const { router, sink, claude, cancelled } = setup();
+    router.register(address, { kind: 'claude' });
+    router.cancelPrompt(address, 'turn-ended');
+    expect(cancelled).toHaveBeenCalledTimes(1);
+    expect(sink.cancel).not.toHaveBeenCalled();
+    expect(claude.handleResponse).not.toHaveBeenCalled();
+  });
+
+  it('uses an unambiguous session/thread/request tuple for shared correlation', () => {
+    expect(sessionApprovalKey(address)).toBe(
+      JSON.stringify(['session', 'thread', '7']),
+    );
+    expect(
+      sessionApprovalKey({ ...address, sessionId: 'session/thread' }),
+    ).not.toBe(sessionApprovalKey({ ...address, threadId: 'thread/thread' }));
+    expect(sessionApprovalKey({ ...address, threadId: 'child' })).not.toBe(
+      sessionApprovalKey(address),
+    );
   });
 });

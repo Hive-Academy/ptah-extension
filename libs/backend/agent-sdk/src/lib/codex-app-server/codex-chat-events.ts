@@ -35,6 +35,7 @@ export interface CodexChatEventCallbacks {
 
 /** One projection per turn. Core events are already normalized. */
 export class CodexChatEvents {
+  private started = false;
   private sequence = -1;
   private terminal = false;
   private errorEmitted = false;
@@ -73,6 +74,30 @@ export class CodexChatEvents {
       timestamp: this.now(),
       source: 'stream' as const,
     };
+    const projected = this.project(event, base);
+    if (this.started) return projected;
+    this.started = true;
+    return [
+      {
+        ...base,
+        id: `${base.messageId}:start`,
+        eventType: 'message_start',
+        role: 'assistant',
+      },
+      ...projected,
+    ];
+  }
+
+  private project(
+    event: CodexRuntimeEvent,
+    base: {
+      id: string;
+      messageId: string;
+      sessionId: string;
+      timestamp: number;
+      source: 'stream';
+    },
+  ): FlatStreamEventUnion[] {
     switch (event.type) {
       case 'textDelta':
         this.text.set(
@@ -87,7 +112,8 @@ export class CodexChatEvents {
             blockIndex: this.block('text', event.itemId),
           },
         ];
-      case 'textFinal':
+      case 'textFinal': {
+        const previous = this.text.get(event.itemId) ?? '';
         this.text.set(event.itemId, event.text);
         this.callbacks.content({
           itemId: event.itemId,
@@ -95,7 +121,20 @@ export class CodexChatEvents {
           kind: 'text',
           blockIndex: this.block('text', event.itemId),
         });
-        return [];
+        const delta = event.text.startsWith(previous)
+          ? event.text.slice(previous.length)
+          : '';
+        return delta
+          ? [
+              {
+                ...base,
+                eventType: 'text_delta',
+                delta,
+                blockIndex: this.block('text', event.itemId),
+              },
+            ]
+          : [];
+      }
       case 'reasoning': {
         const blockIndex = this.block('reasoning', event.itemId);
         if (event.phase === 'final') {
@@ -144,7 +183,19 @@ export class CodexChatEvents {
         ];
       case 'usage':
         this.usage = event.usage;
-        return [];
+        return event.usage.inputTokens !== undefined &&
+          event.usage.outputTokens !== undefined
+          ? [
+              {
+                ...base,
+                eventType: 'message_delta',
+                tokenUsage: {
+                  input: event.usage.inputTokens,
+                  output: event.usage.outputTokens,
+                },
+              },
+            ]
+          : [];
       case 'compaction':
         this.callbacks.compaction(event.phase);
         return [];
@@ -172,9 +223,22 @@ export class CodexChatEvents {
         this.blocks.clear();
         this.usage = undefined;
         this.callbacks.result(result);
-        // Usage belongs to result only; consumers must not count it twice.
+        // Message usage is the SDK stream contract; result stats are a separate channel.
         return [
-          { ...base, eventType: 'message_complete', stopReason: event.status },
+          {
+            ...base,
+            eventType: 'message_complete',
+            stopReason: event.status,
+            ...(usage?.inputTokens !== undefined &&
+            usage.outputTokens !== undefined
+              ? {
+                  tokenUsage: {
+                    input: usage.inputTokens,
+                    output: usage.outputTokens,
+                  },
+                }
+              : {}),
+          },
         ];
       }
     }
