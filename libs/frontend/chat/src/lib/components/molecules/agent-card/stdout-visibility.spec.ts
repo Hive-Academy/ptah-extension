@@ -8,6 +8,7 @@ import {
 import {
   ClaudeRpcService,
   FILE_LINK_OPENER,
+  LoggingService,
   VSCodeService,
 } from '@ptah-extension/core';
 import {
@@ -40,6 +41,7 @@ async function render(agent: MonitoredAgent) {
   fixture.componentRef.setInput('agent', agent);
   fixture.detectChanges();
   await fixture.whenStable();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   fixture.detectChanges();
   return fixture;
 }
@@ -70,6 +72,15 @@ describe('raw stdout disclosure', () => {
         },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
+        {
+          provide: LoggingService,
+          useValue: {
+            debug: jest.fn(),
+            info: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+          } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
+        },
         {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()) },
@@ -111,6 +122,7 @@ describe('raw stdout disclosure', () => {
     });
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
 
     const output = outputOf(fixture);
@@ -143,6 +155,7 @@ describe('raw stdout disclosure', () => {
     });
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
 
     expect(detailsOf(outputOf(fixture)).open).toBe(true);
@@ -166,6 +179,7 @@ describe('raw stdout disclosure', () => {
     fixture.componentRef.setInput('agent', { ...agent, expanded: false });
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(
       fixture.nativeElement.querySelector('ptah-cli-agent-output'),
     ).toBeNull();
@@ -173,6 +187,7 @@ describe('raw stdout disclosure', () => {
     fixture.componentRef.setInput('agent', { ...agent, expanded: true });
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
 
     expect(detailsOf(outputOf(fixture)).open).toBe(true);

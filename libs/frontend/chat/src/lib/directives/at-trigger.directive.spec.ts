@@ -13,7 +13,7 @@
  */
 
 import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
-import { TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { AtTriggerDirective, AtTriggerEvent } from './at-trigger.directive';
 
 @Component({
@@ -73,6 +73,7 @@ describe('AtTriggerDirective', () => {
   let textarea: HTMLTextAreaElement;
 
   beforeEach(async () => {
+    jest.useFakeTimers();
     await TestBed.configureTestingModule({
       imports: [TestHostComponent],
     }).compileComponents();
@@ -81,6 +82,12 @@ describe('AtTriggerDirective', () => {
     host = fixture.componentInstance;
     textarea = fixture.nativeElement.querySelector('textarea');
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
   it('should create the directive on textarea', () => {
@@ -93,64 +100,64 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('atActivated (immediate, no debounce)', () => {
-    it('should emit atActivated immediately when @ is typed at start', fakeAsync(() => {
+    it('should emit atActivated immediately when @ is typed at start', () => {
       simulateInput(textarea, '@');
-      tick(0); // Allow RxJS pipeline to process synchronously
+      jest.advanceTimersByTime(0); // Allow RxJS pipeline to process synchronously
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('');
       expect(host.activatedEvents[0].triggerPosition).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit atActivated immediately when @ is typed after whitespace', fakeAsync(() => {
+    it('should emit atActivated immediately when @ is typed after whitespace', () => {
       simulateInput(textarea, 'hello @');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('');
       expect(host.activatedEvents[0].triggerPosition).toBe(6);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit atActivated with initial query when @ and text typed together', fakeAsync(() => {
+    it('should emit atActivated with initial query when @ and text typed together', () => {
       simulateInput(textarea, '@po');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('po');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should NOT emit atActivated when @ is mid-word (no preceding whitespace)', fakeAsync(() => {
+    it('should NOT emit atActivated when @ is mid-word (no preceding whitespace)', () => {
       simulateInput(textarea, 'email@test');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should only emit atActivated once for a single activation', fakeAsync(() => {
+    it('should only emit atActivated once for a single activation', () => {
       // Type @
       simulateInput(textarea, '@');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // Continue typing (query changes, not new activation)
       simulateInput(textarea, '@po');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1); // Still just 1
 
       simulateInput(textarea, '@portal');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1); // Still just 1
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -158,31 +165,31 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('atQueryChanged (immediate, no debounce)', () => {
-    it('should emit atQueryChanged immediately when query updates', fakeAsync(() => {
+    it('should emit atQueryChanged immediately when query updates', () => {
       simulateInput(textarea, '@p');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('p');
 
       simulateInput(textarea, '@po');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('po');
 
       simulateInput(textarea, '@por');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('por');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit atQueryChanged with empty string on initial @ activation', fakeAsync(() => {
+    it('should emit atQueryChanged with empty string on initial @ activation', () => {
       simulateInput(textarea, '@');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       // On activation, atQueryChanged is also emitted
       expect(host.queryChangedEvents).toContain('');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -190,43 +197,43 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('atTriggered (debounced by 150ms)', () => {
-    it('should emit atTriggered after 150ms debounce', fakeAsync(() => {
+    it('should emit atTriggered after 150ms debounce', () => {
       simulateInput(textarea, '@portal');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       // Should NOT have emitted yet
       expect(host.triggeredEvents.length).toBe(0);
 
       // After debounce period
-      tick(150);
+      jest.advanceTimersByTime(150);
       expect(host.triggeredEvents.length).toBe(1);
       expect(host.triggeredEvents[0].query).toBe('portal');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should only emit atTriggered once for rapid typing within debounce window', fakeAsync(() => {
+    it('should only emit atTriggered once for rapid typing within debounce window', () => {
       simulateInput(textarea, '@p');
-      tick(50);
+      jest.advanceTimersByTime(50);
       simulateInput(textarea, '@po');
-      tick(50);
+      jest.advanceTimersByTime(50);
       simulateInput(textarea, '@por');
-      tick(50);
+      jest.advanceTimersByTime(50);
       simulateInput(textarea, '@port');
-      tick(50);
+      jest.advanceTimersByTime(50);
       simulateInput(textarea, '@porta');
-      tick(50);
+      jest.advanceTimersByTime(50);
       simulateInput(textarea, '@portal');
 
       // Wait for debounce
-      tick(150);
+      jest.advanceTimersByTime(150);
 
       // Only the last stable value should be emitted
       expect(host.triggeredEvents.length).toBe(1);
       expect(host.triggeredEvents[0].query).toBe('portal');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -234,47 +241,47 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('atClosed (immediate)', () => {
-    it('should emit atClosed immediately when whitespace typed in query', fakeAsync(() => {
+    it('should emit atClosed immediately when whitespace typed in query', () => {
       // Activate
       simulateInput(textarea, '@portal');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // Type space in query (deactivates)
       simulateInput(textarea, '@portal ');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit atClosed when @ is removed', fakeAsync(() => {
+    it('should emit atClosed when @ is removed', () => {
       // Activate
       simulateInput(textarea, '@test');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // Remove @ (backspace)
       simulateInput(textarea, 'test');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit atClosed when input is cleared', fakeAsync(() => {
+    it('should emit atClosed when input is cleared', () => {
       // Activate
       simulateInput(textarea, '@file');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // Clear input
       simulateInput(textarea, '');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -282,73 +289,73 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('@ detection rules', () => {
-    it('should detect @ at position 0', fakeAsync(() => {
+    it('should detect @ at position 0', () => {
       simulateInput(textarea, '@');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].triggerPosition).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should detect @ after space', fakeAsync(() => {
+    it('should detect @ after space', () => {
       simulateInput(textarea, 'message @');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].triggerPosition).toBe(8);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should detect @ after newline', fakeAsync(() => {
+    it('should detect @ after newline', () => {
       simulateInput(textarea, 'line1\n@');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should detect @ after tab', fakeAsync(() => {
+    it('should detect @ after tab', () => {
       simulateInput(textarea, 'text\t@');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should NOT detect @ in middle of word (email pattern)', fakeAsync(() => {
+    it('should NOT detect @ in middle of word (email pattern)', () => {
       simulateInput(textarea, 'user@domain');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should extract correct query after @', fakeAsync(() => {
+    it('should extract correct query after @', () => {
       simulateInput(textarea, 'text @filename');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents[0].query).toBe('filename');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should handle cursor in middle of text', fakeAsync(() => {
+    it('should handle cursor in middle of text', () => {
       // Cursor positioned at index 5 in "@test more"
       simulateInput(textarea, '@test more', 5);
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       // Query should be "test" (text between @ and cursor)
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('test');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -356,19 +363,19 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('enabled input', () => {
-    it('should not emit events when disabled', fakeAsync(() => {
+    it('should not emit events when disabled', () => {
       host.enabled.set(false);
       fixture.detectChanges();
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       simulateInput(textarea, '@test');
-      tick(200);
+      jest.advanceTimersByTime(200);
 
       expect(host.activatedEvents.length).toBe(0);
       expect(host.triggeredEvents.length).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -376,23 +383,23 @@ describe('AtTriggerDirective', () => {
   // ============================================================================
 
   describe('re-activation cycle', () => {
-    it('should allow re-activation after close', fakeAsync(() => {
+    it('should allow re-activation after close', () => {
       // First activation
       simulateInput(textarea, '@first');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // Close (space in query)
       simulateInput(textarea, '@first ');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
       // Re-activate with new @
       simulateInput(textarea, '@first @second');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(2);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 });

@@ -239,6 +239,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private destroyed = false;
 
   readonly closed = output<void>();
 
@@ -289,6 +290,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   });
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.key.set('');
   }
 
@@ -329,6 +331,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   }
 
   private focusAfterRender(testid: string): void {
+    if (this.destroyed) return;
     afterNextRender(
       () =>
         this.element.nativeElement

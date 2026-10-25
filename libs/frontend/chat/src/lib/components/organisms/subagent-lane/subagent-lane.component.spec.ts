@@ -16,7 +16,12 @@ import {
 } from '@ptah-extension/core';
 import { createMockRpcService } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
-import { createExecutionNode } from '@ptah-extension/shared';
+import {
+  createExecutionNode,
+  getPricingMap,
+  resetPricingMapForTesting,
+  updatePricingMap,
+} from '@ptah-extension/shared';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import { ChatAgentFeedbackSender } from '../../../services/agent-feedback/chat-agent-feedback-sender.service';
@@ -191,51 +196,62 @@ describe('SubagentLaneComponent', () => {
   });
 
   it('uses the shared header, an always-visible stats bar, and details facts', () => {
-    const fixture = setup({
-      ...base,
-      taskDescription: 'Map the repository',
-      description: 'Reading files',
-      totalTokens: 1200,
-      usage: { input: 1000, output: 200, model: 'claude-sonnet' },
+    const previousPricing = getPricingMap();
+    // This tests stats presentation, not unavailable pricing.
+    updatePricingMap({
+      'claude-sonnet': { inputCostPerToken: 3e-6, outputCostPerToken: 15e-6 },
     });
-    const root: HTMLElement = fixture.nativeElement;
-    const row = root.querySelector<HTMLButtonElement>(
-      '[data-test="execution-header-details"]',
-    )!;
-    const meta = () =>
-      root.querySelector('[data-test="execution-header-meta"]')?.textContent;
-    // No tree yet, so no bubble: the control row keeps the record's count.
-    expect(meta()).toContain('4 tools');
-    // Tokens moved from the header meta into the stats bar.
-    expect(meta()).not.toContain('tokens');
-    // Stats chips sit in the control row, in the chat column.
-    expect(
-      root
-        .querySelector('[data-test="execution-header-row"]')
-        ?.contains(root.querySelector('ptah-agent-lane-stats')),
-    ).toBe(true);
-    expect(
-      root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
-    ).toBe('subagent');
-    expect(root.textContent).toContain('Starting agent');
-    // Collapsed header, stats still shown.
-    expect(
-      root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')?.hidden,
-    ).toBe(true);
-    const stats = root.querySelector('ptah-agent-lane-stats');
-    expect(
-      stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
-    ).toContain('1.2k');
-    expect(
-      stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
-    ).toContain('claude-sonnet');
-    row.click();
-    fixture.detectChanges();
-    const details = root.querySelector('#subagent-lane-details-tool-1')!;
-    expect(details.textContent).not.toContain('Model:');
-    expect(details.textContent).toMatch(/Task:\s*Map the repository/);
-    expect(details.textContent).not.toContain('Reading files');
-    expect(details.textContent).toMatch(/Parent:\s*session-/);
+    try {
+      const fixture = setup({
+        ...base,
+        taskDescription: 'Map the repository',
+        description: 'Reading files',
+        totalTokens: 1200,
+        usage: { input: 1000, output: 200, model: 'claude-sonnet' },
+      });
+      const root: HTMLElement = fixture.nativeElement;
+      const row = root.querySelector<HTMLButtonElement>(
+        '[data-test="execution-header-details"]',
+      )!;
+      const meta = () =>
+        root.querySelector('[data-test="execution-header-meta"]')?.textContent;
+      // No tree yet, so no bubble: the control row keeps the record's count.
+      expect(meta()).toContain('4 tools');
+      // Tokens moved from the header meta into the stats bar.
+      expect(meta()).not.toContain('tokens');
+      // Stats chips sit in the control row, in the chat column.
+      expect(
+        root
+          .querySelector('[data-test="execution-header-row"]')
+          ?.contains(root.querySelector('ptah-agent-lane-stats')),
+      ).toBe(true);
+      expect(
+        root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
+      ).toBe('subagent');
+      expect(root.textContent).toContain('Starting agent');
+      // Collapsed header, stats still shown.
+      expect(
+        root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')
+          ?.hidden,
+      ).toBe(true);
+      const stats = root.querySelector('ptah-agent-lane-stats');
+      expect(
+        stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
+      ).toContain('1.2k');
+      expect(
+        stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
+      ).toContain('claude-sonnet');
+      row.click();
+      fixture.detectChanges();
+      const details = root.querySelector('#subagent-lane-details-tool-1')!;
+      expect(details.textContent).not.toContain('Model:');
+      expect(details.textContent).toMatch(/Task:\s*Map the repository/);
+      expect(details.textContent).not.toContain('Reading files');
+      expect(details.textContent).toMatch(/Parent:\s*session-/);
+    } finally {
+      resetPricingMapForTesting();
+      updatePricingMap(previousPricing);
+    }
   });
 
   // The control row (stats, meta, Details, actions) renders inline in the
@@ -290,7 +306,9 @@ describe('SubagentLaneComponent', () => {
         header.querySelector('[data-test="execution-header-meta"]')
           ?.textContent,
       ).toBe('Background');
-      expect(header.querySelector('[data-test="turn-disclosure-meta"]')).toBeNull();
+      expect(
+        header.querySelector('[data-test="turn-disclosure-meta"]'),
+      ).toBeNull();
     } finally {
       treeFor.mockImplementation(() => []);
     }
@@ -410,6 +428,9 @@ describe('SubagentLaneComponent', () => {
       latestSummary: 'Investigation finished',
     });
     await fixture.whenStable();
+    // ngx-markdown parsing is not tracked by zoneless stability.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('.chat-msg-slot .cs-answer'),
     ).not.toBeNull();

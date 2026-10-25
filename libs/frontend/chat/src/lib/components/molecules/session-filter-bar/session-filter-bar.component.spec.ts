@@ -5,12 +5,7 @@
  * (L17), one pending change (an immediate change takes the pending text with
  * it), no duplicate emission, and release of the pending timer on destroy.
  */
-import {
-  ComponentFixture,
-  TestBed,
-  fakeAsync,
-  tick,
-} from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import {
   SESSION_FILTER_TEXT_DEBOUNCE_MS,
   SessionFilterBarComponent,
@@ -55,12 +50,19 @@ describe('SessionFilterBarComponent', () => {
   };
 
   beforeEach(() => {
+    jest.useFakeTimers();
     TestBed.configureTestingModule({ imports: [SessionFilterBarComponent] });
     fixture = TestBed.createComponent(SessionFilterBarComponent);
     host = fixture.nativeElement as HTMLElement;
     emitted = [];
     fixture.componentInstance.queryChange.subscribe((q) => emitted.push(q));
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
   it('marks the search input for Previous sessions focus', () => {
@@ -71,22 +73,22 @@ describe('SessionFilterBarComponent', () => {
     ).toBe(true);
   });
 
-  it('debounces search text by 250 ms and sends only the settled value', fakeAsync(() => {
+  it('debounces search text by 250 ms and sends only the settled value', () => {
     type('session-filter-text', 'a');
-    tick(100);
+    jest.advanceTimersByTime(100);
     type('session-filter-text', 'ab');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS - 1);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS - 1);
     expect(emitted).toEqual([]);
 
-    tick(1);
+    jest.advanceTimersByTime(1);
     expect(emitted).toEqual([
       { sort: 'lastActive', groupBy: 'none', text: 'ab' },
     ]);
-  }));
+  });
 
-  it('keeps a typed trailing space when the parent echoes the trimmed text', fakeAsync(() => {
+  it('keeps a typed trailing space when the parent echoes the trimmed text', () => {
     type('session-filter-text', 'foo ');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted).toEqual([
       { sort: 'lastActive', groupBy: 'none', text: 'foo' },
     ]);
@@ -104,9 +106,9 @@ describe('SessionFilterBarComponent', () => {
     });
     fixture.detectChanges();
     expect(el<HTMLInputElement>('session-filter-text').value).toBe('bar');
-  }));
+  });
 
-  it('emits sort and group changes at once, carrying the pending text', fakeAsync(() => {
+  it('emits sort and group changes at once, carrying the pending text', () => {
     type('session-filter-text', 'fix');
     select('session-filter-sort', 'priority');
     expect(emitted).toEqual([
@@ -114,7 +116,7 @@ describe('SessionFilterBarComponent', () => {
     ]);
 
     // The pending text timer was replaced, so nothing else fires.
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted.length).toBe(1);
 
     select('session-filter-group', 'parent');
@@ -123,9 +125,9 @@ describe('SessionFilterBarComponent', () => {
       groupBy: 'parent',
       text: 'fix',
     });
-  }));
+  });
 
-  it('builds status and priority lists in vocabulary order with toggles', fakeAsync(() => {
+  it('builds status and priority lists in vocabulary order with toggles', () => {
     openFilters();
     check('session-filter-status-done');
     check('session-filter-status-waiting');
@@ -133,7 +135,7 @@ describe('SessionFilterBarComponent', () => {
     check('session-filter-pinned');
     check('session-filter-has-pr');
     type('session-filter-task', ' TASK_2026_580_9f77 ');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
 
     expect(emitted[emitted.length - 1]).toEqual({
       sort: 'lastActive',
@@ -147,9 +149,9 @@ describe('SessionFilterBarComponent', () => {
     expect(
       el<HTMLButtonElement>('session-filter-toggle').getAttribute('aria-label'),
     ).toBe('Filters (6 active)');
-  }));
+  });
 
-  it('clears filters and drops unchecked toggles from the query', fakeAsync(() => {
+  it('clears filters and drops unchecked toggles from the query', () => {
     openFilters();
     check('session-filter-status-archived');
     el<HTMLButtonElement>('session-filter-clear').click();
@@ -158,9 +160,9 @@ describe('SessionFilterBarComponent', () => {
       sort: 'lastActive',
       groupBy: 'none',
     });
-  }));
+  });
 
-  it('does not emit a query equal to the seed', fakeAsync(() => {
+  it('does not emit a query equal to the seed', () => {
     fixture.componentRef.setInput('query', {
       sort: 'name',
       text: 'abc',
@@ -169,33 +171,35 @@ describe('SessionFilterBarComponent', () => {
     expect(el<HTMLInputElement>('session-filter-text').value).toBe('abc');
 
     type('session-filter-text', 'abc ');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted).toEqual([]);
-  }));
+  });
 
   // Parity B-7: the task id is a typed field, so it waits like the search text.
-  it('debounces the task id by 250 ms and sends it trimmed as taskId', fakeAsync(() => {
+  it('debounces the task id by 250 ms and sends it trimmed as taskId', () => {
     openFilters();
     type('session-filter-task', ' TASK_2026');
-    tick(100);
+    jest.advanceTimersByTime(100);
     type('session-filter-task', ' TASK_2026_679 ');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS - 1);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS - 1);
     expect(emitted).toEqual([]);
 
-    tick(1);
+    jest.advanceTimersByTime(1);
     expect(emitted).toEqual([
       { sort: 'lastActive', groupBy: 'none', taskId: 'TASK_2026_679' },
     ]);
-  }));
+  });
 
   // Parity B-2: the clear X shows only with text and clears it at once.
-  it('shows the clear X only with search text and clears it immediately', fakeAsync(() => {
+  it('shows the clear X only with search text and clears it immediately', () => {
     const clearButton = (): HTMLButtonElement | null =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]');
+      host.querySelector<HTMLButtonElement>(
+        'button[aria-label="Clear search"]',
+      );
     expect(clearButton()).toBeNull();
 
     type('session-filter-text', 'abc');
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted).toEqual([
       { sort: 'lastActive', groupBy: 'none', text: 'abc' },
     ]);
@@ -209,11 +213,11 @@ describe('SessionFilterBarComponent', () => {
     expect(emitted[1]).toEqual({ sort: 'lastActive', groupBy: 'none' });
     expect(el<HTMLInputElement>('session-filter-text').value).toBe('');
     expect(clearButton()).toBeNull();
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted.length).toBe(2);
-  }));
+  });
 
-  it('drops a typed but unsent search when the clear X is pressed', fakeAsync(() => {
+  it('drops a typed but unsent search when the clear X is pressed', () => {
     type('session-filter-text', 'draft');
     const button = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Clear search"]',
@@ -221,13 +225,13 @@ describe('SessionFilterBarComponent', () => {
     if (!button) throw new Error('Missing clear X');
     button.click();
     fixture.detectChanges();
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     // The cleared draft equals the seed, so nothing is sent.
     expect(emitted).toEqual([]);
-  }));
+  });
 
   // TASK_2026_679 design 3.4: muted placeholder ink and a capped popover.
-  it('uses muted placeholder ink and caps the filters popover height', fakeAsync(() => {
+  it('uses muted placeholder ink and caps the filters popover height', () => {
     expect(
       el<HTMLInputElement>('session-filter-text').classList.contains(
         'placeholder:text-base-content-muted',
@@ -243,12 +247,12 @@ describe('SessionFilterBarComponent', () => {
         'placeholder:text-base-content-muted',
       ),
     ).toBe(true);
-  }));
+  });
 
-  it('releases the pending timer on destroy', fakeAsync(() => {
+  it('releases the pending timer on destroy', () => {
     type('session-filter-text', 'late');
     fixture.destroy();
-    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    jest.advanceTimersByTime(SESSION_FILTER_TEXT_DEBOUNCE_MS);
     expect(emitted).toEqual([]);
-  }));
+  });
 });
