@@ -1217,6 +1217,58 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   review (code-logic + style).
 - Executor/review/fallback as 6a.
 
+## Batch 6f: P6 review fix round — COMPLETE (f8dfd61cc, 47e28da09; reports batch-6f-*-report.md; re-review PENDING)
+
+- Result (team-leader, session 10): five Codex lanes (CORE, ROUTING, STORE, ADAPTER, WIRING) plus
+  two spec-only lanes (invalid SessionId literal, vscode-core value import, three new
+  `as unknown as` casts removed). Verify `npm run verify -- -p @ptah-extension/codex-runtime,
+  @ptah-extension/gateway-chat-bridge,@ptah-extension/agent-sdk,@ptah-extension/shared`:
+  codex-runtime 17 suites / 828 tests PASS, lint 0 errors; gateway-chat-bridge 4 / 132 PASS;
+  shared 125 / 3805 PASS; agent-sdk typecheck PASS. After the spec fixes: agent-sdk test 193
+  suites / 4100 tests PASS (3 skipped); lint 2 known-noise errors only
+  (session-query-executor.accounts.spec.ts:174,183). Host typecheck (ptah-electron,
+  ptah-extension-vscode, ptah-cli, ptah-tui): "Successfully ran target typecheck for 4 projects".
+  The Linux CI fixture fix (platform-chosen paths) was verified on Windows only; CI confirms Linux.
+- Deferred with reason:
+  - Live stats callback stays an explicit refusal: SessionStatsLivePayload needs SessionStatsEntry
+    fields that native usage does not report (no invented counters). Compaction preTokens and
+    stream usage are mapped.
+  - `review/start` (`/review`): tracked gap, no Ptah UI on this path (decision P6 fix 7).
+  - FM9: solved as an explicit host contract plus a resolution guard
+    (lib/wiring/codex-runtime-composition.ts) that throws on late binding changes; it cannot
+    revoke references already held. 8a must audit direct SDK_AGENT_ADAPTER consumers
+    (chat-session.service.ts:1071, 1237, 1330).
+  - Type-level assignability check of agent-sdk AuthOperationContext against auth-providers'
+    schema type: cross-project test, deferred to 7a/8a (the type is now exported).
+  - Folder rename codex-app-server/ -> session-runtime/ (style "noted, not counted"): before P7
+    binds to it, if the orchestrator wants it.
+  - Agent-sdk-owned registrations are documented as non-overridable instead of guarded.
+- Open note for the re-review: CodexModelInfo.id carries the wire `Model.id`, not `Model.model`;
+  turn settings use that id. Confirm against the App Server contract (they coincide for the
+  bundled presets).
+
+- Trigger: P6 phase review REVISE (code-logic-review-p6.md 4/10; code-style-review-p6.md 6/10).
+  Orchestrator decisions "P6 fix 1..11" in decisions.md. One fix round, then a re-review scoped
+  to the fix commits.
+- Executors: Codex lanes, file-disjoint, Claude re-review. Subagent reason: N/A.
+  - CORE (codex-runtime): `model/list` -> `CodexContext.listModels()`; home-key contract spec.
+    Verify `-p @ptah-extension/codex-runtime` (+ gateway-chat-bridge fake update).
+  - ROUTING (D+routing-agent-adapter, session-runtime-router, session-approval-router, NEW
+    session-runtime-identity): B1, B2 (RuntimeAdmissionPort), M2 router side, M3/FM7
+    cancelPrompt, S2, model routing (`listSessionModels`).
+  - STORE (session-metadata-store.ts + spec): style B1, S4 (CodexSessionMetadataError), M5,
+    Windows casing, field preservation.
+  - ADAPTER (codex-chat-adapter, codex-chat-events, codex-chat-approval-sink + specs): B3, M1,
+    M2 native, M3 no timeout + `cancel`, M4 listModels/usage, S3 logger, S7 split open().
+    Runs after CORE.
+  - WIRING (NEW lib/wiring/*, di/register.ts, di/tokens.ts, index.ts, register spec): S1, S5,
+    S6, decision 9 cache, FM9, admission token, AuthOperationContext export. Runs last.
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/shared,
+  @ptah-extension/codex-runtime,@ptah-extension/gateway-chat-bridge`, then `-t typecheck -p
+  ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
+- Tracked gap (decision P6 fix 7): App Server `review/start` (`/review`) has no Ptah UI on this
+  path; not built in P6. Revisit in a later phase (candidate: P11/P12 slash surface).
+
 ---
 
 # Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — PENDING (needs P6)
