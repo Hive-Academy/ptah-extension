@@ -264,7 +264,7 @@ describe('LaneModelListingAdapter', () => {
 
   it('still fetches when a provider with a static catalog has no key', async () => {
     const { adapter, fetchModels } = makeHarness({
-      configs: [ptahConfig({ providerId: 'moonshot', selectedModel: 'kimi' })],
+      configs: [ptahConfig({ providerId: 'kimi-code', selectedModel: 'kimi' })],
       apiKey: undefined,
       fetch: () =>
         Promise.resolve({
@@ -275,11 +275,11 @@ describe('LaneModelListingAdapter', () => {
     });
 
     await adapter.list(
-      cliRow('ptah-cli', { ptahCliId: 'cli-1', providerId: 'moonshot' }),
+      cliRow('ptah-cli', { ptahCliId: 'cli-1', providerId: 'kimi-code' }),
       new AbortController().signal,
     );
 
-    expect(fetchModels).toHaveBeenCalledWith('moonshot', null, false);
+    expect(fetchModels).toHaveBeenCalledWith('kimi-code', null, false);
   });
 
   it('logs empty and keeps configured and tier entries when discovery returns nothing', async () => {

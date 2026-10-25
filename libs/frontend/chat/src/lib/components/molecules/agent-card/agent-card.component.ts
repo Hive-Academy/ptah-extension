@@ -12,7 +12,6 @@ import {
   computed,
   signal,
   inject,
-  Injector,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
@@ -27,9 +26,7 @@ import { AgentCardHeaderComponent } from './agent-card-header.component';
 import { laneGuardStopText } from './agent-card-header.component';
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import { ExecutionHeaderComponent } from '../execution-header/execution-header.component';
-import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-tree-builder.service';
 import { cliActivity } from '../../../services/session-agents/session-agent-roster';
-import { summarizeExecutionNodes } from '../../../utils/message-summary.utils';
 import { cliLaneStats } from '../../../utils/lane-stats.adapters';
 import {
   createAgentOutputParser,
@@ -74,8 +71,6 @@ import {
           [label]="laneLabel()"
           [live]="agent().status === 'running'"
           [peek]="lanePeek()"
-          [toolCount]="laneSummary().toolCount"
-          [filesChanged]="laneSummary().filesChanged"
           [extraMeta]="laneMeta()"
           [metaTone]="
             agent().status === 'failed' ||
@@ -87,6 +82,11 @@ import {
           "
           [controlsId]="'cli-lane-details-' + agent().agentId"
         >
+          <ptah-agent-lane-stats
+            executionHeaderStats
+            class="block min-w-0"
+            [stats]="laneStats()"
+          />
           <div
             executionHeaderActions
             class="flex shrink-0 items-center gap-0.5"
@@ -172,11 +172,6 @@ import {
             }
           </dl>
         </ptah-execution-header>
-        <!-- Outside the collapsible details, so it is always visible. -->
-        <ptah-agent-lane-stats
-          class="block flex-shrink-0"
-          [stats]="laneStats()"
-        />
       } @else {
         <!-- Card header -->
         <ptah-agent-card-header
@@ -264,7 +259,6 @@ export class AgentCardComponent {
 
   private readonly store = inject(AgentMonitorStore);
   private readonly rpcService = inject(ClaudeRpcService);
-  private readonly injector = inject(Injector);
   protected readonly SquareIcon = Square;
   protected readonly PlayIcon = Play;
   protected readonly XIcon = X;
@@ -312,7 +306,6 @@ export class AgentCardComponent {
       Date.now(),
     );
   });
-  protected readonly lanePeek = computed(() => cliActivity(this.agent()));
   protected readonly laneStatus = computed(() => {
     switch (this.agent().status) {
       case 'failed':
@@ -327,29 +320,17 @@ export class AgentCardComponent {
         return 'Completed';
     }
   });
+  protected readonly lanePeek = computed(() => cliActivity(this.agent()));
   protected readonly laneStopReason = computed(() =>
     this.agent().status === 'running'
       ? null
       : laneGuardStopText(this.agent().stopReason),
   );
-  protected readonly laneNodes = computed(() => {
-    if (this.presentation() !== 'flat') return [];
-    const a = this.agent();
-    const treeBuilder = this.injector.get(AgentMonitorTreeBuilderService);
-    return a.streamEvents.length > 0
-      ? treeBuilder.buildTree(a.agentId, a.streamEvents)
-      : treeBuilder.buildTreeFromSegments(
-          a.agentId,
-          a.segments.filter(
-            (segment) =>
-              !(segment.type === 'info' && segment.usage !== undefined),
-          ),
-        );
-  });
-  protected readonly laneSummary = computed(() =>
-    summarizeExecutionNodes(this.laneNodes()),
-  );
-  /** Tokens, model and cost live in the lane stats bar, not in the header meta. */
+  /**
+   * Tokens, model and cost live in the lane stats bar, and the transcript's
+   * message bubbles carry the tool and file counts, so the header meta keeps
+   * only the end status and a guard stop reason.
+   */
   protected readonly laneStats = computed(() => cliLaneStats(this.agent()));
   protected readonly laneMeta = computed(() => {
     const a = this.agent();

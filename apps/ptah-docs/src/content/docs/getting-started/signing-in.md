@@ -43,15 +43,15 @@ Activating or clearing a key reloads the Ptah window a moment later, so the whol
 
 Ptah ships with first-class support for several AI providers. You only need to configure the ones you plan to use.
 
-| Provider        | Auth method                      | Where to get credentials            |
-| --------------- | -------------------------------- | ----------------------------------- |
-| Claude          | API key                          | Your Anthropic Console              |
-| Copilot         | OAuth (device flow) or CLI login | Your GitHub account                 |
-| Codex           | API key or CLI login             | Your OpenAI dashboard               |
-| Ollama          | Local endpoint (no key)          | `http://localhost:11434` by default |
-| OpenRouter      | API key                          | Your OpenRouter dashboard           |
-| Moonshot (Kimi) | API key                          | Your Moonshot console               |
-| Z.AI (GLM)      | API key                          | Your Z.AI console                   |
+| Provider   | Auth method                      | Where to get credentials            |
+| ---------- | -------------------------------- | ----------------------------------- |
+| Claude     | API key                          | Your Anthropic Console              |
+| Copilot    | OAuth (device flow) or CLI login | Your GitHub account                 |
+| Codex      | API key or CLI login             | Your OpenAI dashboard               |
+| Ollama     | Local endpoint (no key)          | `http://localhost:11434` by default |
+| OpenRouter | API key                          | Your OpenRouter dashboard           |
+| Kimi Code  | API key                          | Your Kimi Code console              |
+| Z.AI (GLM) | API key                          | Your Z.AI console                   |
 
 Ptah also detects LM Studio and Ollama Cloud, and it accepts a custom
 Anthropic-compatible endpoint you define yourself. See [Providers](/providers/)

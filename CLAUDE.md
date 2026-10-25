@@ -5,13 +5,21 @@
 Wide test runs exhaust the developer machine's RAM. These rules are mandatory for the main
 agent, every subagent and every CLI lane. Repeat them in any task prompt you hand to a lane.
 
-- Verify only the project(s) you changed:
-  - `npx nx test <project>` / `npx nx typecheck <project>` / `npx nx lint <project>`, or
-  - Jest on the changed spec files: `npx jest -c <lib>/jest.config.ts <spec...> --coverage=false --maxWorkers=2`.
+- Verify with `npm run verify`. It runs `nx affected -t lint test typecheck --base=main`.
+  - Only some projects or targets: `npm run verify -- -p A,B` / `npm run verify -- -t test -p A`.
+  - Extra Nx or Jest flags go after a second `--`: `npm run verify -- -p A -- --testPathPatterns=foo`.
+- `npm run verify` takes a machine-wide FIFO lock first, so only one heavy check runs at a time
+  across all sessions, lanes and worktrees. While it waits it prints `waiting on <holder>`. Do not
+  message other sessions about a "slot". `node scripts/verify.mjs --status` shows the holder and
+  the queue. A lock whose process is dead or older than 120 minutes is taken over automatically.
+- The caps are in config: `nx.json` runs one task at a time and `jest.preset.js` gives Jest 2
+  workers. Run any other heavy command under the same lock:
+  `node scripts/verify.mjs --exec --task <name> -- <command> [args...]`.
+- Test, lint and typecheck results are cached in one Nx cache that the main checkout and every
+  worktree share (`~/.nx/<workspace-id>/`). A check that main already passed is a cache hit.
+  Do not set `cacheDirectory` or `NX_CACHE_DIRECTORY`: that turns the sharing off.
 - Never run workspace-wide checks, and never `nx run-many` across projects you did not change.
 - Never run `build`, `serve`, `dev`, `e2e` or `package` targets unless the user asks for it.
-- Cap concurrency: `--parallel=1` for Nx, `--maxWorkers=2` for Jest.
-- One heavy check at a time across all lanes. Never start a second one while one is in flight.
 - Prefer one foreground run with a long timeout. Filter its output (`| tail`, `grep`) instead of
   re-running the command to read it.
 
@@ -89,7 +97,8 @@ main agent, every subagent and every CLI lane. Repeat them in any task prompt yo
 - Run `git push` (chained with `gh pr create` when a PR is due) as one background command
   (the Bash tool's `run_in_background`) and continue with other work; act on the result when
   it completes. The pre-push hook runs di-lint and the Electron `validate-deps` build gate on
-  every push. A failed gate needs a fix commit on top, then push again.
+  every push. A failed gate needs a fix commit on top, then push again. The hook takes the
+  same verify lock as `npm run verify`, so a push can wait in the queue behind another check.
 
 ## Repo-local fleet rules
 
@@ -97,7 +106,6 @@ main agent, every subagent and every CLI lane. Repeat them in any task prompt yo
   Read that config before committing. Keep the subject at most 72 characters and every body
   line at most 100 characters; wrap body text at 72. `security` and `git` are not scopes.
 - A multi-scope subject with commas is allowed, e.g. `fix(agent-sdk,chat): ...`.
-- For one changed project, run `npx nx test <project> --parallel=1`. For several changed
-  projects, run `npx nx run-many -t test -p A B --parallel=1` and confirm that the output
-  header says "Running target test for N projects" with N equal to the number requested.
-  Never use positional `nx test A B` because those names become Jest path filters.
+- To test only the changed projects, run `npm run verify -- -t test -p A,B` and confirm that
+  the output header says "Running target test for N projects" with N equal to the number
+  requested. Never use positional `nx test A B` because those names become Jest path filters.

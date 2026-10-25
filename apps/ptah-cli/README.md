@@ -75,7 +75,7 @@ ptah settings import --in ptah-bundle.json
 ptah doctor
 ```
 
-The bundle ships the license key, the Anthropic API key, the OpenRouter / Moonshot / Z.AI API keys, and 40+ config entries (active auth method, tier mappings, agent-orchestration prefs). GitHub Copilot and OpenAI Codex OAuth tokens are **not** included — rerun `ptah auth login` for those after import.
+The bundle ships the license key, the Anthropic API key, the OpenRouter / Kimi Code / Z.AI API keys, and 40+ config entries (active auth method, tier mappings, agent-orchestration prefs). GitHub Copilot and OpenAI Codex OAuth tokens are **not** included — rerun `ptah auth login` for those after import.
 
 ### CLI ↔ desktop app on the same machine
 

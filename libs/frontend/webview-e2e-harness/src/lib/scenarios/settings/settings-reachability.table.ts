@@ -26,7 +26,7 @@ import {
   AGENT_CONFIG_FIXTURE,
   getFixtureState,
   INVALID_PROBE_KEY,
-  MOONSHOT_KEY_HINT,
+  KIMI_CODE_KEY_HINT,
   PTAH_CLI_LIST_FIXTURE,
   SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
@@ -344,7 +344,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
       const popover = await openMainAgentPopover(page);
       await popover
         .locator('[data-testid="main-agent-provider"]')
-        .selectOption('moonshot');
+        .selectOption('kimi-code');
       await visibleEnabled(
         popover.getByRole('button', { name: 'Use for main agent' }),
       );
@@ -381,7 +381,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Credentials',
         'connection-credentials',
         async (panel) => {
@@ -712,7 +712,7 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
@@ -733,7 +733,7 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
@@ -741,17 +741,17 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
           await applyManualTierModel(
             panel,
             'sonnet',
-            'moonshot/kimi-k2.7-code',
+            'k3.1-pro[1m]',
           );
           await expectCall(page, before, 'provider:setModelTier', {
-            providerId: 'moonshot',
+            providerId: 'kimi-code',
             tier: 'sonnet',
-            modelId: 'moonshot/kimi-k2.7-code',
+            modelId: 'k3.1-pro[1m]',
             scope: 'mainAgent',
           });
           await expect(
             panel.locator('[data-testid="models-current-sonnet"]'),
-          ).toContainText('moonshot/kimi-k2.7-code');
+          ).toContainText('k3.1-pro[1m]');
           await panel.locator('[data-testid="models-default-sonnet"]').click();
           await expect(
             panel.locator('[data-testid="models-current-sonnet"]'),
@@ -782,18 +782,18 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
-          await applyManualTierModel(panel, 'haiku', 'kimi-lite');
+          await applyManualTierModel(panel, 'haiku', 'kimi-for-coding');
           await expect(
             panel.locator('[data-testid="models-current-haiku"]'),
-          ).toContainText('kimi-lite');
+          ).toContainText('kimi-for-coding');
           const before = getFixtureState(page).calls.length;
           await panel.locator('[data-testid="models-default-haiku"]').click();
           await expectCall(page, before, 'provider:clearModelTier', {
-            providerId: 'moonshot',
+            providerId: 'kimi-code',
             tier: 'haiku',
             scope: 'mainAgent',
           });
@@ -1149,13 +1149,13 @@ const restoredPending: readonly ReachabilityEntry[] = [
     status: 'restored',
     reach: async (page) => {
       try {
-        await credentialsOf(page, 'Moonshot');
+        await credentialsOf(page, 'Kimi Code');
         await confirmWrite(
           page,
           'credentials-delete',
           'credentials-delete-confirm-button',
           'auth:deleteStoredKey',
-          { providerId: 'moonshot' },
+          { providerId: 'kimi-code' },
         );
       } finally {
         await closeConnectionDrawer(page);
@@ -1314,7 +1314,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
@@ -1333,7 +1333,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
@@ -1470,16 +1470,16 @@ const regressedUx: readonly ReachabilityEntry[] = [
     reach: (page) =>
       inDrawerTab(
         page,
-        'Moonshot',
+        'Kimi Code',
         'Models & Tiers',
         'connection-models',
         async (panel) => {
           const before = getFixtureState(page).calls.length;
-          await applyManualTierModel(panel, 'opus', 'kimi-k2.5');
+          await applyManualTierModel(panel, 'opus', 'k3');
           await expectCall(page, before, 'provider:setModelTier', {
-            providerId: 'moonshot',
+            providerId: 'kimi-code',
             tier: 'opus',
-            modelId: 'kimi-k2.5',
+            modelId: 'k3',
             scope: 'mainAgent',
           });
           const undo = panel.locator(
@@ -1488,7 +1488,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
           await visibleEnabled(undo);
           await undo.click();
           await expectCall(page, before, 'provider:clearModelTier', {
-            providerId: 'moonshot',
+            providerId: 'kimi-code',
             tier: 'opus',
             scope: 'mainAgent',
           });
@@ -1506,7 +1506,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
     // Batch 21: a failed check keeps Save disabled; a passing one enables it. Nothing is saved here.
     reach: async (page) => {
       try {
-        await credentialsOf(page, 'Moonshot');
+        await credentialsOf(page, 'Kimi Code');
         await page.locator('[data-testid="credentials-replace"]').click();
         const key = page.locator('[data-testid="credentials-new-key"]');
         const save = page.locator('[data-testid="credentials-save"]');
@@ -1563,7 +1563,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
           codex.locator('[data-testid="credentials-open-login"]'),
         );
         await closeConnectionDrawer(page);
-        const key = await credentialsOf(page, 'Moonshot');
+        const key = await credentialsOf(page, 'Kimi Code');
         await expect(
           key.locator('[data-testid="credentials-get-key"]'),
         ).toHaveAttribute('href', /^https:\/\//);
@@ -1592,16 +1592,16 @@ const regressedUx: readonly ReachabilityEntry[] = [
     status: 'restored',
     reach: async (page) => {
       try {
-        const tab = await credentialsOf(page, 'Moonshot');
+        const tab = await credentialsOf(page, 'Kimi Code');
         await expect(
           tab.locator('[data-testid="credentials-key-mask"]'),
-        ).toHaveText(MOONSHOT_KEY_HINT);
+        ).toHaveText(KIMI_CODE_KEY_HINT);
         await page
           .getByRole('tab', { name: 'Overview & Used By', exact: true })
           .click();
         await expect(
           page.locator('[data-testid="connection-key-hint"]'),
-        ).toHaveText(MOONSHOT_KEY_HINT);
+        ).toHaveText(KIMI_CODE_KEY_HINT);
         await expect(
           page.locator('[data-testid="connection-credential-storage"]'),
         ).toContainText('(stored on this machine)');

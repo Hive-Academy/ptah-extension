@@ -681,6 +681,9 @@ test('records Electron navigation and session motion S1-S8', async ({ ui, electr
     await nav('Tasks').click();
   });
   await page.locator('[data-test="config-menu-item-thoth"]').click();
+  // The Workspaces panel starts closed. Open it outside the measured window.
+  await page.getByRole('button', { name: 'Toggle Workspaces panel' }).click();
+  await expect(sidebar).toBeVisible();
   await measure('S7', 'workspace-remount-focus', async () => {
     await page.locator('ptah-thoth-shell button').first().focus();
     await sidebar.getByTitle('C:\\ptah-e2e-ws-2', { exact: true }).click();

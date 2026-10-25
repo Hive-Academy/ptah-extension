@@ -119,6 +119,7 @@ const FIVE_LANES: CompactLaneSummary = {
   moreCount: 2,
   total: 5,
   counts: { running: 5, waiting: 0, error: 0, done: 0, stopped: 0 },
+  kinds: { cli: 5, subagent: 0, background: 0 },
 };
 const RAIL_SUMMARY: CompactSessionSummary = {
   status: {

@@ -13,7 +13,7 @@ export const SETTINGS_EXPORT_VERSION = 1 as const;
  * Provider IDs that store per-provider API keys under
  * `ptah.auth.provider.{id}` in SecretStorage.
  */
-export const KNOWN_PROVIDER_IDS = ['openrouter', 'moonshot', 'z-ai'] as const;
+export const KNOWN_PROVIDER_IDS = ['openrouter', 'kimi-code', 'z-ai'] as const;
 
 export type KnownProviderId = (typeof KNOWN_PROVIDER_IDS)[number];
 
@@ -105,9 +105,9 @@ export const KNOWN_CONFIG_KEYS = [
   'provider.openrouter.modelTier.opus',
   'provider.openrouter.modelTier.sonnet',
   'provider.openrouter.modelTier.haiku',
-  'provider.moonshot.modelTier.opus',
-  'provider.moonshot.modelTier.sonnet',
-  'provider.moonshot.modelTier.haiku',
+  'provider.kimi-code.modelTier.opus',
+  'provider.kimi-code.modelTier.sonnet',
+  'provider.kimi-code.modelTier.haiku',
   'provider.z-ai.modelTier.opus',
   'provider.z-ai.modelTier.sonnet',
   'provider.z-ai.modelTier.haiku',

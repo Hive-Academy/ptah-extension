@@ -59,5 +59,5 @@ all Claude traffic — including Autopilot sub-agents — is routed through Open
 - **Pricing shows `$0.00` when it shouldn't** — the model is missing from the registry feed. Restart Ptah to force a fresh pull.
 
 :::tip
-OpenRouter is the recommended provider for trying **Moonshot, Z-AI, Mistral, DeepSeek, and other third-party models** without signing up for each one individually. The `provider.moonshot.modelTier.*` and `provider.z-ai.modelTier.*` keys in settings let you pin specific models per tier when you route through OpenRouter.
+OpenRouter is the recommended provider for trying **Z-AI, Mistral, DeepSeek, and other third-party models** without signing up for each one individually. The `provider.z-ai.modelTier.*` keys in settings let you pin specific models per tier when you route through OpenRouter.
 :::

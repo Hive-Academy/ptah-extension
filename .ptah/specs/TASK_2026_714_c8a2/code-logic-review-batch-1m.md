@@ -1,0 +1,175 @@
+# Code Logic Review, Batch 1m (evidence cases for run 7a), TASK_2026_714_c8a2
+
+Review family: Claude reviewer, Codex implementer.
+
+Score: 6/10. Verdict: REVISE (small runner and harness edits; no redesign). Fix the items marked MUST before any paid turn.
+
+Checks run: `jest tools` gave 196/196 passing. The round spec (17 tests) and the harness spec (179 tests) show no open handle under `--runInBand --detectOpenHandles`. The earlier "worker failed to exit" warning appears only in the parallel run and has no identifiable leak. The dry run prints 9 cases, planned turns 9, cap 10, budget left 17. No `--run`, no real binary.
+
+Files read in full: `tools/evidence-cases-round.ts`, the harness diff, the failure-notes diff, `evidence-cases.json`, and the runner.
+
+## What is sound
+- **Turn cap is hard and shared.** `RpcChild.request` claims one unit per `turn/start` or `thread/compact/start` from the shared `TurnBudget`, `evidence-harness.ts:788-792`. This covers two-child cases because both children use `c.budget`. A claim past the cap throws `not run: cap` and sends nothing. There are no retries or steers in the round cases. Cost 9 (0+1+1+1+2+2+2) is under cap 10, and `runner` rejects a plan that leaves no steer slot.
+- **Approvals only accept, acceptForSession or decline, and only for the exact marker command.** `evidence-cases-round.ts:213-249`. Any other method, thread, command or count is declined and the case throws. The marker is checked absent before approval.
+- **A failed gate stops later cases.** `stop = true` on any non-observed result, `evidence-harness.ts:2401`. Later cases become `not run: prior gate or usage bound`.
+- **Per-turn and cumulative usage bounds** go through `UsageBudget.observe`, which throws on a breach. The key is per `item.id:thread`, so two-child cases count each thread separately.
+- **Artifacts store counts and booleans only.** No agent text, thread ids, home paths or account ids. The redactor covers the extra home (`createPathRedactor(local, ...)`). Every thrown message in the round file is in the literal allowlist `failureMessages` (checked by name).
+- **Cleanup.** The extra home is registered in `experiment.additionalHomes` before it is created (`:433`). It is removed in `finally` (`:506`) and again by the fatal/keep path (`cleanupAdditionalHome`) if the first removal throws. Sessions are stopped with `Promise.allSettled`. The resumed first child is stopped explicitly and removed from `sessions`. Timers are cleared.
+
+## Findings
+
+### MUST fix before paid turns
+
+1. **The cumulative bound will end the round before its most valuable cases, and the order wastes the rest.** Observed turns cost about 11.5-12.6k tokens each, and MCP or two-request turns about 24.5k (native-route-evidence.md, run 6h). Estimated cost by case in run order:
+
+   | Case | Estimate (tokens) |
+   | --- | --- |
+   | different-home | about 12k |
+   | profile | about 12-15k |
+   | usage-semantics | about 25k |
+   | same-home | about 24k |
+   | resume | about 23k |
+   | scope | about 36k |
+   | **Total** | about 130-150k |
+
+   The cumulative limit is 100k. `UsageBudget` throws at 100k, so `always-allow-scope`, which is last and is an unproved ledger item, is the case most likely to be skipped. The report's own estimate (60-100k) is optimistic against the measured numbers. Reorder so the unproved items with the highest value run first and the already-partially-observed, expensive case runs last. Suggested: different-home, always-allow-scope, same-home, resume-history, profile-inputs, usage-semantics. Alternatively get a user decision to raise the cumulative bound (money, user-reserved); do not change it silently. `spike-runner.ts:14-24`.
+
+2. **A merely "unverified" `usage-semantics` stops all later cases.** `evidence-harness.ts:2396-2401` sets `stop = true` for any non-observed result, including `unverified: two usage notifications required`. That is not a safety or budget failure. Placed at position 6 it forfeits three paid-for-already-budgeted cases. Fixing item 1 (move it last) is sufficient; otherwise do not stop for `unverified:` statuses.
+
+3. **Per-case deadline of 60 s is too short for the two-turn cases.** `CASE_DEADLINE_MS = 60_000` applies to resume-history (two inits, two turns, restart), same-home (two children, two turns) and always-allow-scope (two turns, three commands). A deadline abort mid-case burns paid tokens and yields no evidence. Give turnCost-2 round cases a longer deadline (for example 150 s). The turn and usage bounds already protect cost, so a longer deadline adds no spend risk.
+
+### SHOULD fix (the case can run, but "observed" would overstate)
+
+4. **Effort echo is not discriminating.** `OUTPUT_BOUNDS` already forces `model_reasoning_effort="low"` globally (`:154`), and the thread sets the same `low` (`:374`). `response.reasoningEffort === 'low'` (`:397`) is therefore true whether or not the thread-level setting is applied. Use a different thread value than the global bound, or drop the effort claim from `profile-inputs`.
+
+5. **`profile-inputs` proves a subset.** It proves developer instructions and a CLI-configured local stdio MCP reaching ready, not Ptah profile skills, output style, attachments, model, max, resume roles or remote MCP. Keep ledger item `profile-inputs` unproved; the evidence is partial (also true of `remote-mcp`). Same for `history-rewind`, whose file restoration part stays unproved.
+
+6. **Same-home isolation evidence is partly vacuous.** The two children are separate OS processes, so "no cross-thread events or approvals" cannot occur in the per-process notification stream (`:252-257`). `config.toml` may not exist, in which case `before === snapshot()` is `null === null` (`:116`, `:512`). Each child runs a different marker command, so the case cannot show that a grant in one thread does not leak to the other. Cheap fix with no extra turn: child 1 gets `acceptForSession` for command X, child 2 is asked for command X and must still prompt. Also assert `config.toml` exists, or hash `auth.json` before and after.
+
+7. **Different-home isolation is weak.** The copied `auth.json` has the same account, so account or usage isolation is not observable. No hash or unchanged check on home B's `config.toml` or `auth.json`. Add equality of both homes' auth files (hash only, not stored) and treat the result as partial for the `configuration-auth-usage-isolation` ledger item.
+
+8. **Usage can be undercounted for the resumed session.** The resumed session reuses the key `resume-history:<threadId>` (`:278`) and `observe` keeps `Math.max(count, previous)`. If the resumed thread's `total` restarts from zero, the second child's turn is invisible to both bounds until it exceeds the first child's total. Key by session label, which is conservative (overcounts if totals continue).
+
+9. **`always-allow-scope` proves native session semantics only.** Exact command repeated without a prompt plus a different marker command prompting is a sound discriminator and not a false positive: it fails if Codex matches by prefix or program. It does not prove Ptah's remembered-rule store scope (thread, home, workspace). The parity-gate row `always-allow-scope` should say so; do not flip it on this alone.
+
+### MINOR
+
+10. The first unrelated `tool item` or `agentMessage` after the third command is allowed, so a runaway model message is bounded only by per-turn usage and the deadline. Acceptable.
+11. `rmSync(extraHome)` in `finally` (`:506`) can throw EBUSY on Windows and skip the `configUnchanged` assertion; the fatal-cleanup path still removes the home. Wrap in try/catch and record `secondHomeDeleted: false` instead.
+
+## Answers to the review questions
+1. Budget safety: hard cap holds, no loops, no retries. The weakness is the plan, not the guard (items 1-3).
+2. Observed criteria: scope is a valid native discriminator (item 9). Isolation, effort and profile criteria overstate (items 4-7).
+3. Approvals: compliant.
+4. Sanitization: compliant. Counts and booleans only.
+5. Cleanup: compliant on every path reviewed, including two-child and resume cases (item 11 is cosmetic).
+6. Order: a likely failure at case 3 or 4 (MCP-related, as in 6g/6h) stops everything, and the cumulative bound ends the round before scope (items 1-2).
+
+## Verdict
+REVISE. Do items 1-3 (runner order, stop rule, deadline) before spending. Items 4-9 can ride along in the same fix or be recorded as partial-evidence caveats in the report. Confidence: HIGH on 1-3 (arithmetic from recorded runs, code-evident), MEDIUM on 8 (depends on whether resume resets `total`).
+
+## Fixes re-review (round 1 of 2)
+
+Verdict: APPROVED to run, 8/10. No must-fix item remains. Confidence is HIGH on budget safety and MEDIUM on whether the paid evidence will come out as hoped, which depends on the model. Scoped jest on tools passes 226/226. The only residual jest noise is the "worker failed to exit" warning when all three tools specs run together at `--maxWorkers=2`. It does not appear when the round-plan spec (19 tests) or the round-cases spec (20 tests) runs alone, and the new code adds no unconditional timer, so it is not a spend risk. No `--run` and no real binary were used.
+
+### Must-fix items from the first review
+
+1. **Per-run estimate under the bound, with margin.** `evidence-round-plan.ts:3-15` fixes per-case estimates and refuses a plan above 85k. Run 7a is 72k (different-home 12k, scope 36k, same-home 24k), leaving 28k below the 100k cumulative bound. Run 7b is 64k (resume 24k, profile 15k, usage-semantics 25k), leaving 36k. Each harness process has its own `UsageBudget`, so the two runs each get a fresh 100k. Total expected spend is about 136k across two runs, and the 100k bound is enforced per run. The highest-value unproved cases (scope, same-home) now run first in 7a. Grouping accepted.
+2. **Unverified continues, a failed gate stops.** `shouldStopAfterCase` (`evidence-harness.ts:49-51`) stops only when the status is neither `observed` nor `unverified:`; it is called at `:2413`. A thrown case still sets `stop`. `usage-semantics` is last in 7b, so a thin usage result costs nothing downstream.
+3. **Per-case deadlines.** `caseDeadlineMs` is `min(225 s, max(60 s, 75 s x turnCost))`. Dry run confirms 60 s for zero-cost cases, 75 s for one-turn cases and 150 s for two-turn cases. The dry-run JSON reports each case's deadline.
+
+### Should-fix items
+
+4. **Effort now discriminates.** The thread sets `model_reasoning_effort: 'medium'` for profile-inputs against the global `low` bound (`evidence-cases-round.ts:382`), and the response must echo `medium` (`:405`). A global-only setting can no longer pass. Cost rises slightly (more reasoning output); the 15k estimate and the 30k per-turn bound still cover it.
+5. **Same-home cross-thread probe is effective.** `commandLabel = same ? 'first' : label` (`:143`) makes both children use the identical script and marker. Child 1 gets `acceptForSession`, the marker is removed, and child 2 receives the same command and must prompt (`second.approvals === 1`, `:460-467`). A missing prompt fails the gate, so this is not a false positive. Caveat: the children are separate OS processes, so a session grant living in process memory cannot cross. The probe therefore shows only that nothing was persisted to the shared home. The report states this limit. Cross-thread scoping inside one process remains the unit-tested RuleStore's job.
+6. **Honest partial-evidence notes.** The report's "Case evidence limits" table keeps `profile-inputs`, `remote-mcp` and file rewind unproved, labels scope as native session semantics only, and states that home-B hashes and account separation were not added. No ledger or gate source changed.
+7. **Per-child resumed usage accounting.** The key is `item:label:thread` (`:285`). It overcounts conservatively if the resumed total continues. Caveat: the resumed child's first notification may carry the cumulative total (about 24k after two turns). That is under the 30k per-turn bound but with little margin. If it breaches, the case fails with a usage error. This wastes at most that case and is bounded, so it is acceptable.
+
+### Carry-forward of `--7a-turns-used`
+- 7b requires the flag; 7a rejects it; the value must be an integer from 0 to 17 and not above the remaining budget (`parseRoundArgs`). Dry runs confirm: 7b without the flag errors, `13` errors with "Cap exceeds remaining approved turns", `6` gives remaining 11, cap 5.
+- A wrong value cannot let 7b exceed the 17 approved turns. The harness enforces its own hard cap (6 for 7a, 5 for 7b) at every `turn/start`, independent of the flag. 7a plus 7b can use at most 11 turns even if the flag is mistyped as 0. A value too high only causes a refusal.
+- Residual: the flag is not machine-checked against the 7a artifact. A third or retried run would be new spend; the report requires reconciling it against the shared allowance. That is process, not code.
+
+### Unchanged behavior
+The approval gate (accept, acceptForSession, decline only; exact marker command), the sanitization and cleanup paths, the turn claim in `RpcChild.request`, and the usage bounds are as in the first review. `usage-semantics` still runs without the early interrupt and with the longer prompt.
+
+### Dry-run commands (exact)
+```
+npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7a
+npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7b --7a-turns-used <turnsConsumed from the 7a artifact>
+```
+Expected headers: `runner 7a: 6 cases, planned turns 5, cap 6, estimated tokens 72000, budget left 17` and, for 7b with 6, `runner 7b: 6 cases, planned turns 4, cap 5, estimated tokens 64000, budget left 11, prior turns used 6`.
+
+## Final corrections review (fix2 + fix3)
+
+Verdict: APPROVED to run 7a. Score 8/10. No must-fix finding. Confidence is HIGH on budget and gate safety, and MEDIUM on whether the model complies with the 3-message flow.
+
+Checks: scoped jest on `tools` passes 235/235. The "worker failed to exit" warning appears only in the three-suite parallel run, as before; the suites in isolation do not show it, and it is not a spend risk. Dry runs were executed; no `--run`, no binary. `git status` shows only the seven expected `tools/` files modified.
+
+### Parameters checked
+- 7a: `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7a` prints `runner 7a: 6 cases, planned turns 6, cap 7, estimated tokens 72000, budget left 16, prior turns used 0` and JSON `cap 7`, `worstCaseTurns 6`. The real run uses the same arguments with `--run` in place of `--dry-run`, and no `--turn-cap` (the runner sets it and rejects one).
+- 7b: same command with `--round 7b --7a-turns-used <7a turnsConsumed>`. With 7 it prints cap 5, estimated 64000, budget left 9. With 12 it errors "Cap exceeds remaining approved turns"; with 17 it errors "Prior turns exceed approval"; without the flag it errors.
+
+### 1. Shared round texts and one tool action per message
+`MARKER_INSTRUCTIONS`, `MARKER_MESSAGE_INSTRUCTIONS`, `commandPrompt` and `markerCommand` are exported from `evidence-harness.ts` and imported by the round file, not copied. The main harness now calls the same exports (`evidence-harness.ts` diff at the developer-instruction and prompt sites). Always-allow and same-home use the "per user message" variant, the others the single-action variant. Every user message in the round cases requests exactly one command: scope has three messages (command, same command, other command), same-home has one per child, different-home one, and profile and resume use no-tool prompts.
+
+### 2. Redacted shape
+Shape recording reuses the main harness's `recordCommandShape`. It uses only `command`/`commands` string fields, strips exact experiment paths, node path, home, tmp, cwd and auth directory in all slash and quote variants, then generic drive and UNC paths, `/home`, `/Users` and `~/`, then passes the text through `sanitize` (bearer/token patterns) and truncates to 400 characters. Parameter notes list key names only. It is recorded once (the first shape wins), and the catch-all in the round file adds an empty-shape marker only when none exists. Residual: a model-chosen command containing non-path personal text would pass through; the command is a fixed marker command, so this is negligible. Unix paths outside `/home`, `/Users` and tmp are not generically masked; irrelevant on the win32 target.
+
+### 3. Three-message always-allow flow
+Verified in `evidence-cases-round.ts` (approval handler about 238-283, item handler about 340-380, flow about 528-545):
+- Message 1: the exact command prompts once and is answered `acceptForSession`.
+- The marker is removed. Message 2: the same command must complete with no approval (`approvals === 1`, `commands === 2`). If it prompts anyway, the handler expects the other command, sees a mismatch, declines and throws, so it cannot be accepted.
+- Message 3: the different command must prompt exactly when `approvals === 1 && commands === 2`. It is answered `decline` (the decision is `acceptForSession` only when `approvals` is 1 after increment, otherwise `decline` for scope). Approvals are capped at 2, so a double accept is impossible. The completed item must have status `declined`, and the other marker must not exist.
+- If the other command arrives first, or the model retries after the decline, the gate declines and fails the case. This costs at most the remaining tokens of that turn, bounded by the per-turn and cumulative guards and the cap.
+- Proves native session grant semantics only; the Ptah rule-store scope is still unproved (unchanged limit).
+
+### 4. Estimate and bounds
+`always-allow-scope` is 3 x 12k, same-home 24k, different-home 12k, total 72k, equal to six plain turns at the earlier ~12k measurement. Later turns in one thread carry more context, so scope is more likely 41k than 36k, giving about 77-80k for the run. That is still below the 85k plan limit and leaves roughly 20k below the 100k cumulative guard, which `UsageBudget` enforces per run. Per-turn 30k is not threatened. Cap 7 equals six planned turns plus one reserve and is enforced at every `turn/start`. Deadlines: scope 225 s, same-home 150 s, different-home 75 s.
+
+### 5. Ledger
+`APPROVED_TURNS = 35 - (18 + 1) = 16`; `MAX_APPROVED_TURN_CAP = 16`. 7a cap 7 plus 7b cap 5 is at most 12, which is at most 16, and each run's cap is a hard in-process limit regardless of the flag value. A mistyped `--7a-turns-used` can only cause a refusal (too high) or a smaller printed remaining (too low), never a larger spend. The flag is not machine-checked against the 7a artifact; the report requires reading `turnsConsumed` from it.
+
+### 6. Nothing else changed
+The diff touches only `tools/` files: round cases and their spec, the case catalog (`turnCost` 2 to 3 for scope), the harness exports and cap constant, and the round plan. Approval gates, cleanup, usage accounting, deadlines and stop rules are as accepted in the previous round.
+
+### Minor notes
+- The scope purpose text in `evidence-cases.json` still says "repeat without approval, different command prompts"; it should say "declined". Cosmetic.
+- If 7a stops early, the 7b flag must use the artifact's actual `turnsConsumed`, not 6 or 7.
+
+## Batch 1n review
+
+Verdict: REVISE. Do not start 7c until the item below is fixed or the user approves a bound change. Score 5/10. Confidence is HIGH on the diagnosis because it follows from the 7a2 artifact's own arithmetic. Scoped jest on `tools` passes 767/767 (16 suites). Dry runs were executed; no `--run`, no binary, no git changes.
+
+### Must fix before any paid run
+
+1. **The 7a2 trip was a genuine per-turn breach; the diagnosis and the replay are wrong, so 7c would fail the same way.**
+   - The artifact's event log (`spike-run-7a2.json`, always-allow-scope) shows four `thread/tokenUsage/updated` notifications, not three: turn 1 has two (after the command item and after the final agent message), and turn 2 has two as well (after the repeated command and after its final agent message). Each command turn costs two model requests.
+   - `usageSamples` records only three because the fourth notification is the one that threw, and observe runs before the push (`evidence-cases-round.ts` observe call, then `usageSamples.push`).
+   - The artifact header `observedUsage: 77861` equals 23451 (different-home) + 54410. 54410 is the fourth total (38926 + a last of 15484, inferred). Turn 2's delta is then 54410 - 23481 = 30929, which is greater than 30000 by 929. So `UsageBudget` was right, the key was already stable (`case:label:thread`), and the 77861 is not over-counted. The "real ~62k" figure comes from the three recorded samples and ignores the fourth.
+   - Batch 1n's replay (`evidence-harness.spec.ts:1244-1257` and the `7a2-replay` fault in `evidence-cases-round.spec.ts:300-337`) feeds turn 2 a single 15445 sample, so it never reproduces the breach. It passes only because it omits the second notification.
+   - The identity change (`[item.id, thread]`, `evidence-cases-round.ts:330-336`, `evidence-harness.ts:1970`) is harmless and actually correct for resume (one stream across the restarted child; it also fixes the resumed-child per-turn exposure I noted earlier), but it does not touch the path that failed.
+2. **Consequence for 7c.** Measured per-turn costs are 23.5k (turn 1, approval), 30.9k (turn 2, approval-free), and a larger turn 3 (context grows ~3.7k per request: requests of 11.7k, 11.8k, 15.4k, 15.5k, so the declined turn is probably about 2 x 19k = 38k).
+   - The per-turn bound of 30000 will trip again at turn 2 and, if not, at turn 3. Two paid turns (~54k) would be spent and the decline step, the point of the rerun, would again not run.
+   - The report's estimates (approval-free turn ~16k, always-allow 64k) are wrong. A realistic always-allow total is about 23.5 + 31 + 38 = about 92k, which sits against the 100000 cumulative guard, so the plan limit of 85k would also be violated.
+   - The harness refuses plans above 85k estimated tokens, but the estimate table is wrong, so the guard is not protecting here.
+3. **Fix options (the per-turn and cumulative bounds are user-approved spend limits; do not change them silently).**
+   - Ask the user to raise the per-turn bound to about 45000 and the cumulative bound for the 7c run to about 120000, and set the always-allow estimate to about 95k with a run-specific estimate limit. Cost is about 90-95k tokens for 7c.
+   - Or reduce the experiment: split into two runs, each still needing the per-turn bound above 31k, so splitting alone does not remove the need for the new bound.
+   - In both cases fix the estimate table to two requests per command turn (about 24k, 31k, 38k).
+   - Replace the replay with the true four-notification stream: 11721/11721, 11760/23481 (turn 1), then 15445/38926 and 15484/54410 (turn 2), and assert the outcome under the chosen bounds.
+
+### Other checks
+
+- **(2) Estimates for 7d and 7e.** 7d (same-home, two children, one approval turn each, about 23.5k each, 47k) is consistent with the 48k estimate and with the per-turn bound. 7e (resume, two no-tool turns, one request each at about 11.7-15k, plus profile at about 12-16k; est 48k) is plausible and conservative. Both are well under 100k. Only 7c is wrong.
+- **(3) Ledger.** `PREVIOUSLY_USED_TURNS = 22`, remaining 13. Caps are 4 + 3 + 4 = 11, each enforced as a hard limit at `turn/start` inside its own process, so a wrong `--prior-turns-used` cannot let any single run exceed its cap, and one pass of 7c, 7d, 7e cannot exceed 11. Dry runs: `7c` with 0 gives cap 4, left 13; `7d` with 4 gives cap 3, left 9; `7e` with 7 gives cap 4, left 6; `7e` with 10 and `7c` with 14 are refused. Residual: reruns of a failed round are new spend and rely on the caller summing `turnsConsumed` (process control, not code).
+- **(4) Always-allow flow and 7e designs.** The three-message flow and shared proven texts from the previous review are unchanged and still correct (accept only the first command, decline the different one, approval cap 2). 7e resume and profile cases are no-tool prompts or as designed.
+- **(5) Other changes.** The diff is limited to the usage key (two sites), the round plan (rounds 7c/7d/7e, estimates, baseline 22, flag rename to `--prior-turns-used`), the runner comment, and specs.
+
+### Dry-run commands checked
+```
+npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json .ptah/specs/TASK_2026_714_c8a2/spike-runner.ts --dry-run --round 7c --prior-turns-used 0
+... --dry-run --round 7d --prior-turns-used <turns actually used since 7a2>
+... --dry-run --round 7e --prior-turns-used <turns actually used since 7a2>
+```
+Run 7d and 7e are fine to run as designed once their prior-turn values are supplied. Only 7c is blocked.

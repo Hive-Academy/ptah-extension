@@ -30,7 +30,7 @@ export interface AuthGetHealthResponse {
 export interface AuthSaveSettingsParams {
   authMethod: AuthMethod;
   anthropicApiKey?: string;
-  /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
+  /** Provider API key - used for OpenRouter, Kimi Code, Z.AI, etc. */
   providerApiKey?: string;
   /** Selected Anthropic-compatible provider ID */
   anthropicProviderId?: string;

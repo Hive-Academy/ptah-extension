@@ -690,11 +690,11 @@ describe('ProvidersSettingsComponent', () => {
       expect(catalogDialog()?.hasAttribute('open')).toBe(true);
     });
     it('the filter narrows the cards by name, says when nothing matches, and Clear filter restores them', async () => {
-      state.connections.set(ready([connection('first'), { ...connection('second'), name: 'Moonshot' }])); await render();
+      state.connections.set(ready([connection('first'), { ...connection('second'), name: 'Kimi Code' }])); await render();
       const input = element.querySelector<HTMLInputElement>('[data-testid="connections-filter"]');
       if (!input) throw new Error('Missing filter');
       expect(input.getAttribute('aria-label')).toBe('Filter connections');
-      input.value = 'moon'; input.dispatchEvent(new Event('input')); await render();
+      input.value = 'kimi'; input.dispatchEvent(new Event('input')); await render();
       expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(1);
       input.value = 'zzz'; input.dispatchEvent(new Event('input')); await render();
       expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(0);

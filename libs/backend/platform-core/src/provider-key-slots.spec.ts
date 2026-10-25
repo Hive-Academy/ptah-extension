@@ -10,7 +10,7 @@ describe('isSdkAuthSecretKey', () => {
   it.each([
     'ptah.auth.anthropicApiKey',
     'ptah.auth.provider.openrouter',
-    'ptah.auth.provider.moonshot',
+    'ptah.auth.provider.kimi-code',
     'ptah.auth.provider.z-ai',
     'ptah.auth.provider.ollama-cloud',
     'ptah.auth.provider.sakana',
@@ -57,9 +57,9 @@ describe('isSdkAuthSecretKey', () => {
 
   it('ignores every declared connector slot family and id', () => {
     for (const prefix of Object.values(NON_AUTH_PROVIDER_KEY_SLOT_PREFIXES)) {
-      expect(isSdkAuthSecretKey(`${PROVIDER_KEY_SECRET_PREFIX}${prefix}x`)).toBe(
-        false,
-      );
+      expect(
+        isSdkAuthSecretKey(`${PROVIDER_KEY_SECRET_PREFIX}${prefix}x`),
+      ).toBe(false);
     }
     for (const id of Object.values(NON_AUTH_PROVIDER_KEY_SLOT_IDS)) {
       expect(isSdkAuthSecretKey(`${PROVIDER_KEY_SECRET_PREFIX}${id}`)).toBe(

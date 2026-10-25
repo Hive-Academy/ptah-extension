@@ -229,7 +229,7 @@ describe('ChatStreamBroadcaster.isStreaming', () => {
     try {
       const fallbackName = `Session ${new Date().toLocaleDateString()}`;
       const profile: ProviderProfile = {
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         authEnv: {},
         model: 'claude-sonnet-4-20250514',
         baseUrl: 'https://example.test',

@@ -7,6 +7,7 @@
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
+      "inputs": ["production", "^production", "rootPackageFiles"],
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
       "options": {
@@ -96,37 +97,60 @@
       }
     },
     "prisma:deploy": {
-      "executor": "@nx-tools/nx-prisma:deploy"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma migrate deploy"
+      }
     },
     "prisma:format": {
-      "executor": "@nx-tools/nx-prisma:format"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma format"
+      }
     },
     "prisma:generate": {
-      "executor": "@nx-tools/nx-prisma:generate"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma generate"
+      }
     },
     "prisma:migrate": {
-      "executor": "@nx-tools/nx-prisma:migrate"
-    },
-    "prisma:pull": {
-      "executor": "@nx-tools/nx-prisma:pull"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma migrate dev"
+      }
     },
     "prisma:push": {
-      "executor": "@nx-tools/nx-prisma:push"
-    },
-    "prisma:reset": {
-      "executor": "@nx-tools/nx-prisma:reset"
-    },
-    "prisma:resolve": {
-      "executor": "@nx-tools/nx-prisma:resolve"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma db push"
+      }
     },
     "prisma:status": {
-      "executor": "@nx-tools/nx-prisma:status"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma migrate status"
+      }
     },
     "prisma:studio": {
-      "executor": "@nx-tools/nx-prisma:studio"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma studio"
+      }
     },
     "prisma:validate": {
-      "executor": "@nx-tools/nx-prisma:validate"
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ptah-license-server",
+        "command": "npx prisma validate"
+      }
     },
     "seed-community": {
       "executor": "nx:run-commands",
@@ -135,6 +159,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/libs/api/jest.api-preset.cjs",
+        "{workspaceRoot}/docs/community/discourse-export.json"
+      ],
       "executor": "nx:run-commands",
       "//": "NestJS 12 is ESM-only while these specs compile to CommonJS. Jest needs vm.SourceTextModule to require() an ESM package, and that only exists under --experimental-vm-modules. Scoped per project, NOT workspace-wide: the same flag makes Jest load @angular/core as a real ES module where `module` is undefined, breaking every jest-preset-angular suite.",
       "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],

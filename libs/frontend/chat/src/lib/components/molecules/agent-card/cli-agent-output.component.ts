@@ -19,7 +19,8 @@ import {
   type RenderSegment,
   type StderrSegment,
 } from '@ptah-extension/chat-ui';
-import { ExecutionNodeComponent } from '../../organisms/execution/execution-node.component';
+import { LaneTranscriptComponent } from '../../organisms/transcript/lane-transcript.component';
+import { LANE_COLUMN_CLASS } from '../execution-header/lane-column';
 import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-tree-builder.service';
 import {
   extractCliAgentStats,
@@ -30,7 +31,7 @@ import {
 @Component({
   selector: 'ptah-cli-agent-output',
   standalone: true,
-  imports: [ExecutionNodeComponent, AgentCardOutputComponent],
+  imports: [LaneTranscriptComponent, AgentCardOutputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -68,7 +69,9 @@ import {
               {{ '$' + stats.costUsd.toFixed(4) }}
             </span>
           }
-          @if (stats.durationMs !== undefined && fmtDuration(stats.durationMs)) {
+          @if (
+            stats.durationMs !== undefined && fmtDuration(stats.durationMs)
+          ) {
             <span class="text-[9px] font-mono text-base-content-muted ml-auto">
               {{ fmtDuration(stats.durationMs) }}
             </span>
@@ -80,6 +83,7 @@ import {
            the structured segments, so leaving it open would duplicate the tree
            in the flat style this component exists to replace. -->
       @if (stdoutSegments().length > 0) {
+        <div [class]="rowClass()">
         <details
           class="mx-2 mt-1 bg-base-200/30 rounded border border-base-content/5 overflow-hidden"
           [class.!mx-0]="presentation() === 'flat'"
@@ -102,13 +106,17 @@ import {
             [embedded]="true"
           />
         </details>
+        </div>
       }
 
       <!-- ExecutionNode tree rendering -->
-      <div class="p-2 space-y-1" [class.!px-0]="presentation() === 'flat'">
-        @for (node of executionNodes(); track node.id) {
-          <ptah-execution-node [node]="node" [isStreaming]="isStreaming()" />
-        }
+      <ptah-lane-transcript
+        [laneId]="agentId()"
+        [nodes]="executionNodes()"
+        [events]="streamEvents()"
+        [isStreaming]="isStreaming()"
+      />
+      <div [class]="rowClass()">
         @for (seg of stderrSegments(); track $index) {
           @if (seg.type === 'error') {
             <div
@@ -136,6 +144,10 @@ export class CliAgentOutputComponent {
   /** Agent ID for per-agent cache isolation in the tree builder */
   readonly agentId = input.required<string>();
   readonly presentation = input<'card' | 'flat'>('card');
+  /** A flat lane puts its rows in the main chat column, like the transcript. */
+  protected readonly rowClass = computed(() =>
+    this.presentation() === 'flat' ? LANE_COLUMN_CLASS : '',
+  );
 
   readonly segments = input<CliOutputSegment[]>([]);
   readonly stdoutSegments = input<RenderSegment[]>([]);

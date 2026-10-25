@@ -294,6 +294,8 @@ export class AgentMonitorTreeBuilderService {
 
     let textBuffer = '';
     let textBufferStart = -1; // segment index where current text buffer started
+    // Provider message of the buffered text; a different one starts a new node.
+    let textMessageId: string | undefined;
     let thinkingBuffer = '';
     let thinkingBufferStart = -1;
 
@@ -310,6 +312,7 @@ export class AgentMonitorTreeBuilderService {
       }
       textBuffer = '';
       textBufferStart = -1;
+      textMessageId = undefined;
     };
 
     const flushThinking = (): void => {
@@ -333,7 +336,15 @@ export class AgentMonitorTreeBuilderService {
       switch (segment.type) {
         case 'text': {
           if (thinkingBuffer) flushThinking();
+          if (
+            textBuffer &&
+            textMessageId !== undefined &&
+            segment.messageId !== undefined &&
+            segment.messageId !== textMessageId
+          )
+            flushText();
           if (textBufferStart === -1) textBufferStart = i;
+          textMessageId = segment.messageId ?? textMessageId;
           textBuffer += segment.content;
           break;
         }

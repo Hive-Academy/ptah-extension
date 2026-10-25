@@ -1,0 +1,361 @@
+{
+  "provenance": "real run requested; individual observations only",
+  "model": "gpt-6-luna",
+  "binary": "D:\\projects\\ptah-extension\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+  "binarySha256": "eba0f32c976667cb9298efafd98513e823eeda7b576a03ec658bb8be8d336316",
+  "schemaSha256": "d912e0edc7dace2843be975bee0ca39c3f9f37f11cad07101bd32eb622adf3db",
+  "platform": "win32",
+  "arch": "x64",
+  "cap": 8,
+  "turnsConsumed": 1,
+  "outputBounds": {
+    "model_reasoning_effort": "low",
+    "model_verbosity": "low",
+    "tool_output_token_limit": 2000
+  },
+  "usageCeiling": 12000,
+  "observedUsage": 0,
+  "caseDeadlineMs": 60000,
+  "cleanup": "home/auth deleted; experiment deleted",
+  "results": [
+    {
+      "id": "schema-handshake",
+      "status": "schema only",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "Method presence only: externalAgentConfig/detect, externalAgentConfig/import, externalAgentConfig/import/readHistories, externalAgentConfig/import/recordHistory, skills/config/write, skills/extraRoots/set, skills/list, thread/compact/start, thread/resume, thread/rollback, item/tool/requestUserInput, externalAgentConfig/import/completed, externalAgentConfig/import/progress, item/agentMessage/delta, item/plan/delta, skills/changed, thread/compacted, turn/plan/updated"
+      ]
+    },
+    {
+      "id": "ask-command-accept",
+      "status": "failed: protocol, isolation or approval gate",
+      "turns": 1,
+      "events": [
+        {
+          "direction": "out",
+          "method": "initialize"
+        },
+        {
+          "direction": "out",
+          "method": "initialized"
+        },
+        {
+          "direction": "out",
+          "method": "model/list"
+        },
+        {
+          "direction": "in",
+          "method": "remoteControl/status/changed"
+        },
+        {
+          "direction": "out",
+          "method": "config/read"
+        },
+        {
+          "direction": "out",
+          "method": "thread/start"
+        },
+        {
+          "direction": "in",
+          "method": "thread/started"
+        },
+        {
+          "direction": "out",
+          "method": "turn/start"
+        },
+        {
+          "direction": "in",
+          "method": "thread/status/changed"
+        },
+        {
+          "direction": "in",
+          "method": "turn/started"
+        },
+        {
+          "direction": "in",
+          "method": "item/started"
+        },
+        {
+          "direction": "in",
+          "method": "item/completed"
+        },
+        {
+          "direction": "in",
+          "method": "item/started"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/agentMessage/delta"
+        },
+        {
+          "direction": "in",
+          "method": "item/completed"
+        },
+        {
+          "direction": "in",
+          "method": "turn/moderationMetadata"
+        },
+        {
+          "direction": "in",
+          "method": "thread/status/changed"
+        },
+        {
+          "direction": "in",
+          "method": "item/started"
+        }
+      ],
+      "approvals": [],
+      "notes": [
+        "Initialize: experimentalApi=true (required by 0.155.1 for granular approvals)",
+        "Effective config: granular approvalPolicy and approvalsReviewer=\"user\" confirmed by thread/start response",
+        "Unexpected command shape: \"<PATH>\\powershell.exe\" -Command \"& '<NODE>' '<MARKER_SCRIPT>' '<ROOT>' '<WORKSPACE><PATH>'\"",
+        "Request param keys: item, threadId, turnId, startedAtMs",
+        "Command differs by: other",
+        "Unexpected command"
+      ],
+      "effectiveConfig": {
+        "model": null,
+        "sandbox_mode": "read-only",
+        "approval_policy": {
+          "granular": {
+            "sandbox_approval": true,
+            "rules": true,
+            "skill_approval": true,
+            "request_permissions": true,
+            "mcp_elicitations": true
+          }
+        },
+        "sandbox_workspace_write": {
+          "writable_roots": [],
+          "network_access": false,
+          "exclude_tmpdir_env_var": false,
+          "exclude_slash_tmp": false
+        },
+        "model_reasoning_effort": "low",
+        "model_verbosity": "low",
+        "tool_output_token_limit": 2000
+      },
+      "markers": {
+        "original": false,
+        "replacement": false,
+        "outside": false
+      }
+    },
+    {
+      "id": "ask-command-deny",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "modified-input-schema",
+      "status": "schema only",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "modifiedInput property present: false; wire response and behavior unverified; no invented mapping"
+      ]
+    },
+    {
+      "id": "file-change-accept",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "plan-read-only",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "auto-edit-boundary",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "yolo-interrupt",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "mcp-approval",
+      "status": "not run: prior gate or usage ceiling",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": []
+    },
+    {
+      "id": "compaction",
+      "status": "unverified: compaction not observed",
+      "turns": 0,
+      "events": [],
+      "approvals": [],
+      "notes": [
+        "Reserved invocation is charged on the retained accepted-command child."
+      ]
+    }
+  ],
+  "harnessCapabilities": [
+    {
+      "capability": "Plan entry/read-only planning",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "item/plan/delta",
+        "turn/plan/updated"
+      ]
+    },
+    {
+      "capability": "AskUserQuestion",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "item/tool/requestUserInput"
+      ]
+    },
+    {
+      "capability": "ExitPlanMode",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "item/plan/delta",
+        "turn/plan/updated"
+      ]
+    },
+    {
+      "capability": "Subagent spawn/list/background",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "externalAgentConfig/import/readHistories",
+        "externalAgentConfig/import/recordHistory",
+        "externalAgentConfig/import/completed",
+        "externalAgentConfig/import/progress",
+        "item/agentMessage/delta"
+      ]
+    },
+    {
+      "capability": "Agent reporting/interrupted context",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "externalAgentConfig/detect",
+        "externalAgentConfig/import",
+        "externalAgentConfig/import/readHistories",
+        "externalAgentConfig/import/recordHistory",
+        "externalAgentConfig/import/completed",
+        "externalAgentConfig/import/progress",
+        "item/agentMessage/delta"
+      ]
+    },
+    {
+      "capability": "Edited input/remembered permissions",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "applyPatchApproval",
+        "execCommandApproval",
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+        "autoApprovalReview/strictReviewRequired",
+        "item/autoApprovalReview/completed",
+        "item/autoApprovalReview/started"
+      ]
+    },
+    {
+      "capability": "Compact/file rewind",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "thread/compact/start",
+        "thread/rollback",
+        "thread/compacted"
+      ]
+    },
+    {
+      "capability": "Skills/instruction harness",
+      "behavior": "unverified; case observations do not establish parity",
+      "schemaMethods": [
+        "skills/config/write",
+        "skills/extraRoots/set",
+        "skills/list",
+        "skills/changed"
+      ]
+    }
+  ],
+  "gaps": [
+    "modifiedInput behavior",
+    "Always Allow",
+    "native plan transitions and user answers/cancel",
+    "subagent lifecycle",
+    "remote MCP/OAuth/Smithery",
+    "skills/instructions/images/effort/resume role parity",
+    "same-home concurrent profile isolation",
+    "different-account isolation",
+    "file rewind/history/stats",
+    "packaged binary manifests",
+    "positive read and multi-path sandbox boundaries are not proved by single-action cases",
+    "usage reporting can lag billing; observed usage ceiling is not a provider-side spending limit"
+  ]
+}

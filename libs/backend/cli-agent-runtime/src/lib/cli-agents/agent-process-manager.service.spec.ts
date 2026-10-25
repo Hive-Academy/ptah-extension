@@ -809,7 +809,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         task: 'Review the batch',
         cli: 'ptah-cli',
         workingDirectory: '/workspace/root',
-        ptahCliName: 'Moonshot',
+        ptahCliName: 'Kimi Code',
         ptahCliId: 'ptah-cli-1',
         roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
         expectsMcp: false,

@@ -35,18 +35,21 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
   standalone: true,
   imports: [AgentSteerInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'sticky bottom-0 z-10 block bg-base-100' },
+  // The lane places it below its scroller, in the chat column; the input
+  // sits in the main chat composer's card.
+  host: { class: 'block' },
   template: `
     @if (mode() === 'unavailable') {
       <p
-        class="border-t border-base-content/10 px-2.5 py-1.5 text-xs text-base-content-muted"
+        class="px-1 py-1.5 text-xs text-base-content-muted"
         data-testid="subagent-composer-unavailable"
       >
         {{ unavailableText() }}
       </p>
     } @else {
       <ptah-agent-steer-input
-        class="block"
+        class="block pt-1"
+        variant="composer"
         [steerable]="true"
         [clearOnSubmit]="false"
         [pending]="pending()"
@@ -60,7 +63,7 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
       />
       @if (mode() === 'follow-up') {
         <p
-          class="px-2.5 pb-1 text-[11px] text-base-content-muted"
+          class="px-1 pt-1 text-[11px] text-base-content-muted"
           data-testid="subagent-composer-hint"
         >
           Sends to the main chat as a follow-up
@@ -69,7 +72,7 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
       @if (error(); as message) {
         <p
           role="alert"
-          class="px-2.5 pb-1 text-xs text-error"
+          class="px-1 pt-1 text-xs text-error"
           data-testid="subagent-composer-error"
         >
           {{ message }}
@@ -78,7 +81,7 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
       @if (status(); as message) {
         <p
           role="status"
-          class="px-2.5 pb-1 text-xs text-base-content-muted"
+          class="px-1 pt-1 text-xs text-base-content-muted"
           data-testid="subagent-composer-status"
         >
           {{ message }}

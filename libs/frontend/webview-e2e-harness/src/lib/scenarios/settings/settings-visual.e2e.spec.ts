@@ -44,9 +44,9 @@ const DRAWERS: readonly {
   readonly tab?: string;
   readonly ready?: string;
 }[] = [
-  { card: 'Moonshot', name: 'drawer-moonshot' },
+  { card: 'Kimi Code', name: 'drawer-kimi-code' },
   { card: 'sovereigneg', name: 'drawer-sovereigneg' },
-  { card: 'Moonshot', name: 'drawer-moonshot-credentials', tab: 'Credentials' },
+  { card: 'Kimi Code', name: 'drawer-kimi-code-credentials', tab: 'Credentials' },
   {
     card: 'Claude (Subscription)',
     name: 'drawer-claude-cli-credentials',
@@ -54,8 +54,8 @@ const DRAWERS: readonly {
   },
   // Batch 22. `ready`: the pickers' catalogue has loaded (their tool-use summary renders).
   {
-    card: 'Moonshot',
-    name: 'drawer-moonshot-models',
+    card: 'Kimi Code',
+    name: 'drawer-kimi-code-models',
     tab: 'Models & Tiers',
     ready:
       '[data-tier="haiku"] [data-testid="provider-model-picker-tooluse-summary"]',
@@ -509,7 +509,7 @@ async function captureMatrixPopovers(
         .fill('Glm-Secondary');
       await dialog
         .locator('[data-testid="add-cli-instance-provider"]')
-        .selectOption('moonshot');
+        .selectOption('kimi-code');
     } else {
       await expect(
         dialog.locator('[data-testid="cli-tier-source-haiku"]'),
@@ -1073,7 +1073,7 @@ for (const host of ['vscode', 'electron'] as const) {
       // The list must be open before typing: a query that lands on the same render as the open keeps the open contract
       // (no active row, `native-autocomplete` applyOpenActiveIndex), so the 51.3 wait below would never be met.
       await expect(modelInput).toHaveAttribute('aria-expanded', 'true');
-      await modelInput.fill('kimi');
+      await modelInput.fill('k');
       const listboxId = await modelInput.getAttribute('aria-controls');
       const listbox = page.locator(`[id="${listboxId}"]`);
       await expect(listbox).toBeVisible();

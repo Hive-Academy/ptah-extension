@@ -9,8 +9,7 @@
 }
 
 <ng-template #body>
-  <header class="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-surface-border pl-4 pr-2">
-    <h2 class="text-sm font-semibold">This session</h2>
+  <header class="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-surface-border pl-4 pr-2">
     <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
     <button
       #closeButton
@@ -27,14 +26,18 @@
   @let m = model();
   @let s = stats();
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <ptah-inspector-orchestrator-card
-      class="st-r block"
-      [style.--i]="0"
-      [card]="m.orchestrator"
-      [tabId]="tabId()"
-      (answerRequested)="answerRequested.emit($event)"
-      (announced)="announce($event)"
-    />
+    @if (m.orchestrator.requests.length > 0) {
+      <ptah-inspector-request-lines
+        class="block px-3 py-2"
+        [requests]="m.orchestrator.requests"
+        ownerName="Orchestrator"
+        [tabId]="tabId()"
+        [hasLaneSurface]="false"
+        (answerRequested)="answerRequested.emit($event)"
+        (announced)="announce($event)"
+        (focusReleased)="closeButton.focus()"
+      />
+    }
 
     <ng-content select="[inspectorSection]" />
 

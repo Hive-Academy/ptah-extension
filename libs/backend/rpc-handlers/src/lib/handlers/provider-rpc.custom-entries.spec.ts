@@ -322,7 +322,7 @@ describe('provider:addCustomEntry', () => {
   it('passes a store error through with its actionable message', async () => {
     const { rpc, store } = buildSuite();
     const storeError = new Error(
-      "Provider id 'moonshot' is reserved by a built-in provider.",
+      "Provider id 'kimi-code' is reserved by a built-in provider.",
     );
     storeError.name = 'CustomProviderStoreError';
     store.add.mockRejectedValueOnce(storeError);

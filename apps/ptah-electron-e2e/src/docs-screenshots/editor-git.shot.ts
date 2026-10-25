@@ -37,7 +37,9 @@ async function widenEditorPanel(page: Page): Promise<void> {
 /** Collapse the workspace rail so a shot is all editor. */
 async function collapseRails(page: Page): Promise<void> {
   for (const rail of ['Toggle Workspaces panel']) {
-    const toggle = page.locator(`[title="${rail}"], [aria-label="${rail}"]`);
+    const toggle = page.locator(
+      `[title="${rail}"][aria-expanded="true"], [aria-label="${rail}"][aria-expanded="true"]`,
+    );
     if (
       await toggle
         .first()

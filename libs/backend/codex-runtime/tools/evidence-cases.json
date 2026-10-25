@@ -1,0 +1,155 @@
+[
+  {
+    "id": "schema-handshake",
+    "turnCost": 0,
+    "observations": [1, 3, 5],
+    "kind": "schema",
+    "purpose": "Manifest methods, initialize, model/list, config/read; user-input, plan, subagent and history presence only"
+  },
+  {
+    "id": "ask-command-accept",
+    "turnCost": 1,
+    "observations": [1, 2, 5],
+    "kind": "command",
+    "level": "ask",
+    "decision": "accept",
+    "purpose": "Read-only plus granular approvals; hold command approval; absent before response, present after; usage notifications"
+  },
+  {
+    "id": "ask-command-deny",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "command",
+    "level": "ask",
+    "decision": "deny",
+    "purpose": "Read-only plus granular approvals; hold command approval; original marker remains absent after denial"
+  },
+  {
+    "id": "ask-command-edit",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "command",
+    "level": "ask",
+    "decision": "edit",
+    "purpose": "Decline original command, steer to a replacement marker, approve only the replacement; observe turn charging and usage"
+  },
+  {
+    "id": "ask-read-rule",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "read-rule",
+    "level": "ask",
+    "decision": "deny",
+    "purpose": "Probe a prompt exec-policy rule for a sandbox-allowed fixture read; decline any exact-command approval"
+  },
+  {
+    "id": "modified-input-schema",
+    "turnCost": 0,
+    "observations": [1, 2],
+    "kind": "schema",
+    "purpose": "Find modifiedInput in exported schemas; behavioral replacement remains blocked until exact response contract is reviewed"
+  },
+  {
+    "id": "file-change-accept",
+    "turnCost": 1,
+    "observations": [1, 2],
+    "kind": "file",
+    "level": "ask",
+    "decision": "accept",
+    "purpose": "Read-only plus granular approvals; hold file approval for sibling scratch marker; check before/after"
+  },
+  {
+    "id": "plan-read-only",
+    "turnCost": 1,
+    "observations": [2, 3],
+    "kind": "boundary",
+    "level": "plan",
+    "decision": "deny",
+    "purpose": "Read-only plus on-request approvals; decline the single fixed marker write, require absence; positive reads and native plan transitions remain unverified"
+  },
+  {
+    "id": "auto-edit-boundary",
+    "turnCost": 1,
+    "observations": [2, 3, 4],
+    "kind": "boundary",
+    "level": "auto-edit",
+    "decision": "accept",
+    "purpose": "Workspace-write plus on-request approvals; auto-accept only the single fixed marker command, interrupt at observed effect; multi-path boundary remains unverified"
+  },
+  {
+    "id": "yolo-interrupt",
+    "turnCost": 1,
+    "observations": [2, 5],
+    "kind": "boundary",
+    "level": "yolo",
+    "decision": "accept",
+    "purpose": "Workspace-write plus on-request approvals, never full access; auto-accept only the fixed marker command and interrupt at effect"
+  },
+  {
+    "id": "mcp-approval",
+    "turnCost": 1,
+    "observations": [1, 2, 4],
+    "kind": "mcp",
+    "level": "ask",
+    "decision": "accept",
+    "purpose": "Read-only plus granular approvals; per-child stdio fixture; one approval for the fixed original marker only; replacement and repeated calls declined"
+  },
+  {
+    "id": "compaction",
+    "turnCost": 1,
+    "observations": [5],
+    "kind": "compact",
+    "purpose": "Compact retained accepted-command thread; one reserved invocation, sharing its 60-second deadline and 15000-token per-turn and 100000-token cumulative observed bounds; no retries"
+  },
+  {
+    "id": "subagent-and-rewind",
+    "turnCost": 0,
+    "observations": [3, 5],
+    "kind": "schema",
+    "purpose": "Pinned manifest presence only; rollback behavior piggybacks resume-history; no invented subagent method"
+  },
+  {
+    "id": "different-home-isolation",
+    "turnCost": 1,
+    "observations": [4],
+    "kind": "round",
+    "purpose": "Two initialized children with separately copied auth; one paid child, second handshake only"
+  },
+  {
+    "id": "profile-inputs",
+    "turnCost": 1,
+    "observations": [3],
+    "kind": "round",
+    "purpose": "Thread reasoning effort, developer marker and configured stdio MCP startup"
+  },
+  {
+    "id": "usage-semantics",
+    "turnCost": 1,
+    "observations": [5],
+    "kind": "mcp",
+    "purpose": "One MCP tool turn; retain tokenUsage.last and total for every notification",
+    "level": "ask",
+    "decision": "accept"
+  },
+  {
+    "id": "same-home-isolation",
+    "turnCost": 2,
+    "observations": [4],
+    "kind": "round",
+    "purpose": "Two concurrent children, separate threads and approvals; config bytes unchanged"
+  },
+  {
+    "id": "resume-history",
+    "turnCost": 2,
+    "observations": [5],
+    "kind": "round",
+    "purpose": "Persisted history after child restart, successful continuation and schema-supported rollback"
+  },
+  {
+    "id": "always-allow-scope",
+    "turnCost": 3,
+    "observations": [2],
+    "kind": "round",
+    "purpose": "Exact acceptForSession, repeat without approval, different command prompts"
+  }
+]

@@ -48,6 +48,7 @@
         "auth-providers",
         "auth-providers-tokens",
         "cli-agent-runtime",
+        "codex-runtime",
         "cli-engine",
         "workspace-intelligence",
         "rpc-handlers",

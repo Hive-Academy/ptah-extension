@@ -8,7 +8,7 @@ const BULLET = '\u2022';
 
 describe('maskKeyHint', () => {
   it('is exactly four U+2022 bullets, one space, then the last 4 characters', () => {
-    const hint = maskKeyHint('sk-moonshot-0123456789abcdef8f21');
+    const hint = maskKeyHint('sk-kimi-0123456789abcdef8f21');
 
     expect(hint).toBe(`${BULLET.repeat(4)} 8f21`);
     expect(Array.from(hint ?? '').map((c) => c.codePointAt(0))).toEqual([

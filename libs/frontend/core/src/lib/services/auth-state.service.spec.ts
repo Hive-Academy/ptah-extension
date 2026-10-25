@@ -258,13 +258,13 @@ describe('AuthStateService', () => {
       rpc.call.mockResolvedValueOnce(
         rpcSuccess(makeAuthStatusResponse({ hasOpenRouterKey: true })),
       );
-      const hasKey = await service.checkProviderKeyStatus('moonshot');
+      const hasKey = await service.checkProviderKeyStatus('kimi-code');
 
       expect(rpc.call).toHaveBeenCalledWith('auth:getAuthStatus', {
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
       });
       expect(hasKey).toBe(true);
-      expect(service.hasKeyForProvider('moonshot')).toBe(true);
+      expect(service.hasKeyForProvider('kimi-code')).toBe(true);
       expect(service.hasKeyForProvider('openrouter')).toBe(false);
     });
 
@@ -272,7 +272,7 @@ describe('AuthStateService', () => {
       rpc.call.mockRejectedValueOnce(new Error('net'));
       const service = createService();
 
-      const result = await service.checkProviderKeyStatus('moonshot');
+      const result = await service.checkProviderKeyStatus('kimi-code');
       expect(result).toBe(false);
     });
   });
@@ -289,8 +289,8 @@ describe('AuthStateService', () => {
 
     it('setSelectedProviderId updates the signal and resets status messages', () => {
       const service = createService();
-      service.setSelectedProviderId('moonshot');
-      expect(service.selectedProviderId()).toBe('moonshot');
+      service.setSelectedProviderId('kimi-code');
+      expect(service.selectedProviderId()).toBe('kimi-code');
       expect(service.connectionStatus()).toBe('idle');
     });
   });
@@ -1220,10 +1220,10 @@ describe('AuthStateService', () => {
       const service = await loadedWith(
         makeAuthStatusResponse({
           authMethod: 'thirdParty',
-          anthropicProviderId: 'moonshot',
+          anthropicProviderId: 'kimi-code',
         }),
       );
-      expect(service.persistedTileId()).toBe('moonshot');
+      expect(service.persistedTileId()).toBe('kimi-code');
     });
 
     it('hasAnyCredential covers apiKey, claudeCli, provider key, and copilot', async () => {
@@ -1293,8 +1293,8 @@ describe('AuthStateService', () => {
       const service = await loadedWith(
         makeAuthStatusResponse({
           authMethod: 'thirdParty',
-          anthropicProviderId: 'moonshot',
-          availableProviders: [makeProvider({ id: 'moonshot' })],
+          anthropicProviderId: 'kimi-code',
+          availableProviders: [makeProvider({ id: 'kimi-code' })],
           hasOpenRouterKey: true,
         }),
       );
@@ -1312,10 +1312,10 @@ describe('AuthStateService', () => {
       const service = await loadedWith(
         makeAuthStatusResponse({
           authMethod: 'thirdParty',
-          anthropicProviderId: 'moonshot',
+          anthropicProviderId: 'kimi-code',
         }),
       );
-      expect(service.effectiveProviderId()).toBe('moonshot');
+      expect(service.effectiveProviderId()).toBe('kimi-code');
     });
 
     it('hasProviderCredential respects auth method + provider authType', async () => {

@@ -473,16 +473,16 @@ describe('OrchestrationSettingsComponent', () => {
   // Batch 35 (plan :772-774): the existing deep-link path opens the setup wizard on Providers.
   it("routes a role's provider setup to Providers with the wizard's provider, and refreshes after saves", async () => {
     await render();
-    consumer().setupProviderRequested.emit('moonshot');
+    consumer().setupProviderRequested.emit('kimi-code');
     consumer().assignmentSaved.emit({
       id: 'enhancement',
-      provider: 'moonshot',
+      provider: 'kimi-code',
       model: 'kimi',
     });
     consumer().timeoutSaved.emit(30);
     expect(appState.requestSettingsTab).toHaveBeenCalledWith({
       tab: 'providers',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
     });
     expect(state.refresh).toHaveBeenCalledTimes(1);
     expect(state.refreshEnhancement).toHaveBeenCalledTimes(1);

@@ -6,8 +6,8 @@ import {
 const loaded: ConnectionUsageSources = {
   mainProviderId: 'anthropic',
   curatorProvider: '',
-  enhancementProvider: 'moonshot',
-  cliAgents: [{ id: 'one', name: 'One', providerId: 'moonshot' }],
+  enhancementProvider: 'kimi-code',
+  cliAgents: [{ id: 'one', name: 'One', providerId: 'kimi-code' }],
   systemClis: {
     detectedClis: [{ cli: 'codex', installed: true }],
     disabledClis: [],
@@ -22,7 +22,7 @@ describe('connection usage', () => {
       'Main agent', 'Memory curator',
     ]);
     expect(result.byProvider['anthropic'][1].followsMain).toBe(true);
-    expect(result.byProvider['moonshot'].map((entry) => entry.label)).toEqual([
+    expect(result.byProvider['kimi-code'].map((entry) => entry.label)).toEqual([
       'Enhancement', 'One (Ptah CLI agent)',
     ]);
     expect(result.byProvider['openai-codex'].map((entry) => entry.label)).toEqual(['Codex CLI']);
@@ -39,7 +39,7 @@ describe('connection usage', () => {
   it('marks an unloaded enhancement section incomplete without attributing it', () => {
     const result = connectionUsage({ ...loaded, enhancementProvider: null });
     expect(result.complete).toBe(false);
-    expect(result.byProvider['moonshot'].map((entry) => entry.id)).toEqual(['ptah-cli:one']);
+    expect(result.byProvider['kimi-code'].map((entry) => entry.id)).toEqual(['ptah-cli:one']);
   });
 
   it('does not attribute inherited roles when the main route has no provider', () => {
@@ -67,6 +67,6 @@ describe('connection usage', () => {
       },
     });
     expect(result.byProvider['openai-codex']).toBeUndefined();
-    expect(result.byProvider['moonshot'].map((entry) => entry.id)).toEqual(['enhancement']);
+    expect(result.byProvider['kimi-code'].map((entry) => entry.id)).toEqual(['enhancement']);
   });
 });

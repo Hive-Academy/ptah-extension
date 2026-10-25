@@ -150,8 +150,8 @@ describe('AgentRpcHandlers — ptah-cli list rows', () => {
         name: 'Kimi',
         enabled: true,
         hasApiKey: true,
-        providerName: 'Moonshot',
-        providerId: 'moonshot',
+        providerName: 'Kimi Code',
+        providerId: 'kimi-code',
       },
     ]);
 

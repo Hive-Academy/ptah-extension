@@ -7,10 +7,10 @@ import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.comp
 import { connectionInitials } from './provider-connection-card.state';
 
 const connection = (overrides: Partial<ProvidersConnection>): ProvidersConnection => ({
-  id: 'moonshot', name: 'Moonshot (Kimi)', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
+  id: 'kimi-code', name: 'Kimi Code', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
   defaultsResolvable: true, accountLabel: null, tokenStale: false, ...overrides,
 });
-const MOONSHOT = connection({});
+const KIMI_CODE = connection({});
 const SOVEREIGNEG = connection({ id: 'sovereigneg', name: 'sovereigneg', custom: true });
 const CLAUDE_CLI = connection({ id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', hasKey: false });
 
@@ -66,7 +66,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it('projects the header and footer into the drawer slots, outside the scrolling body (NG8011 regression)', () => {
-    render({ connection: MOONSHOT });
+    render({ connection: KIMI_CODE });
     const body = byTestId('native-drawer-body');
     expect(body?.contains(byTestId('connection-detail-drawer'))).toBe(false);
     expect(body?.contains(byTestId('connection-drawer-close'))).toBe(false);
@@ -74,18 +74,18 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it('is a labelled dialog showing this connection, opened on Overview', () => {
-    render({ connection: MOONSHOT, canEdit: true });
-    expect(query('[role="dialog"]')?.getAttribute('aria-label')).toBe('Moonshot (Kimi) connection details');
-    expect(byTestId('connection-drawer-title')?.textContent?.trim()).toBe('Moonshot (Kimi)');
+    render({ connection: KIMI_CODE, canEdit: true });
+    expect(query('[role="dialog"]')?.getAttribute('aria-label')).toBe('Kimi Code connection details');
+    expect(byTestId('connection-drawer-title')?.textContent?.trim()).toBe('Kimi Code');
     expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe('API key · Stored locally');
-    expect(byTestId('connection-drawer-avatar')?.textContent?.trim()).toBe('MK');
+    expect(byTestId('connection-drawer-avatar')?.textContent?.trim()).toBe('KC');
     expect(byTestId('connection-drawer-avatar')?.className).toContain('text-base-content');
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
     expect(byTestId('connection-overview')).not.toBeNull();
   });
 
   it.each([
-    ['an API-key connection', MOONSHOT, ['Overview & Used By', 'Credentials', 'Models & Tiers']],
+    ['an API-key connection', KIMI_CODE, ['Overview & Used By', 'Credentials', 'Models & Tiers']],
     ['the Claude CLI subscription', CLAUDE_CLI, ['Overview & Used By', 'Credentials', 'Models & Tiers']],
     ['a custom endpoint', SOVEREIGNEG, ['Overview & Used By', 'Credentials', 'Models & Tiers', 'Advanced']],
   ])('renders only the tabs that apply to %s', (_name, value, labels) => {
@@ -133,7 +133,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it.each([
-    ['Moonshot (Kimi)', 'MK'],
+    ['Kimi Code', 'KC'],
     ['sovereigneg', 'SO'],
     ['OpenAI Codex', 'OC'],
     ['', '?'],
@@ -164,7 +164,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it.each([
-    ['an API-key connection', MOONSHOT],
+    ['an API-key connection', KIMI_CODE],
     ['the Claude CLI subscription', CLAUDE_CLI],
   ])('Credentials of %s holds every credential path: the tab body, no setup fallback', (_name, value) => {
     render({ connection: value, canEdit: true });
@@ -178,7 +178,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   it('relays the Credentials tab requests', () => {
     const deleted = jest.fn();
     fixture.componentInstance.deleteKeyRequested.subscribe(deleted);
-    render({ connection: MOONSHOT });
+    render({ connection: KIMI_CODE });
     selectTab('Credentials');
     byTestId('credentials-delete')?.click(); fixture.detectChanges();
     byTestId('credentials-delete-confirm-button')?.click();
@@ -186,7 +186,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it.each([
-    ['an API-key connection', MOONSHOT],
+    ['an API-key connection', KIMI_CODE],
     ['the Claude CLI subscription', CLAUDE_CLI],
   ])('Models & Tiers of %s holds every tier edit: the tab body, no setup fallback', (_name, value) => {
     render({ connection: value, canEdit: true });
@@ -209,7 +209,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   });
 
   it('the Models & Tiers tab shows a busy skeleton until its tiers load', () => {
-    render({ connection: MOONSHOT });
+    render({ connection: KIMI_CODE });
     selectTab('Models & Tiers');
     expect(byTestId('models-skeleton')?.getAttribute('aria-busy')).toBe('true');
   });
@@ -217,7 +217,7 @@ describe('ConnectionDetailDrawerComponent', () => {
   it('Close, Esc and the header close button all request closure', () => {
     const closed = jest.fn();
     fixture.componentInstance.closed.subscribe(closed);
-    render({ connection: MOONSHOT });
+    render({ connection: KIMI_CODE });
     byTestId('connection-drawer-close')?.click();
     query('[role="dialog"]')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     byTestId('native-drawer-close')?.click();
@@ -228,7 +228,7 @@ describe('ConnectionDetailDrawerComponent', () => {
     render({ connection: SOVEREIGNEG });
     selectTab('Advanced');
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Advanced');
-    render({ connection: MOONSHOT });
+    render({ connection: KIMI_CODE });
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
   });
 

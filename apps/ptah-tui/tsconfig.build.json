@@ -21,6 +21,9 @@
       "@ptah-extension/auth-providers-tokens": [
         "../../libs/backend/auth-providers-tokens/src/index.ts"
       ],
+      "@ptah-extension/codex-runtime": [
+        "../../libs/backend/codex-runtime/src/index.ts"
+      ],
       "@ptah-extension/cli-agent-runtime": [
         "../../libs/backend/cli-agent-runtime/src/index.ts"
       ],
