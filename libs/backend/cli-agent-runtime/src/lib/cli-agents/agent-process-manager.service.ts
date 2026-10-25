@@ -8,8 +8,13 @@
  * - Graceful shutdown on extension deactivation
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
+import { randomUUID } from 'node:crypto';
 import { injectable, inject } from 'tsyringe';
 import { EventEmitter } from 'eventemitter3';
+import type {
+  ClaudeAccountAdmissionRequest,
+  ClaudeAccountSelectionReader,
+} from '@ptah-extension/auth-providers-tokens';
 import {
   TOKENS,
   Logger,
@@ -38,6 +43,7 @@ import type {
   LaneStopReason,
   OutcomeTaskKind,
   OutcomeRoutingSource,
+  ProviderAccountSelection,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
 import {
@@ -157,6 +163,8 @@ export type AgentContinueErrorCode =
    * `not_found` already takes.
    */
   | 'released'
+  /** A Claude lane's account route was refused; the lane did not run. */
+  | 'account_refused'
   | 'unknown';
 
 /** Why a subprocess was released — carried on the `agent:released` event. */
@@ -170,6 +178,8 @@ export interface AgentRoleStamp {
 
 interface SdkSpawnOptions {
   readonly accountReference?: LaneAccountReference;
+  /** Claude lanes only: the named route to admit; absent means ambient. */
+  readonly accountAdmission?: ClaudeAccountAdmissionRequest;
   readonly accountBindings?: LaneAccountBindingPort;
   readonly expectsMcp?: boolean;
   readonly runSdk: (options: CliCommandOptions) => Promise<SdkHandle>;
@@ -358,6 +368,14 @@ export class AgentProcessManager {
     private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
     @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
     private readonly instructionFiles?: LaneInstructionFileStore,
+    /**
+     * Stored per-workspace Claude lane selection (TASK_2026_719 B14). Absent
+     * on hosts without account storage: an omitted selection is then ambient.
+     */
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER, {
+      isOptional: true,
+    })
+    private readonly accountSelections?: ClaudeAccountSelectionReader,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -439,6 +457,12 @@ export class AgentProcessManager {
     const workingDirectory =
       request.workingDirectory ?? this.spawnEnvironment.workspaceRoot();
     await this.spawnEnvironment.validateWorkingDirectory(workingDirectory);
+    // Resolved before the preflight so a refused route leaves nothing behind.
+    const accountAdmission = await this.laneAccountAdmission(
+      request,
+      cli,
+      workingDirectory,
+    );
     // AFTER validation, BEFORE the process exists. `workingDirectory` may be a
     // sub-package of a monorepo (E14) — the preflight resolves it to the
     // workspace root, which is where every CLI-discoverable directory lives.
@@ -452,6 +476,7 @@ export class AgentProcessManager {
       : undefined;
     return this.doSpawnSdk({
       accountReference: gated?.accountReference,
+      accountAdmission,
       accountBindings: adapter.accountBindings,
       resumeDecision: gated?.resumeDecision,
       originalTask: gated?.originalTask,
@@ -469,6 +494,56 @@ export class AgentProcessManager {
       expectsMcp: adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
+  }
+
+  /**
+   * Account route for a Claude lane (TASK_2026_719 B14). Explicit named is
+   * admitted; explicit ambient is today's route; omitted follows the
+   * workspace's stored lane selection. A resume with no explicit selection
+   * keeps the account stored with its session, so it does not read the stored
+   * workspace selection. No reader means ambient. A reader failure refuses
+   * with `unavailable-storage` and never falls back to ambient. Other CLIs get
+   * no admission.
+   */
+  private async laneAccountAdmission(
+    request: SpawnAgentRequest,
+    cli: CliType,
+    workingDirectory: string,
+  ): Promise<ClaudeAccountAdmissionRequest | undefined> {
+    if (cli !== 'claude') return undefined;
+    const explicit = request.accountSelection;
+    let selection: ProviderAccountSelection | undefined;
+    if (explicit && explicit.kind !== 'omitted') {
+      if (explicit.kind === 'named') selection = explicit;
+    } else if (!request.resumeSessionId && this.accountSelections) {
+      let stored: { readonly profileId: string | null };
+      try {
+        stored = await this.accountSelections.readStoredSelection(
+          this.spawnEnvironment.workspaceRoot(),
+          'lane',
+        );
+      } catch (error: unknown) {
+        // Not swallowed: the spawn is refused. Only the error class name is
+        // logged; store messages can carry paths.
+        this.logger.warn(
+          '[AgentProcessManager] Stored lane account selection unreadable',
+          { errorName: error instanceof Error ? error.name : typeof error },
+        );
+        throw new LaneAccountResumeError('unavailable-storage');
+      }
+      if (stored.profileId !== null) {
+        selection = { kind: 'named', profileId: stored.profileId };
+      }
+    }
+    if (!selection) return undefined;
+    return {
+      provider: 'claude',
+      scope: 'lane',
+      selection,
+      operationId: randomUUID(),
+      runId: randomUUID(),
+      workingDirectory,
+    };
   }
 
   /**
@@ -724,6 +799,10 @@ export class AgentProcessManager {
     try {
       sdkHandle = await runSdk({
       ...options.accountReference,
+      // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
+      ...(options.accountAdmission
+        ? { accountAdmission: options.accountAdmission }
+        : {}),
       onAccountBinding: async (reference, sdkSessionId) => {
         const snapshot = snapshotLaneAccountReference(reference);
         if (!snapshot || !options.accountBindings) throw new LaneAccountResumeError('unavailable-storage');

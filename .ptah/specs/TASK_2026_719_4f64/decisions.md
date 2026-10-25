@@ -152,3 +152,7 @@
 
 - Bounded correction (fix run 5) reviewed by a fresh codex lane: APPROVED 9/10, both items closed, no new defects (`code-logic-review-p2-correction.md`). Phase P2 (B5-B9) is closed.
 - Open Minor items for later tasks: explicit `implements NamedAccountPersistencePort` (D22); type-required `ClaudeAuthContext.route` (D24).
+
+## D27 — B14 resume precedence (2026-10-26, orchestrator, evidence step)
+
+- On a lane resume with no explicit selection, `AgentProcessManager` does not read the stored workspace selection; the resumed session keeps its own account (its existing binding). An explicit named selection on resume is still forwarded. Reason: reading the stored selection would refuse older ambient sessions once a named lane account is stored, and it would conflict with "resume without a second binding or lease". Accepted; the P3 review checks it. Reversible.

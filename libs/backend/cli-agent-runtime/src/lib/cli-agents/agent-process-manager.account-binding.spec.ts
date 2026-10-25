@@ -9,8 +9,10 @@ import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { DependencyContainer } from 'tsyringe';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { persistCliSessionReference } from '../wiring/agent-events';
+import type { ClaudeAccountSelectionReader } from '@ptah-extension/auth-providers-tokens';
 import { AgentProcessManager } from './agent-process-manager.service';
 import {
+  LaneAccountResumeError,
   LaneResumeGate,
   laneAccountFields,
   snapshotLaneAccountReference,
@@ -116,7 +118,11 @@ function lane(fields: Partial<LaneAccountReference> = {}) {
   return { handle, done, next, outputs, sessions };
 }
 
-function harness(accountBindings: LaneAccountBindingPort | undefined = port(), cap = 3) {
+function harness(
+  accountBindings: LaneAccountBindingPort | undefined = port(),
+  cap = 3,
+  accountSelections?: ClaudeAccountSelectionReader,
+) {
   type Args = ConstructorParameters<typeof AgentProcessManager>;
   const logger = stub<Args[0]>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() });
   const adapter: CliAdapter = {
@@ -149,6 +155,7 @@ function harness(accountBindings: LaneAccountBindingPort | undefined = port(), c
     stub<Args[7]>({ signal: jest.fn() }), resume.gate,
     stub<Args[9]>({ ownerForLane: jest.fn(), rememberLaneOwner: jest.fn() }),
     stub<Args[10]>({ recordWindowEvidence: jest.fn(), recordOwnerEvidence: jest.fn(), recordSuccess: jest.fn() }),
+    undefined, undefined, undefined, accountSelections,
   );
   const spawnHandle = (handle: SdkHandle, extra: { cli?: CliType; agentId?: AgentId } = {}) =>
     manager.spawnFromSdkHandle(handle, { task: 'task', cli: CLAUDE, workingDirectory: ROOT,
@@ -612,5 +619,100 @@ describe('A2 mocked-evidence restored lane binding matrix', () => {
     expect(results[1].accountReference).toEqual({ accountBinding: other, accountBindingId: other.runId });
     expect(registry.validateResume).toHaveBeenCalledWith(reference);
     expect(registry.validateResume).toHaveBeenCalledWith({ accountBinding: other, accountBindingId: other.runId });
+  });
+});
+
+// B14 regression row: lane precedence (explicit, omitted to stored, no reader, reader error).
+describe('Claude lane account selection precedence', () => {
+  type RunOptions = Parameters<CliAdapter['runSdk']>[0] & { accountAdmission?: unknown };
+
+  function reader(result: Promise<{ readonly profileId: string | null }>) {
+    return { readStoredSelection: jest.fn().mockReturnValue(result) } satisfies ClaudeAccountSelectionReader;
+  }
+
+  function precedence(accountSelections?: ClaudeAccountSelectionReader) {
+    const h = harness(port(), 3, accountSelections);
+    const runSdk = jest.fn(async (_options: RunOptions) => lane().handle);
+    h.adapter.runSdk = runSdk;
+    const admission = () => runSdk.mock.calls[0]?.[0].accountAdmission;
+    return { ...h, runSdk, admission };
+  }
+
+  const admitted = (selection: unknown) => ({
+    provider: 'claude', scope: 'lane', selection, workingDirectory: ROOT,
+    operationId: expect.any(String), runId: expect.any(String),
+  });
+
+  it('admits an explicit named selection with the run working directory', async () => {
+    const stored = reader(Promise.resolve({ profileId: 'stored-profile' }));
+    const { manager, admission } = precedence(stored);
+    const selection = { kind: 'named', profileId: 'explicit-profile' } as const;
+    await manager.spawn({ cli: CLAUDE, task: 'task', workingDirectory: ROOT, timeout: 0, accountSelection: selection });
+    expect(admission()).toEqual(admitted(selection));
+    expect(stored.readStoredSelection).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit ambient selection on today\'s route', async () => {
+    const stored = reader(Promise.resolve({ profileId: 'stored-profile' }));
+    const { manager, runSdk, admission } = precedence(stored);
+    await manager.spawn({ cli: CLAUDE, task: 'task', timeout: 0, accountSelection: { kind: 'ambient' } });
+    expect(runSdk).toHaveBeenCalledTimes(1);
+    expect(admission()).toBeUndefined();
+    expect(stored.readStoredSelection).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, { kind: 'omitted' } as const])('reads the stored lane selection when omitted (%p)', async accountSelection => {
+    const stored = reader(Promise.resolve({ profileId: 'stored-profile' }));
+    const { manager, admission } = precedence(stored);
+    await manager.spawn({ cli: CLAUDE, task: 'task', timeout: 0, ...(accountSelection ? { accountSelection } : {}) });
+    expect(stored.readStoredSelection).toHaveBeenCalledWith(ROOT, 'lane');
+    expect(admission()).toEqual(admitted({ kind: 'named', profileId: 'stored-profile' }));
+  });
+
+  it('stays ambient when the stored lane selection is the default route', async () => {
+    const stored = reader(Promise.resolve({ profileId: null }));
+    const { manager, runSdk, admission } = precedence(stored);
+    await manager.spawn({ cli: CLAUDE, task: 'task', timeout: 0 });
+    expect(stored.readStoredSelection).toHaveBeenCalledTimes(1);
+    expect(runSdk).toHaveBeenCalledTimes(1);
+    expect(admission()).toBeUndefined();
+  });
+
+  it('stays ambient when the host has no selection reader', async () => {
+    const { manager, runSdk, admission } = precedence(undefined);
+    await manager.spawn({ cli: CLAUDE, task: 'task', timeout: 0 });
+    expect(runSdk).toHaveBeenCalledTimes(1);
+    expect(admission()).toBeUndefined();
+  });
+
+  it('refuses unavailable-storage on a reader error, before preflight and without ambient retry', async () => {
+    const stored = { readStoredSelection: jest.fn().mockRejectedValue(new Error('D:/secret/path unreadable')) };
+    const { manager, runSdk, environment } = precedence(stored);
+    const spawned = manager.spawn({ cli: CLAUDE, task: 'task', timeout: 0 });
+    await expect(spawned).rejects.toBeInstanceOf(LaneAccountResumeError);
+    await expect(spawned).rejects.toMatchObject({ code: 'unavailable-storage' });
+    await expect(spawned).rejects.not.toThrow(/secret/);
+    expect(runSdk).not.toHaveBeenCalled();
+    expect(environment.runHarnessPreflight).not.toHaveBeenCalled();
+    expect(manager.listTrackedAgents()).toHaveLength(0);
+  });
+
+  it('keeps the session\'s stored account on an omitted resume', async () => {
+    const stored = reader(Promise.resolve({ profileId: 'stored-profile' }));
+    const { manager, admission } = precedence(stored);
+    await manager.spawn({ cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', timeout: 0 });
+    expect(stored.readStoredSelection).not.toHaveBeenCalled();
+    expect(admission()).toBeUndefined();
+  });
+
+  it('leaves non-Claude CLIs unchanged', async () => {
+    const stored = reader(Promise.resolve({ profileId: 'stored-profile' }));
+    const { manager, runSdk, admission } = precedence(stored);
+    // Copilot: the harness environment has no Codex lane budgets.
+    await manager.spawn({ cli: 'copilot', task: 'task', timeout: 0, accountSelection: { kind: 'named', profileId: 'p' } });
+    expect(runSdk).toHaveBeenCalledTimes(1);
+    expect(admission()).toBeUndefined();
+    expect(runSdk.mock.calls[0][0]).not.toHaveProperty('accountAdmission');
+    expect(stored.readStoredSelection).not.toHaveBeenCalled();
   });
 });
