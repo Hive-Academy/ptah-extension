@@ -133,6 +133,7 @@ import type {
 import type { TaskIndexService } from '@ptah-extension/task-specs';
 
 import { SessionRpcHandlers } from './session-rpc.handlers';
+import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.registry';
 
 // ---------------------------------------------------------------------------
@@ -205,11 +206,13 @@ function createMockSdkAdapter(): MockSdkAdapter {
 }
 
 type MockChatSession = {
+  gateSessionAccount: jest.MockedFunction<ChatSessionService['gateSessionAccount']>;
   ensureSessionActiveForRewind: jest.Mock;
 };
 
 function createMockChatSession(): MockChatSession {
   return {
+    gateSessionAccount: jest.fn<Promise<void>, [SessionId]>().mockResolvedValue(undefined),
     ensureSessionActiveForRewind: jest
       .fn()
       .mockResolvedValue({ alreadyActive: true }),
@@ -2740,7 +2743,54 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:forkSession', () => {
-    it('delegates to SdkAgentAdapter.forkSession and remaps sessionId → newSessionId', async () => {
+    it.each(['release-held', 'identity-unproved', 'invalid-bound'])(
+      'preserves the source and returns a typed %s refusal before forking',
+      async (code) => {
+        const h = makeHarness();
+        const source = makeMetadata({ sessionId: VALID_SESSION_ID });
+        const original = { ...source };
+        h.metadataStore.get.mockResolvedValue(source as never);
+        const refusal = { code, summary: 'The session account could not be verified.' };
+        h.chatSession.gateSessionAccount.mockRejectedValue(refusal);
+        h.handlers.register();
+
+        const result = await call(h, 'session:forkSession', {
+          sessionId: VALID_SESSION_ID,
+        });
+
+        expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
+        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
+        expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
+        expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(h.metadataStore.rename).not.toHaveBeenCalled();
+        expect(source).toEqual(original);
+        expect(h.logger.error).not.toHaveBeenCalled();
+        expect(h.sentry.captureException).not.toHaveBeenCalled();
+      },
+    );
+
+    it('uses the safe account summary without exposing the rejected error', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(makeMetadata({ sessionId: VALID_SESSION_ID }) as never);
+      h.chatSession.gateSessionAccount.mockRejectedValue(Object.assign(
+        new Error('Credential failure at /private/accounts/source'),
+        { code: 'release-held' },
+      ));
+      h.handlers.register();
+
+      const result = await call(h, 'session:forkSession', { sessionId: VALID_SESSION_ID });
+
+      const summary = 'The session account could not be verified. The conversation was preserved.';
+      expect(result).toEqual({
+        success: false, error: summary, accountRefusal: { code: 'release-held', summary },
+      });
+      expect(h.sdkAdapter.forkSession).not.toHaveBeenCalled();
+      expect(h.logger.error).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('keeps ambient fork arguments and the newSessionId result unchanged', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
@@ -2771,6 +2821,13 @@ describe('SessionRpcHandlers', () => {
         undefined,
       );
       expect(result.newSessionId).toBe('forked-uuid');
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
+        h.sdkAdapter.forkSession.mock.invocationCallOrder[0],
+      );
+      expect(h.metadataStore.get).toHaveBeenCalledTimes(1);
+      expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
     });
 
     it('forwards undefined upToMessageId / title (optional params)', async () => {
@@ -2983,7 +3040,58 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:rewindFiles', () => {
-    it('delegates to SdkAgentAdapter.rewindFiles and returns the SDK result shape', async () => {
+    it.each([true, false])(
+      'returns a typed account refusal before checking or rewinding an active=%s session',
+      async (active) => {
+        const h = makeHarness();
+        const source = makeMetadata({ sessionId: VALID_SESSION_ID });
+        const original = { ...source };
+        h.metadataStore.get.mockResolvedValue(source as never);
+        h.sdkAdapter.isSessionActive.mockReturnValue(active);
+        const refusal = { code: 'release-held', summary: 'Named account admission is release held.' };
+        h.chatSession.gateSessionAccount.mockRejectedValue(refusal);
+        h.handlers.register();
+
+        const result = await call(h, 'session:rewindFiles', {
+          sessionId: VALID_SESSION_ID,
+          userMessageId: VALID_USER_MESSAGE_ID,
+        });
+
+        expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
+        expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+        expect(h.sdkAdapter.isSessionActive).not.toHaveBeenCalled();
+        expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
+        expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
+        expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
+        expect(h.metadataStore.delete).not.toHaveBeenCalled();
+        expect(source).toEqual(original);
+        expect(h.logger.error).not.toHaveBeenCalled();
+        expect(h.sentry.captureException).not.toHaveBeenCalled();
+      },
+    );
+
+    it('preserves a typed refusal returned by the inactive resume gate', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(makeMetadata({ sessionId: VALID_SESSION_ID }) as never);
+      h.sdkAdapter.isSessionActive.mockReturnValue(false);
+      const refusal = { code: 'identity-unproved', summary: 'The session account could not be verified.' };
+      h.chatSession.ensureSessionActiveForRewind.mockResolvedValue({
+        resumed: false, error: refusal.summary, accountRefusal: refusal,
+      });
+      h.handlers.register();
+
+      const result = await call(h, 'session:rewindFiles', {
+        sessionId: VALID_SESSION_ID,
+        userMessageId: VALID_USER_MESSAGE_ID,
+      });
+
+      expect(result).toEqual({ success: false, error: refusal.summary, accountRefusal: refusal });
+      expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
+      expect(h.logger.error).not.toHaveBeenCalled();
+      expect(h.sentry.captureException).not.toHaveBeenCalled();
+    });
+
+    it('keeps ambient active rewind arguments and the SDK result unchanged', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
@@ -3020,6 +3128,13 @@ describe('SessionRpcHandlers', () => {
       expect(result.filesChanged).toEqual(['/a.ts', '/b.ts']);
       expect(result.insertions).toBe(10);
       expect(result.deletions).toBe(4);
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
+        h.sdkAdapter.isSessionActive.mock.invocationCallOrder[0],
+      );
+      expect(h.metadataStore.get).toHaveBeenCalledTimes(1);
+      expect(h.chatSession.ensureSessionActiveForRewind).not.toHaveBeenCalled();
     });
 
     it('returns canRewind=false + error verbatim when checkpointing is disabled', async () => {
@@ -3113,7 +3228,7 @@ describe('SessionRpcHandlers', () => {
       expect(h.sdkAdapter.rewindFiles).not.toHaveBeenCalled();
     });
 
-    it('auto-resumes the session when inactive and then delegates to SdkAgentAdapter.rewindFiles', async () => {
+    it('keeps ambient inactive rewind auto-resume and SDK arguments unchanged', async () => {
       const h = makeHarness();
       h.metadataStore.get.mockResolvedValue(
         makeMetadata({
@@ -3152,6 +3267,12 @@ describe('SessionRpcHandlers', () => {
       );
       expect(h.sdkAdapter.rewindFiles).toHaveBeenCalled();
       expect(result.canRewind).toBe(true);
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledTimes(1);
+      expect(h.chatSession.gateSessionAccount).toHaveBeenCalledWith(VALID_SESSION_ID);
+      expect(h.chatSession.gateSessionAccount.mock.invocationCallOrder[0]).toBeLessThan(
+        h.chatSession.ensureSessionActiveForRewind.mock.invocationCallOrder[0],
+      );
+      expect(h.metadataStore.get).toHaveBeenCalledTimes(2);
     });
 
     it('surfaces a session-not-active error when auto-resume fails (no recursion)', async () => {

@@ -47,6 +47,8 @@ env:
   # The publish-* workflows stay on 22 deliberately -- they match release targets.
   NODE_VERSION: 24
   NX_TUI: 'false'
+  # nx.json caps local runs at one task. CI keeps its previous default of 2.
+  NX_PARALLEL: 2
 
 jobs:
   cli-e2e:

@@ -178,6 +178,10 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
   }, testInfo) => {
     const page = ui.page;
     await ui.goto('git');
+    // The overlap check below was laid out beside the open Workspaces panel,
+    // which now starts closed.
+    await page.getByRole('button', { name: 'Toggle Workspaces panel' }).click();
+    await expect(page.locator('ptah-workspace-sidebar')).toBeVisible();
     await showCanvas(ui);
 
     const before = repo.worktreeDiff();

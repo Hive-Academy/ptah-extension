@@ -3,14 +3,8 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-landing-page-e2e/src",
-  "tags": [
-    "scope:e2e",
-    "type:e2e",
-    "scope:landing"
-  ],
-  "implicitDependencies": [
-    "ptah-landing-page"
-  ],
+  "tags": ["scope:e2e", "type:e2e", "scope:landing"],
+  "implicitDependencies": ["ptah-landing-page"],
   "targets": {
     "e2e": {
       "executor": "nx:run-commands",
@@ -51,11 +45,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

@@ -26,6 +26,7 @@
  */
 
 import { inject, injectable } from 'tsyringe';
+import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -41,6 +42,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   MESSAGE_TYPES,
+  SessionId,
   type AgentSessionOpenedPayload,
   type SessionHandoffOpenedPayload,
 } from '@ptah-extension/shared';
@@ -80,7 +82,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
 
   async startChildSession(
     input: ChildChatSessionStartInput,
-  ): Promise<ChildChatSessionStartOutcome> {
+  ): Promise<ChildChatSessionStartOutcome & { readonly accountRefusal?: ProviderAccountPortRefusal }> {
     const uiAnnounced = await this.announce(
       MESSAGE_TYPES.AGENT_SESSION_OPENED,
       input.descriptor,
@@ -92,8 +94,10 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       this.lifecycle?.find(input.descriptor.parentTabId)?.permissionLevel;
 
     let error: string;
+    let accountRefusal: ProviderAccountPortRefusal | undefined;
     try {
       const result = await this.session.startAgentChildSession({
+        sourceSessionId: SessionId.from(input.descriptor.parentSessionId ?? input.descriptor.parentTabId),
         tabId: input.tabId,
         workspaceRoot: input.workspaceRoot,
         worktreePath: input.worktreePath,
@@ -106,6 +110,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         return { started: true, uiAnnounced };
       }
       error = result.error || 'unknown error';
+      accountRefusal = 'accountRefusal' in result ? result.accountRefusal : undefined;
     } catch (error_: unknown) {
       error = error_ instanceof Error ? error_.message : String(error_);
     }
@@ -121,7 +126,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         `Child session could not start: ${error}`,
       );
     }
-    return { started: false, error };
+    return { started: false, error, ...(accountRefusal ? { accountRefusal } : {}) };
   }
 
   /**
@@ -133,7 +138,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
    */
   async startHandoffSession(
     input: HandoffChatSessionStartInput,
-  ): Promise<ChildChatSessionStartOutcome> {
+  ): Promise<ChildChatSessionStartOutcome & { readonly accountRefusal?: ProviderAccountPortRefusal }> {
     const uiAnnounced = await this.announce(
       MESSAGE_TYPES.SESSION_HANDOFF_OPENED,
       input.descriptor,
@@ -147,8 +152,10 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
       this.lifecycle?.find(input.descriptor.fromTabId)?.permissionLevel;
 
     let error: string;
+    let accountRefusal: ProviderAccountPortRefusal | undefined;
     try {
       const result = await this.session.startHandoffSession({
+        sourceSessionId: SessionId.from(input.descriptor.fromSessionId ?? input.descriptor.fromTabId),
         tabId: input.tabId,
         workspaceRoot: input.workspaceRoot,
         cwd: input.cwd,
@@ -161,6 +168,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         return { started: true, uiAnnounced };
       }
       error = result.error || 'unknown error';
+      accountRefusal = 'accountRefusal' in result ? result.accountRefusal : undefined;
     } catch (error_: unknown) {
       error = `the session launch threw (${safeErrorKind(error_)}).`;
     }
@@ -176,7 +184,7 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         `Handoff session could not start: ${error}`,
       );
     }
-    return { started: false, error };
+    return { started: false, error, ...(accountRefusal ? { accountRefusal } : {}) };
   }
 
   /**

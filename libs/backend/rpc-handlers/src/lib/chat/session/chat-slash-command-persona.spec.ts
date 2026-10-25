@@ -33,7 +33,12 @@ function harness(live: boolean) {
     isStreaming: jest.fn().mockReturnValue(live),
     streamEventsToWebview: jest.fn(),
   };
-  const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn() };
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
   const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
@@ -80,6 +85,9 @@ function harness(live: boolean) {
     sdkAdapter,
     streamBroadcaster,
     slashCommandRouter: router,
+    // Ambient host (no account service): the gate reads local metadata only,
+    // and a session without an account binding is admitted.
+    sessionMetadataStore: { get: jest.fn().mockResolvedValue(undefined) },
     sentryService: { captureException: jest.fn() },
   }) as ChatSessionService;
   return { service, executeSlashCommand, resumeSession, interruptSession };

@@ -84,6 +84,8 @@ test.describe('Global configuration menu — welcome gate', () => {
     await page.locator('[data-test="config-menu-item-settings"]').click();
     await expect(page.locator('ptah-settings')).toBeVisible();
 
+    // The Workspaces panel starts closed. Open it to reach Remove workspace.
+    await page.getByRole('button', { name: 'Toggle Workspaces panel' }).click();
     await page.getByRole('button', { name: 'Remove workspace' }).click();
 
     // Gate flip 3 -> 2 (electron-shell.config-gate.spec.ts case 7): the bare

@@ -94,6 +94,7 @@ import {
   TranscriptTurnContexts,
   turnAgentKeysOf,
   turnAgentsOf,
+  turnLogOpenOf,
   type TurnAgentKeys,
   type TurnAgents,
   type TurnContexts,
@@ -897,12 +898,11 @@ export class ChatTranscriptComponent {
    */
   protected logOpenFor(turn: TurnContext | null): boolean | null {
     if (!turn) return null;
-    const chosen = this.turnLogOpen().get(turn.turnId);
-    if (chosen !== undefined) return chosen;
-    return this.viewMode() === 'full' &&
-      this.streamingTurnIds().has(turn.turnId)
-      ? true
-      : null;
+    return turnLogOpenOf(
+      this.turnLogOpen().get(turn.turnId),
+      this.viewMode(),
+      this.streamingTurnIds().has(turn.turnId),
+    );
   }
 
   /** Disclosure row of a turn toggled: record the user's choice (§3.1). */

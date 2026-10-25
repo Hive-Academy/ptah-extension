@@ -15,6 +15,8 @@ test.use({
 test.describe('docs screenshots — workspace, settings, setup', () => {
   test('workspace rail and recent workspaces', async ({ page }) => {
     test.setTimeout(300_000);
+    // The Workspaces panel starts closed.
+    await page.getByRole('button', { name: 'Toggle Workspaces panel' }).click();
     const rail = page.locator('ptah-workspace-sidebar');
     await expect(rail).toBeVisible();
     await page.waitForTimeout(1_000);

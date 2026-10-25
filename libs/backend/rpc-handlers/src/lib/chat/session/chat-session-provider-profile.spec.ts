@@ -237,7 +237,9 @@ function makeHarness(resolve: jest.Mock): Harness {
 describe('chat:resume stored provider', () => {
   it('returns metadata identity and leaves old sessions unknown', async () => {
     const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
-    h.metadataGet.mockResolvedValueOnce({ providerId: 'openrouter' });
+    // resumeSession reads metadata twice (account gate, then identity), so
+    // stub per call rather than per read.
+    h.metadataGet.mockResolvedValue({ providerId: 'openrouter' });
     const params = {
       sessionId: SESSION_ID,
       tabId: TAB_ID,
@@ -246,6 +248,7 @@ describe('chat:resume stored provider', () => {
     expect((await h.service.resumeSession(params)).providerId).toBe(
       'openrouter',
     );
+    h.metadataGet.mockResolvedValue(null);
     expect((await h.service.resumeSession(params)).providerId).toBeUndefined();
   });
 });

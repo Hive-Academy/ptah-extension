@@ -524,7 +524,7 @@ export default [
      * over 1000 (measured 2026-08-17, see .ptah/specs/TASK_2026_268/context.md),
      * so this MUST stay 'warn' — an 'error' here blocks every commit in the
      * workspace and gets reverted within a day. The pre-commit hook runs
-     * `nx affected --target=lint --max-warnings=-1`, which does not fail on
+     * `eslint --max-warnings=-1` on the staged files, which does not fail on
      * warnings, so the existing 137 keep committing while new growth gets a
      * visible nudge. See CLAUDE.md "Coding Standards" for the accompanying
      * facade rule and guardrails against fragment sprawl.

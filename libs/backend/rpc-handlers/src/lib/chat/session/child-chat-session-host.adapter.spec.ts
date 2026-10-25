@@ -177,6 +177,7 @@ describe('ChildChatSessionHostAdapter', () => {
       descriptor,
     );
     expect(h.startAgentChildSession).toHaveBeenCalledWith({
+      sourceSessionId: descriptor.parentSessionId,
       tabId: CHILD_TAB,
       workspaceRoot: '/repo',
       worktreePath: '/repo/.ptah/worktrees/child-1',
@@ -334,6 +335,7 @@ describe('ChildChatSessionHostAdapter.startHandoffSession (TASK_2026_655)', () =
     );
     expect(h.startHandoffSession).toHaveBeenCalledTimes(1);
     expect(h.startHandoffSession).toHaveBeenCalledWith({
+      sourceSessionId: handoffDescriptor.fromSessionId,
       tabId: HANDOFF_TAB,
       workspaceRoot: '/repo',
       cwd: '/repo/packages/parser',

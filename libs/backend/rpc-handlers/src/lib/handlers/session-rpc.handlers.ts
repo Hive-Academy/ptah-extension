@@ -76,6 +76,7 @@ import { TurnChangeSetStore } from '../chat/change-set/turn-change-set.store';
 import { resolveResumeWorkingDirectory } from '../chat/session/resume-working-directory';
 import { resolveSessionFolder } from '../chat/session/session-folder';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
+import { mainSessionAccountFailure } from '../chat/session/chat-slash-command-router.service';
 import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
   SessionStatusParams,
@@ -1355,7 +1356,10 @@ export class SessionRpcHandlers {
    * forked branch. The original session is left untouched.
    */
   private registerForkSession(): void {
-    this.rpcHandler.registerMethod<SessionForkParams, SessionForkResult>(
+    this.rpcHandler.registerMethod<
+      SessionForkParams,
+      SessionForkResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+    >(
       'session:forkSession',
       async (params: SessionForkParams) => {
         try {
@@ -1371,6 +1375,7 @@ export class SessionRpcHandlers {
               : undefined;
           const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           await this.authorizeSessionAccess(sessionId);
+          await this.chatSession.gateSessionAccount(sessionId as SessionId);
 
           this.logger.debug('RPC: session:forkSession called', {
             sessionId,
@@ -1389,6 +1394,8 @@ export class SessionRpcHandlers {
           );
           return { newSessionId: result.sessionId as SessionId };
         } catch (error) {
+          const refusal = mainSessionAccountFailure(error);
+          if (refusal) return refusal;
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
           if (
@@ -1429,7 +1436,10 @@ export class SessionRpcHandlers {
    * frontend retry dance.
    */
   private registerRewindFiles(): void {
-    this.rpcHandler.registerMethod<SessionRewindParams, SessionRewindResult>(
+    this.rpcHandler.registerMethod<
+      SessionRewindParams,
+      SessionRewindResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>
+    >(
       'session:rewindFiles',
       async (params: SessionRewindParams) => {
         try {
@@ -1447,6 +1457,7 @@ export class SessionRpcHandlers {
           const anchorHint = this.sanitizeAnchorHint(params.anchorHint);
           const dryRun = params.dryRun;
           await this.authorizeSessionAccess(sessionId);
+          await this.chatSession.gateSessionAccount(sessionId as SessionId);
 
           this.logger.debug('RPC: session:rewindFiles called', {
             sessionId,
@@ -1474,6 +1485,7 @@ export class SessionRpcHandlers {
               params.systemPrompt,
             );
             if ('resumed' in outcome && outcome.resumed === false) {
+              if (outcome.accountRefusal) throw outcome.accountRefusal;
               throw new Error(`session-not-active: ${outcome.error}`);
             }
           }
@@ -1533,6 +1545,8 @@ export class SessionRpcHandlers {
             deletions: result.deletions,
           };
         } catch (error) {
+          const refusal = mainSessionAccountFailure(error);
+          if (refusal) return refusal;
           if (error instanceof RpcUserError) throw error;
           const errorObj =
             error instanceof Error ? error : new Error(String(error));

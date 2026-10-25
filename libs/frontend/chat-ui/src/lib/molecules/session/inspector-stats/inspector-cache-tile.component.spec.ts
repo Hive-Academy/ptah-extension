@@ -38,13 +38,14 @@ describe(InspectorCacheTileComponent.name, () => {
     const root = fixture.nativeElement as HTMLElement;
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
     const { svg, arc } = ring(root);
-    expect(root.classList.contains('col-span-2')).toBe(true);
+    expect(root.classList.contains('col-span-2')).toBe(false);
+    expect(root.classList.contains('min-w-0')).toBe(true);
     expect(tile?.classList.contains('relative')).toBe(true);
     expect(root.textContent).toContain(`Prompt cache · ${ttl}`);
     expect(root.textContent).toContain(start);
     expect(root.textContent).toContain('Estimated');
     expect(svg?.getAttribute('aria-hidden')).toBe('true');
-    expect(svg?.getAttribute('width')).toBe('44');
+    expect(svg?.getAttribute('width')).toBe('24');
     expect(svg?.style.color).toBe('var(--ptah-gold, var(--ptah-accent-ink))');
     expect(Number(arc?.getAttribute('stroke-dashoffset'))).toBeCloseTo(0);
     expect(tile?.getAttribute('role')).toBe('group');
@@ -108,4 +109,3 @@ describe(InspectorCacheTileComponent.name, () => {
     fixture.destroy();
   });
 });
-

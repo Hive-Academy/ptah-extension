@@ -68,6 +68,8 @@ function harness(
   const probe = {
     readAccount: jest.fn(async () => options.account ?? null),
     readPlanUsage: jest.fn(async () => null),
+    readAccountForRoute: jest.fn(),
+    readPlanUsageForRoute: jest.fn(),
     sessionRoute: jest.fn(() =>
       options.route === undefined ? null : options.route,
     ),
@@ -640,6 +642,8 @@ describe('ProviderOwnerResolver', () => {
       const probe = {
         readAccount: jest.fn(async () => null),
         readPlanUsage: jest.fn(async () => null),
+        readAccountForRoute: jest.fn(),
+        readPlanUsageForRoute: jest.fn(),
         sessionRoute: jest.fn(() => null),
       } satisfies SessionQuotaProbe;
       child.registerInstance(TOKENS.LOGGER, logger as unknown as Logger);

@@ -37,7 +37,11 @@ import {
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkError } from '../errors';
-import type { JsonlReaderService } from '../helpers/history/jsonl-reader.service';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
+import {
+  claudeResourceKey,
+  type JsonlReaderService,
+} from '../helpers/history/jsonl-reader.service';
 import {
   SessionUsageLedgerBuilder,
   type SessionUsageLedger,
@@ -97,6 +101,7 @@ interface SubagentMembership {
 
 /** Per-request state shared by every session in one page. */
 interface PageContext {
+  readonly context?: ClaudeAccountResolvedResourceContext;
   readonly sessionsDir: string;
   readonly signal?: AbortSignal;
   readonly subagentSlots: Semaphore;
@@ -107,6 +112,18 @@ interface PageContext {
 @injectable()
 export class SessionStatsReaderService {
   private readonly cache = new SessionUsageLedgerCache();
+  private readonly shutdown = new AbortController();
+
+  dispose(): void {
+    this.shutdown.abort();
+    this.cache.clear();
+  }
+
+  private readSignal(signal?: AbortSignal): AbortSignal {
+    return signal
+      ? AbortSignal.any([signal, this.shutdown.signal])
+      : this.shutdown.signal;
+  }
 
   /** The shared runtime rate card, read when each page is served. */
   private readonly lookupPricing: PricingLookup = findModelPricing;
@@ -118,30 +135,48 @@ export class SessionStatsReaderService {
   ) {}
 
   /** Workspace scan with optional caller bounds. The caller authorizes workspacePath first. */
-  async *scanDatedUsage(request: {
-    readonly workspacePath: string;
-    readonly since: number;
-    readonly until: number;
-    readonly signal?: AbortSignal;
-    readonly maxFiles?: number;
-    readonly maxRecords?: number;
-  }): AsyncGenerator<DatedUsageScanEntry> {
-    const { since, until, signal } = request;
+  async *scanDatedUsage(
+    request: {
+      readonly workspacePath: string;
+      readonly since: number;
+      readonly until: number;
+      readonly signal?: AbortSignal;
+      readonly maxFiles?: number;
+      readonly maxRecords?: number;
+    },
+    context?: ClaudeAccountResolvedResourceContext,
+  ): AsyncGenerator<DatedUsageScanEntry> {
+    const { since, until } = request;
+    const signal = this.readSignal(request.signal);
+    signal.throwIfAborted();
     if (!Number.isFinite(since) || !Number.isFinite(until) || since >= until) {
       throw new SdkError('Invalid dated usage range');
     }
-    const sessionsDir = await this.jsonlReader.findSessionsDirectory(request.workspacePath);
+    const sessionsDir = await this.jsonlReader.findSessionsDirectory(
+      request.workspacePath,
+      context,
+    );
     if (!sessionsDir) return;
     const page: PageContext = {
-      sessionsDir, signal, subagentSlots: new Semaphore(SUBAGENT_FILE_CONCURRENCY),
+      sessionsDir,
+      signal,
+      context,
+      subagentSlots: new Semaphore(SUBAGENT_FILE_CONCURRENCY),
     };
-    const names = (await fs.readdir(sessionsDir)).filter((name) =>
-      UUID_REGEX.test(name.replace(/\.jsonl$/, '')) && name.endsWith('.jsonl'),
-    ).sort((a, b) => a.localeCompare(b, 'en'));
+    const names = (await fs.readdir(sessionsDir))
+      .filter(
+        (name) =>
+          UUID_REGEX.test(name.replace(/\.jsonl$/, '')) &&
+          name.endsWith('.jsonl'),
+      )
+      .sort((a, b) => a.localeCompare(b, 'en'));
     let scannedFiles = 0;
     let scannedRecords = 0;
     for (const name of names) {
-      if (request.maxFiles !== undefined && scannedFiles >= request.maxFiles) { yield { kind: 'limit' }; return; }
+      if (request.maxFiles !== undefined && scannedFiles >= request.maxFiles) {
+        yield { kind: 'limit' };
+        return;
+      }
       signal?.throwIfAborted();
       const sessionId = name.slice(0, -6);
       try {
@@ -149,16 +184,30 @@ export class SessionStatsReaderService {
         const token = await statToken(parentPath);
         if (!token) continue;
         scannedFiles++;
-        const parent = await this.ledgerFor({ filePath: parentPath, token }, signal);
+        const parent = await this.ledgerFor(
+          { filePath: parentPath, token },
+          signal,
+          context,
+        );
         const members = await this.subagentMembers(sessionId, page);
-        if (members.unreadable) yield { kind: 'unreadable', count: members.unreadable };
+        if (members.unreadable)
+          yield { kind: 'unreadable', count: members.unreadable };
         const ledgers: Array<{ name: string; ledger: SessionUsageLedger }> = [
           { name: 'parent', ledger: parent },
         ];
         for (const member of members.owned) {
-          if (request.maxFiles !== undefined && scannedFiles >= request.maxFiles) { yield { kind: 'limit' }; return; }
+          if (
+            request.maxFiles !== undefined &&
+            scannedFiles >= request.maxFiles
+          ) {
+            yield { kind: 'limit' };
+            return;
+          }
           try {
-            ledgers.push({ name: path.basename(member.filePath), ledger: await this.ledgerFor(member, signal) });
+            ledgers.push({
+              name: path.basename(member.filePath),
+              ledger: await this.ledgerFor(member, signal, context),
+            });
             scannedFiles++;
           } catch {
             if (signal?.aborted) signal.throwIfAborted();
@@ -167,7 +216,13 @@ export class SessionStatsReaderService {
         }
         for (const { name: ledgerName, ledger } of ledgers) {
           for (let i = 0; i < ledger.records.length; i++) {
-            if (request.maxRecords !== undefined && scannedRecords >= request.maxRecords) { yield { kind: 'limit' }; return; }
+            if (
+              request.maxRecords !== undefined &&
+              scannedRecords >= request.maxRecords
+            ) {
+              yield { kind: 'limit' };
+              return;
+            }
             scannedRecords++;
             const record = ledger.records[i];
             if (!record.hasUsage) continue;
@@ -175,15 +230,27 @@ export class SessionStatsReaderService {
               yield { kind: 'untimestamped', count: 1 };
               continue;
             }
-            if (record.timestampMs < since || record.timestampMs >= until) continue;
-            yield { kind: 'usage', record: {
-              key: record.messageId ? `${sessionId}:${record.messageId}` : `${sessionId}:${ledgerName}:${i}`,
-              ...(ledgerName !== 'parent' ? { subagentId: ledgerName } : {}),
-              timestampMs: record.timestampMs,
-              model: record.model ?? ledger.initModel ?? 'unknown',
-              input: record.input, output: record.output,
-              cacheRead: record.cacheRead, cacheCreation: record.cacheCreation,
-            } };
+            if (record.timestampMs < since || record.timestampMs >= until)
+              continue;
+            yield {
+              kind: 'usage',
+              record: {
+                key:
+                  (context?.kind === 'named'
+                    ? `${claudeResourceKey(context)}:`
+                    : '') +
+                  (record.messageId
+                    ? `${sessionId}:${record.messageId}`
+                    : `${sessionId}:${ledgerName}:${i}`),
+                ...(ledgerName !== 'parent' ? { subagentId: ledgerName } : {}),
+                timestampMs: record.timestampMs,
+                model: record.model ?? ledger.initModel ?? 'unknown',
+                input: record.input,
+                output: record.output,
+                cacheRead: record.cacheRead,
+                cacheCreation: record.cacheCreation,
+              },
+            };
           }
         }
       } catch {
@@ -199,8 +266,11 @@ export class SessionStatsReaderService {
    */
   async readStats(
     request: SessionStatsRequest,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionStatsReadEntry[]> {
-    const { sessionIds, signal } = request;
+    const { sessionIds } = request;
+    const signal = this.readSignal(request.signal);
+    this.shutdown.signal.throwIfAborted();
     if (sessionIds.length > SESSION_STATS_BATCH_MAX_IDS) {
       throw new SdkError(
         `session stats request carries ${sessionIds.length} ids; max ${SESSION_STATS_BATCH_MAX_IDS}`,
@@ -214,12 +284,14 @@ export class SessionStatsReaderService {
 
     const sessionsDir = await this.jsonlReader.findSessionsDirectory(
       request.workspacePath,
+      context,
     );
     if (!sessionsDir) return sessionIds.map(emptySessionStats);
 
     const page: PageContext = {
       sessionsDir,
       signal,
+      context,
       subagentSlots: new Semaphore(SUBAGENT_FILE_CONCURRENCY),
     };
     const results: SessionStatsReadEntry[] = new Array(sessionIds.length);
@@ -257,6 +329,7 @@ export class SessionStatsReaderService {
       const parent = await this.ledgerFor(
         { filePath: parentPath, token: parentToken },
         page.signal,
+        page.context,
       );
       const membership = await this.subagentMembers(sessionId, page);
       const subagents: SessionUsageLedger[] = [];
@@ -265,7 +338,7 @@ export class SessionStatsReaderService {
         membership.owned.map(async (file) => {
           try {
             const ledger = await page.subagentSlots.run(
-              () => this.ledgerFor(file, page.signal),
+              () => this.ledgerFor(file, page.signal, page.context),
               page.signal,
             );
             if (ledger) subagents.push(ledger);
@@ -274,7 +347,19 @@ export class SessionStatsReaderService {
             unreadableSubagents++;
             this.logger.debug('[SessionStatsReader] Unreadable subagent file', {
               sessionId,
-              error: error instanceof Error ? error.message : String(error),
+              error:
+                page.context?.kind === 'named'
+                  ? typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error &&
+                    typeof error.code === 'string'
+                    ? error.code
+                    : error instanceof Error
+                      ? error.name
+                      : 'Error'
+                  : error instanceof Error
+                    ? error.message
+                    : String(error),
             });
           }
         }),
@@ -286,14 +371,33 @@ export class SessionStatsReaderService {
         path.basename(file.filePath),
       );
       return aggregateSessionUsage(
-        { sessionId, parent, subagents, unreadableSubagents, subagentIds, scope },
+        {
+          sessionId,
+          parent,
+          subagents,
+          unreadableSubagents,
+          subagentIds,
+          scope,
+        },
         this.lookupPricing,
       );
     } catch (error: unknown) {
       if (!page.signal?.aborted) {
         this.logger.warn('[SessionStatsReader] Could not read session stats', {
           sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error:
+            page.context?.kind === 'named'
+              ? typeof error === 'object' &&
+                error !== null &&
+                'code' in error &&
+                typeof error.code === 'string'
+                ? error.code
+                : error instanceof Error
+                  ? error.name
+                  : 'Error'
+              : error instanceof Error
+                ? error.message
+                : String(error),
         });
       }
       return failedSessionStats(sessionId);
@@ -331,16 +435,31 @@ export class SessionStatsReaderService {
       flat.map(async (file): Promise<string | null | undefined> => {
         try {
           const ledger = await page.subagentSlots.run(
-            () => this.ledgerFor(file, page.signal),
+            () => this.ledgerFor(file, page.signal, page.context),
             page.signal,
           );
           return ledger.firstSessionId;
         } catch (error: unknown) {
           if (page.signal?.aborted) throw error;
-          this.logger.debug('[SessionStatsReader] Unreadable legacy subagent file', {
-            sessionId,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          this.logger.debug(
+            '[SessionStatsReader] Unreadable legacy subagent file',
+            {
+              sessionId,
+              error:
+                page.context?.kind === 'named'
+                  ? typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error &&
+                    typeof error.code === 'string'
+                    ? error.code
+                    : error instanceof Error
+                      ? error.name
+                      : 'Error'
+                  : error instanceof Error
+                    ? error.message
+                    : String(error),
+            },
+          );
           return undefined;
         }
       }),
@@ -352,29 +471,41 @@ export class SessionStatsReaderService {
     };
   }
 
-  private ledgerFor(
+  private async ledgerFor(
     file: TranscriptFile,
     signal: AbortSignal | undefined,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionUsageLedger> {
-    return this.cache.getOrProject(
-      file.filePath,
-      file.token,
-      async () => {
-        const builder = new SessionUsageLedgerBuilder();
-        await this.jsonlReader.projectJsonlLines(
-          file.filePath,
-          (line) => builder.visit(line),
-          { signal, byteLength: file.token.size },
-        );
-        return builder.build();
-      },
-      signal,
-    );
+    try {
+      return await this.cache.getOrProject(
+        context?.kind === 'named'
+          ? JSON.stringify([claudeResourceKey(context), file.filePath])
+          : file.filePath,
+        file.token,
+        async () => {
+          const builder = new SessionUsageLedgerBuilder();
+          await this.jsonlReader.projectJsonlLines(
+            file.filePath,
+            (line) => builder.visit(line),
+            { signal, byteLength: file.token.size },
+            context,
+          );
+          signal?.throwIfAborted();
+          return builder.build();
+        },
+        signal,
+      );
+    } finally {
+      // A projection may settle in the same microtask turn as disposal.
+      if (this.shutdown.signal.aborted) this.cache.clear();
+    }
   }
 }
 
 /** `(size, mtimeMs)` for a file, or `null` when it does not exist. */
-async function statToken(filePath: string): Promise<TranscriptFileToken | null> {
+async function statToken(
+  filePath: string,
+): Promise<TranscriptFileToken | null> {
   try {
     const stats = await fs.stat(filePath);
     return stats.isFile() ? { size: stats.size, mtimeMs: stats.mtimeMs } : null;

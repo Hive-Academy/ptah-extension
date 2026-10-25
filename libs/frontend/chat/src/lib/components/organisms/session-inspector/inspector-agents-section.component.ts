@@ -102,7 +102,7 @@ let nextSectionId = 0;
   template: `
     @let state = agents();
     <section
-      class="pb-1.5 pt-3.5"
+      class="pb-1.5 pt-2"
       [attr.aria-labelledby]="headingId"
       [attr.aria-busy]="state.status === 'loading' ? 'true' : null"
     >
@@ -161,7 +161,7 @@ let nextSectionId = 0;
           </p>
         </div>
       } @else {
-        <ul class="mt-1.5">
+        <ul class="mt-1.5 max-h-[260px] overflow-y-auto overscroll-contain">
           @for (view of views(); track view.key; let i = $index) {
             <li
               class="st-r relative transition-colors duration-[120ms]"
@@ -178,7 +178,7 @@ let nextSectionId = 0;
               <div class="flex items-start">
                 <button
                   type="button"
-                  class="agent__main flex min-w-0 flex-1 items-start gap-[13px] pb-[11px] pl-[17px] pr-2 pt-[11px] text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2"
+                  class="agent__main flex min-w-0 flex-1 items-start gap-2 px-3 py-2 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2"
                   [attr.data-agent-key]="view.key"
                   [attr.aria-label]="view.ariaLabel"
                   [attr.aria-describedby]="
@@ -191,16 +191,16 @@ let nextSectionId = 0;
                     [status]="view.row.agent.status"
                     [cliId]="view.row.agent.cliId"
                     [agentType]="view.row.agent.agentType"
-                    [size]="32"
+                    [size]="28"
                   />
                   <span class="min-w-0 flex-1">
                     <span class="flex items-baseline gap-2">
                       <span
-                        class="min-w-0 truncate text-[13px] font-semibold"
+                        class="min-w-0 truncate text-xs font-semibold"
                         >{{ view.name }}</span
                       >
                       <span
-                        class="ml-auto flex shrink-0 items-baseline gap-1 text-xs"
+                        class="ml-auto flex shrink-0 items-baseline gap-1 text-[10px]"
                       >
                         @if (view.row.agent.status; as status) {
                           <span [class]="'font-medium ' + view.statusInk">{{
@@ -215,7 +215,7 @@ let nextSectionId = 0;
                       </span>
                     </span>
                     <span
-                      class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted"
+                      class="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-base-content-muted"
                     >
                       <span
                         class="h-auto shrink-0 rounded border border-surface-border bg-surface-3 px-[5px] py-[3px] text-[10px] font-medium leading-none text-base-content-muted"
@@ -241,7 +241,7 @@ let nextSectionId = 0;
                     </span>
                     @if (view.row.agent.kind === 'cli') {
                       <span
-                        class="mt-1.5 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap"
+                        class="mt-1 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap"
                       >
                         @if (view.cliTokens !== null) {
                           @if (view.cliUsagePartial) {

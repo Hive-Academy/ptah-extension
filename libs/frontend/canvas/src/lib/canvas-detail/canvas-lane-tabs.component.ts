@@ -24,6 +24,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
 import { AgentDockCardComponent } from './agent-dock-card.component';
 import { AgentDockMenuComponent } from './agent-dock-menu.component';
 import {
+  DOCK_INLINE_MAX,
   agentDurationMs,
   agentDurationText,
   agentStatusInk,
@@ -38,6 +39,10 @@ const DOCK_KINDS: readonly AgentKind[] = [
   'cli',
   'background',
 ];
+/** Unselected chip in an inline roster: avatar plus a truncated name. */
+const NAMED_CHIP_CLASS = 'max-w-[140px] gap-1.5 px-1.5 text-xs text-base-content-muted';
+/** Unselected chip beside the overflow menu: a bare avatar circle. */
+const CIRCLE_CHIP_CLASS = 'w-[38px] justify-center';
 
 interface DockChipModel {
   readonly key: string;
@@ -59,12 +64,16 @@ interface DockLayout {
   readonly hidden: readonly SessionAgent[];
   readonly compact: boolean;
   readonly cardId: string;
+  /** Every chip shows its name (inline roster, no overflow menu). */
+  readonly named: boolean;
 }
 
 /**
  * Main-view agent dock. Same selector and tablist keyboard model as the lane
- * strip it replaced: one pill for the selected agent, avatar chips for the
- * rest, and an overflow menu for whoever does not fit.
+ * strip it replaced. Rosters of `DOCK_INLINE_MAX` or fewer show every agent
+ * as a named chip. Larger rosters show one pill for the selected agent,
+ * avatar circles with a hover / focus card for the rest, and an overflow
+ * menu for whoever does not fit.
  */
 @Component({
   selector: 'ptah-canvas-lane-tabs',
@@ -84,7 +93,7 @@ interface DockLayout {
       #dock
       role="tablist"
       aria-label="Lanes"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 overflow-x-clip border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first) {
@@ -120,7 +129,7 @@ interface DockLayout {
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
-              <span class="min-w-0 truncate">{{ chip.agent.name }}</span>
+              <span class="min-w-0 truncate" data-testid="dock-chip-name">{{ chip.agent.name }}</span>
               @if (chip.agent.status) {
                 <span class="shrink-0 {{ chip.statusInk }}">{{
                   chip.agent.status
@@ -137,7 +146,8 @@ interface DockLayout {
               type="button"
               role="tab"
               [id]="chip.tabDomId"
-              class="inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              class="inline-flex h-[38px] shrink-0 items-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+              [class]="view.named ? namedChipClass : circleChipClass"
               [attr.aria-selected]="false"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
@@ -157,18 +167,23 @@ interface DockLayout {
                 [cliId]="chip.agent.cliId"
                 [agentType]="chip.agent.agentType"
               />
+              @if (view.named) {
+                <span class="min-w-0 truncate" data-testid="dock-chip-name">{{ chip.agent.name }}</span>
+              }
             </button>
           }
         }
       }
-      <ptah-agent-dock-menu
-        [agents]="agents()"
-        [hidden]="view.hidden"
-        [selectedKey]="selectedKey()"
-        [compact]="view.compact"
-        [now]="now()"
-        (agentSelect)="onMenuSelect($event)"
-      />
+      @if (!view.named) {
+        <ptah-agent-dock-menu
+          [agents]="agents()"
+          [hidden]="view.hidden"
+          [selectedKey]="selectedKey()"
+          [compact]="view.compact"
+          [now]="now()"
+          (agentSelect)="onMenuSelect($event)"
+        />
+      }
       @if (cardAgent(); as agent) {
         <ptah-agent-dock-card
           [agent]="agent"
@@ -200,6 +215,8 @@ export class CanvasLaneTabsComponent {
   private cardTimer: ReturnType<typeof setTimeout> | null = null;
   private cardHovered = false;
   private tabHoveredKey: string | null = null;
+  protected readonly namedChipClass = NAMED_CHIP_CLASS;
+  protected readonly circleChipClass = CIRCLE_CHIP_CLASS;
 
   readonly agents = computed(() => this.roster.roster(this.tabId()));
 
@@ -214,6 +231,11 @@ export class CanvasLaneTabsComponent {
         : null;
     return alternateKey && keys.includes(alternateKey) ? alternateKey : 'orchestrator';
   });
+
+  /** Inline roster: every chip is named, so none needs the hover / focus card. */
+  private readonly namesInline = computed(
+    () => this.agents().length <= DOCK_INLINE_MAX,
+  );
 
   protected readonly layout = computed((): DockLayout => {
     const now = this.now();
@@ -254,6 +276,7 @@ export class CanvasLaneTabsComponent {
       hidden,
       compact: Number.isFinite(width) && width < 480,
       cardId: `${panelId}-agent-card`,
+      named: this.namesInline(),
     };
   });
 
@@ -269,6 +292,10 @@ export class CanvasLaneTabsComponent {
   });
 
   constructor() {
+    effect(() => {
+      const key = this.cardKey();
+      if (key !== null && this.isNamedChip(key)) this.closeCard();
+    });
     effect(() => {
       if (this.laneKey() !== this.selectedKey()) {
         this.laneSelected.emit(this.selectedKey());
@@ -330,7 +357,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onPointerEnter(event: PointerEvent, key: string): void {
-    if (event.pointerType === 'touch') return;
+    if (this.isNamedChip(key) || event.pointerType === 'touch') return;
     this.tabHoveredKey = key;
     this.clearCardTimer();
     if (this.cardKey() === key) return;
@@ -347,6 +374,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabFocus(event: FocusEvent, key: string): void {
+    if (this.isNamedChip(key)) return;
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return;
     this.clearCardTimer();
@@ -383,7 +411,13 @@ export class CanvasLaneTabsComponent {
     return `${this.panelId()}-tab-${key}`;
   }
 
+  /** A chip that already shows its name opens no hover / focus card. */
+  private isNamedChip(key: string): boolean {
+    return this.namesInline() || key === this.selectedKey();
+  }
+
   private openCard(key: string): void {
+    if (this.isNamedChip(key)) return;
     this.cardKey.set(key);
     afterNextRender(
       () => {

@@ -14,6 +14,7 @@ import type {
   PlanLimitOwnerSnapshot,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
+import type { ClaudeAccountRoute } from '@ptah-extension/auth-providers-tokens';
 import type { PlanSecret } from '../plan-credential.source';
 
 /**
@@ -46,6 +47,8 @@ export interface PlanOwnerTarget {
   readonly ownerRef: QuotaOwnerRef;
   readonly credentialRef?: PlanCredentialRef;
   readonly sessionHandle?: PlanSessionHandle;
+  /** Backend-only certified source; never copied to the public snapshot. */
+  readonly claudeRoute?: ClaudeAccountRoute;
   /** A CLI session created by Ptah; readers must never discover sessions. */
   readonly cliSessionId?: string;
 }
@@ -73,7 +76,10 @@ export interface PlanUsageReadRequest {
 export type PlanUsageReading = Omit<
   PlanLimitOwnerSnapshot,
   'owner' | 'ownerEvidence' | 'cooldown' | 'staleSince'
->;
+> & {
+  /** Failed source proof must not read or update the owner's cached windows. */
+  readonly sourceInvalid?: boolean;
+};
 
 /** Reads one provider's plan usage. A throw maps to `service-unavailable`. */
 export type PlanUsageReader = (

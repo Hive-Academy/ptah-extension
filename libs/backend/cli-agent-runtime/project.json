@@ -18,6 +18,12 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/.claude/agents/**/*"
+      ],
       "options": {
         "passWithNoTests": true
       }

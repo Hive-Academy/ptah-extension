@@ -313,31 +313,40 @@ export function mergeConsecutiveTextSegments(
   const result: CliOutputSegment[] = [];
   let buffer = '';
   let bufferType: 'text' | 'thinking' | null = null;
+  // Segments of different provider messages never merge (messageId).
+  let bufferMessageId: string | undefined;
+  const flush = (): void => {
+    if (buffer && bufferType) {
+      result.push({
+        type: bufferType,
+        content: buffer,
+        ...(bufferMessageId !== undefined
+          ? { messageId: bufferMessageId }
+          : {}),
+      });
+    }
+  };
 
   for (const seg of segments) {
     if (seg.type === 'text' || seg.type === 'thinking') {
-      if (bufferType === seg.type) {
+      if (bufferType === seg.type && bufferMessageId === seg.messageId) {
         buffer += seg.content;
       } else {
-        if (buffer && bufferType) {
-          result.push({ type: bufferType, content: buffer });
-        }
+        flush();
         buffer = seg.content;
         bufferType = seg.type;
+        bufferMessageId = seg.messageId;
       }
     } else {
-      if (buffer && bufferType) {
-        result.push({ type: bufferType, content: buffer });
-        buffer = '';
-        bufferType = null;
-      }
+      flush();
+      buffer = '';
+      bufferType = null;
+      bufferMessageId = undefined;
       result.push(seg);
     }
   }
 
-  if (buffer && bufferType) {
-    result.push({ type: bufferType, content: buffer });
-  }
+  flush();
 
   return result;
 }

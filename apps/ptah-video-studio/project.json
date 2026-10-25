@@ -3,13 +3,8 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-video-studio/src",
-  "tags": [
-    "scope:video-studio",
-    "type:app"
-  ],
-  "implicitDependencies": [
-    "ptah-electron-e2e"
-  ],
+  "tags": ["scope:video-studio", "type:app"],
+  "implicitDependencies": ["ptah-electron-e2e"],
   "targets": {
     "studio": {
       "executor": "nx:run-commands",
@@ -59,9 +54,7 @@
       "dependsOn": [
         {
           "target": "showcase",
-          "projects": [
-            "ptah-electron-e2e"
-          ]
+          "projects": ["ptah-electron-e2e"]
         }
       ],
       "options": {
@@ -86,11 +79,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

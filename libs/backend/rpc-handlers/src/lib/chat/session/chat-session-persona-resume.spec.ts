@@ -18,7 +18,7 @@ function service() {
   const resumeSession = jest.fn().mockResolvedValue({});
   const isSessionActive = jest.fn().mockReturnValue(false);
   const isStreaming = jest.fn().mockReturnValue(false);
-  const logger = { info: jest.fn(), warn: jest.fn() };
+  const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const subject = Object.assign(Object.create(ChatSessionService.prototype), {
     sdkAdapter: { isSessionActive, resumeSession },
     streamBroadcaster: { isStreaming, streamEventsToWebview: jest.fn() },
@@ -42,6 +42,9 @@ function service() {
       resolveSessionFields: jest.fn().mockResolvedValue({}),
     },
     resolveWorkflowsDisabled: jest.fn().mockReturnValue(false),
+    // Ambient host (no account service): the gate reads local metadata only,
+    // and a session without an account binding is admitted.
+    sessionMetadataStore: { get: jest.fn().mockResolvedValue(undefined) },
     logger,
   }) as ChatSessionService;
   return { subject, resumeSession, logger, isSessionActive, isStreaming };

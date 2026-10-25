@@ -41,6 +41,7 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { SessionId } from '@ptah-extension/shared';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import { SDK_TOKENS } from '../../di/tokens';
 import type {
   AccountInfo,
@@ -85,16 +86,38 @@ export interface SessionQuotaRoute {
 }
 
 /** What `auth-providers` consumes through `SDK_TOKENS.SDK_SESSION_QUOTA_PROBE`. */
+export type AccountQuotaResult<T> =
+  | { readonly status: 'available'; readonly value: T }
+  | {
+      readonly status: 'unavailable';
+      readonly code:
+        | 'no-open-session'
+        | 'service-unavailable'
+        | 'account-mismatch'
+        | 'stale-epoch';
+    };
+
 export interface SessionQuotaProbe {
   /** `null` on timeout, rejection, unknown session or missing query. */
   readAccount(sessionId: string): Promise<AccountInfo | null>;
+  /** Read account identity only from a query matching the named route. */
+  readAccountForRoute(
+    sessionId: string,
+    route: ClaudeAccountNamedRoute,
+  ): Promise<AccountQuotaResult<AccountInfo>>;
   /**
    * The given session's `/usage`, or with no id the most recently active
    * direct-Anthropic session's. `null` for a proxy route or on failure.
    */
   readPlanUsage(sessionId?: string): Promise<ClaudePlanUsage | null>;
+  /** Read usage only from a query matching the named route. */
+  readPlanUsageForRoute(
+    sessionId: string | undefined,
+    route: ClaudeAccountNamedRoute,
+  ): Promise<AccountQuotaResult<ClaudePlanUsage>>;
   /** `null` when no session is registered under this id. */
   sessionRoute(sessionId: string): SessionQuotaRoute | null;
+  invalidateAccountRoute?(route: ClaudeAccountNamedRoute): void;
 }
 
 /** The two session lookups the probe needs from `SessionLifecycleManager`. */
@@ -127,6 +150,14 @@ class ProbeTimeoutError extends Error {
 
 @injectable()
 export class SessionQuotaProbeService implements SessionQuotaProbe {
+  private disposed = false;
+  private readonly accountEpochs = new Map<string, number>();
+  private readonly activeAccountReads = new Map<string, number>();
+  private readonly queryRevisions = new WeakMap<object, number>();
+  private readonly namedReads = new WeakMap<
+    object,
+    Map<string, Promise<AccountInfo | ClaudePlanUsage | null>>
+  >();
   private readonly accountReads = new WeakMap<
     object,
     Promise<AccountInfo | null>
@@ -146,6 +177,15 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
       planLimitRegistry.register((event) => this.onPlanLimitEvent(event)),
       adapterEvents.onTurnFailed((event) => this.onTurnFailed(event)),
     ];
+  }
+
+  readAccountForRoute(
+    sessionId: string,
+    route: ClaudeAccountNamedRoute,
+  ): Promise<AccountQuotaResult<AccountInfo>> {
+    return this.readNamed(sessionId, route, 'accountInfo', (query) =>
+      typeof query.accountInfo === 'function' ? query.accountInfo() : null,
+    );
   }
 
   readAccount(sessionId: string): Promise<AccountInfo | null> {
@@ -173,6 +213,18 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     });
     this.accountReads.set(query, read);
     return read;
+  }
+
+  readPlanUsageForRoute(
+    sessionId: string | undefined,
+    route: ClaudeAccountNamedRoute,
+  ): Promise<AccountQuotaResult<ClaudePlanUsage>> {
+    return this.readNamed(sessionId, route, 'usage', (query) => {
+      const usage = query[USAGE_METHOD];
+      return typeof usage === 'function'
+        ? usage.call(query, { skipBehaviors: true })
+        : null;
+    });
   }
 
   async readPlanUsage(sessionId?: string): Promise<ClaudePlanUsage | null> {
@@ -222,6 +274,8 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
 
   /** Release both subscriptions. */
   dispose(): void {
+    this.disposed = true;
+    this.accountEpochs.clear();
     for (const dispose of this.disposers.splice(0)) dispose();
   }
 
@@ -249,7 +303,126 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
 
   private dropAccount(sessionId: string): void {
     const query = this.queryOf(sessionId);
-    if (query) this.accountReads.delete(query);
+    if (query) {
+      this.accountReads.delete(query);
+      this.queryRevisions.set(query, (this.queryRevisions.get(query) ?? 0) + 1);
+      this.namedReads.delete(query);
+    }
+  }
+
+  /** Called by the admission/auth lifecycle when the current epoch advances. */
+  invalidateAccountRoute(route: ClaudeAccountNamedRoute): void {
+    const identity = JSON.stringify([route.provider, route.routeFingerprint]);
+    const epoch = Math.max(
+      this.accountEpochs.get(identity) ?? -1,
+      route.authEpoch,
+    );
+    this.accountEpochs.delete(identity);
+    this.accountEpochs.set(identity, epoch);
+    this.trimAccountEpochs();
+  }
+
+  // Active reads may temporarily exceed the cap; trim again when they settle.
+  private trimAccountEpochs(): void {
+    for (const identity of this.accountEpochs.keys()) {
+      if (this.accountEpochs.size <= 128) break;
+      if (!this.activeAccountReads.has(identity))
+        this.accountEpochs.delete(identity);
+    }
+  }
+
+  private async readNamed<T extends AccountInfo | ClaudePlanUsage>(
+    sessionId: string | undefined,
+    requestedRoute: ClaudeAccountNamedRoute,
+    operation: 'accountInfo' | 'usage',
+    read: (query: QuotaReadableQuery) => Promise<T> | null,
+  ): Promise<AccountQuotaResult<T>> {
+    const route = { ...requestedRoute };
+    if (this.disposed)
+      return { status: 'unavailable', code: 'service-unavailable' };
+    const identity = JSON.stringify([route.provider, route.routeFingerprint]);
+    const epoch = this.accountEpochs.get(identity);
+    if (epoch !== undefined && epoch > route.authEpoch) {
+      this.invalidateAccountRoute(route);
+      return { status: 'unavailable', code: 'stale-epoch' };
+    }
+    this.activeAccountReads.set(
+      identity,
+      (this.activeAccountReads.get(identity) ?? 0) + 1,
+    );
+    try {
+      this.invalidateAccountRoute(route);
+      const matches = (record: SessionRecord): boolean => {
+        const binding = record.accountBinding;
+        return (
+          binding?.provider === route.provider &&
+          binding.routeFingerprint === route.routeFingerprint &&
+          binding.routeRevision === route.routeRevision &&
+          binding.authEpoch === route.authEpoch
+        );
+      };
+      const targetId =
+        sessionId ??
+        this.sessions.getActiveSessionIds().find((id) => {
+          const record = this.sessions.find(id);
+          return (
+            record !== undefined && matches(record) && record.query !== null
+          );
+        });
+      const record =
+        targetId === undefined ? undefined : this.sessions.find(targetId);
+      if (!record || !record.query || targetId === undefined) {
+        return { status: 'unavailable', code: 'no-open-session' };
+      }
+      if (!matches(record))
+        return { status: 'unavailable', code: 'account-mismatch' };
+      const query = record.query;
+      const revision = this.queryRevisions.get(query) ?? 0;
+      const key = JSON.stringify([
+        identity,
+        route.routeRevision,
+        route.authEpoch,
+        revision,
+        operation,
+      ]);
+      let reads = this.namedReads.get(query);
+      if (!reads) {
+        reads = new Map();
+        this.namedReads.set(query, reads);
+      }
+      let pending = reads.get(key);
+      if (!pending) {
+        pending = this.callBounded(targetId, operation, () =>
+          read(query as object & QuotaReadableQuery),
+        );
+        reads.set(key, pending);
+      }
+      try {
+        const value = await pending;
+        if (this.disposed)
+          return { status: 'unavailable', code: 'service-unavailable' };
+        if (
+          this.accountEpochs.get(identity) !== route.authEpoch ||
+          this.sessions.find(targetId) !== record ||
+          record.query !== query ||
+          !matches(record) ||
+          (this.queryRevisions.get(query) ?? 0) !== revision
+        ) {
+          return { status: 'unavailable', code: 'stale-epoch' };
+        }
+        // The key includes the operation; only this operation can populate it.
+        return value === null
+          ? { status: 'unavailable', code: 'service-unavailable' }
+          : { status: 'available', value: value as T };
+      } finally {
+        if (reads.get(key) === pending) reads.delete(key);
+      }
+    } finally {
+      const remaining = (this.activeAccountReads.get(identity) ?? 1) - 1;
+      if (remaining === 0) this.activeAccountReads.delete(identity);
+      else this.activeAccountReads.set(identity, remaining);
+      this.trimAccountEpochs();
+    }
   }
 
   private isDirectAnthropic(sessionId: string): boolean {

@@ -29,11 +29,14 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('[data-testid="inspector-cache-tile"]')).toBeNull();
-    const cache = { ttl: '1h' as const, lastRequestAt: 0, expiresAt: 3_600_000 };
+    const grid = root.querySelector('[data-testid="inspector-stats-grid"]');
+    expect(grid?.classList.contains('grid-cols-2')).toBe(true);
+    expect(grid?.classList.contains('grid-cols-3')).toBe(false);
+    const cache ={ ttl: '1h' as const, lastRequestAt: 0, expiresAt: 3_600_000 };
     fixture.componentRef.setInput('stats', { ...stats, cache });
     fixture.detectChanges();
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
-    expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(true);
+    expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(false);
     expect(tile?.textContent).toContain('1:00:00');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();
@@ -45,7 +48,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.destroy();
   });
 
-  it('renders the Model label and display name as separate stat tile rows', () => {
+  it('preserves the Model label and display name below the metric grid', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [{
@@ -79,6 +82,34 @@ describe(InspectorSessionStatsComponent.name, () => {
     const value = label?.nextElementSibling as HTMLElement;
     expect(value.textContent?.trim()).toBe('Opus 4.7');
     expect(value.classList.contains('font-semibold')).toBe(true);
+  });
+
+  it('spans the full row while the Context details are open', () => {
+    TestBed.configureTestingModule({
+      imports: [InspectorSessionStatsComponent],
+      providers: [{ provide: ModelStateService, useValue: { availableModels: signal([]) } }],
+    });
+    const fixture = TestBed.createComponent(InspectorSessionStatsComponent);
+    const stats: SessionStatsInputs = {
+      sessionId: 'session-ctx', snapshot: null, cache: null,
+      liveModelStats: { model: 'm', contextUsed: 1000, contextPercent: 10, contextWindow: 10_000 },
+      compactionCount: 0, limits: null, budget: null,
+      context: { hasLive: true, known: true, percent: 10, label: '10%', usedTokens: 1000 },
+      limitSummary: { state: 'none', text: null, extra: 0, source: null, fullText: null },
+    };
+    fixture.componentRef.setInput('stats', stats);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const toggle = root.querySelector<HTMLButtonElement>('button[aria-label="Context details"]');
+    expect(toggle).not.toBeNull();
+    const tile = toggle!.closest('[data-glass-surface="tile"]')!;
+    expect(tile.classList.contains('col-span-2')).toBe(false);
+    toggle!.click();
+    fixture.detectChanges();
+    expect(tile.classList.contains('col-span-2')).toBe(true);
+    toggle!.click();
+    fixture.detectChanges();
+    expect(tile.classList.contains('col-span-2')).toBe(false);
   });
 });
 

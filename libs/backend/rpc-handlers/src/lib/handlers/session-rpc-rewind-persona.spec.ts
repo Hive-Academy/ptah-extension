@@ -38,7 +38,11 @@ function handler() {
     metadataStore: {
       get: jest.fn().mockResolvedValue({ workspaceId: '/workspace' }),
     },
-    chatSession: { ensureSessionActiveForRewind },
+    // Ambient host: the account gate admits a session with no account binding.
+    chatSession: {
+      ensureSessionActiveForRewind,
+      gateSessionAccount: jest.fn().mockResolvedValue(undefined),
+    },
     logger: { debug: jest.fn(), info: jest.fn(), error: jest.fn() },
     sentryService: { captureException: jest.fn() },
   }) as SessionRpcHandlers;

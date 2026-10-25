@@ -1123,6 +1123,7 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
         stopped: 0,
         ...counts,
       },
+      kinds: { cli: 0, subagent: rows.length + moreCount, background: 0 },
     };
   }
 
