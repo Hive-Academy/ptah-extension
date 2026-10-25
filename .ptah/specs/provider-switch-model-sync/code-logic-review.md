@@ -112,3 +112,43 @@ is unchanged. It is limited to the first successful read after a failure. Fine.
 - Minor: no test pins the "superseded awaiter resolves early" behaviour or the scope-mismatch + supersede double drop.
 
 Verdict: APPROVED.
+
+## Round 2 (commit-pipeline refresh after model and effort writes)
+
+Score 8/10 - APPROVED. Blocking 0, Serious 0, Moderate 1 (R2-M1), Minor 3. Static review; I did not run tests.
+
+Scope: the new diff in `providers-commit.service.ts` (lines ~91-125, model and effort `write`) plus the spec mocks.
+
+### The fix addresses the reported failure
+Sequence: saveSettings -> getAuthStatus (starts the sync's `fresh` read g1, which returns the global `opus`) -> model-switch haiku -> commit
+`refreshModels({fresh:true})` g2 -> `config:models-list` reads the saved workspace value.
+- **Ordering vs g1:** g2 bumps `modelsGeneration`, so if g1's response arrives after g2's, `fetchModels` drops it (`generation !== modelsGeneration`)
+  and the list cannot regress to `opus`. If g1 resolves first, g2 simply overwrites it. Both orders end on g2's list. Because the commit awaits g2,
+  `_availableModels` and `_currentModel` are already correct when `commit()` reports success.
+- A sync read that starts after the model write (late fire-and-forget) also reads the post-write value, so any order converges.
+
+### Effort (R2-M1, Moderate, small window)
+`EffortStateService.loadEffort` has no generation guard (effort-state.service.ts:79-90). The sync's `refreshEffort` is issued right after the auth read, before
+`config:effort-set`. If that older read's response were processed after the commit's `refreshEffort`, it would overwrite `_currentEffort` with the
+pre-write value and nothing would re-read. In practice RPC replies are ordered and the older request resolves first, and the effort readBack
+(`config:effort-get`) still validates the host, so the window is narrow. For symmetry with the models fix, add the same generation counter
+(about five lines). Not blocking.
+
+### Failure of the refresh
+`refreshModels` and `refreshEffort` swallow errors (console.error and `_isLoaded=true`), so the write cannot be misreported as failed. The cost is
+a silent stale picker if the refresh read fails, while the readBack still reports saved. Acceptable and consistent with the rest of the service.
+A hung read would stall the `write` for the RPC timeout, and save feedback would lag. This is a minor latency note.
+
+### Lazy `Injector.get`
+`ModelStateService` and `EffortStateService` are `providedIn: 'root'` with no dependency on the commit service, so there is no cycle. `Injector.get`
+resolves from the same root injector on Electron, VS Code and the webview harness; I found no host that provides the commit service without root.
+The only throw risk is a missing provider in a spec harness, which is why the specs now mock them. A throw inside `write` would surface as a failed
+save, not a silent success. Fine.
+
+### Minor
+- The D2 label fallback (`tab.sessionModel` unchecked after a switch) is documented as a follow-up. Agreed that an id check would hide valid aliased resumed
+  labels. Nothing in this diff changes it.
+- The extra await adds one `config:models-list` per model save even when no provider changed (fresh read, no join). Cheap; fine.
+- Formatting-only hunk in the enhancement loop (prettier reflow) is noise, not logic.
+
+Verdict: APPROVED. Recommended but optional: the effort generation guard (R2-M1).

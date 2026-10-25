@@ -5,6 +5,8 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { EffortStateService } from './effort-state.service';
+import { ModelStateService } from './model-state.service';
 import {
   ProvidersCommitService,
   type ProvidersCommitHooks,
@@ -40,6 +42,8 @@ describe('ProvidersCommitService', () => {
     Promise<RpcResult<unknown>>,
     [RpcMethodName, unknown, unknown?]
   >;
+  let refreshModels: jest.Mock<Promise<void>, [{ fresh?: boolean }?]>;
+  let refreshEffort: jest.Mock<Promise<void>, []>;
 
   const scopesAt = (
     activePath: string | null,
@@ -73,10 +77,14 @@ describe('ProvidersCommitService', () => {
       Promise<RpcResult<unknown>>,
       [RpcMethodName, unknown, unknown?]
     >(async () => success({ success: true }));
+    refreshModels = jest.fn(async () => undefined);
+    refreshEffort = jest.fn(async () => undefined);
     TestBed.configureTestingModule({
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: ModelStateService, useValue: { refreshModels } },
+        { provide: EffortStateService, useValue: { refreshEffort } },
       ],
     });
     workspace = TestBed.inject(WorkspaceScopeService);
@@ -393,11 +401,37 @@ describe('ProvidersCommitService', () => {
       }
       expect(stored.get('skills.enhancement.model')).toBe('inherit');
       expect(call.mock.calls.map(([method]) => method)).toEqual([
-        'settings:set', 'settings:get',
-        'settings:set', 'settings:get',
-        'settings:set', 'settings:get',
+        'settings:set',
+        'settings:get',
+        'settings:set',
+        'settings:get',
+        'settings:set',
+        'settings:get',
       ]);
-      expect(call.mock.calls.some(([method]) => method.startsWith('skillSynthesis:'))).toBe(false);
+      expect(
+        call.mock.calls.some(([method]) =>
+          method.startsWith('skillSynthesis:'),
+        ),
+      ).toBe(false);
+    });
+
+    it('re-reads the model list and effort after their writes, so a provider re-sync that ran first cannot keep a stale model', async () => {
+      const [auth, model, effort] = service.operations({
+        auth: { authMethod: 'claudeCli' },
+        model: { model: 'haiku' },
+        effort: { effort: 'low' },
+      });
+      await auth.write();
+      expect(refreshModels).not.toHaveBeenCalled();
+      await model.write();
+      expect(call).toHaveBeenLastCalledWith(
+        'config:model-switch',
+        { model: 'haiku' },
+        undefined,
+      );
+      expect(refreshModels).toHaveBeenCalledWith({ fresh: true });
+      await effort.write();
+      expect(refreshEffort).toHaveBeenCalledTimes(1);
     });
 
     it('never names a CLI credential value, only its field', () => {
