@@ -912,6 +912,30 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 9, 2026-10-25)
+
+- Base: HEAD ef4e34932 (origin/main merged in; #824 merged into main as b5c9c8047). The fix-PR
+  fence is LIFTED: 7c no longer waits.
+- P6: 6a (a566781a5) + 6c (a65ff9595) COMPLETE. 6b + 6d were implemented by parallel Codex
+  lanes (file-disjoint); both lanes are STOPPED (not running). Their files are on disk and are
+  verified and committed by the team-leader (session 10). The 6b specs needed valid SessionId
+  fixtures after 6d's stricter identity schema. Then 6e, host typecheck, then STOP for the P6
+  phase review (code-logic + style, Claude reviewer).
+- Account-feature overlap check (main b022672ac..50c345920, Claude multi-account):
+  - 6a, 6b, 6c, 6e: no overlap (new files under codex-app-server/, or DI files the feature did
+    not touch).
+  - 6d: OVERLAP on W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts. It now carries
+    Claude `accountBinding` gates (`SessionAccountBindingError`, :85-105, :736-812) and
+    `preservedIndexEntry` (:367-384, index rebuild tolerates one bad stored binding). Plan
+    adjustment for 6d: `updateCodexExecution` must not read, write or require `accountBinding`;
+    a Codex row never carries one; the index rebuild keeps using `preservedIndexEntry`; spec a
+    Codex row next to a row with an unparseable binding (both stay listed). The account spec
+    `session-metadata-store.account-binding.spec.ts` must keep passing unchanged.
+    sdk-agent-adapter.ts and session-runtime.schemas.ts: not touched by the feature.
+  - Later phases: the account choice is now forwarded through vscode-lm-tools agent spawn args
+    (`agent-spawn-args.schema.ts`) and the CLI; 8e/10b must keep a Claude account choice out of
+    the Codex lane path (Codex lanes ignore it or reject it visibly). Recorded for 10b.
+
 # Run state (session 7 wrap-up, 2026-10-25)
 
 - Done this session: P5 closed; P5b (DS1 0541f372b, review APPROVED 8/10); 6p (389d08ce1).
@@ -1079,7 +1103,20 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 - Verification: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/auth-providers`
   (2 projects; known noise: 3 pre-existing auth-providers lint errors).
 
-## Batch 6a: Chat events and approval routing — PENDING (needs 6p)
+## Batch 6a: Chat events and approval routing — COMPLETE (a566781a5; report batch-6a-report.md)
+
+- Result (team-leader, session 9): six files verified on disk (real logic, no stubs); Codex lane
+  (implementer), continuation lane added `@ptah-extension/codex-runtime` to
+  W/libs/backend/agent-sdk/package.json (lint dependency rule; the import is new in 6a).
+  `npm run verify -- -p @ptah-extension/agent-sdk`: test PASS (185 suites / 4008 tests, lane run,
+  cache hit on mine), typecheck PASS, lint 2 errors / 95 warnings — both errors are known noise:
+  session-query-executor.accounts.spec.ts:174,183 `no-unexpected-multiline`, file and eslint
+  config identical to origin/main. This Nx version prints `NX 3 tasks: ...`, not "Running target
+  ... for N projects"; the verify lock label confirmed one project.
+- Edit replies -> decline + editNotSupported + injected follow-up: matches the batch details and
+  the core ApprovalSink contract (no user decision needed).
+- Note for 6b/6e (P6 review): SessionApprovalRouter keeps an owner entry when the sink settles on
+  timeout/abort/disposal; the composer must call the `register()` release function on settle.
 
 - Files: CREATE D+codex-chat-events.ts, D+codex-chat-approval-sink.ts,
   D+session-approval-router.ts, each with same-stem spec (6 files)
@@ -1090,7 +1127,18 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   The router keys requests by session AND thread id so 11b adds child threads without a rewrite.
 - Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
-## Batch 6b: Codex chat adapter and routing adapter — PENDING (needs 6a)
+## Batch 6b: Codex chat adapter and routing adapter — COMPLETE (027cc1a69; report batch-6b-report.md)
+
+- Result (team-leader, session 10): four files verified on disk (real logic). Specs fixed to
+  valid SessionId fixtures by a fix lane (6d's stricter schema). `npm run verify -- -p
+  @ptah-extension/agent-sdk,@ptah-extension/shared` ("Running targets lint, test, typecheck for
+  2 projects"): agent-sdk 188 suites passed / 4053 tests passed (only failure was the 6e DI
+  spec, fixed in 6e), typecheck PASS, lint 2 known-noise errors
+  (session-query-executor.accounts.spec.ts:174,183); shared 125 suites / 3805 tests PASS.
+- Approval release: `present` stores the `SessionApprovalRouter.register()` release; `dismiss`
+  (called on every sink settle, incl. timeout/abort/disposal) invokes it
+  (codex-chat-adapter.ts:226-243). The P6 review must confirm the sink dismisses on every
+  settle path.
 
 - Files: CREATE D+codex-chat-adapter.ts, D+routing-agent-adapter.ts, each with same-stem spec
 - Plan reference: implementation-plan.md:25, :187
@@ -1100,7 +1148,17 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   override is the single switch; with the gate closed and no override the legacy path runs.
 - Executor/review/fallback as 6a.
 
-## Batch 6c: Runtime-neutral session controls — PENDING (needs 5a)
+## Batch 6c: Runtime-neutral session controls — COMPLETE (a65ff9595; report batch-6c-report.md)
+
+- Result (team-leader, session 9): four files verified on disk; Codex lane. Team-leader rejected
+  two legacy deviations and a fresh Codex lane fixed them: (1) BLOCKING live yolo sent SDK
+  'bypassPermissions', which disables canUseTool (AskUserQuestion/ExitPlanMode,
+  permission-mode-map.ts:9-30) -> now PERMISSION_MODE_MAP (yolo -> 'default', level 'yolo');
+  (2) legacy max was refused (capability removal, user-reserved) -> today's behavior kept: live
+  xhigh, persisted max, timing 'nextTurn' (session-control.service.ts:569-606). Specs 5 suites /
+  63 tests PASS; agent-sdk verify as 6a (same known lint noise).
+- Note for the P6 review: a failed interrupt stays blocked until a successful interrupt or
+  `releaseSession` (no turn-end release; lane decision 2 in the report).
 
 - Files: CREATE D+session-runtime-router.ts, D+legacy-session-controls.ts, each with same-stem
   spec
@@ -1109,7 +1167,18 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   apply-before-save with rollback; failed interrupt blocks follow-up.
 - Executor/review/fallback as 6a. File-disjoint from 6a/6b: may run parallel with 6a.
 
-## Batch 6d: Metadata identity and legacy auth propagation — PENDING (needs 6p)
+## Batch 6d: Metadata identity and legacy auth propagation — COMPLETE (8aaaa169c; report batch-6d-report.md)
+
+- Result (team-leader, session 10): seven files verified on disk (plus the port file
+  auth-env.port.ts, authorized for the structural AuthOperationContext). Account overlap
+  adjustment honored: `updateCodexExecution` neither reads, writes nor requires `accountBinding`
+  (a save that adds one to a Codex row is rejected); the index rebuild keeps
+  `preservedIndexEntry`; `session-metadata-store.account-binding.spec.ts` unchanged and passing.
+  Verify as 6b (same run). `npm run verify -- -t typecheck -p
+  @ptah-extension/auth-providers,ptah-electron`: "Successfully ran target typecheck for 2
+  projects".
+- Follow-up (6d/host): `updateCodexExecution` accepts no title; new native rows get
+  name = sessionId (pinned by the 6e DI spec). A title needs a writer-contract extension.
 
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts and
   `session-metadata-store.spec.ts`, W/libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts;
@@ -1125,7 +1194,13 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   typed AuthOperationContext propagation (`initialize(context?)`).
 - Executor/review/fallback as 6a.
 
-## Batch 6e: agent-sdk DI and exports — PENDING (needs 6a-6d)
+## Batch 6e: agent-sdk DI and exports — IN_PROGRESS (report batch-6e-report.md)
+
+- Executor: Codex lane (backend-developer role); decision row "6e" in decisions.md
+  (orchestrator, session 10): synchronous lookup + async `initializeSessionRuntimeIdentityLookup`,
+  nullable host tokens, approval release on settle, name = sessionId spec. A fixture lane made
+  the DI spec's real-store test platform-correct (win32 workspace/home). Files: di/tokens.ts,
+  di/register.ts, src/index.ts, NEW di/register.codex-runtime.spec.ts.
 
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/di/tokens.ts,
   W/libs/backend/agent-sdk/src/lib/di/register.ts, W/libs/backend/agent-sdk/src/index.ts
