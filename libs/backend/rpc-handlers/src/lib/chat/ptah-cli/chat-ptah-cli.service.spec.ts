@@ -80,13 +80,13 @@ function makeSuite(): Suite {
   const logger = createMockLogger();
 
   const profile: ProviderProfile = {
-    providerId: 'moonshot',
+    providerId: 'kimi-code',
     authEnv: {
-      ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic/',
+      ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
       ANTHROPIC_AUTH_TOKEN: 'sk-test',
     },
     model: 'claude-sonnet-4-20250514',
-    baseUrl: 'https://api.moonshot.ai/anthropic/',
+    baseUrl: 'https://api.kimi.ai/coding/',
     cliJsPath: '/tmp/cli.js',
   };
 
@@ -105,8 +105,8 @@ function makeSuite(): Suite {
       {
         id: AGENT_ID,
         name: 'Test CLI Agent',
-        providerName: 'Moonshot',
-        providerId: 'moonshot',
+        providerName: 'Kimi Code',
+        providerId: 'kimi-code',
         hasApiKey: true,
         hasStoredKey: true,
         status: 'available',

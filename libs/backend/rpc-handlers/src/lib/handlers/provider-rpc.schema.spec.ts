@@ -36,9 +36,12 @@ import {
 
 describe('ProviderGetAccountUsageSchema', () => {
   it('accepts a Codex provider request with an optional refresh flag', () => {
-    expect(ProviderGetAccountUsageSchema.parse({
-      providerId: 'openai-codex', refresh: true,
-    })).toEqual({ providerId: 'openai-codex', refresh: true });
+    expect(
+      ProviderGetAccountUsageSchema.parse({
+        providerId: 'openai-codex',
+        refresh: true,
+      }),
+    ).toEqual({ providerId: 'openai-codex', refresh: true });
   });
 
   it.each([
@@ -197,12 +200,12 @@ describe('ProviderSetModelTierSchema', () => {
       const result = ProviderSetModelTierSchema.safeParse({
         tier: 'haiku',
         modelId: 'm',
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         scope: 'mainAgent',
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.providerId).toBe('moonshot');
+        expect(result.data.providerId).toBe('kimi-code');
       }
     });
   });

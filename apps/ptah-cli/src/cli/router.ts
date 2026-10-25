@@ -1094,7 +1094,7 @@ export function buildRouter(): Command {
   auth
     .command('use <providerId>')
     .description(
-      'switch active auth strategy (claude-cli | github-copilot | openai-codex | openrouter | moonshot | z-ai)',
+      'switch active auth strategy (claude-cli | github-copilot | openai-codex | openrouter | kimi-code | z-ai)',
     )
     .action(async (providerId: string) => {
       const exit = await authCmd.execute(

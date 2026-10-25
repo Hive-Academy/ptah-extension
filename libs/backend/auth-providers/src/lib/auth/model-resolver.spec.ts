@@ -205,7 +205,7 @@ describe('ModelResolver', () => {
     const PINNED_CLAUDE_ID = 'claude-haiku-4-5-20251001';
 
     /** Unique-hostname entry that DOES declare `defaultTiers`. */
-    const MAPPED_PROVIDER_ID = 'moonshot';
+    const MAPPED_PROVIDER_ID = 'kimi-code';
 
     function withLogger(env: AuthEnv): {
       resolver: ModelResolver;

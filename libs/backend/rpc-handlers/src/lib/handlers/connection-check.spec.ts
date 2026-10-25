@@ -118,7 +118,7 @@ afterEach(() => clearCustomProviderEntries());
 describe('connectionCheckKind', () => {
   it.each([
     ['anthropic', 'apiKey'],
-    ['moonshot', 'apiKey'],
+    ['kimi-code', 'apiKey'],
     ['openrouter', 'apiKey'],
     ['github-copilot', 'copilot'],
     ['openai-codex', 'codex'],
@@ -152,12 +152,12 @@ describe('ConnectionChecker — key-carrying connections', () => {
   it('runs the stored-key probe against the saved endpoint and records status, latency and time', async () => {
     const { checker, recorder, verify } = makeChecker();
 
-    const result = await checker.check('moonshot', 'apiKey');
+    const result = await checker.check('kimi-code', 'apiKey');
 
     const params = verify.mock.calls[0][0] as AuthVerifyDraftConnectionParams;
     expect(params).toEqual({
-      probeId: expect.stringMatching(/^connection-check:moonshot:\d+$/),
-      providerId: 'moonshot',
+      probeId: expect.stringMatching(/^connection-check:kimi-code:\d+$/),
+      providerId: 'kimi-code',
       authMode: 'apiKey',
       credential: { kind: 'stored' },
     });
@@ -170,7 +170,7 @@ describe('ConnectionChecker — key-carrying connections', () => {
       latencyMs: 92,
       checkedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
-    expect(recorder.get('moonshot')).toBe(result);
+    expect(recorder.get('kimi-code')).toBe(result);
   });
 
   it('custom entries run the same probe as provider:testCustomEntry, never the draft probe (M-1)', async () => {
@@ -242,7 +242,7 @@ describe('ConnectionChecker — key-carrying connections', () => {
     );
     const { checker } = makeChecker({ verify });
 
-    const result = await checker.check('moonshot', 'apiKey');
+    const result = await checker.check('kimi-code', 'apiKey');
 
     expect(result).toEqual({
       status: 'failed',
@@ -262,7 +262,7 @@ describe('ConnectionChecker — key-carrying connections', () => {
         draftResult({ outcome: 'failed', reason: 'timeout', latencyMs: 15000 }),
       ),
     });
-    expect(await timeout.checker.check('moonshot', 'apiKey')).toMatchObject({
+    expect(await timeout.checker.check('kimi-code', 'apiKey')).toMatchObject({
       status: 'failed',
       reason: 'timeout',
       latencyMs: null,
@@ -276,7 +276,7 @@ describe('ConnectionChecker — key-carrying connections', () => {
         }),
       ),
     });
-    expect(await cancelled.checker.check('moonshot', 'apiKey')).toMatchObject({
+    expect(await cancelled.checker.check('kimi-code', 'apiKey')).toMatchObject({
       status: 'failed',
       reason: 'cancelled',
       latencyMs: null,
@@ -289,13 +289,13 @@ describe('ConnectionChecker — key-carrying connections', () => {
     });
     const { checker, recorder, logger } = makeChecker({ verify });
 
-    await expect(checker.check('moonshot', 'apiKey')).resolves.toEqual({
+    await expect(checker.check('kimi-code', 'apiKey')).resolves.toEqual({
       status: 'failed',
       reason: 'unclassified',
       latencyMs: null,
       checkedAt: expect.any(String),
     });
-    expect(recorder.get('moonshot')?.reason).toBe('unclassified');
+    expect(recorder.get('kimi-code')?.reason).toBe('unclassified');
     const logs = JSON.stringify([
       logger.warn.mock.calls,
       logger.info.mock.calls,
@@ -315,8 +315,8 @@ describe('ConnectionChecker — key-carrying connections', () => {
     );
     const { checker } = makeChecker({ verify });
 
-    const first = checker.check('moonshot', 'apiKey');
-    const second = checker.check('moonshot', 'apiKey');
+    const first = checker.check('kimi-code', 'apiKey');
+    const second = checker.check('kimi-code', 'apiKey');
     release();
     const [a, b] = await Promise.all([first, second]);
 
@@ -324,7 +324,7 @@ describe('ConnectionChecker — key-carrying connections', () => {
     expect(a).toBe(b);
 
     // Once settled, the next check is a new request.
-    const third = checker.check('moonshot', 'apiKey');
+    const third = checker.check('kimi-code', 'apiKey');
     release();
     await third;
     expect(verify).toHaveBeenCalledTimes(2);
@@ -341,9 +341,9 @@ describe('ConnectionChecker — key-carrying connections', () => {
     );
     const { checker, recorder } = makeChecker({ verify });
 
-    const oldKeyCheck = checker.check('moonshot', 'apiKey');
-    recorder.clear('moonshot'); // the key was replaced while the check ran
-    const newKeyCheck = checker.check('moonshot', 'apiKey');
+    const oldKeyCheck = checker.check('kimi-code', 'apiKey');
+    recorder.clear('kimi-code'); // the key was replaced while the check ran
+    const newKeyCheck = checker.check('kimi-code', 'apiKey');
 
     expect(verify).toHaveBeenCalledTimes(2);
     expect(newKeyCheck).not.toBe(oldKeyCheck);
@@ -355,11 +355,11 @@ describe('ConnectionChecker — key-carrying connections', () => {
 
     expect(fresh.latencyMs).toBe(101);
     // The old-key result finished last but is not recorded.
-    expect(recorder.get('moonshot')).toBe(fresh);
+    expect(recorder.get('kimi-code')).toBe(fresh);
 
     // A caller that arrives while the new check runs still joins it.
-    const joined = [checker.check('moonshot', 'apiKey')];
-    joined.push(checker.check('moonshot', 'apiKey'));
+    const joined = [checker.check('kimi-code', 'apiKey')];
+    joined.push(checker.check('kimi-code', 'apiKey'));
     expect(joined[0]).toBe(joined[1]);
     releases[2]();
     await Promise.all(joined);
@@ -385,9 +385,9 @@ describe('ConnectionChecker — key-carrying connections', () => {
       );
     const { checker, recorder } = makeChecker({ verify });
 
-    const before = checker.check('moonshot', 'apiKey');
-    recorder.clear('moonshot');
-    const after = await checker.check('moonshot', 'apiKey');
+    const before = checker.check('kimi-code', 'apiKey');
+    recorder.clear('kimi-code');
+    const after = await checker.check('kimi-code', 'apiKey');
     releaseOld();
     await before;
 
@@ -395,13 +395,13 @@ describe('ConnectionChecker — key-carrying connections', () => {
       status: 'failed',
       reason: 'no-stored-credential',
     });
-    expect(recorder.get('moonshot')).toBe(after);
+    expect(recorder.get('kimi-code')).toBe(after);
   });
 
   it('different connections are checked independently', async () => {
     const { checker, verify } = makeChecker();
     await Promise.all([
-      checker.check('moonshot', 'apiKey'),
+      checker.check('kimi-code', 'apiKey'),
       checker.check('z-ai', 'apiKey'),
     ]);
     expect(verify).toHaveBeenCalledTimes(2);
@@ -416,7 +416,7 @@ describe('ConnectionChecker — no stored key (real DraftVerificationService)', 
       createMockLogger() as unknown as Logger,
       { getLiveDerivedTiers: jest.fn(() => ({})) } as never,
       {
-        getSavedBaseUrl: jest.fn(() => 'https://api.moonshot.ai/anthropic'),
+        getSavedBaseUrl: jest.fn(() => 'https://api.kimi.ai/coding/'),
         buildDraftOverride,
       } as never,
       { execute } as unknown as InternalQueryService,
@@ -433,7 +433,7 @@ describe('ConnectionChecker — no stored key (real DraftVerificationService)', 
       logger: createMockLogger() as unknown as Logger,
     });
 
-    const result = await checker.check('moonshot', 'apiKey');
+    const result = await checker.check('kimi-code', 'apiKey');
 
     expect(result).toMatchObject({
       status: 'failed',

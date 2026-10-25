@@ -510,7 +510,9 @@ describe('EnhancedPromptsService', () => {
       const r = await service.getProjectGuidanceContent(testWorkspacePath);
 
       expect(r).not.toBeNull();
-      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(
+        64 * 1024,
+      );
       expect(r).toContain('### Legacy 0');
       expect(r).toContain('[Project guidance truncated at 64 KiB');
     });
@@ -563,11 +565,11 @@ describe('EnhancedPromptsService', () => {
       const r = await service.getProjectGuidanceContent(testWorkspacePath);
 
       expect(r).not.toBeNull();
-      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(64 * 1024);
-      expect(r).toContain('## Project-Specific Guidance');
-      expect(r).toContain(
-        '[Project guidance truncated at 64 KiB.]',
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(
+        64 * 1024,
       );
+      expect(r).toContain('## Project-Specific Guidance');
+      expect(r).toContain('[Project guidance truncated at 64 KiB.]');
       // Cut on a heading, so the retained tail is a whole section.
       expect(r).toMatch(/x{500}\n\n\[Project guidance truncated/);
     });
@@ -1188,7 +1190,7 @@ describe('EnhancedPromptsService', () => {
 
     it('runs on the provider and model of the snapshot for its workspace', async () => {
       mocks.workspaceLlm.resolveForPath.mockResolvedValue({
-        providerId: 'moonshot',
+        providerId: 'z-ai',
         model: 'claude-pinned',
         auth: { env: { ANTHROPIC_AUTH_TOKEN: 'ws-key' } },
       });

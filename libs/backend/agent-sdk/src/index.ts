@@ -311,6 +311,7 @@ export {
   TIER_METADATA_ENV_VAR_MAP,
   ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
+  buildStaticTierCapabilityEnv,
   SdkModelService,
   MemoryPromptInjector,
   CodeSymbolPromptInjector,

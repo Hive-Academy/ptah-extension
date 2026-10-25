@@ -83,16 +83,16 @@ describe('decision-model-row.view: the Decision model row (TASK_2026_646 Req 1)'
       status({
         selection: {
           kind: 'structured',
-          providerId: 'moonshot',
+          providerId: 'kimi-code',
           model: 'kimi',
         },
         locality: 'remote',
         state: 'unreachable',
       }),
       'not reachable',
-      'Moonshot (Kimi) · kimi',
-      /Could not reach Moonshot \(Kimi\)/,
-      'moonshot',
+      'Kimi Code · kimi',
+      /Could not reach Kimi Code/,
+      'kimi-code',
     ],
     [
       status({

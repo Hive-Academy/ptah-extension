@@ -436,7 +436,7 @@ describe('AuthManager', () => {
       },
     );
 
-    it.each(['moonshot', 'z-ai'])(
+    it.each(['kimi-code', 'z-ai'])(
       "routes 'thirdParty' + %s to api-key",
       async (providerId) => {
         const { manager, strategies } = makeManager({

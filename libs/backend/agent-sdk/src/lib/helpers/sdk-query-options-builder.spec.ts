@@ -910,7 +910,7 @@ describe('SdkQueryOptionsBuilder.build — dropped user-tier disclosure', () => 
 
   it.each([
     ['direct Anthropic', 'https://api.anthropic.com'],
-    ['a non-localhost custom provider', 'https://api.moonshot.cn/v1'],
+    ['a non-localhost custom provider', 'https://api.kimi.ai/coding/'],
     ['an absent base URL', undefined],
   ])(
     '%s logs no disclosure and keeps the user tier',
@@ -1195,7 +1195,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       compactionHookHandler,
       worktreeHookHandler,
       // Third-party provider: non-Anthropic base URL triggers model validation.
-      { ANTHROPIC_BASE_URL: 'https://api.moonshot.cn/v1' } as AuthEnv,
+      { ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/' } as AuthEnv,
       modelService,
       memoryPromptInjector,
       postToolUseHookHandler,
@@ -1256,7 +1256,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
         .fn()
         .mockResolvedValue([
           { value: 'kimi-k2.6' },
-          { value: 'moonshot-v1-8k' },
+          { value: 'kimi-for-coding' },
         ]),
     };
     const builder = makeBuilderWithModelService(modelService);
@@ -1272,10 +1272,7 @@ describe('SdkQueryOptionsBuilder.validateModelAvailability (pre-flight, via buil
       hasCachedModels: jest.fn().mockReturnValue(true),
       getSupportedModels: jest
         .fn()
-        .mockResolvedValue([
-          { value: 'moonshot-v1-8k' },
-          { value: 'moonshot-v1-32k' },
-        ]),
+        .mockResolvedValue([{ value: 'kimi-for-coding' }, { value: 'k3' }]),
     };
     const builder = makeBuilderWithModelService(modelService);
 

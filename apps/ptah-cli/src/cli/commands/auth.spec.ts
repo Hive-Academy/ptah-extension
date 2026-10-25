@@ -1010,6 +1010,72 @@ describe('ptah auth set-anthropic-route', () => {
 });
 
 // ---------------------------------------------------------------------------
+// `auth use`
+// ---------------------------------------------------------------------------
+
+describe('ptah auth use', () => {
+  // `ActiveProviderResolver` routes `apiKey` to direct Anthropic and reads
+  // `anthropicProviderId` only for `thirdParty`. Writing `apiKey` here would
+  // send the next run to api.anthropic.com instead of Kimi Code.
+  it('writes the third-party plan routed to kimi-code', async () => {
+    const setConfiguration = jest.fn(async () => undefined);
+    const { formatterTrace, hooks } = buildHooks({
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+    const exit = await execute(
+      { subcommand: 'use', providerId: 'kimi-code' } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.Success);
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'authMethod',
+      'thirdParty',
+    );
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'anthropicProviderId',
+      'kimi-code',
+    );
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'defaultProvider',
+      'kimi-code',
+    );
+    expect(setConfiguration).not.toHaveBeenCalledWith(
+      'ptah',
+      'authMethod',
+      'apiKey',
+    );
+    const last = formatterTrace.notifications.at(-1);
+    expect(last?.method).toBe('auth.use.applied');
+    expect(last?.params).toMatchObject({
+      providerId: 'kimi-code',
+      authMethod: 'thirdParty',
+      defaultProvider: 'kimi-code',
+      anthropicProviderId: 'kimi-code',
+    });
+  });
+
+  it('rejects the retired moonshot id with a usage error', async () => {
+    const setConfiguration = jest.fn(async () => undefined);
+    const { stderrTrace, hooks } = buildHooks({
+      resolveWorkspaceProvider: () => ({ setConfiguration }),
+    });
+    const exit = await execute(
+      { subcommand: 'use', providerId: 'moonshot' } satisfies AuthOptions,
+      baseGlobals,
+      hooks,
+    );
+    expect(exit).toBe(ExitCode.UsageError);
+    expect(stderrTrace.buffer).toContain("unsupported provider 'moonshot'");
+    expect(stderrTrace.buffer).toContain('kimi-code');
+    expect(setConfiguration).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unknown sub-command
 // ---------------------------------------------------------------------------
 

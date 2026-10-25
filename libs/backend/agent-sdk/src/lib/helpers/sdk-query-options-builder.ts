@@ -130,9 +130,9 @@ const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
 /**
  * Build model identity clarification prompt for third-party providers
  *
- * When using Anthropic-compatible providers (Moonshot, Z.AI, etc.), the Claude SDK's
+ * When using Anthropic-compatible providers (Kimi Code, Z.AI, etc.), the Claude SDK's
  * 'claude_code' preset injects "You are Claude" into the system prompt. This causes
- * third-party models like Kimi K2 to incorrectly identify themselves as Claude.
+ * third-party models like Kimi K3 to incorrectly identify themselves as Claude.
  *
  * This function generates a clarification prompt that overrides the identity
  * when a third-party provider is active.
@@ -146,7 +146,7 @@ const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
  * "takes precedence over any other identity instructions", the agent then
  * authoritatively reported a model it was not running.
  *
- * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
+ * @param providerId - The active provider ID (e.g., 'kimi-code', 'z-ai')
  * @param resolvedModel - The concrete model id this session runs on
  * @returns Identity clarification prompt, or undefined when the provider is
  *   Anthropic itself or the model cannot be resolved to a concrete id (a
@@ -1720,7 +1720,7 @@ export class SdkQueryOptionsBuilder {
    * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
    * must pass it explicitly via the `betas` query option.
    *
-   * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
+   * Skipped for third-party providers (OpenRouter, Kimi Code, Z.AI, proxies) as
    * they don't support Anthropic beta headers and would return 400 errors.
    *
    * TWO gates, and they ask different questions. The base URL answers the

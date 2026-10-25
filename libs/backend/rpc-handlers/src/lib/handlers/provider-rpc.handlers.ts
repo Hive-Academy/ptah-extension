@@ -9,7 +9,7 @@
  * - provider:getAccountUsage - The selected provider's plan usage
  * - provider:getPlanLimits - Every in-scope quota owner's plan limits
  *
- * Supports all Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI).
+ * Supports all Anthropic-compatible providers (OpenRouter, Kimi Code, Z.AI).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -93,6 +93,7 @@ import {
   ProviderGetPlanLimitsResult,
   getModelPricingDescription,
   getModelContextWindow,
+  isDirectAnthropic,
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -437,7 +438,11 @@ export class ProviderRpcHandlers {
    */
   private registerAnthropicDirectFetcher(): void {
     const fetcher = async (): Promise<ProviderModelInfo[]> => {
-      const hasApiKey = !!this.authEnv.ANTHROPIC_API_KEY;
+      // Only a key bound for api.anthropic.com may list Anthropic models. A
+      // third-party provider that authenticates with ANTHROPIC_API_KEY (Kimi
+      // Code) would otherwise send its key to its own host's /v1/models.
+      const hasApiKey =
+        !!this.authEnv.ANTHROPIC_API_KEY && isDirectAnthropic(this.authEnv);
 
       try {
         if (hasApiKey) {
@@ -496,7 +501,7 @@ export class ProviderRpcHandlers {
     // spawns with an EMPTY auth env (see CLAUDE_CLI_PROVIDER_ENTRY /
     // PtahCliRegistry.buildAuthEnv), so it always talks to the host's real
     // Claude login. The fetcher above reads the PROCESS-GLOBAL AuthEnv — when a
-    // third-party provider is active (Codex, Copilot, Moonshot, …) its proxy
+    // third-party provider is active (Codex, Copilot, Kimi Code, …) its proxy
     // owns ANTHROPIC_BASE_URL and the SDK reports THAT catalog instead. Ask the
     // SDK under the native login so this list always matches what the agent
     // actually runs on, whatever the active provider happens to be.
@@ -577,7 +582,7 @@ export class ProviderRpcHandlers {
    * provider:listModels - Fetch models from provider API (or return static list)
    *
    * Provider ID routing:
-   * - Registry providers (openrouter, moonshot, z-ai, github-copilot, openai-codex, etc.):
+   * - Registry providers (openrouter, kimi-code, z-ai, github-copilot, openai-codex, etc.):
    *   Resolved via ANTHROPIC_PROVIDERS registry → fetchModels() handles static/dynamic paths.
    * - 'anthropic' (virtual provider for direct OAuth/API key auth):
    *   NOT in the registry. Handled via dynamic fetcher registered by

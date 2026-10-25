@@ -61,7 +61,7 @@ describe('resolveProviderFormKind', () => {
     'lm-studio': 'local',
     'ollama-cloud': 'local-optional-key',
     openrouter: 'api-key',
-    moonshot: 'api-key',
+    'kimi-code': 'api-key',
     'z-ai': 'api-key',
     sakana: 'api-key',
     // Lane-1 Anthropic passthrough (`requiresProxy: false`), but still a

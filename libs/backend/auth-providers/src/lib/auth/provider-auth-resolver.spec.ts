@@ -184,13 +184,13 @@ describe('ProviderAuthResolver.resolve', () => {
   });
 
   it('returns null when the requested provider IS the active provider', async () => {
-    const { resolver } = createHarness({ activeProviderId: 'moonshot' });
-    await expect(resolver.resolve('moonshot')).resolves.toBeNull();
+    const { resolver } = createHarness({ activeProviderId: 'kimi-code' });
+    await expect(resolver.resolve('kimi-code')).resolves.toBeNull();
   });
 
   it('api-key (Anthropic direct) sets ANTHROPIC_API_KEY and no base url', async () => {
     const { resolver } = createHarness({
-      activeProviderId: 'moonshot',
+      activeProviderId: 'kimi-code',
       credentials: { apiKey: 'sk-ant-curator' },
     });
     const result = await resolver.resolve('anthropic');
@@ -201,7 +201,7 @@ describe('ProviderAuthResolver.resolve', () => {
   });
 
   it('api-key (Anthropic direct) throws ProviderAuthError when key missing', async () => {
-    const { resolver } = createHarness({ activeProviderId: 'moonshot' });
+    const { resolver } = createHarness({ activeProviderId: 'kimi-code' });
     await expect(resolver.resolve('anthropic')).rejects.toBeInstanceOf(
       ProviderAuthError,
     );
@@ -210,34 +210,63 @@ describe('ProviderAuthResolver.resolve', () => {
   it('third-party api-key sets base url + provider auth env var + tier envs', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
-    const result = await resolver.resolve('moonshot');
+    const result = await resolver.resolve('kimi-code');
     expect(result).not.toBeNull();
-    expect(result?.env.ANTHROPIC_BASE_URL).toBe(
-      'https://api.moonshot.ai/anthropic/',
-    );
-    expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBe('moon-key');
+    expect(result?.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.ai/coding/');
+    // Kimi Code authenticates with x-api-key, so only ANTHROPIC_API_KEY is set.
+    expect(result?.env.ANTHROPIC_API_KEY).toBe('kimi-key');
     expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
-      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+      getAnthropicProvider('kimi-code')?.defaultTiers?.sonnet,
     );
-    expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it('third-party api-key declares the static tier capabilities so effort reaches the runtime', async () => {
+    const { resolver } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { 'kimi-code': 'kimi-key' },
+    });
+    const result = await resolver.resolve('kimi-code');
+    const capabilities =
+      'thinking,interleaved_thinking,effort,xhigh_effort,max_effort';
+    expect(
+      result?.env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBe(capabilities);
+    expect(
+      result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBe(capabilities);
+    expect(
+      result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBe(capabilities);
+  });
+
+  it('an unknown provider id (the retired moonshot) throws without reading a key', async () => {
+    const { resolver, authSecrets } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { moonshot: 'stale-moonshot-key' },
+    });
+    await expect(resolver.resolve('moonshot')).rejects.toBeInstanceOf(
+      ProviderAuthError,
+    );
+    expect(authSecrets.getProviderKey).not.toHaveBeenCalled();
   });
 
   it('third-party api-key honors a provider.<id>.baseUrl override', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
-      configValues: { 'provider.moonshot.baseUrl': 'https://custom.example/' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
+      configValues: { 'provider.kimi-code.baseUrl': 'https://custom.example/' },
     });
-    const result = await resolver.resolve('moonshot');
+    const result = await resolver.resolve('kimi-code');
     expect(result?.env.ANTHROPIC_BASE_URL).toBe('https://custom.example/');
     expect(result?.baseUrl).toBe('https://custom.example/');
   });
 
   it('third-party api-key throws ProviderAuthError when provider key missing', async () => {
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
-    await expect(resolver.resolve('moonshot')).rejects.toBeInstanceOf(
+    await expect(resolver.resolve('kimi-code')).rejects.toBeInstanceOf(
       ProviderAuthError,
     );
   });
@@ -286,7 +315,7 @@ describe('ProviderAuthResolver.resolve', () => {
    * `resolveCli()` instead, which is the empty-env path.
    */
   it("curator on the 'claude-cli' provider inherits the ambient login (empty auth env, no tier overrides)", async () => {
-    const { resolver } = createHarness({ activeProviderId: 'moonshot' });
+    const { resolver } = createHarness({ activeProviderId: 'kimi-code' });
     const result = await resolver.resolve('claude-cli');
 
     expect(result).not.toBeNull();
@@ -504,33 +533,33 @@ describe('ProviderAuthResolver — curator tier mapping (TASK_2026_159)', () => 
   it("prefers the user's persisted haiku override over the provider entry default", async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
       tierOverrides: {
-        moonshot: { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
+        'kimi-code': { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
       },
     });
-    const result = await resolver.resolve('moonshot');
+    const result = await resolver.resolve('kimi-code');
 
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(
       'kimi-k2-turbo-preview',
     );
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).not.toBe(
-      getAnthropicProvider('moonshot')?.defaultTiers?.haiku,
+      getAnthropicProvider('kimi-code')?.defaultTiers?.haiku,
     );
   });
 
   it('still falls back to the provider entry default for tiers the user has not overridden', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
       tierOverrides: {
-        moonshot: { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
+        'kimi-code': { mainAgent: { haiku: 'kimi-k2-turbo-preview' } },
       },
     });
-    const result = await resolver.resolve('moonshot');
+    const result = await resolver.resolve('kimi-code');
 
     expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
-      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+      getAnthropicProvider('kimi-code')?.defaultTiers?.sonnet,
     );
   });
 
@@ -577,39 +606,39 @@ describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
   it("defaults to the 'mainAgent' scope when the caller passes none", async () => {
     const { resolver, getModelTiers } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
-    await resolver.resolve('moonshot');
+    await resolver.resolve('kimi-code');
 
-    expect(getModelTiers).toHaveBeenCalledWith('moonshot', 'mainAgent');
+    expect(getModelTiers).toHaveBeenCalledWith('kimi-code', 'mainAgent');
   });
 
   it("forwards an explicit 'lane' scope to the tier lookup", async () => {
     const { resolver, getModelTiers } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
-    await resolver.resolve('moonshot', 'lane');
+    await resolver.resolve('kimi-code', 'lane');
 
-    expect(getModelTiers).toHaveBeenCalledWith('moonshot', 'lane');
-    expect(getModelTiers).not.toHaveBeenCalledWith('moonshot', 'mainAgent');
+    expect(getModelTiers).toHaveBeenCalledWith('kimi-code', 'lane');
+    expect(getModelTiers).not.toHaveBeenCalledWith('kimi-code', 'mainAgent');
   });
 
   it("reads the lane mapping, not the user's mainAgent remap", async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
       tierOverrides: {
-        moonshot: {
+        'kimi-code': {
           mainAgent: { haiku: 'foreground-haiku' },
           lane: { haiku: 'background-haiku' },
         },
       },
     });
 
-    const result = await resolver.resolve('moonshot', 'lane');
+    const result = await resolver.resolve('kimi-code', 'lane');
 
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('background-haiku');
   });
@@ -623,12 +652,14 @@ describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
   it("falls back to the provider entry's defaultTiers when the lane scope is empty", async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
-      tierOverrides: { moonshot: { mainAgent: { haiku: 'foreground-haiku' } } },
+      providerKeys: { 'kimi-code': 'kimi-key' },
+      tierOverrides: {
+        'kimi-code': { mainAgent: { haiku: 'foreground-haiku' } },
+      },
     });
 
-    const result = await resolver.resolve('moonshot', 'lane');
-    const defaults = getAnthropicProvider('moonshot')?.defaultTiers;
+    const result = await resolver.resolve('kimi-code', 'lane');
+    const defaults = getAnthropicProvider('kimi-code')?.defaultTiers;
 
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe(defaults?.haiku);
     expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(defaults?.sonnet);
@@ -679,15 +710,15 @@ describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
     };
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'z-ai': 'zai-key' },
     });
 
-    const result = await resolver.resolve('moonshot', 'lane');
+    const result = await resolver.resolve('z-ai', 'lane');
     const env = result?.env as Record<string, string | undefined>;
 
     // Keys the lane itself supplies carry the LANE's value, never the
     // foreground one.
-    expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('moon-key');
+    expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('zai-key');
 
     // Every key the lane does not supply is blanked by presence, not absence.
     for (const key of [
@@ -713,11 +744,11 @@ describe('ProviderAuthResolver — tier scope (TASK_2026_180)', () => {
     const before = { ...process.env };
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
-      tierOverrides: { moonshot: { lane: { haiku: 'lane-haiku' } } },
+      providerKeys: { 'kimi-code': 'kimi-key' },
+      tierOverrides: { 'kimi-code': { lane: { haiku: 'lane-haiku' } } },
     });
 
-    await resolver.resolve('moonshot', 'lane');
+    await resolver.resolve('kimi-code', 'lane');
 
     expect({ ...process.env }).toEqual(before);
   });
@@ -771,30 +802,30 @@ describe('ProviderAuthResolver — live-catalogue tiers for a lane (TASK_2026_26
     // writers.
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
-      tierOverrides: { moonshot: { lane: { haiku: 'lane-haiku' } } },
+      providerKeys: { 'kimi-code': 'kimi-key' },
+      tierOverrides: { 'kimi-code': { lane: { haiku: 'lane-haiku' } } },
       derivedTiers: {
-        moonshot: { haiku: 'catalogue-haiku', sonnet: 'catalogue-sonnet' },
+        'kimi-code': { haiku: 'catalogue-haiku', sonnet: 'catalogue-sonnet' },
       },
     });
 
-    const result = await resolver.resolve('moonshot', 'lane');
+    const result = await resolver.resolve('kimi-code', 'lane');
 
     expect(result?.env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('lane-haiku');
     expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
-      getAnthropicProvider('moonshot')?.defaultTiers?.sonnet,
+      getAnthropicProvider('kimi-code')?.defaultTiers?.sonnet,
     );
   });
 
   it('never reaches for a catalogue when the static data already covers every tier', async () => {
-    // Bounded work, and the reason the derivation is consulted lazily: moonshot
+    // Bounded work, and the reason the derivation is consulted lazily: kimi-code
     // declares all three tiers, so there is no hole to fill.
     const { resolver, getLiveDerivedTiers } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
-    await resolver.resolve('moonshot', 'lane');
+    await resolver.resolve('kimi-code', 'lane');
 
     expect(getLiveDerivedTiers).not.toHaveBeenCalled();
   });
@@ -929,11 +960,11 @@ describe('ProviderAuthResolver.resolve — the quota gate', () => {
     // work on providers that are perfectly healthy.
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
       rateLimited: { 'lm-studio': undefined },
     });
 
-    await expect(resolver.resolve('moonshot', 'lane')).resolves.not.toBeNull();
+    await expect(resolver.resolve('kimi-code', 'lane')).resolves.not.toBeNull();
   });
 
   it('re-opens once the cooldown expires', async () => {
@@ -1062,6 +1093,33 @@ describe('ProviderAuthResolver draft endpoints', () => {
     expect(result.env.ANTHROPIC_BASE_URL).not.toBe('http://draft.example:9999');
     expect(result.env.ANTHROPIC_AUTH_TOKEN).toBe(
       COPILOT_PROXY_TOKEN_PLACEHOLDER,
+    );
+  });
+  it('fails closed for an apiKey draft with a retired provider id and no base URL', async () => {
+    // `getProviderBaseUrl` falls back to the default provider's host for an id
+    // the registry does not know, so the draft key must never get that far.
+    const { resolver } = createHarness({ activeProviderId: 'anthropic' });
+    const attempt = resolver.buildDraftOverride({
+      providerId: 'moonshot',
+      authMode: 'apiKey',
+      credential: { kind: 'apiKey', value: 'draft-key' },
+    });
+    await expect(attempt).rejects.toBeInstanceOf(ProviderAuthError);
+    await expect(attempt).rejects.toThrow(/not available in this version/);
+  });
+  it('accepts an apiKey draft for an unregistered id when the draft names its base URL', async () => {
+    // A draft custom entry is not in the registry yet; its explicit URL is the
+    // destination, so nothing falls back to the default provider.
+    const { resolver } = createHarness({ activeProviderId: 'anthropic' });
+    const result = await resolver.buildDraftOverride({
+      providerId: 'my-draft-endpoint',
+      authMode: 'apiKey',
+      baseUrl: 'https://draft.example/anthropic',
+      credential: { kind: 'apiKey', value: 'draft-key' },
+    });
+    expect(result.baseUrl).toBe('https://draft.example/anthropic');
+    expect(result.env.ANTHROPIC_BASE_URL).toBe(
+      'https://draft.example/anthropic',
     );
   });
 });

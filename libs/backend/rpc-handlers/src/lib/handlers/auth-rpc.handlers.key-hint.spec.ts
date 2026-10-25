@@ -222,7 +222,7 @@ beforeEach(() => {
 describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
   const seeded = {
     openrouter: LONGER_KEY,
-    moonshot: LONG_KEY,
+    'kimi-code': LONG_KEY,
     'z-ai': TWELVE_KEY,
   };
 
@@ -237,17 +237,17 @@ describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
     expect(byId.get('openrouter')?.keyHint).toBe(
       `${BULLETS} ${LONGER_KEY.slice(-4)}`,
     );
-    expect(byId.get('moonshot')?.keyHint).toBe(`${BULLETS} 8f21`);
+    expect(byId.get('kimi-code')?.keyHint).toBe(`${BULLETS} 8f21`);
     expect(byId.get('z-ai')?.keyHint).toBe(
       `${BULLETS} ${TWELVE_KEY.slice(-4)}`,
     );
-    expect(byId.get('moonshot')?.hasApiKey).toBe(true);
+    expect(byId.get('kimi-code')?.hasApiKey).toBe(true);
     expectNoKeyMaterial(JSON.stringify(response), Object.values(seeded));
   });
 
   it('gives no keyHint (and omits the field) for an absent, 11-character or whitespace-only key', async () => {
     const h = makeHarness({
-      providerKeysSeed: { openrouter: SHORT_KEY, moonshot: '     \t   ' },
+      providerKeysSeed: { openrouter: SHORT_KEY, 'kimi-code': '     \t   ' },
     });
 
     const response = await rpc(h, 'auth:getApiKeyStatus');
@@ -256,7 +256,7 @@ describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
 
     expect(byId.get('openrouter')?.hasApiKey).toBe(true);
     expect(byId.get('openrouter')).not.toHaveProperty('keyHint');
-    expect(byId.get('moonshot')).not.toHaveProperty('keyHint');
+    expect(byId.get('kimi-code')).not.toHaveProperty('keyHint');
     expect(byId.get('z-ai')?.hasApiKey).toBe(false);
     expect(byId.get('z-ai')).not.toHaveProperty('keyHint');
     expectNoKeyMaterial(JSON.stringify(response), [SHORT_KEY]);
@@ -290,7 +290,7 @@ describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
     const h = makeHarness({ providerKeysSeed: seeded });
     const readKey = h.authSecrets.getProviderKey.getMockImplementation();
     h.authSecrets.getProviderKey.mockImplementation(async (id: string) => {
-      if (id === 'moonshot') {
+      if (id === 'kimi-code') {
         throw new Error(
           `secrets.json decrypt failed near "${LONG_KEY}" at C:\\Users\\someone\\.ptah`,
         );
@@ -303,11 +303,11 @@ describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
     const byId = new Map(result.providers.map((p) => [p.provider, p]));
 
     expect(response.success).toBe(true);
-    expect(byId.get('moonshot')).toMatchObject({
+    expect(byId.get('kimi-code')).toMatchObject({
       hasApiKey: false,
       keyUnreadable: true,
     });
-    expect(byId.get('moonshot')).not.toHaveProperty('keyHint');
+    expect(byId.get('kimi-code')).not.toHaveProperty('keyHint');
     expect(byId.get('openrouter')).toMatchObject({ hasApiKey: true });
     expect(byId.get('openrouter')).not.toHaveProperty('keyUnreadable');
     expect(byId.get('z-ai')?.keyHint).toBe(
@@ -355,7 +355,7 @@ describe('AuthRpcHandlers — auth:getAuthStatus apiKeyHint', () => {
     const claudeKey = 'Hy6Tg2Rf8Ed4Ws0Qa7Zx3Cv9Bn5Mk1Lp8f21Aa';
     const h = makeHarness({
       credentialsSeed: { apiKey: claudeKey },
-      providerKeysSeed: { moonshot: LONG_KEY },
+      providerKeysSeed: { 'kimi-code': LONG_KEY },
     });
 
     const response = await rpc(h, 'auth:getAuthStatus');
@@ -404,14 +404,14 @@ describe('AuthRpcHandlers — auth:getAuthStatus apiKeyHint', () => {
 
 describe('AuthRpcHandlers — the hint is read-path only', () => {
   it('never computes a hint (or reads a key back) when a key is stored or deleted', async () => {
-    const h = makeHarness({ providerKeysSeed: { moonshot: LONG_KEY } });
+    const h = makeHarness({ providerKeysSeed: { 'kimi-code': LONG_KEY } });
 
     await rpc(h, 'auth:setApiKey', {
       provider: 'openrouter',
       apiKey: LONGER_KEY,
     });
     await rpc(h, 'auth:setApiKey', { provider: 'z-ai', apiKey: '' });
-    await rpc(h, 'auth:deleteStoredKey', { providerId: 'moonshot' });
+    await rpc(h, 'auth:deleteStoredKey', { providerId: 'kimi-code' });
     await rpc(h, 'auth:deleteStoredKey', { providerId: 'anthropic' });
 
     expect(maskKeyHintSpy).not.toHaveBeenCalled();
@@ -420,7 +420,7 @@ describe('AuthRpcHandlers — the hint is read-path only', () => {
   });
 
   it('the read path does call it (sanity check of the spy)', async () => {
-    const h = makeHarness({ providerKeysSeed: { moonshot: LONG_KEY } });
+    const h = makeHarness({ providerKeysSeed: { 'kimi-code': LONG_KEY } });
 
     await rpc(h, 'auth:getApiKeyStatus');
 

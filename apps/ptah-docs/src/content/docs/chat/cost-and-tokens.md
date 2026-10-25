@@ -23,7 +23,8 @@ Every turn in Ptah is costed in real time. You see tokens in, tokens out, cache 
 ## Where pricing comes from
 
 - **Claude (direct Anthropic API)** — published Anthropic pricing, per model.
-- **OpenRouter** — **live pricing pulled from the OpenRouter model registry**. Prices update whenever OpenRouter updates theirs, so third-party models (Gemini, GPT, Moonshot, Z-AI, etc.) are costed accurately without app updates.
+- **OpenRouter** — **live pricing pulled from the OpenRouter model registry**. Prices update whenever OpenRouter updates theirs, so third-party models (Gemini, GPT, Z-AI, etc.) are costed accurately without app updates.
+- **Kimi Code** — no per-token cost is shown. Billing is your Kimi Code plan quota, so Ptah reports the cost as covered by your subscription. Tokens are still counted.
 - **Copilot** — reported as $0 because billing is handled by your Copilot subscription. Tokens are still counted.
 - **Codex / OpenAI direct** — official OpenAI pricing per model.
 - **Ollama (local and cloud)** — reported as $0 for local; Ollama Cloud uses their published rates.

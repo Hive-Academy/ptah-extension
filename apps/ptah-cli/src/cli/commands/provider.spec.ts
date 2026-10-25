@@ -461,7 +461,7 @@ describe('ptah provider default', () => {
       data: {
         providers: [
           { name: 'openrouter' },
-          { name: 'moonshot' },
+          { name: 'kimi-code' },
           { name: 'anthropic' },
         ],
         defaultProvider: 'anthropic',
@@ -495,7 +495,7 @@ describe('ptah provider default', () => {
     engine.scripted.set('llm:getProviderStatus', {
       success: true,
       data: {
-        providers: [{ name: 'openrouter' }, { name: 'moonshot' }],
+        providers: [{ name: 'openrouter' }, { name: 'kimi-code' }],
         defaultProvider: 'openrouter',
       },
     });
