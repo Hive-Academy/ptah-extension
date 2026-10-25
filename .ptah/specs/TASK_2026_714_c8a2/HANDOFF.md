@@ -1,8 +1,8 @@
-# Session handoff — TASK_2026_714_c8a2 (session 7)
+# Session handoff — TASK_2026_714_c8a2 (session 8)
 
-Written 2026-10-25. Replaces the session 6 handoff. No subagent, CLI lane or background command
-of this session is running. Two branches are in flight: the runtime branch (this task) and a
-separate fix branch for provider-switch defects found in a live Electron test.
+Written 2026-10-25. Replaces the session 7 handoff (still in git history, commit 7335067e2).
+No subagent, CLI lane or verify lock is active at handoff. Two branches and two PRs are in
+flight: the runtime branch (this task) and a separate fix branch for provider-switch defects.
 
 ## Goal
 
@@ -12,175 +12,176 @@ two legacy paths: A = Claude Agent SDK + Codex translation proxy (main chat), B 
 `@openai/codex-sdk` (CLI lanes). Claude behavior unchanged. Electron first. No runtime-selector
 UI. Production stays behind the parity gate until parity is proven.
 
-**User decision (this session):** the runtime PR will NOT be merged until the App Server path runs
-main chat, gateways and lanes, with session handling and subagents working, AND paths A and B are
-removed. Defects found on the way go out as SEPARATE small PRs that the user merges first; then
-`main` is merged into the runtime branch.
+**User decision:** the runtime PR is NOT merged until the App Server path runs main chat, gateways
+and lanes (session handling and subagents working) AND paths A and B are removed. Defects found on
+the way go out as SEPARATE small PRs that the user merges first; then `main` is merged into the
+runtime branch (no rebase, no force push).
 
-## Merged
+**Principle (user):** use native App Server features wherever they exist; build only where they do
+not. All session-7 decisions are recorded as rows at the end of `decisions.md`.
 
-- PR #808 (TASK_2026_712, Claude multi-account) merged 2026-10-25.
-- PR #809 (this task's foundation: P2 core, P3 2c, P4 3a/3c/3d/3b-partial, 9a, 10a, host
-  tsconfigs) merged 2026-10-25 at `b73a6ff74`. main head at branch time: `16c6455e1`.
+## PR 1 — fix: #824 `fix/provider-switch-model-sync`
 
-## Branch 1 — runtime: `feat/codex-runtime-integration`
+- https://github.com/Hive-Academy/ptah-extension/pull/824 (ready for review, not draft).
+- Worktree `D:/projects/ptah-extension/.claude-worktrees/provider-switch-model-sync`, base `16c6455e1`.
+- Head `c61ab5f43`. Commits:
+  - `884ff738f` fix(rpc-handlers,core,chat,dashboard): sync models on provider switch (D1 saved
+    non-tier model offered; D2 AuthStateService re-sync on provider identity change, not awaited
+    inside the auth read, fresh models read + generation guard, failed-first-read sentinel; D3
+    `config:model-get` is a pure read).
+  - `c61ab5f43` fix(core): re-read model and effort after a settings save (live-rerun defect:
+    first Codex -> Claude switch saved with a workspace model sent on global `opus`, because the
+    re-sync models read landed before `config:model-switch`). `ProvidersCommitService` now calls
+    `refreshModels({ fresh: true })` / `refreshEffort()` after the writes, resolved lazily via
+    `Injector.get`.
+- CI: all green on `884ff738f`. On `c61ab5f43` CI was PENDING at handoff (3 pass, 15 pending).
+  CodeRabbit was rate limited on the first head.
+- Reviews (`.ptah/specs/provider-switch-model-sync/code-logic-review.md` in that worktree):
+  REVISE 7 -> APPROVED 8.5 -> round 2 APPROVED 8.
+- Lint: the only error in changed files is `model-selector.component.ts:29`
+  (enforce-module-boundaries, `@ptah-extension/shared`), same line on the base: not added by this
+  PR. core lint errors (2) are in untouched `attention-permission-actions.component.ts`.
+- Electron rerun on `884ff738f` (evidence in `%TEMP%/ptah-live-test-2/`: `electron.log`, `shots/`,
+  scripts; settings restored byte-identical, stray `authMethod = "some-value"` left untouched):
+  - Scenario 1 (Codex main chat, saved gpt-6-luna offered + used): PASS.
+  - Scenario 2 (switch provider in open session): PARTIAL. Claude -> Codex PASS. Codex -> Claude:
+    list/footer/send provider OK, but send used `opus` (fixed by `c61ab5f43`, NOT yet re-proven
+    live) and the picker label stayed `gpt-6-luna`.
+  - Scenario 3 (two workspaces isolated, no model-get rewrites): PASS.
+  - Paid turns used: 7 (3 luna, 3 haiku, 1 unintended opus caused by the defect).
+- Open follow-ups (documented in the PR body/comment, NOT fixed):
+  - R2-M1 (moderate, narrow): `EffortStateService.loadEffort` (effort-state.service.ts:79-90) has
+    no generation guard; a late sync read could overwrite the effort just saved. ~5 lines, same
+    pattern as `modelsGeneration` in model-state.service.ts.
+  - Picker label falls back to `tab.sessionModel` unchecked after a switch
+    (`model-selector.component.ts` `effectiveModel`). A plain id check would hide valid resumed
+    Claude labels (`claude-fable-5-1[1m]`), so it needs a provider-aware check. Send is correct.
+  - M3: host paths that read the stored model directly when `params.model` is empty
+    (`chat-session.service.ts:880,1621`, `chat-slash-command-router.service.ts:288`,
+    `gateway-chat-bridge.ts:870`) can send a Codex id to Anthropic after a switch. Needs a product
+    decision (validate per provider on the host, or clear on switch).
+  - Reassign dialog does not preselect the workspace's saved model; saving a Codex reassign to
+    "This workspace" also writes the global `provider.openai-codex.mainAgent.modelTier.opus`
+    (D4 decision: tier map stays provider-level).
+  - No host push event for changes from the CLI or another window.
 
-- Worktree `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration`, from
-  `16c6455e1`. `node_modules` is a junction to the main checkout (never `npm ci`/`npm install`;
-  remove it with `cmd /c rmdir node_modules` before any `git worktree remove`).
-- **Not pushed, no PR yet.** 4 commits:
+## PR 2 — runtime: #823 `feat/codex-runtime-integration` (DRAFT, do not merge)
 
-| Batch | Commit | What |
-| --- | --- | --- |
-| 5a | `085a9341d` | shared session-runtime identity/controls contracts; Zod schema on `@ptah-extension/shared/schemas` (main barrel stays Zod-free, guarded by `index.zod-free.spec.ts`) |
-| 5b (old 3b.1) | `5a7e8f989` | home-aware Codex usage service; explicit homes go to an injected core client (registered null for now); default home unchanged |
-| 5c | `953fee97d` | `resolveExecutionProfile` seam; same-home owner resolution; exports |
-| 5d | `52e06df02` | P5 review fixes (resume ignores the current provider, normalized workspace paths, Codex-only seed models, default-home alias owner key) + both P5 reviews |
+- https://github.com/Hive-Academy/ptah-extension/pull/823
+- Worktree `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration`, base
+  `16c6455e1`. `node_modules` is a junction (never `npm ci`/`npm install`; before any
+  `git worktree remove`, run `cmd /c rmdir node_modules`).
+- Pushed head at PR open: `7335067e2`, CI ALL GREEN there. Commits on top (see "Push state" below):
 
-- Verification done by the team-leader (scoped): shared lint/test/typecheck pass;
-  auth-providers + auth-providers-tokens typecheck pass, tests pass except the known Windows EPERM
-  `translation-proxy.sdk.integration.spec.ts`, lint = the 3 errors already on main; typecheck of
-  ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui pass; container.smoke tests pass.
-- Reviews: `code-logic-review-p5.md` REVISE 6.5 (findings 1–3 fixed in 5d);
-  `code-style-review-p5.md` APPROVED 7 (findings 1 and 3 fixed in 5d).
-- **P5 gate is OPEN:** one code-logic re-review of `953fee97d..52e06df02` has not run.
-- Untracked: `research-codex-gaps.md` (from the research agent, this session) — commit it with
-  the next docs commit.
-- Deviations recorded in `batches.md` as P5-D1..D6. Main one: 5b only routes NON-default homes to
-  the core client. The default home cannot switch yet because the core client drops activity
-  numbers, keys owners by accountId (not home+email, splitting #808 quota rows) and refuses any
-  non-pinned Codex binary. These are parity items before the default home switches.
-- Open items for later batches: identity schema accepts non-normalized strings (P6/P7 writers must
-  normalize); no payload-map entry for `PERMISSION_PROMPT_CANCELLED` (8b); explicit homes not
-  invalidated on auth-file change (P8); P8 must bind the real usage client before the usage
-  service is first resolved; several new exports have no consumer until P6–P8.
+| Commit | What |
+| --- | --- |
+| `085a9341d`, `5a7e8f989`, `953fee97d`, `52e06df02` | P5 (identity contracts, home-aware usage, profile seam, review fixes) |
+| `7335067e2` | docs: session 7 decisions, research-codex-gaps.md, P5 re-review |
+| `22f44920a` | docs: session 7 batch plan in batches.md |
+| `0541f372b` | feat(codex-runtime): dev-only chat route override (Batch DS1, phase P5b) |
+| `c2547fad9` | docs: DS1 recorded |
+| `38ccfb5a0` | docs: P5b closed (code-logic-review-p5b.md APPROVED 8), 6p started |
+| `389d08ce1` | feat(codex-runtime,auth-providers): shared workspace key + model substitution (Batch 6p) |
+| `5e890235a` | docs: 6p recorded, "Run state" block in batches.md |
+| (this file) | docs: session 8 handoff |
 
-## Branch 2 — fix: `fix/provider-switch-model-sync`
+- Reviews: P5 logic re-review APPROVED 8.5 (`code-logic-review-p5-fixes.md`); P5b APPROVED 8
+  (`code-logic-review-p5b.md`; M1 test added in 6p; M2 = acceptance check at 8a review: Electron
+  passes `app.isPackaged` verbatim, no other host passes `devRoute`).
+- DS1: the reader returns a route only when `isPackaged === false` and `PTAH_CODEX_RUNTIME_DEV`
+  is exactly `'1'`; chat only; gateway and lane stay blocked; `CodexParityGate` still
+  `enabled: false`. No host wires it yet (that is 8a).
+- 6p behavior change to check at the P6 review: a stored RELATIVE workspace id is now rejected
+  with a content-free error (no longer resolved against the cwd).
 
-- Worktree `D:/projects/ptah-extension/.claude-worktrees/provider-switch-model-sync`, from
-  `16c6455e1`, `node_modules` junction. **Uncommitted, not pushed, no PR.**
-- Source: live Electron test this session (Codex main chat on legacy path A, Claude haiku and
-  Codex luna paid runs, ~$0.07). Evidence + screenshots: `%TEMP%/ptah-live-test/` (`shots/`,
-  `electron.log`, `settings.backup.json`). The test restored the 6 settings keys it changed.
-- Defects and status:
-  - **D1 fixed** — a saved non-tier model (e.g. `gpt-6-luna`) was never offered, so "Default"
-    resolved to the opus tier. New `config-saved-model-option.ts`; `registerModelsList` matches
-    tier aliases and appends/selects a saved model if the provider catalog has it.
-  - **D2 fixed** — the open session's model list did not follow a provider switch (next send went
-    to Anthropic with a Codex model id). `AuthStateService` now re-syncs models, effort and plan
-    limits when `authMethod|activeProviderId` changes after an auth-status read; the picker drops
-    a tab override the new list does not offer; the plan-limits card uses the new
-    `activeProviderId`.
-  - **D3 fixed** — `config:model-get` (a read) rewrote non-`claude-` values globally and wiped the
-    workspace override. It is now a pure read.
-  - **D4 left as is (decision)** — Codex tier auto-map stays provider-level/global (fills unset
-    tiers only); making tiers per-workspace would touch `workspace-provider-profile-resolver.ts`
-    (runtime branch). The "haiku shows Default" symptom is fixed by D1+D3.
-- Changed files (all under that worktree):
-  `libs/backend/rpc-handlers/src/lib/handlers/config-rpc.handlers.ts` (+`.spec.ts`),
-  `libs/backend/rpc-handlers/src/lib/handlers/config-saved-model-option.ts` (new),
-  `libs/frontend/core/src/lib/services/auth-state.service.ts` (+`.spec.ts`),
-  `libs/frontend/core/src/lib/services/model-state.service.spec.ts`,
-  `libs/frontend/chat/src/lib/components/molecules/chat-input/model-selector.component.ts` (+`.spec.ts`),
-  `libs/frontend/dashboard/src/lib/components/provider-account-card/provider-account-card.component.ts` (+`.spec.ts`).
-- Verification by the fixer: config-rpc tests pass; `-p rpc-handlers,core,chat,dashboard` → all
-  test + typecheck pass, dashboard lint pass, but lint FAILS for core (2), chat (135, mostly
-  "static imports of lazy-loaded libraries" for `@ptah-extension/shared`) and rpc-handlers — all
-  reported in untouched lines/files, NOT yet compared with main; `-t typecheck -p ptah-electron`
-  pass. Warnings only in changed files: `auth-state.service.ts` 794 lines (>700, was already
-  over), unused `EffortLevel` import in `config-rpc.handlers.ts` (remove it).
-- Not done: independent review, commit, push, PR, Electron rerun of the three scenarios.
-- Left open: no host push event (changes from CLI/another window apply only on the next auth
-  read); a restored tab can still show the old provider's model label (send uses the corrected
-  model).
-- User's real `~/.ptah/settings.json` has a stray top-level `authMethod = "some-value"` (likely
-  leaked test data). Reported to the user; not changed. Do not edit without the user's go.
+## Push state at handoff
 
-## Decisions this session (write them into `decisions.md` — not done yet)
+- Fix branch: pushed (`c61ab5f43`).
+- Runtime branch: the coordinator started `git push` of `22f44920a..` + this handoff in the
+  background at the end of session 8. **First check:** `git -C <runtime worktree> status -sb` and
+  `git log --oneline origin/feat/codex-runtime-integration..HEAD`. If commits are still local, push
+  again in the background (`git push`), then watch CI: `gh pr checks 823 --watch`.
+- Note: the jq-based Monitor watcher printed no events this session (jq output problem on this
+  machine). Use `gh pr checks <n> --watch` in a background Bash command instead.
 
-1. Removal A (proxy), then Removal B (codex-sdk lanes), are IN SCOPE of this task, each after
-   parity proof, each its own commit with proof.
-2. The 8 remaining spike turns are APPROVED (≤30000 tokens/turn, ≤100000/run). Order: the gap
-   spikes first (revert 2–3, file edit vs shell edit 1, native subagent 1), report what is left,
-   then Always Allow different-command and remote MCP.
-3. **Use native App Server features wherever they exist; build only where they do not.** Make them
-   fit Ptah's UI and workflows. (User: "if they does why would we care to build our own".)
-   - Subagents: NATIVE (`collabAgentToolCall`, `subAgentActivity`, `parentThreadId`; stable,
-     default-on). Map to Ptah agent cards (`agent_start`/agent-end), keep child-thread events out
-     of the main transcript, route child approvals through the Ptah approval bridge, rebuild cards
-     from stored threads on resume. Personas: check whether Codex supports named agent roles; if
-     yes wire Ptah agent files to it, if no report it as a gap (no workaround). Lanes currently
-     disable subagents (`codex-lane-config.builder.ts:104`) — decide at the lane migration.
-     The Ptah-owned spawn tool idea is DROPPED.
-   - Sessions: NATIVE. Codex rollout JSONL in each CODEX_HOME `sessions/` is the single source of
-     truth; history via `thread/read` → event translator; resume via `thread/resume`. Ptah keeps
-     only its session metadata (title, workspace, provider, runtime, child agents) keyed by thread
-     id. No Ptah JSONL copy.
-   - History rollback: NATIVE `thread/revert {threadId, beforeTurnId}` (or `thread/fork`). The old
-     -32600 came from `thread/rollback`, which refuses paginated threads and is removed by 0.163.
-   - File rewind: NOT native → build a Ptah turn-start git shadow-tree checkpoint returning the
-     existing `SessionRewindResult`.
-4. A dev-only switch turns on the new runtime for main chat (parity gate stays closed for
-   production) so the live Electron scenarios can be rerun on the new path.
+## Plan state (batches.md "Run state" block is the source of truth)
 
-See `research-codex-gaps.md` for the evidence behind 3 (schema lines, source URLs, sizes).
+- Done: P5, P5b (DS1), 6p.
+- Next: Phase P6 = 6a (chat events + approval routing in
+  `libs/backend/agent-sdk/src/lib/codex-app-server/`, Codex lane, Claude reviewer) and 6c in
+  parallel (file-disjoint); then 6b, 6d (now also edits
+  `libs/shared/src/lib/types/session-runtime.schemas.ts` for the normalizedHome refine; verify
+  `-p @ptah-extension/agent-sdk,@ptah-extension/shared`), 6e; host typecheck; then P6 phase
+  review (code-logic + code-style) = next stop.
+- Later order: P7 (7a substitution notice, 7b, 7c — 7c edits `config-rpc.handlers.ts` and WAITS for
+  PR #824 merge + `git merge origin/main`), P8 (8a Electron wiring of the dev switch; 8c = Claude
+  frontend-developer + Codex logic review + Electron visual review dark/light), P9 9b, P10 10b/10c
+  (lanes keep native subagents off), S0/S1 gap spikes (paid, 8 turns approved, <=30000/turn,
+  <=100000/run: revert 2-3, file edit vs shell edit 1, native subagent 1), P11 native subagents,
+  P12 native sessions (`thread/read`, `thread/revert`, `thread/resume`; metadata only), P13 git
+  shadow-tree file-rewind checkpoint, S2 (Always Allow different-command, remote MCP), P14 parity
+  ledger + live Electron parity run, P15 Removal A, P16 Removal B (each one commit with proof).
+- Team-leader moved the gap spikes before P11/P12 (they need the recorded frames); consistent with
+  session-7 decision 2, recorded in batches.md.
+- Lane deliverable paths MUST be absolute (a task-folder-relative path was doubled by the lane
+  checker and gave a false "no-deliverable" verdict for DS1).
 
 ## Key files
 
-- Plan/state: `batches.md`, `implementation-plan.md`, `decisions.md`, `native-route-evidence.md`,
-  `research-codex-gaps.md`, `code-logic-review-p5.md`, `code-style-review-p5.md`, `batch-5*-report.md`.
-- Gate: `libs/backend/codex-runtime/src/lib/di/registration.ts` (throws 'Codex production routing
-  disabled by parity gate'), `libs/backend/codex-runtime/src/lib/codex-parity-gate.ts` (ledger
-  still needs the reviewed 7a2–7f update).
-- Subagent mapping: `libs/backend/codex-runtime/src/lib/codex-event-translator.ts:324` (collab items → generic rows today).
+- Runtime task folder `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/.ptah/specs/TASK_2026_714_c8a2/`:
+  `batches.md`, `implementation-plan.md`, `decisions.md`, `research-codex-gaps.md`,
+  `native-route-evidence.md`, `batch-DS1-report.md`, `batch-6p-report.md`,
+  `code-logic-review-p5-fixes.md`, `code-logic-review-p5b.md`.
+- Gate: `libs/backend/codex-runtime/src/lib/di/registration.ts`,
+  `libs/backend/codex-runtime/src/lib/codex-parity-gate.ts`,
+  `libs/backend/codex-runtime/src/lib/codex-dev-route.ts`.
+- Subagent mapping start: `libs/backend/codex-runtime/src/lib/codex-event-translator.ts:324`.
 - Protocol: `libs/backend/codex-runtime/src/lib/protocol/codex-app-server-protocol.schema.json`.
+- Fix branch: `libs/backend/rpc-handlers/src/lib/handlers/config-rpc.handlers.ts`,
+  `config-saved-model-option.ts`, `libs/frontend/core/src/lib/services/auth-state.service.ts`,
+  `model-state.service.ts`, `providers-commit.service.ts`, `effort-state.service.ts` (R2-M1).
 
 ## Next steps (in order)
 
-1. **Fix branch first** (in `.claude-worktrees/provider-switch-model-sync`):
-   1. Compare the lint failures with main: in a temp worktree on `origin/main`, or check whether
-      the errors are in untouched lines — `npm run verify -- -t lint -p @ptah-extension/core,@ptah-extension/chat,@ptah-extension/rpc-handlers`.
-      Do not raise baselines; only errors this branch adds must be fixed. Remove the unused
-      `EffortLevel` import.
-   2. Independent review (code-logic-reviewer) of the diff.
-   3. Commit (foreground, explicit paths, `.commitlintrc.json`), e.g.
-      `fix(rpc-handlers,core,chat,dashboard): sync models on provider switch`.
-   4. Push + `gh pr create` in the background; watch CI and reviews; report the PR URL.
-   5. Electron rerun of the 3 scenarios (procedure below) on the fix branch.
-2. **Runtime branch** (in `.claude-worktrees/codex-runtime-integration`):
-   1. Spawn a code-logic re-review of `953fee97d..52e06df02` (scope: p5 logic findings 1–3, style
-      findings 1 and 3) → `code-logic-review-p5-fixes.md`. Fix-round cap is reached: if it
-      rejects, report the defects instead of another round.
-   2. Write the decisions above into `decisions.md`; commit it with `research-codex-gaps.md`.
-   3. Push and open the PR against main (draft is fine, the user will not merge it until A and B
-      are removed). Watch CI.
-   4. After the user merges the fix PR: `git merge origin/main` (no rebase/force), scoped checks.
-   5. Re-invoke team-leader (Mode 2) with an updated plan: dev-only switch; P6, P7, P8 (8c needs a
-      Claude frontend implementer + Codex reviewer + Electron visual review), 9b, 10b, 10c; native
-      subagent mapping; session history via `thread/read` + `thread/revert`; file-rewind
-      checkpoint; reviewed parity-gate ledger update; live Electron parity run on the new path;
-      Removal A; Removal B (each removal only after parity proof).
-   6. Spike turns (approved): gap spikes first, then report the remaining count.
+1. Check the runtime push (see "Push state"); push if needed; `gh pr checks 823 --watch` (bg).
+2. PR #824: watch CI on `c61ab5f43` (`gh pr checks 824 --watch`, bg); read CodeRabbit and review
+   threads (`gh pr view 824 --comments`, `gh api repos/Hive-Academy/ptah-extension/pulls/824/comments`);
+   fix confirmed findings with new commits.
+3. PR #824, optional small fix before the rerun: R2-M1 effort generation guard
+   (+ test in effort-state.service.spec.ts); verify `npm run verify -- -t test,typecheck -p @ptah-extension/core`.
+4. PR #824: rerun Electron scenario 2 (Codex -> Claude with a workspace model saved in the same
+   save; expect the send on that model) on the new head, from the fix worktree, per the procedure
+   below. <=4 paid turns, haiku/luna only. Report on the PR.
+5. Ask the user to merge #824 when green. After the merge, in the runtime worktree:
+   `git fetch origin && git merge origin/main` (no rebase/force), then scoped checks of the
+   touched projects, push.
+6. Re-invoke team-leader (Mode 2) to run P6 (6a + 6c first). Give it absolute paths and the rules
+   below. Stops: P6 phase review, S1 paid run, user decisions, 7c merge wait.
+7. Product decisions to ask the user when relevant: M3 host stored-model fallback; whether resume
+   should block on a workspace provider switch (today it survives, by design per P5).
 
 ## Verification rules (repeat to every lane)
 
-- `npm run verify -- -p A,B` / `-t test -p A` (extra Jest flags after a second `--`). FIFO lock
-  machine-wide; `node scripts/verify.mjs --status`. Other heavy commands:
+- `npm run verify -- -p A,B` / `npm run verify -- -t test -p A` (extra Jest flags after a second
+  `--`). Confirm the header "Running target X for N projects". FIFO lock is machine-wide;
+  `node scripts/verify.mjs --status`. Other heavy commands:
   `node scripts/verify.mjs --exec --task <name> -- <cmd>`. Never workspace-wide, never positional
-  `nx test A B`, never build/serve/e2e unless the user asks (the user asked for Electron dev runs).
+  `nx test A B`, never build/serve/e2e unless for the approved Electron live run.
 - Known noise: `translation-proxy.sdk.integration.spec.ts` EPERM on Windows; pre-existing lint
-  errors in auth-providers (3), cli-agent-runtime (5–6).
+  errors in auth-providers (3), cli-agent-runtime (5-6), core (2, attention-permission-actions).
+- Commit in the foreground, explicit paths, `.commitlintrc.json` (scope `task-specs` for docs),
+  subject <=72, body lines <=100, end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+  Push in the background. No merge, force push, history rewrite, branch deletion or worktree
+  removal. Do not edit `~/.ptah/settings.json` without the user's go.
 
-## Electron live-test procedure (worked this session, from the main checkout)
+## Electron live-test procedure (run from the worktree under test)
 
 1. `node scripts/verify.mjs --exec --task electron-live-test -- npx nx build-dev ptah-electron`
 2. `node scripts/copy-wasm.js dist/apps/ptah-electron`
 3. `node scripts/verify.mjs --exec --task electron-live-test -- npx nx copy-renderer-dev ptah-electron`
 4. `PTAH_NO_DEVTOOLS=1 PTAH_DB_PATH=… PTAH_SESSIONS_DB_PATH=… node apps/ptah-electron/scripts/launch.js --remote-debugging-port=9335 <ws>`
-- Port 9335 (9333 belongs to other sessions). `--user-data-dir` is IGNORED in dev (`main.ts:62`
-  forces the "Ptah Dev" profile) and `~/.ptah/settings.json` is real: back up settings first and
-  restore the keys you change. Drive with Playwright `connectOverCDP`, scripts outside the repo.
-- Paid runs: only `haiku` and Codex luna models, tiny prompts, ≤10 turns per run.
-- Scenarios: (1) Codex main chat in a workspace; (2) switch provider in an open session → model
-  list, selection, next send, plan limits update without reload; (3) two workspaces (Claude haiku
-  / Codex luna) stay isolated for provider, model and sessions.
+- Port 9335 only. `--user-data-dir` is ignored in dev. `~/.ptah/settings.json` is real: back it up
+  into a new `%TEMP%` folder first, restore only the keys you change, prove with `cmp`. Drive with
+  Playwright `connectOverCDP`, scripts outside the repo (reuse `%TEMP%/ptah-live-test-2/`).
+  A second workspace can be added via `ElectronLayoutService.addFolderByPath()` (`s-addws.js`).
+- Paid runs: only `haiku` and Codex luna, tiny prompts, <=10 turns per run.
