@@ -1269,6 +1269,60 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 - Tracked gap (decision P6 fix 7): App Server `review/start` (`/review`) has no Ptah UI on this
   path; not built in P6. Revisit in a later phase (candidate: P11/P12 slash surface).
 
+## Batch 6g: P6 second fix round (re-review) — COMPLETE (commits below; narrow re-review PENDING)
+
+- Trigger: re-review code-logic-rereview-p6.md REVISE 6/10 (SN1 + 9 moderate),
+  code-style-rereview-p6.md APPROVE 7/10 (S1-R). Decisions "P6 fix 12..21" in decisions.md.
+- Executors: Codex lanes CORE2, ROUTING2, WIRING2, ADAPTER2, two follow-up lanes after the first
+  team-leader verify (process-layer model/list fail-closed; stream-exhaustion busy, lint shape,
+  fixtures), one spec lane (cancel presented exactly once per settle path). Reports:
+  batch-6g-{core,routing,wiring,adapter}-report.md.
+- Verify `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/gateway-chat-bridge,
+  @ptah-extension/agent-sdk,@ptah-extension/shared`: codex-runtime 17 suites / 834 tests PASS,
+  lint 0 errors; gateway-chat-bridge 4 / 132 PASS; shared 125 / 3805 PASS; agent-sdk 193 suites /
+  4124 tests PASS (3 skipped), typecheck PASS, lint 2 known-noise errors only
+  (session-query-executor.accounts.spec.ts:174,183). First run had 4 codex-runtime + 3 agent-sdk
+  failures and a new lint error; all fixed by the follow-up lanes (real fixes, no weakened specs).
+- 8a host contract (from batch-6g-wiring-report.md "Host contract for 8a"):
+  1. Register SDK services, await `initializeSessionRuntimeIdentityLookup(store, logger)`, bind
+     all runtime ports before resolving AGENT_ADAPTER, ROUTING_AGENT_ADAPTER or any consumer that
+     holds them; bind session controls before SESSION_RUNTIME_ROUTER.
+  2. SESSION_RUNTIME_IDENTITY_LOOKUP, CODEX_CHAT_ADAPTER_PORTS, RUNTIME_ADMISSION_PORT,
+     RUNTIME_HOST_CAPABILITIES (and SDK-owned CODEX_CHAT_ADAPTER) are STABLE instances
+     (registerInstance or a cached factory). Rebinding after first resolution needs a fresh
+     container; the guard cannot revoke held references.
+  3. Lookup or native ports bound without RUNTIME_ADMISSION_PORT throws
+     CodexRuntimeCompositionError `missing-admission-port`; all-null keeps the exact SDK adapter.
+  4. An unstable binding throws `unstable-binding` ("bind a stable instance"); other codes:
+     identity-lookup-disposed, persisted-identity-unavailable, session-thread-mismatch. Hosts
+     branch on `code`, never on message text.
+  5. Native metadata writes go through the initialized lookup inside SDK composition; hosts own
+     lookup disposal.
+  6. NATIVE_SESSION_CONTROLS.canSendFollowUp wraps the DI-resolved CODEX_CHAT_ADAPTER
+     `canSendFollowUp(sessionId)` (arrow wrapper keeps the receiver). Hosts never import the
+     adapter class as a value (S1-R: no value export).
+- 8a audit list (direct SDK-adapter use that bypasses routing): chat-session.service.ts:1071, 1237,
+  1330; chat-stream-broadcaster.service.ts:351-359 (decision P6 fix 12).
+- Deferred with reason:
+  - M8 (models for a native session with no open context) -> 8a: needs a host-level model
+    source (an App Server process without a thread); Electron first.
+  - M9 (VS Code/CLI hosts without ISessionRecordRepository preload one workspace) -> 8d/8e:
+    Electron uses the records repository (listAll across projects).
+  - Live stats stay refused (decision P6 fix 21): cacheCreation now comes from the wire, but a
+    resumed context has no prior message count and no lifetime totals, so SessionStatsEntry
+    messageCount/totals cannot be exact; no invented counters.
+  - SN1 limit (decision P6 fix 21): metadata.save has no rollback; a tab close during the save
+    lets it finish, then no turn starts, the context closes, busy/ownership are released; the row
+    stays resumable. Spec "cancel during save".
+  - Store M9 style (two workspace-key rules): not behavior-preserving to unify cheaply (legacy
+    permissive helper vs strict Codex key); kept, reason in batch-6g-routing-report.md.
+  - Style M8 (approval identity as string): shared PermissionPromptCancelledPayload carries a
+    string sessionId on the wire.
+  - m1 accumulator replay spec: needs frontend libs (agent-sdk must not import them); event
+    order pinned in codex-chat-events.spec.ts.
+  - register.ts still over the 700-line max-lines warning (down 125 lines; not an error).
+  - `review/start` tracked gap (unchanged).
+
 ---
 
 # Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — PENDING (needs P6)
