@@ -465,6 +465,8 @@ function namedFixture() {
   const f = fixture();
   const launch = certifiedLaunch();
   const initVersion = { value: launch.executable.version };
+  // Init `apiKeySource`; `undefined` models a child that omits the field.
+  const initKeySource: { value: string | undefined } = { value: 'none' };
   const route = {
     kind: 'named',
     provider: 'claude',
@@ -604,6 +606,9 @@ function namedFixture() {
         subtype: 'init',
         session_id: 'sdk-session',
         claude_code_version: initVersion.value,
+        ...(initKeySource.value === undefined
+          ? {}
+          : { apiKeySource: initKeySource.value }),
       } as import('@ptah-extension/agent-sdk').SDKMessage;
     })();
     const query = Object.assign(stream, {
@@ -631,6 +636,7 @@ function namedFixture() {
     epoch: () => epoch?.({ ...route, authEpoch: 1 }),
     launch,
     initVersion,
+    initKeySource,
   };
 }
 
@@ -1102,6 +1108,65 @@ describe('named Claude lane certified launch boundaries', () => {
     ).toMatchObject({ done: true });
   });
 
+  it.each(['none', 'oauth'])(
+    'accepts init apiKeySource %s and completes the named lifecycle',
+    async (source) => {
+      const f = namedFixture();
+      f.initKeySource.value = source;
+      const handle = await f.adapter.runSdk(f.input);
+      expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+      expect(handle.accountBinding).toEqual(f.binding);
+      f.finish(0);
+      await handle.done;
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each<[string, string | undefined]>([
+    ['a missing', undefined],
+    ['an ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
+    ['an apiKeyHelper', 'apiKeyHelper'],
+  ])(
+    'refuses %s init apiKeySource despite valid account info, before binding or task text',
+    async (_label, source) => {
+      const f = namedFixture();
+      f.initKeySource.value = source;
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'identity-unproved',
+      });
+      expect(f.children[1].accountInfo).toHaveBeenCalled();
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+      expect(f.callbacks).not.toHaveBeenCalled();
+      expect(
+        await f.children[1].prompt[Symbol.asyncIterator]().next(),
+      ).toMatchObject({ done: true });
+      expect(f.children[1].close).toHaveBeenCalled();
+    },
+  );
+
+  it('accepts account-info apiKeySource none through bootstrap and final', async () => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      f.children[f.children.length - 1].accountInfo.mockResolvedValue({
+        ...personalLogin,
+        email: 'owner@example.test',
+        organization: 'org',
+        apiKeySource: 'none',
+      });
+      return query;
+    });
+    const handle = await f.adapter.runSdk(f.input);
+    expect(f.children).toHaveLength(2);
+    expect(f.children[0].accountInfo).toHaveBeenCalled();
+    expect(f.children[1].accountInfo).toHaveBeenCalled();
+    expect(handle.accountBinding).toEqual(f.binding);
+    f.finish(0);
+    await handle.done;
+  });
+
   it.each<[string, Record<string, unknown>]>([
     ['a non-claude.ai token source', { tokenSource: 'console' }],
     ['an apiKeyHelper key source', { apiKeySource: 'apiKeyHelper' }],
@@ -1152,10 +1217,15 @@ describe('named Claude lane certified launch boundaries', () => {
     expect(f.callbacks).not.toHaveBeenCalled();
   });
 
-  it('resumes a bound lane on the stored run without a second binding', async () => {
+  it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
+    ['the same named account', { kind: 'named', profileId: 'profile' }],
+    ['an omitted selection', { kind: 'omitted' }],
+  ])('resumes a bound lane on the stored run without a second binding (%s)', async (_label, selection) => {
     const f = namedFixture();
     const handle = await f.adapter.runSdk({
       ...f.input,
+      ...f.binding && { accountBinding: f.binding, accountBindingId: 'run' },
+      accountAdmission: { ...f.input.accountAdmission!, selection },
       resumeSessionId: 'sdk-session',
     });
     expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
@@ -1169,5 +1239,22 @@ describe('named Claude lane certified launch boundaries', () => {
     expect(handle.accountBinding).toEqual(f.binding);
     f.finish(0);
     await handle.done;
+  });
+
+  it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
+    ['another named account', { kind: 'named', profileId: 'other-profile' }],
+    ['explicit ambient', { kind: 'ambient' }],
+  ])('refuses a resume selecting %s against the stored binding with conflict', async (_label, selection) => {
+    const f = namedFixture();
+    await expect(
+      f.adapter.runSdk({
+        ...f.input,
+        accountAdmission: { ...f.input.accountAdmission!, selection },
+        resumeSessionId: 'sdk-session',
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
   });
 });

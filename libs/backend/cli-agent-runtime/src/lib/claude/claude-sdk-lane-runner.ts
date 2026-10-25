@@ -328,6 +328,12 @@ export function claudeLaneRefusalCode(error: unknown): ClaudeLaneRefusalCode {
   return 'release-held';
 }
 
+/** Init `apiKeySource` values a personal claude.ai login may report. */
+const INIT_PERSONAL_KEY_SOURCES: ReadonlySet<string> = new Set([
+  'none',
+  'oauth',
+]);
+
 /**
  * Post-init tripwire: the running child must use a personal claude.ai login.
  * Any other token source, any API key source, a non-first-party provider or a
@@ -342,7 +348,7 @@ function personalClaudeLogin(info: {
   const personal: readonly string[] = CLAUDE_PERSONAL_SUBSCRIPTIONS;
   return (
     info.tokenSource === 'claude.ai' &&
-    info.apiKeySource === undefined &&
+    (info.apiKeySource === undefined || info.apiKeySource === 'none') &&
     (info.apiProvider === undefined || info.apiProvider === 'firstParty') &&
     info.subscriptionType !== undefined &&
     personal.includes(info.subscriptionType)
@@ -636,8 +642,12 @@ export class ClaudeNamedLaneAdmission {
       if (next.done || buffered.length >= 64) throw claudeLaneRefusal();
       buffered.push(next);
       if (next.value.type === 'system' && next.value.subtype === 'init') {
-        // The running CLI must be the certified version, before any task text.
-        if (next.value.claude_code_version !== version)
+        // The running CLI must be the certified version and must report a
+        // personal key source (independent of account info), before any task text.
+        if (
+          next.value.claude_code_version !== version ||
+          !INIT_PERSONAL_KEY_SOURCES.has(String(next.value.apiKeySource))
+        )
           throw claudeLaneRefusal('identity-unproved');
         sessionId = next.value.session_id;
       }

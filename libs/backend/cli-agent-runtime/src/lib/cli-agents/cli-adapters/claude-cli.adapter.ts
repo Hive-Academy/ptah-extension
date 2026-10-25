@@ -318,6 +318,18 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           ).code !== 'ok')
       )
         throw claudeLaneRefusal();
+      // The stored binding is authoritative on resume. An explicit selection
+      // must name the same account; omitted keeps the session's own account
+      // (D27). Without a stored binding only an explicit named route is
+      // admitted here.
+      const selected = request.selection;
+      if (
+        stored &&
+        (selected.kind === 'ambient' ||
+          (selected.kind === 'named' && selected.profileId !== stored.profileId))
+      )
+        throw claudeLaneRefusal('conflict');
+      if (!stored && selected.kind !== 'named') throw claudeLaneRefusal();
       if (abort.signal.aborted) throw claudeLaneRefusal();
       const result = await admission.admitClaudeRoute({
         ...request,

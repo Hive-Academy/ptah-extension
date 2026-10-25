@@ -24,6 +24,52 @@ import {
   type SessionMcpStatusEvent,
 } from './session-mcp-status-callback-registry';
 import type { AISessionConfig } from '@ptah-extension/shared';
+import type {
+  ClaudeAccountNamedRoute,
+  ClaudeCertifiedLaunchContext,
+} from '@ptah-extension/auth-providers-tokens';
+import {
+  CLAUDE_CERTIFIED_ENV_KEYS,
+  certifiedEnvDigest,
+} from './claude-certified-launch';
+
+const NAMED_ROUTE = {
+  kind: 'named',
+  provider: 'claude',
+  profileId: 'profile-a',
+  canonicalConfigDir: '/isolated-account',
+  routeFingerprint: 'a'.repeat(64),
+  routeRevision: 0,
+  authEpoch: 0,
+  runId: 'run-a',
+} as ClaudeAccountNamedRoute;
+const NAMED_ENV: Record<string, string> = {
+  [CLAUDE_CERTIFIED_ENV_KEYS[0]]: 'certified-value',
+  CLAUDE_CONFIG_DIR: NAMED_ROUTE.canonicalConfigDir,
+  CLAUDE_SECURESTORAGE_CONFIG_DIR: NAMED_ROUTE.canonicalConfigDir,
+};
+const NAMED_LAUNCH: ClaudeCertifiedLaunchContext = {
+  executable: {
+    command: 'claude-fixture',
+    prefixArgs: [],
+    sdkExecutablePath: '/certified/claude',
+    version: '2.1.310',
+    fingerprint: { size: 1, mtimeMs: 1 },
+  },
+  env: NAMED_ENV,
+  envDigest: certifiedEnvDigest(NAMED_ENV),
+  cwd: 'D:/tmp/ws',
+  settingSources: ['user', 'project', 'local'],
+  policy: {
+    coverage: 'win32@2.1.310',
+    managedFile: 'absent',
+    managedDropIn: 'absent',
+    registry: 'absent',
+    remoteSignals: 'absent',
+  },
+  accountClass: 'personal',
+  identityReference: 'b'.repeat(64),
+};
 
 const CLI_NOTICE =
   'claude.ai connectors are disabled because ANTHROPIC_API_KEY or another ' +
@@ -33,6 +79,9 @@ interface Harness {
   stderr: (data: string) => void;
   events: SessionMcpStatusEvent[];
   trackStderrSession: jest.Mock;
+  checkStderrForFailure: jest.Mock;
+  /** Every logger call at every level, serialized. */
+  allLogCalls: () => string;
   /** Read AFTER the stderr calls — these are getters, not snapshots. */
   errorLines: () => string[];
   warnLines: () => string[];
@@ -44,11 +93,14 @@ async function makeHarness(
     tabId?: string;
     sessionId?: string;
     sessionIdResolver?: () => string | undefined;
+    /** Build a named-account final run (certified route and launch). */
+    named?: boolean;
   } = {},
 ): Promise<Harness> {
   const error = jest.fn();
   const warn = jest.fn();
   const debug = jest.fn();
+  const info = jest.fn();
   const noopHooks = { createHooks: jest.fn().mockReturnValue({}) };
   const events: SessionMcpStatusEvent[] = [];
   const mcpStatus = {
@@ -57,10 +109,11 @@ async function makeHarness(
     },
   } as unknown as SessionMcpStatusCallbackRegistry;
   const trackStderrSession = jest.fn();
+  const checkStderrForFailure = jest.fn();
   const mcpBackoff = {
     getBackingOffServers: jest.fn().mockReturnValue([]),
     trackStderrSession,
-    checkStderrForFailure: jest.fn(),
+    checkStderrForFailure,
   };
 
   const ctor = SdkQueryOptionsBuilder as unknown as new (
@@ -68,7 +121,7 @@ async function makeHarness(
   ) => SdkQueryOptionsBuilder;
 
   const builder = new ctor(
-    { info: jest.fn(), warn, error, debug },
+    { info, warn, error, debug },
     {
       createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
     },
@@ -84,7 +137,7 @@ async function makeHarness(
     {
       resolveModelId: jest.fn().mockImplementation((m: string) => m),
       hasCachedModels: jest.fn().mockReturnValue(false),
-      getSupportedModels: jest.fn(),
+      getSupportedModels: jest.fn().mockResolvedValue([]),
     },
     {
       buildBlock: jest.fn().mockResolvedValue(''),
@@ -122,6 +175,9 @@ async function makeHarness(
     } as AISessionConfig,
     sessionId: input.sessionId,
     sessionIdResolver: input.sessionIdResolver,
+    ...(input.named
+      ? { accountRoute: NAMED_ROUTE, accountLaunch: NAMED_LAUNCH }
+      : {}),
   });
 
   const lines = (mock: jest.Mock): string[] =>
@@ -131,6 +187,14 @@ async function makeHarness(
     stderr: cfg.options.stderr as (data: string) => void,
     events,
     trackStderrSession,
+    checkStderrForFailure,
+    allLogCalls: () =>
+      JSON.stringify([
+        info.mock.calls,
+        warn.mock.calls,
+        error.mock.calls,
+        debug.mock.calls,
+      ]),
     errorLines: () => lines(error),
     warnLines: () => lines(warn),
     debugLines: () => lines(debug),
@@ -246,5 +310,53 @@ describe('SdkQueryOptionsBuilder.build — stderr publishes the CLI notice', () 
     // Deduplication belongs to the consumer, which keeps one record per
     // session and folds notices by code — not to the SDK's transport path.
     expect(h.events).toHaveLength(2);
+  });
+});
+
+describe('SdkQueryOptionsBuilder.build — named account stderr is never echoed', () => {
+  const ADVERSARIAL = [
+    'C:\\Users\\person\\.claude-account\\.credentials.json',
+    'person@example.test',
+    'org-0123456789abcdef',
+    'sk-ant-oat01-secretsecretsecret',
+  ];
+  const chunks = [
+    `[ERROR] cannot read ${ADVERSARIAL[0]}`,
+    `[WARN] logged in as ${ADVERSARIAL[1]} (${ADVERSARIAL[2]})`,
+    `[DEBUG] token ${ADVERSARIAL[3]}`,
+    `${CLI_NOTICE} ${ADVERSARIAL[1]}`,
+    'MCP server "private-server" failed to connect',
+  ];
+
+  it('logs only fixed text, publishes no notice and parses nothing', async () => {
+    const h = await makeHarness({ tabId: 'tab-abc', named: true });
+    // Only what the stderr handler itself writes; build() logs its own setup.
+    const warnBefore = h.warnLines().length;
+    for (const chunk of chunks) h.stderr(chunk);
+
+    const logged = h.allLogCalls();
+    for (const value of [...ADVERSARIAL, 'private-server', CLI_NOTICE]) {
+      expect(logged).not.toContain(value);
+    }
+    expect(h.events).toEqual([]);
+    expect(h.checkStderrForFailure).not.toHaveBeenCalled();
+    expect(h.warnLines().slice(warnBefore)).toEqual([
+      '[SdkQueryOptionsBuilder] Named account child reported an error diagnostic.',
+    ]);
+    expect(h.errorLines()).toEqual([]);
+    expect(h.debugLines().slice(-chunks.length + 1)).toEqual(
+      Array(chunks.length - 1).fill(
+        '[SdkQueryOptionsBuilder] Named account child diagnostic received.',
+      ),
+    );
+  });
+
+  it('leaves the ambient handler unchanged', async () => {
+    const h = await makeHarness({ tabId: 'tab-abc' });
+    h.stderr(chunks[0]);
+    expect(h.errorLines()).toEqual([
+      `[SdkQueryOptionsBuilder] CLI stderr: ${chunks[0]}`,
+    ]);
+    expect(h.checkStderrForFailure).toHaveBeenCalledTimes(1);
   });
 });

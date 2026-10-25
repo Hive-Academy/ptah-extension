@@ -156,3 +156,19 @@
 ## D27 — B14 resume precedence (2026-10-26, orchestrator, evidence step)
 
 - On a lane resume with no explicit selection, `AgentProcessManager` does not read the stored workspace selection; the resumed session keeps its own account (its existing binding). An explicit named selection on resume is still forwarded. Reason: reading the stored selection would refuse older ambient sessions once a named lane account is stored, and it would conflict with "resume without a second binding or lease". Accepted; the P3 review checks it. Reversible.
+
+## D28 — Phase P3 code review (2026-10-26, orchestrator)
+
+- Codex lane (reviewer codex, implementer Claude): REVISE 6/10 (`code-logic-review-p3.md`). Serious: 1 lane init `apiKeySource` not checked; 2 omitted bound-lane resume has no admission (D27 policy accepted, implementation incomplete); 3 explicit conflicting named selection overwritten on lane resume; 4 main-chat admission omits `workingDirectory` (runs in the account folder); 6 named main-chat path logs raw stderr. Moderate: 5 lane refuses allowed account-info `apiKeySource:'none'`; 7 missing persistence refuses `release-held` instead of `unavailable-storage`.
+- Decision: fix all seven in one round. Moderate 5 refuses valid personal logins (breaks lane runs); Moderate 7 is a one-line code mapping in a file already in the round. Two parallel file-disjoint runs: lane (cli-agent-runtime: 1, 2, 3, 5) and main chat (agent-sdk: 4, 6, 7). Then one scoped codex re-review.
+
+## D29 — Phase P3 closed; P4 follow-ups (2026-10-26, orchestrator)
+
+- P3 fix round (p3-fix-lane-report.md, p3-fix-chat-report.md) re-reviewed by a fresh codex lane: APPROVED 9/10, all seven findings closed, no new defects (`code-logic-review-p3-rereview.md`). Accepted: a named main-chat run with no project path refuses `conflict`; a launch certified for another directory refuses `identity-unproved`; named-run stderr skips MCP back-off and the connectors notice (no raw CLI text). Out of scope (predates P3): a fresh handoff from a bound named lane is refused. Prettier hunks in `sdk-query-options-builder.ts` are behavior-neutral formatting (commas, parentheses).
+- B16 follow-ups: `agent:resumeCliSession` result gains optional `code?: 'account_refused'` in libs/shared (additive RPC contract change); the resume-parent-session spec mock gains `LaneAccountResumeError`. B19 follow-up: `router.ts` `--account` help text uses the CLI host copy.
+- B10: `AgentProcessInfo` has no typed `accountBinding`; the store narrows the backend field from `unknown` with `in` checks (no unsafe cast). Adding the field to the shared type is a later task.
+
+## D30 — chat:lint module-boundary errors not from this task (2026-10-26, orchestrator, evidence step)
+
+- Combined verify (8 projects, 68 tasks): 67 pass; `@ptah-extension/chat:lint` fails with 138 `@nx/enforce-module-boundaries` "Static imports of lazy-loaded libraries are forbidden" errors (156 files), all pointing at `chat/src/lib/services/artifact.store.ts` and `artifact-message-handler.service.ts`. None of the error files changed since base `396f0135b`; this task adds no runtime dynamic `import()` (only two type-level `typeof import(...)` in backend specs). ESLint on the two B10 chat files: 0 errors.
+- Decision: commit; report the chat lint debt in the PR and decide if CI blocks it. Reversible.

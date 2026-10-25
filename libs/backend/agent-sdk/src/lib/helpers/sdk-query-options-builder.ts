@@ -948,7 +948,10 @@ export function buildNamedAccountBootstrapOptions(
     strictMcpConfig: true,
     persistSession: false,
     maxTurns: 1,
-    canUseTool: async () => ({ behavior: 'deny', message: 'Account admission pending.' }),
+    canUseTool: async () => ({
+      behavior: 'deny',
+      message: 'Account admission pending.',
+    }),
   };
   assertCertifiedLaunch(launch, namedActualLaunch(options), 'bootstrap');
   return options;
@@ -957,9 +960,12 @@ export function buildNamedAccountBootstrapOptions(
 /** The certified launch of a named input; `undefined` for an ambient input. */
 function namedInputLaunch(
   input: QueryOptionsInput,
-): { route: ClaudeAccountNamedRoute; launch: ClaudeCertifiedLaunchContext } | undefined {
+):
+  | { route: ClaudeAccountNamedRoute; launch: ClaudeCertifiedLaunchContext }
+  | undefined {
   if (input.accountRoute?.kind !== 'named') return undefined;
-  if (!input.accountLaunch) throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
+  if (!input.accountLaunch)
+    throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
   return { route: input.accountRoute, launch: input.accountLaunch };
 }
 
@@ -1142,7 +1148,7 @@ export class SdkQueryOptionsBuilder {
     const named = namedInputLaunch(input);
     const effectiveAuthEnv: AuthEnv = named
       ? certifiedNamedEnv(named.route, named.launch)
-      : authEnvOverride ?? this.authEnv;
+      : (authEnvOverride ?? this.authEnv);
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
@@ -1449,44 +1455,66 @@ export class SdkQueryOptionsBuilder {
                 ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
                 : {}),
             },
-        stderr: (data: string) => {
-          this.mcpBackoffService?.checkStderrForFailure(
-            data,
-            Date.now(),
-            mcpAttemptKey,
-          );
-          // stderr is for logging/observability only. Stuck-session detection
-          // is handled by the no-activity watchdog (NoActivityWatchdog),
-          // NOT by pattern-matching stderr text — no session is aborted here.
-          //
-          // ONE exception, and it does not change that rule: the CLI writes an
-          // informational line here when a third-party auth source takes
-          // precedence over the user's claude.ai login, which is the whole
-          // reason their claude.ai connectors are silently absent. It is
-          // published, never acted on. This is not turn state — it lands once
-          // per session at start and no chunk depends on it — so the direct
-          // channel is correct here in a way it is not for `turn_state`. See
-          // `SessionMcpStatusCallbackRegistry`'s file header.
-          const notice = classifyCliNotice(data);
-          const noticeSessionId = sessionIdResolver?.() ?? routingId;
-          if (notice && noticeSessionId) {
-            // The SDK UUID once it exists, else the routing id the webview
-            // already knows. The consumer re-keys on
-            // `SessionIdResolvedCallbackRegistry`, so either is routable.
-            this.mcpStatus?.notifyAll({
-              kind: 'notice',
-              sessionId: noticeSessionId,
-              notice,
-            });
-          }
-          if (data.includes('[ERROR]')) {
-            this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          } else if (data.includes('[WARN]')) {
-            this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          } else {
-            this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
-          }
-        },
+        // A named account child's stderr can carry its config path, email,
+        // organization or credential text, so none of it is logged, parsed or
+        // published: only a fixed severity classification is (the lane does
+        // the same for its named children).
+        stderr: named
+          ? (data: string) => {
+              if (data.includes('[ERROR]')) {
+                this.logger.warn(
+                  '[SdkQueryOptionsBuilder] Named account child reported an error diagnostic.',
+                );
+              } else {
+                this.logger.debug(
+                  '[SdkQueryOptionsBuilder] Named account child diagnostic received.',
+                );
+              }
+            }
+          : (data: string) => {
+              this.mcpBackoffService?.checkStderrForFailure(
+                data,
+                Date.now(),
+                mcpAttemptKey,
+              );
+              // stderr is for logging/observability only. Stuck-session detection
+              // is handled by the no-activity watchdog (NoActivityWatchdog),
+              // NOT by pattern-matching stderr text — no session is aborted here.
+              //
+              // ONE exception, and it does not change that rule: the CLI writes an
+              // informational line here when a third-party auth source takes
+              // precedence over the user's claude.ai login, which is the whole
+              // reason their claude.ai connectors are silently absent. It is
+              // published, never acted on. This is not turn state — it lands once
+              // per session at start and no chunk depends on it — so the direct
+              // channel is correct here in a way it is not for `turn_state`. See
+              // `SessionMcpStatusCallbackRegistry`'s file header.
+              const notice = classifyCliNotice(data);
+              const noticeSessionId = sessionIdResolver?.() ?? routingId;
+              if (notice && noticeSessionId) {
+                // The SDK UUID once it exists, else the routing id the webview
+                // already knows. The consumer re-keys on
+                // `SessionIdResolvedCallbackRegistry`, so either is routable.
+                this.mcpStatus?.notifyAll({
+                  kind: 'notice',
+                  sessionId: noticeSessionId,
+                  notice,
+                });
+              }
+              if (data.includes('[ERROR]')) {
+                this.logger.error(
+                  `[SdkQueryOptionsBuilder] CLI stderr: ${data}`,
+                );
+              } else if (data.includes('[WARN]')) {
+                this.logger.warn(
+                  `[SdkQueryOptionsBuilder] CLI stderr: ${data}`,
+                );
+              } else {
+                this.logger.debug(
+                  `[SdkQueryOptionsBuilder] CLI stderr: ${data}`,
+                );
+              }
+            },
         hooks,
         thinking: sessionConfig?.thinking,
         effort: sessionConfig?.effort,
@@ -1718,8 +1746,15 @@ export class SdkQueryOptionsBuilder {
     accountLaunch?: ClaudeCertifiedLaunchContext,
   ): Promise<void> {
     if (accountRoute?.kind === 'named') {
-      const models = await this.modelService.getSupportedModels(accountRoute, signal, accountLaunch);
-      if (models.length && !models.some((model) => model.value === resolvedModel)) {
+      const models = await this.modelService.getSupportedModels(
+        accountRoute,
+        signal,
+        accountLaunch,
+      );
+      if (
+        models.length &&
+        !models.some((model) => model.value === resolvedModel)
+      ) {
         throw new SdkError('Selected model is unavailable for this account.');
       }
       return;

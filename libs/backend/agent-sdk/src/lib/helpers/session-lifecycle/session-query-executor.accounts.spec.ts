@@ -9,7 +9,11 @@ import type { AccountInfo, Options, QueryFunction, SDKMessage, SDKUserMessage } 
 import { SdkQueryRunner } from '../sdk-query-runner.service';
 import { CLAUDE_CERTIFIED_ENV_KEYS, certifiedEnvDigest } from '../claude-certified-launch';
 import { claudeIdentityReference } from '../claude-identity-reference';
-import { NamedAccountQueryAdmission, type NamedAccountPersistencePort } from './session-query-executor.service';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  NamedAccountQueryAdmission, SessionQueryExecutor, type NamedAccountPersistencePort,
+} from './session-query-executor.service';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -59,7 +63,13 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   mismatch?: boolean; pause?: string; held?: boolean; resumeUnknown?: boolean;
   finalIdentity?: AccountInfo; changedAtFinalRead?: number; noLaunch?: boolean;
   boundary?: { at: ClaudeLaunchBoundary; terminated: boolean }; identityPatch?: Partial<AccountInfo>;
-  initPatch?: Record<string, unknown>; finalOptions?: Partial<Options> } = {}) {
+  initPatch?: Record<string, unknown>; finalOptions?: Partial<Options>;
+  /** The session's project directory; admission certifies it unless `certifiedCwd` overrides. */
+  projectDir?: string; certifiedCwd?: string } = {}) {
+  const projectDir = settings.projectDir ?? launchContext.cwd;
+  const certifiedLaunch = settings.projectDir === undefined && settings.certifiedCwd === undefined
+    ? launchContext : { ...launchContext, cwd: settings.certifiedCwd ?? projectDir };
+  const certifiedResources = { ...resources, launch: certifiedLaunch };
   const controller = new AbortController();
   const events: string[] = [];
   const paused = deferred<void>();
@@ -85,7 +95,7 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
         const { launch: _omitted, ...withoutLaunch } = resources;
         return { code: 'ok', resources: withoutLaunch, reservation };
       }
-      return { code: 'ok', resources, reservation };
+      return { code: 'ok', resources: certifiedResources, reservation };
     }),
     releaseReservation: jest.fn(async (): ReturnType<ProviderAccountAdmissionPort['releaseReservation']> => {
       events.push('release');
@@ -165,12 +175,13 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   const flow = new NamedAccountQueryAdmission(runner, admission, persistence, registry, log, controller, 50);
   const queryFn = jest.fn() as QueryFunction;
   const source = { async *[Symbol.asyncIterator]() { yield message; } };
-  const bootstrap = (resume?: string) => flow.bootstrap(queryFn, { kind: 'named', profileId: route.profileId }, resume);
+  const bootstrap = (resume?: string) =>
+    flow.bootstrap(queryFn, { kind: 'named', profileId: route.profileId }, projectDir, resume);
   // The builder's named final options: certified executable, env, cwd and sources.
   const launch = () => flow.launch(queryFn, source, { systemPrompt: 'private system role', resume: 'prior-session',
     title: 'private title', canUseTool: async () => ({ behavior: 'allow', updatedInput: {} }),
     pathToClaudeCodeExecutable: launchContext.executable.sdkExecutablePath, env: { ...launchEnv },
-    cwd: launchContext.cwd, settingSources: [...launchContext.settingSources], ...settings.finalOptions },
+    cwd: certifiedLaunch.cwd, settingSources: [...launchContext.settingSources], ...settings.finalOptions },
   'tab-a', metadata);
   const run = async (resume?: string) => { await bootstrap(resume); return launch(); };
   return { flow, events, reads, options, registry, persistence, admission, controller, log, bootstrap, launch, run,
@@ -582,4 +593,96 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
     expect(f.persistence.saveAccountBound).not.toHaveBeenCalled();
   });
 
+});
+
+// P3 finding 4: admission certifies the project directory, not the account directory.
+describe('named main chat certifies and runs in the session project directory', () => {
+  const projectDir = join(tmpdir(), 'ptah-named-project');
+  const accountDir = join(tmpdir(), 'ptah-named-account');
+
+  it('passes the project directory to admission; the certified launch and final query use it', async () => {
+    const f = fixture({ projectDir });
+    expect(projectDir).not.toBe(accountDir);
+    await f.run();
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({ workingDirectory: projectDir }));
+    expect(f.flow.certifiedLaunch?.cwd).toBe(projectDir);
+    // The certified policy scan (both boundary checks) ran against the project-directory launch.
+    for (const call of jest.mocked(f.persistence.checkLaunchBoundary).mock.calls) expect(call[1].cwd).toBe(projectDir);
+    expect(f.options).toHaveLength(2);
+    expect(f.options[1].cwd).toBe(projectDir);
+    await f.flow.dispose();
+  });
+
+  it('refuses a launch certified for another directory before any child or boundary check', async () => {
+    const f = fixture({ projectDir, certifiedCwd: accountDir });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({ workingDirectory: projectDir }));
+    expect(f.runner.invokeNamedQuery).not.toHaveBeenCalled();
+    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+});
+
+// P3 finding 6 (executor side): a failed admission logs no provider text.
+describe('named admission failure logs only fixed text', () => {
+  const adversarial = ['C:\\Users\\person\\.claude-account', 'person@example.test', 'org-0123456789abcdef',
+    'sk-ant-oat01-secretsecretsecret', 'sensitive provider detail'];
+
+  it.each(['admit', 'bootstrap-identity', 'final-identity', 'attach'])('fails at %s without logging provider text', async (at) => {
+    const f = fixture({ fail: at });
+    const refusal = await f.run().then(() => undefined, (error: unknown) => error);
+    expect(refusal).toMatchObject({ summary: 'Named account admission could not be completed.' });
+    await f.flow.dispose();
+    const logged = JSON.stringify([f.log.warn.mock.calls, f.log.info.mock.calls, f.log.debug.mock.calls,
+      f.log.error.mock.calls, refusal]);
+    for (const value of adversarial) expect(logged).not.toContain(value);
+  });
+});
+
+// P3 finding 7: a host without admission or persistence refuses `unavailable-storage`.
+describe('SessionQueryExecutor named run without account ports', () => {
+  function executorWith(ports: { admission: boolean; persistence: boolean }, projectPath?: string) {
+    const admitClaudeRoute = jest.fn();
+    const queryRunner = {
+      accountAdmission: ports.admission ? { admitClaudeRoute, releaseReservation: jest.fn(),
+        retainUnresolvedReservation: jest.fn() } : undefined,
+      accountPersistence: ports.persistence ? { resolveAccountBinding: jest.fn() } : undefined,
+      invokeNamedQuery: jest.fn(),
+      invokeWithLoadedQuery: jest.fn(),
+    };
+    const moduleLoader = { getQueryFunction: jest.fn() };
+    const builder = { build: jest.fn() };
+    const registry = { register: jest.fn(() => ({ messageQueue: [] })), remove: jest.fn() };
+    const logger = { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() };
+    const Ctor = SessionQueryExecutor as unknown as new (...args: unknown[]) => SessionQueryExecutor;
+    const executor = new Ctor(logger, registry, {}, {}, moduleLoader, builder, { createUserMessage: jest.fn() }, {},
+      queryRunner);
+    const execute = () => executor.executeQuery({ sessionId: 'tab-a', sessionConfig: {
+      model: 'claude-sonnet-4-5', tabId: 'tab-a', projectPath,
+      accountSelection: { kind: 'named', profileId: route.profileId },
+    } } as unknown as Parameters<SessionQueryExecutor['executeQuery']>[0]);
+    return { execute, admitClaudeRoute, queryRunner, moduleLoader, builder, registry };
+  }
+
+  it.each([
+    ['admission', { admission: false, persistence: true }],
+    ['persistence', { admission: true, persistence: false }],
+    ['both', { admission: false, persistence: false }],
+  ])('refuses unavailable-storage when %s is missing, before admission or any query', async (_label, ports) => {
+    const h = executorWith(ports, join(tmpdir(), 'ptah-named-project'));
+    await expect(h.execute()).rejects.toMatchObject({ code: 'unavailable-storage' });
+    expect(h.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(h.moduleLoader.getQueryFunction).not.toHaveBeenCalled();
+    expect(h.builder.build).not.toHaveBeenCalled();
+    expect(h.queryRunner.invokeNamedQuery).not.toHaveBeenCalled();
+    expect(h.queryRunner.invokeWithLoadedQuery).not.toHaveBeenCalled();
+    expect(h.registry.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a named run with no project directory before admission', async () => {
+    const h = executorWith({ admission: true, persistence: true });
+    await expect(h.execute()).rejects.toMatchObject({ code: 'conflict' });
+    expect(h.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(h.queryRunner.invokeNamedQuery).not.toHaveBeenCalled();
+  });
 });

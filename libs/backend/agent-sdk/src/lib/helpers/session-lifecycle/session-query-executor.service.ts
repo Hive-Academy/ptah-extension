@@ -701,7 +701,12 @@ export class NamedAccountQueryAdmission {
     }
   }
 
-  async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection,
+  /**
+   * `workingDirectory` is the session's project directory. Admission certifies
+   * that directory's settings, so the certified launch and the final query run
+   * there, never in the account's own directory.
+   */
+  async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection, workingDirectory: string,
     resumeSessionId?: string, forkSession = false): Promise<void> {
     try {
       // Resolve authoritative evidence before constructing ANY conversation options.
@@ -711,7 +716,8 @@ export class NamedAccountQueryAdmission {
       this.storedBinding = forkSession ? undefined : stored ?? undefined;
       this.resumeSdkSessionId = forkSession ? undefined : resumeSessionId;
       const pending = this.admission.admitClaudeRoute({ provider: 'claude', scope: 'main',
-        selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID() }).then(async (result) => {
+        selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID(), workingDirectory,
+      }).then(async (result) => {
         if (result.code === 'ok') {
           this.reservation = result.reservation;
           if (this.abortController.signal.aborted) await this.dispose();
@@ -725,6 +731,8 @@ export class NamedAccountQueryAdmission {
       // No certified launch: refuse before any bootstrap options or child exist.
       const launch = admitted.resources.launch;
       if (!launch) throw namedAccountRefusal('identity-unproved');
+      // A launch certified for any other directory proves nothing about this project's settings.
+      if (launch.cwd !== workingDirectory) throw namedAccountRefusal('identity-unproved');
       this.certifiedLaunch = launch;
       if (stored && (stored.provider !== this.route.provider || stored.profileId !== this.route.profileId ||
           stored.routeFingerprint !== this.route.routeFingerprint || stored.routeRevision !== this.route.routeRevision)) {
@@ -1016,11 +1024,17 @@ export class SessionQueryExecutor {
             authEnvOverride.ANTHROPIC_BASE_URL)) throw namedAccountRefusal('wrong-provider');
         const admission = this.queryRunner.accountAdmission;
         const persistence = this.queryRunner.accountPersistence;
-        if (!admission || !persistence) throw namedAccountRefusal('release-held');
+        // A host without account admission or persistence has no storage for a
+        // named run; nothing was reserved, so there is nothing held to release.
+        if (!admission || !persistence) throw namedAccountRefusal('unavailable-storage');
+        // Admission certifies the project directory; without one there is no
+        // valid request (the admission port refuses a malformed request `conflict`).
+        const projectPath = sessionConfig?.projectPath;
+        if (typeof projectPath !== 'string' || projectPath.trim() === '') throw namedAccountRefusal('conflict');
         named = new NamedAccountQueryAdmission(this.queryRunner, admission, persistence,
           this.registry, this.logger, abortController);
         namedQueryFn = await named.wait(this.moduleLoader.getQueryFunction());
-        await named.bootstrap(namedQueryFn, selection, resumeSessionId, forkSession);
+        await named.bootstrap(namedQueryFn, selection, projectPath, resumeSessionId, forkSession);
       } catch (error) {
         await named?.dispose();
         this.registry.remove(rec);

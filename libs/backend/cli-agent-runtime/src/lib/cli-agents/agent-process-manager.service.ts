@@ -476,7 +476,14 @@ export class AgentProcessManager {
       : undefined;
     return this.doSpawnSdk({
       accountReference: gated?.accountReference,
-      accountAdmission,
+      accountAdmission:
+        this.boundResumeAdmission(
+          request,
+          cli,
+          // Only a real resume keeps the stored run; a fresh handoff does not.
+          gated?.resumeSessionId ? gated.accountReference : undefined,
+          workingDirectory,
+        ) ?? accountAdmission,
       accountBindings: adapter.accountBindings,
       resumeDecision: gated?.resumeDecision,
       originalTask: gated?.originalTask,
@@ -494,6 +501,31 @@ export class AgentProcessManager {
       expectsMcp: adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
+  }
+
+  /**
+   * Admission for a resumed Claude lane whose session is bound to a named
+   * account (D27). It is derived from the authoritative stored binding (its
+   * run, so no second run binding is created) and the requested working
+   * directory, never from the workspace default. The caller's selection is
+   * forwarded unchanged (`omitted` when absent), so the adapter can refuse an
+   * explicit selection of another account or of ambient with `conflict`.
+   */
+  private boundResumeAdmission(
+    request: SpawnAgentRequest,
+    cli: CliType,
+    reference: LaneAccountReference | undefined,
+    workingDirectory: string,
+  ): ClaudeAccountAdmissionRequest | undefined {
+    if (cli !== 'claude' || !reference) return undefined;
+    return {
+      provider: 'claude',
+      scope: 'lane',
+      selection: request.accountSelection ?? { kind: 'omitted' },
+      operationId: randomUUID(),
+      runId: reference.accountBinding.runId,
+      workingDirectory,
+    };
   }
 
   /**

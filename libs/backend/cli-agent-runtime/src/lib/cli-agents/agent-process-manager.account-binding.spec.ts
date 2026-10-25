@@ -9,7 +9,11 @@ import type { IOutputChannel } from '@ptah-extension/platform-core';
 import type { DependencyContainer } from 'tsyringe';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { persistCliSessionReference } from '../wiring/agent-events';
-import type { ClaudeAccountSelectionReader } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ClaudeAccountSelectionReader,
+  ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import type { ClaudeLaneAccountPersistence } from '../claude/claude-sdk-lane-runner';
 import { AgentProcessManager } from './agent-process-manager.service';
 import {
   LaneAccountResumeError,
@@ -702,7 +706,11 @@ describe('Claude lane account selection precedence', () => {
     const { manager, admission } = precedence(stored);
     await manager.spawn({ cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', timeout: 0 });
     expect(stored.readStoredSelection).not.toHaveBeenCalled();
-    expect(admission()).toBeUndefined();
+    // Derived from the stored binding's run, never the workspace default.
+    expect(admission()).toEqual({
+      provider: 'claude', scope: 'lane', selection: { kind: 'omitted' }, workingDirectory: ROOT,
+      operationId: expect.any(String), runId: binding.runId,
+    });
   });
 
   it('leaves non-Claude CLIs unchanged', async () => {
@@ -714,5 +722,70 @@ describe('Claude lane account selection precedence', () => {
     expect(admission()).toBeUndefined();
     expect(runSdk.mock.calls[0][0]).not.toHaveProperty('accountAdmission');
     expect(stored.readStoredSelection).not.toHaveBeenCalled();
+  });
+});
+
+describe('P3 bound lane resume through the real Claude adapter', () => {
+  // The manager's request reaches the real adapter. Admission ends at a typed
+  // port refusal (`busy`): what matters is which request reaches the port.
+  function realResume(accountSelections?: ClaudeAccountSelectionReader) {
+    const h = harness(port(), 3, accountSelections);
+    const persistence = stub<ClaudeLaneAccountPersistence>({
+      available: true,
+      lookupBySdkSession: jest.fn().mockResolvedValue({ status: 'bound', binding }),
+      validateResume: jest.fn().mockResolvedValue({ code: 'ok' }),
+      persistReference: jest.fn().mockResolvedValue(undefined),
+      commitRunBinding: jest.fn(),
+    });
+    const admitClaudeRoute = jest.fn().mockResolvedValue({ code: 'busy' });
+    const admission = stub<ProviderAccountAdmissionPort>({
+      admitClaudeRoute, releaseReservation: jest.fn(), retainUnresolvedReservation: jest.fn(),
+    });
+    const loader = { getCliJsPath: jest.fn(), getQueryFunction: jest.fn() };
+    const real = new ClaudeCliAdapter(
+      stub<Logger>({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+      stub<ClaudeCliAdapterDependencies>({
+        loader: loader as unknown as ClaudeCliAdapterDependencies['loader'],
+        admission: () => admission,
+        accountPersistence: () => persistence,
+      }),
+    );
+    h.adapter.runSdk = real.runSdk.bind(real);
+    return { ...h, persistence, admitClaudeRoute, loader };
+  }
+
+  it.each([
+    ['omitted', undefined],
+    ['the same named account', { kind: 'named', profileId: binding.profileId } as const],
+  ])('admits the stored account and run on a %s resume, without the workspace default', async (_label, accountSelection) => {
+    const stored = { readStoredSelection: jest.fn().mockResolvedValue({ profileId: 'workspace-default' }) };
+    const f = realResume(stored);
+    const spawned = f.manager.spawn({
+      cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0,
+      ...(accountSelection ? { accountSelection } : {}),
+    });
+    await expect(spawned).rejects.toMatchObject({ code: 'busy' });
+    expect(stored.readStoredSelection).not.toHaveBeenCalled();
+    expect(f.admitClaudeRoute).toHaveBeenCalledTimes(1);
+    expect(f.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'claude', scope: 'lane', runId: binding.runId, workingDirectory: ROOT,
+      selection: { kind: 'named', profileId: binding.profileId },
+    }));
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another named account', { kind: 'named', profileId: 'other-profile' } as const],
+    ['explicit ambient', { kind: 'ambient' } as const],
+  ])('refuses %s against the stored binding with conflict before admission', async (_label, accountSelection) => {
+    const f = realResume();
+    const spawned = f.manager.spawn({
+      cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0,
+      accountSelection,
+    });
+    await expect(spawned).rejects.toMatchObject({ code: 'conflict' });
+    expect(f.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
   });
 });
