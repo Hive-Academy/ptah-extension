@@ -39,6 +39,7 @@ import {
   jsonUtf8Bytes,
   omitJsonPaths,
   type IAsyncStateStorage,
+  type ISessionRecordRepository,
   type StateStorageGetOptions,
   type StateStorageSequenceReadOptions,
 } from '@ptah-extension/platform-core';
@@ -55,7 +56,7 @@ import type {
   QuotaOwnerRef,
   SubagentRecord,
 } from '@ptah-extension/shared';
-import { ownerRelation } from '@ptah-extension/shared';
+import { SessionId, type SessionRuntimeIdentity, ownerRelation } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkError } from './errors';
 
@@ -2000,5 +2001,205 @@ describe('SessionMetadataStore — sessions of an inactive workspace', () => {
     await expect(store.get('sess-a')).resolves.toBeNull();
     routed.activate(WS_A);
     await expect(store.getForWorkspace(WS_A)).resolves.toEqual([]);
+  });
+});
+
+
+describe('Codex metadata identity', () => {
+  const threadId = SessionId.from('12345678-1234-4234-8234-123456789abc');
+  const workspaceId =
+    process.platform === 'win32' ? 'C:\\Work\\Project\\' : '/work/project/';
+  const canonicalWorkspace =
+    process.platform === 'win32' ? 'c:/work/project' : '/work/project';
+  const execution: Extract<
+    SessionRuntimeIdentity,
+    { runtime: 'codex-app-server' }
+  > = {
+    version: 1,
+    sessionId: threadId,
+    runtime: 'codex-app-server',
+    providerId: 'openai-codex',
+    workspaceId,
+    codex: { normalizedHome: '/home/codex' },
+  };
+
+  function fixture(async = false) {
+    const storage = createMockStateStorage();
+    const asyncStorage: IAsyncStateStorage = {
+      ...storage,
+      getAsync: async <T>(key: string, fallback?: T) =>
+        storage.get<T>(key, fallback),
+      readJsonSequence: (): AsyncIterable<never> => {
+        throw new Error('Unused sequence read');
+      },
+      replaceJsonSequence: async () => {
+        throw new Error('Unused sequence write');
+      },
+    };
+    return {
+      storage,
+      store: new SessionMetadataStore(
+        async ? asyncStorage : storage,
+        asLogger(createMockLogger()),
+      ),
+    };
+  }
+
+  it.each([false, true])(
+    'persists normalized thread identity and preserves it on ordinary save (async=%s)',
+    async (asyncStorage) => {
+      const { storage, store } = fixture(asyncStorage);
+      await store.updateCodexExecution(threadId, () => execution);
+      const row = await store.get(threadId);
+      expect(row).toMatchObject({
+        sessionId: threadId,
+        workspaceId: canonicalWorkspace,
+        codexExecution: { ...execution, workspaceId: canonicalWorkspace },
+      });
+      expect(row).not.toHaveProperty('accountBinding');
+      if (!row) throw new Error('Missing Codex row');
+      const { codexExecution: omitted, ...ordinary } = row;
+      expect(omitted).toBeDefined();
+      await store.save({ ...ordinary, name: 'Renamed' });
+      await store.rename(threadId, 'Renamed again');
+      expect((await store.get(threadId))?.codexExecution).toEqual(omitted);
+      expect(storage.get(METADATA_KEY)).toBeDefined();
+    },
+  );
+
+  it.each([false, true])('preserves child references across runtime updates (async=%s)', async asyncStorage => {
+    const { store } = fixture(asyncStorage);
+    await store.updateCodexExecution(threadId, () => execution);
+    await store.addCliSession(threadId, cliRef());
+    await store.updateCodexExecution(threadId, current => {
+      if (!current) throw new Error('Missing runtime binding');
+      return current;
+    });
+    expect((await store.get(threadId))?.cliSessions).toEqual([cliRef()]);
+  });
+
+  it('never converts a legacy row, including malformed account rows', async () => {
+    const { store, storage } = fixture();
+    await store.create(threadId, WORKSPACE, 'Legacy');
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toThrow('legacy');
+    const row = await store.get(threadId);
+    storage.__state.seed(METADATA_KEY, [{ ...row, accountBinding: {} }]);
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toThrow('legacy');
+  });
+
+  it('keeps a malformed account row and a Codex row listed across async index rebuilds', async () => {
+    const { store, storage } = fixture(true);
+    storage.__state.seed(METADATA_KEY, {
+      schemaVersion: 1,
+      items: [
+        {
+          sessionId: 'legacy',
+          name: 'Legacy',
+          workspaceId: canonicalWorkspace,
+          createdAt: 1,
+          lastActiveAt: 1,
+          totalCost: 0,
+          totalTokens: { input: 0, output: 0 },
+          accountBinding: {},
+        },
+      ],
+    });
+    await store.updateCodexExecution(threadId, () => execution);
+    await store.updateCodexExecution(threadId, (current) => {
+      if (!current) throw new Error('Missing binding');
+      return current;
+    });
+    expect((await store.getAll()).map((row) => row.sessionId)).toEqual([
+      'legacy',
+      threadId,
+    ]);
+    expect(storage.get<{ items: unknown[] }>(METADATA_KEY)?.items).toHaveLength(
+      2,
+    );
+    expect((await store.getAll())[0]).toHaveProperty('accountBinding', {});
+    expect(await store.get(threadId)).not.toHaveProperty('accountBinding');
+  });
+
+  it('serializes updates and rejects rebinding without poisoning the queue', async () => {
+    const { store } = fixture();
+    const first = store.updateCodexExecution(threadId, () => execution);
+    const second = store.updateCodexExecution(threadId, (current) => {
+      expect(current?.workspaceId).toBe(canonicalWorkspace);
+      if (!current) throw new Error('Missing binding');
+      return current;
+    });
+    await Promise.all([first, second]);
+    await expect(
+      store.updateCodexExecution(threadId, (current) => ({
+        ...current!,
+        providerId: 'other',
+      })),
+    ).rejects.toThrow('binding');
+    await store.updateCodexExecution(threadId, () => execution);
+    await expect(store.updateProvider(threadId, 'other')).rejects.toThrow(
+      'binding',
+    );
+  });
+
+  it('rejects normal-save runtime writes, mismatched thread ids, and invalid homes', async () => {
+    const { store } = fixture();
+    await store.create('legacy', WORKSPACE, 'Legacy');
+    const row = await store.get('legacy');
+    if (!row) throw new Error('Missing legacy row');
+    await expect(
+      store.save({ ...row, codexExecution: execution }),
+    ).rejects.toThrow('updateCodexExecution');
+    await expect(
+      store.updateCodexExecution('other', () => execution),
+    ).rejects.toThrow('identity');
+    await expect(
+      store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        transcript: [],
+      })),
+    ).rejects.toThrow('identity');
+    await expect(
+      store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        codex: { normalizedHome: 'relative' },
+      })),
+    ).rejects.toThrow('identity');
+  });
+
+  it('writes the global repository under the native thread id', async () => {
+    const upsert = jest.fn().mockResolvedValue(undefined);
+    const records = {
+      listAll: jest.fn().mockResolvedValue([]),
+      get: jest.fn().mockResolvedValue(null),
+      upsert,
+    } as unknown as ISessionRecordRepository;
+    const store = new SessionMetadataStore(
+      createMockStateStorage(),
+      asLogger(createMockLogger()),
+      records,
+    );
+    await store.updateCodexExecution(threadId, () => execution);
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: threadId,
+        workspacePath: canonicalWorkspace,
+        detail: expect.objectContaining({
+          codexExecution: { ...execution, workspaceId: canonicalWorkspace },
+        }),
+      }),
+    );
+    expect(upsert.mock.calls[0][0].detail).not.toHaveProperty('accountBinding');
+  });
+
+  it('propagates durable identity write failures', async () => {
+    const { storage, store } = fixture(true);
+    storage.update.mockRejectedValueOnce(new Error('disk unavailable'));
+    await expect(
+      store.updateCodexExecution(threadId, () => execution),
+    ).rejects.toThrow('disk unavailable');
   });
 });

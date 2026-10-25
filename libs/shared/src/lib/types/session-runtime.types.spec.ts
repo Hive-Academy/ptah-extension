@@ -20,10 +20,46 @@ const codex: SessionRuntimeIdentity = {
   ...claude,
   providerId: 'openai-codex',
   runtime: 'codex-app-server',
-  codex: { normalizedHome: 'd:/profiles/codex' },
+  codex: { normalizedHome: 'd:\\profiles\\codex' },
 };
 
 describe('SessionRuntimeIdentitySchema', () => {
+  it.each([
+    '/',
+    '/home/User/.codex',
+    '/a\\b',
+    'c:\\',
+    'c:\\users\\codex',
+    '\\\\server\\share\\',
+    '\\\\server\\share\\codex',
+  ])('accepts normalized home %s', (normalizedHome) => {
+    expect(
+      SessionRuntimeIdentitySchema.safeParse({
+        ...codex,
+        codex: { normalizedHome },
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    'relative',
+    'C:\\Users\\codex',
+    'c:/users/codex',
+    '/a/',
+    '/a//b',
+    '/a/./b',
+    '/a/../b',
+    '//home',
+    'c:\\a\\..\\b',
+    'c:\\a\\',
+    '\\\\server\\share',
+    '/a\0b',
+  ])('rejects non-normalized home %s', (normalizedHome) => {
+    expect(
+      parseSessionRuntimeIdentity({ ...codex, codex: { normalizedHome } }),
+    ).toEqual({ ok: false, code: 'rejected' });
+  });
+
   it.each([claude, codex])('accepts $runtime identities', (identity) => {
     expect(SessionRuntimeIdentitySchema.parse(identity)).toEqual(identity);
     expect(parseSessionRuntimeIdentity(identity)).toEqual({

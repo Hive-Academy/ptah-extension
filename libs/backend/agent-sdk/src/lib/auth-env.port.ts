@@ -1,5 +1,18 @@
 import type { AuthEnv, ModelPricing } from '@ptah-extension/shared';
 
+/** Structural counterpart of auth-providers' authOperationContextSchema. */
+export interface AuthOperationContext {
+  readonly reason:
+    | 'startup'
+    | 'provider-selection'
+    | 'reauth'
+    | 'auth-file-changed'
+    | 'legacy-session-start';
+  readonly hostNativeCodex: boolean;
+  readonly providerId: string;
+  readonly normalizedHome?: string;
+}
+
 /** Result of IAuthEnvProvider.configureAuthentication. */
 export interface AuthResult {
   configured: boolean;
@@ -14,7 +27,10 @@ export interface AuthResult {
  */
 export interface IAuthEnvProvider {
   getAuthEnv(): AuthEnv;
-  configureAuthentication(rawAuthMethod?: string): Promise<AuthResult>;
+  configureAuthentication(
+    rawAuthMethod?: string,
+    context?: AuthOperationContext,
+  ): Promise<AuthResult>;
   clearAuthentication(): void;
   resolveActiveAuth(): { authMethod: string; providerId: string };
   /** Auth of an explicit workspace, which may differ from the active one. */
