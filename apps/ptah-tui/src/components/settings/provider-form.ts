@@ -37,7 +37,7 @@ import type { AnthropicProviderInfo } from '@ptah-extension/shared';
  * - `local`              — local server, no key at all (ollama, lm-studio)
  * - `local-optional-key` — works keyless, but an optional key unlocks more
  *                          (ollama-cloud)
- * - `api-key`            — a key is required (openrouter, moonshot, z-ai, sakana)
+ * - `api-key`            — a key is required (openrouter, kimi-code, z-ai, sakana)
  */
 export type ProviderFormKind =
   | 'claude'

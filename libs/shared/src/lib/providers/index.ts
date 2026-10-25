@@ -32,6 +32,11 @@ export {
 } from './entries/sakana-provider-entry';
 export { REQUESTY_PROVIDER_ENTRY } from './entries/requesty-provider-entry';
 export {
+  KIMI_CODE_PROVIDER_ENTRY,
+  KIMI_CODE_DEFAULT_TIERS,
+  KIMI_CODE_MODEL_CAPABILITIES,
+} from './entries/kimi-code-provider-entry';
+export {
   OPENCODE_ZEN_PROVIDER_ENTRY,
   OPENCODE_GO_PROVIDER_ENTRY,
   OPENCODE_ZEN_DEFAULT_TIERS,

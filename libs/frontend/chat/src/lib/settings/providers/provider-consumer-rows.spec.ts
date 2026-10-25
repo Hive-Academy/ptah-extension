@@ -16,7 +16,7 @@ const ready = <T>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', d
 const route = { driverProviderId: 'anthropic', resolvedAuthModality: 'api-key' };
 const sources = (): ConsumerSources => ({
   memory: ready({ curatorProvider: '', curatorModel: '' }),
-  enhancement: ready({ provider: 'moonshot', model: 'inherit', timeoutMs: 120000 }),
+  enhancement: ready({ provider: 'kimi-code', model: 'inherit', timeoutMs: 120000 }),
 });
 
 describe('provider consumer rows', () => {
@@ -28,7 +28,7 @@ describe('provider consumer rows', () => {
     expect(rows.map((row) => row.retryKey)).toEqual(['memory', 'enhancement']);
     expect(rows[1]).toEqual(expect.objectContaining({
       helperCopy: ENHANCEMENT_HELPER_COPY,
-      provider: 'moonshot',
+      provider: 'kimi-code',
       model: '',
       providerFieldName: 'Enhancement provider',
       modelFieldName: 'Enhancement model',
@@ -64,11 +64,11 @@ describe('provider consumer rows', () => {
     expect(toPickerModel('inherit')).toBe('');
     expect(toBackendEnhancementModel('  ')).toBe('inherit');
     expect(toBackendEnhancementModel(' kimi ')).toBe('kimi');
-    expect(consumerPatch('enhancement', 'moonshot', '')).toEqual({
-      enhancement: { provider: 'moonshot', model: 'inherit' },
+    expect(consumerPatch('enhancement', 'kimi-code', '')).toEqual({
+      enhancement: { provider: 'kimi-code', model: 'inherit' },
     });
-    expect(consumerPatch('memory-curator', 'moonshot', 'kimi')).toEqual({
-      memory: { curatorProvider: 'moonshot', curatorModel: 'kimi' },
+    expect(consumerPatch('memory-curator', 'kimi-code', 'kimi')).toEqual({
+      memory: { curatorProvider: 'kimi-code', curatorModel: 'kimi' },
     });
   });
 
@@ -78,7 +78,7 @@ describe('provider consumer rows', () => {
     const direct = buildConsumerRows(sources(), route, () => null)[1];
     expect(inherited.followsMain).toBe(true);
     expect(direct.followsMain).toBe(false);
-    expect(direct.cellLabel).toContain('Moonshot');
+    expect(direct.cellLabel).toContain('Kimi Code');
   });
 
   it('keeps provider readiness checks', () => {

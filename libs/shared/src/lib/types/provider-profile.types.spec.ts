@@ -13,14 +13,14 @@ describe('ProviderProfileSchema', () => {
 
   it('parses a third-party profile with baseUrl + cliJsPath', () => {
     const input: ProviderProfile = {
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authEnv: {
-        ANTHROPIC_AUTH_TOKEN: 'moonshot-token',
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic/',
-        ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-k2',
+        ANTHROPIC_API_KEY: 'kimi-code-key',
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'k3',
       },
       model: 'claude-sonnet-4-20250514',
-      baseUrl: 'https://api.moonshot.ai/anthropic/',
+      baseUrl: 'https://api.kimi.ai/coding/',
       cliJsPath: '/path/to/cli.js',
       defaultMaxTokens: 128000,
     };

@@ -23,7 +23,11 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { AnthropicProvider } from '@ptah-extension/agent-sdk';
 import type { ProviderModelsService } from '@ptah-extension/auth-providers';
-import type { PtahCliConfig } from '@ptah-extension/shared';
+import {
+  KIMI_CODE_PROVIDER_ENTRY,
+  type AuthEnv,
+  type PtahCliConfig,
+} from '@ptah-extension/shared';
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { createFakeSdkProcessSpawner } from './testing/fake-sdk-process-spawner';
 
@@ -74,41 +78,18 @@ function makeRegistry(providerModels: MockProviderModels): PtahCliRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Minimal provider stub (only fields resolveEffectiveTiers reads)
+// The shipped kimi-code registry entry (static-only, x-api-key, declares
+// per-model capabilities)
 // ---------------------------------------------------------------------------
 
-const MOCK_PROVIDER: AnthropicProvider = {
-  id: 'moonshot',
-  name: 'Moonshot (Kimi)',
-  baseUrl: 'https://api.moonshot.ai/anthropic/',
-  authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
-  keyPrefix: '',
-  helpUrl: 'https://platform.moonshot.ai/console/api-keys',
-  description: 'Kimi models via Anthropic-compatible API',
-  keyPlaceholder: 'Enter Moonshot API key...',
-  maskedKeyDisplay: '••••••••••••',
-  staticModels: [
-    {
-      id: 'kimi-k2',
-      name: 'Kimi K2',
-      description: 'Flagship model',
-      contextLength: 128_000,
-      supportsToolUse: true,
-    },
-  ],
-  defaultTiers: {
-    sonnet: 'kimi-k2.5',
-    opus: 'kimi-k2.5',
-    haiku: 'kimi-k2.5',
-  },
-};
+const KIMI_CODE: AnthropicProvider = KIMI_CODE_PROVIDER_ENTRY;
 
 // A minimal config — agentTiers undefined so the cascade falls through to
 // the providerModels service call.
 const BASE_AGENT_CONFIG: PtahCliConfig = {
   id: 'pc-test-001',
   name: 'Test CLI Agent',
-  providerId: 'moonshot',
+  providerId: 'kimi-code',
   enabled: true,
   tierMappings: undefined,
   updatedAt: 0,
@@ -140,17 +121,17 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
 
     (registry as unknown as RegistryInternals).resolveEffectiveTiers(
       BASE_AGENT_CONFIG,
-      MOCK_PROVIDER,
+      KIMI_CODE,
     );
 
     expect(providerModels.getModelTiers).toHaveBeenCalledWith(
-      'moonshot',
+      'kimi-code',
       'cliAgent',
     );
     // Crucially, it must NOT have been called with 'mainAgent' — that would be
     // the pre-fix behaviour that caused the scope leak.
     expect(providerModels.getModelTiers).not.toHaveBeenCalledWith(
-      'moonshot',
+      'kimi-code',
       'mainAgent',
     );
   });
@@ -172,7 +153,7 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
     const registry = makeRegistry(providerModels);
     const resolved = (
       registry as unknown as RegistryInternals
-    ).resolveEffectiveTiers(BASE_AGENT_CONFIG, MOCK_PROVIDER);
+    ).resolveEffectiveTiers(BASE_AGENT_CONFIG, KIMI_CODE);
 
     // Must reflect cliAgent values, not mainAgent values.
     expect(resolved?.sonnet).toBe('cli-sonnet');
@@ -198,7 +179,7 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
     const registry = makeRegistry(providerModels);
     const resolved = (
       registry as unknown as RegistryInternals
-    ).resolveEffectiveTiers(configWithTiers, MOCK_PROVIDER);
+    ).resolveEffectiveTiers(configWithTiers, KIMI_CODE);
 
     // Per-agent config must win over the cliAgent scope from providerModels.
     expect(resolved?.sonnet).toBe('agent-specific-sonnet');
@@ -217,10 +198,45 @@ describe('PtahCliRegistry.resolveEffectiveTiers', () => {
     const registry = makeRegistry(providerModels);
     const resolved = (
       registry as unknown as RegistryInternals
-    ).resolveEffectiveTiers(BASE_AGENT_CONFIG, MOCK_PROVIDER);
+    ).resolveEffectiveTiers(BASE_AGENT_CONFIG, KIMI_CODE);
 
-    // Should fall through to MOCK_PROVIDER.defaultTiers.
-    expect(resolved?.sonnet).toBe('kimi-k2.5');
-    expect(resolved?.haiku).toBe('kimi-k2.5');
+    // Should fall through to KIMI_CODE.defaultTiers.
+    expect(resolved?.sonnet).toBe('k3');
+    expect(resolved?.haiku).toBe('kimi-for-coding');
+  });
+});
+
+type AuthEnvInternals = {
+  buildAuthEnv: (
+    config: PtahCliConfig,
+    provider: AnthropicProvider,
+    apiKey: string,
+  ) => AuthEnv;
+};
+
+describe('PtahCliRegistry.buildAuthEnv — kimi-code', () => {
+  it('sets ANTHROPIC_API_KEY only and declares the tier capabilities', () => {
+    const registry = makeRegistry(createMockProviderModels());
+    const env = (registry as unknown as AuthEnvInternals).buildAuthEnv(
+      BASE_AGENT_CONFIG,
+      KIMI_CODE,
+      'kimi-agent-key',
+    );
+    const capabilities =
+      'thinking,interleaved_thinking,effort,xhigh_effort,max_effort';
+
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.ai/coding/');
+    expect(env.ANTHROPIC_API_KEY).toBe('kimi-agent-key');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('k3.1-pro');
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
   });
 });

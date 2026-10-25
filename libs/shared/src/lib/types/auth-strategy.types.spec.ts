@@ -34,7 +34,7 @@ import {
 /**
  * `ANTHROPIC_PROVIDERS` is declared `as const satisfies readonly
  * AnthropicProvider[]`, so its element type is a union of literal shapes —
- * entries that omit `authType` entirely (moonshot, z-ai) have no property in
+ * entries that omit `authType` entirely (z-ai) have no property in
  * common with `resolveStrategy`'s all-optional parameter and trip TypeScript's
  * weak-type check. Widening to the declared interface (the same thing
  * production callers like `AuthManager` receive from `getAnthropicProvider`)
@@ -178,7 +178,7 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
   const EXPECTED_ROUTE_BY_PROVIDER_ID: Record<string, AuthStrategyType> = {
     // API-key providers — unchanged by TASK_2026_172.
     openrouter: 'api-key', // authType 'apiKey' + requiresProxy true
-    moonshot: 'api-key', // authType undefined (defaults to key)
+    'kimi-code': 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough, x-api-key
     'z-ai': 'api-key', // authType undefined (defaults to key)
     sakana: 'api-key', // apiKey + requiresProxy true → proxy started inside ApiKeyStrategy
     requesty: 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough (TASK_2026_236)
@@ -222,14 +222,14 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     expect(nativeAuthProviders).toEqual(['claude-cli']);
   });
 
-  it('the API-key provider set is exactly {openrouter, moonshot, z-ai, sakana, requesty, opencode-zen, opencode-go} — regression guard for acceptance criterion 2', () => {
+  it('the API-key provider set is exactly {openrouter, kimi-code, z-ai, sakana, requesty, opencode-zen, opencode-go} — regression guard for acceptance criterion 2', () => {
     const apiKeyRouted = REGISTRY.filter(
       (p) => resolveStrategy('thirdParty', p) === 'api-key',
     )
       .map((p) => p.id)
       .sort();
     expect(apiKeyRouted).toEqual([
-      'moonshot',
+      'kimi-code',
       'opencode-go',
       'opencode-zen',
       'openrouter',

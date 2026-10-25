@@ -303,8 +303,8 @@ describe('CommitMessageGenerator', () => {
   describe('provider auth', () => {
     it('resolves the provider of the repository workspace and forwards its snapshot auth', async () => {
       const resolver = makeResolver(async () => ({
-        providerId: 'moonshot',
-        model: 'kimi-k2.5',
+        providerId: 'kimi-code',
+        model: 'k3',
         auth: OVERRIDE,
       }));
       const { generator, query } = build({ resolver });
@@ -317,8 +317,8 @@ describe('CommitMessageGenerator', () => {
 
     it('rides the active provider with no auth when no snapshot could be built', async () => {
       const resolver = makeResolver(async () => ({
-        providerId: 'moonshot',
-        model: 'kimi-k2.5',
+        providerId: 'kimi-code',
+        model: 'k3',
       }));
       const { generator, query } = build({ resolver });
       await expect(generator.generate(WORKSPACE)).resolves.toEqual({
@@ -332,8 +332,8 @@ describe('CommitMessageGenerator', () => {
 
     it('stops on a provider cooling down without dialling it', async () => {
       const resolver = makeResolver(async () => ({
-        providerId: 'moonshot',
-        model: 'kimi-k2.5',
+        providerId: 'kimi-code',
+        model: 'k3',
         auth: OVERRIDE,
         cooldownMs: 30_000,
       }));

@@ -304,7 +304,7 @@ describe('ProvidersConnectionSetupService', () => {
     it('does not accept a probe verified for another provider', async () => {
       await service.verifyDraft({
         probeId: 'p1',
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         authMode: 'apiKey',
       });
       await service.connectProvider(draft(), context, hooks);
@@ -841,7 +841,7 @@ describe('ProvidersConnectionSetupService', () => {
     );
 
     it.each([
-      ['a built-in API-key connection', 'moonshot'],
+      ['a built-in API-key connection', 'kimi-code'],
       ['the Claude API key', 'anthropic'],
       ['the Claude CLI', 'claude-cli'],
       ['GitHub Copilot', 'github-copilot'],
@@ -907,10 +907,10 @@ describe('ProvidersConnectionSetupService', () => {
     it('reads "checking" until the route re-read finished', async () => {
       const reread = deferred<void>();
       hooks = { ...hooks, refreshRoute: () => reread.promise };
-      const running = service.checkConnection('moonshot', hooks);
+      const running = service.checkConnection('kimi-code', hooks);
       await Promise.resolve();
       expect(service.connectionCheck()).toEqual({
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         status: 'checking',
       });
       await new Promise((done) => setTimeout(done, 0));
@@ -926,9 +926,9 @@ describe('ProvidersConnectionSetupService', () => {
         async () =>
           new RpcResult(false, undefined, 'raw host error sk-secret-123'),
       );
-      await service.checkConnection('moonshot', hooks);
+      await service.checkConnection('kimi-code', hooks);
       expect(service.connectionCheck()).toEqual({
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         status: 'failed',
       });
       expect(JSON.stringify(service.connectionCheck())).not.toContain(
@@ -940,11 +940,11 @@ describe('ProvidersConnectionSetupService', () => {
     it('the latest check wins: an earlier one that settles late publishes nothing', async () => {
       const slow = deferred<RpcResult<unknown>>();
       handlers.set('auth:checkConnection', (params) =>
-        (params as { providerId: string }).providerId === 'moonshot'
+        (params as { providerId: string }).providerId === 'kimi-code'
           ? slow.promise
           : Promise.resolve(success(record)),
       );
-      const first = service.checkConnection('moonshot', hooks);
+      const first = service.checkConnection('kimi-code', hooks);
       await service.checkConnection('z-ai', hooks);
       slow.resolve(new RpcResult(false, undefined, 'late failure'));
       await first;

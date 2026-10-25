@@ -14,6 +14,23 @@
 
 import type { AuthEnv } from '@ptah-extension/shared';
 import type { ITranslationProxy } from '../translation';
+import { z } from 'zod';
+
+/** Explicit intent for global auth operations; hosts must opt in to native Codex. */
+export const authOperationContextSchema = z.object({
+  reason: z.enum([
+    'startup',
+    'provider-selection',
+    'reauth',
+    'auth-file-changed',
+    'legacy-session-start',
+  ]),
+  hostNativeCodex: z.boolean().default(false),
+  providerId: z.string().min(1),
+  normalizedHome: z.string().min(1).optional(),
+});
+
+export type AuthOperationContext = z.infer<typeof authOperationContextSchema>;
 
 /** Registered built-in API-key proxies owned by the global strategy. */
 export interface ApiKeyProxyBinding {
@@ -34,6 +51,8 @@ export interface AuthConfigureResult {
 
 /** Context passed to every strategy's configure() method */
 export interface AuthConfigureContext {
+  /** Validated operation intent, absent for existing callers. */
+  operationContext?: AuthOperationContext;
   /** The provider ID (e.g., 'openrouter', 'github-copilot', 'ollama') */
   providerId: string;
   /** The shared mutable AuthEnv singleton — strategies write their env vars here */

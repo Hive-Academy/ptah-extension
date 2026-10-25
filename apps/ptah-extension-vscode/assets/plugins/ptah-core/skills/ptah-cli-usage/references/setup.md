@@ -124,19 +124,19 @@ it goes before the subcommand.
 
 ## 4. Headless / unattended runs — environment variables
 
-| Env var                    | When to set                                       | Effect                                                                                                              |
-| -------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `PTAH_AUTO_APPROVE`        | CI, daemons, `proxy start` w/o JSON-RPC peer      | Auto-allow every `permission.request` (same as `--auto-approve`).                                                   |
-| `PTAH_NO_TTY`              | Containers, CI, anything where `isTTY` may lie    | Force non-TTY mode; suppresses ANSI even with `--human`.                                                            |
-| `NO_COLOR`                 | Pipelines, log aggregators                        | Any non-empty value disables ANSI in `--human` mode.                                                                |
-| `FORCE_COLOR=0`            | Bridge spawning the CLI from another process      | Disables color in deps that read it (matches Windows spawn pattern). Combine with `setEncoding('utf8')` on streams. |
-| `PTAH_LOG_LEVEL`           | Debugging                                         | `debug` \| `info` \| `warn` \| `error`. `debug` writes to **stderr only**; never poisons stdout.                    |
-| `PTAH_CONFIG_PATH`         | Sandboxed runs / multi-tenant CI                  | Override the `~/.ptah` data directory (§3).                                                                         |
-| `PTAH_HOST_SCHEMA_VERSION` | A host that pins a JSON-RPC schema version        | Compared against the CLI's schema on boot; a mismatch warns on stderr and does not abort.                           |
-| `PTAH_MCP_HOST_SESSION_ID` | Set BY `mcp-serve`, read downstream               | Cost-attribution key for the life of an `mcp-serve` process.                                                        |
-| `ANTHROPIC_API_KEY`        | Anthropic direct without `set-key`                | Picked up by the api-key auth strategy.                                                                             |
-| `ANTHROPIC_AUTH_TOKEN`     | Z.AI / Moonshot / any Anthropic-compatible vendor | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                               |
-| `ANTHROPIC_BASE_URL`       | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
+| Env var                    | When to set                                                                    | Effect                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `PTAH_AUTO_APPROVE`        | CI, daemons, `proxy start` w/o JSON-RPC peer                                   | Auto-allow every `permission.request` (same as `--auto-approve`).                                                   |
+| `PTAH_NO_TTY`              | Containers, CI, anything where `isTTY` may lie                                 | Force non-TTY mode; suppresses ANSI even with `--human`.                                                            |
+| `NO_COLOR`                 | Pipelines, log aggregators                                                     | Any non-empty value disables ANSI in `--human` mode.                                                                |
+| `FORCE_COLOR=0`            | Bridge spawning the CLI from another process                                   | Disables color in deps that read it (matches Windows spawn pattern). Combine with `setEncoding('utf8')` on streams. |
+| `PTAH_LOG_LEVEL`           | Debugging                                                                      | `debug` \| `info` \| `warn` \| `error`. `debug` writes to **stderr only**; never poisons stdout.                    |
+| `PTAH_CONFIG_PATH`         | Sandboxed runs / multi-tenant CI                                               | Override the `~/.ptah` data directory (§3).                                                                         |
+| `PTAH_HOST_SCHEMA_VERSION` | A host that pins a JSON-RPC schema version                                     | Compared against the CLI's schema on boot; a mismatch warns on stderr and does not abort.                           |
+| `PTAH_MCP_HOST_SESSION_ID` | Set BY `mcp-serve`, read downstream                                            | Cost-attribution key for the life of an `mcp-serve` process.                                                        |
+| `ANTHROPIC_API_KEY`        | Anthropic direct without `set-key`                                             | Picked up by the api-key auth strategy.                                                                             |
+| `ANTHROPIC_AUTH_TOKEN`     | Z.AI / other Anthropic-compatible vendors (Kimi Code uses `ANTHROPIC_API_KEY`) | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                               |
+| `ANTHROPIC_BASE_URL`       | Custom Anthropic-compatible endpoint                                           | Overrides the SDK's default base URL.                                                                               |
 
 Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted, and there is
 nothing for it to override — `agent-cli --cli` accepts every CLI agent

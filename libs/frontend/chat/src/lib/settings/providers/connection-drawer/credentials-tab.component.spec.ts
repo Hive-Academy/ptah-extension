@@ -8,14 +8,14 @@ import type { ConnectionKind } from './connection-kind';
 import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 const connection = (overrides: Partial<ProvidersConnection> = {}): ProvidersConnection => ({
-  id: 'moonshot', name: 'Moonshot (Kimi)', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
+  id: 'kimi-code', name: 'Kimi Code', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
   defaultsResolvable: true, accountLabel: null, tokenStale: false, ...overrides,
 });
 const result = (probeId: string, overrides: Partial<AuthVerifyDraftConnectionResult> = {}): AuthVerifyDraftConnectionResult => ({
-  probeId, outcome: 'verified', reason: null, detail: null, latencyMs: 92, modelUsed: 'kimi-k2.5',
+  probeId, outcome: 'verified', reason: null, detail: null, latencyMs: 92, modelUsed: 'k3',
   checkedAt: '2026-09-30T10:00:00Z', ...overrides,
 });
-const SETUP = { baseUrl: 'https://gateway.example/v1', tiers: { sonnet: 'kimi-k2.5', opus: null, haiku: 'kimi-fast' } };
+const SETUP = { baseUrl: 'https://gateway.example/v1', tiers: { sonnet: 'k3', opus: null, haiku: 'kimi-for-coding' } };
 
 /** Resolves each check only when the test says so, so in-flight states are observable. */
 class ProbeHost {
@@ -38,10 +38,10 @@ describe('replaceKeyDraft', () => {
   it('writes the credential only, connect-only, keeping the stored tiers unedited', () => {
     const draft = replaceKeyDraft(connection(), request, SETUP);
     expect(draft).toMatchObject({
-      providerId: 'moonshot', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' }, baseUrl: null,
+      providerId: 'kimi-code', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' }, baseUrl: null,
       verified: { probeId: 'drawer-probe-1' }, editedTiers: [], saveTo: 'global', activation: 'connect-only',
-      tiers: { everyday: 'kimi-k2.5', complex: '', fast: 'kimi-fast' },
-      tierSnapshot: { everyday: 'kimi-k2.5', complex: null, fast: 'kimi-fast' },
+      tiers: { everyday: 'k3', complex: '', fast: 'kimi-for-coding' },
+      tierSnapshot: { everyday: 'k3', complex: null, fast: 'kimi-for-coding' },
     });
   });
 
@@ -75,7 +75,7 @@ describe('CredentialsTabComponent', () => {
 
   const query = <T extends HTMLElement = HTMLElement>(id: string) => element.querySelector<T>(`[data-testid="${id}"]`);
   let rendered = false;
-  /** The first render defaults to Moonshot (api-key); later renders change only what they name. */
+  /** The first render defaults to Kimi Code (api-key); later renders change only what they name. */
   function render(inputs: { connection?: ProvidersConnection; kind?: ConnectionKind } & Record<string, unknown> = {}) {
     const { connection: value, kind, ...rest } = inputs;
     if (value || !rendered) fixture.componentRef.setInput('connection', value ?? connection());
@@ -183,7 +183,7 @@ describe('CredentialsTabComponent', () => {
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       typeKey('  sk-new  ');
       query('credentials-verify')?.click(); fixture.detectChanges();
-      expect(probe.calls[0]).toMatchObject({ providerId: 'moonshot', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' } });
+      expect(probe.calls[0]).toMatchObject({ providerId: 'kimi-code', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' } });
       expect(query('credentials-probe')?.textContent).toContain('Checking');
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       probe.settle(); await flush();

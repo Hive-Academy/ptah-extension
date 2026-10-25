@@ -235,7 +235,7 @@ describe('MultiPhaseAnalysisService', () => {
     );
     broadcastMessage = jest.fn();
     resolveLlm = jest.fn(async () => ({
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       model: 'snapshot-model',
       auth: SNAPSHOT_AUTH,
     }));

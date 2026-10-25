@@ -567,7 +567,7 @@ describe('constrainPhase requirement 3.6', () => {
       pin: { executor: 'ptah-cli' },
       candidates: [
         lane({ id: 'a', cli: 'ptah-cli', ptahCliId: 'a', family: 'z-ai' }),
-        lane({ id: 'b', cli: 'ptah-cli', ptahCliId: 'b', family: 'moonshot' }),
+        lane({ id: 'b', cli: 'ptah-cli', ptahCliId: 'b', family: 'kimi-code' }),
       ],
     });
 

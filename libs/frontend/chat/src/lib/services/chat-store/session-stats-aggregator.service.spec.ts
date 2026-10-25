@@ -810,7 +810,7 @@ describe('SessionStatsAggregatorService', () => {
   // ------------------------------------------------------------------
   // Extend cumulative-fallback skip rule to non-compacted sessions when
   // the cumulative sum exceeds contextWindow. Long sessions on third-party
-  // providers (OpenRouter, Moonshot, Ollama) never emit
+  // providers (OpenRouter, Kimi Code, Ollama) never emit
   // `lastTurnContextTokens`, so the cumulative input + output + cacheRead
   // can climb past contextWindow and produce 1000%+ CTX badges.
   //

@@ -423,11 +423,12 @@ export class CodexCliAdapter implements CliAdapter {
    *  (b) we prefer the env var on platforms where `os.homedir()` ignores
    *      `$HOME` overrides.
    *
-   * Mirrors the env-preservation pattern in `build-safe-env.ts`.
+   * `runSdk` passes process.env through to the SDK, with no per-spawn home
+   * override in CliCommandOptions. Honour that same CODEX_HOME here.
    */
   private static getAuthPath(): string {
     const home = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
-    return join(home, '.codex', 'auth.json');
+    return join(process.env['CODEX_HOME'] || join(home, '.codex'), 'auth.json');
   }
 
   /**
@@ -481,7 +482,7 @@ export class CodexCliAdapter implements CliAdapter {
 
   /**
    * Resolve the OAuth access_token for Codex API calls.
-   * Reads the token from ~/.codex/auth.json. No refresh is attempted.
+   * Reads the token from the execution home's auth.json. No refresh is attempted.
    */
   private async resolveAccessToken(): Promise<string | null> {
     const raw = await readFile(CodexCliAdapter.getAuthPath(), 'utf-8');
@@ -497,7 +498,7 @@ export class CodexCliAdapter implements CliAdapter {
    * Check whether usable Codex credentials are on disk.
    *
    * This adapter NEVER refreshes anything — it only reads
-   * `~/.codex/auth.json` and reports. (`CodexAuthService` in `auth-providers`
+   * the execution home's `auth.json` and reports. (`CodexAuthService` in `auth-providers`
    * owns the actual OAuth refresh; nothing here can reach it.) The name is kept
    * because it is the `CliAdapter` contract shared with the other CLIs.
    *
@@ -545,7 +546,12 @@ export class CodexCliAdapter implements CliAdapter {
       options.workingDirectory,
     );
     const budgets = resolveCodexLaneBudgets(options.laneBudgets);
-    const developerInstructions = [options.role ? renderRoleBlock(options.role, this.name) : undefined, PTAH_LANE_POLICY].filter(Boolean).join('\n\n');
+    const developerInstructions = [
+      options.role ? renderRoleBlock(options.role, this.name) : undefined,
+      PTAH_LANE_POLICY,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
     const reasoningEffort =
       options.reasoningEffort &&
       (CODEX_REASONING_EFFORTS as readonly string[]).includes(
@@ -589,7 +595,11 @@ export class CodexCliAdapter implements CliAdapter {
         workingDirectory: options.workingDirectory,
         agentId: options.agentId,
         userMcpServerNames: userServers.names,
-        developerInstructions: policyInTask ? (options.role ? renderRoleBlock(options.role, this.name) : undefined) : developerInstructions,
+        developerInstructions: policyInTask
+          ? options.role
+            ? renderRoleBlock(options.role, this.name)
+            : undefined
+          : developerInstructions,
         codexVersion: binary?.version,
       });
       this.logLaneWarnings(built.warnings);
@@ -608,7 +618,11 @@ export class CodexCliAdapter implements CliAdapter {
       const check = (configOverrides: string[]): void =>
         assertCommandLineWithinLimit(
           binary?.path ?? 'codex',
-          codexExecArgs({ configOverrides, ...threadOptions, resumeThreadId: threadId }),
+          codexExecArgs({
+            configOverrides,
+            ...threadOptions,
+            resumeThreadId: threadId,
+          }),
           this.argvLimitPlatform,
         );
       let configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
@@ -649,15 +663,26 @@ export class CodexCliAdapter implements CliAdapter {
     });
 
     const taskPrompt = buildTaskPrompt(
-      { ...options, role: undefined, lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions', resumeRestoresContext: true },
+      {
+        ...options,
+        role: undefined,
+        lanePolicyDelivery: policyInTask
+          ? 'task-prompt'
+          : 'developer-instructions',
+        resumeRestoresContext: true,
+      },
       this.name,
     );
     // What this handle's first turn carried; later turns on the same thread
     // leave out exactly those blocks. A `resumeSessionId` spawn is a new
     // process with no record of the earlier one, so its first turn above
     // passes nothing and keeps both.
-    let deliveredPreambles: ResumeDeliveredPreambles =
-      fullPromptPreambles({ ...options, lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions' });
+    let deliveredPreambles: ResumeDeliveredPreambles = fullPromptPreambles({
+      ...options,
+      lanePolicyDelivery: policyInTask
+        ? 'task-prompt'
+        : 'developer-instructions',
+    });
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();
@@ -867,7 +892,9 @@ export class CodexCliAdapter implements CliAdapter {
           files: undefined,
           role: undefined,
           resumeSessionId: threadId,
-          lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions',
+          lanePolicyDelivery: policyInTask
+            ? 'task-prompt'
+            : 'developer-instructions',
           resumeRestoresContext: true,
           resumeDeliveredPreambles: deliveredPreambles,
         },
@@ -884,7 +911,8 @@ export class CodexCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
-      getLanePolicyDelivery: () => policyInTask ? 'task-prompt' : 'developer-instructions',
+      getLanePolicyDelivery: () =>
+        policyInTask ? 'task-prompt' : 'developer-instructions',
       // The role rides developer_instructions on every turn, including the
       // turns where the policy fell back to the task prompt.
       getRoleDelivery: () => 'developer-instructions',

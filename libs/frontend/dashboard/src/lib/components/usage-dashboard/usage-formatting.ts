@@ -141,7 +141,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   ollama: 'Ollama',
   'ollama-cloud': 'Ollama Cloud',
   openrouter: 'OpenRouter',
-  moonshot: 'Moonshot',
+  'kimi-code': 'Kimi Code',
   'z-ai': 'Z.ai',
   grok: 'Grok',
 };

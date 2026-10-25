@@ -15,7 +15,7 @@
  * - `keyPrefix` is EMPTY. Requesty's own pages disagree about the prefix — a
  *   blog post shows `rqy_…` while the quickstart example shows `sk-…`. Encoding
  *   either one would reject half of all real keys at the validation hint, so we
- *   encode neither (same choice Moonshot and Z.AI already make).
+ *   encode neither (same choice Kimi Code and Z.AI already make).
  * - No `defaultTiers` and no `staticModels`. The only model slug seen in the
  *   docs (`anthropic/claude-sonnet-4-5-20250514`) appears on the OpenAI-compat
  *   lane, not on the Anthropic passthrough lane this entry uses. Shipping an

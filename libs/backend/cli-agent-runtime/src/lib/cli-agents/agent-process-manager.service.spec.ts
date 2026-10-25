@@ -606,7 +606,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       getMcpPort.mockReturnValue(51821);
       let notifyTimeout: (() => void) | undefined;
       let attachment:
-        import('./mcp-attachment-probe.port').McpAttachment | undefined;
+        import('./mcp-attachment-probe.port').McpAttachment | undefined =
+        undefined;
       let resolveAttachment: (
         entry: import('./mcp-attachment-probe.port').McpAttachment | undefined,
       ) => void = () => undefined;
@@ -807,7 +808,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         task: 'Review the batch',
         cli: 'ptah-cli',
         workingDirectory: '/workspace/root',
-        ptahCliName: 'Moonshot',
+        ptahCliName: 'Kimi Code',
         ptahCliId: 'ptah-cli-1',
         roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
         expectsMcp: false,

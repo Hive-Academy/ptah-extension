@@ -265,10 +265,10 @@ describe('SettingsComponent deep-link', () => {
     await fixture.componentInstance.ngOnInit();
     fixture.componentInstance.setActiveTab('orchestration');
     fixture.detectChanges();
-    appState.requestSettingsTab({ tab: 'providers', providerId: 'moonshot' });
+    appState.requestSettingsTab({ tab: 'providers', providerId: 'kimi-code' });
     TestBed.tick();
     expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
-    expect(fixture.componentInstance.requestedProviderId()).toBe('moonshot');
+    expect(fixture.componentInstance.requestedProviderId()).toBe('kimi-code');
     expect(appState.pendingSettingsTab()).toBeNull();
   });
 

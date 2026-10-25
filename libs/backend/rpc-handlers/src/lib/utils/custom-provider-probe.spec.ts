@@ -134,8 +134,8 @@ describe('joinUrl', () => {
   });
 
   it('tolerates trailing slashes', () => {
-    expect(joinUrl('https://api.moonshot.ai/anthropic/', 'v1/messages')).toBe(
-      'https://api.moonshot.ai/anthropic/v1/messages',
+    expect(joinUrl('https://api.kimi.ai/coding/', 'v1/messages')).toBe(
+      'https://api.kimi.ai/coding/v1/messages',
     );
   });
 });

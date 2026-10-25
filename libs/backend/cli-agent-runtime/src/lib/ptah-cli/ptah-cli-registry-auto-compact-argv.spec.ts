@@ -53,9 +53,9 @@ jest.mock('@ptah-extension/agent-sdk', () => {
   return {
     ...actual,
     getAnthropicProvider: jest.fn(() => ({
-      id: 'moonshot',
-      name: 'Moonshot (Kimi)',
-      baseUrl: 'https://api.moonshot.ai/anthropic/',
+      id: 'z-ai',
+      name: 'Z.AI (GLM)',
+      baseUrl: 'https://api.z.ai/api/anthropic',
       authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
       keyPrefix: '',
       helpUrl: '',
@@ -245,7 +245,7 @@ function initializeRequest(stdinText: string): Record<string, unknown> {
 const BASE_CONFIG: PtahCliConfig = {
   id: 'pc-auto-compact-001',
   name: 'Auto Compact Agent',
-  providerId: 'moonshot',
+  providerId: 'z-ai',
   enabled: true,
   tierMappings: undefined,
   updatedAt: 0,

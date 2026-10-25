@@ -6,7 +6,8 @@
  *
  * Supports:
  * - Dynamic model listing via API (OpenRouter)
- * - Hybrid: dynamic with static fallback (Moonshot, Z.AI)
+ * - Hybrid: dynamic with static fallback (Z.AI)
+ * - Static only (Kimi Code, OpenCode Go)
  * - Per-provider model cache and tier config persistence
  *
  * Environment Variables Set:
@@ -37,6 +38,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   getAnthropicProvider,
+  getStaticModelCapabilities,
   isOpenCodeProviderId,
   type AnthropicProvider,
 } from '@ptah-extension/shared';
@@ -49,7 +51,7 @@ import {
 
 /**
  * Raw model response from OpenRouter-style /v1/models API.
- * OpenRouter and Moonshot use this format. Requesty differs: it reports tool
+ * OpenRouter uses this format. Requesty differs: it reports tool
  * support as `supports_tool_calling`, per-token prices as top-level
  * `input_price` / `output_price`, and `pricing` as an array of price tiers.
  */
@@ -148,8 +150,8 @@ export class ProviderModelsService {
    * Get the per-provider, per-scope config key for a tier.
    *
    * Key shape: `provider.<providerId>.<scope>.modelTier.<tier>`
-   * e.g.  `provider.moonshot.mainAgent.modelTier.haiku`
-   *       `provider.moonshot.cliAgent.modelTier.haiku`
+   * e.g.  `provider.kimi-code.mainAgent.modelTier.haiku`
+   *       `provider.kimi-code.cliAgent.modelTier.haiku`
    *
    * The legacy (pre-scope) key `provider.<providerId>.modelTier.<tier>` is
    * still honoured on read for the `mainAgent` scope via
@@ -424,6 +426,7 @@ export class ProviderModelsService {
         description: m.description,
         contextLength: m.contextLength,
         supportsToolUse: m.supportsToolUse,
+        capabilities: m.capabilities ? [...m.capabilities] : undefined,
       }));
 
       const filtered = toolUseOnly
@@ -1047,6 +1050,12 @@ export class ProviderModelsService {
    * model id and shows Claude's own description. Resolved from the provider's
    * last known model list, so it is only available for models we've actually
    * listed — a tier pointing at a hand-typed custom id keeps the bare id.
+   * Capabilities alone also fall back to the provider's static registry
+   * declaration (the same source `buildStaticTierCapabilityEnv` reads for the
+   * workspace and lane snapshots), so a static-only provider (Kimi Code) still
+   * declares them and effort reaches the runtime. `_NAME`/`_DESCRIPTION` do
+   * NOT fall back to `staticModels`: that would relabel tiers for every
+   * provider that ships a static list (Z.AI, Ollama) when no catalogue exists.
    * That lookup reads the same cache-then-persisted catalogue the tier
    * derivation does: a live-derived tier is by construction an id from that
    * catalogue, so it must not lose its label just because the in-memory cache
@@ -1066,6 +1075,8 @@ export class ProviderModelsService {
     const model = this.readLiveCatalog(providerId)?.find(
       (m) => m.id === modelId,
     );
+    const capabilities =
+      model?.capabilities ?? getStaticModelCapabilities(providerId, modelId);
 
     const write = (key: keyof AuthEnv, value: string | undefined): void => {
       if (value) {
@@ -1079,7 +1090,7 @@ export class ProviderModelsService {
 
     write(keys.name, model?.name);
     write(keys.description, model?.description);
-    write(keys.capabilities, model?.capabilities?.join(','));
+    write(keys.capabilities, capabilities?.join(','));
   }
 
   /**
@@ -1131,7 +1142,7 @@ export class ProviderModelsService {
    *
    * Mapping:
    *  - apiKey / claudeCli     → ANTHROPIC_DIRECT_PROVIDER_ID (Anthropic native)
-   *  - thirdParty             → saved anthropicProviderId (OpenRouter, Moonshot, etc.)
+   *  - thirdParty             → saved anthropicProviderId (OpenRouter, Kimi Code, etc.)
    */
   resolveActiveProviderId(): string {
     return this.activeProviderResolver.resolveActiveAuth().providerId;

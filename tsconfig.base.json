@@ -16,6 +16,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "paths": {
+      "@ptah-extension/codex-runtime": ["./libs/backend/codex-runtime/src/index.ts"],
       "@ptah-extension/showcase-manifest": [
         "./libs/showcase-manifest/src/index.ts"
       ],

@@ -64,7 +64,7 @@ function makeActiveProviderResolver(
 // Helpers
 // ---------------------------------------------------------------------------
 
-const PROVIDER = 'moonshot';
+const PROVIDER = 'z-ai';
 
 function makeService(opts: {
   configValues?: Record<string, unknown>;
@@ -165,29 +165,29 @@ describe('ProviderModelsService — discovered context windows', () => {
   );
 
   it('does not promote static or legacy persisted context lengths into provider evidence', async () => {
-    const model = getAnthropicProvider('moonshot')?.staticModels?.[0];
+    const model = getAnthropicProvider('z-ai')?.staticModels?.[0];
     expect(model).toBeDefined();
-    if (!model) throw new Error('Moonshot fixture requires a static model');
+    if (!model) throw new Error('Z.AI fixture requires a static model');
     const get = jest
       .spyOn(axios, 'get')
       .mockResolvedValue({ data: { data: [{ id: model.id }] } });
     try {
       const { service, config } = makeService({});
-      const live = await service.fetchModels('moonshot', 'test-key');
+      const live = await service.fetchModels('z-ai', 'test-key');
       expect(live.models[0].contextLength).toBe(model.contextLength);
       expect(live.models[0]).not.toHaveProperty('contextLengthSource');
       const persisted = config.set.mock.calls.find(
-        ([key]) => key === 'provider.moonshot.modelCatalog',
+        ([key]) => key === 'provider.z-ai.modelCatalog',
       )?.[1];
       const reloaded = makeService({
-        configValues: { 'provider.moonshot.modelCatalog': persisted },
+        configValues: { 'provider.z-ai.modelCatalog': persisted },
       });
       expect(
-        (await reloaded.service.fetchModels('moonshot', null)).models[0].id,
+        (await reloaded.service.fetchModels('z-ai', null)).models[0].id,
       ).toBe(model.id);
       const lookup: (model: string, provider?: string) => number =
         getDiscoveredContextWindow;
-      expect(lookup(model.id, 'moonshot')).toBe(0);
+      expect(lookup(model.id, 'z-ai')).toBe(0);
     } finally {
       get.mockRestore();
     }
@@ -274,14 +274,14 @@ describe('ProviderModelsService — discovered context windows', () => {
     );
     const { service } = makeService({
       configValues: {
-        'provider.moonshot.modelCatalog': { models, timestamp: Date.now() },
+        'provider.z-ai.modelCatalog': { models, timestamp: Date.now() },
       },
     });
-    const restored = await service.fetchModels('moonshot', null);
+    const restored = await service.fetchModels('z-ai', null);
     expect(restored.models).toHaveLength(5);
-    expect(getDiscoveredContextWindow(models[0].id, 'moonshot')).toBe(400000);
+    expect(getDiscoveredContextWindow(models[0].id, 'z-ai')).toBe(400000);
     for (const model of models.slice(1))
-      expect(getDiscoveredContextWindow(model.id, 'moonshot')).toBe(0);
+      expect(getDiscoveredContextWindow(model.id, 'z-ai')).toBe(0);
   });
 
   it('a legacy persisted catalog remains selectable without capacity evidence', () => {
@@ -708,18 +708,13 @@ describe('Bug repro: cliAgent tier must not contaminate process.env / authEnv', 
     // stored a tier under cliAgent scope, but mainAgent has nothing.
     const { service, authEnv } = makeService({
       configValues: {
-        [`provider.moonshot.cliAgent.modelTier.haiku`]: 'kimi-k2.6:cloud',
+        [`provider.z-ai.cliAgent.modelTier.haiku`]: 'kimi-k2.6:cloud',
         // No mainAgent scoped key and no legacy key → mainAgent sees null
       },
     });
 
     // Step 2: UI sets a CLI sub-agent tier.
-    await service.setModelTier(
-      'moonshot',
-      'haiku',
-      'kimi-k2.6:cloud',
-      'cliAgent',
-    );
+    await service.setModelTier('z-ai', 'haiku', 'kimi-k2.6:cloud', 'cliAgent');
 
     // Step 3: process.env must be untouched (this was the bug — it used to be written).
     expect(process.env[ENV_HAIKU]).toBeUndefined();
@@ -842,13 +837,8 @@ describe('ProviderModelsService.switchActiveProvider', () => {
     });
 
     // Seed the env with a previous provider's mapping.
-    await service.setModelTier(
-      PROVIDER,
-      'haiku',
-      'moonshot-haiku',
-      'mainAgent',
-    );
-    expect(process.env[ENV_HAIKU]).toBe('moonshot-haiku');
+    await service.setModelTier(PROVIDER, 'haiku', 'zai-haiku', 'mainAgent');
+    expect(process.env[ENV_HAIKU]).toBe('zai-haiku');
 
     service.switchActiveProvider('openrouter');
 
@@ -880,10 +870,10 @@ describe('ProviderModelsService.resolveActiveProviderId', () => {
     const { service } = makeService({
       configValues: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'z-ai',
       },
     });
-    expect(service.resolveActiveProviderId()).toBe('moonshot');
+    expect(service.resolveActiveProviderId()).toBe('z-ai');
   });
 
   it('falls back to anthropic-direct for unknown auth methods', () => {
@@ -901,7 +891,7 @@ describe('ProviderModelsService.resolveActiveProviderId', () => {
 describe('ProviderModelsService.clearCache', () => {
   it('clears cache for a specific provider when an id is passed', () => {
     const { service } = makeService({});
-    expect(() => service.clearCache('moonshot')).not.toThrow();
+    expect(() => service.clearCache('z-ai')).not.toThrow();
   });
 
   it('clears all caches when no id is passed', () => {
@@ -927,9 +917,9 @@ describe('ProviderModelsService.registerDynamicFetcher', () => {
       },
     ]);
 
-    service.registerDynamicFetcher('moonshot', fetcher);
+    service.registerDynamicFetcher('z-ai', fetcher);
 
-    const result = await service.fetchModels('moonshot', null);
+    const result = await service.fetchModels('z-ai', null);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(result.isStatic).toBe(false);
@@ -1141,6 +1131,9 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
     for (const tier of ['OPUS', 'SONNET', 'HAIKU']) {
       delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_NAME`];
       delete process.env[`ANTHROPIC_DEFAULT_${tier}_MODEL_DESCRIPTION`];
+      delete process.env[
+        `ANTHROPIC_DEFAULT_${tier}_MODEL_SUPPORTED_CAPABILITIES`
+      ];
     }
   });
 
@@ -1248,6 +1241,68 @@ describe('ProviderModelsService live-catalog tier derivation', () => {
     expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION).toBe(
       'Fast model',
     );
+    await settle();
+  });
+
+  it('declares static capabilities for a static-only provider with no catalogue', async () => {
+    // Kimi Code ships no models endpoint, so there is never a live catalogue.
+    // Without the static fallback the runtime would drop effort for its ids.
+    const { service, authEnv } = makeService({});
+    const capabilities =
+      'thinking,interleaved_thinking,effort,xhigh_effort,max_effort';
+
+    service.applyPersistedTiers('kimi-code');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('k3.1-pro');
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
+    expect(authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
+    expect(authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      capabilities,
+    );
+    // Only the capability env falls back to the static entry; labels stay
+    // catalogue-only (see the z-ai case below).
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_NAME).toBeUndefined();
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION).toBeUndefined();
+    await settle();
+  });
+
+  it('writes no capability var for a static provider that declares none', async () => {
+    const { service, authEnv } = makeService({});
+
+    service.applyPersistedTiers('z-ai');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeTruthy();
+    expect(
+      authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBeUndefined();
+    expect(
+      authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBeUndefined();
+    expect(
+      authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES,
+    ).toBeUndefined();
+    await settle();
+  });
+
+  it('does not relabel tiers from staticModels when no catalogue exists', async () => {
+    // The static fallback is for capabilities only. Publishing `_NAME` /
+    // `_DESCRIPTION` from a release-time static list would change the tier
+    // labels of every provider that ships one (Z.AI, Ollama).
+    const { service, authEnv } = makeService({});
+
+    service.applyPersistedTiers('z-ai');
+
+    expect(authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeTruthy();
+    for (const tier of ['OPUS', 'SONNET', 'HAIKU'] as const) {
+      expect(authEnv[`ANTHROPIC_DEFAULT_${tier}_MODEL_NAME`]).toBeUndefined();
+      expect(
+        authEnv[`ANTHROPIC_DEFAULT_${tier}_MODEL_DESCRIPTION`],
+      ).toBeUndefined();
+    }
     await settle();
   });
 

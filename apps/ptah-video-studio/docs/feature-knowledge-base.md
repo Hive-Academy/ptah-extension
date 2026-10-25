@@ -62,7 +62,7 @@ Welcome → Scan → Analysis → Selection → **Enhance** → **Generation** �
 
 **Why SaaS-from-day-one:** parallelism on boilerplate (3 CLI agents at once), specialist quality gates for the SaaS-critical decisions (auth, multitenancy), **structural** adversarial review (`code-logic-reviewer` before every commit; Forge/Race add cross-vendor gates), and decomposition that scales as the team grows.
 
-**On-screen facts:** ✅ 8 task types · 3 depths · 3-tier model · max 3 concurrent CLI agents · ptah-cli > codex > copilot · 4 tribunal moves · vendors: Codex, Copilot, Cursor, Moonshot Kimi, Z.AI GLM, Ollama Cloud, OpenRouter.
+**On-screen facts:** ✅ 8 task types · 3 depths · 3-tier model · max 3 concurrent CLI agents · ptah-cli > codex > copilot · 4 tribunal moves · vendors: Codex, Copilot, Cursor, Kimi Code, Z.AI GLM, Ollama Cloud, OpenRouter.
 
 **Visual metaphors:** (1) **Conductor + orchestra pit** — podium figure (Claude), front-row lit stands (senior specialists), dimmer back-row session players (CLI vendors); baton lights 8/5/2 stands for Full/Partial/Minimal. (2) **Assembly line + 3 junior robot arms** (concurrency cap = 3 glowing slots, each with a countdown/timeout + status strip). (3) **Panel of judges / relay baton** — four frosted-glass vendor booths, each building in a sealed terrarium (worktree); gavel merges one, others dissolve.
 

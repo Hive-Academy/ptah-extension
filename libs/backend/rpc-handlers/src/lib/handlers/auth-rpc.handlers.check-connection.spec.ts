@@ -96,7 +96,7 @@ function makeHarness(
     rpcHandler as unknown as RpcHandler,
     createMockConfigManager() as unknown as ConfigManager,
     createMockAuthSecretsService({
-      providerKeys: { moonshot: KEY },
+      providerKeys: { 'kimi-code': KEY },
     }) as unknown as IAuthSecretsService,
     { getHealth: jest.fn(), reset: jest.fn() } as unknown as SdkAgentAdapter,
     {
@@ -135,7 +135,7 @@ function makeHarness(
   rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
     providers: [
       {
-        name: 'moonshot',
+        name: 'kimi-code',
         authType: 'apiKey',
         hasApiKey: true,
         isLocal: false,
@@ -184,7 +184,7 @@ describe('auth:checkConnection — boundary validation', () => {
     ['a non-string id', { providerId: 42 }],
     [
       'an extra field',
-      { providerId: 'moonshot', baseUrl: 'https://evil.example' },
+      { providerId: 'kimi-code', baseUrl: 'https://evil.example' },
     ],
     ['an over-long id', { providerId: 'x'.repeat(129) }],
   ])(
@@ -233,7 +233,7 @@ describe('auth:checkConnection — record and read back', () => {
     const h = makeHarness();
 
     const response = await rpc(h, 'auth:checkConnection', {
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
     });
     const record = response.data as ConnectionCheckRecord;
 
@@ -244,14 +244,14 @@ describe('auth:checkConnection — record and read back', () => {
       latencyMs: 92,
       checkedAt: expect.any(String),
     });
-    expect((await routeProvider(h, 'moonshot'))?.lastCheck).toEqual(record);
+    expect((await routeProvider(h, 'kimi-code'))?.lastCheck).toEqual(record);
     expect(await routeProvider(h, 'z-ai')).not.toHaveProperty('lastCheck');
   });
 
   it('the serialised result holds no key material and no probe detail', async () => {
     const h = makeHarness();
     const response = await rpc(h, 'auth:checkConnection', {
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
     });
     const serialised = JSON.stringify(response);
 
@@ -277,28 +277,28 @@ describe('auth:checkConnection — record and read back', () => {
   it('reading the route (even with refresh) never records a check', async () => {
     const h = makeHarness();
     await rpc(h, 'auth:getEffectiveRoute', { refresh: true });
-    expect(h.recorder.get('moonshot')).toBeUndefined();
+    expect(h.recorder.get('kimi-code')).toBeUndefined();
   });
 
   it('auth:verifyDraftConnection never writes the saved connection record', async () => {
     const h = makeHarness();
     await rpc(h, 'auth:verifyDraftConnection', {
       probeId: 'draft-1',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
       credential: { kind: 'stored' },
     });
 
     expect(h.verify).toHaveBeenCalledTimes(1);
-    expect(h.recorder.get('moonshot')).toBeUndefined();
-    expect(await routeProvider(h, 'moonshot')).not.toHaveProperty('lastCheck');
+    expect(h.recorder.get('kimi-code')).toBeUndefined();
+    expect(await routeProvider(h, 'kimi-code')).not.toHaveProperty('lastCheck');
   });
 
   it('two concurrent checks of one connection send one provider request', async () => {
     const h = makeHarness();
     const [a, b] = await Promise.all([
-      rpc(h, 'auth:checkConnection', { providerId: 'moonshot' }),
-      rpc(h, 'auth:checkConnection', { providerId: 'moonshot' }),
+      rpc(h, 'auth:checkConnection', { providerId: 'kimi-code' }),
+      rpc(h, 'auth:checkConnection', { providerId: 'kimi-code' }),
     ]);
     expect(h.verify).toHaveBeenCalledTimes(1);
     expect(a.data).toEqual(b.data);
@@ -306,21 +306,21 @@ describe('auth:checkConnection — record and read back', () => {
 });
 
 describe('a key change forgets the last check (revise round 1, S-1)', () => {
-  async function checkedMoonshot(): Promise<Harness> {
+  async function checkedKimiCode(): Promise<Harness> {
     const h = makeHarness();
-    await rpc(h, 'auth:checkConnection', { providerId: 'moonshot' });
-    expect((await routeProvider(h, 'moonshot'))?.lastCheck?.status).toBe(
+    await rpc(h, 'auth:checkConnection', { providerId: 'kimi-code' });
+    expect((await routeProvider(h, 'kimi-code'))?.lastCheck?.status).toBe(
       'verified',
     );
     return h;
   }
 
   it('auth:deleteStoredKey clears the record, so the route no longer reports verified', async () => {
-    const h = await checkedMoonshot();
+    const h = await checkedKimiCode();
 
-    await rpc(h, 'auth:deleteStoredKey', { providerId: 'moonshot' });
+    await rpc(h, 'auth:deleteStoredKey', { providerId: 'kimi-code' });
 
-    expect(await routeProvider(h, 'moonshot')).not.toHaveProperty('lastCheck');
+    expect(await routeProvider(h, 'kimi-code')).not.toHaveProperty('lastCheck');
   });
 
   it('auth:deleteStoredKey for the Claude API key clears the anthropic record', async () => {
@@ -334,36 +334,36 @@ describe('a key change forgets the last check (revise round 1, S-1)', () => {
   });
 
   it('auth:setApiKey with a NEW key clears the record of the old key', async () => {
-    const h = await checkedMoonshot();
+    const h = await checkedKimiCode();
 
     await rpc(h, 'auth:setApiKey', {
-      provider: 'moonshot',
+      provider: 'kimi-code',
       apiKey: 'FAKE0PROVIDER0KEY0AAA',
     });
 
-    expect(await routeProvider(h, 'moonshot')).not.toHaveProperty('lastCheck');
+    expect(await routeProvider(h, 'kimi-code')).not.toHaveProperty('lastCheck');
   });
 
   it('auth:setApiKey with an empty key (clear) clears the record', async () => {
-    const h = await checkedMoonshot();
+    const h = await checkedKimiCode();
 
-    await rpc(h, 'auth:setApiKey', { provider: 'moonshot', apiKey: '' });
+    await rpc(h, 'auth:setApiKey', { provider: 'kimi-code', apiKey: '' });
 
-    expect(h.recorder.get('moonshot')).toBeUndefined();
+    expect(h.recorder.get('kimi-code')).toBeUndefined();
   });
 
   it('auth:saveSettings with a provider key or a Claude API key clears that record', async () => {
-    const h = await checkedMoonshot();
+    const h = await checkedKimiCode();
     await rpc(h, 'auth:checkConnection', { providerId: 'anthropic' });
 
     await rpc(h, 'auth:saveSettings', {
       authMethod: 'thirdParty',
-      anthropicProviderId: 'moonshot',
+      anthropicProviderId: 'kimi-code',
       providerApiKey: 'FAKE0PROVIDER0KEY0AAA',
       anthropicApiKey: 'FAKE0ANTHROPIC0KEY0BBB',
     });
 
-    expect(h.recorder.get('moonshot')).toBeUndefined();
+    expect(h.recorder.get('kimi-code')).toBeUndefined();
     expect(h.recorder.get('anthropic')).toBeUndefined();
   });
 
@@ -386,16 +386,16 @@ describe('a key change forgets the last check (revise round 1, S-1)', () => {
         }),
     );
 
-    const check = rpc(h, 'auth:checkConnection', { providerId: 'moonshot' });
+    const check = rpc(h, 'auth:checkConnection', { providerId: 'kimi-code' });
     for (let i = 0; i < 50 && h.verify.mock.calls.length === 0; i++) {
       await Promise.resolve();
     }
     expect(h.verify).toHaveBeenCalledTimes(1);
-    await rpc(h, 'auth:deleteStoredKey', { providerId: 'moonshot' });
+    await rpc(h, 'auth:deleteStoredKey', { providerId: 'kimi-code' });
     release();
     await check;
 
-    expect(h.recorder.get('moonshot')).toBeUndefined();
-    expect(await routeProvider(h, 'moonshot')).not.toHaveProperty('lastCheck');
+    expect(h.recorder.get('kimi-code')).toBeUndefined();
+    expect(await routeProvider(h, 'kimi-code')).not.toHaveProperty('lastCheck');
   });
 });

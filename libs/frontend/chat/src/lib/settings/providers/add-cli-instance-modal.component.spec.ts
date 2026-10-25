@@ -18,7 +18,7 @@ const connection = (id: string, name: string, authMode: ProvidersConnection['aut
 const CONNECTIONS: ProvidersConnection[] = [
   connection('anthropic', 'Claude API', 'apiKey'),
   connection('claude-cli', 'Claude (Subscription)', 'cli'),
-  connection('moonshot', 'Moonshot (Kimi)', 'apiKey'),
+  connection('kimi-code', 'Kimi Code', 'apiKey'),
   connection('ollama-cloud', 'Ollama Cloud', 'local-native'),
   connection('ollama', 'Ollama', 'local-native'),
   connection('github-copilot', 'GitHub Copilot', 'oauth'),
@@ -128,13 +128,13 @@ describe('AddCliInstanceModalComponent', () => {
 
     it('offers every connection except Claude API and OpenAI Codex, with its modality', () => {
       const options = Array.from(q<HTMLSelectElement>('add-cli-instance-provider')?.options ?? []).map((option) => option.textContent?.trim());
-      expect(options).toEqual(['Choose a provider connection…', 'Claude (Subscription) · CLI login', 'Moonshot (Kimi) · API key',
+      expect(options).toEqual(['Choose a provider connection…', 'Claude (Subscription) · CLI login', 'Kimi Code · API key',
         'Ollama Cloud · Local server', 'Ollama · Local server', 'GitHub Copilot · OAuth']);
     });
 
     it('requires a key for an API-key provider, masked with show/hide (#49)', () => {
       type('add-cli-instance-name', 'Kimi-2');
-      choose('moonshot');
+      choose('kimi-code');
       expect(q('add-cli-instance-key-help')?.textContent).toContain('Keys stored for the provider connection are not copied');
       expect(submit()?.disabled).toBe(true);
       type('add-cli-instance-key', KEY);
@@ -160,12 +160,12 @@ describe('AddCliInstanceModalComponent', () => {
 
     it('creates through saveSettings, then closes and drops the key (no Undo for a create)', async () => {
       type('add-cli-instance-name', ' Kimi-2 ');
-      choose('moonshot');
+      choose('kimi-code');
       type('add-cli-instance-key', KEY);
       submit()?.click();
       await flush();
       expect(state.saveSettings).toHaveBeenCalledWith(
-        { cli: [{ action: 'create', params: { name: 'Kimi-2', providerId: 'moonshot', apiKey: KEY } }] }, CONTEXT);
+        { cli: [{ action: 'create', params: { name: 'Kimi-2', providerId: 'kimi-code', apiKey: KEY } }] }, CONTEXT);
       // M4: a stored key is not a checked one; the matrix runs the Test on `created`.
       // Re-check N-1: the toast promises no Test (the matrix runs it only when it finds the new instance).
       expect(feedback.toast()).toEqual({ tone: 'status', message: 'Created Kimi-2. Key stored, not verified.', canUndo: false });
@@ -182,7 +182,7 @@ describe('AddCliInstanceModalComponent', () => {
     it('stays open with the form and key after a failed create (D15)', async () => {
       state.outcome = 'failed';
       type('add-cli-instance-name', 'Kimi-2');
-      choose('moonshot');
+      choose('kimi-code');
       type('add-cli-instance-key', KEY);
       submit()?.click();
       await flush();
@@ -280,7 +280,7 @@ describe('AddCliInstanceModalComponent', () => {
 
     it('S2: switching provider drops the typed key; a hidden key field is never submitted', async () => {
       type('add-cli-instance-name', 'Kimi-2');
-      choose('moonshot');
+      choose('kimi-code');
       type('add-cli-instance-key', KEY);
       choose('ollama-cloud');
       expect(q<HTMLInputElement>('add-cli-instance-key')?.value).toBe('');
@@ -332,7 +332,7 @@ describe('AddCliInstanceModalComponent', () => {
 
     it('closes from Cancel and drops the typed key; a save already running still reports through the toast', async () => {
       type('add-cli-instance-name', 'Kimi-2');
-      choose('moonshot');
+      choose('kimi-code');
       type('add-cli-instance-key', KEY);
       let release: (value: boolean) => void = () => undefined;
       state.saveSettings.mockImplementationOnce(() => new Promise<boolean>((resolve) => { release = resolve; }));
@@ -352,7 +352,7 @@ describe('AddCliInstanceModalComponent', () => {
   });
 
   describe('edit (#50)', () => {
-    const GLM: CliInstanceEditTarget = { id: 'glm-1', name: 'Glm', providerId: 'moonshot', providerName: 'Moonshot (Kimi)' };
+    const GLM: CliInstanceEditTarget = { id: 'glm-1', name: 'Glm', providerId: 'kimi-code', providerName: 'Kimi Code' };
     const COPILOT_AGENT: CliInstanceEditTarget = { id: 'cp-1', name: 'Cop', providerId: 'github-copilot', providerName: 'GitHub Copilot' };
 
     it('shows the name and a replacement key; the provider is fixed', () => {
@@ -360,7 +360,7 @@ describe('AddCliInstanceModalComponent', () => {
       expect(q('add-cli-instance-modal')?.textContent).toContain('Edit Glm');
       expect(q<HTMLInputElement>('add-cli-instance-name')?.value).toBe('Glm');
       expect(q('add-cli-instance-provider')).toBeNull();
-      expect(q('add-cli-instance-provider-fixed')?.textContent?.trim()).toBe('Moonshot (Kimi)');
+      expect(q('add-cli-instance-provider-fixed')?.textContent?.trim()).toBe('Kimi Code');
       expect(el().textContent).toContain('Replacement API key (leave empty to keep the stored one)');
       expect(submit()?.textContent?.trim()).toBe('Save changes');
       expect(submit()?.disabled).toBe(true);

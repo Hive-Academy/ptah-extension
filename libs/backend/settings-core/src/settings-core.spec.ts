@@ -578,8 +578,7 @@ describe('TC-12: runV2Migration idempotency', () => {
 
     // Provider-scoped key must exist.
     const provider = after['provider'] as
-      | Record<string, Record<string, Record<string, unknown>>>
-      | undefined;
+      Record<string, Record<string, Record<string, unknown>>> | undefined;
     expect(provider?.['apiKey']?.['selectedModel']).toBe('my-model');
   });
 
@@ -602,8 +601,7 @@ describe('TC-12: runV2Migration idempotency', () => {
     const raw = fs.readFileSync(path.join(tmpDir, 'settings.json'), 'utf8');
     const after = JSON.parse(raw) as Record<string, unknown>;
     const provider = after['provider'] as
-      | Record<string, Record<string, Record<string, unknown>>>
-      | undefined;
+      Record<string, Record<string, Record<string, unknown>>> | undefined;
     expect(provider?.['apiKey']?.['selectedModel']).toBe('my-model');
   });
 });
@@ -1080,19 +1078,19 @@ describe('ModelSettings.selectedModel — scope and provider key', () => {
       authMethod: 'thirdParty',
       anthropicProviderId: 'openrouter',
       [MODEL_KEY]: 'or-model',
-      'provider.thirdParty.moonshot.selectedModel': 'kimi-k2.5',
+      'provider.thirdParty.kimi-code.selectedModel': 'k3',
     });
     const settings = new ModelSettings(store, resolver);
     const seen: string[] = [];
     const sub = settings.selectedModel.watch((value) => seen.push(value));
     expect(seen.at(-1)).toBe('or-model');
 
-    await resolver.write('anthropicProviderId', 'moonshot', 'workspace', true);
-    expect(seen.at(-1)).toBe('kimi-k2.5');
+    await resolver.write('anthropicProviderId', 'kimi-code', 'workspace', true);
+    expect(seen.at(-1)).toBe('k3');
 
     // A model written at workspace scope for the new provider is seen too.
-    await settings.selectedModel.set('kimi-k2-thinking', 'workspace');
-    expect(seen.at(-1)).toBe('kimi-k2-thinking');
+    await settings.selectedModel.set('k3.1-pro', 'workspace');
+    expect(seen.at(-1)).toBe('k3.1-pro');
 
     // The previous provider's key is no longer watched.
     const count = seen.length;

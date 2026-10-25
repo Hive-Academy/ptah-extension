@@ -14,7 +14,7 @@
  * `PtahCliRegistry.getProfile()` isolates per-agent auth for the CLI path.
  *
  * Correctness scope:
- * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Moonshot,
+ * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Kimi Code,
  *   Z.AI, and other api-key passthroughs) get a fully isolated snapshot — these
  *   work concurrently across workspaces after this change.
  * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
@@ -48,7 +48,11 @@ import {
   OLLAMA_CLOUD_DIRECT_BASE_URL,
   ANTHROPIC_DIRECT_PROVIDER_ID,
 } from '@ptah-extension/shared';
-import { AuthRequiredError } from '@ptah-extension/agent-sdk';
+import {
+  ALL_TIER_ENV_KEYS,
+  AuthRequiredError,
+  buildStaticTierCapabilityEnv,
+} from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
@@ -60,6 +64,31 @@ import type { AuthManager } from './auth-manager';
 import type { ModelResolver } from './model-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
+
+/**
+ * Start a workspace snapshot with every tier-scoped key PRESENT and
+ * `undefined`.
+ *
+ * The session env is `{ ...process.env, ...snapshot }`, and the globally
+ * active provider writes its tier vars (`_MODEL`, `_NAME`, `_DESCRIPTION`,
+ * `_SUPPORTED_CAPABILITIES`) into `process.env`. A key the snapshot leaves
+ * absent therefore inherits the global provider's value — e.g. Kimi Code's
+ * capability allowlist applied to another provider's opus model. A present
+ * `undefined` wins the spread and is then dropped before spawn
+ * (`stripUndefinedEnv` / `child_process`), so the subprocess sees the key as
+ * unset.
+ *
+ * `''` would NOT do: the runtime only skips a capability override when the
+ * var is `undefined`; an empty string is parsed as an empty allowlist and
+ * disables every capability of the matching tier model.
+ */
+function createIsolatedSnapshot(): AuthEnv {
+  const snapshot = createEmptyAuthEnv();
+  for (const key of ALL_TIER_ENV_KEYS) {
+    snapshot[key] = undefined;
+  }
+  return snapshot;
+}
 
 @injectable()
 export class WorkspaceProviderProfileResolver {
@@ -230,7 +259,7 @@ export class WorkspaceProviderProfileResolver {
    * when merged over `process.env`, letting the SDK resolve the native login.
    */
   private buildNativeAnthropicProfile(requestedModel: string): ProviderProfile {
-    const snapshot = createEmptyAuthEnv();
+    const snapshot = createIsolatedSnapshot();
     snapshot.ANTHROPIC_API_KEY = '';
     snapshot.ANTHROPIC_AUTH_TOKEN = '';
     snapshot.ANTHROPIC_BASE_URL = '';
@@ -253,7 +282,7 @@ export class WorkspaceProviderProfileResolver {
       );
       return undefined;
     }
-    const snapshot = createEmptyAuthEnv();
+    const snapshot = createIsolatedSnapshot();
     snapshot.ANTHROPIC_API_KEY = apiKey;
     snapshot.ANTHROPIC_AUTH_TOKEN = '';
     snapshot.ANTHROPIC_BASE_URL = '';
@@ -268,7 +297,7 @@ export class WorkspaceProviderProfileResolver {
   /**
    * Anthropic-native and api-key-passthrough third-party providers that speak
    * the Anthropic protocol directly (no local translation proxy): Ollama, Ollama
-   * Cloud, Moonshot, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
+   * Cloud, Kimi Code, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
    * isolatable — these need no proxy at all, which is why they never reach
    * {@link ProviderProxyPool}.
    *
@@ -284,7 +313,7 @@ export class WorkspaceProviderProfileResolver {
     provider: AnthropicProvider,
     requestedModel: string,
   ): Promise<ProviderProfile | undefined> {
-    const snapshot = createEmptyAuthEnv();
+    const snapshot = createIsolatedSnapshot();
     const customUrl = this.config
       .get<string>(`provider.${providerId}.baseUrl`)
       ?.trim();
@@ -318,7 +347,7 @@ export class WorkspaceProviderProfileResolver {
       };
     }
 
-    // api-key passthrough (Moonshot, Z.AI): direct base URL + per-provider key.
+    // api-key passthrough (Kimi Code, Z.AI): direct base URL + per-provider key.
     const providerKey = (
       await this.authSecrets.getProviderKey(providerId)
     )?.trim();
@@ -331,7 +360,12 @@ export class WorkspaceProviderProfileResolver {
     }
     const baseUrl = customUrl || provider.baseUrl;
     const authEnvVar = getProviderAuthEnvVar(providerId);
+    // Blank BOTH auth vars before setting the provider's own one. The session
+    // env spreads `process.env` first, so an unset key would carry the global
+    // provider's credential (e.g. OpenRouter's ANTHROPIC_AUTH_TOKEN) to this
+    // provider's host alongside its own key.
     snapshot.ANTHROPIC_API_KEY = '';
+    snapshot.ANTHROPIC_AUTH_TOKEN = '';
     snapshot.ANTHROPIC_BASE_URL = baseUrl;
     snapshot[authEnvVar as keyof AuthEnv] = providerKey;
     this.applyProviderTiers(snapshot, providerId, provider);
@@ -374,7 +408,7 @@ export class WorkspaceProviderProfileResolver {
 
     // Build an ISOLATED auth env snapshot pinned to this workspace's proxy —
     // never touching the global AuthEnv or process.env.
-    const snapshot: AuthEnv = createEmptyAuthEnv();
+    const snapshot: AuthEnv = createIsolatedSnapshot();
     snapshot.ANTHROPIC_BASE_URL = acquired.baseUrl;
     snapshot.ANTHROPIC_AUTH_TOKEN = acquired.authToken;
     snapshot.ANTHROPIC_API_KEY = '';
@@ -506,6 +540,10 @@ export class WorkspaceProviderProfileResolver {
     if (sonnet) snapshot.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (opus) snapshot.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
     if (haiku) snapshot.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
+    Object.assign(
+      snapshot,
+      buildStaticTierCapabilityEnv(providerId, { opus, sonnet, haiku }),
+    );
   }
 
   /**
