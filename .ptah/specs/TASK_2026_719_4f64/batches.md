@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 10/22 (B1-B9, B11)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 11/22 (B1-B9, B11, B12)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -300,14 +300,14 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: named without `launch` returns `[]` and no query factory call; with `launch` the probe uses `certifiedNamedEnv`, `launch.cwd`, `launch.executable`; (runner deletion moved to B13, D21); ambient env literal byte-identical.
 
-## Batch 12: Claude CLI lane named run (D-M, 7 files) — PENDING
+## Batch 12: Claude CLI lane named run (D-M, 7 files) — COMPLETE
 
 - Recommended executor: subagent backend-developer (WP-a then WP-b) | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 (2 WPs) | Depends on: B3, B9 (adapter shape), order after B11 | Phase: P3
 - Verify once after WP-b: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/cli-agent-runtime,ptah-electron,ptah-cli` (N = 3)
 - One commit for all 7 files.
 
-### Task 12.1: Lane options, runner boundaries, adapter, read-only bindings — PENDING
+### Task 12.1: Lane options, runner boundaries, adapter, read-only bindings — COMPLETE
 
 - WP-a (5): M `libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-options.ts`; M `libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.ts`; M `libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.spec.ts`; M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.ts`; M `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts`
 - WP-b (2): M `libs/backend/cli-agent-runtime/src/lib/di/register.ts`; M `libs/backend/cli-agent-runtime/src/lib/di/register.agent-process-manager.smoke.spec.ts`

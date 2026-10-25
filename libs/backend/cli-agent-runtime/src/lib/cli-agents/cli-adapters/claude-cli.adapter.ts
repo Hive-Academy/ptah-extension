@@ -22,6 +22,7 @@ import {
 import {
   ClaudeNamedLaneAdmission,
   claudeLaneRefusal,
+  claudeLaneRefusalCode,
   type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunner,
   type ClaudeSdkLaneRunContext,
@@ -136,6 +137,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           queryFn,
           buildClaudeLaneBootstrapOptions(
             named.route,
+            named.certified,
             new AbortController(),
             this.deps.processSpawner,
             executable,
@@ -163,6 +165,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         assembly,
         authEnv: {},
         accountRoute: named?.route,
+        launch: named?.certified,
         abortController,
         model,
         effort,
@@ -262,7 +265,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     } catch (error: unknown) {
       if (named) {
         await named.dispose();
-        throw claudeLaneRefusal();
+        throw claudeLaneRefusal(claudeLaneRefusalCode(error));
       }
       throw error;
     }
@@ -284,11 +287,16 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     }
     const admission = this.deps.admission();
     if (!admission)
-      throw claudeLaneRefusal('Claude account admission is not available');
+      throw claudeLaneRefusal(
+        'release-held',
+        'Claude account admission is not available',
+      );
     const persistence = this.deps.accountPersistence?.();
     if (!persistence?.available) throw claudeLaneRefusal();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let refusalCode: ProviderAccountPortRefusal['code'] = 'release-held';
+    // The admission port's own refusal code wins; otherwise the code the
+    // failure carries (`release-held` for any foreign error).
+    let refusalCode: ProviderAccountPortRefusal['code'] | undefined;
     const pending = (async () => {
       const lookup = input.resumeSessionId
         ? await persistence.lookupBySdkSession({
@@ -336,6 +344,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       }
       const named = new ClaudeNamedLaneAdmission(
         result.resources.route,
+        result.resources.launch,
         result.reservation,
         admission,
         persistence,
@@ -367,8 +376,8 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           }, 15_000);
         }),
       ]);
-    } catch {
-      throw Object.assign(claudeLaneRefusal(), { code: refusalCode });
+    } catch (error: unknown) {
+      throw claudeLaneRefusal(refusalCode ?? claudeLaneRefusalCode(error));
     } finally {
       clearTimeout(timer);
     }

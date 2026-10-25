@@ -1,5 +1,11 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { createNamedAccountPromptGate } from '@ptah-extension/agent-sdk';
+import { randomUUID } from 'node:crypto';
+import {
+  CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
+  claudeIdentityReference,
+  createNamedAccountPromptGate,
+} from '@ptah-extension/agent-sdk';
 import type {
   SDKUserMessage,
   SessionMetadata,
@@ -11,8 +17,13 @@ import type {
 import type {
   ClaudeAccountNamedRoute,
   ClaudeAccountRunReservation,
+  ClaudeCertifiedLaunchContext,
+  ClaudeLaunchBoundary,
+  ClaudeLaunchBoundaryOutcome,
   ProviderAccountAdmissionPort,
+  ProviderAccountPortRefusal,
 } from '@ptah-extension/auth-providers-tokens';
+import { claudeActualLaunch } from './claude-sdk-lane-options';
 import type {
   LaneAccountBindingPort,
   LaneAccountReference,
@@ -237,7 +248,10 @@ export class ClaudeSdkLaneRunner {
 }
 
 /** Host-owned adapter to the same registry/SDK-attachment/metadata ports as main chat.
- * This stays absent/held until host certification; it never trusts caller paths.
+ * A host binds it only together with route certification
+ * (`ClaudeNamedAccountPersistence`); a host without it binds read-only
+ * bindings whose writes refuse `unavailable-storage`. It never trusts caller
+ * paths.
  */
 export interface ClaudeLaneAccountPersistence extends LaneAccountBindingPort {
   readonly available: boolean;
@@ -263,15 +277,76 @@ export interface ClaudeLaneAccountPersistence extends LaneAccountBindingPort {
     binding: ProviderAccountBinding,
   ): Promise<void>;
   assertRouteCurrent(route: ClaudeAccountNamedRoute): Promise<void>;
+  /**
+   * Revalidates the route and re-checks the certified launch's policy sources
+   * right before one SDK child starts. `terminated` reports whether every
+   * child the check started was proved closed.
+   */
+  checkLaunchBoundary(
+    route: ClaudeAccountNamedRoute,
+    launch: ClaudeCertifiedLaunchContext,
+    boundary: ClaudeLaunchBoundary,
+    signal: AbortSignal,
+  ): Promise<ClaudeLaunchBoundaryOutcome>;
   onAuthEpochChanged(
     listener: (route: ClaudeAccountNamedRoute) => void,
   ): () => void;
 }
 
+export type ClaudeLaneRefusalCode = ProviderAccountPortRefusal['code'];
+
+/** Fixed, path-free lane refusal: a result code and a fixed message. */
+class ClaudeLaneRefusal extends Error {
+  constructor(
+    readonly code: ClaudeLaneRefusalCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ClaudeLaneRefusal';
+  }
+}
+
+/** `message` must be a fixed string: never a path, an account value or CLI text. */
 export function claudeLaneRefusal(
+  code: ClaudeLaneRefusalCode = 'release-held',
   message = 'Claude account admission prompt gate is not available',
-): Error & { code: 'release-held' } {
-  return Object.assign(new Error(message), { code: 'release-held' as const });
+): Error & { code: ClaudeLaneRefusalCode } {
+  return new ClaudeLaneRefusal(code, message);
+}
+
+/**
+ * The refusal code an error carries: a lane refusal's or a certified-launch
+ * refusal's own code. Any other error (a store, SDK or callback failure) is
+ * `release-held`, so no foreign error field reaches a caller.
+ */
+export function claudeLaneRefusalCode(error: unknown): ClaudeLaneRefusalCode {
+  if (
+    error instanceof ClaudeLaneRefusal ||
+    error instanceof ClaudeCertifiedLaunchRefusal
+  )
+    return error.code;
+  return 'release-held';
+}
+
+/**
+ * Post-init tripwire: the running child must use a personal claude.ai login.
+ * Any other token source, any API key source, a non-first-party provider or a
+ * subscription word outside the personal list (unknown words included) fails.
+ */
+function personalClaudeLogin(info: {
+  tokenSource?: string;
+  apiKeySource?: string;
+  subscriptionType?: string;
+  apiProvider?: string;
+}): boolean {
+  const personal: readonly string[] = CLAUDE_PERSONAL_SUBSCRIPTIONS;
+  return (
+    info.tokenSource === 'claude.ai' &&
+    info.apiKeySource === undefined &&
+    (info.apiProvider === undefined || info.apiProvider === 'firstParty') &&
+    info.subscriptionType !== undefined &&
+    personal.includes(info.subscriptionType)
+  );
 }
 
 /** Two independent empty gates; only the final query can receive conversation. */
@@ -292,12 +367,19 @@ export class ClaudeNamedLaneAdmission {
   private stopEpoch?: () => void;
   private released = false;
   private disposed = false;
+  /**
+   * True while a boundary check is pending or after one refused without
+   * proving its own children closed. Settlement then retains the reservation.
+   */
+  private boundaryUnproved = false;
   private readonly onAbort = (): void => {
     void this.dispose();
   };
 
   constructor(
     route: ClaudeAccountNamedRoute,
+    /** Certified launch from admission; absent refuses `identity-unproved`. */
+    readonly certified: ClaudeCertifiedLaunchContext | undefined,
     private readonly reservation: ClaudeAccountRunReservation,
     private readonly admission: ProviderAccountAdmissionPort,
     private readonly persistence: ClaudeLaneAccountPersistence,
@@ -395,23 +477,60 @@ export class ClaudeNamedLaneAdmission {
     return child;
   }
 
+  private certifiedLaunch(): ClaudeCertifiedLaunchContext {
+    if (!this.certified) throw claudeLaneRefusal('identity-unproved');
+    return this.certified;
+  }
+
+  /**
+   * Both checks that must pass right before one SDK child starts: the actual
+   * options against the certified launch (no I/O), then the host boundary
+   * check (route revalidation and policy re-scan). Throws a lane refusal
+   * with the real code; `queryFn` is never reached on a refusal.
+   */
+  private async checkBoundary(
+    options: Options,
+    boundary: ClaudeLaunchBoundary,
+  ): Promise<void> {
+    this.assertOpen();
+    const launch = this.certifiedLaunch();
+    try {
+      assertCertifiedLaunch(launch, claudeActualLaunch(options), boundary);
+    } catch (error: unknown) {
+      throw claudeLaneRefusal(claudeLaneRefusalCode(error));
+    }
+    // Pending until an outcome proves the check's children closed: an abort
+    // or deadline during the check settles by retaining the reservation.
+    this.boundaryUnproved = true;
+    const outcome = await this.wait(
+      this.persistence.checkLaunchBoundary(
+        this.route,
+        launch,
+        boundary,
+        this.abort.signal,
+      ),
+    );
+    if (outcome.ok) {
+      this.boundaryUnproved = false;
+      return;
+    }
+    this.boundaryUnproved = !outcome.terminated;
+    throw claudeLaneRefusal(outcome.code);
+  }
+
   private async readIdentity(): Promise<ProviderAccountIdentityEvidence> {
     this.assertOpen();
     if (!this.child) throw claudeLaneRefusal();
+    const launch = this.certifiedLaunch();
     await this.wait(this.persistence.assertRouteCurrent(this.route));
     const info = await this.wait(this.child.query.accountInfo());
-    const email = info.email?.trim();
-    return email
-      ? {
-          kind: 'known',
-          ownerKey: createHash('sha256')
-            .update(
-              `ptah-quota-owner\0${email}\0${info.organization?.trim() ?? ''}`,
-              'utf8',
-            )
-            .digest('hex'),
-        }
-      : { kind: 'unknown' };
+    if (!personalClaudeLogin(info)) throw claudeLaneRefusal('identity-unproved');
+    const reference = claudeIdentityReference(info.email, info.organization);
+    if (!reference) return { kind: 'unknown' };
+    // The running child must be the account the launch was certified for.
+    if (reference !== launch.identityReference)
+      throw claudeLaneRefusal('identity-unproved');
+    return { kind: 'known', ownerKey: reference };
   }
 
   private sameIdentity(identity: ProviderAccountIdentityEvidence): boolean {
@@ -439,19 +558,21 @@ export class ClaudeNamedLaneAdmission {
       this.stopEpoch = undefined;
       throw claudeLaneRefusal();
     }
+    await this.checkBoundary(options, 'bootstrap');
     const gate = createNamedAccountPromptGate(this.abort.signal);
     this.gates.push(gate);
     const child = this.open(queryFn, gate.prompt, options);
     this.identity = await this.readIdentity();
     // Refuse an unproved identity before any binding is committed or any
     // prompt is sent, including on a fresh lane with no stored binding.
-    if (this.identity.kind !== 'known') throw claudeLaneRefusal();
+    if (this.identity.kind !== 'known')
+      throw claudeLaneRefusal('identity-unproved');
     if (
       this.stored &&
       (this.stored.identity.kind !== 'known' ||
         !this.sameIdentity(this.stored.identity))
     )
-      throw claudeLaneRefusal();
+      throw claudeLaneRefusal('identity-unproved');
     gate.close();
     child.close();
     await this.wait(child.terminated);
@@ -469,9 +590,9 @@ export class ClaudeNamedLaneAdmission {
         this.assertOpen();
         initial = false;
         yield message;
-      } catch {
+      } catch (error: unknown) {
         await this.dispose();
-        throw claudeLaneRefusal();
+        throw claudeLaneRefusal(claudeLaneRefusalCode(error));
       }
     }
   }
@@ -485,6 +606,7 @@ export class ClaudeNamedLaneAdmission {
       sdkSessionId: string,
     ) => Promise<void>,
   ): Promise<void> {
+    await this.checkBoundary(options, 'final');
     const gate = createNamedAccountPromptGate(this.abort.signal);
     this.gates.push(gate);
     const prompt: AsyncIterable<SDKUserMessage> = {
@@ -505,15 +627,20 @@ export class ClaudeNamedLaneAdmission {
             }),
     });
     if (!this.sameIdentity(await this.readIdentity()))
-      throw claudeLaneRefusal();
+      throw claudeLaneRefusal('identity-unproved');
+    const version = this.certifiedLaunch().executable.version;
     const buffered: Awaited<ReturnType<typeof child.query.next>>[] = [];
     let sessionId: string | undefined;
     while (!sessionId) {
       const next = await this.wait(child.query.next());
       if (next.done || buffered.length >= 64) throw claudeLaneRefusal();
       buffered.push(next);
-      if (next.value.type === 'system' && next.value.subtype === 'init')
+      if (next.value.type === 'system' && next.value.subtype === 'init') {
+        // The running CLI must be the certified version, before any task text.
+        if (next.value.claude_code_version !== version)
+          throw claudeLaneRefusal('identity-unproved');
         sessionId = next.value.session_id;
+      }
     }
     if (options.resume && options.resume !== sessionId)
       throw claudeLaneRefusal();
@@ -614,9 +741,9 @@ export class ClaudeNamedLaneAdmission {
         !gate.commit()
       )
         throw claudeLaneRefusal();
-    } catch {
+    } catch (error: unknown) {
       await this.dispose();
-      throw claudeLaneRefusal();
+      throw claudeLaneRefusal(claudeLaneRefusalCode(error));
     }
   }
 
@@ -630,7 +757,7 @@ export class ClaudeNamedLaneAdmission {
     this.settlement = Promise.resolve()
       .then(async () => {
         const result =
-          !this.child || this.child.exited
+          !this.boundaryUnproved && (!this.child || this.child.exited)
             ? await this.admission.releaseReservation({
                 ...command,
                 reason: 'child-closed',

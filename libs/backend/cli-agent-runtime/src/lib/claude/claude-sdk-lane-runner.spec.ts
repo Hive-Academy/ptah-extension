@@ -4,29 +4,75 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   ClaudeAccountNamedRoute,
   ClaudeAccountRunReservation,
+  ClaudeCertifiedLaunchContext,
+  ClaudeLaunchBoundaryOutcome,
   ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import {
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
   buildFlagSettingsArg,
   buildSafeEnv,
   buildSessionName,
+  certifiedEnvDigest,
+  claudeIdentityReference,
   deriveWorkspaceLabel,
   type Options,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
+  buildClaudeLaneBootstrapOptions,
   buildClaudeSdkLaneOptions,
+  claudeActualLaunch,
   resolveClaudeLanePermissionOptions,
   type ClaudeSdkLaneOptionsInput,
 } from './claude-sdk-lane-options';
 import {
   ClaudeNamedLaneAdmission,
   ClaudeSdkLaneRunner,
+  claudeLaneRefusal,
+  claudeLaneRefusalCode,
   type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunContext,
 } from './claude-sdk-lane-runner';
+
+/** Certified launch fixture for one canonical directory; values are fixtures only. */
+function certifiedLaunch(
+  dir = 'D:/accounts/selected',
+  overrides: Partial<ClaudeCertifiedLaunchContext> = {},
+): ClaudeCertifiedLaunchContext {
+  const env = {
+    PATH: 'D:/bin',
+    CLAUDE_CONFIG_DIR: dir,
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: dir,
+  };
+  return {
+    executable: {
+      command: 'D:/cli/claude.exe',
+      prefixArgs: [],
+      sdkExecutablePath: 'D:/cli/cli.js',
+      version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 },
+    },
+    env,
+    envDigest: certifiedEnvDigest(env),
+    cwd: 'D:/workspace',
+    settingSources: ['user', 'project', 'local'],
+    policy: {
+      coverage: 'win32@2.1.310',
+      managedFile: 'absent',
+      managedDropIn: 'absent',
+      registry: 'absent',
+      remoteSignals: 'absent',
+    },
+    accountClass: 'personal',
+    identityReference:
+      claudeIdentityReference('owner@example.test', 'org') ?? '',
+    ...overrides,
+  };
+}
 import { PtahCliStreamLoop } from '../ptah-cli/helpers/ptah-cli-stream-loop.service';
 import { createPromptMailbox } from '../ptah-cli/helpers/ptah-cli-prompt-mailbox';
 
@@ -173,6 +219,7 @@ describe('Claude native lane options', () => {
       authEpoch: 1,
       runId: 'fixture-run',
     } as ClaudeAccountNamedRoute;
+    input.launch = certifiedLaunch();
     const options = buildClaudeSdkLaneOptions(input);
     expect(options.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/accounts/selected');
     expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY');
@@ -392,7 +439,7 @@ describe('Claude native lane lifecycle', () => {
 });
 
 describe('named lane option and lifecycle boundaries', () => {
-  it('pins secure storage, excludes ambient settings and redacts named child diagnostics', () => {
+  it('pins secure storage, uses the certified sources and redacts named child diagnostics', () => {
     const input = optionsInput();
     input.accountRoute = {
       kind: 'named',
@@ -404,8 +451,10 @@ describe('named lane option and lifecycle boundaries', () => {
       authEpoch: 0,
       runId: 'run',
     } as ClaudeAccountNamedRoute;
+    const launch = certifiedLaunch(undefined, { settingSources: ['project'] });
+    input.launch = launch;
     const options = buildClaudeSdkLaneOptions(input);
-    expect(options.settingSources).toEqual([]);
+    expect(options.settingSources).toEqual(['project']);
     expect(options.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(
       'D:/accounts/selected',
     );
@@ -501,14 +550,32 @@ describe('named lane identity proof', () => {
     throw new Error('Not reached during bootstrap');
   };
 
-  function bootstrapFixture(stored?: ProviderAccountBinding) {
+  // A personal claude.ai login with no email: passes the tripwire, proves no identity.
+  const personalNoEmail = {
+    tokenSource: 'claude.ai',
+    subscriptionType: 'max',
+    apiProvider: 'firstParty',
+  };
+
+  function bootstrapFixture(
+    setup: {
+      stored?: ProviderAccountBinding;
+      launch?: ClaudeCertifiedLaunchContext | null;
+      info?: Record<string, unknown>;
+      boundary?: () => Promise<ClaudeLaunchBoundaryOutcome>;
+    } = {},
+  ) {
     const route = {
       kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
       canonicalConfigDir: 'D:/accounts/selected',
       routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
     } as ClaudeAccountNamedRoute;
+    const launch = setup.launch === null ? undefined : (setup.launch ?? certifiedLaunch());
     const commitRunBinding = jest.fn(notReached);
     const assertRouteCurrent = jest.fn(async () => undefined);
+    const checkLaunchBoundary = jest.fn(
+      setup.boundary ?? (async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true })),
+    );
     const persistence: ClaudeLaneAccountPersistence = {
       available: true,
       lookupBySdkSession: notReached,
@@ -518,30 +585,40 @@ describe('named lane identity proof', () => {
       attachSdkSession: notReached,
       saveAccountBound: notReached,
       assertRouteCurrent,
+      checkLaunchBoundary,
       onAuthEpochChanged: () => () => undefined,
     };
+    // Settlement outcomes are not read beyond a warning; only the calls count.
+    const releaseReservation = jest.fn(notReached);
+    const retainUnresolvedReservation = jest.fn(notReached);
     const admissionPort: ProviderAccountAdmissionPort = {
       admitClaudeRoute: notReached,
-      releaseReservation: notReached,
-      retainUnresolvedReservation: notReached,
+      releaseReservation,
+      retainUnresolvedReservation,
     };
     const close = jest.fn();
-    // No email in the account info: the child cannot prove an identity.
-    const query = { accountInfo: async () => ({}), close: (): void => close() };
+    const query = {
+      accountInfo: async () => setup.info ?? personalNoEmail,
+      close: (): void => close(),
+    };
     const queryMock = jest.fn(() => query as ReturnType<QueryFn>);
     const queryFn: QueryFn = queryMock;
-    const options: Options = {
-      spawnClaudeCodeProcess: () => {
-        throw new Error('The fake query never spawns');
-      },
-    };
+    const options: Options = launch
+      ? buildClaudeLaneBootstrapOptions(
+          route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/cli/cli.js',
+        )
+      : { spawnClaudeCodeProcess: () => { throw new Error('never spawned'); } };
     const abort = new AbortController();
-    // A long deadline: a refusal must come from the identity check, not a timeout.
+    // A long deadline: a refusal must come from the checks, not a timeout.
     const admission = new ClaudeNamedLaneAdmission(
-      route, {} as ClaudeAccountRunReservation, admissionPort, persistence,
-      abort, { warn: jest.fn() }, stored, 60_000,
+      route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
+      abort, { warn: jest.fn() }, setup.stored, 60_000,
     );
-    return { admission, queryFn, queryMock, options, abort, close, commitRunBinding, assertRouteCurrent };
+    return {
+      admission, route, launch, queryFn, queryMock, options, abort, close,
+      commitRunBinding, assertRouteCurrent, checkLaunchBoundary,
+      releaseReservation, retainUnresolvedReservation,
+    };
   }
 
   it.each<[string, ProviderAccountBinding | undefined]>([
@@ -552,9 +629,9 @@ describe('named lane identity proof', () => {
       identity: { kind: 'unknown' },
     } satisfies ProviderAccountBinding],
   ])('refuses an unproved identity before any binding with %s', async (_label, stored) => {
-    const f = bootstrapFixture(stored);
+    const f = bootstrapFixture({ stored });
     await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.queryMock).toHaveBeenCalledTimes(1);
     expect(f.assertRouteCurrent).toHaveBeenCalledTimes(1);
@@ -563,6 +640,150 @@ describe('named lane identity proof', () => {
     // as proved, and no deadline fired.
     expect(f.close).not.toHaveBeenCalled();
     expect(f.abort.signal.aborted).toBe(false);
+  });
+
+  it('refuses a named route without a certified launch before any SDK call', async () => {
+    const route = bootstrapFixture().route;
+    const input = optionsInput();
+    input.accountRoute = route;
+    expect(() => buildClaudeSdkLaneOptions(input)).toThrow(
+      expect.objectContaining({ code: 'identity-unproved' }),
+    );
+    expect(() =>
+      buildClaudeLaneBootstrapOptions(route, undefined, new AbortController(), { spawn: jest.fn() }),
+    ).toThrow(expect.objectContaining({ code: 'identity-unproved' }));
+    const f = bootstrapFixture({ launch: null });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.queryMock).not.toHaveBeenCalled();
+    expect(f.checkLaunchBoundary).not.toHaveBeenCalled();
+  });
+
+  it('awaits the bootstrap boundary check before the child opens', async () => {
+    let finish!: (outcome: ClaudeLaunchBoundaryOutcome) => void;
+    const f = bootstrapFixture({
+      boundary: () => new Promise((resolve) => { finish = resolve; }),
+    });
+    const bootstrap = f.admission.bootstrap(f.queryFn, f.options);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.checkLaunchBoundary).toHaveBeenCalledWith(
+      f.route, f.launch, 'bootstrap', f.abort.signal,
+    );
+    expect(f.queryMock).not.toHaveBeenCalled();
+    finish({ ok: true });
+    await expect(bootstrap).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a bootstrap boundary refusal with its code and no query (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = bootstrapFixture({
+        boundary: async () => ({ ok: false, code: 'unsupported-source', terminated }),
+      });
+      await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      expect(f.queryMock).not.toHaveBeenCalled();
+      await f.admission.dispose();
+      await f.admission.dispose();
+      expect(f[settled]).toHaveBeenCalledTimes(1);
+      expect(f[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<[string, (options: Options) => Options, string]>([
+    ['cwd', (o) => ({ ...o, cwd: 'D:/elsewhere' }), 'route-changed'],
+    ['executable', (o) => ({ ...o, pathToClaudeCodeExecutable: 'D:/other/cli.js' }), 'route-changed'],
+    ['setting sources', (o) => ({ ...o, settingSources: ['user'] }), 'route-changed'],
+    ['env entry', (o) => ({ ...o, env: { ...o.env, ANTHROPIC_API_KEY: 'x' } }), 'route-changed'],
+    ['managed settings', (o) => ({ ...o, managedSettings: {} }), 'identity-unproved'],
+    ['managed-settings arg', (o) => ({ ...o, extraArgs: { '--managed-settings=x': null } }), 'identity-unproved'],
+  ])('refuses %s drift at bootstrap before the boundary check and the child', async (_label, drift, code) => {
+    const f = bootstrapFixture();
+    await expect(f.admission.bootstrap(f.queryFn, drift(f.options))).rejects.toMatchObject({ code });
+    expect(f.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.queryMock).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['a console token source', { ...personalNoEmail, tokenSource: 'console' }],
+    ['an apiKeyHelper key source', { ...personalNoEmail, apiKeySource: 'apiKeyHelper' }],
+    ['a team subscription', { ...personalNoEmail, subscriptionType: 'team' }],
+    ['an unknown subscription word', { ...personalNoEmail, subscriptionType: 'future' }],
+    ['no subscription', { tokenSource: 'claude.ai' }],
+    ['a third-party provider', { ...personalNoEmail, apiProvider: 'bedrock' }],
+  ])('trips on %s before any binding or prompt', async (_label, info) => {
+    const f = bootstrapFixture({
+      info: { ...info, email: 'owner@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+  });
+
+  it('refuses a child signed in to an account other than the certified one', async () => {
+    const f = bootstrapFixture({
+      info: { ...personalNoEmail, email: 'other@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+  });
+});
+
+describe('named lane certified final options and refusal codes', () => {
+  const route = {
+    kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+  } as ClaudeAccountNamedRoute;
+
+  it('uses the certified cwd and sources and carries no managed settings channel', () => {
+    const launch = certifiedLaunch(undefined, { cwd: 'D:/certified-workspace' });
+    const input = optionsInput();
+    input.accountRoute = route;
+    input.launch = launch;
+    const options = buildClaudeSdkLaneOptions(input);
+    expect(options.cwd).toBe('D:/certified-workspace');
+    expect(options.settingSources).toEqual(launch.settingSources);
+    expect(options.env).toEqual(launch.env);
+    expect(options).not.toHaveProperty('managedSettings');
+    expect(
+      Object.keys(options.extraArgs ?? {}).some((key) => key.includes('managed-settings')),
+    ).toBe(false);
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final')).not.toThrow();
+  });
+
+  it('builds a bootstrap that passes the bootstrap check and nothing else', () => {
+    const launch = certifiedLaunch();
+    const options = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/cli/cli.js',
+    );
+    expect(options.settingSources).toEqual([]);
+    expect(options).not.toHaveProperty('managedSettings');
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final')).toThrow();
+    expect(() =>
+      buildClaudeLaneBootstrapOptions(route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/other/cli.js'),
+    ).toThrow(expect.objectContaining({ code: 'route-changed' }));
+  });
+
+  it('keeps the real refusal code and maps foreign errors to release-held', () => {
+    expect(claudeLaneRefusal('unsupported-source').code).toBe('unsupported-source');
+    expect(claudeLaneRefusal().code).toBe('release-held');
+    expect(claudeLaneRefusalCode(claudeLaneRefusal('route-changed'))).toBe('route-changed');
+    expect(claudeLaneRefusalCode(new ClaudeCertifiedLaunchRefusal('identity-unproved'))).toBe(
+      'identity-unproved',
+    );
+    expect(claudeLaneRefusalCode(Object.assign(new Error('x'), { code: 'busy' }))).toBe(
+      'release-held',
+    );
   });
 });
 
@@ -585,6 +806,7 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
       routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
     } as ClaudeAccountNamedRoute;
     input.accountRoute = route;
+    input.launch = certifiedLaunch(route.canonicalConfigDir);
     const named = buildClaudeSdkLaneOptions(input);
     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
     expect(named.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
@@ -603,7 +825,7 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
     }
     const other = buildClaudeSdkLaneOptions({ ...input, accountRoute: {
       ...route, profileId: 'other', runId: 'other-run', canonicalConfigDir: 'D:/other-account',
-    } as ClaudeAccountNamedRoute });
+    } as ClaudeAccountNamedRoute, launch: certifiedLaunch('D:/other-account') });
     expect(other.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/other-account');
     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
   });

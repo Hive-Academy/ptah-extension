@@ -10,10 +10,14 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import type {
   ClaudeAccountAdmissionRequest,
+  ClaudeCertifiedLaunchContext,
+  ClaudeLaunchBoundaryOutcome,
   ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import {
   buildSafeEnv,
+  certifiedEnvDigest,
+  claudeIdentityReference,
   unverifiedCapabilityPolicy,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
@@ -418,8 +422,49 @@ describe('ClaudeCliAdapter native SDK execution', () => {
   });
 });
 
+// A personal claude.ai login: passes the post-init tripwire.
+const personalLogin = {
+  tokenSource: 'claude.ai',
+  subscriptionType: 'max',
+  apiProvider: 'firstParty',
+};
+
+/** Certified launch matching the fixture route, executable and workspace. */
+function certifiedLaunch(): ClaudeCertifiedLaunchContext {
+  const env = {
+    PATH: 'D:/bin',
+    CLAUDE_CONFIG_DIR: 'D:/accounts/selected',
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: 'D:/accounts/selected',
+  };
+  return {
+    executable: {
+      command: 'D:/cli/claude.exe',
+      prefixArgs: [],
+      sdkExecutablePath: '/claude/cli.js',
+      version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 },
+    },
+    env,
+    envDigest: certifiedEnvDigest(env),
+    cwd: '/workspace',
+    settingSources: ['user', 'project', 'local'],
+    policy: {
+      coverage: 'win32@2.1.310',
+      managedFile: 'absent',
+      managedDropIn: 'absent',
+      registry: 'absent',
+      remoteSignals: 'absent',
+    },
+    accountClass: 'personal',
+    identityReference:
+      claudeIdentityReference('owner@example.test', 'org') ?? '',
+  };
+}
+
 function namedFixture() {
   const f = fixture();
+  const launch = certifiedLaunch();
+  const initVersion = { value: launch.executable.version };
   const route = {
     kind: 'named',
     provider: 'claude',
@@ -465,6 +510,7 @@ function namedFixture() {
         route,
         accountDataDir: 'D:/accounts/data',
         filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+        launch: launch as ClaudeCertifiedLaunchContext | undefined,
       },
       reservation,
     })),
@@ -495,6 +541,9 @@ function namedFixture() {
     >(async () => ({ status: 'attached' })),
     saveAccountBound: jest.fn(async () => undefined),
     assertRouteCurrent: jest.fn(async () => undefined),
+    checkLaunchBoundary: jest.fn(
+      async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true }),
+    ),
     onAuthEpochChanged: jest.fn(
       (listener: (route: ClaudeAccountNamedRoute) => void) => {
         epoch = listener;
@@ -543,7 +592,8 @@ function namedFixture() {
       signal: new AbortController().signal,
     });
     const process = processes[processes.length - 1];
-    const accountInfo = jest.fn(async () => ({
+    const accountInfo = jest.fn(async (): Promise<Record<string, unknown>> => ({
+      ...personalLogin,
       email: 'owner@example.test',
       organization: 'org',
     }));
@@ -553,6 +603,7 @@ function namedFixture() {
         type: 'system',
         subtype: 'init',
         session_id: 'sdk-session',
+        claude_code_version: initVersion.value,
       } as import('@ptah-extension/agent-sdk').SDKMessage;
     })();
     const query = Object.assign(stream, {
@@ -578,6 +629,8 @@ function namedFixture() {
     children,
     unsubscribe,
     epoch: () => epoch?.({ ...route, authEpoch: 1 }),
+    launch,
+    initVersion,
   };
 }
 
@@ -703,11 +756,12 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.callbacks.mockImplementation(async () => {
       f.children[1].accountInfo.mockResolvedValue({
+        ...personalLogin,
         email: 'other@example.test',
       });
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -743,11 +797,12 @@ describe('named Claude lane admission', () => {
     );
     await handle.continue?.('queued');
     f.children[1].accountInfo.mockResolvedValue({
-      email: 'other@example.test',
+      ...personalLogin,
+        email: 'other@example.test',
     });
     await expect(
       f.children[1].prompt[Symbol.asyncIterator]().next(),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     await expect(handle.done).resolves.toBe(1);
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
@@ -835,12 +890,13 @@ describe('named Claude failure and isolation regressions', () => {
       const query = invoke(args);
       if (f.children.length === 2)
         f.children[1].accountInfo.mockResolvedValue({
-          email: 'other@example.test',
+          ...personalLogin,
+        email: 'other@example.test',
         });
       return query;
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
     expect(f.callbacks).not.toHaveBeenCalled();
@@ -902,5 +958,216 @@ describe('named Claude failure and isolation regressions', () => {
     ).toMatchObject({ message: { content: f.input.task } });
     second.abort.abort();
     await second.done;
+  });
+});
+
+describe('named Claude lane certified launch boundaries', () => {
+  function admitted(
+    f: ReturnType<typeof namedFixture>,
+    launch: ClaudeCertifiedLaunchContext | undefined,
+  ) {
+    return {
+      code: 'ok' as const,
+      resources: {
+        kind: 'named' as const,
+        route: f.route,
+        accountDataDir: 'D:/accounts/data',
+        filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+        launch,
+      },
+      reservation: {
+        kind: 'run' as const,
+        phase: 'reserved' as const,
+        provider: 'claude' as const,
+        routeKind: 'named' as const,
+        routeFingerprint: f.route.routeFingerprint,
+        routeRevision: 0,
+        authEpoch: 0,
+        runId: 'run',
+        operationId: 'operation',
+        reservationId: 'reservation',
+      },
+    };
+  }
+
+  it('refuses a named lane without a certified launch before any SDK call', async () => {
+    const f = namedFixture();
+    f.admission.admitClaudeRoute.mockResolvedValueOnce(admitted(f, undefined));
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('awaits both boundary checks, each before its own child opens', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk(f.input);
+    const check = f.persistence.checkLaunchBoundary;
+    expect(check.mock.calls.map((call) => (call as unknown[])[2])).toEqual([
+      'bootstrap',
+      'final',
+    ]);
+    expect(check.mock.invocationCallOrder[0]).toBeLessThan(
+      f.query.mock.invocationCallOrder[0],
+    );
+    expect(check.mock.invocationCallOrder[1]).toBeGreaterThan(
+      f.query.mock.invocationCallOrder[0],
+    );
+    expect(check.mock.invocationCallOrder[1]).toBeLessThan(
+      f.query.mock.invocationCallOrder[1],
+    );
+    const final = f.query.mock.calls[1][0].options;
+    expect(final?.cwd).toBe(f.launch.cwd);
+    expect(final?.settingSources).toEqual(f.launch.settingSources);
+    expect(final?.env).toEqual(f.launch.env);
+    expect(final).not.toHaveProperty('managedSettings');
+    expect(Object.keys(final?.extraArgs ?? {})).not.toContain(
+      'managed-settings',
+    );
+    f.finish(0);
+    await handle.done;
+  });
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a bootstrap boundary refusal before any child (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = namedFixture();
+      f.persistence.checkLaunchBoundary.mockResolvedValueOnce({
+        ok: false,
+        code: 'unsupported-source',
+        terminated,
+      });
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      expect(f.query).not.toHaveBeenCalled();
+      expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
+      expect(f.admission[settled]).toHaveBeenCalledTimes(1);
+      expect(f.admission[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a source that appears between bootstrap and final with no task text (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = namedFixture();
+      f.persistence.checkLaunchBoundary
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({
+          ok: false,
+          code: 'unsupported-source',
+          terminated,
+        });
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      // Only the bootstrap child opened, and it closed with an exit proof.
+      expect(f.query).toHaveBeenCalledTimes(1);
+      expect(f.children[0].close).toHaveBeenCalledTimes(1);
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.callbacks).not.toHaveBeenCalled();
+      expect(f.run).not.toHaveBeenCalled();
+      expect(f.admission[settled]).toHaveBeenCalledTimes(1);
+      expect(f.admission[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses an executable that drifted from the certified one before any child', async () => {
+    const f = namedFixture();
+    f.loader.getCliJsPath.mockResolvedValue('/other/cli.js');
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'route-changed',
+    });
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+  });
+
+  it('refuses a final child of another CLI version before binding or task text', async () => {
+    const f = namedFixture();
+    f.initVersion.value = '2.1.311';
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['a non-claude.ai token source', { tokenSource: 'console' }],
+    ['an apiKeyHelper key source', { apiKeySource: 'apiKeyHelper' }],
+    ['a team subscription', { subscriptionType: 'team' }],
+  ])('trips on %s in the final child before the gate', async (_label, change) => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      if (f.children.length === 2)
+        f.children[1].accountInfo.mockResolvedValue({
+          ...personalLogin,
+          email: 'owner@example.test',
+          organization: 'org',
+          ...change,
+        });
+      return query;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it('settles once when cancelled during commitRunBinding, even if the commit lands late', async () => {
+    const f = namedFixture();
+    let land!: () => void;
+    f.persistence.commitRunBinding.mockImplementation(async () => {
+      f.epoch();
+      await new Promise<void>((resolve) => {
+        land = resolve;
+      });
+      return f.binding;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    land();
+    await new Promise((resolve) => setImmediate(resolve));
+    const settlements =
+      f.admission.releaseReservation.mock.calls.length +
+      f.admission.retainUnresolvedReservation.mock.calls.length;
+    expect(settlements).toBe(1);
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.callbacks).not.toHaveBeenCalled();
+  });
+
+  it('resumes a bound lane on the stored run without a second binding', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk({
+      ...f.input,
+      resumeSessionId: 'sdk-session',
+    });
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run',
+        selection: { kind: 'named', profileId: 'profile' },
+      }),
+    );
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(handle.accountBinding).toEqual(f.binding);
+    f.finish(0);
+    await handle.done;
   });
 });
