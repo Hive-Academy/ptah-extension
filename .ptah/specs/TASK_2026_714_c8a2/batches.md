@@ -764,7 +764,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Team-leader then runs host typecheck once for the phase:
   `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
 
-## Batch 5b: Usage service home API delegates to the core client (was 3b.1) — COMPLETE (verified; fix round 1 for invalid homes)
+## Batch 5b: Usage service home API delegates to the core client (was 3b.1) — COMPLETE (5a7e8f989)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
   Review family: Claude | Subagent reason: N/A
@@ -817,7 +817,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   (header names 2 projects). Known noise: translation-proxy.sdk.integration.spec.ts EPERM on
   Windows; 3 pre-existing auth-providers lint errors.
 
-## Batch 5c: resolveExecutionProfile seam, same-home owner resolution, exports — IN_PROGRESS
+## Batch 5c: resolveExecutionProfile seam, same-home owner resolution, exports — COMPLETE (verified; commit below)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential (one lane) |
   Review family: Claude | Subagent reason: N/A
@@ -825,7 +825,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Rationale: three auth-providers seams in one project, 5 files; needs 5a types and 5b interfaces
 - Tasks: 2 | Depends on: 5a, 5b | Phase: P5 (last batch -> phase review)
 
-### Task 5c.1: resolveExecutionProfile — IN_PROGRESS
+### Task 5c.1: resolveExecutionProfile — COMPLETE
 
 - Files: MODIFY W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts
   and `workspace-provider-profile-resolver.spec.ts` (same dir)
@@ -846,7 +846,7 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   openai-codex; codex identity on a non-native host throws; each mismatch throws; claude identity
   stays legacy even when native is available; legacy result equals the existing method's.
 
-### Task 5c.2: Same-home owner resolution and public exports — IN_PROGRESS
+### Task 5c.2: Same-home owner resolution and public exports — COMPLETE
 
 - Files: MODIFY W/libs/backend/auth-providers/src/lib/quota/provider-owner.resolver.ts and
   `provider-owner.resolver.spec.ts` (same dir), W/libs/backend/auth-providers/src/index.ts

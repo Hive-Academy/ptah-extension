@@ -26,6 +26,9 @@
  */
 
 import 'reflect-metadata';
+import { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
+import type { SessionRuntimeIdentity } from '@ptah-extension/shared';
 
 import {
   createMockConfigManager,
@@ -81,6 +84,7 @@ interface Harness {
   /** The process-global auth env. Nothing here may write it. */
   globalAuthEnv: AuthEnv;
   acquire: jest.Mock;
+  configureAuthentication: jest.Mock;
   /** Mutable: what the shared AuthEnv is configured for. */
   shared: { auth: ActiveAuth | null };
 }
@@ -134,7 +138,9 @@ function createHarness(opts: {
   }));
   const proxyPool = { acquire } as unknown as ProviderProxyPool;
   const shared = { auth: opts.sharedAuth ?? null };
+  const configureAuthentication = jest.fn();
   const authManager = {
+    configureAuthentication,
     getConfiguredAuth: () => shared.auth,
   } as unknown as AuthManager;
 
@@ -147,9 +153,10 @@ function createHarness(opts: {
     activeProviderResolver,
     authManager,
     proxyPool,
+    new CodexHomeResolver('synthetic-codex-home'),
   );
 
-  return { resolver, globalAuthEnv, acquire, shared };
+  return { resolver, globalAuthEnv, acquire, shared, configureAuthentication };
 }
 
 // ---------------------------------------------------------------------------
@@ -668,5 +675,145 @@ describe('WorkspaceProviderProfileResolver — direct Anthropic', () => {
     );
 
     expect(profile?.model).toBe('default');
+  });
+});
+
+describe('resolveExecutionProfile', () => {
+  const input = {
+    workspacePath: WORKSPACE,
+    requestedModel: 'gpt-5-codex',
+    hostCapabilities: { nativeCodex: true },
+    consumer: 'chat' as const,
+  };
+  const home = new CodexHomeResolver('synthetic-codex-home').path;
+  const identity: SessionRuntimeIdentity = {
+    version: 1,
+    sessionId: 'native-session' as SessionRuntimeIdentity['sessionId'],
+    runtime: 'codex-app-server',
+    providerId: 'openai-codex',
+    workspaceId: WORKSPACE,
+    codex: { normalizedHome: normalizeCodexHomeKey(home, process.platform) },
+  };
+  function nativeHarness(providerId = 'openai-codex') {
+    return createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: providerId,
+      },
+    });
+  }
+
+  it.each(['chat', 'gateway', 'lane'] as const)(
+    'returns a credential-free %s seed without materialization',
+    async (consumer) => {
+      const h = nativeHarness();
+      const buildProfile = jest.spyOn(h.resolver, 'buildProfile' as never);
+      h.globalAuthEnv.ANTHROPIC_AUTH_TOKEN = 'global-token';
+      const before = { ...h.globalAuthEnv };
+      const processBefore = { ...process.env };
+      await expect(
+        h.resolver.resolveExecutionProfile({ ...input, consumer }),
+      ).resolves.toEqual({
+        runtime: 'codex-app-server',
+        seed: {
+          providerId: 'openai-codex',
+          consumer,
+          workspacePath: WORKSPACE,
+          home,
+          normalizedHome: identity.codex?.normalizedHome,
+          model: input.requestedModel,
+          existingIdentity: undefined,
+        },
+      });
+      expect(buildProfile).not.toHaveBeenCalled();
+      expect(h.acquire).not.toHaveBeenCalled();
+      expect(h.configureAuthentication).not.toHaveBeenCalled();
+      expect(h.globalAuthEnv).toEqual(before);
+      expect(process.env).toEqual(processBefore);
+    },
+  );
+
+  it('preserves a matching native identity', async () => {
+    const { resolver } = nativeHarness();
+    const result = await resolver.resolveExecutionProfile({
+      ...input,
+      existingIdentity: identity,
+    });
+    expect(result.runtime).toBe('codex-app-server');
+    if (result.runtime === 'codex-app-server')
+      expect(result.seed.existingIdentity).toBe(identity);
+  });
+
+  it('refuses a native identity on a non-native host without falling back', async () => {
+    const h = nativeHarness();
+    const legacy = jest.spyOn(h.resolver, 'resolveProviderProfileForWorkspace');
+    await expect(
+      h.resolver.resolveExecutionProfile({
+        ...input,
+        existingIdentity: identity,
+        hostCapabilities: { nativeCodex: false },
+      }),
+    ).rejects.toBeInstanceOf(AuthRequiredError);
+    expect(legacy).not.toHaveBeenCalled();
+    expect(h.acquire).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['providerId', { ...identity, providerId: 'other' }],
+    ['workspaceId', { ...identity, workspaceId: 'other-workspace' }],
+    [
+      'normalizedHome',
+      { ...identity, codex: { normalizedHome: 'other-home' } },
+    ],
+  ] as const)(
+    'refuses a %s mismatch before materialization',
+    async (field, existingIdentity) => {
+      const h = nativeHarness();
+      const buildProfile = jest.spyOn(h.resolver, 'buildProfile' as never);
+      await expect(
+        h.resolver.resolveExecutionProfile({ ...input, existingIdentity }),
+      ).rejects.toThrow(field);
+      expect(buildProfile).not.toHaveBeenCalled();
+      expect(h.acquire).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { hostCapabilities: { nativeCodex: false } },
+    {
+      existingIdentity: {
+        version: 1,
+        sessionId: identity.sessionId,
+        runtime: 'claude-sdk',
+        providerId: 'openai-codex',
+        workspaceId: WORKSPACE,
+      } as SessionRuntimeIdentity,
+    },
+  ])(
+    'returns the unchanged legacy profile when native selection is disabled',
+    async (overrides) => {
+      const { resolver } = nativeHarness();
+      const profile = await resolver.resolveProviderProfileForWorkspace(
+        WORKSPACE,
+        input.requestedModel,
+      );
+      const legacy = jest
+        .spyOn(resolver, 'resolveProviderProfileForWorkspace')
+        .mockResolvedValue(profile);
+      await expect(
+        resolver.resolveExecutionProfile({ ...input, ...overrides }),
+      ).resolves.toEqual({
+        runtime: 'claude-sdk',
+        providerProfile: profile,
+      });
+      expect(legacy).toHaveBeenCalledWith(WORKSPACE, input.requestedModel);
+    },
+  );
+
+  it('keeps other providers on the legacy path and preserves its refusal', async () => {
+    const { resolver } = nativeHarness('missing-provider');
+    await expect(
+      resolver.resolveExecutionProfile(input),
+    ).rejects.toBeInstanceOf(AuthRequiredError);
   });
 });

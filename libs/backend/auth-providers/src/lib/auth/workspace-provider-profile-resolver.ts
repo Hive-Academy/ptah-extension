@@ -40,6 +40,11 @@ import {
 import {
   type AuthEnv,
   type ProviderProfile,
+  type SessionRuntimeIdentity,
+  type RuntimeHostCapabilities,
+  type RuntimeConsumer,
+  type CodexProfileSeed,
+  sessionRuntimeIdentityMismatch,
   type AnthropicProvider,
   type ProviderModelTier,
   createEmptyAuthEnv,
@@ -54,6 +59,8 @@ import {
   buildStaticTierCapabilityEnv,
 } from '@ptah-extension/agent-sdk';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
+import type { CodexHomeResolver } from '../providers/codex/codex-home-resolver';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
 import {
@@ -107,7 +114,82 @@ export class WorkspaceProviderProfileResolver {
     private readonly authManager: AuthManager,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_PROXY_POOL)
     private readonly proxyPool: ProviderProxyPool,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_RESOLVER)
+    private readonly codexHome: CodexHomeResolver,
   ) {}
+
+  /** Select a runtime before materializing credentials or starting a proxy. */
+  async resolveExecutionProfile(input: {
+    workspacePath: string;
+    requestedModel: string;
+    existingIdentity?: SessionRuntimeIdentity;
+    hostCapabilities: RuntimeHostCapabilities;
+    consumer: RuntimeConsumer;
+  }): Promise<
+    | { runtime: 'claude-sdk'; providerProfile: ProviderProfile | undefined }
+    | { runtime: 'codex-app-server'; seed: CodexProfileSeed }
+  > {
+    const {
+      workspacePath,
+      requestedModel,
+      existingIdentity,
+      hostCapabilities,
+    } = input;
+    if (existingIdentity?.runtime !== 'claude-sdk') {
+      if (existingIdentity && !hostCapabilities.nativeCodex) {
+        throw new AuthRequiredError(
+          'This session requires a host with native Codex support.',
+        );
+      }
+      const active =
+        this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+      if (
+        existingIdentity ||
+        (active.providerId === 'openai-codex' && hostCapabilities.nativeCodex)
+      ) {
+        const home = this.codexHome.path;
+        const normalizedHome = normalizeCodexHomeKey(home, process.platform);
+        if (existingIdentity) {
+          const mismatch = sessionRuntimeIdentityMismatch(existingIdentity, {
+            ...existingIdentity,
+            providerId: active.providerId,
+            // This seam receives workspace paths, so its identity convention is the path.
+            workspaceId: workspacePath,
+            codex: { normalizedHome },
+          });
+          if (mismatch) {
+            throw new AuthRequiredError(
+              `Cannot resume native Codex session: ${mismatch} changed.`,
+            );
+          }
+        }
+        return {
+          runtime: 'codex-app-server',
+          seed: {
+            providerId: 'openai-codex',
+            consumer: input.consumer,
+            workspacePath,
+            home,
+            normalizedHome,
+            // Empty override prevents reads from the process-global auth environment.
+            model: this.resolveModel(
+              requestedModel,
+              {},
+              getAnthropicProvider('openai-codex'),
+            ),
+            existingIdentity,
+          },
+        };
+      }
+    }
+    return {
+      runtime: 'claude-sdk',
+      providerProfile: await this.resolveProviderProfileForWorkspace(
+        workspacePath,
+        requestedModel,
+      ),
+    };
+  }
 
   /**
    * Resolve the provider profile for one chat session (start, resume, slash
