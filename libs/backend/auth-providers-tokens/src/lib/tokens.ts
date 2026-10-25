@@ -58,6 +58,18 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_CURATOR_CODEX_PROXY: Symbol.for('SdkCuratorCodexProxy'),
   SDK_CURATOR_OPENROUTER_PROXY: Symbol.for('SdkCuratorOpenRouterProxy'),
   SDK_CURATOR_LM_STUDIO_PROXY: Symbol.for('SdkCuratorLmStudioProxy'),
+
+  /**
+   * Claude route admission and run-reservation lifecycle.
+   * Identifies `ProviderAccountAdmissionPort`. Does not register or resolve it.
+   * See `provider-account-admission.port.ts`.
+   */
+  SDK_PROVIDER_ACCOUNT_ADMISSION: Symbol.for('SdkProviderAccountAdmission'),
+  /**
+   * Official account action signatures.
+   * Identifies `ProviderAccountActionPort`. Does not perform an auth action.
+   */
+  SDK_PROVIDER_ACCOUNT_ACTIONS: Symbol.for('SdkProviderAccountActions'),
 } as const;
 
 export type AuthProvidersDIToken = keyof typeof AUTH_PROVIDERS_TOKENS;

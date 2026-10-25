@@ -72,15 +72,23 @@ import type {
   SessionId,
   SubagentPromptCacheTtlSetting,
   TabId,
+  ProviderAccountBindingPresence,
+  ProviderAccountResultCode,
+  ProviderAccountSelection,
 } from '@ptah-extension/shared';
 import {
+  PROVIDER_ACCOUNT_RESULT_CODES,
   CLI_REASONING_EFFORT_VALUES,
+  CLAUDE_REASONING_EFFORT_VALUES,
   PI_REASONING_EFFORT_VALUES,
+  classifyAgentResumeAccountSelection,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   resolveSubagentPromptCacheTtl,
   DECISION_MODEL_INVALID_BASE_URL,
   DECISION_MODEL_INVALID_MODEL,
 } from '@ptah-extension/shared';
+import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
+import { ProviderAccountService } from '@ptah-extension/auth-providers';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import {
   DecisionModelWriter,
@@ -98,6 +106,7 @@ const CLI_MODEL_KEYS = [
   'grokModel',
   'opencodeModel',
   'piModel',
+  'claudeModel',
 ] as const satisfies readonly (keyof AgentSetConfigParams)[];
 
 /** The first CLI model field that is present but not a string, or null. */
@@ -122,6 +131,7 @@ function invalidReasoningEffort(params: AgentSetConfigParams): string | null {
       ['grokReasoningEffort', CLI_REASONING_EFFORT_VALUES],
       ['antigravityReasoningEffort', CLI_REASONING_EFFORT_VALUES],
       ['piReasoningEffort', PI_REASONING_EFFORT_VALUES],
+      ['claudeReasoningEffort', CLAUDE_REASONING_EFFORT_VALUES],
     ];
   for (const [field, allowed] of checks) {
     const value = params[field];
@@ -323,6 +333,53 @@ function decisionModelRefusal(
   return 'Unsupported decisionModel value';
 }
 
+/**
+ * The refusal code of a `LaneAccountResumeError` (cli-agent-runtime
+ * `lane-resume-gate.ts`), or undefined for any other error. Matched by its
+ * fixed name and a code from the provider-account whitelist; anything else is
+ * not an account refusal. The class is now on the lib barrel, but the agent-rpc
+ * specs mock that barrel without it, so `instanceof` waits for those mocks.
+ */
+function laneAccountRefusalCode(
+  error: unknown,
+): Exclude<ProviderAccountResultCode, 'ok'> | undefined {
+  if (!(error instanceof Error) || error.name !== 'LaneAccountResumeError') {
+    return undefined;
+  }
+  const code = 'code' in error ? error.code : undefined;
+  return PROVIDER_ACCOUNT_RESULT_CODES.find(
+    (known): known is Exclude<ProviderAccountResultCode, 'ok'> =>
+      known !== 'ok' && known === code,
+  );
+}
+
+/**
+ * `agent:resumeCliSession` error text for a refused account. Built from a
+ * whitelisted refusal code only, never from thrown text, which can carry a
+ * path.
+ */
+function resumeAccountRefusal(
+  code: Exclude<ProviderAccountResultCode, 'ok'>,
+): string {
+  return `Agent resume account refused (${code}).`;
+}
+
+/**
+ * The account selection a `claude` resume forwards into its spawn request,
+ * after `resumeAccountRefusal` returned no refusal (so it matches the stored
+ * binding). `SpawnAgentRequest` carries omitted or ambient only while named
+ * admission is release-held (D7): a restated named selection is not
+ * forwarded, and the runtime's resume gate refuses the stored named binding.
+ * Other CLIs have no account bindings and never carry a selection.
+ */
+function resumeSpawnAccountSelection(
+  cli: CliType,
+  selection: ProviderAccountSelection | undefined,
+): ProviderAccountSelection | undefined {
+  if (cli !== 'claude' || selection === undefined) return undefined;
+  return selection.kind === 'named' ? undefined : selection;
+}
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -452,6 +509,7 @@ export class AgentRpcHandlers {
             grokModel: this.getAgentCfg<string>('grokModel', ''),
             opencodeModel: this.getAgentCfg<string>('opencodeModel', ''),
             piModel: this.getAgentCfg<string>('piModel', ''),
+            claudeModel: this.getAgentCfg<string>('claudeModel', ''),
             cursorApiKeyConfigured: cursorKey.configured,
             cursorApiKeyStored: cursorKey.stored,
             cursorApiKeyEnvSet: cursorKey.envSet,
@@ -492,6 +550,10 @@ export class AgentRpcHandlers {
             ),
             piReasoningEffort: this.getAgentCfg<string>(
               'piReasoningEffort',
+              '',
+            ),
+            claudeReasoningEffort: this.getAgentCfg<string>(
+              'claudeReasoningEffort',
               '',
             ),
             mcpPort:
@@ -824,6 +886,12 @@ export class AgentRpcHandlers {
       }
       if (params.piReasoningEffort !== undefined) {
         await this.setAgentCfg('piReasoningEffort', params.piReasoningEffort);
+      }
+      if (params.claudeReasoningEffort !== undefined) {
+        await this.setAgentCfg(
+          'claudeReasoningEffort',
+          params.claudeReasoningEffort,
+        );
       }
       if (params.mcpPort !== undefined) {
         await this.stateStorage.update(
@@ -1249,6 +1317,22 @@ export class AgentRpcHandlers {
           });
           return { success: false, code: error.code, error: error.message };
         }
+        const accountRefusal = laneAccountRefusalCode(error);
+        if (accountRefusal) {
+          // Account-scoped `claude` lane continue refused by the resume gate
+          // (TASK_2026_712 D25 F3). Wire code `unknown`, not a resume-fallback
+          // code: a resume would hit the same account gate. The reply is
+          // rebuilt from the whitelisted refusal code only.
+          this.logger.warn('RPC: agent:continue account refused', {
+            agentId: params.agentId,
+            code: accountRefusal,
+          });
+          return {
+            success: false,
+            code: 'unknown',
+            error: `Claude lane account resume refused (${accountRefusal}).`,
+          };
+        }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -1302,6 +1386,24 @@ export class AgentRpcHandlers {
           ptahCliId: params.ptahCliId,
         });
 
+        // Plan 237: a resume never switches accounts. A supplied selection
+        // that conflicts with the stored binding is refused here, before the
+        // session folder is read or anything is spawned. On `inherit` the
+        // runtime resumes on the stored binding, which stays authoritative
+        // and fail-closed (named admission is release-held, D7).
+        const accountRefusal = await this.resumeAccountRefusal(
+          parsed.data.cli,
+          parsed.data.cliSessionId,
+          parsed.data.accountSelection,
+        );
+        if (accountRefusal) {
+          this.logger.warn('RPC: agent:resumeCliSession account refused', {
+            cli: parsed.data.cli,
+            code: accountRefusal,
+          });
+          return { success: false, error: resumeAccountRefusal(accountRefusal) };
+        }
+
         let result: SpawnAgentResult;
         const workspaceRoot = await this.resumeFolder(params.parentSessionId);
 
@@ -1320,6 +1422,10 @@ export class AgentRpcHandlers {
             'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
+          const accountSelection = resumeSpawnAccountSelection(
+            parsed.data.cli,
+            parsed.data.accountSelection,
+          );
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
@@ -1328,6 +1434,7 @@ export class AgentRpcHandlers {
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
             resumedFromAgentId: params.previousAgentId,
+            ...(accountSelection ? { accountSelection } : {}),
           });
         }
 
@@ -1348,6 +1455,16 @@ export class AgentRpcHandlers {
           ...(resumeDecision ? { resumeDecision } : {}),
         };
       } catch (error) {
+        const laneRefusal = laneAccountRefusalCode(error);
+        if (laneRefusal) {
+          // The runtime's resume gate refused the stored binding (D28
+          // follow-up). The reply is rebuilt from the whitelisted code only.
+          this.logger.warn('RPC: agent:resumeCliSession account refused', {
+            cli: params.cli,
+            code: laneRefusal,
+          });
+          return { success: false, error: resumeAccountRefusal(laneRefusal) };
+        }
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
@@ -1382,6 +1499,68 @@ export class AgentRpcHandlers {
       platformInfo: this.platformInfo,
       logger: this.logger,
     });
+  }
+
+  /**
+   * The refusal for a resume's supplied account selection, or undefined when
+   * the resume may go on (plan 237, `classifyAgentResumeAccountSelection`).
+   * An absent or `omitted` selection never reads the account store, so
+   * existing callers keep their behaviour exactly.
+   */
+  private async resumeAccountRefusal(
+    cli: CliType,
+    cliSessionId: string,
+    selection: ProviderAccountSelection | undefined,
+  ): Promise<Exclude<ProviderAccountResultCode, 'ok'> | undefined> {
+    if (selection === undefined || selection.kind === 'omitted') {
+      return undefined;
+    }
+    const stored = await this.storedResumeBinding(cli, cliSessionId);
+    if (stored === 'unavailable-storage') return stored;
+    const decision = classifyAgentResumeAccountSelection(
+      { status: 'present', selection },
+      stored,
+    );
+    if (decision === 'inherit') return undefined;
+    return decision === 'conflict' ? 'conflict' : 'invalid-bound';
+  }
+
+  /**
+   * The stored account binding of the session being resumed. Only `claude`
+   * lanes are bound to provider accounts; every other CLI and every Ptah CLI
+   * agent runs on its own ambient route, so its binding is `absent`. The
+   * lookup is the same authority the runtime's resume gate reads; a missing
+   * or failing account service is `unavailable-storage`, never `absent`.
+   */
+  private async storedResumeBinding(
+    cli: CliType,
+    cliSessionId: string,
+  ): Promise<ProviderAccountBindingPresence | 'unavailable-storage'> {
+    if (cli !== 'claude') return { status: 'absent' };
+    try {
+      if (!this.runtimeContainer.isRegistered(ProviderAccountService, true)) {
+        return 'unavailable-storage';
+      }
+      const found = await this.runtimeContainer
+        .resolve(ProviderAccountService)
+        .lookupBySdkSession({ provider: 'claude', sdkSessionId: cliSessionId });
+      if (found.status === 'absent') return { status: 'absent' };
+      if (found.status === 'bound') {
+        const parsed = classifyProviderAccountBinding(found.binding);
+        return parsed.status === 'bound' && parsed.binding.provider === 'claude'
+          ? parsed
+          : { status: 'invalid-bound' };
+      }
+      return found.status === 'invalid-bound'
+        ? { status: 'invalid-bound' }
+        : 'unavailable-storage';
+    } catch (error) {
+      // degradation-audit: optional-capability - a failing account store is a typed storage refusal before spawn, never an ambient absence
+      this.logger.warn('RPC: agent:resumeCliSession account lookup failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      return 'unavailable-storage';
+    }
   }
 
   private async mergePtahCliAgents(

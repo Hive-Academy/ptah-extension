@@ -31,7 +31,7 @@ export const KNOWN_PROVIDER_AUTH_KEYS = [
   'apiKey',
   'claudeCli',
   'thirdParty.openrouter',
-  'thirdParty.moonshot',
+  'thirdParty.kimi-code',
   'thirdParty.z-ai',
   'thirdParty.ollama',
   'thirdParty.ollama-cloud',

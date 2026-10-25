@@ -991,6 +991,31 @@ describe('ProviderRpcHandlers', () => {
       },
     );
 
+    it('never sends a third-party ANTHROPIC_API_KEY to /v1/models when listing Anthropic models', async () => {
+      // Kimi Code authenticates with ANTHROPIC_API_KEY; the direct-Anthropic
+      // fetcher must not treat that key as an Anthropic one.
+      const h = makeHarness({
+        authEnv: {
+          ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
+          ANTHROPIC_API_KEY: 'kimi-fixture-key',
+        },
+      });
+      h.sdkAdapter.getSupportedModels.mockResolvedValue([
+        { value: 'claude-sonnet-4-5', displayName: 'Sonnet', description: '' },
+      ]);
+      h.handlers.register();
+      const entry = h.providerModels.registerDynamicFetcher.mock.calls.find(
+        ([id]) => id === 'anthropic',
+      );
+      if (!entry) throw new Error('Missing Anthropic fetcher');
+
+      const result = await entry[1]();
+
+      expect(h.sdkAdapter.getApiModels).not.toHaveBeenCalled();
+      expect(h.sdkAdapter.getSupportedModels).toHaveBeenCalledTimes(1);
+      expect(result).toHaveLength(1);
+    });
+
     it('declares platform API capacity but leaves the static Copilot fallback unverified', async () => {
       const h = makeHarness();
       h.modelDiscovery.getCopilotModels.mockResolvedValueOnce([
@@ -1112,7 +1137,7 @@ describe('ProviderRpcHandlers', () => {
 
   describe('provider:listModels', () => {
     it('resolves providerId from params override', async () => {
-      const h = makeHarness({ providerKeysSeed: { moonshot: 'key-m' } });
+      const h = makeHarness({ providerKeysSeed: { 'kimi-code': 'key-m' } });
       h.providerModels.fetchModels.mockResolvedValue({
         models: [],
         totalCount: 0,
@@ -1120,10 +1145,10 @@ describe('ProviderRpcHandlers', () => {
       });
       h.handlers.register();
 
-      await call(h, 'provider:listModels', { providerId: 'moonshot' });
+      await call(h, 'provider:listModels', { providerId: 'kimi-code' });
 
       expect(h.providerModels.fetchModels).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'key-m',
         false,
       );
@@ -1215,7 +1240,7 @@ describe('ProviderRpcHandlers', () => {
       // Nothing landed, so there is nothing new to derive from. Saying
       // otherwise would push the service into re-applying against the same
       // hole and scheduling a fetch the user's own just failed to satisfy.
-      const h = makeHarness({ providerKeysSeed: { moonshot: 'key-m' } });
+      const h = makeHarness({ providerKeysSeed: { 'kimi-code': 'key-m' } });
       h.providerModels.fetchModels.mockResolvedValue({
         models: [],
         totalCount: 0,
@@ -1223,7 +1248,7 @@ describe('ProviderRpcHandlers', () => {
       });
       h.handlers.register();
 
-      await call(h, 'provider:listModels', { providerId: 'moonshot' });
+      await call(h, 'provider:listModels', { providerId: 'kimi-code' });
 
       expect(
         h.providerModels.reapplyTiersForWarmedCatalog,
@@ -1440,7 +1465,7 @@ describe('ProviderRpcHandlers', () => {
 
     it('forwards cliAgent scope to the service without clearing model cache on failure', async () => {
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       h.handlers.register();
 
@@ -1452,7 +1477,7 @@ describe('ProviderRpcHandlers', () => {
 
       expect(result.success).toBe(true);
       expect(h.providerModels.setModelTier).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'haiku',
         'kimi-k2.6:cloud',
         'cliAgent',
@@ -1569,7 +1594,7 @@ describe('ProviderRpcHandlers', () => {
 
     it('forwards cliAgent scope to the service', async () => {
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       h.providerModels.getModelTiers.mockReturnValue({
         sonnet: null,
@@ -1586,14 +1611,14 @@ describe('ProviderRpcHandlers', () => {
 
       expect(result.haiku).toBe('kimi-k2.6:cloud');
       expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'cliAgent',
       );
     });
 
     it('scope is required — missing scope is a validation error', async () => {
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       h.handlers.register();
 
@@ -1668,7 +1693,7 @@ describe('ProviderRpcHandlers', () => {
 
     it('forwards cliAgent scope to the service', async () => {
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       h.handlers.register();
 
@@ -1680,7 +1705,7 @@ describe('ProviderRpcHandlers', () => {
 
       expect(result.success).toBe(true);
       expect(h.providerModels.clearModelTier).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'haiku',
         'cliAgent',
       );
@@ -1758,7 +1783,7 @@ describe('ProviderRpcHandlers', () => {
       // sub-agent, then reads tiers for the main agent.  The two scopes must
       // never bleed into each other at the RPC wiring level.
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       h.handlers.register();
 
@@ -1768,7 +1793,7 @@ describe('ProviderRpcHandlers', () => {
         'provider:setModelTier',
         {
           scope: 'cliAgent',
-          providerId: 'moonshot',
+          providerId: 'kimi-code',
           tier: 'haiku',
           modelId: 'kimi-k2.6:cloud',
         },
@@ -1777,7 +1802,7 @@ describe('ProviderRpcHandlers', () => {
       expect(setResult.success).toBe(true);
       // The service must have been called with cliAgent scope — NOT mainAgent.
       expect(h.providerModels.setModelTier).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'haiku',
         'kimi-k2.6:cloud',
         'cliAgent',
@@ -1798,7 +1823,7 @@ describe('ProviderRpcHandlers', () => {
 
       // The service must have been queried with mainAgent scope, not cliAgent.
       expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'mainAgent',
       );
     });
@@ -1808,7 +1833,7 @@ describe('ProviderRpcHandlers', () => {
       // correct scope arguments so the service can enforce independent storage.
       // It does NOT re-test the service's own scope-isolation logic.
       const h = makeHarness({
-        configSeed: { anthropicProviderId: 'moonshot' },
+        configSeed: { anthropicProviderId: 'kimi-code' },
       });
       // Simulate independent storage: mainAgent returns empty, cliAgent has a value.
       h.providerModels.getModelTiers.mockImplementation(
@@ -1830,7 +1855,7 @@ describe('ProviderRpcHandlers', () => {
 
       expect(mainResult.haiku).toBeNull();
       expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'mainAgent',
       );
 
@@ -1844,7 +1869,7 @@ describe('ProviderRpcHandlers', () => {
 
       expect(cliResult.haiku).toBe('kimi-k2.6:cloud');
       expect(h.providerModels.getModelTiers).toHaveBeenCalledWith(
-        'moonshot',
+        'kimi-code',
         'cliAgent',
       );
     });

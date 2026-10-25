@@ -2,7 +2,7 @@
  * Ptah CLI Agent Type Definitions
  *
  * Types for user-configured Ptah CLI agent instances that connect to
- * Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.)
+ * Anthropic-compatible providers (OpenRouter, Kimi Code, Z.AI, etc.)
  * via the Claude Agent SDK's query() function.
  */
 
@@ -15,7 +15,7 @@ export interface PtahCliConfig {
   readonly id: string;
   /** User-facing display name (e.g., "My Kimi Agent") */
   readonly name: string;
-  /** Provider ID from the Anthropic-compatible registry (e.g., 'openrouter', 'moonshot', 'z-ai') */
+  /** Provider ID from the Anthropic-compatible registry (e.g., 'openrouter', 'kimi-code', 'z-ai') */
   readonly providerId: string;
   /** Whether this agent is enabled (appears in agent selector) */
   readonly enabled: boolean;

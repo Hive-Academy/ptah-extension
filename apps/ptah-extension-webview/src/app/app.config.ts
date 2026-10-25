@@ -29,6 +29,7 @@ import {
   BootStatusService,
   BackOfficeActivityService,
   PlanLimitsStore,
+  ProviderAccountsStateService,
   MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
@@ -417,6 +418,14 @@ export const appConfig: ApplicationConfig = {
     // snapshot. Registered eagerly so evidence pushed before the stats strip or
     // the dashboard card first renders is not lost.
     { provide: MESSAGE_HANDLERS, useExisting: PlanLimitsStore, multi: true },
+    // Provider accounts (TASK_2026_712): `provider:accountsChanged` carries a full
+    // revisioned snapshot. Registered for both hosts; the service is inert (no RPC,
+    // pushes ignored) unless the host is Electron, the only `providerAccounts` host.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ProviderAccountsStateService,
+      multi: true,
+    },
     provideMarkdownRendering({ extensions: 'full' }),
     // Installs the document-level file-link listener. It acts only inside a
     // container carrying `data-ptah-file-links`, so non-agent markdown (task

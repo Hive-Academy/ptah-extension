@@ -14,6 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -45,7 +46,11 @@ import {
   type SessionMcpNotice,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ClaudeAccountRoute,
+} from '@ptah-extension/auth-providers-tokens';
+import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { SdkError, ModelNotAvailableError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -125,9 +130,9 @@ const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
 /**
  * Build model identity clarification prompt for third-party providers
  *
- * When using Anthropic-compatible providers (Moonshot, Z.AI, etc.), the Claude SDK's
+ * When using Anthropic-compatible providers (Kimi Code, Z.AI, etc.), the Claude SDK's
  * 'claude_code' preset injects "You are Claude" into the system prompt. This causes
- * third-party models like Kimi K2 to incorrectly identify themselves as Claude.
+ * third-party models like Kimi K3 to incorrectly identify themselves as Claude.
  *
  * This function generates a clarification prompt that overrides the identity
  * when a third-party provider is active.
@@ -141,7 +146,7 @@ const UNRESOLVED_MODEL_IDS: ReadonlySet<string> = new Set<string>([
  * "takes precedence over any other identity instructions", the agent then
  * authoritatively reported a model it was not running.
  *
- * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
+ * @param providerId - The active provider ID (e.g., 'kimi-code', 'z-ai')
  * @param resolvedModel - The concrete model id this session runs on
  * @returns Identity clarification prompt, or undefined when the provider is
  *   Anthropic itself or the model cannot be resolved to a concrete id (a
@@ -732,6 +737,8 @@ export function buildFlagSettingsArg(
  * Input parameters for building query options
  */
 export interface QueryOptionsInput {
+  /** Certified account route supplied by admission; omitted preserves ambient auth. */
+  accountRoute?: ClaudeAccountRoute;
   /** Async iterable stream of user messages */
   userMessageStream: AsyncIterable<SDKUserMessage>;
   /** Controller to abort the query */
@@ -886,6 +893,28 @@ export interface QueryOptionsInput {
    * such a caller has no chat chip to show it in.
    */
   capabilityPolicy?: EffectiveCapabilitySet;
+}
+
+/** Fixed bootstrap: never spread conversation options into this object. */
+export function buildNamedAccountBootstrapOptions(
+  route: ClaudeAccountRoute,
+  abortController: AbortController,
+  pathToClaudeCodeExecutable?: string,
+): Options {
+  return {
+    cwd: tmpdir(),
+    abortController,
+    pathToClaudeCodeExecutable,
+    env: applyClaudeAccountRouteEnv({ ...process.env }, route),
+    systemPrompt: '',
+    settingSources: [],
+    tools: [],
+    mcpServers: {},
+    strictMcpConfig: true,
+    persistSession: false,
+    maxTurns: 1,
+    canUseTool: async () => ({ behavior: 'deny', message: 'Account admission pending.' }),
+  };
 }
 
 /**
@@ -1051,14 +1080,16 @@ export class SdkQueryOptionsBuilder {
       capabilityPolicy,
     } = input;
 
-    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    const effectiveAuthEnv: AuthEnv = input.accountRoute?.kind === 'named'
+      ? applyClaudeAccountRouteEnv({}, input.accountRoute)
+      : authEnvOverride ?? this.authEnv;
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
     this.warnIfForkOptionsDroppedSilently(input);
     const model = this.modelService.resolveModelId(
       sessionConfig.model,
-      authEnvOverride,
+      input.accountRoute?.kind === 'named' ? effectiveAuthEnv : authEnvOverride,
     );
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
@@ -1084,6 +1115,8 @@ export class SdkQueryOptionsBuilder {
       model,
       effectiveAuthEnv,
       this.isProfiledCrossProvider(authEnvOverride),
+      input.accountRoute,
+      abortController.signal,
     );
     if (!model.startsWith('claude-')) {
       const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
@@ -1328,22 +1361,25 @@ export class SdkQueryOptionsBuilder {
         )
           ? ['user', 'project', 'local']
           : ['project', 'local'],
-        env: {
-          ...process.env,
-          ...buildTierEnvDefaults(effectiveAuthEnv),
-          ...effectiveAuthEnv,
-          NO_PROXY: '127.0.0.1,localhost',
-          ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
-          // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
-          // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
-          // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
-          // keyword) only when the persisted `workflows.disabled` config resolved
-          // to true at the session origination point (chat-session.service). When
-          // absent/false the env is untouched so workflows stay ON.
-          ...(sessionConfig?.workflowsDisabled
-            ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
-            : {}),
-        } as Record<string, string | undefined>,
+        env: applyClaudeAccountRouteEnv(
+          {
+            ...process.env,
+            ...buildTierEnvDefaults(effectiveAuthEnv),
+            ...effectiveAuthEnv,
+            NO_PROXY: '127.0.0.1,localhost',
+            ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
+            // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
+            // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
+            // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+            // keyword) only when the persisted `workflows.disabled` config resolved
+            // to true at the session origination point (chat-session.service). When
+            // absent/false the env is untouched so workflows stay ON.
+            ...(sessionConfig?.workflowsDisabled
+              ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+              : {}),
+          },
+          input.accountRoute,
+        ),
         stderr: (data: string) => {
           this.mcpBackoffService?.checkStderrForFailure(
             data,
@@ -1606,7 +1642,16 @@ export class SdkQueryOptionsBuilder {
     resolvedModel: string,
     authEnvOverride?: AuthEnv,
     skipCrossProvider = false,
+    accountRoute?: ClaudeAccountRoute,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (accountRoute?.kind === 'named') {
+      const models = await this.modelService.getSupportedModels(accountRoute, signal);
+      if (models.length && !models.some((model) => model.value === resolvedModel)) {
+        throw new SdkError('Selected model is unavailable for this account.');
+      }
+      return;
+    }
     // A profiled session whose provider differs from the process-global active
     // provider must NOT be validated against the global provider's model cache
     // — that cache belongs to a different provider and would spuriously reject
@@ -1675,7 +1720,7 @@ export class SdkQueryOptionsBuilder {
    * Opus and Sonnet 4.6 models. The SDK module does NOT auto-enable this — we
    * must pass it explicitly via the `betas` query option.
    *
-   * Skipped for third-party providers (OpenRouter, Moonshot, Z.AI, proxies) as
+   * Skipped for third-party providers (OpenRouter, Kimi Code, Z.AI, proxies) as
    * they don't support Anthropic beta headers and would return 400 errors.
    *
    * TWO gates, and they ask different questions. The base URL answers the

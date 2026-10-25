@@ -17,7 +17,10 @@ import {
   PLATFORM_TOKENS,
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
+import {
+  CLAUDE_LANE_ACCOUNT_PERSISTENCE,
+  CLI_AGENT_RUNTIME_TOKENS,
+} from './tokens';
 import {
   LANE_OUTCOME_TOKENS,
   type LaneOutcomeRecorder,
@@ -57,12 +60,206 @@ import {
   createSmitheryConfigSecretStore,
 } from '../mcp-directory/smithery-installed-manifest';
 import { McpOAuthInstalledManifestStore } from '../mcp-directory/oauth/mcp-oauth-installed-manifest';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import {
+  SETTINGS_TOKENS,
+  type ReasoningSettings,
+} from '@ptah-extension/settings-core';
+import {
+  resolveSessionCapabilityPolicy,
+  type SdkModuleLoader,
+  type SdkModelService,
+  type SdkMessageTransformer,
+  type SdkPermissionHandler,
+  type HarnessPolicySync,
+} from '@ptah-extension/agent-sdk';
+import type { ICapabilityResolver } from '@ptah-extension/shared';
+import { ClaudeCliAdapter } from '../cli-agents/cli-adapters/claude-cli.adapter';
+import {
+  ClaudeSdkLaneRunner,
+  type ClaudeLaneAccountPersistence,
+} from '../claude/claude-sdk-lane-runner';
+import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
+import {
+  PtahCliLanePlanLimits,
+  type LanePlanLimitWriter,
+} from '../ptah-cli/helpers/ptah-cli-lane-plan-limits';
+
+import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
+import type { LaneAccountBindingPort } from '../cli-agents/cli-adapters/cli-adapter.interface';
+import { LaneAccountResumeError } from '../cli-agents/lane-resume-gate';
+
+type ClaudeSessionLookupSource = Pick<ProviderAccountService, 'lookupBySdkSession'>;
+
+/**
+ * Read-only lane binding authority over the host's provider account service
+ * (TASK_2026_712 D25 F3). Lookup is authoritative, so a never-bound session
+ * (`absent`) resumes ambient. Writes stay held until certification (D7):
+ * `validateResume` refuses `release-held` and `persistReference` rejects, so a
+ * bound named session cannot resume and nothing is ever persisted here. A
+ * missing or failing service maps to `unavailable-storage`; the service's own
+ * errors and values are never forwarded.
+ */
+export function createClaudeLaneReadOnlyBindings(
+  source: () => ClaudeSessionLookupSource | null,
+): LaneAccountBindingPort {
+  return {
+    async lookupBySdkSession(request) {
+      try {
+        const service = source();
+        if (!service) return { status: 'unavailable-storage' };
+        const found = await service.lookupBySdkSession({
+          provider: 'claude',
+          sdkSessionId: request.sdkSessionId,
+        });
+        if (found.status === 'absent') return { status: 'absent' };
+        if (found.status === 'bound') {
+          const parsed = classifyProviderAccountBinding(found.binding);
+          return parsed.status === 'bound' && parsed.binding.provider === 'claude'
+            ? { status: 'bound', binding: parsed.binding }
+            : { status: 'invalid-bound' };
+        }
+        return {
+          status: found.status === 'invalid-bound' ? 'invalid-bound' : 'unavailable-storage',
+        };
+      } catch {
+        // degradation-audit: optional-capability - an unresolvable or failing account store is a typed storage refusal, never ambient absence
+        return { status: 'unavailable-storage' };
+      }
+    },
+    async validateResume() {
+      return { code: 'release-held' };
+    },
+    async persistReference() {
+      throw new LaneAccountResumeError('release-held');
+    },
+  };
+}
 
 export function registerCliAgentRuntimeServices(
   container: DependencyContainer,
   logger: Logger,
 ): void {
   logger.info('[CliAgentRuntime] Registering CLI agent runtime services...');
+
+  container.register(ClaudeSdkLaneRunner, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new ClaudeSdkLaneRunner(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<SdkMessageTransformer>(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER),
+        ),
+    ),
+  });
+  // Class tokens keep these runtime-local until the Batch 26 roster activation.
+  // Resolve policy/owner services at spawn time to avoid a manager/detection cycle.
+  container.register(ClaudeCliAdapter, {
+    useFactory: instanceCachingFactory((c) => {
+      // Resolved lazily per lookup: a host that does not register the
+      // account service still boots and refuses with `unavailable-storage`.
+      const readOnlyBindings = createClaudeLaneReadOnlyBindings(() =>
+        c.isRegistered(ProviderAccountService, true)
+          ? c.resolve(ProviderAccountService)
+          : null,
+      );
+      return new ClaudeCliAdapter(c.resolve<Logger>(TOKENS.LOGGER), {
+          loader: c.resolve<SdkModuleLoader>(SDK_TOKENS.SDK_MODULE_LOADER),
+          assembly: c.resolve<PtahCliSpawnOptions>(
+            CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
+          ),
+          runner: c.resolve(ClaudeSdkLaneRunner),
+          permissionHandler: c.resolve<SdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          ),
+          processSpawner: c.resolve<ISdkProcessSpawner>(
+            SDK_TOKENS.SDK_PROCESS_SPAWNER,
+          ),
+          models: {
+            getNativeClaudeModels: () =>
+              c
+                .resolve<SdkModelService>(SDK_TOKENS.SDK_MODEL_SERVICE)
+                .getNativeClaudeModels(),
+          },
+          defaults: () => ({
+            chatEffort: c
+              .resolve<ReasoningSettings>(SETTINGS_TOKENS.REASONING_SETTINGS)
+              .effort.get(),
+          }),
+          admission: () =>
+            c.isRegistered(
+              AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
+              true,
+            )
+              ? c.resolve<ProviderAccountAdmissionPort>(
+                  AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
+                )
+              : null,
+          // No host registers the full port until certification (D7), so
+          // named admission stays refused; resumes fall back to the
+          // read-only bindings (ambient continues, bound refuses held).
+          accountPersistence: () =>
+            c.isRegistered(CLAUDE_LANE_ACCOUNT_PERSISTENCE, true)
+              ? c.resolve<ClaudeLaneAccountPersistence | null>(
+                  CLAUDE_LANE_ACCOUNT_PERSISTENCE,
+                )
+              : null,
+          accountBindings: () => readOnlyBindings,
+          policy: (cwd) =>
+            resolveSessionCapabilityPolicy(
+              c.resolve<ICapabilityResolver>(
+                SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+              ),
+              cwd,
+              logger,
+            ),
+          syncHarness: async (policy) => {
+            if (
+              policy.status !== 'verified' ||
+              !c.isRegistered(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC, true)
+            )
+              return;
+            try {
+              const result = await c
+                .resolve<HarnessPolicySync>(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC)
+                .apply(policy.physicalRoot, policy.harnessFingerprint);
+              if (!result.acknowledged)
+                logger.warn(
+                  '[ClaudeCliAdapter] Harness policy not acknowledged',
+                );
+            } catch {
+              logger.warn(
+                '[ClaudeCliAdapter] Harness policy sync unavailable; capability restrictions remain active',
+              );
+            }
+          },
+          planLimits: () =>
+            new PtahCliLanePlanLimits({
+              logger,
+              ptahCliId: 'claude',
+              providerId: 'claude-cli',
+              ledger: c.isRegistered(
+                AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+                true,
+              )
+                ? c.resolve<LanePlanLimitWriter>(
+                    AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+                  )
+                : null,
+              owners: c.resolve<LaneOwnerResolver>(
+                CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER,
+              ),
+              recordOwner: (id, owner) =>
+                c
+                  .resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER)
+                  .recordQuotaOwner(id, owner),
+            }),
+      });
+    }),
+  });
 
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE,

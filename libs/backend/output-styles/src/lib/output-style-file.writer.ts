@@ -27,6 +27,7 @@
  * is workspace- or `~`-relative, never an absolute host path (Req 7.6).
  */
 import * as path from 'path';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -42,6 +43,8 @@ import type {
 } from '@ptah-extension/shared';
 import {
   outputStyleDirectoryFor,
+  boundOutputStyleDirectory,
+  accountFileError,
   toDisplayPath,
 } from './output-style-discovery.service';
 import {
@@ -162,7 +165,10 @@ export class OutputStyleFileWriter {
    * one is removed on a rename, so an interrupted save leaves two files rather
    * than none.
    */
-  async save(params: SaveOutputStyleParams): Promise<SaveOutputStyleResult> {
+  async save(
+    params: SaveOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<SaveOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
@@ -171,14 +177,18 @@ export class OutputStyleFileWriter {
     const slug = slugifyStyleName(name);
     if (!slug.ok) return { ok: false, error: slug.error };
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = await this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
     const fileName = styleFileName(slug.slug);
     const slugged: OutputStyleFileLocation = {
       fileName,
       absolutePath: path.join(directory.directory, fileName),
-      displayPath: toDisplayPath(params.tier, fileName),
+      displayPath: toDisplayPath(params.tier, fileName, context),
     };
 
     const originalName = params.originalName?.trim() ?? '';
@@ -190,6 +200,7 @@ export class OutputStyleFileWriter {
         params.tier,
         directory.directory,
         originalName,
+        context,
       );
       if (existing === undefined) {
         return failure(
@@ -198,7 +209,7 @@ export class OutputStyleFileWriter {
         );
       }
 
-      const stale = await this.isStale(existing.absolutePath, params);
+      const stale = await this.isStale(existing.absolutePath, params, context);
       if (stale) {
         return failure(
           'STALE_FILE',
@@ -217,7 +228,7 @@ export class OutputStyleFileWriter {
     const target: OutputStyleFileLocation =
       existing !== undefined && !renamed ? existing : slugged;
 
-    const collides = await this.collides(target, existing);
+    const collides = await this.collides(target, existing, context);
     if (collides && params.overwrite !== true) {
       return failure(
         'FILE_EXISTS',
@@ -238,7 +249,11 @@ export class OutputStyleFileWriter {
     } catch (error: unknown) {
       this.logger.error(
         '[output-styles] style file write failed',
-        error instanceof Error ? error : new Error(String(error)),
+        context?.kind === 'named'
+          ? new Error(accountFileError(error, '').code)
+          : error instanceof Error
+            ? error
+            : new Error(String(error)),
       );
       return failure(
         'WRITE_FAILED',
@@ -261,7 +276,10 @@ export class OutputStyleFileWriter {
         // whole operation here would be a worse answer than logging it.
         this.logger.warn('[output-styles] stale style file not removed', {
           fileName: existing.fileName,
-          error: errorMessage(error),
+          error:
+            context?.kind === 'named'
+              ? accountFileError(error, '').code
+              : errorMessage(error),
         });
       }
     }
@@ -276,16 +294,26 @@ export class OutputStyleFileWriter {
   /** Remove one style file, located by its frontmatter `name` (Req 4.5). */
   async delete(
     params: DeleteOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<DeleteOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
     }
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = await this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
-    const existing = await this.locate(params.tier, directory.directory, name);
+    const existing = await this.locate(
+      params.tier,
+      directory.directory,
+      name,
+      context,
+    );
     if (existing === undefined) {
       return failure(
         'NOT_FOUND',
@@ -298,7 +326,11 @@ export class OutputStyleFileWriter {
     } catch (error: unknown) {
       this.logger.error(
         '[output-styles] style file delete failed',
-        error instanceof Error ? error : new Error(String(error)),
+        context?.kind === 'named'
+          ? new Error(accountFileError(error, '').code)
+          : error instanceof Error
+            ? error
+            : new Error(String(error)),
       );
       return failure(
         'DELETE_FAILED',
@@ -314,16 +346,28 @@ export class OutputStyleFileWriter {
    * Capture the E8 guard stamp for a style. This is the "on read" half — the
    * caller echoes both values back on `save`, which re-checks them.
    */
-  async stat(params: StatOutputStyleParams): Promise<StatOutputStyleResult> {
+  async stat(
+    params: StatOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<StatOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
     }
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = await this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
-    const existing = await this.locate(params.tier, directory.directory, name);
+    const existing = await this.locate(
+      params.tier,
+      directory.directory,
+      name,
+      context,
+    );
     if (existing === undefined) {
       return failure('NOT_FOUND', `"${name}" was not found in this tier.`);
     }
@@ -334,7 +378,10 @@ export class OutputStyleFileWriter {
     } catch (error: unknown) {
       this.logger.warn('[output-styles] style file stat failed', {
         fileName: existing.fileName,
-        error: errorMessage(error),
+        error:
+          context?.kind === 'named'
+            ? accountFileError(error, '').code
+            : errorMessage(error),
       });
       return failure(
         'NOT_FOUND',
@@ -355,12 +402,24 @@ export class OutputStyleFileWriter {
    * can be absent, and only because `getWorkspaceRoot()` is synchronous and may
    * legitimately return `undefined` when no folder is open.
    */
-  private resolveDirectory(
+  private async resolveDirectory(
     tier: WritableOutputStyleTier,
     explicitRoot: string | undefined,
-  ): DirectoryResult {
-    const workspaceRoot = this.resolveWorkspaceRoot(explicitRoot);
-    const directory = outputStyleDirectoryFor(tier, workspaceRoot);
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<DirectoryResult> {
+    const workspaceRoot = this.resolveWorkspaceRoot(explicitRoot, context);
+    let directory: string | undefined;
+    try {
+      directory = outputStyleDirectoryFor(tier, workspaceRoot, context);
+      if (directory !== undefined) {
+        directory = await boundOutputStyleDirectory(directory, tier, context);
+      }
+    } catch {
+      return failure(
+        'NOT_FOUND',
+        'The requested Claude account output style directory is unavailable.',
+      );
+    }
     if (directory === undefined) {
       return failure(
         'NO_WORKSPACE',
@@ -370,13 +429,19 @@ export class OutputStyleFileWriter {
     return { ok: true, directory };
   }
 
-  private resolveWorkspaceRoot(explicit?: string): string | undefined {
+  private resolveWorkspaceRoot(
+    explicit?: string,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): string | undefined {
     if (explicit !== undefined && explicit.trim().length > 0) return explicit;
     try {
       return this.workspace.getWorkspaceRoot();
     } catch (error: unknown) {
       this.logger.warn('[output-styles] workspace root lookup failed', {
-        error: errorMessage(error),
+        error:
+          context?.kind === 'named'
+            ? accountFileError(error, '').code
+            : errorMessage(error),
       });
       return undefined;
     }
@@ -393,6 +458,7 @@ export class OutputStyleFileWriter {
     tier: WritableOutputStyleTier,
     directory: string,
     name: string,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<OutputStyleFileLocation | undefined> {
     let fileNames: string[];
     try {
@@ -404,7 +470,10 @@ export class OutputStyleFileWriter {
     } catch (error: unknown) {
       this.logger.debug('[output-styles] tier directory not readable', {
         tier,
-        error: errorMessage(error),
+        error:
+          context?.kind === 'named'
+            ? accountFileError(error, '').code
+            : errorMessage(error),
       });
       return undefined;
     }
@@ -420,7 +489,10 @@ export class OutputStyleFileWriter {
           {
             tier,
             fileName,
-            error: errorMessage(error),
+            error:
+              context?.kind === 'named'
+                ? accountFileError(error, '').code
+                : errorMessage(error),
           },
         );
         continue;
@@ -431,7 +503,7 @@ export class OutputStyleFileWriter {
         return {
           fileName,
           absolutePath,
-          displayPath: toDisplayPath(tier, fileName),
+          displayPath: toDisplayPath(tier, fileName, context),
         };
       }
     }
@@ -447,6 +519,7 @@ export class OutputStyleFileWriter {
   private async isStale(
     absolutePath: string,
     params: SaveOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<boolean> {
     if (
       params.expectedMtime === undefined &&
@@ -462,7 +535,10 @@ export class OutputStyleFileWriter {
       // The file was located a moment ago and cannot be stat'ed now — treat
       // that as changed rather than as safe.
       this.logger.warn('[output-styles] stale check could not stat the file', {
-        error: errorMessage(error),
+        error:
+          context?.kind === 'named'
+            ? accountFileError(error, '').code
+            : errorMessage(error),
       });
       return true;
     }
@@ -487,6 +563,7 @@ export class OutputStyleFileWriter {
   private async collides(
     target: OutputStyleFileLocation,
     existing: OutputStyleFileLocation | undefined,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<boolean> {
     if (
       existing !== undefined &&
@@ -499,7 +576,10 @@ export class OutputStyleFileWriter {
     } catch (error: unknown) {
       this.logger.warn('[output-styles] collision check failed', {
         fileName: target.fileName,
-        error: errorMessage(error),
+        error:
+          context?.kind === 'named'
+            ? accountFileError(error, '').code
+            : errorMessage(error),
       });
       // Unknown existence is treated as "occupied": refusing a save is
       // recoverable, silently overwriting somebody's file is not.

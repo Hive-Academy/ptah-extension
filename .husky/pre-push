@@ -1,5 +1,16 @@
 
 
+# Every step below is a heavy Nx check, so the hook runs itself again under
+# the machine-wide verify lock (scripts/verify-lock.mjs). It then queues
+# behind `npm run verify` runs in other sessions and worktrees instead of
+# competing with them for RAM. The lock is released when this script exits.
+# --check-token is true only inside that re-run (or under another holder
+# from this process tree), so a stale token in the environment cannot skip
+# the lock. PTAH_SKIP_VERIFY_LOCK=1 skips the lock if it is ever wedged.
+if [ "${PTAH_SKIP_VERIFY_LOCK:-0}" != "1" ] && ! node scripts/verify.mjs --check-token; then
+  exec node scripts/verify.mjs --exec --task "pre-push $(git rev-parse --abbrev-ref HEAD)" -- sh -e "$0" "$@"
+fi
+
 echo "🚀 Running pre-push checks..."
 
 # DI invariant check — runs on every push regardless of branch (fast, ~2s).

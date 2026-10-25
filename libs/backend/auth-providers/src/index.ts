@@ -1,5 +1,7 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
+export { ProviderAccountService } from './lib/accounts/provider-account.service';
+export type { ProviderAccountAdmissionPort, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 export {
   registerAuthProvidersServices,
   registerCuratorAuthServices,

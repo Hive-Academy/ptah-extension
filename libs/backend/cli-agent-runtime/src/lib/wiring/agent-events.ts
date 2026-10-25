@@ -33,6 +33,7 @@ import {
   type ISessionOrganizationRecorder,
 } from '@ptah-extension/platform-core';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { laneAccountFields, snapshotLaneAccountReference } from '../cli-agents/lane-resume-gate';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
 
 /** Minimal shape of the webview manager used by the wiring. */
@@ -200,6 +201,10 @@ function wireAgentMonitorListeners(
   });
 
   agentProcessManager.events.on('agent:exited', (info: AgentProcessInfo) => {
+    // Completion only persists output. It cannot attach an SDK session or
+    // authorize a prompt; the adapter awaits its admission checkpoint.
+    const current = agentProcessManager.findAgentInfo(info.agentId);
+    if (current && (current.startedAt !== info.startedAt || current.status === 'running')) return;
     webviewManager
       .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_EXITED, info)
       .catch((error) => {
@@ -361,6 +366,9 @@ export function persistCliSessionReference(
 ): void {
   const { parentSessionId } = info;
   if (!parentSessionId) {
+    // Named parentless lanes have an awaited durable registry/reference
+    // checkpoint. This optional parent-card projection is not that receipt.
+    if (laneAccountFields(info).accountBindingId !== undefined) return;
     // The reference has nowhere to go — `addCliSession` is keyed by the parent
     // session. This used to be a silent `return`, so an agent spawned without
     // a parent simply never appeared under any session and nothing said why.
@@ -436,12 +444,13 @@ export function persistCliSessionReference(
       (info.ptahCliId && getSdkSessionId
         ? getSdkSessionId(info.ptahCliId)
         : undefined) ??
-      (info.cli === 'ptah-cli' && info.cliSessionId
+      ((info.cli === 'ptah-cli' || laneAccountFields(info).accountBindingId !== undefined) && info.cliSessionId
         ? info.cliSessionId
         : undefined);
 
     const bulkInline = !metadataStore.saveAgentOutput;
     const ref: CliSessionReference = {
+      ...snapshotLaneAccountReference(laneAccountFields(info)),
       cliSessionId: effectiveCliSessionId,
       cli: info.cli,
       agentId: info.agentId,
@@ -475,6 +484,13 @@ export function persistCliSessionReference(
     // receipt for the bulk: it cannot become durable first, and a retry
     // re-runs the bulk, which is a whole-record overwrite and so idempotent.
     const persistBulkThenReference = async (): Promise<void> => {
+      const isStale = (): boolean => {
+        if (!container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) return false;
+        const current = container.resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER).findAgentInfo(info.agentId);
+        return current !== undefined && (current.startedAt !== info.startedAt ||
+          (agentHasFinished && current.status === 'running'));
+      };
+      if (isStale()) return;
       if (
         agentHasFinished &&
         persistedOutput &&
@@ -496,6 +512,7 @@ export function persistCliSessionReference(
           parentSessionId,
         );
       }
+      if (isStale()) return;
       await metadataStore.addCliSession(parentSessionId, ref);
     };
 

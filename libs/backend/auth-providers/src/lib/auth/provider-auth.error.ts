@@ -18,3 +18,8 @@ export class ProviderAuthError extends Error {
     Object.setPrototypeOf(this, ProviderAuthError.prototype);
   }
 }
+
+/** Fail-closed message for a provider id the registry does not know. */
+export function unavailableProviderMessage(providerId: string): string {
+  return `Provider '${providerId}' is not available in this version of Ptah. Choose a provider in Settings.`;
+}

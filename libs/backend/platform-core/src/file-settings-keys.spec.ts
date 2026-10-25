@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   ADVANCED_SETTINGS,
+  CLAUDE_REASONING_EFFORT_VALUES,
   SCOPED_SETTING_KEYS,
   SESSION_BUDGET_SETTINGS,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
@@ -73,7 +74,7 @@ describe('isFileBasedSettingKey', () => {
 
     it('returns true for cliAgent tier patterns', () => {
       expect(
-        isFileBasedSettingKey('provider.moonshot.cliAgent.modelTier.sonnet'),
+        isFileBasedSettingKey('provider.kimi-code.cliAgent.modelTier.sonnet'),
       ).toBe(true);
       expect(
         isFileBasedSettingKey('provider.lm-studio.cliAgent.modelTier.haiku'),
@@ -154,6 +155,36 @@ describe('isFileBasedSettingKey', () => {
       ).toBe(true);
     });
 
+    it('routes the kimi-code built-in slots through the static Set', () => {
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.kimi-code.reasoningEffort',
+        ),
+      ).toBe(true);
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has('provider.kimi-code.modelTier.opus'),
+      ).toBe(true);
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.kimi-code.reasoningEffort'),
+      ).toBe(true);
+      expect(isFileBasedSettingKey('provider.kimi-code.modelTier.opus')).toBe(
+        true,
+      );
+    });
+
+    it('still routes a stale moonshot key by pattern instead of dropping it', () => {
+      // `moonshot` is no longer a built-in; its leftover keys must stay
+      // file-routed (inert), not fall through to a store that discards them.
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has(
+          'provider.thirdParty.moonshot.selectedModel',
+        ),
+      ).toBe(false);
+      expect(
+        isFileBasedSettingKey('provider.thirdParty.moonshot.selectedModel'),
+      ).toBe(true);
+    });
+
     it('returns false for uppercase ids and unknown leaf names', () => {
       expect(
         isFileBasedSettingKey('provider.thirdParty.MyBox.selectedModel'),
@@ -202,12 +233,14 @@ describe('isFileBasedSettingKey', () => {
       'skills.telemetry.enabled': true,
     } as const;
 
-    it.each(Object.entries(defaults))('routes and defaults %s', (key, value) => {
-      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-      expect(isFileBasedSettingKey(key)).toBe(true);
-      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
-    });
-
+    it.each(Object.entries(defaults))(
+      'routes and defaults %s',
+      (key, value) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
+      },
+    );
   });
 
   describe('memory lifecycle keys (TASK_2026_443)', () => {
@@ -326,6 +359,47 @@ describe('isFileBasedSettingKey', () => {
         appScopable: false,
         supportedTargets: ['global'],
       });
+    });
+  });
+
+  describe('Claude system-lane keys (TASK_2026_712)', () => {
+    // Written through `agent:setConfig`; unrouted, the write would be dropped
+    // while the read still served the default.
+    const keys = [
+      'agentOrchestration.claudeModel',
+      'agentOrchestration.claudeReasoningEffort',
+    ] as const;
+
+    it.each(keys)('%s is file-based and defaults to the SDK default', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('');
+    });
+
+    it('defaults the effort to a value the setting accepts', () => {
+      expect(CLAUDE_REASONING_EFFORT_VALUES).toContain(
+        FILE_BASED_SETTINGS_DEFAULTS['agentOrchestration.claudeReasoningEffort'],
+      );
+    });
+
+    it.each(keys)('%s is a global-only scoped key', (key) => {
+      expect(SCOPED_SETTING_KEYS[key]).toEqual({
+        appScopable: false,
+        supportedTargets: ['global'],
+      });
+    });
+  });
+
+  describe('Grok and Antigravity effort keys (TASK_2026_712, Batch 34b)', () => {
+    // Written through `agent:setConfig` and read by the lane spawn
+    // environment; unrouted, the write would miss ~/.ptah/settings.json.
+    it.each([
+      'agentOrchestration.grokReasoningEffort',
+      'agentOrchestration.antigravityReasoningEffort',
+    ])('%s is file-based and defaults to the CLI default', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe('');
     });
   });
 

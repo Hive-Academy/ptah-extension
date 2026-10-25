@@ -831,14 +831,14 @@ describe('ProvidersSettingsStateService', () => {
     const reviewed = await verifiedConnection();
     await service.verifyDraft({
       probeId: 'draft-check',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
     });
     const store = tierStore({ sonnet: null, opus: null, haiku: null });
     call.mockClear();
     await service.connectProvider(
       connectionDraft({
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         tiers: { everyday: 'one', complex: '', fast: 'three' },
         tierSnapshot: { everyday: null, complex: null, fast: null },
         editedTiers: ['everyday', 'fast'],
@@ -862,7 +862,7 @@ describe('ProvidersSettingsStateService', () => {
     const reviewed = await verifiedConnection();
     await service.verifyDraft({
       probeId: 'draft-check',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
     });
     const store = tierStore({
@@ -873,7 +873,7 @@ describe('ProvidersSettingsStateService', () => {
     call.mockClear();
     await service.connectProvider(
       connectionDraft({
-        providerId: 'moonshot',
+        providerId: 'kimi-code',
         tiers: { everyday: '', complex: 'user-opus', fast: 'user-haiku' },
         tierSnapshot: {
           everyday: 'user-sonnet',
@@ -1263,6 +1263,21 @@ describe('ProvidersSettingsStateService', () => {
       await service.refreshRoute();
       expect(service.activeProviderId()).toBeNull();
     }
+  });
+
+  it('tolerates a stale persisted provider id that the providers list no longer contains', async () => {
+    // A settings file written before the moonshot -> kimi-code replacement still names
+    // the removed id; the route carries it but the provider list does not.
+    handlers.set('auth:getEffectiveRoute', async () =>
+      success(route({ driverProviderId: 'moonshot' })),
+    );
+    await service.refreshRoute();
+    expect(service.route().status).toBe('ready');
+    expect(service.route().data?.driverProviderId).toBe('moonshot');
+    expect(
+      service.route().data?.providers.some((provider) => provider.id === 'moonshot'),
+    ).toBe(false);
+    expect(service.activeProviderId()).toBeNull();
   });
 
   it('exposes one active identity and strips diagnostic auth strings', async () => {
@@ -2040,6 +2055,21 @@ describe('ProvidersSettingsStateService', () => {
       });
     });
 
+    it('projects the stored Grok and Antigravity reasoning efforts', async () => {
+      handlers.set('agent:getConfig', async () =>
+        success({
+          ...fullConfig,
+          grokReasoningEffort: 'high',
+          antigravityReasoningEffort: '',
+        }),
+      );
+      await service.refreshOrchestration();
+      expect(service.orchestration().data).toMatchObject({
+        grokReasoningEffort: 'high',
+        antigravityReasoningEffort: '',
+      });
+    });
+
     it('reads an unknown subagent prompt-cache TTL value as auto', async () => {
       handlers.set('agent:getConfig', async () =>
         success({ ...fullConfig, subagentPromptCacheTtl: '10m' }),
@@ -2309,8 +2339,8 @@ describe('ProvidersSettingsStateService', () => {
         success({
           providers: [
             {
-              provider: 'moonshot',
-              displayName: 'Moonshot',
+              provider: 'kimi-code',
+              displayName: 'Kimi Code',
               hasApiKey: true,
               isDefault: false,
               keyHint: hint,
@@ -2350,7 +2380,7 @@ describe('ProvidersSettingsStateService', () => {
       await service.refreshConnections();
       const byId = (id: string) =>
         service.connections().data?.find((entry) => entry.id === id);
-      expect(byId('moonshot')?.keyHint).toBe(hint);
+      expect(byId('kimi-code')?.keyHint).toBe(hint);
       expect(byId('anthropic')?.keyHint).toBe('•••• wxyz');
       for (const id of ['openrouter', 'z-ai', 'sakana']) {
         expect(byId(id)).toBeDefined();
@@ -2364,8 +2394,8 @@ describe('ProvidersSettingsStateService', () => {
         success({
           providers: [
             {
-              provider: 'moonshot',
-              displayName: 'Moonshot',
+              provider: 'kimi-code',
+              displayName: 'Kimi Code',
               hasApiKey: false,
               isDefault: false,
               keyUnreadable: true,
@@ -2383,12 +2413,12 @@ describe('ProvidersSettingsStateService', () => {
       await service.refreshConnections();
       const byId = (id: string) =>
         service.connections().data?.find((entry) => entry.id === id);
-      expect(byId('moonshot')).toMatchObject({
+      expect(byId('kimi-code')).toMatchObject({
         keyUnreadable: true,
         hasKey: false,
         configured: true,
       });
-      expect(Object.hasOwn(byId('moonshot') ?? {}, 'keyHint')).toBe(false);
+      expect(Object.hasOwn(byId('kimi-code') ?? {}, 'keyHint')).toBe(false);
       // A readable row carries no flag at all.
       expect(Object.hasOwn(byId('openrouter') ?? {}, 'keyUnreadable')).toBe(
         false,

@@ -224,8 +224,12 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
     await tile.locator(AGENT_TILE_OPEN).click();
 
     await expect(card).toHaveCount(1);
-    const peek = card.locator('[data-test="turn-disclosure-peek"]');
-    const meta = card.locator('[data-test="turn-disclosure-meta"]');
+    // The lane control row's live progress line (not the bubble's).
+    const peek = card.locator('[data-test="execution-header-peek"]');
+    // The lane header repeats no tool count; the transcript bubble owns it.
+    const meta = card.locator(
+      'ptah-lane-transcript [data-test="turn-disclosure-meta"]',
+    );
     await expect(peek).toContainText(AGENT_DESCRIPTION);
 
     // --- Summary: first delta ------------------------------------------

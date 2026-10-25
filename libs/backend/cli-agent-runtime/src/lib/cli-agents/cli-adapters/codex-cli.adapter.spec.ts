@@ -199,6 +199,20 @@ jest.mock('fs', () => {
   };
 });
 
+// Replace the module export without redefining Node's non-configurable binding.
+const mockReadFile = jest.fn(
+  jest.requireActual<typeof import('fs/promises')>('fs/promises').readFile,
+);
+jest.mock('fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return {
+    ...actual,
+    readFile: (...args: Parameters<typeof actual.readFile>) =>
+      mockReadFile(...args),
+  };
+});
+
 // Import adapter AFTER mocks are declared
 import { EventEmitter } from 'events';
 import path from 'path';
@@ -206,8 +220,13 @@ import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { CliLaneBudgets, SdkHandle } from './cli-adapter.interface';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { readFileSync } from 'fs';
+import { homedir } from 'os';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { buildTaskPrompt, renderRoleBlock, PTAH_LANE_POLICY } from './cli-adapter.utils';
+import {
+  buildTaskPrompt,
+  renderRoleBlock,
+  PTAH_LANE_POLICY,
+} from './cli-adapter.utils';
 import { CODEX_RESUME_RESENDS_ROLE } from './codex/codex-lane-config.builder';
 
 function createMockLogger(): {
@@ -279,6 +298,125 @@ describe('CodexCliAdapter', () => {
   afterEach(() => {
     // Clear cached SDK import by resetting the module registry for the adapter module
     jest.resetModules();
+  });
+
+  describe('credential home', () => {
+    const readAuth = mockReadFile;
+
+    beforeEach(() => {
+      const env = { ...process.env };
+      delete env['CODEX_HOME'];
+      delete env['HOME'];
+      delete env['USERPROFILE'];
+      jest.replaceProperty(process, 'env', env);
+      readAuth.mockResolvedValue(
+        JSON.stringify({ OPENAI_API_KEY: 'test-key' }),
+      );
+    });
+
+    afterEach(() => {
+      readAuth
+        .mockReset()
+        .mockImplementation(
+          jest.requireActual<typeof import('fs/promises')>('fs/promises')
+            .readFile,
+        );
+      jest.restoreAllMocks();
+    });
+
+    it('uses an explicit CODEX_HOME ahead of HOME and USERPROFILE', async () => {
+      process.env['CODEX_HOME'] = '/codex/account';
+      process.env['HOME'] = '/default/home';
+      process.env['USERPROFILE'] = '/default/profile';
+
+      await expect(adapter.ensureTokensFresh()).resolves.toBe(true);
+      expect(readAuth).toHaveBeenCalledWith(
+        path.join('/codex/account', 'auth.json'),
+        'utf-8',
+      );
+      expect(readAuth).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads CODEX_HOME from the environment on each credential read', async () => {
+      for (const home of ['/codex/first', '/codex/second']) {
+        process.env['CODEX_HOME'] = home;
+        await expect(adapter['resolveAccessToken']()).resolves.toBe('test-key');
+        expect(readAuth).toHaveBeenLastCalledWith(
+          path.join(home, 'auth.json'),
+          'utf-8',
+        );
+      }
+    });
+
+    it.each([
+      {
+        HOME: '/default/home',
+        USERPROFILE: '/default/profile',
+        expected: '/default/home',
+      },
+      {
+        HOME: '',
+        USERPROFILE: '/default/profile',
+        expected: '/default/profile',
+      },
+    ])(
+      'falls back to $expected when CODEX_HOME is absent',
+      async ({ HOME, USERPROFILE, expected }) => {
+        process.env['HOME'] = HOME;
+        process.env['USERPROFILE'] = USERPROFILE;
+
+        await expect(adapter.ensureTokensFresh()).resolves.toBe(true);
+        expect(readAuth).toHaveBeenCalledWith(
+          path.join(expected, '.codex', 'auth.json'),
+          'utf-8',
+        );
+      },
+    );
+
+    it('falls back to os.homedir when home environment variables are absent', async () => {
+      await expect(adapter.ensureTokensFresh()).resolves.toBe(true);
+      expect(readAuth).toHaveBeenCalledWith(
+        path.join(homedir(), '.codex', 'auth.json'),
+        'utf-8',
+      );
+    });
+
+    it('passes the same CODEX_HOME to execution as the credential read uses', async () => {
+      process.env['CODEX_HOME'] = '/codex/execution';
+      const originalEnv = { ...process.env };
+      mockRunStreamed.mockResolvedValue({
+        events: createFakeEventGenerator([]),
+      });
+
+      await adapter.ensureTokensFresh();
+      const handle = await adapter.runSdk({
+        task: 'Check home',
+        workingDirectory: '/project/root',
+      });
+      await expect(handle.done).resolves.toBe(0);
+
+      const [options] = mockCodexConstructor.mock.calls[0] as [
+        { env: Record<string, string> },
+      ];
+      expect(options.env['CODEX_HOME']).toBe('/codex/execution');
+      expect(readAuth).toHaveBeenCalledWith(
+        path.join(options.env['CODEX_HOME'], 'auth.json'),
+        'utf-8',
+      );
+      expect(process.env).toEqual(originalEnv);
+    });
+
+    it('does not fall back to default credentials when the selected home cannot be read', async () => {
+      process.env['CODEX_HOME'] = '/codex/missing';
+      readAuth.mockRejectedValue(new Error('missing auth file'));
+
+      await expect(adapter.ensureTokensFresh()).resolves.toBe(false);
+      expect(readAuth).toHaveBeenCalledTimes(1);
+      expect(readAuth).toHaveBeenCalledWith(
+        path.join('/codex/missing', 'auth.json'),
+        'utf-8',
+      );
+    });
   });
 
   describe('detect()', () => {
@@ -469,6 +607,81 @@ describe('CodexCliAdapter', () => {
       await handle.done;
 
       expect(output).toContain('Hello world\n');
+    });
+
+    // TASK_2026_717: the frontend splits text blocks on messageId, so two
+    // agent messages no longer render as one glued answer.
+    it('tags agent_message text segments with the item id', async () => {
+      setupMockEvents([
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'msg1', text: 'Delegating.' },
+        },
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'msg2', text: 'Done.' },
+        },
+      ]);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      await handle.done;
+
+      expect(segments.filter((s) => s.type === 'text')).toEqual([
+        { type: 'text', content: 'Delegating.', messageId: 'msg1' },
+        { type: 'text', content: 'Done.', messageId: 'msg2' },
+      ]);
+    });
+
+    // TASK_2026_717 review finding 3: a completion longer than the last
+    // update must not lose its suffix.
+    describe('agent_message updates then completion', () => {
+      const textOf = async (events: unknown[]) => {
+        setupMockEvents(events as FakeCodexEvent[]);
+        const handle = await adapter.runSdk(defaultOptions);
+        const segments: CliOutputSegment[] = [];
+        handle.onSegment?.((segment) => segments.push(segment));
+        await handle.done;
+        return segments.filter((s) => s.type === 'text');
+      };
+      const message = (type: string, text: string) => ({
+        type,
+        item: { type: 'agent_message', id: 'm', text },
+      });
+
+      it('emits the completion suffix with the same messageId', async () => {
+        const text = await textOf([
+          message('item.updated', 'The answer is '),
+          message('item.completed', 'The answer is 42.'),
+        ]);
+        expect(text).toEqual([
+          { type: 'text', content: 'The answer is ', messageId: 'm' },
+          { type: 'text', content: '42.', messageId: 'm' },
+        ]);
+        expect(text.map((s) => s.content).join('')).toBe('The answer is 42.');
+      });
+
+      it('emits nothing more when the completion matches the last update', async () => {
+        const text = await textOf([
+          message('item.updated', 'Done.'),
+          message('item.completed', 'Done.'),
+        ]);
+        expect(text).toEqual([
+          { type: 'text', content: 'Done.', messageId: 'm' },
+        ]);
+      });
+
+      it('joins several updates and the completion into the final text', async () => {
+        const text = await textOf([
+          message('item.started', 'One'),
+          message('item.updated', 'One, two'),
+          message('item.updated', 'One, two, three'),
+          message('item.completed', 'One, two, three.'),
+        ]);
+        expect(text.every((s) => s.messageId === 'm')).toBe(true);
+        expect(text.map((s) => s.content).join('')).toBe('One, two, three.');
+      });
     });
 
     it('should push reasoning output to onOutput callback', async () => {
@@ -932,20 +1145,26 @@ describe('CodexCliAdapter', () => {
       try {
         const threadId = 't'.repeat(31_000);
         mockRunStreamed.mockImplementation(async () => ({
-          events: createFakeEventGenerator([{ type: 'thread.started', thread_id: threadId }]),
+          events: createFakeEventGenerator([
+            { type: 'thread.started', thread_id: threadId },
+          ]),
         }));
         const handle = await adapter.runSdk(defaultOptions);
         await handle.done;
         const outcome = await handle.continue?.('Follow-up message');
         expect(await outcome?.done).toBe(0);
-        expect(mockRunStreamed.mock.calls[1][0]).toContain('Lane policy id: ptah-lane-policy-v1');
+        expect(mockRunStreamed.mock.calls[1][0]).toContain(
+          'Lane policy id: ptah-lane-policy-v1',
+        );
         expect(handle.getLanePolicyDelivery?.()).toBe('task-prompt');
         // The policy moved to the task prompt, but the role never left
         // developer instructions (4332578858).
         expect(handle.getRoleDelivery?.()).toBe('developer-instructions');
         const later = await handle.continue?.('Later message');
         expect(await later?.done).toBe(0);
-        expect(mockRunStreamed.mock.calls[2][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+        expect(mockRunStreamed.mock.calls[2][0]).not.toContain(
+          'Lane policy id: ptah-lane-policy-v1',
+        );
       } finally {
         Reflect.set(adapter, 'argvLimitPlatform', process.platform);
       }
@@ -961,8 +1180,12 @@ describe('CodexCliAdapter', () => {
 
       expect(mockResumeThread).not.toHaveBeenCalled();
       expect(mockStartThread).toHaveBeenCalledTimes(2);
-      expect(mockRunStreamed.mock.calls[1][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
-      expect(overrideValue('developer_instructions', 1)).toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(mockRunStreamed.mock.calls[1][0]).not.toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
+      expect(overrideValue('developer_instructions', 1)).toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
     });
 
     it('streams the continued turn through the same onOutput callbacks', async () => {
@@ -1385,7 +1608,13 @@ describe('CodexCliAdapter', () => {
       );
       const input = mockRunStreamed.mock.calls[0][0] as string;
       expect(input).not.toContain('## Role: reviewer');
-      expect(input).toBe(buildTaskPrompt({ ...baseOptions, role: undefined, lanePolicyDelivery: 'developer-instructions' }));
+      expect(input).toBe(
+        buildTaskPrompt({
+          ...baseOptions,
+          role: undefined,
+          lanePolicyDelivery: 'developer-instructions',
+        }),
+      );
     });
 
     it('keeps a leading --- block of the role body in developer_instructions', async () => {
@@ -1423,7 +1652,9 @@ describe('CodexCliAdapter', () => {
       expect(followUp.startsWith('Follow-up')).toBe(true);
       expect(followUp).not.toContain('## Role: reviewer');
       expect(overrideValue('developer_instructions', 1)).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
+        CODEX_RESUME_RESENDS_ROLE
+          ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}`
+          : undefined,
       );
     });
 
@@ -1447,9 +1678,13 @@ describe('CodexCliAdapter', () => {
       await adapter.runSdk({ ...baseOptions, role: hugeRole });
 
       const instructions = String(overrideValue('developer_instructions'));
-      expect(instructions).toBe(`${renderRoleBlock(hugeRole, 'codex')}\n\n${PTAH_LANE_POLICY}`);
+      expect(instructions).toBe(
+        `${renderRoleBlock(hugeRole, 'codex')}\n\n${PTAH_LANE_POLICY}`,
+      );
       expect(hugeBody.length).toBeGreaterThan(1_000_000);
-      expect(renderRoleBlock(hugeRole, 'codex').length).toBeLessThanOrEqual(10_000);
+      expect(renderRoleBlock(hugeRole, 'codex').length).toBeLessThanOrEqual(
+        10_000,
+      );
       // The identity paragraph survives and the pointer names the full file.
       expect(instructions).toContain(identity);
       expect(instructions).toContain(`\`${hugeRole.sourcePath}\``);
@@ -1469,9 +1704,11 @@ describe('CodexCliAdapter', () => {
       const withRole = constructedOverrides(1).filter(
         (entry) => !entry.startsWith('developer_instructions='),
       );
-      expect(withRole).toEqual(constructedOverrides(0).filter(
-        (entry) => !entry.startsWith('developer_instructions='),
-      ));
+      expect(withRole).toEqual(
+        constructedOverrides(0).filter(
+          (entry) => !entry.startsWith('developer_instructions='),
+        ),
+      );
       expect(overrideValue('approval_policy', 1)).toBe('never');
       expect(overrideValue('model_reasoning_effort', 1)).toBe('high');
     });
@@ -1639,7 +1876,9 @@ describe('CodexCliAdapter', () => {
         'skills.include_instructions=false',
       );
       expect(overrideValue('developer_instructions')).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
+        CODEX_RESUME_RESENDS_ROLE
+          ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}`
+          : undefined,
       );
     });
 
@@ -1661,14 +1900,18 @@ describe('CodexCliAdapter', () => {
         'skills.include_instructions=false',
       );
       expect(overrideValue('developer_instructions', 1)).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
+        CODEX_RESUME_RESENDS_ROLE
+          ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}`
+          : undefined,
       );
       // The first turn carried the tool policy and (agent id + port) the
       // messaging block, so neither is resent; the contract always is.
       const firstInput = mockRunStreamed.mock.calls[0][0] as string;
       const followUp = mockRunStreamed.mock.calls[1][0] as string;
       expect(firstInput).not.toContain('Lane policy id: ptah-lane-policy-v1');
-      expect(overrideValue('developer_instructions')).toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(overrideValue('developer_instructions')).toContain(
+        'Lane policy id: ptah-lane-policy-v1',
+      );
       expect(followUp).not.toContain('Lane policy id: ptah-lane-policy-v1');
       expect(followUp.length).toBeLessThan(firstInput.length);
       expect(followUp).toContain('## Before you exit');

@@ -219,6 +219,7 @@ export {
   TIER_METADATA_ENV_VAR_MAP,
   ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
+  buildStaticTierCapabilityEnv,
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';
@@ -260,3 +261,5 @@ export {
   type SdkAdapterSubagentEndedEvent,
   type SdkAdapterTeammateIdleEvent,
 } from './sdk-adapter-events.service';
+export { applyClaudeAccountRouteEnv } from './claude-account-route-env';
+export * from './named-account-prompt-gate';

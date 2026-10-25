@@ -18,6 +18,14 @@
  *    - anything else → `provider-unsupported`, never read.
  * 2. **Local CLI stores**: installed `opencode`, `antigravity`, and `grok`.
  * 3. **The requested sessions' owners**, from the resolver's session route.
+ *    A session admitted on a named Claude account is read only from its own
+ *    query, and only while that session still holds the same record, query
+ *    and immutable binding (route, revision, auth epoch) it held when the
+ *    read began; a late answer from a replaced query is discarded and the
+ *    owner stays unknown for that route and session. Discovery holds no
+ *    certified route for such a session, so its card lists the proved owner
+ *    with ledger evidence and "no open session": it is never read through
+ *    another query, and its failed proof never becomes a known owner.
  * 4. **Lane owners from detection**: installed `codex`, and enabled Ptah CLI
  *    agents on Ollama Cloud (Glm included), each read with its own key. A
  *    missing key is still listed and reads `unsupported-config`; a
@@ -29,6 +37,10 @@
  *    status is the one `planOwnerRead` already knows for that owner (an
  *    Anthropic API key stays `unsupported-auth`); `service-unavailable` only
  *    when the owner would need a live read.
+ *
+ * The selected `claude-cli` provider is the ambient login: its card reads
+ * only a session with no named-account binding, never the newest native
+ * query of some other account.
  *
  * Owner keys come from `ProviderOwnerResolver` at call time, so a changed
  * account is a new key and a new target (Decision 10). The list is
@@ -76,10 +88,14 @@ import {
 } from '@ptah-extension/shared';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../../di/tokens';
 import {
+  NO_OPEN_SESSION,
+  namedSourceMaterial,
   planOwnerRead,
+  sameSourceBinding,
   snapshotWithoutRead,
   type PlanOwnerKnownStatus,
   type PlanOwnerReadContext,
+  type PlanOwnerSourceBinding,
 } from './plan-owner-read';
 
 /** Which source named an owner. */
@@ -153,6 +169,15 @@ export interface DiscoveryDetection {
 export interface DiscoveryPtahCliAgents {
   listAgents(): Promise<PtahCliSummary[]>;
 }
+/** The session record fields discovery checks; no directory, no secret. */
+export interface DiscoverySessionRecord {
+  readonly accountBinding?: PlanOwnerSourceBinding;
+  readonly query: unknown;
+}
+/** `SessionLifecycleManager.find`: which record a session id holds now. */
+export interface DiscoverySessions {
+  find(idOrTabId: string): DiscoverySessionRecord | undefined;
+}
 
 const CLAUDE_CLI_PROVIDER_ID = 'claude-cli';
 /** Selected providers read through their stored key. */
@@ -173,6 +198,8 @@ export class PlanLimitOwnerDiscoveryService {
   private completedCodexHomeOwner: QuotaOwnerRef | undefined;
   private codexHomeOwnerInFlight: Promise<QuotaOwnerRef> | null = null;
   private retainNextCodexHomeOwner = false;
+  /** Entries named by a session on a named Claude account. */
+  private readonly namedEntries = new WeakSet<DiscoveredPlanOwner>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -188,6 +215,11 @@ export class PlanLimitOwnerDiscoveryService {
     private readonly detection: DiscoveryDetection,
     @inject(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliAgents: DiscoveryPtahCliAgents,
+    // Optional only for hosts without a session lifecycle; the probe above
+    // needs one, so wherever discovery resolves this is registered too. With
+    // none, no session can carry a named-account binding.
+    @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly sessionRecords?: DiscoverySessions,
   ) {}
 
   /** The owners to show, deduplicated by owner key. Never rejects. */
@@ -233,9 +265,21 @@ export class PlanLimitOwnerDiscoveryService {
         deadlineAt,
       ),
       detected.then((results) =>
-        this.fromSource('cli-store', () => this.cliStores(results ?? []), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+        this.fromSource(
+          'cli-store',
+          () => this.cliStores(results ?? []),
+          undefined,
+          LIMIT_LOOKUP_DEADLINE_MS,
+          deadlineAt,
+        ),
       ),
-      this.fromSource('session', () => this.sessions(sessionIds), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+      this.fromSource(
+        'session',
+        () => this.sessions(sessionIds),
+        undefined,
+        LIMIT_LOOKUP_DEADLINE_MS,
+        deadlineAt,
+      ),
       detected.then((results) =>
         this.fromSource(
           'lane',
@@ -245,21 +289,47 @@ export class PlanLimitOwnerDiscoveryService {
           deadlineAt,
         ),
       ),
-      this.fromSource('ptah-cli', () => this.ptahCliLanes(), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
-      this.fromSource('owner-key', () => Promise.resolve(
-        this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
-      ), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
-      this.fromSource('active-evidence', () => Promise.resolve(
-        this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
-      ), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+      this.fromSource(
+        'ptah-cli',
+        () => this.ptahCliLanes(),
+        undefined,
+        LIMIT_LOOKUP_DEADLINE_MS,
+        deadlineAt,
+      ),
+      this.fromSource(
+        'owner-key',
+        () =>
+          Promise.resolve(
+            this.ledgerOnly(
+              parseOwnerKeys(request.ownerKeys ?? []),
+              'owner-key',
+            ),
+          ),
+        undefined,
+        LIMIT_LOOKUP_DEADLINE_MS,
+        deadlineAt,
+      ),
+      this.fromSource(
+        'active-evidence',
+        () =>
+          Promise.resolve(
+            this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
+          ),
+        undefined,
+        LIMIT_LOOKUP_DEADLINE_MS,
+        deadlineAt,
+      ),
     ];
     for (const entries of await Promise.all(sources)) add(entries ?? []);
     const entries = [...listed.values()];
-    // Native Claude routes in this SDK process use the same config home.
-    // Suppress a missing-email route only when exactly one verified account
-    // is present. Multiple verified accounts make the fallback ambiguous.
+    // Ambient native Claude routes in this SDK process use the same config
+    // home. Suppress a missing-email route only when exactly one verified
+    // ambient account is present. A named account runs in its own directory,
+    // so it never vouches for the ambient route; several verified ambient
+    // accounts make the fallback ambiguous.
     const verified = new Set(
       entries
+        .filter((entry) => !this.namedEntries.has(entry))
         .map(ownerOf)
         .filter(
           (owner) =>
@@ -282,7 +352,9 @@ export class PlanLimitOwnerDiscoveryService {
     });
     // A timed-out detection keeps running in the detection service. Tell the
     // caller this roster needs another pull once its shared promise settles.
-    return Object.assign(visible, { discoveryIncomplete: (await detected) === undefined });
+    return Object.assign(visible, {
+      discoveryIncomplete: (await detected) === undefined,
+    });
   }
 
   /**
@@ -400,12 +472,72 @@ export class PlanLimitOwnerDiscoveryService {
     sessionIds: readonly string[],
   ): Promise<Array<DiscoveredPlanOwner | undefined>> {
     return Promise.all(
-      sessionIds.map(async (sessionId) =>
-        this.entryFor(await this.owners.ownerForSession(sessionId), 'session', {
-          sessionId,
-        }),
-      ),
+      sessionIds.map(async (sessionId) => {
+        const record = this.sessionRecords?.find(sessionId);
+        const binding = record?.accountBinding;
+        if (record !== undefined && binding !== undefined) {
+          return this.namedSession(sessionId, record, binding);
+        }
+        return this.entryFor(
+          await this.owners.ownerForSession(sessionId),
+          'session',
+          { sessionId },
+        );
+      }),
     );
+  }
+
+  /**
+   * A session on a named Claude account. Its identity is read from its own
+   * query; the answer counts only when the session still holds the same
+   * record, query and binding afterwards. Anything else (a replaced query, a
+   * changed binding, a failed or email-less read, a non-Claude answer) is an
+   * unknown owner keyed by this route, revision, epoch and session, so it is
+   * never merged with, or promoted to, a known owner.
+   */
+  private async namedSession(
+    sessionId: string,
+    record: DiscoverySessionRecord,
+    binding: PlanOwnerSourceBinding,
+  ): Promise<DiscoveredPlanOwner> {
+    const source: PlanOwnerSourceBinding = {
+      provider: binding.provider,
+      routeFingerprint: binding.routeFingerprint,
+      routeRevision: binding.routeRevision,
+      authEpoch: binding.authEpoch,
+    };
+    const query = record.query;
+    let owner: QuotaOwnerRef | undefined;
+    try {
+      owner = await this.owners.ownerForSession(sessionId);
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged at debug; the owner stays
+      // unknown for this route and session only.
+      this.logger.debug('[PlanLimitOwnerDiscovery] named owner read failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+    }
+    const current = this.sessionRecords?.find(sessionId);
+    const proved =
+      owner !== undefined &&
+      owner.providerId === 'anthropic' &&
+      owner.identityKind === 'account' &&
+      current === record &&
+      query !== null &&
+      current.query === query &&
+      sameSourceBinding(current.accountBinding, source);
+    const entry = this.known(
+      proved && owner
+        ? owner
+        : this.owners.ownerForClaudeAccount(
+            null,
+            namedSourceMaterial(source, `session:${sessionId}`),
+          ),
+      NO_OPEN_SESSION,
+      'session',
+    );
+    this.namedEntries.add(entry);
+    return entry;
   }
 
   private async detectedLanes(
@@ -551,14 +683,20 @@ export class PlanLimitOwnerDiscoveryService {
     return { config, providers };
   }
 
-  /** The first requested, else any ledger-known, session on a native route. */
+  /**
+   * The first requested, else any ledger-known, session on the ambient
+   * native route. A session bound to a named account runs in another
+   * directory, so it never stands in for the ambient login.
+   */
   private nativeSession(sessionIds: readonly string[]): string | undefined {
     const candidates = [
       ...sessionIds,
       ...Object.keys(this.ledger.sessionOwners()),
     ];
     return candidates.find(
-      (sessionId) => this.probe.sessionRoute(sessionId)?.routeKind === 'native',
+      (sessionId) =>
+        this.probe.sessionRoute(sessionId)?.routeKind === 'native' &&
+        this.sessionRecords?.find(sessionId)?.accountBinding === undefined,
     );
   }
 
@@ -608,7 +746,9 @@ export class PlanLimitOwnerDiscoveryService {
     const remainingMs = Math.min(deadlineMs, deadlineAt - Date.now());
     if (remainingMs <= 0) {
       onTimeout?.();
-      this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', { source });
+      this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', {
+        source,
+      });
       return undefined;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;

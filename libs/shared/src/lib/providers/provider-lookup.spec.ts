@@ -23,13 +23,14 @@ import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
   getProviderBaseUrl,
+  getStaticModelCapabilities,
   isSubscriptionCoveredProvider,
   seedStaticModelPricing,
   setCustomProviderEntries,
   CustomProviderEntrySchema,
   type AnthropicProvider,
 } from './provider-registry';
-import { getPricingMap } from '../utils/pricing.utils';
+import { findModelPricing, getPricingMap } from '../utils/pricing.utils';
 
 /**
  * The shipped registry, widened from its literal tuple type so the optional
@@ -194,5 +195,91 @@ describe('seedStaticModelPricing', () => {
     // Their static entries carry $0; publishing that under a bare model id
     // makes the next usage-billed session serving the same id read as free.
     expect(getPricingMap()).toEqual(before);
+  });
+});
+
+describe('kimi-code registry entry', () => {
+  const kimi = getAnthropicProvider('kimi-code');
+
+  it('is the subscription coding endpoint authenticated with x-api-key', () => {
+    expect(kimi).toBeDefined();
+    expect(kimi?.baseUrl).toBe('https://api.kimi.ai/coding/');
+    expect(kimi?.authEnvVar).toBe('ANTHROPIC_API_KEY');
+    expect(kimi?.authType).toBe('apiKey');
+    expect(kimi?.requiresProxy).toBe(false);
+    expect(kimi?.pricingModel).toBe('subscription');
+    expect(kimi?.modelsEndpoint).toBeUndefined();
+    expect(isSubscriptionCoveredProvider('kimi-code')).toBe(true);
+  });
+
+  it('defaults to the K3.1 Pro / K3 / Kimi for Coding tiers, all in the static list', () => {
+    expect(kimi?.defaultTiers).toEqual({
+      opus: 'k3.1-pro',
+      sonnet: 'k3',
+      haiku: 'kimi-for-coding',
+    });
+    const ids = (kimi?.staticModels ?? []).map((m) => m.id);
+    for (const tierModel of Object.values(kimi?.defaultTiers ?? {})) {
+      expect(ids).toContain(tierModel);
+    }
+  });
+
+  it('declares no per-token cost on any static model', () => {
+    for (const model of kimi?.staticModels ?? []) {
+      expect(model.inputCostPerToken).toBeUndefined();
+      expect(model.outputCostPerToken).toBeUndefined();
+      expect(model.cacheReadCostPerToken).toBeUndefined();
+      expect(model.cacheCreationCostPerToken).toBeUndefined();
+    }
+  });
+
+  it('leaves the pricing map without a kimi-code rate after seeding', () => {
+    seedStaticModelPricing('kimi-code');
+    expect(findModelPricing('k3')).toBeNull();
+  });
+
+  it('replaces the moonshot entry rather than sitting beside it', () => {
+    expect(getAnthropicProvider('moonshot')).toBeUndefined();
+    expect(PROVIDERS.map((p) => p.id)).not.toContain('moonshot');
+  });
+});
+
+describe('getStaticModelCapabilities', () => {
+  it('returns the declared list by case-insensitive exact id', () => {
+    const expected = [
+      'thinking',
+      'interleaved_thinking',
+      'effort',
+      'xhigh_effort',
+      'max_effort',
+    ];
+    expect(getStaticModelCapabilities('kimi-code', 'k3')).toEqual(expected);
+    expect(getStaticModelCapabilities('kimi-code', 'K3')).toEqual(expected);
+    expect(getStaticModelCapabilities('kimi-code', 'k3.1-pro[1m]')).toEqual(
+      expected,
+    );
+  });
+
+  it('returns undefined for an unknown model, a prefix match or an unknown provider', () => {
+    expect(getStaticModelCapabilities('kimi-code', 'k4')).toBeUndefined();
+    expect(getStaticModelCapabilities('kimi-code', 'k3.1')).toBeUndefined();
+    expect(
+      getStaticModelCapabilities('no-such-provider', 'k3'),
+    ).toBeUndefined();
+  });
+
+  it('returns undefined for a static model that declares no capabilities', () => {
+    const undeclared = PROVIDERS.flatMap((p) =>
+      (p.staticModels ?? [])
+        .filter((m) => m.capabilities === undefined)
+        .map((m) => ({ providerId: p.id, modelId: m.id })),
+    )[0];
+    expect(undeclared).toBeDefined();
+    expect(
+      getStaticModelCapabilities(
+        undeclared?.providerId as string,
+        undeclared?.modelId as string,
+      ),
+    ).toBeUndefined();
   });
 });

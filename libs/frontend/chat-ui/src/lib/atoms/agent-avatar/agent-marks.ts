@@ -20,12 +20,19 @@ import type { CliType } from '@ptah-extension/shared';
 
 /**
  * THE `cliId -> providerId` table for CLI lane marks. Every id resolves in
- * `ptah-provider-mark`: six through `PROVIDER_BRAND_SLUGS` (vendored art) and
+ * `ptah-provider-mark`: seven through `PROVIDER_BRAND_SLUGS` (vendored art) and
  * `pi` / `ptah-cli` through `PROVIDER_MARKS` (hand-authored strokes). Keyed by
- * `CliType`, so a new CLI fails typecheck until it gets a row. The Claude
- * mark is never produced here: it belongs to the Orchestrator only.
+ * `CliType`, so a new CLI fails typecheck until it gets a row.
+ *
+ * The system `claude` CLI lane uses the existing `claude-cli` provider id, which
+ * draws the vendored Claude art. It stays distinct from `ptah-cli`, the
+ * configured Ptah CLI (SDK) provider, and from the `anthropic` API provider.
+ * The key is typed explicitly so that this table compiles both before and after
+ * `claude` joins `CliType`.
  */
-export const CLI_PROVIDER_MARK_IDS: Readonly<Record<CliType, string>> = {
+export const CLI_PROVIDER_MARK_IDS: Readonly<
+  Record<CliType | 'claude', string>
+> = {
   codex: 'codex',
   copilot: 'copilot',
   cursor: 'cursor',
@@ -34,6 +41,7 @@ export const CLI_PROVIDER_MARK_IDS: Readonly<Record<CliType, string>> = {
   grok: 'grok',
   pi: 'pi',
   'ptah-cli': 'ptah-cli',
+  claude: 'claude-cli',
 };
 
 /** The mark of a CLI lane: a provider mark, or a lettered monogram. */
@@ -55,7 +63,8 @@ export function cliMarkFor(cliId: string | null | undefined): CliMark {
   if (Object.hasOwn(CLI_PROVIDER_MARK_IDS, id)) {
     return {
       kind: 'provider',
-      providerId: CLI_PROVIDER_MARK_IDS[id as CliType],
+      providerId:
+        CLI_PROVIDER_MARK_IDS[id as keyof typeof CLI_PROVIDER_MARK_IDS],
     };
   }
   return { kind: 'monogram', label: id };

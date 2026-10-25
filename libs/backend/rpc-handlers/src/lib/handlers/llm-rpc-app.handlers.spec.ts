@@ -208,7 +208,7 @@ async function call<TResult>(
 const ENV_KEYS = [
   'ANTHROPIC_API_KEY',
   'OPENROUTER_API_KEY',
-  'MOONSHOT_API_KEY',
+  'KIMI_CODE_API_KEY',
   'Z_AI_API_KEY',
 ];
 
@@ -561,7 +561,7 @@ describe('LlmRpcHandlers', () => {
   describe('llm:getDefaultProvider', () => {
     it('returns the configured default provider', async () => {
       const h = makeHarness({
-        configSeed: { 'llm.defaultProvider': 'moonshot' },
+        configSeed: { 'llm.defaultProvider': 'kimi-code' },
       });
       h.handlers.register();
 
@@ -569,7 +569,7 @@ describe('LlmRpcHandlers', () => {
         h,
         'llm:getDefaultProvider',
       );
-      expect(result.provider).toBe('moonshot');
+      expect(result.provider).toBe('kimi-code');
     });
 
     it('falls back to "anthropic" when unset', async () => {
@@ -680,6 +680,25 @@ describe('LlmRpcHandlers', () => {
         { provider: 'openrouter', apiKey: `sk-or-${'x'.repeat(25)}` },
       );
       expect(result.valid).toBe(true);
+    });
+
+    it('validates Kimi Code keys by length only (no fixed prefix)', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const good = await call<{ valid: boolean }>(
+        h,
+        'llm:validateApiKeyFormat',
+        { provider: 'kimi-code', apiKey: 'a'.repeat(11) },
+      );
+      expect(good.valid).toBe(true);
+
+      const short = await call<{ valid: boolean }>(
+        h,
+        'llm:validateApiKeyFormat',
+        { provider: 'kimi-code', apiKey: 'a'.repeat(5) },
+      );
+      expect(short.valid).toBe(false);
     });
 
     it('falls back to length>10 heuristic for unknown providers', async () => {

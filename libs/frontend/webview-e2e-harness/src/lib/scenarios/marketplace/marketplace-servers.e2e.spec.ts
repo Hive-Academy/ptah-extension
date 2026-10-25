@@ -334,9 +334,10 @@ test.describe('webview > marketplace > workspace switch with a detail open (TASK
     // Wide tier so the detail docks instead of opening as an overlay drawer:
     // the drawer's full-viewport backdrop would otherwise block the
     // workspace-sidebar click below, which is not what this scenario is
-    // testing. Electron's own chrome (workspace sidebar) eats part of the
-    // viewport before it reaches the marketplace shell, so the viewport is
-    // wider than the 1400px wide-tier threshold by a comfortable margin.
+    // testing. Electron's own chrome (the workspace sidebar, opened below)
+    // eats part of the viewport before it reaches the marketplace shell, so
+    // the viewport is wider than the 1400px wide-tier threshold by a
+    // comfortable margin.
     await page.setViewportSize({ width: 1800, height: 900 });
 
     // Open a detail that workspace B's (reduced) answer will NOT contain:
@@ -363,6 +364,8 @@ test.describe('webview > marketplace > workspace switch with a detail open (TASK
     // `force: true` — the drawer-backdrop assertion two lines above is the
     // guard against the one known overlap in this component family (the
     // lock-popover defect), and this click is nowhere near that popover.
+    // The Workspaces panel starts closed, so open it first.
+    await page.getByRole('button', { name: 'Toggle Workspaces panel' }).click();
     await page.locator('[title="C:\\\\ptah-e2e-ws-b"]').click();
 
     // (a) the URL/route is unchanged (still the MCP Servers page — checked

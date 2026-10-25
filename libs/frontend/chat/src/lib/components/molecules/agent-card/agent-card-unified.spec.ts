@@ -23,6 +23,7 @@ import { AgentCardComponent } from './agent-card.component';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { AgentMonitorTreeBuilderService } from '../../../services/agent-monitor-tree-builder.service';
 import { extractCliAgentStats } from './stats-bar.utils';
+import { ChatStore } from '../../../services/chat.store';
 
 function makeAgent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   return {
@@ -47,6 +48,13 @@ describe('agent card unified output regressions', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent, CliAgentOutputComponent],
       providers: [
+        {
+          provide: ChatStore,
+          useValue: {
+            getPermissionForTool: () => null,
+            handlePermissionResponse: jest.fn(),
+          },
+        },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
         {

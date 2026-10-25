@@ -20,7 +20,7 @@
  *     `defaultTiers` — its own entry says "tiers come from the live model list
  *     instead" (`requesty-provider-entry.ts:19-23`). The direct third-party
  *     path, with no proxy in the way.
- *   - `moonshot`: declares all three `defaultTiers`. The precedence control,
+ *   - `kimi-code`: declares all three `defaultTiers`. The precedence control,
  *     and the proof that removing the ladder's `defaultTiers` rung changed
  *     nothing.
  */
@@ -270,21 +270,21 @@ describe('WorkspaceProviderProfileResolver — live-catalogue tiers', () => {
   it('lets a registry defaultTiers map outrank the catalogue', async () => {
     // A verified tier map is a statement by whoever added the entry; the
     // derivation is a heuristic over a list. The statement wins.
-    const expected = getAnthropicProvider('moonshot')?.defaultTiers?.opus;
+    const expected = getAnthropicProvider('kimi-code')?.defaultTiers?.opus;
     expect(expected).toBeTruthy();
 
     const { resolver } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'kimi-code',
       },
       configValues: {
-        'provider.moonshot.modelCatalog': {
+        'provider.kimi-code.modelCatalog': {
           models: ROUTER_MODELS,
           timestamp: Date.now(),
         },
       },
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
     const profile = await resolver.resolveProviderProfileForWorkspace(
@@ -308,13 +308,13 @@ describe('WorkspaceProviderProfileResolver — the post-fallback ladder', () => 
     // so an empty snapshot opus var means an empty `defaults.opus` too. This
     // case pins that the value arrives anyway, which is what makes the removal
     // a no-op rather than a regression.
-    const expected = getAnthropicProvider('moonshot')?.defaultTiers?.opus;
+    const expected = getAnthropicProvider('kimi-code')?.defaultTiers?.opus;
     const { resolver } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'kimi-code',
       },
-      providerKeys: { moonshot: 'moon-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
     const profile = await resolver.resolveProviderProfileForWorkspace(
@@ -381,10 +381,10 @@ describe('WorkspaceProviderProfileResolver — chat sessions without an override
     const { resolver, globalAuthEnv } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'kimi-code',
       },
       ownOverride: false,
-      providerKeys: { moonshot: 'ms-key' },
+      providerKeys: { 'kimi-code': 'kimi-key' },
     });
 
     const profile = await resolver.resolveProviderProfileForWorkspace(
@@ -392,9 +392,127 @@ describe('WorkspaceProviderProfileResolver — chat sessions without an override
       'default',
     );
 
-    expect(profile?.providerId).toBe('moonshot');
-    expect(Object.values(profile?.authEnv ?? {})).toContain('ms-key');
+    expect(profile?.providerId).toBe('kimi-code');
+    expect(Object.values(profile?.authEnv ?? {})).toContain('kimi-key');
     expect(globalAuthEnv).toEqual({});
+  });
+
+  it('isolates a kimi-code snapshot: API key set, AUTH_TOKEN blanked, tier capabilities declared', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'kimi-code',
+      },
+      providerKeys: { 'kimi-code': 'kimi-key' },
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+    // The snapshot is a full AuthEnv at runtime; ProviderProfileAuthEnv only
+    // types the subset the SDK adapter reads by name.
+    const env = profile?.authEnv as Record<string, string | undefined>;
+    const capabilities =
+      'thinking,interleaved_thinking,effort,xhigh_effort,max_effort';
+
+    expect(env['ANTHROPIC_BASE_URL']).toBe('https://api.kimi.ai/coding/');
+    expect(env['ANTHROPIC_API_KEY']).toBe('kimi-key');
+    // Blanked by presence so the session's `process.env` spread cannot carry
+    // the global provider's bearer token to Kimi.
+    expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('');
+    expect(env['ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES']).toBe(
+      capabilities,
+    );
+    expect(env['ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES']).toBe(
+      capabilities,
+    );
+    expect(env['ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES']).toBe(
+      capabilities,
+    );
+  });
+
+  // The session env is `{ ...process.env, ...snapshot }`, and the globally
+  // active provider (here Kimi Code) leaves its tier vars in `process.env`.
+  // Every tier key must be PRESENT in the snapshot so it wins the spread, and
+  // `undefined` (not '') so the runtime treats it as unset: it skips a
+  // capability override only when the var is `undefined`, while '' is an empty
+  // allowlist that disables every capability of the tier model.
+  const AMBIENT_KIMI_TIER_ENV: Record<string, string> = {
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'k3.1-pro',
+    ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'Kimi K3.1 Pro',
+    ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION: 'Kimi description',
+    ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES:
+      'thinking,interleaved_thinking,effort,xhigh_effort,max_effort',
+    ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES: 'thinking',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES: 'thinking',
+    ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'Kimi sonnet label',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION: 'Kimi haiku description',
+  };
+  const TIER_METADATA_KEYS = [
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+  ];
+
+  it('clears every undeclared tier metadata key so the global provider values cannot leak', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'z-ai',
+      },
+      providerKeys: { 'z-ai': 'zai-key' },
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+    const env = profile?.authEnv as Record<string, string | undefined>;
+    expect(profile?.providerId).toBe('z-ai');
+
+    for (const key of TIER_METADATA_KEYS) {
+      expect(Object.prototype.hasOwnProperty.call(env, key)).toBe(true);
+      expect(env[key]).toBeUndefined();
+    }
+    const sessionEnv = { ...AMBIENT_KIMI_TIER_ENV, ...env };
+    for (const key of TIER_METADATA_KEYS) {
+      expect(sessionEnv[key]).toBeUndefined();
+    }
+    // The provider's own tier model still wins over the ambient one.
+    expect(sessionEnv['ANTHROPIC_DEFAULT_OPUS_MODEL']).toBe(
+      env['ANTHROPIC_DEFAULT_OPUS_MODEL'],
+    );
+    expect(sessionEnv['ANTHROPIC_DEFAULT_OPUS_MODEL']).not.toBe('k3.1-pro');
+  });
+
+  it('clears every tier key for a direct-Anthropic workspace', async () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'claudeCli' },
+    });
+
+    const profile = await resolver.resolveProviderProfileForWorkspace(
+      WORKSPACE,
+      'default',
+    );
+    const env = profile?.authEnv as Record<string, string | undefined>;
+    const sessionEnv = { ...AMBIENT_KIMI_TIER_ENV, ...env };
+
+    for (const key of [
+      'ANTHROPIC_DEFAULT_OPUS_MODEL',
+      'ANTHROPIC_DEFAULT_SONNET_MODEL',
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+      ...TIER_METADATA_KEYS,
+    ]) {
+      expect(Object.prototype.hasOwnProperty.call(env, key)).toBe(true);
+      expect(sessionEnv[key]).toBeUndefined();
+    }
   });
 
   it('pins an inherited proxy provider to the pooled proxy', async () => {
@@ -425,7 +543,7 @@ describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () =>
     const WS_A = 'D:/projects/a';
     const WS_B = 'D:/projects/b';
     const settingsByPath: Record<string, Record<string, unknown>> = {
-      [WS_A]: { authMethod: 'thirdParty', anthropicProviderId: 'moonshot' },
+      [WS_A]: { authMethod: 'thirdParty', anthropicProviderId: 'kimi-code' },
     };
     const { resolver, globalAuthEnv, shared } = createHarness({
       // B has no override: it inherits the global provider.
@@ -435,11 +553,11 @@ describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () =>
       },
       settingsByPath,
       providerKeys: {
-        moonshot: 'ms-key',
+        'kimi-code': 'kimi-key',
         'z-ai': 'zai-key',
         requesty: 'rq-key',
       },
-      sharedAuth: { authMethod: 'thirdParty', providerId: 'moonshot' },
+      sharedAuth: { authMethod: 'thirdParty', providerId: 'kimi-code' },
     });
 
     const sessionB = await resolver.resolveProviderProfileForWorkspace(
@@ -478,11 +596,11 @@ describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () =>
 
 describe('WorkspaceProviderProfileResolver — no snapshot', () => {
   it('fails closed when the shared auth env serves a different provider', async () => {
-    // Moonshot resolved, but no key is stored: no snapshot can be built.
+    // Kimi Code resolved, but no key is stored: no snapshot can be built.
     const { resolver } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'kimi-code',
       },
       sharedAuth: { authMethod: 'thirdParty', providerId: 'openrouter' },
     });
@@ -493,7 +611,7 @@ describe('WorkspaceProviderProfileResolver — no snapshot', () => {
     );
 
     await expect(attempt).rejects.toBeInstanceOf(AuthRequiredError);
-    await expect(attempt).rejects.toMatchObject({ providerId: 'moonshot' });
+    await expect(attempt).rejects.toMatchObject({ providerId: 'kimi-code' });
   });
 
   it('fails closed when the shared auth env holds no configuration', async () => {

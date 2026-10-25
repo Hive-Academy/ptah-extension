@@ -7,7 +7,7 @@
  * (`.ptah/specs/TASK_2026_631_7a3e/prototype/index.html`): one accent per
  * vendor across its ids (`anthropic`/`claude-cli`, `openai-codex`/`codex`,
  * `opencode`/`-go`/`-zen`, `ollama`/`ollama-cloud`, `github-copilot`/`copilot`).
- * The ids added in revise-1 (`openrouter`, `moonshot`, `z-ai`, `grok`) are
+ * The ids added in revise-1 (`openrouter`, `kimi-code`, `z-ai`, `grok`) are
  * the other owner ids `ProviderMarkComponent` draws a real vendored mark for
  * (`PROVIDER_BRAND_SLUGS` in libs/frontend/ui); their hues approximate each
  * vendor's current brand (OpenRouter "Grape" purple, Moonshot/Kimi indigo,
@@ -32,7 +32,7 @@ export const PROVIDER_ACCENTS: Readonly<Record<string, string>> = {
   ollama: '#9ca3af',
   'ollama-cloud': '#9ca3af',
   openrouter: '#6d28d9',
-  moonshot: '#4f46e5',
+  'kimi-code': '#4f46e5',
   'z-ai': '#0ea5e9',
   grok: '#71717a',
 };

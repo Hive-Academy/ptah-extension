@@ -321,11 +321,11 @@ for (const host of HOSTS) {
       );
       // A compact field names each option by its ID, then its display name.
       await listbox
-        .getByRole('option', { name: 'kimi-k2.5 Kimi K2.5', exact: true })
+        .getByRole('option', { name: 'k3 K3', exact: true })
         .click();
       await expectCall(page, before, 'ptahCli:update', {
         id: GLM_ID,
-        tierMappings: { ...GLM_TIERS, sonnet: 'kimi-k2.5' },
+        tierMappings: { ...GLM_TIERS, sonnet: 'k3' },
       });
       const updates = getFixtureState(page)
         .calls.slice(before)

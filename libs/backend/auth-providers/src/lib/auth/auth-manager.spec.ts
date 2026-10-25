@@ -31,9 +31,11 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import { SdkError } from '@ptah-extension/agent-sdk';
 import { AuthManager } from './auth-manager';
 import { ActiveProviderResolver } from './active-provider-resolver';
 import type {
+  AuthOperationContext,
   IAuthStrategy,
   AuthConfigureContext,
   AuthConfigureResult,
@@ -434,7 +436,7 @@ describe('AuthManager', () => {
       },
     );
 
-    it.each(['moonshot', 'z-ai'])(
+    it.each(['kimi-code', 'z-ai'])(
       "routes 'thirdParty' + %s to api-key",
       async (providerId) => {
         const { manager, strategies } = makeManager({
@@ -788,6 +790,207 @@ describe('AuthManager', () => {
   // -------------------------------------------------------------------------
   // Result propagation and logging
   // -------------------------------------------------------------------------
+
+  describe('operation intent and keyed flights', () => {
+    const context: AuthOperationContext = {
+      providerId: 'openai-codex',
+      reason: 'provider-selection',
+      hostNativeCodex: true,
+      normalizedHome: '/home/codex-a',
+    };
+
+    it.each([
+      'startup',
+      'provider-selection',
+      'reauth',
+      'auth-file-changed',
+    ] as const)(
+      'tears down managed Claude auth and process env on native provider switch for %s',
+      async (reason) => {
+        const { manager, strategies, authEnv, providerModels } = makeManager();
+        strategies.apiKey.configure.mockResolvedValue({
+          configured: true,
+          details: [],
+        });
+        await manager.configureAuthentication('apiKey');
+        authEnv.ANTHROPIC_API_KEY = 'test-key';
+        process.env['ANTHROPIC_API_KEY'] = 'test-key';
+        providerModels.clearAllTierEnvVars.mockClear();
+        const result = await manager.configureAuthentication('thirdParty', {
+          ...context,
+          reason,
+        });
+        expect(result.configured).toBe(false);
+        expect(manager.getConfiguredAuth()).toBeNull();
+        expect(authEnv.ANTHROPIC_API_KEY).toBeUndefined();
+        expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+        expect(providerModels.clearAllTierEnvVars).toHaveBeenCalledTimes(1);
+        expect(strategies.apiKey.teardown).toHaveBeenCalledTimes(1);
+        expect(strategies.oauthProxy.configure).not.toHaveBeenCalled();
+        await manager.configureAuthentication('apiKey');
+        expect(strategies.apiKey.teardown).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      { ...context, reason: 'legacy-session-start' as const },
+      { ...context, hostNativeCodex: false },
+      { ...context, providerId: 'github-copilot' },
+    ])(
+      'delegates legacy and Copilot intent to the existing proxy strategy',
+      async (intent) => {
+        const { manager, strategies } = makeManager();
+        strategies.oauthProxy.configure.mockResolvedValue({
+          configured: true,
+          details: [],
+        });
+        await manager.configureAuthentication('thirdParty', intent);
+        expect(strategies.oauthProxy.configure).toHaveBeenCalledWith(
+          expect.objectContaining({
+            providerId: intent.providerId,
+            operationContext: intent,
+          }),
+        );
+      },
+    );
+
+    it.each([
+      { normalizedHome: '/home/codex-b' },
+      { reason: 'reauth' as const },
+      { hostNativeCodex: true },
+      { providerId: 'github-copilot' },
+    ])(
+      'serializes incompatible flights without sharing results: %j',
+      async (change) => {
+        const { manager, strategies } = makeManager();
+        const gate = deferred<AuthConfigureResult>();
+        strategies.oauthProxy.configure
+          .mockReturnValueOnce(gate.promise)
+          .mockResolvedValue({ configured: true, details: ['second'] });
+        const intent = { ...context, hostNativeCodex: false };
+        const first = manager.configureAuthentication('thirdParty', intent);
+        const second = manager.configureAuthentication('thirdParty', {
+          ...intent,
+          ...change,
+        });
+        const duplicate = manager.configureAuthentication('thirdParty', {
+          ...intent,
+          ...change,
+        });
+        expect(strategies.oauthProxy.configure).toHaveBeenCalledTimes(1);
+        gate.resolve({ configured: true, details: ['first'] });
+        const results = await Promise.all([first, second, duplicate]);
+        expect(results[0]).not.toBe(results[1]);
+        expect(results[1]).toBe(results[2]);
+        expect(strategies.oauthProxy.configure).toHaveBeenCalledTimes(
+          'hostNativeCodex' in change ? 1 : 2,
+        );
+      },
+    );
+
+    it('runs queued legacy work after a failed operation and snapshots its intent', async () => {
+      const { manager, strategies } = makeManager();
+      const gate = deferred<AuthConfigureResult>();
+      strategies.apiKey.configure.mockReturnValue(
+        gate.promise.then(() => {
+          throw new Error('failed');
+        }),
+      );
+      strategies.oauthProxy.configure.mockResolvedValue({
+        configured: true,
+        details: ['legacy'],
+      });
+      const first = manager.configureAuthentication('apiKey');
+      const failure = expect(first).rejects.toThrow('failed');
+      const intent: AuthOperationContext = {
+        ...context,
+        reason: 'legacy-session-start',
+      };
+      const second = manager.configureAuthentication('thirdParty', intent);
+      intent.providerId = 'github-copilot';
+      gate.resolve({ configured: false, details: [] });
+      await failure;
+      expect((await second).details).toEqual(['legacy']);
+      expect(strategies.oauthProxy.configure).toHaveBeenCalledWith(
+        expect.objectContaining({ providerId: 'openai-codex' }),
+      );
+    });
+
+    it('captures provider settings separately for overlapping context-free callers', async () => {
+      const { manager, strategies, scopeResolver } = makeManager({
+        config: { anthropicProviderId: 'openai-codex' },
+      });
+      const gate = deferred<AuthConfigureResult>();
+      strategies.oauthProxy.configure
+        .mockReturnValueOnce(gate.promise)
+        .mockResolvedValueOnce({ configured: true, details: ['copilot'] });
+      const first = manager.configureAuthentication('thirdParty');
+      scopeResolver.read.mockImplementation((key) =>
+        key === 'anthropicProviderId' ? 'github-copilot' : undefined,
+      );
+      const second = manager.configureAuthentication('thirdParty');
+      expect(strategies.oauthProxy.configure).toHaveBeenCalledTimes(1);
+      gate.resolve({ configured: true, details: ['codex'] });
+      expect((await first).details).toEqual(['codex']);
+      expect((await second).details).toEqual(['copilot']);
+      expect(strategies.oauthProxy.configure).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ providerId: 'github-copilot' }),
+      );
+    });
+
+    it('validates context before touching the shared environment', async () => {
+      const { manager, providerModels } = makeManager();
+      await expect(
+        manager.configureAuthentication('thirdParty', {
+          ...context,
+          providerId: '',
+        }),
+      ).rejects.toThrow('Invalid auth operation context');
+      expect(providerModels.clearAllTierEnvVars).not.toHaveBeenCalled();
+    });
+
+    it('honors native intent before checking the stale non-thirdParty auth method', async () => {
+      const { manager, strategies } = makeManager();
+      expect(
+        (await manager.configureAuthentication('apiKey', context)).configured,
+      ).toBe(false);
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+    });
+
+    it('switches legacy proxy to native and back without stale proxy or Claude env', async () => {
+      const { manager, strategies, authEnv } = makeManager({
+        config: { anthropicProviderId: 'openai-codex' },
+      });
+      strategies.oauthProxy.configure.mockImplementation(async () => {
+        authEnv.ANTHROPIC_BASE_URL = 'http://localhost:1234';
+        process.env['ANTHROPIC_BASE_URL'] = 'http://localhost:1234';
+        return { configured: true, details: [] };
+      });
+      await manager.configureAuthentication('thirdParty');
+      await manager.configureAuthentication('thirdParty', context);
+      expect(strategies.oauthProxy.teardown).toHaveBeenCalledTimes(1);
+      expect(authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(process.env['ANTHROPIC_BASE_URL']).toBeUndefined();
+      expect(manager.getConfiguredAuth()).toBeNull();
+      await manager.configureAuthentication('thirdParty');
+      expect(strategies.oauthProxy.configure).toHaveBeenCalledTimes(2);
+      expect(strategies.oauthProxy.teardown).toHaveBeenCalledTimes(1);
+      expect(authEnv.ANTHROPIC_BASE_URL).toBe('http://localhost:1234');
+    });
+
+    it('rejects mismatched provider intent before disturbing auth', async () => {
+      const { manager, strategies, providerModels } = makeManager();
+      await expect(
+        manager.configureAuthentication('apiKey', {
+          ...context,
+          hostNativeCodex: false,
+        }),
+      ).rejects.toBeInstanceOf(SdkError);
+      expect(strategies.apiKey.configure).not.toHaveBeenCalled();
+      expect(providerModels.clearAllTierEnvVars).not.toHaveBeenCalled();
+    });
+  });
 
   describe('result propagation', () => {
     it('returns the strategy result verbatim on success', async () => {

@@ -24,6 +24,18 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/libs/backend/**/*.ts",
+        "{workspaceRoot}/libs/backend/**/*.js",
+        "{workspaceRoot}/apps/ptah-cli/src/**/*.ts",
+        "{workspaceRoot}/apps/ptah-extension-vscode/src/**/*.ts",
+        "{workspaceRoot}/apps/ptah-electron/src/**/*.ts",
+        "{workspaceRoot}/apps/ptah-electron/src/**/*.js",
+        "{workspaceRoot}/apps/ptah-tui/src/**/*.ts"
+      ],
       "options": {
         "passWithNoTests": true
       }

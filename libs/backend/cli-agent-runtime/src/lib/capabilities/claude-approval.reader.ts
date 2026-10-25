@@ -26,6 +26,7 @@
  * retries on the next resolve.
  */
 
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
 import { execFile, type ExecFileException } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import { homedir } from 'os';
@@ -48,6 +49,8 @@ const GIT_MAX_BUFFER_BYTES = 64 * 1024;
 /** What the reader returns. `approvals` is empty whenever `status` is `error`. */
 export interface ClaudeApprovalReadResult {
   status: 'ok' | 'error';
+  /** Unsupported imports remain errors so existing consumers fail closed. */
+  code?: 'unsupported';
   approvals: ClaudeApprovalRecord[];
   /** Why the read failed; empty when `ok`. */
   reasons: CapabilityPolicyReason[];
@@ -152,7 +155,26 @@ export class ClaudeApprovalReader {
    * The approvals recorded for `physicalRoot` (the `realpath.native` of the
    * workspace root). Never throws.
    */
-  async read(physicalRoot: string): Promise<ClaudeApprovalReadResult> {
+  async read(
+    physicalRoot: string,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<ClaudeApprovalReadResult> {
+    // Do not inherit ambient approvals or publish a partial import as success.
+    // Project policy and explicit Ptah grants are resolved outside this reader.
+    if (context?.kind === 'named') {
+      return {
+        status: 'error',
+        code: 'unsupported',
+        approvals: [],
+        reasons: [
+          {
+            path: physicalRoot,
+            error:
+              'Selected Claude user-state import is unsupported: verified locator unavailable.',
+          },
+        ],
+      };
+    }
     try {
       const approvals: ClaudeApprovalRecord[] = [];
       const reasons: CapabilityPolicyReason[] = [];
@@ -165,7 +187,8 @@ export class ClaudeApprovalReader {
         else if (source.status === 'ok') approvals.push(source.record);
       }
 
-      if (reasons.length > 0) return { status: 'error', approvals: [], reasons };
+      if (reasons.length > 0)
+        return { status: 'error', approvals: [], reasons };
       return { status: 'ok', approvals, reasons: [] };
     } catch (error: unknown) {
       // Every expected failure is already a reason; this is the "never
@@ -192,7 +215,10 @@ export class ClaudeApprovalReader {
     const projects = file.value['projects'];
     if (projects === undefined) return { status: 'absent' };
     if (!isPlainObject(projects)) {
-      return { status: 'error', reason: { path, error: 'invalid projects map' } };
+      return {
+        status: 'error',
+        reason: { path, error: 'invalid projects map' },
+      };
     }
 
     const wanted = normalizeProjectPath(physicalRoot, this.caseInsensitive);
@@ -248,13 +274,21 @@ export class ClaudeApprovalReader {
    */
   private async gitTrustsSettingsLocal(
     root: string,
-  ): Promise<{ status: 'ok'; trusted: boolean } | { status: 'error'; error: string }> {
-    const inside = await this.runGit(root, ['rev-parse', '--is-inside-work-tree']);
-    if (inside.outcome === 'not-installed') return { status: 'ok', trusted: false };
-    if (inside.outcome === 'failed') return { status: 'error', error: inside.reason };
+  ): Promise<
+    { status: 'ok'; trusted: boolean } | { status: 'error'; error: string }
+  > {
+    const inside = await this.runGit(root, [
+      'rev-parse',
+      '--is-inside-work-tree',
+    ]);
+    if (inside.outcome === 'not-installed')
+      return { status: 'ok', trusted: false };
+    if (inside.outcome === 'failed')
+      return { status: 'error', error: inside.reason };
     if (inside.code === 128) return { status: 'ok', trusted: false };
     if (inside.code !== 0) return unexpectedExit('rev-parse', inside.code);
-    if (inside.stdout.trim() !== 'true') return { status: 'ok', trusted: false };
+    if (inside.stdout.trim() !== 'true')
+      return { status: 'ok', trusted: false };
 
     const tracked = await this.runGit(root, [
       'ls-files',
@@ -297,9 +331,10 @@ function unexpectedExit(
 }
 
 /** git vanished or failed between two calls of the same read. */
-function gitUnavailable(
-  result: Exclude<GitRunResult, { outcome: 'exited' }>,
-): { status: 'error'; error: string } {
+function gitUnavailable(result: Exclude<GitRunResult, { outcome: 'exited' }>): {
+  status: 'error';
+  error: string;
+} {
   return {
     status: 'error',
     error: result.outcome === 'failed' ? result.reason : 'git not installed',

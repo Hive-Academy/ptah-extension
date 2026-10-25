@@ -31,12 +31,12 @@ class StateStub {
   readonly route = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>(ready(ROUTE));
   readonly effort = signal<ProvidersSettingsSection<{ effort?: string }>>(ready({ effort: 'medium' }));
   readonly memory = signal<ProvidersSettingsSection<{ curatorProvider: string }>>(ready({ curatorProvider: 'openai-codex' }));
-  readonly enhancement = signal<ProvidersSettingsSection<{ provider: string }>>(ready({ provider: 'moonshot' }));
+  readonly enhancement = signal<ProvidersSettingsSection<{ provider: string }>>(ready({ provider: 'kimi-code' }));
   readonly orchestration = signal<ProvidersSettingsSection<unknown>>(ready({
     detectedClis: DETECTED, disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'antigravity', 'glm-instance-1', 'copilot'],
   }));
   readonly connections = signal(ready([
-    { id: 'claude-cli', name: 'Claude (Subscription)' }, { id: 'openai-codex', name: 'OpenAI Codex' }, { id: 'moonshot', name: 'Moonshot (Kimi)' },
+    { id: 'claude-cli', name: 'Claude (Subscription)' }, { id: 'openai-codex', name: 'OpenAI Codex' }, { id: 'kimi-code', name: 'Kimi Code' },
   ]));
   readonly refreshRoute = jest.fn(async () => undefined);
   readonly refreshMemory = jest.fn(async () => undefined);
@@ -55,10 +55,10 @@ class HostComponent {
 
 describe('routing map derivations', () => {
   it('backgroundRolesPreview counts Decision and names explicit providers', () => {
-    const preview = backgroundRolesPreview('openai-codex', 'moonshot',
-      (id) => ({ 'openai-codex': 'OpenAI Codex', moonshot: 'Moonshot (Kimi)' })[id] ?? id);
+    const preview = backgroundRolesPreview('openai-codex', 'kimi-code',
+      (id) => ({ 'openai-codex': 'OpenAI Codex', 'kimi-code': 'Kimi Code' })[id] ?? id);
     expect(preview).toEqual({
-      explicit: [{ label: 'Memory curator', provider: 'OpenAI Codex' }, { label: 'Enhancement', provider: 'Moonshot (Kimi)' }],
+      explicit: [{ label: 'Memory curator', provider: 'OpenAI Codex' }, { label: 'Enhancement', provider: 'Kimi Code' }],
       defaulted: ['Decision'], total: 3,
     });
   });
@@ -187,7 +187,7 @@ describe('RoutingMapComponent', () => {
     it('previews the two explicit roles and default Decision', () => {
       const rows = Array.from(node('background-roles').querySelectorAll('li'))
         .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
-      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Moonshot (Kimi)'], ['Decision', 'Default']]);
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Kimi Code'], ['Decision', 'Default']]);
       expect(within('background-roles', 'routing-node-status')?.textContent?.trim()).toBe('3 roles');
       expect(within('background-roles', 'routing-node-footer')?.textContent?.trim()).toBe('2 set · 1 default');
     });

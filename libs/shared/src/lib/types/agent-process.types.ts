@@ -7,6 +7,10 @@ import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 import type { QuotaOwnerRef } from './plan-limit.types';
 import type {
+  ProviderAccountBinding,
+  ProviderAccountSelection,
+} from './provider-account.types';
+import type {
   OutcomeRoutingSource,
   OutcomeTaskKind,
 } from './lane-outcome.types';
@@ -65,11 +69,14 @@ export type AgentFailureKind = 'quota';
  * surface that has to enumerate spawnable CLIs — the MCP `ptah_agent_spawn`
  * schema (`tool-description.builder.ts`), the stdio dispatcher's zod enum
  * (`agent-tool.dispatcher.ts`), and default-CLI selection
- * (`AgentProcessManager.getPreferredCli`). Adding a seventh adapter means
- * adding one literal HERE; the other surfaces follow automatically.
+ * (`AgentSpawnEnvironment.preferredCli`). Adding an adapter means adding one
+ * literal HERE; the other surfaces follow automatically. Order is the
+ * auto-detect fallback order, so a new member is appended, never inserted.
  *
- * `ptah-cli` is deliberately NOT a member: those agents are user-configured
- * Anthropic-compatible providers selected by `ptahCliId`, not a binary name.
+ * `claude` is the native Claude Agent SDK lane (system Claude, optionally on a
+ * named account). `ptah-cli` is deliberately NOT a member: those agents are
+ * user-configured Anthropic-compatible providers selected by `ptahCliId`, not
+ * a system lane.
  */
 export const SYSTEM_CLI_TYPES = [
   'codex',
@@ -79,6 +86,7 @@ export const SYSTEM_CLI_TYPES = [
   'opencode',
   'pi',
   'grok',
+  'claude',
 ] as const;
 
 export type SystemCliType = (typeof SYSTEM_CLI_TYPES)[number];
@@ -320,6 +328,14 @@ export interface SpawnAgentRequest {
    * keeps `not-routed` when absent.
    */
   readonly routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
+  /**
+   * Account route a caller asked for (TASK_2026_712). Only a `claude` system
+   * lane takes one, and every entry point refuses a named selection before
+   * spawn while named lane admission is release-held (D7), so the value that
+   * arrives here is `omitted` or `ambient`: the route a lane takes with no
+   * selection. Absent means the caller sent none.
+   */
+  readonly accountSelection?: ProviderAccountSelection;
 }
 
 export interface AgentOutput {
@@ -406,9 +422,9 @@ export interface CliDetectionResult {
   readonly ptahCliId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
-  /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'ptah-cli' */
+  /** Provider name (e.g., 'OpenRouter', 'Kimi Code') — only set when cli === 'ptah-cli' */
   readonly providerName?: string;
-  /** Provider ID (e.g., 'moonshot', 'z-ai') — only set when cli === 'ptah-cli' */
+  /** Provider ID (e.g., 'kimi-code', 'z-ai') — only set when cli === 'ptah-cli' */
   readonly providerId?: string;
   /**
    * Lane family of this row (`laneFamilyOf` over cli / ptahCliId /
@@ -484,6 +500,8 @@ export interface CliOutputSegment {
   readonly changeKind?: string;
   /** Links a tool-call segment to its corresponding tool-result segment */
   readonly toolCallId?: string;
+  /** Provider message the text belongs to; a change starts a new text block. */
+  readonly messageId?: string;
 }
 
 export interface AgentOutputDelta {
@@ -502,6 +520,10 @@ export interface AgentOutputDelta {
  * Stored in SessionMetadata.cliSessions[] for resume capability.
  */
 export interface CliSessionReference {
+  /** Immutable run snapshot. Malformed persisted values must refuse resume. */
+  readonly accountBinding?: ProviderAccountBinding;
+  /** Opaque authoritative registry linkage; canonical paths stay backend-only. */
+  readonly accountBindingId?: string;
   /** CLI-native session ID */
   readonly cliSessionId: string;
   /** Which CLI produced this session */

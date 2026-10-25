@@ -19,9 +19,19 @@ import {
   PLATFORM_TOKENS,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
-import { AuthEnv, isDirectAnthropic } from '@ptah-extension/shared';
+import {
+  AuthEnv,
+  getStaticModelCapabilities,
+  isDirectAnthropic,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ClaudeAccountRoute,
+  ClaudeAccountNamedRoute,
+} from '@ptah-extension/auth-providers-tokens';
+import type { ClaudeCliDetector } from '../detector/claude-cli-detector';
+import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import { SdkModuleLoader } from './sdk-module-loader';
@@ -44,7 +54,7 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'default';
 /**
  * The only model values a third-party Anthropic-compatible provider can serve.
  *
- * Under a translation proxy (Codex, Copilot, OpenRouter, Moonshot, …) the SDK's
+ * Under a translation proxy (Codex, Copilot, OpenRouter, Kimi Code, …) the SDK's
  * `supportedModels()` still reports Anthropic-only ids it bundles natively —
  * e.g. `claude-fable-5[1m]` ("Fable") and `opus[1m]` ("Opus (1M context)").
  * Those are NOT tier aliases, so tier mapping leaves them untouched and they
@@ -142,10 +152,43 @@ export const ALL_TIER_ENV_KEYS: ReadonlyArray<keyof AuthEnv> = [
 ];
 
 /**
+ * Build the tier `_SUPPORTED_CAPABILITIES` env from a provider's static
+ * registry models.
+ *
+ * The runtime gates effort and thinking per model id and does not recognise
+ * non-Claude ids, so a provider that only ships a static catalog must declare
+ * the capabilities itself. Writes a tier's key only when its model declares a
+ * non-empty list; never a partial or guessed one, because the runtime treats
+ * the value as an allowlist.
+ *
+ * @param providerId - Registry provider ID
+ * @param tiers - Resolved model id per tier (missing tiers are skipped)
+ * @returns The capability env keys to merge (empty when nothing is declared)
+ */
+export function buildStaticTierCapabilityEnv(
+  providerId: string,
+  tiers: Partial<Record<EnvMappedTier, string>>,
+): AuthEnv {
+  const env: AuthEnv = {};
+  for (const tier of Object.keys(
+    TIER_METADATA_ENV_VAR_MAP,
+  ) as EnvMappedTier[]) {
+    const modelId = tiers[tier];
+    if (!modelId) continue;
+    const capabilities = getStaticModelCapabilities(providerId, modelId);
+    if (capabilities && capabilities.length > 0) {
+      env[TIER_METADATA_ENV_VAR_MAP[tier].capabilities] =
+        capabilities.join(',');
+    }
+  }
+  return env;
+}
+
+/**
  * Build tier env var defaults for SDK subprocess environments.
  *
  * Only applies to third-party Anthropic-compatible providers (OpenRouter,
- * Moonshot, Z.AI) where bare tier names in subagent subprocesses need to be
+ * Kimi Code, Z.AI) where bare tier names in subagent subprocesses need to be
  * remapped to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL.
  *
  * For direct Anthropic (CLI or API key → api.anthropic.com), this returns an
@@ -279,6 +322,19 @@ function hashSecret(value: string): string {
  */
 @injectable()
 export class SdkModelService {
+  private readonly accountModels = new Map<string, ModelInfo[]>();
+  private readonly accountEpochs = new Map<string, number>();
+  private readonly activeAccountReads = new Map<string, number>();
+  private readonly accountProbes = new Map<
+    string,
+    {
+      promise: Promise<ModelInfo[]>;
+      controller: AbortController;
+      refs: number;
+      identity: string;
+      epoch: number;
+    }
+  >();
   /**
    * Model lists from `supportedModels()`, keyed by {@link authFingerprint} —
    * plus {@link NATIVE_MODELS_CACHE_KEY} for the ambient Claude login.
@@ -332,7 +388,206 @@ export class SdkModelService {
      */
     @inject(PLATFORM_TOKENS.STATE_STORAGE, { isOptional: true })
     private readonly stateStorage?: IStateStorage,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR, { isOptional: true })
+    private readonly cliDetector?: Pick<ClaudeCliDetector, 'findExecutable'>,
   ) {}
+
+  private async getAccountModels(
+    route: ClaudeAccountNamedRoute,
+    signal?: AbortSignal,
+  ): Promise<ModelInfo[]> {
+    if (signal?.aborted) return [];
+    // Snapshot the admitted identity before awaiting installation discovery.
+    route = { ...route };
+    const identity = JSON.stringify([route.provider, route.routeFingerprint]);
+    const epoch = this.accountEpochs.get(identity);
+    if (epoch !== undefined && epoch > route.authEpoch) {
+      this.invalidateAccountRoute(route);
+      return [];
+    }
+    this.activeAccountReads.set(
+      identity,
+      (this.activeAccountReads.get(identity) ?? 0) + 1,
+    );
+    this.invalidateAccountRoute(route);
+    const generation = this.cacheGeneration;
+    const current = (): boolean =>
+      generation === this.cacheGeneration &&
+      this.accountEpochs.get(identity) === route.authEpoch;
+    try {
+      const installation = await this.cliDetector?.findExecutable();
+      // Unknown installation/version is unknown catalog, never ambient/API auth.
+      if (
+        !installation?.cliJsPath ||
+        !installation.version ||
+        !current() ||
+        signal?.aborted
+      )
+        return [];
+      const key = JSON.stringify([
+        identity,
+        route.routeRevision,
+        route.authEpoch,
+        installation.cliJsPath,
+        installation.version,
+      ]);
+      const cached = this.accountModels.get(key);
+      if (cached) return cached;
+      let probe = this.accountProbes.get(key);
+      if (!probe) {
+        const controller = new AbortController();
+        const promise = this.probeAccountModels(
+          route,
+          installation.cliJsPath,
+          controller,
+        ).then((models) => {
+          if (!current() || controller.signal.aborted) return [];
+          if (models.length > 0) {
+            this.accountModels.set(key, models);
+            if (this.accountModels.size > 64) {
+              const oldest = this.accountModels.keys().next().value;
+              if (oldest !== undefined) this.accountModels.delete(oldest);
+            }
+          }
+          return models;
+        });
+        probe = {
+          promise,
+          controller,
+          refs: 0,
+          identity,
+          epoch: route.authEpoch,
+        };
+        this.accountProbes.set(key, probe);
+      }
+      const shared = probe;
+      shared.refs++;
+      let onAbort: (() => void) | undefined;
+      try {
+        const models = await (signal
+          ? Promise.race([
+              shared.promise,
+              new Promise<ModelInfo[]>((resolve) => {
+                onAbort = () => resolve([]);
+                signal.addEventListener('abort', onAbort, { once: true });
+                if (signal.aborted) onAbort();
+              }),
+            ])
+          : shared.promise);
+        return current() && !signal?.aborted ? models : [];
+      } finally {
+        if (onAbort) signal?.removeEventListener('abort', onAbort);
+        if (--shared.refs === 0) {
+          shared.controller.abort();
+          if (this.accountProbes.get(key) === shared)
+            this.accountProbes.delete(key);
+        }
+      }
+    } catch {
+      // degradation-audit: optional-capability - an empty list is the specified
+      // "catalog unknown" result for a named account; callers keep configured
+      // precedence. Control errors may contain account data, so never log them.
+      this.logger.debug('[SdkModelService] Named account catalog unavailable');
+      return [];
+    } finally {
+      const remaining = (this.activeAccountReads.get(identity) ?? 1) - 1;
+      if (remaining === 0) this.activeAccountReads.delete(identity);
+      else this.activeAccountReads.set(identity, remaining);
+      this.trimAccountEpochs();
+    }
+  }
+
+  /** Admission/auth lifecycle can advance an epoch without starting a probe. */
+  invalidateAccountRoute(route: ClaudeAccountNamedRoute): void {
+    const identity = JSON.stringify([route.provider, route.routeFingerprint]);
+    const epoch = Math.max(
+      this.accountEpochs.get(identity) ?? -1,
+      route.authEpoch,
+    );
+    this.accountEpochs.delete(identity);
+    this.accountEpochs.set(identity, epoch);
+    for (const probe of this.accountProbes.values()) {
+      if (probe.identity === identity && probe.epoch < route.authEpoch)
+        probe.controller.abort();
+    }
+    this.trimAccountEpochs();
+  }
+
+  // Active reads may temporarily exceed the cap; trim again when they settle.
+  private trimAccountEpochs(): void {
+    for (const identity of this.accountEpochs.keys()) {
+      if (this.accountEpochs.size <= 128) break;
+      if (!this.activeAccountReads.has(identity))
+        this.accountEpochs.delete(identity);
+    }
+  }
+
+  private async probeAccountModels(
+    route: ClaudeAccountNamedRoute,
+    executable: string,
+    controller: AbortController,
+  ): Promise<ModelInfo[]> {
+    let query:
+      | ReturnType<Awaited<ReturnType<SdkModuleLoader['getQueryFunction']>>>
+      | undefined;
+    const processController = new AbortController();
+    let onAbort: (() => void) | undefined;
+    const timer = setTimeout(() => controller.abort(), SDK_MODELS_TIMEOUT_MS);
+    try {
+      const cancelled = new Promise<null>((resolve) => {
+        onAbort = () => resolve(null);
+        controller.signal.addEventListener('abort', onAbort, { once: true });
+        if (controller.signal.aborted) onAbort();
+      });
+      const factory = await Promise.race([
+        this.moduleLoader.getQueryFunction(),
+        cancelled,
+      ]);
+      if (!factory || controller.signal.aborted) return [];
+      const env = applyClaudeAccountRouteEnv(
+        {
+          ...process.env,
+          ...NATIVE_CLAUDE_AUTH_ENV,
+          NO_PROXY: '127.0.0.1,localhost',
+        },
+        route,
+      );
+      query = factory({
+        prompt: (async function* () {})(),
+        options: {
+          abortController: processController,
+          cwd: require('os').homedir(),
+          pathToClaudeCodeExecutable: executable,
+          // Control-only probe: do not load user/project hooks or auth helpers.
+          settingSources: [],
+          settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
+          strictMcpConfig: true,
+          mcpServers: {},
+          skills: [],
+          env,
+          spawnClaudeCodeProcess: (options) =>
+            this.processSpawner.spawn(options),
+        },
+      });
+      const models = await Promise.race([query.supportedModels(), cancelled]);
+      return !controller.signal.aborted && Array.isArray(models) ? models : [];
+    } catch {
+      // degradation-audit: optional-capability - a failed or timed-out control
+      // probe yields the specified empty "catalog unknown" list; no inference.
+      this.logger.debug('[SdkModelService] Named account control probe failed');
+      return [];
+    } finally {
+      clearTimeout(timer);
+      if (onAbort) controller.signal.removeEventListener('abort', onAbort);
+      try {
+        query?.close();
+      } catch {
+        this.logger.debug('[SdkModelService] Named account probe close failed');
+      } finally {
+        processController.abort();
+      }
+    }
+  }
 
   /**
    * Identity of the auth the SDK bridge would be spawned under: the active auth
@@ -379,7 +634,11 @@ export class SdkModelService {
    * - apiKey     → /v1/models API directly (full versioned model IDs)
    * - thirdParty → query.supportedModels() + tier mapping to provider model IDs
    */
-  async getSupportedModels(): Promise<ModelInfo[]> {
+  async getSupportedModels(
+    route?: ClaudeAccountRoute,
+    signal?: AbortSignal,
+  ): Promise<ModelInfo[]> {
+    if (route?.kind === 'named') return this.getAccountModels(route, signal);
     const key = this.authFingerprint();
 
     const cached = this.modelsCache.get(key);
@@ -572,7 +831,11 @@ export class SdkModelService {
    *
    * @returns ModelInfo[] from the native login, empty array on failure
    */
-  async getNativeClaudeModels(): Promise<ModelInfo[]> {
+  async getNativeClaudeModels(
+    route?: ClaudeAccountRoute,
+    signal?: AbortSignal,
+  ): Promise<ModelInfo[]> {
+    if (route?.kind === 'named') return this.getAccountModels(route, signal);
     // Already on the native login — the normal path fetches the same list and
     // shares its cache.
     if (isDirectAnthropic(this.authEnv) && !this.authEnv.ANTHROPIC_API_KEY) {
@@ -1098,6 +1361,10 @@ export class SdkModelService {
    */
   clearCache(): void {
     this.cacheGeneration++;
+    this.accountModels.clear();
+    this.accountEpochs.clear();
+    for (const probe of this.accountProbes.values()) probe.controller.abort();
+    this.accountProbes.clear();
     this.modelsCache.clear();
     this.pendingModels.clear();
     this.clearApiModelsCache();

@@ -68,11 +68,13 @@ export type ProvidersOrchestrationField =
   | 'grokModel'
   | 'opencodeModel'
   | 'piModel'
+  | 'claudeModel'
   | 'codexReasoningEffort'
   | 'copilotReasoningEffort'
   | 'grokReasoningEffort'
   | 'antigravityReasoningEffort'
-  | 'piReasoningEffort';
+  | 'piReasoningEffort'
+  | 'claudeReasoningEffort';
 /** Orchestration policy the CLI matrix writes. Array fields are read back order-sensitively. */
 export type ProvidersOrchestrationPolicyField =
   | 'disabledClis'

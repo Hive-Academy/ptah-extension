@@ -3,30 +3,18 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/output-styles/src",
-  "tags": [
-    "scope:extension",
-    "type:feature"
-  ],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/output-styles",
         "main": "libs/backend/output-styles/src/index.ts",
         "tsConfig": "libs/backend/output-styles/tsconfig.lib.json",
         "assets": [],
-        "format": [
-          "cjs"
-        ],
-        "external": [
-          "vscode",
-          "tsyringe",
-          "gray-matter",
-          "zod"
-        ]
+        "format": ["cjs"],
+        "external": ["vscode", "tsyringe", "gray-matter", "zod"]
       }
     },
     "test": {
@@ -47,11 +35,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

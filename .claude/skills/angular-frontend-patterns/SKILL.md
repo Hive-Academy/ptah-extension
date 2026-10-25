@@ -1,6 +1,6 @@
 ---
 name: angular-frontend-patterns
-description: Angular component and state patterns built on signals. Use when building Angular components, smart/dumb component splits, signal-based state, RxJS interop, component communication, routing or forms.
+description: Angular component and state patterns built on signals. Use when building Angular components, signal state, RxJS interop, routing or forms. angular-3d-scene-crafter and angular-gsap-animation-crafter are compatible siblings for scene construction and scroll motion, not replacements for this component and state guidance. React component work belongs to composition-patterns and react-best-practices.
 ---
 
 # Modern Angular Frontend Patterns

@@ -68,6 +68,8 @@ function harness(
   const probe = {
     readAccount: jest.fn(async () => options.account ?? null),
     readPlanUsage: jest.fn(async () => null),
+    readAccountForRoute: jest.fn(),
+    readPlanUsageForRoute: jest.fn(),
     sessionRoute: jest.fn(() =>
       options.route === undefined ? null : options.route,
     ),
@@ -398,14 +400,14 @@ describe('ProviderOwnerResolver', () => {
     const { resolver, getProviderKey } = harness({
       keys: { 'ptahCli.glm-1': SECRET },
     });
-    const ref = await resolver.ownerForPtahCli('glm-1', 'moonshot');
+    const ref = await resolver.ownerForPtahCli('glm-1', 'kimi-code');
     expect(getProviderKey).toHaveBeenCalledWith('ptahCli.glm-1');
-    expect(ref.key).toBe(credentialOwnerKey('moonshot', SECRET));
+    expect(ref.key).toBe(credentialOwnerKey('kimi-code', SECRET));
     const missing = await harness().resolver.ownerForPtahCli(
       'glm-1',
-      'moonshot',
+      'kimi-code',
     );
-    expect(missing.key).toBe(unknownOwnerKey('moonshot', 'ptah-cli:glm-1'));
+    expect(missing.key).toBe(unknownOwnerKey('kimi-code', 'ptah-cli:glm-1'));
   });
 
   it('bills an Ollama Cloud Ptah CLI agent to the shared ollama-cloud provider key, not its sign-in placeholder slot', async () => {
@@ -640,6 +642,8 @@ describe('ProviderOwnerResolver', () => {
       const probe = {
         readAccount: jest.fn(async () => null),
         readPlanUsage: jest.fn(async () => null),
+        readAccountForRoute: jest.fn(),
+        readPlanUsageForRoute: jest.fn(),
         sessionRoute: jest.fn(() => null),
       } satisfies SessionQuotaProbe;
       child.registerInstance(TOKENS.LOGGER, logger as unknown as Logger);

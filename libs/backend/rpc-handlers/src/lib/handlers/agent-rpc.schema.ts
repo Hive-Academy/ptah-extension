@@ -27,6 +27,7 @@
 import { z } from 'zod';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type { CliType } from '@ptah-extension/shared';
+import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 
 /**
  * Every value `CliType` admits, derived from `SYSTEM_CLI_TYPES` — the declared
@@ -58,6 +59,13 @@ const CLI_TYPES = [
  * The optional ids take `.min(1)` for the same reason as `cliSessionId`:
  * `parentSessionId: ''` is not "no parent", it is a parent that identifies no
  * session. Absence travels as the field being absent.
+ *
+ * `accountSelection` is optional (TASK_2026_712, plan 237), so no existing
+ * caller needs a new argument. It reuses the shared strict selection schema:
+ * `omitted`, `ambient`, or `named` with an opaque profile id only. A path,
+ * environment, token, owner key or any extra field inside it fails the parse.
+ * A resume never switches accounts: the handler compares the selection with
+ * the session's stored binding and refuses a conflict before spawn.
  */
 export const AgentResumeCliSessionParamsSchema = z
   .object({
@@ -80,6 +88,7 @@ export const AgentResumeCliSessionParamsSchema = z
       .string({ error: 'previousAgentId must be a string' })
       .min(1, 'previousAgentId must not be empty')
       .optional(),
+    accountSelection: ProviderAccountSelectionSchema.optional(),
   })
   .passthrough();
 

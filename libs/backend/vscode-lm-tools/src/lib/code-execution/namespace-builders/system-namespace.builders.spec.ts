@@ -25,6 +25,7 @@ import type {
   DirectoryEntry,
 } from '@ptah-extension/platform-core';
 import { FileType } from '@ptah-extension/platform-core';
+import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 
 import {
   buildFilesNamespace,
@@ -413,6 +414,49 @@ describe('HELP_DOCS — Batch 24c', () => {
     );
     expect(doc).toContain("parseStatus 'ok' | 'recovered' | 'unknown'");
     expect(doc).not.toContain('currently: javascript, typescript');
+  });
+});
+
+// TASK_2026_712 Batch 34 (D31 drift check): the orchestration and agent help
+// derive their CLI lists from the shared `SYSTEM_CLI_TYPES` tuple. `claude`
+// joined the original seven as a system CLI; `ptah-cli` stays a separate
+// route for configured providers and is never a member of the tuple.
+describe('HELP_DOCS — system CLI list drift (Batch 34)', () => {
+  const ORIGINAL_SEVEN = [
+    'codex',
+    'copilot',
+    'cursor',
+    'antigravity',
+    'opencode',
+    'pi',
+    'grok',
+  ];
+
+  it('pins the tuple to the original seven plus claude, without ptah-cli', () => {
+    expect([...SYSTEM_CLI_TYPES]).toEqual([...ORIGINAL_SEVEN, 'claude']);
+    expect(SYSTEM_CLI_TYPES).not.toContain('ptah-cli');
+  });
+
+  it('lists every tuple member in the orchestration help, then ptah-cli separately', () => {
+    const doc = HELP_DOCS['orchestration'];
+    expect(doc).toContain(
+      `CLI agent adapters: ${SYSTEM_CLI_TYPES.join(', ')}, plus ptah-cli for configured providers;`,
+    );
+  });
+
+  it('types the agent spawn cli from the tuple and keeps ptahCliId as its own field', () => {
+    const doc = HELP_DOCS['agent'];
+    const cliUnion = SYSTEM_CLI_TYPES.map((cli) => `'${cli}'`).join('|');
+    expect(doc).toContain(`cli?: ${cliUnion}, ptahCliId?: string`);
+    expect(doc).not.toContain(`${cliUnion}|'ptah-cli'`);
+  });
+
+  it('documents the optional account selection and the unchanged modelTier', () => {
+    const doc = HELP_DOCS['agent'];
+    expect(doc).toContain("modelTier?: 'opus'|'sonnet'|'haiku'");
+    expect(doc).toContain(
+      "accountSelection?: { kind: 'omitted'|'ambient'|'named', profileId?: string }",
+    );
   });
 });
 

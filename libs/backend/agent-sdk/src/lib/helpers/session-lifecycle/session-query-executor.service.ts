@@ -21,6 +21,16 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
+import { createHash, randomUUID } from 'node:crypto';
+import type {
+  ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ProviderAccountAdmissionPort,
+  ProviderAccountPortRefusal,
+} from '@ptah-extension/auth-providers-tokens';
+import type { ProviderAccountBinding, ProviderAccountIdentityEvidence, ProviderAccountSelection } from '@ptah-extension/shared';
+import type { AccountInfo, QueryFunction } from '../../types/sdk-types/claude-sdk.types';
+import type { SessionMetadata } from '../../session-metadata-store';
+import type { NamedAccountQueryHandle } from '../sdk-query-runner.service';
+import { buildNamedAccountBootstrapOptions } from '../sdk-query-options-builder';
 import type {
   ISdkPermissionHandler,
   AuthEnv,
@@ -542,6 +552,271 @@ class CompactionSessionTap {
   }
 }
 
+/** Token-only host boundary. No auth-providers implementation may be imported here.
+ * resolveAccountBinding must require BOTH the authoritative SDK link and matching
+ * metadata for a named session; an incomplete checkpoint is never resumable.
+ */
+export interface NamedAccountPersistencePort {
+  resolveAccountBinding(sdkSessionId: string): Promise<ProviderAccountBinding | null>;
+  commitRunBinding(route: ClaudeAccountNamedRoute, reservation: ClaudeAccountRunReservation,
+    identity: ProviderAccountIdentityEvidence): Promise<ProviderAccountBinding>;
+  attachSdkSession(request: { provider: string; sdkSessionId: string; runId: string; attachedAt: number }):
+    Promise<{ status: 'attached' | 'binding-absent' | 'session-linked-elsewhere' | 'run-linked-elsewhere' }>;
+  saveAccountBound(metadata: SessionMetadata, binding: ProviderAccountBinding): Promise<void>;
+  assertRouteCurrent(route: ClaudeAccountNamedRoute): Promise<void>;
+  onAuthEpochChanged(listener: (route: ClaudeAccountNamedRoute) => void): () => void;
+}
+
+/** Fixed, path-free typed refusal, including the admission port's release-held. */
+export function namedAccountRefusal(code: ProviderAccountPortRefusal['code'] = 'release-held'): ProviderAccountPortRefusal {
+  return { code, summary: 'Named account admission could not be completed.' };
+}
+
+function namedIdentity(account: AccountInfo): ProviderAccountIdentityEvidence {
+  const email = account.email?.trim();
+  return email ? { kind: 'known', ownerKey: createHash('sha256')
+    .update(`ptah-quota-owner\0${email}\0${account.organization?.trim() ?? ''}`, 'utf8').digest('hex') }
+    : { kind: 'unknown' };
+}
+
+function sameNamedIdentity(left: ProviderAccountIdentityEvidence, right: ProviderAccountIdentityEvidence): boolean {
+  return left.kind === 'known' && right.kind === 'known'
+    ? left.ownerKey === right.ownerKey : left.kind === right.kind;
+}
+
+/** An empty gate that does not even pull caller-owned conversation until commit. */
+class NamedQueryGate {
+  private open = false;
+  private closed = false;
+  private wake!: () => void;
+  private readonly ready = new Promise<void>((resolve) => { this.wake = resolve; });
+  commit(): void { if (!this.closed) { this.open = true; this.wake(); } }
+  close(): void { this.closed = true; this.wake(); }
+  async *stream(source?: AsyncIterable<SDKUserMessage>, approve?: () => Promise<void>): AsyncIterable<SDKUserMessage> {
+    await this.ready;
+    if (!this.open || this.closed || !source) return;
+    for await (const message of source) {
+      if (this.closed) return;
+      await approve?.();
+      if (this.closed) return;
+      yield message;
+    }
+  }
+}
+
+/** Named-only lifecycle. The ambient executor never constructs this object. */
+export class NamedAccountQueryAdmission {
+  route!: ClaudeAccountNamedRoute;
+  private reservation?: ClaudeAccountRunReservation;
+  private baseline?: ProviderAccountIdentityEvidence;
+  private storedBinding?: ProviderAccountBinding;
+  private resumeSdkSessionId?: string;
+  private child?: NamedAccountQueryHandle;
+  private termination?: Promise<void>;
+  private readonly gates: NamedQueryGate[] = [];
+  private stopEpoch?: () => void;
+  private settlement?: Promise<void>;
+  private readonly onAbort = (): void => {
+    for (const gate of this.gates) gate.close();
+    this.closeChild();
+    void this.dispose().catch(() => this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
+  };
+
+  constructor(
+    private readonly runner: Pick<SdkQueryRunner, 'invokeNamedQuery'>,
+    private readonly admission: ProviderAccountAdmissionPort,
+    private readonly persistence: NamedAccountPersistencePort,
+    private readonly registry: Pick<SessionRegistry, 'bindAccountRoute' | 'invalidateAccountRoute'>,
+    private readonly logger: Pick<Logger, 'warn'>,
+    private readonly abortController: AbortController,
+    private readonly deadlineMs = 15_000,
+  ) {
+    abortController.signal.addEventListener('abort', this.onAbort, { once: true });
+    if (abortController.signal.aborted) this.onAbort();
+  }
+
+  /** Every admission await is cancellable; late resolutions never advance the flow. */
+  async wait<T>(pending: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel: (() => void) | undefined;
+    try {
+      const value = await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          cancel = () => reject(namedAccountRefusal());
+          this.abortController.signal.addEventListener('abort', cancel, { once: true });
+          if (this.abortController.signal.aborted) cancel();
+        }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
+        }),
+      ]);
+      if (this.abortController.signal.aborted) throw namedAccountRefusal();
+      return value;
+    } finally {
+      clearTimeout(timer);
+      if (cancel) this.abortController.signal.removeEventListener('abort', cancel);
+    }
+  }
+
+  async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection,
+    resumeSessionId?: string, executable?: string, forkSession = false): Promise<void> {
+    try {
+      // Resolve authoritative evidence before constructing ANY conversation options.
+      const stored = resumeSessionId
+        ? await this.wait(this.persistence.resolveAccountBinding(resumeSessionId)) : null;
+      if (resumeSessionId && (!stored || stored.identity.kind === 'unknown')) throw namedAccountRefusal();
+      this.storedBinding = forkSession ? undefined : stored ?? undefined;
+      this.resumeSdkSessionId = forkSession ? undefined : resumeSessionId;
+      const pending = this.admission.admitClaudeRoute({ provider: 'claude', scope: 'main',
+        selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID() }).then(async (result) => {
+        if (result.code === 'ok') {
+          this.reservation = result.reservation;
+          if (this.abortController.signal.aborted) await this.dispose();
+        }
+        return result;
+      });
+      const admitted = await this.wait(pending);
+      if (admitted.code !== 'ok') throw namedAccountRefusal(admitted.code);
+      if (admitted.resources.kind !== 'named') throw namedAccountRefusal();
+      this.route = admitted.resources.route;
+      if (stored && (stored.provider !== this.route.provider || stored.profileId !== this.route.profileId ||
+          stored.routeFingerprint !== this.route.routeFingerprint || stored.routeRevision !== this.route.routeRevision)) {
+        throw namedAccountRefusal();
+      }
+      this.stopEpoch = this.persistence.onAuthEpochChanged((changed) => {
+        this.registry.invalidateAccountRoute(changed);
+        if (changed.routeFingerprint === this.route.routeFingerprint && changed.authEpoch > this.route.authEpoch) {
+          this.abortController.abort();
+          void this.dispose().catch(() => this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
+        }
+      });
+      await this.wait(this.persistence.assertRouteCurrent(this.route));
+      const gate = new NamedQueryGate();
+      this.gates.push(gate);
+      this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(),
+        buildNamedAccountBootstrapOptions(this.route, new AbortController(), executable),
+        (termination) => { this.termination = termination; });
+      const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()));
+      if (stored && !sameNamedIdentity(stored.identity, identity)) throw namedAccountRefusal();
+      this.baseline = stored?.identity ?? identity;
+      gate.close();
+      this.child.sdkQuery.close();
+      await this.wait(this.child.terminated);
+      this.child = undefined;
+      this.termination = undefined;
+    } catch {
+      await this.dispose();
+      throw namedAccountRefusal();
+    }
+  }
+
+  async launch(queryFn: QueryFunction, source: AsyncIterable<SDKUserMessage>, options: Options,
+    registerKey: string, metadata: Omit<SessionMetadata, 'sessionId'>): Promise<Query> {
+    const gate = new NamedQueryGate();
+    this.gates.push(gate);
+    let admitted = false;
+    const canUseTool = options.canUseTool;
+    try {
+      if (this.abortController.signal.aborted) throw namedAccountRefusal();
+      this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(source, async () => {
+        try { await this.verifyIdentity(); }
+        catch { await this.dispose(); throw namedAccountRefusal(); }
+      }), { ...options, canUseTool: (tool, input, context) => admitted && !this.abortController.signal.aborted && canUseTool
+        ? canUseTool(tool, input, context)
+        : Promise.resolve({ behavior: 'deny', message: 'Account admission pending.' }) },
+        (termination) => { this.termination = termination; });
+      await this.verifyIdentity();
+      const query = this.child.sdkQuery;
+      const buffered: SDKMessage[] = [];
+      let sdkSessionId: string | undefined;
+      while (!sdkSessionId) {
+        const next = await this.wait(query.next());
+        if (next.done) throw namedAccountRefusal();
+        buffered.push(next.value);
+        if (next.value.type === 'system' && next.value.subtype === 'init') sdkSessionId = next.value.session_id;
+        if (buffered.length > 64) throw namedAccountRefusal();
+      }
+      if (!this.registry.bindAccountRoute(registerKey, this.route) || !this.reservation || !this.baseline) {
+        throw namedAccountRefusal();
+      }
+      if (this.resumeSdkSessionId && this.resumeSdkSessionId !== sdkSessionId) throw namedAccountRefusal();
+      // An ordinary resume keeps the immutable SDK attachment and binding.
+      // Forks create a new run/link, while checking the original owner's baseline.
+      const binding = this.storedBinding ?? await this.wait(
+        this.persistence.commitRunBinding(this.route, this.reservation, this.baseline));
+      if (binding.provider !== this.route.provider || binding.profileId !== this.route.profileId ||
+          binding.runId !== this.route.runId || binding.routeFingerprint !== this.route.routeFingerprint ||
+          binding.routeRevision !== this.route.routeRevision ||
+          (this.storedBinding ? binding.authEpoch > this.route.authEpoch : binding.authEpoch !== this.route.authEpoch) ||
+          !sameNamedIdentity(binding.identity, this.baseline)) throw namedAccountRefusal();
+      const attached = await this.wait(this.persistence.attachSdkSession({ provider: 'claude', sdkSessionId,
+        runId: binding.runId, attachedAt: Date.now() }));
+      if (attached.status !== 'attached') throw namedAccountRefusal();
+      await this.wait(this.persistence.saveAccountBound({ ...metadata, sessionId: sdkSessionId }, binding));
+      await this.verifyIdentity();
+      admitted = true;
+      gate.commit();
+      void this.child.terminated.then(() => this.dispose()).catch(() =>
+        this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
+      // Replay init exactly once to the normal transformer; it remains the owner
+      // of stats/session-id callbacks. No control-stage message escapes on failure.
+      const next = async (): Promise<IteratorResult<SDKMessage, void>> => {
+        const value = buffered.shift();
+        return value ? { done: false, value } : query.next();
+      };
+      return new Proxy(query, { get(target, key) {
+        if (key === 'next') return next;
+        if (key === Symbol.asyncIterator) return () => ({ next });
+        const value = Reflect.get(target, key, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      } });
+    } catch {
+      await this.dispose();
+      throw namedAccountRefusal();
+    }
+  }
+
+  private async verifyIdentity(): Promise<void> {
+    if (!this.child || !this.baseline) throw namedAccountRefusal();
+    await this.wait(this.persistence.assertRouteCurrent(this.route));
+    const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()));
+    if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal();
+  }
+
+  private closeChild(): void {
+    try { this.child?.sdkQuery.close(); }
+    catch { this.logger.warn('[SessionLifecycle] Named account child close was not confirmed.'); }
+  }
+
+  async dispose(): Promise<void> {
+    for (const gate of this.gates) gate.close();
+    this.closeChild();
+    this.stopEpoch?.();
+    this.abortController.signal.removeEventListener('abort', this.onAbort);
+    if (!this.reservation) return;
+    if (this.settlement) return this.settlement;
+    const reservation = this.reservation;
+    this.settlement = (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let terminated = !this.termination;
+      try {
+        if (this.termination) terminated = await Promise.race([
+          this.termination.then(() => true),
+          new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), this.deadlineMs); }),
+        ]);
+      } finally { clearTimeout(timer); }
+      const command = { reservationId: reservation.reservationId, operationId: reservation.operationId,
+        authEpoch: reservation.authEpoch };
+      const result = terminated
+        ? await this.admission.releaseReservation({ ...command, reason: 'child-closed' })
+        : await this.admission.retainUnresolvedReservation(command);
+      if (result.code !== 'ok') this.logger.warn('[SessionLifecycle] Named account reservation remains held.');
+    })();
+    return this.settlement;
+  }
+}
+
 export class SessionQueryExecutor {
   /** Latest run order for each real session id; see `CompactionSessionTap.release`. */
   private readonly runOwners = new Map<string, number>();
@@ -652,6 +927,27 @@ export class SessionQueryExecutor {
       },
       resolveCapacityRoute(effectiveAuthEnv),
     );
+    const selection = (sessionConfig as { accountSelection?: ProviderAccountSelection } | undefined)?.accountSelection;
+    let named: NamedAccountQueryAdmission | undefined;
+    let namedQueryFn: QueryFunction | undefined;
+    if (selection?.kind === 'named') {
+      try {
+        if (authEnvOverride && (authEnvOverride.ANTHROPIC_API_KEY || authEnvOverride.ANTHROPIC_AUTH_TOKEN ||
+            authEnvOverride.ANTHROPIC_BASE_URL)) throw namedAccountRefusal('wrong-provider');
+        const admission = this.queryRunner.accountAdmission;
+        const persistence = this.queryRunner.accountPersistence;
+        if (!admission || !persistence) throw namedAccountRefusal();
+        named = new NamedAccountQueryAdmission(this.queryRunner, admission, persistence,
+          this.registry, this.logger, abortController);
+        namedQueryFn = await named.wait(this.moduleLoader.getQueryFunction());
+        await named.bootstrap(namedQueryFn, selection, resumeSessionId, pathToClaudeCodeExecutable, forkSession);
+      } catch (error) {
+        await named?.dispose();
+        this.registry.remove(rec);
+        abortController.abort();
+        throw error;
+      }
+    }
     const initialContent = initialPrompt?.content.trim() || '';
     // Every prompt is queued the same way — a slash command is NOT special-
     // cased, and attachments ride this same queue. A raw string prompt is what
@@ -659,12 +955,18 @@ export class SessionQueryExecutor {
     // `result`; see the `slash-command-interceptor.ts` header for why that was
     // believed to be required and why it is not (TASK_2026_472).
     if (initialContent) {
-      const sdkUserMessage = await this.messageFactory.createUserMessage({
+      const createMessage = this.messageFactory.createUserMessage({
         content: initialPrompt!.content, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         sessionId,
         files: initialPrompt!.files, // eslint-disable-line @typescript-eslint/no-non-null-assertion
         images: initialPrompt!.images, // eslint-disable-line @typescript-eslint/no-non-null-assertion
       });
+      let sdkUserMessage: SDKUserMessage;
+      try { sdkUserMessage = await (named ? named.wait(createMessage) : createMessage); }
+      catch (error) {
+        if (named) { await named.dispose(); this.registry.remove(rec); abortController.abort(); }
+        throw error;
+      }
       rec.messageQueue.push(sdkUserMessage);
       this.logger.info(
         `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
@@ -804,17 +1106,17 @@ export class SessionQueryExecutor {
       // ONE policy snapshot for both the harness sync and the options build,
       // so the skill copies the harness writes and the flags the builder emits
       // describe the same decisions (TASK_2026_560, C5).
-      const capabilityPolicy = await this.resolveCapabilityPolicy(
-        sessionConfig?.projectPath,
-      );
+      const resolvePolicy = this.resolveCapabilityPolicy(sessionConfig?.projectPath);
+      const capabilityPolicy = await (named ? named.wait(resolvePolicy) : resolvePolicy);
       // Before the SDK is even loaded: this is the one funnel every
       // interactive, gateway and resumed session passes through, and it is the
       // last moment at which a missing `.claude/skills` can still be repaired
       // without the model having already been told it has none. Bounded and
       // non-throwing, so nothing here can delay or fail a session for long
       // (TASK_2026_278 Batch 3).
-      await this.syncHarnessToPolicy(capabilityPolicy);
-      const queryFn = await this.moduleLoader.getQueryFunction();
+      const syncPolicy = this.syncHarnessToPolicy(capabilityPolicy);
+      await (named ? named.wait(syncPolicy) : syncPolicy);
+      const queryFn = namedQueryFn ?? await this.moduleLoader.getQueryFunction();
       const userMessageStream = this.streamPump.createUserMessageStream(
         sessionId,
         abortController,
@@ -839,7 +1141,8 @@ export class SessionQueryExecutor {
           ? 'default'
           : (PERMISSION_MODE_MAP[currentLevel] as
               'default' | 'acceptEdits' | 'plan');
-      const queryOptions = await this.queryOptionsBuilder.build({
+      const buildOptions = this.queryOptionsBuilder.build({
+        ...(named ? { accountRoute: named.route } : {}),
         userMessageStream,
         abortController,
         sessionConfig,
@@ -878,6 +1181,7 @@ export class SessionQueryExecutor {
         sessionIdResolver: () => rec.realSessionId ?? undefined,
         capabilityPolicy,
       });
+      const queryOptions = await (named ? named.wait(buildOptions) : buildOptions);
       compactionTap.setSubagentCacheTtl(queryOptions.subagentPromptCacheTtl);
       const isResume = !!resumeSessionId;
       // Never a raw string. A string prompt is what sets the SDK's
@@ -896,7 +1200,14 @@ export class SessionQueryExecutor {
         isResume,
         promptMode,
       });
-      const runResult = this.queryRunner.invokeWithLoadedQuery(
+      const runResult = named ? { sdkQuery: await named.launch(
+        namedQueryFn ?? queryFn,
+        userMessageStream,
+        queryOptions.options as Options,
+        registerKey,
+        { name: sessionConfig?.sessionName ?? 'Session', workspaceId: sessionConfig?.projectPath ?? '',
+          createdAt: Date.now(), lastActiveAt: Date.now(), totalCost: 0, totalTokens: { input: 0, output: 0 } },
+      ) } : this.queryRunner.invokeWithLoadedQuery(
         queryFn,
         effectivePrompt,
         queryOptions.options as Options,
@@ -905,7 +1216,7 @@ export class SessionQueryExecutor {
       compactionTap.attachQuery(sdkQuery);
       const initialModel = queryOptions.options.model ?? '';
       rec.currentModel = initialModel;
-      if (isResume) {
+      if (isResume && !named) {
         sdkQuery.streamInput(userMessageStream).catch((err: unknown) => {
           this.onInputChannelFailed(
             err,
@@ -941,6 +1252,7 @@ export class SessionQueryExecutor {
         capacityRoute: rec.capacityRoute,
       };
     } catch (err) {
+      await named?.dispose();
       if (rec) {
         this.registry.remove(rec);
       }
@@ -952,9 +1264,10 @@ export class SessionQueryExecutor {
       abortController.abort();
       this.logger.error(
         `[SessionLifecycle] Query init failed for session ${sessionId}; rolling back pre-registration`,
-        err instanceof Error ? err : new Error(String(err)),
+        named ? new Error('Named account query initialization refused.')
+          : err instanceof Error ? err : new Error(String(err)),
       );
-      throw err;
+      throw named ? namedAccountRefusal() : err;
     }
   }
 

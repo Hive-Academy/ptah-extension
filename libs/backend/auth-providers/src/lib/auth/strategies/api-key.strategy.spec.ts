@@ -7,7 +7,7 @@
  *      Also stops the OpenRouter proxy if it was left running.
  *   2. OpenRouter / Sakana: start the DI-singleton translation proxy, point
  *      the SDK at its URL, and leave ANTHROPIC_API_KEY unset.
- *   3. Other Anthropic-compatible providers (Moonshot, Z.AI): read the
+ *   3. Other Anthropic-compatible providers (Kimi Code, Z.AI): read the
  *      per-provider key, set base URL + provider-specific auth env var.
  *   4. User-defined entries, OpenAI lane (requiresProxy: true): build a
  *      CustomOpenAiTranslationProxy for that id at runtime, cache it, and
@@ -303,7 +303,7 @@ describe('ApiKeyStrategy', () => {
       },
     );
 
-    it.each(['moonshot', 'z-ai', 'requesty'] as const)(
+    it.each(['kimi-code', 'z-ai', 'requesty'] as const)(
       '%s retains native passthrough and starts no proxy',
       async (providerId) => {
         const h = makeStrategy({
@@ -688,39 +688,40 @@ describe('ApiKeyStrategy', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Other Anthropic-compatible provider flow (Moonshot)
+  // Other Anthropic-compatible provider flow (Kimi Code, x-api-key)
   // -------------------------------------------------------------------------
 
-  describe('third-party Anthropic-compatible flow (providerId = "moonshot")', () => {
-    it('happy path: sets provider base URL + per-provider auth env var', async () => {
+  describe('third-party Anthropic-compatible flow (providerId = "kimi-code")', () => {
+    it('happy path: sets the Kimi Code base URL + ANTHROPIC_API_KEY only', async () => {
       const harness = makeStrategy({
-        providerKeys: { moonshot: 'moonshot-key-xyz' },
+        providerKeys: { 'kimi-code': 'kimi-key-xyz' },
       });
-      const ctx = makeContext('moonshot');
+      const ctx = makeContext('kimi-code');
 
       const result = await harness.strategy.configure(ctx);
 
       expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe(
-        'https://api.moonshot.ai/anthropic/',
+        'https://api.kimi.ai/coding/',
       );
-      // Moonshot's authEnvVar is ANTHROPIC_AUTH_TOKEN per registry.
-      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('moonshot-key-xyz');
+      // Kimi Code's authEnvVar is ANTHROPIC_API_KEY (x-api-key) per registry.
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBe('kimi-key-xyz');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
       expect(process.env['ANTHROPIC_BASE_URL']).toBe(
-        'https://api.moonshot.ai/anthropic/',
+        'https://api.kimi.ai/coding/',
       );
 
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
-        'moonshot',
-        { apiKey: 'moonshot-key-xyz' },
+        'kimi-code',
+        { apiKey: 'kimi-key-xyz' },
       );
       expect(result.configured).toBe(true);
-      expect(result.details[0]).toContain('Moonshot');
+      expect(result.details[0]).toContain('Kimi Code');
     });
 
     it('auth-required: no provider key in SecretStorage → configured=false', async () => {
       const harness = makeStrategy({ providerKeys: {} });
 
-      const result = await harness.strategy.configure(makeContext('moonshot'));
+      const result = await harness.strategy.configure(makeContext('kimi-code'));
 
       expect(result.configured).toBe(false);
       expect(result.details).toEqual([]);
@@ -731,13 +732,49 @@ describe('ApiKeyStrategy', () => {
 
     it('stops the OpenRouter proxy when switching to a third-party provider', async () => {
       const harness = makeStrategy({
-        providerKeys: { moonshot: 'moonshot-key' },
+        providerKeys: { 'kimi-code': 'kimi-key' },
       });
       harness.openRouterProxy.isRunning.mockReturnValue(true);
 
-      await harness.strategy.configure(makeContext('moonshot'));
+      await harness.strategy.configure(makeContext('kimi-code'));
 
       expect(harness.openRouterProxy.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Unknown provider id (e.g. the retired `moonshot`) fails closed
+  //
+  // `getProviderBaseUrl` falls back to the default provider's URL for an id it
+  // cannot resolve. Without the guard a stale `anthropicProviderId: 'moonshot'`
+  // would send the old Moonshot key to OpenRouter's host.
+  // -------------------------------------------------------------------------
+
+  describe('unknown provider id', () => {
+    it('refuses to configure, reads no key and sets no env', async () => {
+      const harness = makeStrategy({
+        providerKeys: { moonshot: 'stale-moonshot-key' },
+      });
+      const ctx = makeContext(
+        'moonshot',
+        {},
+        { ANTHROPIC_AUTH_TOKEN: 'env-token-should-be-ignored' },
+      );
+
+      const result = await harness.strategy.configure(ctx);
+
+      expect(result.configured).toBe(false);
+      expect(result.details).toEqual([]);
+      expect(result.errorMessage).toContain(
+        "Provider 'moonshot' is not available in this version of Ptah",
+      );
+      expect(harness.authSecrets.getProviderKey).not.toHaveBeenCalled();
+      expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(ctx.authEnv.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(
+        harness.providerModels.switchActiveProvider,
+      ).not.toHaveBeenCalled();
     });
   });
 
@@ -755,10 +792,10 @@ describe('ApiKeyStrategy', () => {
     it('falls back to envSnapshot.ANTHROPIC_AUTH_TOKEN when SecretStorage is empty', async () => {
       const harness = makeStrategy({ providerKeys: {} });
       const ctx = makeContext(
-        'moonshot',
+        'z-ai',
         {},
         {
-          ANTHROPIC_AUTH_TOKEN: 'env-moonshot-token',
+          ANTHROPIC_AUTH_TOKEN: 'env-zai-token',
         },
       );
 
@@ -766,18 +803,18 @@ describe('ApiKeyStrategy', () => {
 
       expect(result.configured).toBe(true);
       expect(result.details[0]).toContain('API key (from environment)');
-      expect(result.details[0]).toContain('Moonshot');
-      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('env-moonshot-token');
+      expect(result.details[0]).toContain('Z.AI');
+      expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('env-zai-token');
       expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBe(
-        'https://api.moonshot.ai/anthropic/',
+        'https://api.z.ai/api/anthropic',
       );
-      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBe('env-moonshot-token');
+      expect(process.env['ANTHROPIC_AUTH_TOKEN']).toBe('env-zai-token');
       expect(process.env['ANTHROPIC_BASE_URL']).toBe(
-        'https://api.moonshot.ai/anthropic/',
+        'https://api.z.ai/api/anthropic',
       );
       expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
-        'moonshot',
-        { apiKey: 'env-moonshot-token' },
+        'z-ai',
+        { apiKey: 'env-zai-token' },
       );
     });
 
@@ -786,7 +823,7 @@ describe('ApiKeyStrategy', () => {
       // even though the provider's authEnvVar is ANTHROPIC_AUTH_TOKEN.
       const harness = makeStrategy({ providerKeys: {} });
       const ctx = makeContext(
-        'moonshot',
+        'z-ai',
         {},
         {
           ANTHROPIC_API_KEY: 'misplaced-key',
@@ -797,16 +834,16 @@ describe('ApiKeyStrategy', () => {
 
       expect(result.configured).toBe(true);
       // The strategy writes to the provider's canonical authEnvVar
-      // (ANTHROPIC_AUTH_TOKEN for Moonshot).
+      // (ANTHROPIC_AUTH_TOKEN for Z.AI).
       expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBe('misplaced-key');
     });
 
     it('SecretStorage takes precedence over envSnapshot when both present', async () => {
       const harness = makeStrategy({
-        providerKeys: { moonshot: 'secret-store-key' },
+        providerKeys: { 'z-ai': 'secret-store-key' },
       });
       const ctx = makeContext(
-        'moonshot',
+        'z-ai',
         {},
         {
           ANTHROPIC_AUTH_TOKEN: 'env-token-should-be-ignored',
@@ -820,9 +857,38 @@ describe('ApiKeyStrategy', () => {
       expect(result.details[0]).not.toContain('from environment');
     });
 
+    // Kimi Code's key lives in ANTHROPIC_API_KEY, the variable a developer
+    // shell already holds for direct Anthropic. Taking it from the snapshot
+    // would send the user's Anthropic key to api.kimi.ai.
+    it.each([
+      ['ANTHROPIC_API_KEY', { ANTHROPIC_API_KEY: 'fake-shell-anthropic-key' }],
+      ['ANTHROPIC_AUTH_TOKEN', { ANTHROPIC_AUTH_TOKEN: 'sk-or-other-vendor' }],
+    ] as const)(
+      'does not configure kimi-code from envSnapshot.%s when no key is stored',
+      async (_name, envSnapshot) => {
+        const harness = makeStrategy({ providerKeys: {} });
+        const ctx = makeContext('kimi-code', {}, { ...envSnapshot });
+
+        const result = await harness.strategy.configure(ctx);
+
+        expect(result.configured).toBe(false);
+        expect(result.details).toEqual([]);
+        expect(result.errorMessage).toContain('Kimi Code');
+        expect(ctx.authEnv.ANTHROPIC_API_KEY).toBeUndefined();
+        expect(ctx.authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+        expect(ctx.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+        expect(process.env['ANTHROPIC_BASE_URL']).not.toBe(
+          'https://api.kimi.ai/coding/',
+        );
+        expect(
+          harness.providerModels.switchActiveProvider,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
     it('still returns configured=false when both SecretStorage AND envSnapshot are empty', async () => {
       const harness = makeStrategy({ providerKeys: {} });
-      const ctx = makeContext('moonshot', {}, {});
+      const ctx = makeContext('z-ai', {}, {});
 
       const result = await harness.strategy.configure(ctx);
 
@@ -960,14 +1026,14 @@ describe('ApiKeyStrategy', () => {
     it('tears the custom proxy down when switching to another provider', async () => {
       defineVllm();
       const harness = makeStrategy({
-        providerKeys: { [VLLM_ID]: 'vllm-key', moonshot: 'moonshot-key' },
+        providerKeys: { [VLLM_ID]: 'vllm-key', 'kimi-code': 'kimi-key' },
       });
 
       await harness.strategy.configure(makeContext(VLLM_ID));
       const customProxy = customProxyFor(VLLM_ID);
       customProxy.isRunning.mockReturnValue(true);
 
-      await harness.strategy.configure(makeContext('moonshot'));
+      await harness.strategy.configure(makeContext('kimi-code'));
 
       expect(customProxy.stop).toHaveBeenCalledTimes(1);
     });
@@ -1079,7 +1145,7 @@ describe('ApiKeyStrategy', () => {
   // User-defined entries, Anthropic lane (requiresProxy: false)
   //
   // These need no proxy at all — they ride the same direct-passthrough path as
-  // Moonshot/Z.AI, with no code specific to custom entries involved.
+  // Kimi Code/Z.AI, with no code specific to custom entries involved.
   // -------------------------------------------------------------------------
 
   describe('custom provider, Anthropic lane (requiresProxy: false)', () => {

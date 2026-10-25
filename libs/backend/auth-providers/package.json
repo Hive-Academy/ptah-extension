@@ -6,6 +6,7 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "dependencies": {
+    "@ptah-extension/persistence-sqlite": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/settings-core": "0.0.1",
@@ -13,6 +14,7 @@
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/agent-sdk": "0.0.1",
     "@ptah-extension/auth-providers-tokens": "0.0.1",
+    "@ptah-extension/codex-runtime": "0.0.1",
     "@openai/codex": "0.155.1",
     "axios": "^1.15.0",
     "zod": "4.6.5",

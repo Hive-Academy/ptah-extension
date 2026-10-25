@@ -13,7 +13,11 @@
 
 import 'reflect-metadata';
 
-import type { Logger, ConfigManager, IAuthSecretsService } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  ConfigManager,
+  IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
 import {
   createMockLogger,
   type MockLogger,
@@ -55,7 +59,9 @@ function asConfig(mock: MockConfigManager): ConfigManager {
 }
 
 /** A full evidence bundle with the quietest possible defaults. */
-function input(partial: Partial<DraftProbeFailureInput>): DraftProbeFailureInput {
+function input(
+  partial: Partial<DraftProbeFailureInput>,
+): DraftProbeFailureInput {
   return {
     thrown: undefined,
     verdict: { kind: 'undetermined' },
@@ -107,9 +113,9 @@ describe('classifyDraftProbeFailure — the ten-rule table', () => {
   });
 
   it('rule 4: a 401 on the stream result is a credential verdict, never unclassified', () => {
-    expect(
-      classifyDraftProbeFailure(input({ resultStatus: 401 })),
-    ).toBe('credential-rejected');
+    expect(classifyDraftProbeFailure(input({ resultStatus: 401 }))).toBe(
+      'credential-rejected',
+    );
   });
 
   it('rule 4: a 401 carried on the thrown error, through its cause chain', () => {
@@ -142,9 +148,9 @@ describe('classifyDraftProbeFailure — the ten-rule table', () => {
   });
 
   it('rule 5: a 404 means the endpoint refused the MODEL', () => {
-    expect(
-      classifyDraftProbeFailure(input({ resultStatus: 404 })),
-    ).toBe('model-unavailable');
+    expect(classifyDraftProbeFailure(input({ resultStatus: 404 }))).toBe(
+      'model-unavailable',
+    );
   });
 
   it('rule 5: the provider message naming the model is a model verdict even with another status', () => {
@@ -190,14 +196,18 @@ describe('classifyDraftProbeFailure — the ten-rule table', () => {
     expect(
       classifyDraftProbeFailure(
         input({
-          thrown: Object.assign(new Error('Too Many Requests'), { status: 429 }),
+          thrown: Object.assign(new Error('Too Many Requests'), {
+            status: 429,
+          }),
         }),
       ),
     ).toBe('rate-limited');
   });
 
   it('rule 7: our own deadline is a timeout even with no other evidence', () => {
-    expect(classifyDraftProbeFailure(input({ timedOut: true }))).toBe('timeout');
+    expect(classifyDraftProbeFailure(input({ timedOut: true }))).toBe(
+      'timeout',
+    );
   });
 
   it('rule 7: the classifier timeout signal and a thrown 408 agree', () => {
@@ -231,10 +241,9 @@ describe('classifyDraftProbeFailure — the ten-rule table', () => {
   it('rule 8: a thrown ECONNREFUSED socket code is unreachable', () => {
     const reason = classifyDraftProbeFailure(
       input({
-        thrown: Object.assign(
-          new Error('connect ECONNREFUSED 127.0.0.1:443'),
-          { code: 'ECONNREFUSED' },
-        ),
+        thrown: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+          code: 'ECONNREFUSED',
+        }),
       }),
     );
     expect(reason).toBe('unreachable');
@@ -339,10 +348,9 @@ describe('classifyDraftProbeFailure — first match wins', () => {
     const reason = classifyDraftProbeFailure(
       input({
         resultStatus: 429,
-        thrown: Object.assign(
-          new Error('connect ECONNREFUSED 127.0.0.1:443'),
-          { code: 'ECONNREFUSED' },
-        ),
+        thrown: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+          code: 'ECONNREFUSED',
+        }),
         verdict: { kind: 'network-failure', signal: 'http-429' },
       }),
     );
@@ -405,7 +413,10 @@ interface ServiceHarness {
 }
 
 function createServiceHarness(
-  seed: { credentials?: { apiKey?: string }; providerKeys?: Record<string, string> } = {},
+  seed: {
+    credentials?: { apiKey?: string };
+    providerKeys?: Record<string, string>;
+  } = {},
 ): ServiceHarness {
   const logger = createMockLogger();
   const config = createMockConfigManager({ values: {} });
@@ -503,7 +514,7 @@ describe('DraftVerificationService.verify — a failed probe writes nothing (pin
 
     const params: AuthVerifyDraftConnectionParams = {
       probeId: 'probe-reject',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
       // No credential: the draft cannot produce one, the resolver refuses.
     };
@@ -538,7 +549,11 @@ describe('DraftVerificationService.verify — a failed probe writes nothing (pin
       credential: { kind: 'apiKey', value: 'sk-ant-draft-secret' },
     };
     const pending = harness.service.verify(params);
-    for (let spins = 0; spins < 50 && harness.execute.mock.calls.length === 0; spins++) {
+    for (
+      let spins = 0;
+      spins < 50 && harness.execute.mock.calls.length === 0;
+      spins++
+    ) {
       await Promise.resolve();
     }
     expect(harness.execute).toHaveBeenCalledTimes(1);
@@ -591,9 +606,16 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
   async function startAndCancel(
     harness: ServiceHarness,
     params: AuthVerifyDraftConnectionParams,
-  ): Promise<{ result: Awaited<ReturnType<DraftVerificationService['verify']>>; probeAuth: unknown }> {
+  ): Promise<{
+    result: Awaited<ReturnType<DraftVerificationService['verify']>>;
+    probeAuth: unknown;
+  }> {
     const pending = harness.service.verify(params);
-    for (let spins = 0; spins < 50 && harness.execute.mock.calls.length === 0; spins++) {
+    for (
+      let spins = 0;
+      spins < 50 && harness.execute.mock.calls.length === 0;
+      spins++
+    ) {
       await Promise.resolve();
     }
     const probeAuth = harness.execute.mock.calls[0]?.[0].auth;
@@ -602,32 +624,38 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
   }
 
   it('probes a third-party provider with its stored key and writes nothing anywhere', async () => {
-    const harness = createServiceHarness({ providerKeys: { moonshot: 'sk-stored-moonshot' } });
+    const harness = createServiceHarness({
+      providerKeys: { 'kimi-code': 'sk-stored-kimi' },
+    });
     const envBefore = { ...process.env };
     const configBefore = harness.config.__snapshot();
     const secretsBefore = [...harness.authSecrets.__dumpProviderKeys()];
 
     const { result, probeAuth } = await startAndCancel(harness, {
       probeId: 'probe-stored',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
       credential: { kind: 'stored' },
     });
 
     // The stored key reached ONLY the per-call override handed to the runner.
     expect(harness.execute).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(probeAuth)).toContain('sk-stored-moonshot');
+    expect(JSON.stringify(probeAuth)).toContain('sk-stored-kimi');
     // It never comes back over the wire.
-    expect(JSON.stringify(result)).not.toContain('sk-stored-moonshot');
+    expect(JSON.stringify(result)).not.toContain('sk-stored-kimi');
     // Isolation: env, settings and secrets identical before/after.
     expect(process.env).toEqual(envBefore);
     expect(harness.config.__snapshot()).toEqual(configBefore);
-    expect([...harness.authSecrets.__dumpProviderKeys()]).toEqual(secretsBefore);
+    expect([...harness.authSecrets.__dumpProviderKeys()]).toEqual(
+      secretsBefore,
+    );
     expectNothingWritten(harness);
   });
 
   it('reads the Anthropic apiKey credential for the direct Claude API', async () => {
-    const harness = createServiceHarness({ credentials: { apiKey: 'sk-ant-stored' } });
+    const harness = createServiceHarness({
+      credentials: { apiKey: 'sk-ant-stored' },
+    });
     const { probeAuth } = await startAndCancel(harness, {
       probeId: 'probe-stored-anthropic',
       providerId: 'anthropic',
@@ -643,7 +671,7 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
     const harness = createServiceHarness();
     const result = await harness.service.verify({
       probeId: 'probe-none',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
       credential: { kind: 'stored' },
     });
@@ -662,48 +690,76 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
 
   // Review round 2, N1: a stored key only travels to the endpoint it was saved for.
   it.each([
-    ['a foreign base URL on a registry provider', {
-      providerId: 'moonshot', authMode: 'apiKey', baseUrl: 'https://provider-b.invalid',
-    }],
-    ['custom mode on a registry provider', {
-      providerId: 'moonshot', authMode: 'custom', baseUrl: 'https://provider-b.invalid',
-    }],
-    ['custom mode on the direct Claude API', {
-      providerId: 'anthropic', authMode: 'custom', baseUrl: 'https://provider-b.invalid',
-    }],
-    ['any base URL on the direct Claude API', {
-      providerId: 'anthropic', authMode: 'apiKey', baseUrl: 'https://api.anthropic.com',
-    }],
-  ] as const)('refuses %s before the stored key is read', async (_label, target) => {
-    const harness = createServiceHarness({
-      providerKeys: { moonshot: 'sk-stored-moonshot' },
-      credentials: { apiKey: 'sk-ant-stored' },
-    });
-    const result = await harness.service.verify({
-      probeId: 'probe-bound',
-      ...target,
-      credential: { kind: 'stored' },
-    });
-    expect(result).toMatchObject({ outcome: 'failed', reason: 'stored-credential-mismatch' });
-    expect(harness.execute).not.toHaveBeenCalled();
-    expect(harness.authSecrets.getProviderKey).not.toHaveBeenCalled();
-    expect(harness.authSecrets.getCredential).not.toHaveBeenCalled();
-    expect(JSON.stringify(result)).not.toMatch(/sk-(stored|ant)/);
-    expectNothingWritten(harness);
-  });
+    [
+      'a foreign base URL on a registry provider',
+      {
+        providerId: 'kimi-code',
+        authMode: 'apiKey',
+        baseUrl: 'https://provider-b.invalid',
+      },
+    ],
+    [
+      'custom mode on a registry provider',
+      {
+        providerId: 'kimi-code',
+        authMode: 'custom',
+        baseUrl: 'https://provider-b.invalid',
+      },
+    ],
+    [
+      'custom mode on the direct Claude API',
+      {
+        providerId: 'anthropic',
+        authMode: 'custom',
+        baseUrl: 'https://provider-b.invalid',
+      },
+    ],
+    [
+      'any base URL on the direct Claude API',
+      {
+        providerId: 'anthropic',
+        authMode: 'apiKey',
+        baseUrl: 'https://api.anthropic.com',
+      },
+    ],
+  ] as const)(
+    'refuses %s before the stored key is read',
+    async (_label, target) => {
+      const harness = createServiceHarness({
+        providerKeys: { 'kimi-code': 'sk-stored-kimi' },
+        credentials: { apiKey: 'sk-ant-stored' },
+      });
+      const result = await harness.service.verify({
+        probeId: 'probe-bound',
+        ...target,
+        credential: { kind: 'stored' },
+      });
+      expect(result).toMatchObject({
+        outcome: 'failed',
+        reason: 'stored-credential-mismatch',
+      });
+      expect(harness.execute).not.toHaveBeenCalled();
+      expect(harness.authSecrets.getProviderKey).not.toHaveBeenCalled();
+      expect(harness.authSecrets.getCredential).not.toHaveBeenCalled();
+      expect(JSON.stringify(result)).not.toMatch(/sk-(stored|ant)/);
+      expectNothingWritten(harness);
+    },
+  );
 
   it('accepts the saved endpoint (trailing slash ignored) and probes only that endpoint', async () => {
-    const harness = createServiceHarness({ providerKeys: { moonshot: 'sk-stored-moonshot' } });
+    const harness = createServiceHarness({
+      providerKeys: { 'kimi-code': 'sk-stored-kimi' },
+    });
     const { probeAuth } = await startAndCancel(harness, {
       probeId: 'probe-saved-url',
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       authMode: 'apiKey',
-      baseUrl: 'https://api.moonshot.ai/anthropic',
+      baseUrl: 'https://api.kimi.ai/coding',
       credential: { kind: 'stored' },
     });
     const serialized = JSON.stringify(probeAuth);
-    expect(serialized).toContain('sk-stored-moonshot');
-    expect(serialized).toContain('https://api.moonshot.ai/anthropic/');
+    expect(serialized).toContain('sk-stored-kimi');
+    expect(serialized).toContain('https://api.kimi.ai/coding/');
     expect(serialized).not.toContain('provider-b.invalid');
   });
 
@@ -713,7 +769,9 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
     'keeps the stored key for %s by probing the saved endpoint',
     async (authMode) => {
       const saved = getProviderBaseUrl('ollama-cloud');
-      const harness = createServiceHarness({ providerKeys: { 'ollama-cloud': 'sk-stored-ollama' } });
+      const harness = createServiceHarness({
+        providerKeys: { 'ollama-cloud': 'sk-stored-ollama' },
+      });
       const { probeAuth } = await startAndCancel(harness, {
         probeId: `probe-${authMode}`,
         providerId: 'ollama-cloud',
@@ -728,7 +786,9 @@ describe('DraftVerificationService.verify — stored credential (B2-1)', () => {
   );
 
   it('rejects a stored credential for modes that carry no key', async () => {
-    const harness = createServiceHarness({ providerKeys: { 'github-copilot': 'x' } });
+    const harness = createServiceHarness({
+      providerKeys: { 'github-copilot': 'x' },
+    });
     await expect(
       harness.service.verify({
         probeId: 'probe-oauth',

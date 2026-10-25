@@ -6,7 +6,14 @@ import {
   model,
   computed,
 } from '@angular/core';
-import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
+import { ArrowUp, LucideAngularModule, SendHorizontal } from 'lucide-angular';
+import {
+  COMPOSER_CARD_BORDER_CLASS,
+  COMPOSER_CARD_CLASS,
+  COMPOSER_SEND_BUTTON_CLASS,
+  COMPOSER_TEXTAREA_CLASS,
+  COMPOSER_TOOLBAR_CLASS,
+} from './composer-card';
 
 /**
  * AgentSteerInputComponent — single-line "steer" input for a running or
@@ -18,7 +25,9 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
  * (`sendMessageToAgent`), keeping this component free of store coupling.
  *
  * Consumed by {@link BackgroundAgentStripComponent}, which expands it inline
- * beneath a chip when the user clicks that chip's steer icon.
+ * beneath a chip when the user clicks that chip's steer icon (`inline`), and
+ * by the sub-agent lane, which shows it in the main chat composer's card
+ * (`composer`).
  */
 @Component({
   selector: 'ptah-agent-steer-input',
@@ -26,7 +35,47 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (steerable()) {
+    @if (steerable() && variant() === 'composer') {
+      <div
+        [class]="composerCardClass"
+        data-glass-surface="tile"
+        data-testid="steer-composer-card"
+      >
+        <!-- The main chat composer's shape: textarea, then a bottom row with
+             its send button. No model or mode toolbar (main session only). -->
+        <textarea
+          style="field-sizing: content"
+          rows="2"
+          [class]="textareaClass"
+          [placeholder]="placeholder()"
+          [disabled]="pending()"
+          [value]="draft()"
+          [attr.aria-label]="placeholder()"
+          (input)="onInput($event)"
+          (keydown.enter)="onEnter($event)"
+        ></textarea>
+        <div [class]="toolbarClass">
+          <button
+            type="button"
+            [class]="sendButtonClass"
+            [disabled]="sendDisabled()"
+            [attr.aria-label]="sendLabel()"
+            [title]="sendLabel()"
+            (click)="submit()"
+          >
+            @if (pending()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            } @else {
+              <lucide-angular
+                [img]="ArrowUpIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            }
+          </button>
+        </div>
+      </div>
+    } @else if (steerable()) {
       <div
         class="flex items-center gap-1.5 border-t border-base-content/10 px-2.5 py-1.5"
       >
@@ -72,6 +121,8 @@ export class AgentSteerInputComponent {
   readonly placeholder = input<string>('Steer this agent…');
   /** Accessible label of the send button. */
   readonly sendLabel = input<string>('Send steer message');
+  /** `inline` under a chip; `composer` in the main chat composer's card. */
+  readonly variant = input<'inline' | 'composer'>('inline');
 
   /** Emits the trimmed steer text. Parent clears `pending` when done. */
   readonly steer = output<string>();
@@ -83,13 +134,20 @@ export class AgentSteerInputComponent {
   readonly draft = model('');
 
   protected readonly SendIcon = SendHorizontal;
+  protected readonly ArrowUpIcon = ArrowUp;
+  protected readonly composerCardClass = `${COMPOSER_CARD_CLASS} ${COMPOSER_CARD_BORDER_CLASS}`;
+  protected readonly textareaClass = COMPOSER_TEXTAREA_CLASS;
+  protected readonly toolbarClass = COMPOSER_TOOLBAR_CLASS;
+  protected readonly sendButtonClass = COMPOSER_SEND_BUTTON_CLASS;
 
   protected readonly sendDisabled = computed(
     () => this.pending() || this.draft().trim().length === 0,
   );
 
   protected onInput(event: Event): void {
-    this.draft.set((event.target as HTMLInputElement).value);
+    this.draft.set(
+      (event.target as HTMLInputElement | HTMLTextAreaElement).value,
+    );
   }
 
   protected onEnter(event: Event): void {

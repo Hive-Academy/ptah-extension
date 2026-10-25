@@ -42,9 +42,9 @@ jest.mock('@ptah-extension/agent-sdk', () => {
   return {
     ...actual,
     getAnthropicProvider: jest.fn(() => ({
-      id: 'moonshot',
-      name: 'Moonshot (Kimi)',
-      baseUrl: 'https://api.moonshot.ai/anthropic/',
+      id: 'z-ai',
+      name: 'Z.AI (GLM)',
+      baseUrl: 'https://api.z.ai/api/anthropic',
       authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
       keyPrefix: '',
       helpUrl: '',
@@ -67,7 +67,7 @@ async function* emptyStream(): AsyncGenerator<never, void, unknown> {
 const BASE_CONFIG: PtahCliConfig = {
   id: 'pc-perm-001',
   name: 'Permission Test Agent',
-  providerId: 'moonshot',
+  providerId: 'z-ai',
   enabled: true,
   tierMappings: undefined,
   updatedAt: 0,

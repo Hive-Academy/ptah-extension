@@ -51,10 +51,15 @@ export type CodexPlanUsageSource = Pick<
 export function createCodexPlanUsageReader(
   usage: CodexPlanUsageSource,
   now: () => number = Date.now,
+  homeSource?: () => string | undefined,
 ): PlanUsageReader {
   return async ({ refresh, signal }) =>
     mapCodexAccountUsage(
-      await usage.getAccountUsage({ refresh, ...(signal && { signal }) }),
+      await usage.getAccountUsage({
+        refresh,
+        ...(signal && { signal }),
+        ...(homeSource && { home: homeSource() }),
+      }),
       now(),
     );
 }

@@ -1,7 +1,59 @@
 import { z } from 'zod';
-import { OUTCOME_TASK_KINDS, SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import {
+  OUTCOME_TASK_KINDS,
+  SYSTEM_CLI_TYPES,
+  type ProviderAccountSelection,
+  type SystemCliType,
+} from '@ptah-extension/shared';
+import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 
 export const MAX_TASK_LENGTH = 100 * 1024;
+
+/**
+ * The one system lane whose spawn takes an account selection. Codex accounts
+ * share the account vocabulary but have no lane contract yet.
+ */
+export const AGENT_SPAWN_ACCOUNT_CLI = 'claude' as const satisfies SystemCliType;
+
+/** The spawn fields an account refusal depends on, in either casing. */
+export interface AgentSpawnAccountInput {
+  readonly cli?: string;
+  readonly ptahCliId?: string;
+  readonly resumeSessionId?: string;
+  readonly accountSelection?: ProviderAccountSelection;
+}
+
+/**
+ * Refuse an account selection the spawn cannot honour, before anything runs.
+ * Returns the reason, or `undefined` when the spawn may proceed.
+ *
+ * - The selection applies to `cli: 'claude'` only, never to a Ptah CLI
+ *   provider or an auto-detected lane.
+ * - A named account is refused: named lane admission is release-held (D7), so
+ *   accepting it would launch the ambient login under a named request.
+ * - A resume never takes a named account: the resumed session keeps the
+ *   account stored with it. Ambient on resume is checked by the runtime's
+ *   resume gate against that stored binding, which refuses a bound session.
+ *
+ * An accepted selection (ambient or omitted) is forwarded on
+ * `SpawnAgentRequest.accountSelection`; both are today's route.
+ */
+export function agentSpawnAccountRefusal(
+  input: AgentSpawnAccountInput,
+): string | undefined {
+  const selection = input.accountSelection;
+  if (selection === undefined) return undefined;
+  // Truthiness matches the spawn paths: an empty id selects no Ptah CLI lane
+  // and an empty resume id resumes nothing.
+  if (input.ptahCliId || input.cli !== AGENT_SPAWN_ACCOUNT_CLI) {
+    return `accountSelection applies only to cli "${AGENT_SPAWN_ACCOUNT_CLI}" lanes, not to Ptah CLI agents, auto-detected lanes or other CLIs.`;
+  }
+  if (selection.kind !== 'named') return undefined;
+  if (input.resumeSessionId) {
+    return 'a resumed lane keeps the account stored with its session; omit accountSelection when resuming.';
+  }
+  return 'named Claude account lanes are not available in this release; omit accountSelection or pass {"kind":"ambient"} to use the existing Claude login.';
+}
 
 /**
  * Deliverable paths one spawn may declare (TASK_2026_515).
@@ -50,5 +102,23 @@ export const AgentSpawnArgsSchema = z
     routingSource: z.enum(['model', 'ranking', 'pin']).optional(),
     // Overrides the pre-spawn limit gate; never forwarded to `agent.spawn`.
     force: z.boolean().optional(),
+    // Optional account route for a `claude` lane: ID or sentinel only, never
+    // a path, env, token or owner (strict shared schema).
+    accountSelection: ProviderAccountSelectionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((args, ctx) => {
+    const refusal = agentSpawnAccountRefusal({
+      cli: args.cli,
+      ptahCliId: args.ptahCliId,
+      resumeSessionId: args.resume_session_id,
+      accountSelection: args.accountSelection,
+    });
+    if (refusal !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['accountSelection'],
+        message: refusal,
+      });
+    }
+  });

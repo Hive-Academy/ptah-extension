@@ -108,6 +108,14 @@ export const CLI_INSTALL_GUIDES: Readonly<
     command: null,
     note: 'Put the Grok CLI on your PATH as grok, sign in with grok login, then Re-detect.',
   },
+  // NEW copy (TASK_2026_712 Batch 26d): `ClaudeCliAdapter.detect()` installs nothing of its own; it reports the
+  // lane once the Claude Agent SDK that Ptah chat uses can be loaded, so there is no install command.
+  claude: {
+    command: null,
+    note:
+      'Claude needs no separate install: Ptah runs it through the Claude Agent SDK that Ptah chat uses, ' +
+      'with your existing Claude sign-in. Once that SDK is available, Re-detect.',
+  },
 };
 
 /** M1: the failed-Test sentence is fixed; only the state's own fixed reasons may follow it. */

@@ -9,9 +9,9 @@
  * DEFINED rather than the tier the session runs on — so every non-opus session
  * on a provider with distinct tier mappings was mislabelled.
  *
- * Moonshot is used throughout because its three tiers are genuinely distinct
- * (`kimi-k2.7-code` / `kimi-k2.6` / `kimi-k2.5`), which is what makes the
- * per-tier assertions meaningful.
+ * Kimi Code is used throughout because its three tiers are genuinely distinct
+ * (`k3.1-pro` / `k3` / `kimi-for-coding`), which is what makes the per-tier
+ * assertions meaningful.
  */
 
 import 'reflect-metadata';
@@ -23,10 +23,10 @@ import {
 import { getAnthropicProvider } from '@ptah-extension/shared';
 import type { AISessionConfig, AuthEnv } from '@ptah-extension/shared';
 
-const MOONSHOT = getAnthropicProvider('moonshot');
+const KIMI_CODE = getAnthropicProvider('kimi-code');
 
 /** The provider's own registry mappings — not values invented by this spec. */
-const TIERS = MOONSHOT?.defaultTiers as {
+const TIERS = KIMI_CODE?.defaultTiers as {
   opus: string;
   sonnet: string;
   haiku: string;
@@ -42,14 +42,14 @@ describe('buildModelIdentityPrompt — names the session model, not the first de
     ['sonnet', () => TIERS.sonnet],
     ['haiku', () => TIERS.haiku],
   ])('tier %s yields its own model name', (_tier, model) => {
-    const prompt = buildModelIdentityPrompt('moonshot', model());
+    const prompt = buildModelIdentityPrompt('kimi-code', model());
 
     expect(prompt).toContain(`running as **${model()}**`);
-    expect(prompt).toContain(`you are ${model()} from Moonshot (Kimi)`);
+    expect(prompt).toContain(`you are ${model()} from Kimi Code`);
   });
 
   it('does NOT leak the opus model into a sonnet session (the reported defect)', () => {
-    const prompt = buildModelIdentityPrompt('moonshot', TIERS.sonnet);
+    const prompt = buildModelIdentityPrompt('kimi-code', TIERS.sonnet);
 
     expect(prompt).toContain(TIERS.sonnet);
     expect(prompt).not.toContain(TIERS.opus);
@@ -70,7 +70,7 @@ describe('buildModelIdentityPrompt — names the session model, not the first de
   it.each([undefined, '', '   ', 'default', 'opus', 'sonnet', 'haiku', 'OPUS'])(
     'omits the block entirely rather than announce the unresolved id %p',
     (unresolved) => {
-      expect(buildModelIdentityPrompt('moonshot', unresolved)).toBeUndefined();
+      expect(buildModelIdentityPrompt('kimi-code', unresolved)).toBeUndefined();
     },
   );
 });
@@ -83,9 +83,9 @@ describe('buildModelIdentityPrompt — names the session model, not the first de
 // DI container is needed.
 // ---------------------------------------------------------------------------
 
-const MOONSHOT_AUTH_ENV = {
-  ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic/',
-  ANTHROPIC_AUTH_TOKEN: 'sk-test',
+const KIMI_CODE_AUTH_ENV = {
+  ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
+  ANTHROPIC_API_KEY: 'sk-test',
   ANTHROPIC_DEFAULT_OPUS_MODEL: TIERS.opus,
   ANTHROPIC_DEFAULT_SONNET_MODEL: TIERS.sonnet,
   ANTHROPIC_DEFAULT_HAIKU_MODEL: TIERS.haiku,
@@ -133,7 +133,7 @@ function makeBuilder(): SdkQueryOptionsBuilder {
     },
     noopHooks,
     noopHooks,
-    MOONSHOT_AUTH_ENV,
+    KIMI_CODE_AUTH_ENV,
     modelService,
     injector,
     noopHooks,

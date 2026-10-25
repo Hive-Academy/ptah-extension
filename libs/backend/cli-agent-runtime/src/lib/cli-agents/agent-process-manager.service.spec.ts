@@ -605,13 +605,15 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     it('clears a handle timeout warning when attachment arrives later', async () => {
       getMcpPort.mockReturnValue(51821);
       let notifyTimeout: (() => void) | undefined;
-      let attachment:
-        import('./mcp-attachment-probe.port').McpAttachment | undefined;
+      // A holder: probe.get() reads it before the attachment arrives.
+      const attachmentRef: {
+        current?: import('./mcp-attachment-probe.port').McpAttachment;
+      } = {};
       let resolveAttachment: (
         entry: import('./mcp-attachment-probe.port').McpAttachment | undefined,
       ) => void = () => undefined;
       const probe: import('./mcp-attachment-probe.port').IMcpAttachmentProbe = {
-        get: () => attachment,
+        get: () => attachmentRef.current,
         waitFor: () =>
           new Promise((resolve) => {
             resolveAttachment = resolve;
@@ -649,13 +651,13 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         mcpAttachmentWarning: expect.stringContaining('(handshake-timeout)'),
       });
       await jest.advanceTimersByTimeAsync(5_000);
-      attachment = {
+      attachmentRef.current = {
         agentId: result.agentId,
         port: 51821,
         method: 'initialize',
         time: Date.now(),
       };
-      resolveAttachment(attachment);
+      resolveAttachment(attachmentRef.current);
       await Promise.resolve();
       expect(harness.manager.getStatus(result.agentId)).not.toHaveProperty(
         'mcpAttachmentWarning',
@@ -807,7 +809,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         task: 'Review the batch',
         cli: 'ptah-cli',
         workingDirectory: '/workspace/root',
-        ptahCliName: 'Moonshot',
+        ptahCliName: 'Kimi Code',
         ptahCliId: 'ptah-cli-1',
         roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
         expectsMcp: false,
@@ -1168,6 +1170,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(resumeGate.evaluate).toHaveBeenCalledWith({
         cli: 'codex',
         cliSessionId: SESSION,
+        accountReference: {},
         lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
       });
       const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
@@ -1342,6 +1345,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         expect(resumeGate.evaluate).toHaveBeenCalledWith({
           cli: 'ptah-cli',
           cliSessionId: SESSION,
+          accountReference: {},
           lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
         });
         expect(prepared.resumeSessionId).toBeUndefined();

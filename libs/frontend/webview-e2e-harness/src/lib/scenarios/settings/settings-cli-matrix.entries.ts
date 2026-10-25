@@ -300,7 +300,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
         );
         await dialog
           .locator('[data-testid="add-cli-instance-provider"]')
-          .selectOption('moonshot');
+          .selectOption('kimi-code');
         await visibleEnabled(
           dialog.locator('[data-testid="add-cli-instance-key"]'),
         );
@@ -636,7 +636,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
     // Batch 21 restored the drawer Credentials half (the Replace key field); Batch 32 adds the CLI-instance add form.
     reach: async (page) => {
       try {
-        await credentialsOf(page, 'Moonshot');
+        await credentialsOf(page, 'Kimi Code');
         await page.locator('[data-testid="credentials-replace"]').click();
         const key = page.locator('[data-testid="credentials-new-key"]');
         await expect(key).toHaveAttribute('type', 'password');
@@ -653,7 +653,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
       try {
         await dialog
           .locator('[data-testid="add-cli-instance-provider"]')
-          .selectOption('moonshot');
+          .selectOption('kimi-code');
         const key = dialog.locator('[data-testid="add-cli-instance-key"]');
         await key.fill('sk-e2e-reach-key');
         await expect(key).toHaveAttribute('type', 'password');

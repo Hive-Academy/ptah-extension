@@ -1,3 +1,5 @@
+import type { ProviderAccountSelection } from '@ptah-extension/shared';
+import { namedAccountRefusal } from './helpers/session-lifecycle/session-query-executor.service';
 import * as path from 'path';
 import * as os from 'os';
 import { existsSync } from 'fs';
@@ -890,6 +892,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   async startChatSession(
     config: AISessionConfig & {
+      accountSelection?: ProviderAccountSelection;
       tabId: string;
       name?: string;
       prompt?: string;
@@ -1163,6 +1166,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
+      accountSelection?: ProviderAccountSelection;
       mcpServerRunning?: boolean;
       enhancedPromptsContent?: string;
       tabId?: string;
@@ -1176,6 +1180,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
+    if (existingSession && existingSession.query && config?.accountSelection?.kind === 'named') {
+      // A live continuation needs Batch 18's bound-turn route revalidation.
+      throw namedAccountRefusal();
+    }
     if (existingSession && existingSession.query) {
       this.logger.info(
         `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
@@ -1633,6 +1641,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionId: SessionId,
     command: string,
     config: SlashCommandConfig & {
+      accountSelection?: ProviderAccountSelection;
       tabId?: string;
       providerProfile?: ProviderProfile;
     },
@@ -1640,6 +1649,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
     if (!this.initialized) {
       throw this.notInitializedError();
     }
+
+    if (config.accountSelection?.kind === 'named') throw namedAccountRefusal();
 
     // Same per-session provider pinning as start/resume: the relaunch runs on
     // the profile's isolated auth env, model and cli.js when one is supplied.

@@ -82,6 +82,16 @@ export type {
   ProvidersCustomEntry,
   ProvidersDetectedClis,
 } from './providers-settings.types';
+// Account state is part of the Providers settings surface; this file is its public entry
+// point (re-exported by the package barrel), as for the types above.
+export {
+  ProviderAccountsStateService,
+  type ProviderAccountAction,
+  type ProviderAccountActionKind,
+  type ProviderAccountActionOutcome,
+  type ProviderAccountChoice,
+  type ProviderAccountsView,
+} from './provider-accounts-state.service';
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set([
@@ -771,7 +781,11 @@ export class ProvidersSettingsStateService {
           piModel: config.piModel,
           codexReasoningEffort: config.codexReasoningEffort,
           copilotReasoningEffort: config.copilotReasoningEffort,
+          grokReasoningEffort: config.grokReasoningEffort,
+          antigravityReasoningEffort: config.antigravityReasoningEffort,
           piReasoningEffort: config.piReasoningEffort,
+          claudeModel: config.claudeModel,
+          claudeReasoningEffort: config.claudeReasoningEffort,
           detectedClis: config.detectedClis,
           disabledClis: config.disabledClis,
           preferredAgentOrder: config.preferredAgentOrder,

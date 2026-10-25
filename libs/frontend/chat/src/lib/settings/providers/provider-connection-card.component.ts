@@ -135,7 +135,7 @@ export class ProviderConnectionCardComponent {
   protected readonly inlineActionClass =
     'btn btn-link btn-xs h-6 min-h-6 !px-0 text-[11px] text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
-  /** Provider registry or connection identifier (e.g. 'anthropic', 'moonshot', 'claude-cli'). */
+  /** Provider registry or connection identifier (e.g. 'anthropic', 'kimi-code', 'claude-cli'). */
   readonly providerId = input<string>('');
   /** Human-readable provider name. Defaults to providerId if empty. */
   readonly providerName = input<string>('');

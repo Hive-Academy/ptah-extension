@@ -112,6 +112,15 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
       gap: 0;
     }
 
+    /* Glass panes take their depth from an outer shadow. overflow: hidden
+       would cut it at the body's top and bottom edges; clip with an 8px
+       margin lets it reach into the root's 8px padding and still never
+       scrolls or overflows the window. Glass on only (any theme). */
+    :host-context([data-theme][data-glass='on']) .electron-shell-body {
+      overflow: clip;
+      overflow-clip-margin: 8px;
+    }
+
     :host-context([data-glass='on']) .electron-shell-body > :not(ptah-electron-resize-handle):not(:last-child) {
       margin-inline-end: 8px;
     }

@@ -44,7 +44,8 @@ export interface PendingAgentOutput {
 /**
  * Append segments to `target` in place. When the first incoming segment has
  * the same prose type (text or thinking) as the current last one, the two are
- * merged into a new object that keeps the earlier segment's fields.
+ * merged into a new object that keeps the earlier segment's fields, unless
+ * they belong to different provider messages (`messageId`).
  */
 export function appendMergingProse(
   target: CliOutputSegment[],
@@ -58,7 +59,8 @@ export function appendMergingProse(
   if (
     last &&
     (last.type === 'text' || last.type === 'thinking') &&
-    last.type === first.type
+    last.type === first.type &&
+    last.messageId === first.messageId
   ) {
     target[lastIdx] = { ...last, content: last.content + first.content };
     start = 1;

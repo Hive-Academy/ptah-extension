@@ -9,8 +9,8 @@ describe('resolveAuthProviderKey', () => {
     });
 
     it('returns "thirdParty.<providerId>" for other valid provider ids', () => {
-      expect(resolveAuthProviderKey('thirdParty', 'moonshot')).toBe(
-        'thirdParty.moonshot',
+      expect(resolveAuthProviderKey('thirdParty', 'kimi-code')).toBe(
+        'thirdParty.kimi-code',
       );
       expect(resolveAuthProviderKey('thirdParty', 'ollama')).toBe(
         'thirdParty.ollama',

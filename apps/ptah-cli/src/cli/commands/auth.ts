@@ -64,21 +64,11 @@ import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 
 /** Sub-commands accepted by `ptah auth ...`. */
 export type AuthSubcommand =
-  | 'status'
-  | 'login'
-  | 'logout'
-  | 'test'
-  | 'use'
-  | 'set-anthropic-route';
+  'status' | 'login' | 'logout' | 'test' | 'use' | 'set-anthropic-route';
 
 /** Providers accepted by `auth login` / `auth logout` / `auth test`. */
 export type AuthProvider =
-  | 'copilot'
-  | 'codex'
-  | 'claude'
-  | 'claude-cli'
-  | 'anthropic'
-  | string;
+  'copilot' | 'codex' | 'claude' | 'claude-cli' | 'anthropic' | string;
 
 /**
  * Narrowed contract for the workspace provider used by auth login flows that
@@ -121,7 +111,7 @@ export interface AuthOptions {
    *   - `github-copilot`/`copilot`→ authMethod=oauth, anthropicProviderId=...
    *   - `openai-codex`/`codex`    → authMethod=oauth, anthropicProviderId=...
    *   - `openrouter`              → authMethod=apiKey, defaultProvider=openrouter
-   *   - `moonshot`                → authMethod=apiKey, defaultProvider=moonshot
+   *   - `kimi-code`               → authMethod=thirdParty, anthropicProviderId=kimi-code
    *   - `z-ai`                    → authMethod=apiKey, defaultProvider=z-ai
    */
   providerId?: string;
@@ -697,16 +687,18 @@ async function runTest(
  * The CLI writes three coordinated keys under the `ptah` config namespace:
  *
  *   - `authMethod`            — strategy selector consumed by `resolveStrategy`.
- *                               One of `'claude-cli' | 'oauth' | 'apiKey'`.
+ *                               One of `'claude-cli' | 'oauth' | 'apiKey' |
+ *                               'thirdParty'`.
  *   - `defaultProvider`       — the provider id consumed by the SDK adapter
  *                               when `authMethod !== 'oauth'`. For oauth flows
  *                               this is the anthropic-compatible upstream
  *                               (`'anthropic'`) so the proxy still routes
  *                               messages.create requests correctly.
- *   - `anthropicProviderId`   — the bridge provider id used by the oauth
- *                               proxy to forge upstream calls. Only relevant
- *                               for `authMethod=oauth`. Cleared (set to
- *                               `null`) for non-oauth strategies.
+ *   - `anthropicProviderId`   — the Anthropic-compatible provider the runtime
+ *                               routes to. Only read for `authMethod=oauth`
+ *                               and `authMethod=thirdParty` (oauth bridges and
+ *                               API-key third parties such as `kimi-code`).
+ *                               Cleared (set to `null`) for other strategies.
  *
  * The mapping below is intentionally narrow — only the providers the doctor
  * surface and the marketplace agree on are accepted. Extending it requires a
@@ -714,7 +706,7 @@ async function runTest(
  * `task-description.md` Â§3.1 `auth use` table.
  */
 interface AuthUsePlan {
-  authMethod: 'claude-cli' | 'oauth' | 'apiKey';
+  authMethod: 'claude-cli' | 'oauth' | 'apiKey' | 'thirdParty';
   defaultProvider: string;
   anthropicProviderId: string | null;
 }
@@ -749,11 +741,14 @@ function resolveAuthUsePlan(providerId: string): AuthUsePlan | null {
         defaultProvider: 'openrouter',
         anthropicProviderId: null,
       };
-    case 'moonshot':
+    case 'kimi-code':
+      // Kimi Code is an Anthropic-compatible third-party provider. The runtime
+      // (`ActiveProviderResolver`) routes `apiKey` to direct Anthropic and only
+      // reads `anthropicProviderId` for `thirdParty`, so both must be set here.
       return {
-        authMethod: 'apiKey',
-        defaultProvider: 'moonshot',
-        anthropicProviderId: null,
+        authMethod: 'thirdParty',
+        defaultProvider: 'kimi-code',
+        anthropicProviderId: 'kimi-code',
       };
     case 'z-ai':
     case 'zai':
@@ -802,7 +797,7 @@ async function runUse(
   if (!plan) {
     stderr.write(
       `ptah auth use: unsupported provider '${providerId}'. ` +
-        'Accepted: claude-cli, github-copilot, openai-codex, openrouter, moonshot, z-ai\n',
+        'Accepted: claude-cli, github-copilot, openai-codex, openrouter, kimi-code, z-ai\n',
     );
     return ExitCode.UsageError;
   }
