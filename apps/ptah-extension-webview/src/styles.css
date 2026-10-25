@@ -3369,13 +3369,15 @@ END OF ANUBIS DESIGN SYSTEM
    Shell canvases opt in to a clear backdrop so chrome and bar panes blur the
    scene. Nested reading fills keep bg-surface-0/1 and bg-base-100 (the
    previous-sessions panel, its header, the composer). Role rules below still
-   clear chrome, bar, and overlay. The app root <main> and the Electron
-   welcome root are root planes too: a solid base-100 there would hide the
-   tinted scene on every screen. */
+   clear chrome, bar, and overlay. The app root <main>, the Electron welcome
+   root and the orchestra canvas root are root planes too: a solid base-100
+   there would hide the tinted scene (the canvas root covers the whole centre
+   of the workspace and chat screens). */
 :root[data-glass='on'] :is(
   .electron-shell-root,
   ptah-root > main,
   ptah-electron-welcome > .bg-base-100,
+  ptah-orchestra-canvas > .bg-base-100,
   ptah-app-shell > .bg-surface-0,
   ptah-marketplace-shell > .bg-surface-0,
   ptah-thoth-shell > .bg-surface-0
