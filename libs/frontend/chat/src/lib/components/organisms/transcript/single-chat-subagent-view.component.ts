@@ -18,6 +18,7 @@ import type {
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ChatStore } from '../../../services/chat.store';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
+import { LaneTranscriptComponent } from './lane-transcript.component';
 import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component';
 
 /**
@@ -25,8 +26,8 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
  *
  * With a monitor record for the agent it renders the store-backed
  * `ptah-subagent-lane` (stats bar and always-visible message input), the same
- * lane the canvas shows. Without one it renders the LIVE agent node the
- * transcript resolves from its own execution trees, with tile mode off. Either
+ * lane the canvas shows. Without one it keeps the live agent header and renders its children through
+ * the same lane transcript. Either
  * way pending permissions stay answerable through the same `ChatStore` path
  * the transcript bubbles use. Back is the only way out; the transcript
  * restores its scroll and focus.
@@ -34,7 +35,12 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
 @Component({
   selector: 'ptah-single-chat-subagent-view',
   standalone: true,
-  imports: [LucideAngularModule, ExecutionNodeComponent, SubagentLaneComponent],
+  imports: [
+    LucideAngularModule,
+    ExecutionNodeComponent,
+    LaneTranscriptComponent,
+    SubagentLaneComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex flex-col min-h-0 bg-base-100',
@@ -77,7 +83,7 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
         </h2>
       </header>
       <div
-        class="flex-1 min-h-0 overflow-y-auto px-2 py-2"
+        class="flex-1 min-h-0 overflow-y-auto py-2"
         data-testid="subagent-view-body"
       >
         @if (record(); as rec) {
@@ -90,9 +96,16 @@ import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component'
           />
         } @else {
           <ptah-execution-node
-            [node]="node()"
+            [node]="fallbackHeader()"
             [isStreaming]="isStreaming()"
             [agentTileMode]="false"
+            [getPermissionForTool]="getPermissionForTool"
+            (permissionResponded)="onPermissionResponse($event)"
+          />
+          <ptah-lane-transcript
+            [laneId]="node().id"
+            [nodes]="node().children"
+            [isStreaming]="isStreaming()"
             [getPermissionForTool]="getPermissionForTool"
             (permissionResponded)="onPermissionResponse($event)"
           />
@@ -125,6 +138,11 @@ export class SingleChatSubagentViewComponent {
     () => this.monitor.subagents().get(this.node().toolCallId ?? '') ?? null,
   );
 
+  /** Keep the fallback agent's controls and metadata outside its message list. */
+  protected readonly fallbackHeader = computed(() => ({
+    ...this.node(),
+    children: [],
+  }));
   protected readonly name = computed(() => {
     const agent = this.node();
     return agent.agentType || agent.agentDescription || 'Subagent';

@@ -59,6 +59,11 @@ export class TranscriptMessageBubbleStub {
   @Output() rewindRequested = new EventEmitter<string>();
   @Output() logToggled = new EventEmitter<TurnLogToggle>();
   @Output() laneRequested = new EventEmitter<string>();
+  // The lane transcript's extra bindings, so the work-log parity spec can
+  // stub the bubble under both hosts.
+  @Input() permissionLookup: unknown = undefined;
+  @Input() userActions = true;
+  @Output() permissionResponded = new EventEmitter<unknown>();
 }
 
 @Component({

@@ -35,6 +35,12 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/apps/ptah-extension-vscode/package.json"
+      ],
       "options": {
         "passWithNoTests": true
       }

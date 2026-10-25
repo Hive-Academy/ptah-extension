@@ -609,6 +609,81 @@ describe('CodexCliAdapter', () => {
       expect(output).toContain('Hello world\n');
     });
 
+    // TASK_2026_717: the frontend splits text blocks on messageId, so two
+    // agent messages no longer render as one glued answer.
+    it('tags agent_message text segments with the item id', async () => {
+      setupMockEvents([
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'msg1', text: 'Delegating.' },
+        },
+        {
+          type: 'item.completed',
+          item: { type: 'agent_message', id: 'msg2', text: 'Done.' },
+        },
+      ]);
+
+      const handle = await adapter.runSdk(defaultOptions);
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((segment) => segments.push(segment));
+      await handle.done;
+
+      expect(segments.filter((s) => s.type === 'text')).toEqual([
+        { type: 'text', content: 'Delegating.', messageId: 'msg1' },
+        { type: 'text', content: 'Done.', messageId: 'msg2' },
+      ]);
+    });
+
+    // TASK_2026_717 review finding 3: a completion longer than the last
+    // update must not lose its suffix.
+    describe('agent_message updates then completion', () => {
+      const textOf = async (events: unknown[]) => {
+        setupMockEvents(events as FakeCodexEvent[]);
+        const handle = await adapter.runSdk(defaultOptions);
+        const segments: CliOutputSegment[] = [];
+        handle.onSegment?.((segment) => segments.push(segment));
+        await handle.done;
+        return segments.filter((s) => s.type === 'text');
+      };
+      const message = (type: string, text: string) => ({
+        type,
+        item: { type: 'agent_message', id: 'm', text },
+      });
+
+      it('emits the completion suffix with the same messageId', async () => {
+        const text = await textOf([
+          message('item.updated', 'The answer is '),
+          message('item.completed', 'The answer is 42.'),
+        ]);
+        expect(text).toEqual([
+          { type: 'text', content: 'The answer is ', messageId: 'm' },
+          { type: 'text', content: '42.', messageId: 'm' },
+        ]);
+        expect(text.map((s) => s.content).join('')).toBe('The answer is 42.');
+      });
+
+      it('emits nothing more when the completion matches the last update', async () => {
+        const text = await textOf([
+          message('item.updated', 'Done.'),
+          message('item.completed', 'Done.'),
+        ]);
+        expect(text).toEqual([
+          { type: 'text', content: 'Done.', messageId: 'm' },
+        ]);
+      });
+
+      it('joins several updates and the completion into the final text', async () => {
+        const text = await textOf([
+          message('item.started', 'One'),
+          message('item.updated', 'One, two'),
+          message('item.updated', 'One, two, three'),
+          message('item.completed', 'One, two, three.'),
+        ]);
+        expect(text.every((s) => s.messageId === 'm')).toBe(true);
+        expect(text.map((s) => s.content).join('')).toBe('One, two, three.');
+      });
+    });
+
     it('should push reasoning output to onOutput callback', async () => {
       setupMockEvents([
         {

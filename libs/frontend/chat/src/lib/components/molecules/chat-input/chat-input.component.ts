@@ -64,7 +64,11 @@ import {
   sessionWorkingRoot,
 } from '../../../services/session-git-stats/session-git-stats.store';
 import { ModelSelectorComponent } from './model-selector.component';
-import { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
+import {
+  AutopilotPopoverComponent,
+  COMPOSER_CARD_BORDER_CLASS,
+  COMPOSER_CARD_CLASS,
+} from '@ptah-extension/chat-ui';
 import {
   FilePickerService,
   type FileSuggestion,
@@ -854,8 +858,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * neutral hairline that strengthens on focus-within.
    */
   readonly cardClasses = computed(() => {
-    const base =
-      'chat-composer-column relative flex flex-col w-full mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
+    const base = `chat-composer-column ${COMPOSER_CARD_CLASS}`;
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
@@ -865,7 +868,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     if (this.autopilotState.enabled()) {
       return `${base} border-primary/40 focus-within:border-primary/60`;
     }
-    return `${base} border-surface-border focus-within:border-[var(--surface-border-strong)]`;
+    return `${base} ${COMPOSER_CARD_BORDER_CLASS}`;
   });
 
   private _lastSessionId: string | null = null;

@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FlatStreamEventUnion } from './execution';
 import type { QuotaOwnerRef } from './plan-limit.types';
+import type { ProviderAccountBinding } from './provider-account.types';
 import type {
   OutcomeRoutingSource,
   OutcomeTaskKind,
@@ -484,6 +485,8 @@ export interface CliOutputSegment {
   readonly changeKind?: string;
   /** Links a tool-call segment to its corresponding tool-result segment */
   readonly toolCallId?: string;
+  /** Provider message the text belongs to; a change starts a new text block. */
+  readonly messageId?: string;
 }
 
 export interface AgentOutputDelta {
@@ -502,6 +505,10 @@ export interface AgentOutputDelta {
  * Stored in SessionMetadata.cliSessions[] for resume capability.
  */
 export interface CliSessionReference {
+  /** Immutable run snapshot. Malformed persisted values must refuse resume. */
+  readonly accountBinding?: ProviderAccountBinding;
+  /** Opaque authoritative registry linkage; canonical paths stay backend-only. */
+  readonly accountBindingId?: string;
   /** CLI-native session ID */
   readonly cliSessionId: string;
   /** Which CLI produced this session */

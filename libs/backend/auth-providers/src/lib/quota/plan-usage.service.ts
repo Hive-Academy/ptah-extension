@@ -123,6 +123,7 @@ interface CachedReading {
 
 interface Flight {
   readonly key: string;
+  readonly ownerKey: string;
   readonly promise: Promise<PlanLimitOwnerSnapshot>;
   readonly controller: AbortController;
   /** Callers with a signal still waiting. */
@@ -133,6 +134,7 @@ interface Flight {
 
 @injectable()
 export class PlanUsageService {
+  private disposed = false;
   private readonly readers: Readonly<Record<string, PlanUsageReader>>;
   private readonly localReaders: Readonly<Record<string, PlanUsageReader>>;
   private readonly cache = new Map<string, CachedReading>();
@@ -177,10 +179,19 @@ export class PlanUsageService {
     options: PlanUsageRequestOptions = {},
   ): Promise<PlanLimitOwnerSnapshot> {
     const { signal } = options;
-    if (signal?.aborted) return Promise.reject(abortError());
+    if (signal?.aborted || this.disposed) return Promise.reject(abortError());
+    // Snapshot the internal carrier before awaiting provider work.
+    target = {
+      ...target,
+      ...(target.sessionHandle && {
+        sessionHandle: { ...target.sessionHandle },
+      }),
+      ...(target.claudeRoute && { claudeRoute: { ...target.claudeRoute } }),
+    };
     const key = target.ownerRef.key;
     const cached = this.cache.get(key);
     if (
+      target.claudeRoute?.kind !== 'named' &&
       !options.refresh &&
       cached &&
       this.now() - cached.readAt < PLAN_USAGE_CACHE_TTL_MS
@@ -188,9 +199,18 @@ export class PlanUsageService {
       return Promise.resolve(this.assemble(target.ownerRef, cached.reading));
     }
     const flight =
-      this.flights.get(key) ??
+      this.flights.get(flightKey(target)) ??
       this.startFlight(target, options.refresh === true);
     return this.join(flight, signal);
+  }
+
+  /** Cancel pending reads and release all retained owner data. */
+  dispose(): void {
+    this.disposed = true;
+    for (const flight of this.flights.values()) flight.controller.abort();
+    this.flights.clear();
+    this.cache.clear();
+    this.failingSince.clear();
   }
 
   // ------------------------------------------------------- single flight
@@ -199,7 +219,8 @@ export class PlanUsageService {
     const controller = new AbortController();
     const read = this.read(target, refresh, controller.signal);
     const flight: Flight = {
-      key: target.ownerRef.key,
+      key: flightKey(target),
+      ownerKey: target.ownerRef.key,
       controller,
       cancellable: 0,
       pinned: false,
@@ -213,6 +234,7 @@ export class PlanUsageService {
   private release(flight: Flight): void {
     if (this.flights.get(flight.key) === flight)
       this.flights.delete(flight.key);
+    this.evictCache();
   }
 
   private join(
@@ -343,7 +365,7 @@ export class PlanUsageService {
       return this.settle(owner, statusOnly('service-unavailable'));
     }
     // A failure caused by the cancellation itself is not the owner's state.
-    if (signal.aborted && reading.status !== 'available') throw abortError();
+    if (signal.aborted) throw abortError();
     return this.settle(owner, reading);
   }
 
@@ -352,10 +374,11 @@ export class PlanUsageService {
     owner: QuotaOwnerRef,
     reading: PlanUsageReading,
   ): PlanLimitOwnerSnapshot {
+    if (this.disposed) throw abortError();
+    if (reading.sourceInvalid) return this.assemble(owner, reading);
     const key = owner.key;
     if (isTransientFailure(reading)) {
       const since = this.failingSince.get(key) ?? this.now();
-      this.failingSince.set(key, since);
       const cached = this.cache.get(key)?.reading;
       const staleFrom =
         reading.status === 'stale'
@@ -364,6 +387,7 @@ export class PlanUsageService {
             ? cached
             : undefined;
       if (!staleFrom) return this.assemble(owner, reading);
+      if (this.cache.has(key)) this.failingSince.set(key, since);
       for (const window of staleFrom.windows) {
         this.ledger.recordWindowEvidence(owner, window, { stale: true });
       }
@@ -395,7 +419,12 @@ export class PlanUsageService {
   private evictCache(): void {
     while (this.cache.size > PLAN_USAGE_MAX_OWNERS) {
       const eviction = [...this.cache.entries()]
-        .filter(([key]) => !this.flights.has(key))
+        .filter(
+          ([key]) =>
+            ![...this.flights.values()].some(
+              (flight) => flight.ownerKey === key,
+            ),
+        )
         .sort(([, left], [, right]) => left.readAt - right.readAt)[0];
       if (!eviction) return;
       const [key] = eviction;
@@ -478,4 +507,19 @@ function abortError(): Error {
 
 function errorKind(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
+}
+
+/** Share settled windows by owner, but never join a different named source. */
+function flightKey(target: PlanOwnerTarget): string {
+  const route = target.claudeRoute;
+  return route?.kind === 'named'
+    ? JSON.stringify([
+        target.ownerRef.key,
+        route.routeFingerprint,
+        route.routeRevision,
+        route.authEpoch,
+        route.runId,
+        target.sessionHandle?.sessionId,
+      ])
+    : target.ownerRef.key;
 }

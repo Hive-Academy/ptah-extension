@@ -3,10 +3,15 @@ import {
   instanceCachingFactory,
   type DependencyContainer,
 } from 'tsyringe';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { ProviderAccountStore } from '../accounts/provider-account.store';
+import { ProviderAccountService } from '../accounts/provider-account.service';
+import { ProviderAccountActionsService } from '../accounts/provider-account-actions.service';
+import { accountActionResult, ClaudeAccountCommand } from '../accounts/claude-account-command';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
@@ -127,6 +132,7 @@ export function registerAuthProvidersServices(
   // graph here; none of these lazy registrations starts a proxy server.
   registerCuratorAuthServices(container, logger);
   registerPlanLimitServices(container);
+  registerProviderAccountServices(container);
 
   container.register(SDK_TOKENS.PRICING_PROVIDER, {
     useFactory: instanceCachingFactory((c) =>
@@ -139,6 +145,52 @@ export function registerAuthProvidersServices(
   logger.info('[auth-providers] Services registered');
 
   warmupPricing(container, logger);
+}
+
+function registerProviderAccountServices(container: DependencyContainer): void {
+  container.register(ClaudeAccountCommand, {
+    useFactory: instanceCachingFactory((c) => new ClaudeAccountCommand(
+      c.resolve(SDK_TOKENS.SDK_CLI_DETECTOR), c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+    )),
+  });
+  container.register(ProviderAccountStore, {
+    useClass: ProviderAccountStore,
+  }, { lifecycle: Lifecycle.Singleton });
+  container.register(ProviderAccountService, {
+    useClass: ProviderAccountService,
+  }, { lifecycle: Lifecycle.Singleton });
+  // D7: admission stays release-held everywhere, including hosts without
+  // account storage. This port refuses exactly like the service, so optional
+  // consumers construct and every refusal keeps its typed code and summary.
+  function releaseHeldProviderAccountAdmission() {
+    const refusal = (code: 'release-held' | 'conflict') => ({
+      code,
+      summary: accountActionResult(code).summary,
+    });
+    return {
+      admitClaudeRoute: async () => refusal('release-held'),
+      releaseReservation: async () => refusal('conflict'),
+      retainUnresolvedReservation: async () => refusal('conflict'),
+    };
+  }
+  // Registration stays unconditional: Electron registers this module before
+  // SQLITE_CONNECTION. VS Code never registers the connection at all, and the
+  // service constructor requires it, so resolve the service only when the
+  // connection exists. Without the connection the factory hands out the
+  // fail-closed port above instead of throwing inside the factory.
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, {
+    useFactory: instanceCachingFactory((c) =>
+      c.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION, true)
+        ? c.resolve(ProviderAccountService)
+        : releaseHeldProviderAccountAdmission(),
+    ),
+  });
+  container.register(ProviderAccountActionsService, {
+    useClass: ProviderAccountActionsService,
+  }, { lifecycle: Lifecycle.Singleton });
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS, {
+    useFactory: instanceCachingFactory((c) => c.resolve(ProviderAccountActionsService)),
+  });
 }
 
 export function registerCuratorAuthServices(

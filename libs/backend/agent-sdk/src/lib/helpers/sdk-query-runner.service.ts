@@ -52,7 +52,12 @@ import {
   type IPlatformInfo,
 } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '../di/tokens';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ClaudeAccountRoute,
+  type ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { SdkError } from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
@@ -82,6 +87,16 @@ import {
   QueryFunction,
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
+import type { NamedAccountPersistencePort } from './session-lifecycle/session-query-executor.service';
+
+/** Host adapter over the account registry and SessionMetadataStore. */
+export const SDK_NAMED_ACCOUNT_PERSISTENCE = Symbol.for('SdkNamedAccountPersistence');
+
+export interface NamedAccountQueryHandle {
+  readonly sdkQuery: ReturnType<QueryFunction>;
+  /** Resolves only on the spawned child's exit event, never on query.close(). */
+  readonly terminated: Promise<void>;
+}
 import { PTAH_MCP_PORT } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
@@ -157,6 +172,8 @@ export interface OneShotAuthOverride {
 export type OneShotToolAccess = 'claude-code' | 'none';
 
 export interface OneShotRunInput {
+  /** Certified account route supplied by admission; omitted preserves ambient auth. */
+  accountRoute?: ClaudeAccountRoute;
   mode: 'oneShot';
   cwd: string;
   model: string;
@@ -291,6 +308,10 @@ export class SdkQueryRunner {
      */
     @inject(MODEL_DISPATCH_PROVENANCE_TAP, { isOptional: true })
     private readonly provenanceTap: ModelDispatchProvenanceTap | null = null,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, { isOptional: true })
+    readonly accountAdmission: ProviderAccountAdmissionPort | null = null,
+    @inject(SDK_NAMED_ACCOUNT_PERSISTENCE, { isOptional: true })
+    readonly accountPersistence: NamedAccountPersistencePort | null = null,
   ) {}
 
   /**
@@ -458,6 +479,34 @@ export class SdkQueryRunner {
     return { sdkQuery };
   }
 
+  /** Observe termination at the launch funnel; policy remains with the executor. */
+  invokeNamedQuery(
+    queryFn: QueryFunction,
+    prompt: AsyncIterable<SDKUserMessage>,
+    options: SdkQueryOptions,
+    observeTermination?: (termination: Promise<void>) => void,
+  ): NamedAccountQueryHandle {
+    this.useOffThreadSpawner(options);
+    const spawn = options.spawnClaudeCodeProcess;
+    if (!spawn) throw new SdkError('Named account process observer unavailable.');
+    let terminated!: () => void;
+    const termination = new Promise<void>((resolve) => { terminated = resolve; });
+    observeTermination?.(termination);
+    const observedOptions: SdkQueryOptions = {
+      ...options,
+      spawnClaudeCodeProcess: (input) => {
+        const child = spawn(input);
+        // The worker shim can synthesize a signal-only exit after losing its
+        // worker. A numeric exit status is proof; signal-only exits stay held
+        // until the spawner exposes an explicit, trustworthy termination proof.
+        child.once('exit', (code) => { if (code !== null) terminated(); });
+        return child;
+      },
+    };
+    const sdkQuery = this.launch('interactive', () => queryFn({ prompt, options: observedOptions }));
+    return { sdkQuery, terminated: termination };
+  }
+
   /**
    * Whether a one-shot query can be ATTEMPTED in this process at all.
    *
@@ -597,22 +646,25 @@ export class SdkQueryRunner {
       includePartialMessages: true,
       persistSession: false,
       pathToClaudeCodeExecutable: cliJsPath || undefined,
-      env: {
-        ...process.env,
-        ...buildTierEnvDefaults(authEnv),
-        ...(input.auth
-          ? clearLeakedProviderIdentity(process.env, input.auth.env)
-          : {}),
-        ...authEnv,
-        NO_PROXY: '127.0.0.1,localhost',
-        ...(() => {
-          const baseUrl = effectiveBaseUrl?.trim();
-          return baseUrl &&
-            !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
-            ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-            : {};
-        })(),
-      } as Record<string, string | undefined>,
+      env: applyClaudeAccountRouteEnv(
+        {
+          ...process.env,
+          ...buildTierEnvDefaults(authEnv),
+          ...(input.auth
+            ? clearLeakedProviderIdentity(process.env, input.auth.env)
+            : {}),
+          ...authEnv,
+          NO_PROXY: '127.0.0.1,localhost',
+          ...(() => {
+            const baseUrl = effectiveBaseUrl?.trim();
+            return baseUrl &&
+              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+              : {};
+          })(),
+        },
+        input.accountRoute,
+      ),
       settingSources: effectiveBaseUrl?.includes('127.0.0.1')
         ? ['project', 'local']
         : ['user', 'project', 'local'],

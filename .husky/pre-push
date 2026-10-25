@@ -1,5 +1,16 @@
 
 
+# Every step below is a heavy Nx check, so the hook runs itself again under
+# the machine-wide verify lock (scripts/verify-lock.mjs). It then queues
+# behind `npm run verify` runs in other sessions and worktrees instead of
+# competing with them for RAM. The lock is released when this script exits.
+# --check-token is true only inside that re-run (or under another holder
+# from this process tree), so a stale token in the environment cannot skip
+# the lock. PTAH_SKIP_VERIFY_LOCK=1 skips the lock if it is ever wedged.
+if [ "${PTAH_SKIP_VERIFY_LOCK:-0}" != "1" ] && ! node scripts/verify.mjs --check-token; then
+  exec node scripts/verify.mjs --exec --task "pre-push $(git rev-parse --abbrev-ref HEAD)" -- sh -e "$0" "$@"
+fi
+
 echo "🚀 Running pre-push checks..."
 
 # DI invariant check — runs on every push regardless of branch (fast, ~2s).
@@ -11,31 +22,34 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Electron build gate — runs on every push regardless of branch.
-echo "🏗️  Verifying electron main bundle builds + native deps declared..."
+# Electron build gate. Compare committed HEAD only; uncommitted edits are not
+# being pushed. `nx affected` runs validate-deps (and the build-main bundle it
+# depends on) only when the pushed commits affect ptah-electron, so a push that
+# does not touch Electron skips the bundle build. CI runs the same affected
+# gate on every pull request.
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+case "$current_branch" in
+  main | develop) base_ref="origin/$current_branch" ;;
+  *) base_ref="origin/main" ;;
+esac
+
+echo "🏗️  Verifying electron main bundle builds + native deps declared (if affected)..."
 if [ "${PTAH_PREPUSH_PARANOID:-0}" = "1" ]; then
-  # Compare committed HEAD only; uncommitted edits are not being pushed.
   # Paranoid mode: the affected build AND the packaged-runtime dependency
   # gate. `nx affected -t build` covers compilation but does not run
   # ptah-electron:validate-deps, so a runtime dep missing from
   # apps/ptah-electron/package.json would pass on build alone.
-  npx nx affected -t build --base=origin/main --head=HEAD
+  npx nx affected -t build --base="$base_ref" --head=HEAD
   if [ $? -ne 0 ]; then
     echo "❌ Affected build failed (PTAH_PREPUSH_PARANOID=1) — fix the compile errors above, then push again."
     exit 1
   fi
-  npx nx run ptah-electron:validate-deps
-  if [ $? -ne 0 ]; then
-    echo "❌ validate-deps failed — a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
-    exit 1
-  fi
-else
-  npx nx run ptah-electron:validate-deps
-  if [ $? -ne 0 ]; then
-    echo "❌ Build gate failed — electron main bundle failed to compile OR a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
-    echo "   Set PTAH_PREPUSH_PARANOID=1 to also run the full affected build."
-    exit 1
-  fi
+fi
+npx nx affected -t validate-deps --base="$base_ref" --head=HEAD
+if [ $? -ne 0 ]; then
+  echo "❌ Build gate failed — electron main bundle failed to compile OR a runtime dep is missing from apps/ptah-electron/package.json (would crash with ERR_MODULE_NOT_FOUND in production)."
+  echo "   Set PTAH_PREPUSH_PARANOID=1 to also run the full affected build."
+  exit 1
 fi
 
 # CI (.github/workflows/ci.yml) runs only on pull requests into main, so a
@@ -43,10 +57,9 @@ fi
 # --head=HEAD compares committed work only: without it `nx affected` also
 # counts uncommitted files, and one unrelated edit to tsconfig.base.json
 # once marked all 103 projects affected and made a push take 17 minutes.
-current_branch=$(git rev-parse --abbrev-ref HEAD)
 if [ "$current_branch" = "main" ] || [ "$current_branch" = "develop" ]; then
   echo "🏗️ Building and type-checking affected projects..."
-  npx nx affected -t build typecheck --base=origin/$current_branch --head=HEAD
+  npx nx affected -t build typecheck --base="$base_ref" --head=HEAD
   if [ $? -ne 0 ]; then
     echo "❌ Affected build/typecheck failed — fix the errors above, then push again."
     exit 1

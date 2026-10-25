@@ -8,9 +8,13 @@
 
 import { z } from 'zod';
 
+import { ProviderAccountBindingSchema } from './provider-account.schemas';
+import { isProviderAccountOpaqueId } from './provider-account.types';
 import type { ProviderProfile } from './provider-profile.types';
 
 export const ProviderProfileSchema = z.object({
+  accountBinding: ProviderAccountBindingSchema.optional(),
+  accountBindingId: z.string().refine(isProviderAccountOpaqueId).optional(),
   providerId: z.string().min(1),
   authEnv: z.object({
     ANTHROPIC_API_KEY: z.string().optional(),

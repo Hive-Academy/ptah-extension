@@ -20,6 +20,7 @@
  * the child ends and in `dispose()`.
  */
 import { inject, injectable, type DependencyContainer } from 'tsyringe';
+import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 import { isAbsolute, resolve } from 'node:path';
 import {
   SDK_TOKENS,
@@ -409,7 +410,7 @@ export class SessionSpawnerService implements ISessionSpawner {
         ...(request.model ? { model: request.model } : {}),
       });
       if (!outcome.started) {
-        return await this.failStart(childTabId, runtime, outcome.error);
+        return await this.failStart(childTabId, runtime, outcome.error, outcome.accountRefusal);
       }
 
       this.armRuntimeCap(runtime, childTabId, guard.settings.maxRuntimeMinutes);
@@ -452,7 +453,7 @@ export class SessionSpawnerService implements ISessionSpawner {
   private async startOnHost(
     host: IChildChatSessionHost,
     input: Parameters<IChildChatSessionHost['startChildSession']>[0],
-  ): Promise<ChildChatSessionStartOutcome> {
+  ): Promise<ChildChatSessionStartOutcome & { readonly accountRefusal?: ProviderAccountPortRefusal }> {
     try {
       return await host.startChildSession(input);
     } catch (error: unknown) {
@@ -496,6 +497,7 @@ export class SessionSpawnerService implements ISessionSpawner {
     childTabId: string,
     runtime: ChildRuntime,
     error: string,
+    accountRefusal?: ProviderAccountPortRefusal,
   ): Promise<SessionChildStartResult> {
     this.log(`start of ${childTabId} failed: ${error}; rolling back`);
     const rollback: SessionChildRollbackStep[] = [];
@@ -526,6 +528,7 @@ export class SessionSpawnerService implements ISessionSpawner {
       ok: false,
       refusal: 'session-start-failed',
       detail: error,
+      ...(accountRefusal ? { accountRefusal } : {}),
       rollback,
     };
   }

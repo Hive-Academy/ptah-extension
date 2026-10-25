@@ -204,12 +204,11 @@ test.describe('agent file links', () => {
     // The dock reveals, loads the shell lazily and mounts the editor read-only.
     const editor = spotEditor(mainWindow);
     await expect(mainWindow.locator('ptah-review-shell')).toBeVisible();
-    // The Workspaces panel shares the row and squeezes the chat transcript to
-    // a few characters wide; the earlier dock specs close it for the same
-    // reason. This is NOT a resize of the dock or the window.
-    await mainWindow
-      .getByRole('button', { name: 'Toggle Workspaces panel' })
-      .click();
+    // The Workspaces panel starts closed, so the chat transcript keeps its
+    // width next to the dock.
+    await expect(
+      mainWindow.getByRole('button', { name: 'Toggle Workspaces panel' }),
+    ).toHaveAttribute('aria-expanded', 'false');
     await expect(editor.locator('[data-testid="spot-editor-path"]')).toHaveText(
       'src/a.ts',
     );

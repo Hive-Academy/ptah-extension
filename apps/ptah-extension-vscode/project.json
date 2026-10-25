@@ -204,6 +204,15 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        {
+          "dependentTasksOutputFiles": "**/*.mjs",
+          "transitive": false
+        }
+      ],
       "dependsOn": ["build-esbuild"],
       "options": {
         "passWithNoTests": true

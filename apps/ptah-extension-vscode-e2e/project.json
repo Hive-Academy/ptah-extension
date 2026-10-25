@@ -3,13 +3,8 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-extension-vscode-e2e/src",
-  "tags": [
-    "scope:e2e",
-    "type:e2e"
-  ],
-  "implicitDependencies": [
-    "ptah-extension-vscode"
-  ],
+  "tags": ["scope:e2e", "type:e2e"],
+  "implicitDependencies": ["ptah-extension-vscode"],
   "targets": {
     "e2e": {
       "executor": "nx:run-commands",
@@ -17,9 +12,7 @@
       "dependsOn": [
         {
           "target": "build",
-          "projects": [
-            "ptah-extension-vscode"
-          ]
+          "projects": ["ptah-extension-vscode"]
         }
       ],
       "options": {
@@ -34,11 +27,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

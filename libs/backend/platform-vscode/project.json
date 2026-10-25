@@ -3,31 +3,18 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/platform-vscode/src",
   "projectType": "library",
-  "tags": [
-    "scope:extension",
-    "type:feature"
-  ],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/platform-vscode",
         "main": "libs/backend/platform-vscode/src/index.ts",
         "tsConfig": "libs/backend/platform-vscode/tsconfig.lib.json",
-        "assets": [
-          "libs/backend/platform-vscode/*.md"
-        ],
-        "format": [
-          "cjs"
-        ],
-        "external": [
-          "tsyringe",
-          "reflect-metadata",
-          "vscode"
-        ]
+        "assets": ["libs/backend/platform-vscode/*.md"],
+        "format": ["cjs"],
+        "external": ["tsyringe", "reflect-metadata", "vscode"]
       }
     },
     "test": {
@@ -48,11 +35,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

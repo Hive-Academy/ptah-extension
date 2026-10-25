@@ -92,7 +92,10 @@
       }
     } @else {
       <!-- No tree (raw, system or error text): the raw text is the answer. -->
-      <div class="cs-answer max-w-[600px] text-[13px] leading-[1.6]" data-glass-surface="content">
+      <div
+        class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
+        data-glass-surface="content"
+      >
         @if (mermaidFallbackText(); as text) {
           @defer (on immediate) {
             <ptah-mermaid-message-text
@@ -302,41 +305,43 @@
         }
       </div>
 
-      <!-- User message action buttons (hover reveal): branch + rewind -->
-      <div
-        class="chat-footer flex gap-1 items-center mt-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
-      >
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs"
-          title="Branch conversation from here"
-          aria-label="Branch conversation from this message"
-          data-testid="user-branch-button"
-          (click)="onBranchClick()"
+      @if (userActions()) {
+        <!-- User message action buttons (hover reveal): branch + rewind -->
+        <div
+          class="chat-footer flex gap-1 items-center mt-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
         >
-          <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs"
-          [title]="
-            isSessionActive()
-              ? 'Rewind file changes to here'
-              : 'Rewind is only available during an active conversation'
-          "
-          [attr.aria-label]="
-            isSessionActive()
-              ? 'Rewind file changes to this message'
-              : 'Rewind unavailable — session is not active'
-          "
-          [disabled]="!isSessionActive()"
-          [attr.aria-disabled]="!isSessionActive()"
-          data-testid="user-rewind-button"
-          (click)="onRewindClick()"
-        >
-          <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
-        </button>
-      </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            title="Branch conversation from here"
+            aria-label="Branch conversation from this message"
+            data-testid="user-branch-button"
+            (click)="onBranchClick()"
+          >
+            <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs"
+            [title]="
+              isSessionActive()
+                ? 'Rewind file changes to here'
+                : 'Rewind is only available during an active conversation'
+            "
+            [attr.aria-label]="
+              isSessionActive()
+                ? 'Rewind file changes to this message'
+                : 'Rewind unavailable — session is not active'
+            "
+            [disabled]="!isSessionActive()"
+            [attr.aria-disabled]="!isSessionActive()"
+            data-testid="user-rewind-button"
+            (click)="onRewindClick()"
+          >
+            <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      }
     </div>
   </article>
 }

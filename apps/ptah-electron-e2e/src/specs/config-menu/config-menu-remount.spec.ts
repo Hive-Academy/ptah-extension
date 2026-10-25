@@ -64,6 +64,13 @@ test.describe('Global configuration menu — remount on workspace switch', () =>
   });
 
   async function switchToSecondFolder(page: Page): Promise<void> {
+    // The Workspaces panel starts closed. Open it when it is closed.
+    const toggle = page.getByRole('button', {
+      name: 'Toggle Workspaces panel',
+    });
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click();
+    }
     await page.getByTitle(SECOND_FOLDER).click();
   }
 

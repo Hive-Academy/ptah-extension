@@ -1,0 +1,257 @@
+import { tmpdir } from 'node:os';
+import { SessionId, type AuthEnv } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
+import {
+  applyClaudeAccountRouteEnv,
+  buildFlagSettingsArg,
+  buildSafeEnv,
+  buildSessionName,
+  deriveWorkspaceLabel,
+  type Options,
+  type SdkPermissionHandler,
+} from '@ptah-extension/agent-sdk';
+// Type-only: a value import would load agent-generation and its ESM-only
+// workspace-intelligence chain into every registry spec.
+import type { PtahSpawnAssembly } from '../ptah-cli/helpers/ptah-cli-spawn-options.service';
+import { blankToUndefined } from '../ptah-cli/helpers/ptah-cli-registry.utils';
+import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
+import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
+import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
+
+/** Apply account routing last, after every safe-env/auth selector has been assembled. */
+export function buildClaudeLaneEnv(
+  authEnv: AuthEnv,
+  accountRoute?: Parameters<typeof applyClaudeAccountRouteEnv>[1],
+): Record<string, string | undefined> {
+  return applyClaudeAccountRouteEnv(buildSafeEnv(authEnv), accountRoute);
+}
+
+/** Control-only bootstrap; no workspace, role, resume, hooks or task material. */
+export function buildClaudeLaneBootstrapOptions(
+  accountRoute: NonNullable<Parameters<typeof buildClaudeLaneEnv>[1]>,
+  abortController: AbortController,
+  processSpawner: ISdkProcessSpawner,
+  executable?: string,
+): Options {
+  return {
+    cwd: tmpdir(),
+    abortController,
+    pathToClaudeCodeExecutable: executable,
+    env: buildClaudeLaneEnv({}, accountRoute),
+    systemPrompt: '',
+    settingSources: [],
+    tools: [],
+    mcpServers: {},
+    strictMcpConfig: true,
+    persistSession: false,
+    maxTurns: 1,
+    canUseTool: async () => ({
+      behavior: 'deny',
+      message: 'Account admission pending.',
+    }),
+    spawnClaudeCodeProcess: (options) => processSpawner.spawn(options, {}),
+  };
+}
+
+export interface ClaudeSdkLaneOptionsInput {
+  assembly: PtahSpawnAssembly;
+  authEnv: AuthEnv;
+  accountRoute?: Parameters<typeof buildClaudeLaneEnv>[1];
+  abortController: AbortController;
+  model: string;
+  effort?: Options['effort'];
+  cwd: string;
+  agentName: string;
+  agentId?: string;
+  routingId: string;
+  resumeSessionId?: string;
+  parentSessionId?: string;
+  cliAgentResolver?: () => string | undefined;
+  permissionHandler: Pick<
+    SdkPermissionHandler,
+    'getPermissionLevel' | 'createCallback'
+  >;
+  logger: Logger;
+  processSpawner: ISdkProcessSpawner;
+  executable?: string;
+}
+
+/** Complete effective options for both configured and native Claude lanes. */
+export function buildClaudeSdkLaneOptions(
+  input: ClaudeSdkLaneOptionsInput,
+): Options {
+  const {
+    assembly,
+    authEnv,
+    accountRoute,
+    abortController,
+    model,
+    effort,
+    cwd,
+    agentName,
+    agentId,
+    routingId,
+    resumeSessionId,
+    parentSessionId,
+    cliAgentResolver,
+    permissionHandler,
+    logger,
+    processSpawner,
+    executable,
+  } = input;
+  const handleChildStderr = (data: string) => {
+    if (accountRoute?.kind === 'named') {
+      logger.debug('[ClaudeLane] Child diagnostic received.');
+      return;
+    }
+    const isError = classifyCliStderr(stripAnsiCodes(data).trim()) === 'error';
+    const message = `[PtahCliRegistry] Agent "${agentName}" stderr: ${data}`;
+    if (isError) {
+      logger.warn(message);
+    } else {
+      logger.debug(message);
+    }
+  };
+
+  const extraArgs: Record<string, string | null> = {
+    'replay-user-messages': null,
+  };
+  const sessionName = buildSessionName({
+    role: agentName,
+    workspaceLabel: deriveWorkspaceLabel(cwd),
+    uniqueSuffix: (agentId ?? '').slice(0, 6),
+  });
+  if (sessionName) {
+    extraArgs['name'] = sessionName;
+  } else if (agentId) {
+    logger.warn(
+      '[PtahCliRegistry] Could not compose a session name — spawning without ' +
+        '--name, so the CLI derives one',
+      { agentConfigId: routingId },
+    );
+  } else {
+    logger.debug(
+      '[PtahCliRegistry] No reserved agent id for this spawn — the CLI ' +
+        'derives the session name',
+      { agentConfigId: routingId },
+    );
+  }
+
+  return {
+    abortController,
+    model,
+    effort: effort || undefined,
+    cwd,
+    systemPrompt:
+      assembly.systemPromptMode === 'standalone' && assembly.systemPromptContent
+        ? assembly.systemPromptContent
+        : {
+            type: 'preset' as const,
+            preset: 'claude_code' as const,
+            append: assembly.systemPromptContent,
+          },
+    tools: {
+      type: 'preset' as const,
+      preset: 'claude_code' as const,
+    },
+    mcpServers: assembly.mcpServers,
+    settings: buildFlagSettingsArg(
+      { outputStyleName: assembly.outputStyleName },
+      'accept',
+      logger,
+      assembly.autoCompact,
+      assembly.capabilityFlags,
+    ),
+    ...assembly.capabilityIsolation,
+    extraArgs,
+    ...resolveClaudeLanePermissionOptions(
+      permissionHandler,
+      logger,
+      blankToUndefined(resumeSessionId) ??
+        blankToUndefined(parentSessionId) ??
+        routingId,
+      cliAgentResolver,
+    ),
+    settingSources:
+      accountRoute?.kind === 'named'
+        ? []
+        : (['user', 'project', 'local'] as const),
+    includePartialMessages: true,
+    persistSession: true,
+    ...(resumeSessionId && { resume: resumeSessionId }),
+    env: buildClaudeLaneEnv(authEnv, accountRoute),
+    stderr: handleChildStderr,
+    spawnClaudeCodeProcess: (spawnOptions) =>
+      processSpawner.spawn(spawnOptions, {
+        onStderr: handleChildStderr,
+      }),
+    hooks: assembly.hooks,
+    pathToClaudeCodeExecutable: executable,
+  };
+}
+
+export function resolveClaudeLanePermissionOptions(
+  permissionHandler: Pick<
+    SdkPermissionHandler,
+    'getPermissionLevel' | 'createCallback'
+  >,
+  logger: Logger,
+  routingId: string,
+  cliAgentResolver?: () => string | undefined,
+): {
+  permissionMode: Options['permissionMode'];
+  canUseTool?: ReturnType<SdkPermissionHandler['createCallback']>;
+  allowDangerouslySkipPermissions?: boolean;
+} {
+  const level = permissionHandler.getPermissionLevel();
+  const LEVEL_TO_SDK_MODE: Record<
+    string,
+    NonNullable<Options['permissionMode']>
+  > = {
+    yolo: 'bypassPermissions',
+    'auto-edit': 'acceptEdits',
+    ask: 'default',
+    plan: 'plan',
+  };
+
+  const sdkMode = LEVEL_TO_SDK_MODE[level] ?? 'default';
+
+  if (sdkMode === 'bypassPermissions') {
+    logger.info(
+      '[PtahCliRegistry] YOLO mode: using bypassPermissions for subagent',
+    );
+    return {
+      permissionMode: sdkMode,
+      allowDangerouslySkipPermissions: true,
+    };
+  }
+
+  // Two wrong branches used to live here. A non-UUID routing id (`''` from a
+  // caller that minted an empty parent session) collapsed to `undefined`,
+  // which makes the request unroutable and auto-denies every tool prompt on
+  // timeout; anything else non-UUID (the `ptah-cli:${id}` fallback) reached
+  // `SessionId.from`, which THROWS — taking the whole spawn down. Parse once,
+  // keep the raw id as the routing hint so out-of-band observers can still
+  // match the prompt, and say out loud when there is no routable surface.
+  const routableSessionId = SessionId.safeParse(routingId) ?? undefined;
+  if (!routableSessionId) {
+    logger.warn(
+      `[PtahCliRegistry] Spawned agent has no routable session id — tool prompts reach the agent monitor panel only, and auto-deny on timeout if that panel is not listening`,
+      { routingHint: routingId, sdkMode, level },
+    );
+  }
+  logger.info(
+    `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
+    { sessionId: routableSessionId ?? null, hasCanUseTool: true },
+  );
+  return {
+    permissionMode: sdkMode,
+    canUseTool: permissionHandler.createCallback(
+      routableSessionId,
+      cliAgentResolver,
+      undefined,
+      undefined,
+      routingId,
+    ),
+  };
+}

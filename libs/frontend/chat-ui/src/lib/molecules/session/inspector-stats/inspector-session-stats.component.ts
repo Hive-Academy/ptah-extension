@@ -22,7 +22,7 @@ let nextSessionId = 0;
   imports: [LucideAngularModule, ContextRingComponent, CostBadgeComponent, NgTemplateOutlet, InspectorCacheTileComponent],
   template: `
     @let s = stats();
-    <section class="p-4" data-testid="inspector-session-stats" [attr.aria-labelledby]="headingId">
+    <section class="p-3" data-testid="inspector-session-stats" [attr.aria-labelledby]="headingId">
       <div class="mb-2 flex items-center justify-between gap-2" data-glass-surface="plate">
         <h3 [id]="headingId" class="sec-label text-[10.5px] font-semibold uppercase">SESSION</h3>
         @if (s.snapshot?.provisional) { <span class="text-[11px] text-base-content-muted">~ = estimate</span> }
@@ -38,33 +38,33 @@ let nextSessionId = 0;
           </button>
         </p>
       }
-      <div class="grid grid-cols-2 gap-2">
+      <div class="grid grid-cols-2 gap-1.5" data-testid="inspector-stats-grid">
         @if (s.cache; as cache) { <ptah-inspector-cache-tile [cache]="cache" /> }
-        <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
-          <div class="flex items-center gap-3"
+        <div class="relative min-w-0 rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-context')">
+          <div class="flex flex-wrap items-center gap-1"
             [attr.role]="s.context.known ? 'progressbar' : null"
             [attr.aria-valuemin]="s.context.known ? 0 : null" [attr.aria-valuemax]="s.context.known ? 100 : null"
             [attr.aria-valuenow]="s.context.percent === null ? null : clampPercent(s.context.percent)"
             [attr.aria-labelledby]="s.context.known ? contextLabelId : null"
             [attr.aria-valuetext]="s.context.known && s.context.usedTokens !== null ? s.context.label + ' of the context window, ' + formatTokens(s.context.usedTokens) + ' tokens used' : null">
-            @if (s.context.percent !== null) { <ptah-context-ring [percent]="s.context.percent" /> }
+            @if (s.context.percent !== null) { <ptah-context-ring [percent]="s.context.percent" [size]="28" /> }
             <div class="min-w-0 flex-1">
               <div [id]="contextLabelId" class="text-[11px] text-base-content-muted">Context</div>
-              <div class="text-lg font-semibold tabular-nums">{{ s.context.label }}</div>
+              <div class="text-sm font-semibold tabular-nums">{{ s.context.label }}</div>
               <div class="text-[11px] text-base-content-muted">
                 @if (s.context.usedTokens !== null) { {{ formatTokens(s.context.usedTokens) }} tokens }
                 @else { {{ s.context.hasLive ? 'Window unknown' : 'No data yet' }} }
               </div>
             </div>
             @if (s.compactionCount > 0) {
-              <span class="mr-7 self-start text-[11px] text-base-content-muted">{{ s.compactionCount }} {{ s.compactionCount === 1 ? 'compaction' : 'compactions' }}</span>
+              <span class="self-start text-[11px] text-base-content-muted">{{ s.compactionCount }} {{ s.compactionCount === 1 ? 'compaction' : 'compactions' }}</span>
             }
           </div>
           @if (contextDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Context', key: 'sd-context', text: details }" /> }
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-tokens')">
-          <div class="pr-7 text-[11px] text-base-content-muted">Tokens</div>
-          <div class="text-[15px] font-semibold tabular-nums">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-tokens')">
+          <div class="pr-4 text-[10px] text-base-content-muted">Tokens</div>
+          <div class="text-xs font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
             {{ tokenLabel() }}
           </div>
@@ -78,9 +78,9 @@ let nextSessionId = 0;
           }
           <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Tokens', key: 'sd-tokens', text: tokenDetails() }" />
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-cost')">
-          <div class="pr-7 text-[11px] text-base-content-muted">Cost</div>
-          <div class="flex items-center gap-1 text-[15px] font-semibold tabular-nums">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-cost')">
+          <div class="pr-4 text-[10px] text-base-content-muted">Cost</div>
+          <div class="flex items-center gap-1 text-xs font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
             @if (costBudgetText(s.budget); as text) { {{ text }} }
             @else { <ptah-cost-badge [cost]="s.snapshot?.totalCost ?? null" /> }
@@ -99,36 +99,38 @@ let nextSessionId = 0;
           @if (costDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Cost', key: 'sd-cost', text: details }" /> }
         </div>
         @if (duration(); as ms) {
-          <div class="rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="!agents()">
+          <div class="rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile">
             <div class="text-[11px] text-base-content-muted">Time</div>
-            <div class="text-[15px] font-semibold tabular-nums">{{ formatDuration(ms) }}</div>
+            <div class="text-xs font-semibold tabular-nums">{{ formatDuration(ms) }}</div>
             @if (turns() !== null) { <p class="text-[11px] text-base-content-muted">{{ turns() }} turns</p> }
           </div>
         }
         @if (agents(); as count) {
-          <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-agents') || !duration()">
-            <div class="pr-7 text-[11px] text-base-content-muted">Agents</div>
-            <div class="text-[15px] font-semibold tabular-nums">{{ count }}</div>
+          <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-agents')">
+            <div class="pr-4 text-[10px] text-base-content-muted">Agents</div>
+            <div class="text-xs font-semibold tabular-nums">{{ count }}</div>
             <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Agents', key: 'sd-agents', text: agentsDetails }" />
           </div>
         }
+      </div>
+      <div class="mt-1.5 grid gap-1.5">
         @if (modelNames().length === 1) {
-          <div class="col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
+          <div class="flex min-w-0 items-center gap-2">
             <div class="text-[11px] text-base-content-muted">Model</div>
-            <div class="text-[15px] font-semibold" [title]="primaryModel()">{{ modelNames()[0] }}</div>
+            <div class="truncate text-xs font-semibold" [title]="primaryModel()">{{ modelNames()[0] }}</div>
           </div>
         } @else if (modelNames().length >= 2) {
-          <button type="button" class="col-span-2 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" data-glass-surface="tile"
+          <button type="button" class="flex items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
             [attr.aria-expanded]="isOpen('sd-models')" [attr.aria-controls]="modelsPanelId"
             [title]="isOpen('sd-models') ? 'Hide per-model breakdown' : 'Show per-model breakdown'" (click)="toggle('sd-models')" (keydown.escape)="closeOnEscape($event, 'sd-models')">
-            <span class="min-w-0 flex-1"><span class="block text-[11px] text-base-content-muted">Models</span><span class="block truncate text-[15px] font-semibold">{{ modelNames().slice(0, 2).join(', ') }}</span></span>
+            <span class="flex min-w-0 flex-1 items-center gap-2"><span class="text-[11px] text-base-content-muted">Models</span><span class="truncate text-xs font-semibold">{{ modelNames().slice(0, 2).join(', ') }}</span></span>
             <span class="text-[11px] tabular-nums text-base-content-muted">{{ modelNames().length }}</span>
             <lucide-angular [img]="ChevronRightIcon" class="size-3" [class.rotate-90]="isOpen('sd-models')" aria-hidden="true" />
           </button>
-          <div [id]="modelsPanelId" class="col-span-2 grid gap-1.5" [hidden]="!isOpen('sd-models')" role="list" aria-label="Per-model usage">
+          <div [id]="modelsPanelId" class="grid gap-1.5" [hidden]="!isOpen('sd-models')" role="list" aria-label="Per-model usage">
             @if (isOpen('sd-models')) {
               @for (row of s.snapshot?.modelUsageList ?? []; track row.model) {
-        <div role="listitem" class="rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
+        <div role="listitem" class="rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile">
                   <div class="flex items-center justify-between gap-2 text-[13px] font-semibold">
                     <span class="min-w-0 truncate" [title]="row.model">{{ formatModelName(row.model) }}</span>
                     <span class="tabular-nums">{{ formatCost(row.costUSD) }}</span>
@@ -148,7 +150,7 @@ let nextSessionId = 0;
       </div>
     </section>
     <ng-template #detail let-name="name" let-key="key" let-text="text">
-      <button type="button" class="absolute right-2 top-2 flex size-7 items-center justify-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+      <button type="button" class="absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
         [attr.aria-label]="name + ' details'" [attr.aria-expanded]="isOpen(key)" [attr.aria-controls]="detailId(key)"
         (click)="toggle(key)" (keydown.escape)="closeOnEscape($event, key)">
         <lucide-angular [img]="InfoIcon" class="size-3.5 text-base-content-muted" aria-hidden="true" />

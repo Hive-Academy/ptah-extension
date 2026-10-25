@@ -11,6 +11,7 @@
  * (`AgentReportDelivery`): every call either did the thing or returns a
  * closed reason the caller can act on.
  */
+import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 import type {
   AgentSessionOpenedPayload,
   LaneCompletionRefusalReason,
@@ -140,6 +141,8 @@ export type SessionChildStartResult =
       readonly refusal: SessionSpawnRefusalCode;
       readonly detail: string;
       readonly rollback?: readonly SessionChildRollbackStep[];
+      /** Account refusal survives child-start rollback without a fallback route. */
+      readonly accountRefusal?: ProviderAccountPortRefusal;
     };
 
 export type SessionSendMode = 'queue' | 'steer' | 'if-idle';

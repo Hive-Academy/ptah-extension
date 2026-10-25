@@ -56,6 +56,8 @@ env:
   # (see cli-e2e.yml).
   NODE_VERSION: 24
   NX_TUI: 'false'
+  # nx.json caps local runs at one task. CI keeps its previous default of 2.
+  NX_PARALLEL: 2
   CI: 'true'
 
 jobs:

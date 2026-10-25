@@ -6,6 +6,7 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "dependencies": {
+    "@ptah-extension/persistence-sqlite": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/platform-core": "0.0.1",
     "@ptah-extension/settings-core": "0.0.1",

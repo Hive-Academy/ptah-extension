@@ -4,6 +4,8 @@
  * `provider-profile.schemas.ts` so this type carries no `zod` dependency.
  */
 
+import type { ProviderAccountBinding } from './provider-account.types';
+
 /** Anthropic-shaped auth environment carried by a {@link ProviderProfile}. */
 export interface ProviderProfileAuthEnv {
   ANTHROPIC_API_KEY?: string | undefined;
@@ -16,6 +18,10 @@ export interface ProviderProfileAuthEnv {
 
 /** Resolved provider profile for a single session. */
 export interface ProviderProfile {
+  /** Backend-admitted immutable snapshot; absence preserves legacy routing. */
+  accountBinding?: ProviderAccountBinding | undefined;
+  /** Opaque authoritative registry linkage, never an account directory. */
+  accountBindingId?: string | undefined;
   providerId: string;
   authEnv: ProviderProfileAuthEnv;
   model: string;

@@ -1169,6 +1169,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(resumeGate.evaluate).toHaveBeenCalledWith({
         cli: 'codex',
         cliSessionId: SESSION,
+        accountReference: {},
         lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
       });
       const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
@@ -1343,6 +1344,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         expect(resumeGate.evaluate).toHaveBeenCalledWith({
           cli: 'ptah-cli',
           cliSessionId: SESSION,
+          accountReference: {},
           lastActivityAt: Date.parse('2026-10-04T08:00:00.000Z'),
         });
         expect(prepared.resumeSessionId).toBeUndefined();

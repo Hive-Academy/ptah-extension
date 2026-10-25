@@ -364,6 +364,30 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(tree[0].content).toBe('hello world');
     });
 
+    // TASK_2026_717: two Codex agent messages used to fuse into one text
+    // ("…subagent.The review…"), so the lane answer showed both.
+    it('starts a new text node when the provider message changes', () => {
+      const tree = service.buildTreeFromSegments('agent-1', [
+        { type: 'text', content: 'Now ', messageId: 'msg-a' },
+        { type: 'text', content: 'delegating.', messageId: 'msg-a' },
+        { type: 'text', content: 'The review is complete.', messageId: 'msg-b' },
+      ]);
+      expect(tree.map((node) => [node.type, node.content])).toEqual([
+        ['text', 'Now delegating.'],
+        ['text', 'The review is complete.'],
+      ]);
+    });
+
+    it('keeps merging text segments that carry no message id', () => {
+      const tree = service.buildTreeFromSegments('agent-1', [
+        { type: 'text', content: 'Now delegating.', messageId: 'msg-a' },
+        { type: 'text', content: ' More.' },
+        { type: 'text', content: ' Done.' },
+      ]);
+      expect(tree).toHaveLength(1);
+      expect(tree[0].content).toBe('Now delegating. More. Done.');
+    });
+
     it('merges consecutive thinking segments into a single thinking node', () => {
       const segments: CliOutputSegment[] = [
         { type: 'thinking', content: 'hmm ' } as CliOutputSegment,

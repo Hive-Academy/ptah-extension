@@ -1075,17 +1075,19 @@ export class CodexCliAdapter implements CliAdapter {
     itemsWithDeltas: Set<string>,
   ): void {
     const previousText = itemTextTracker.get(item.id) ?? '';
+    // Agent messages carry their item id so two messages never fuse.
+    const messageId = segmentType === 'text' ? { messageId: item.id } : {};
     if (item.text.startsWith(previousText)) {
       const delta = item.text.slice(previousText.length);
       if (delta) {
         emitOutput(delta);
-        emitSegment({ type: segmentType, content: delta });
+        emitSegment({ type: segmentType, content: delta, ...messageId });
         itemTextTracker.set(item.id, item.text);
         itemsWithDeltas.add(item.id);
       }
     } else {
       emitOutput(item.text);
-      emitSegment({ type: segmentType, content: item.text });
+      emitSegment({ type: segmentType, content: item.text, ...messageId });
       itemTextTracker.set(item.id, item.text);
       itemsWithDeltas.add(item.id);
     }
@@ -1104,7 +1106,24 @@ export class CodexCliAdapter implements CliAdapter {
         if (!itemsWithDeltas.has(item.id)) {
           if (item.text) {
             emitOutput(item.text + '\n');
-            emitSegment({ type: 'text', content: item.text });
+            emitSegment({
+              type: 'text',
+              content: item.text,
+              messageId: item.id,
+            });
+          }
+        } else {
+          // The completion snapshot can extend the last update; emit the
+          // rest so the answer is not cut short. A snapshot that does not
+          // extend the emitted text (a replacement) emits nothing, as before.
+          const emitted = itemTextTracker.get(item.id) ?? '';
+          const rest =
+            item.text && item.text.startsWith(emitted)
+              ? item.text.slice(emitted.length)
+              : '';
+          if (rest) {
+            emitOutput(rest);
+            emitSegment({ type: 'text', content: rest, messageId: item.id });
           }
         }
         itemTextTracker.delete(item.id);

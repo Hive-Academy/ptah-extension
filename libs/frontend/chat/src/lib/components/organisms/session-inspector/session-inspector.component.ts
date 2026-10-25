@@ -24,7 +24,7 @@ import {
 } from '../../../services/session-inspector';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
 import { InspectorGitSectionComponent } from './inspector-git-section.component';
-import { InspectorOrchestratorCardComponent } from './inspector-orchestrator-card.component';
+import { InspectorRequestLinesComponent } from './inspector-request-panel.component';
 import { InspectorTaskSectionComponent } from './inspector-task-section.component';
 import { InspectorTodosSectionComponent } from './inspector-todos-section.component';
 
@@ -47,7 +47,7 @@ export type SessionInspectorPresentation = 'docked' | 'sheet' | 'embedded';
   imports: [
     NgTemplateOutlet,
     LucideAngularModule,
-    InspectorOrchestratorCardComponent,
+    InspectorRequestLinesComponent,
     InspectorSessionStatsComponent,
     InspectorAgentsSectionComponent,
     InspectorLimitsLanesComponent,
