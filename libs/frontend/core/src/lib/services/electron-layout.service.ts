@@ -70,7 +70,7 @@ export class ElectronLayoutService implements MessageHandler {
     optional: true,
   });
   private readonly _workspaceSidebarWidth = signal(DEFAULT_SIDEBAR_WIDTH);
-  private readonly _workspaceSidebarVisible = signal(true);
+  private readonly _workspaceSidebarVisible = signal(false);
   private readonly _editorPanelWidth = signal(DEFAULT_EDITOR_WIDTH);
   private readonly _editorPanelVisible = signal(false);
   private readonly _gitRailWidth = signal(DEFAULT_GIT_RAIL_WIDTH);
