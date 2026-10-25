@@ -13,7 +13,30 @@ import { ProviderAccountStoreError, revalidateProviderAccountRoute,
 
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
-const sdkSessionId = z.string().min(1).max(256).regex(/^[^/\\\s\x00-\x1f\x7f]+$/);
+const fingerprint = z.string().regex(/^[a-f0-9]{64}$/);
+
+/** No separator, whitespace, C0 control or DEL character. */
+function isSafeSdkSessionId(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x1f || code === 0x7f || character === '/' || character === '\\' || /\s/.test(character)) return false;
+  }
+  return true;
+}
+
+/** Opaque identity reference from a parsed status: printable ASCII, no space, bounded. */
+function isProviderAccountIdentityRef(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x20 || code >= 0x7f) return false;
+  }
+  return true;
+}
+
+const RELEASE_REASONS: readonly ClaudeAccountReservationRelease['reason'][] =
+  ['child-closed', 'startup-failure', 'cancel', 'abort', 'timeout', 'disposal'];
+const sdkSessionId = z.string().min(1).max(256).refine(isSafeSdkSessionId);
 const sdkSessionLookupSchema = z.object({
   provider: z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/), sdkSessionId,
 }).strict();
@@ -21,10 +44,16 @@ const sdkSessionAttachmentSchema = sdkSessionLookupSchema.extend({ runId: opaque
 const sessionLinkSchema = z.object({ run_id: opaqueId, sdk_session_id: sdkSessionId, attached_at: revision });
 const profileSchema = z.object({
   profile_id: opaqueId, provider: z.literal('claude'), label: z.string().refine(isSafeProviderAccountLabel),
-  canonical_route: z.string(), route_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  canonical_route: z.string(), route_fingerprint: fingerprint,
   physical_identity: z.string(), revision, route_revision: revision, auth_epoch: revision,
   state: z.enum(PROVIDER_ACCOUNT_STATES), removed_at: z.number().nullable(),
+  identity_ref: z.string().refine(isProviderAccountIdentityRef).nullable(),
 });
+const leaseSchema = z.object({
+  run_id: opaqueId, profile_id: opaqueId.nullable(), route_fingerprint: fingerprint,
+  auth_epoch: revision, route_revision: revision, lease_state: z.enum(['live', 'quarantined']),
+});
+type StoredRunLease = z.infer<typeof leaseSchema>;
 export type StoredProviderAccount = z.infer<typeof profileSchema>;
 const selectionSchema = z.object({ profile_id: opaqueId.nullable(), revision });
 export interface StoredAccountSelection { readonly profileId: string | null; readonly revision: number }
@@ -49,8 +78,22 @@ export interface AccountRunAdmission {
   readonly runId: string;
   readonly reservationId: string;
   readonly operationId: string;
-  readonly identity?: ProviderAccountIdentityEvidence;
   readonly selection?: { readonly workspaceRoot: string; readonly scope: ProviderAccountScope; readonly revision: number };
+}
+
+/** A live run lease, plus the binding that already exists for its run (resume) or null. */
+export interface AccountRunLease {
+  readonly reservation: ClaudeAccountRunReservation & { readonly phase: 'reserved' };
+  readonly binding: ProviderAccountBinding | null;
+}
+
+/** Lease keys plus the identity proved by the run's own init. */
+export interface AccountRunBindingCommit {
+  readonly reservationId: string;
+  readonly operationId: string;
+  readonly authEpoch: number;
+  readonly runId: string;
+  readonly identity: ProviderAccountIdentityEvidence;
 }
 
 /** Lazy shared connection: registration does not open or choose a database.
@@ -120,9 +163,43 @@ export class ProviderAccountStore {
       .all().map(row => profileSchema.parse(row)));
   }
 
-  /** Awaitable registry commit only; this does not authorize prompt release. */
-  async commitRunBinding(request: AccountRunAdmission): Promise<ReturnType<ProviderAccountStore['admit']>> {
-    return this.admit(request);
+  /** Stored identity reference of a live profile; null until a status recorded it. */
+  identityRef(profileId: string): string | null {
+    return this.atomic(db => this.profile(db, profileId).identity_ref);
+  }
+
+  /**
+   * Registry commit for a live lease; it never inserts a lease and does not
+   * authorize prompt release. The lease must be live and owned, the profile
+   * epoch must still equal the lease epoch, the identity must be known, and
+   * the run must have no binding yet.
+   */
+  async commitRunBinding(command: AccountRunBindingCommit): Promise<ProviderAccountBinding> {
+    this.validateIds(command.reservationId, command.operationId, command.runId);
+    this.validateRevision(command.authEpoch);
+    this.validateIdentity(command.identity);
+    const identity = command.identity;
+    if (identity.kind !== 'known') throw new ProviderAccountStoreError('identity-unproved');
+    return this.atomic(db => {
+      const lease = this.held(db, command);
+      if (lease.run_id !== command.runId || lease.profile_id === null) throw new ProviderAccountStoreError('conflict');
+      const profile = this.profile(db, lease.profile_id);
+      if (profile.auth_epoch !== command.authEpoch) throw new ProviderAccountStoreError('conflict');
+      if (profile.route_fingerprint !== lease.route_fingerprint || profile.route_revision !== lease.route_revision) {
+        throw new ProviderAccountStoreError('route-changed');
+      }
+      if (db.prepare('SELECT 1 FROM provider_account_run_bindings WHERE run_id = ?').get(command.runId)) {
+        throw new ProviderAccountStoreError('conflict');
+      }
+      db.prepare(`INSERT INTO provider_account_run_bindings
+        (run_id, provider, profile_id, route_revision, route_fingerprint, auth_epoch, identity_kind, owner_key_hash, created_at)
+        VALUES (?, 'claude', ?, ?, ?, ?, 'known', ?, ?)`)
+        .run(command.runId, lease.profile_id, lease.route_revision, lease.route_fingerprint, lease.auth_epoch,
+          identity.ownerKey, Date.now());
+      return Object.freeze({ version: 1, provider: 'claude', profileId: lease.profile_id, routeRevision: lease.route_revision,
+        routeFingerprint: lease.route_fingerprint, authEpoch: lease.auth_epoch, runId: command.runId,
+        identity: Object.freeze({ kind: 'known', ownerKey: identity.ownerKey }) });
+    });
   }
 
   /** Immutable SDK linkage checkpoint; the caller must still hold prompt release. */
@@ -293,11 +370,16 @@ export class ProviderAccountStore {
     });
   }
 
-  admit(request: AccountRunAdmission): { reservation: ClaudeAccountRunReservation; binding: ProviderAccountBinding | null } {
+  /**
+   * One immediate transaction: selection CAS, route and profile checks, then a
+   * live lease carrying the profile's epoch and route revision. A named profile
+   * must be `signed-in` with a recorded identity. On resume the existing binding
+   * must match the profile, fingerprint and route revision, with an epoch at most
+   * the profile epoch. Never inserts a binding.
+   */
+  acquireRunLease(request: AccountRunAdmission): AccountRunLease {
     this.validateIds(request.runId, request.reservationId, request.operationId);
     this.validateRevision(request.expectedRevision);
-    const identity = request.identity ?? { kind: 'unknown' };
-    this.validateIdentity(identity);
     revalidateProviderAccountRoute(request.route);
     return this.atomic(db => {
       if (request.selection) {
@@ -308,24 +390,31 @@ export class ProviderAccountStore {
         if (selected.revision !== s.revision || selected.profileId !== request.profileId) throw new ProviderAccountStoreError('conflict');
       }
       const profile = this.routeProfile(db, request.profileId, request.expectedRevision, request.route);
+      // An auth operation in progress is `busy` before the profile's sign-in state is judged.
       this.unoccupied(db, request.route.fingerprint, false);
-      const binding: ProviderAccountBinding | null = profile ? {
-        version: 1, provider: 'claude', profileId: profile.profile_id, routeRevision: profile.route_revision,
-        routeFingerprint: profile.route_fingerprint, authEpoch: profile.auth_epoch, runId: request.runId, identity: Object.freeze({ ...identity }),
-      } : null;
-      if (binding) db.prepare(`INSERT INTO provider_account_run_bindings
-        (run_id, provider, profile_id, route_revision, route_fingerprint, auth_epoch, identity_kind, owner_key_hash, created_at)
-        VALUES (?, 'claude', ?, ?, ?, ?, ?, ?, ?)`)
-        .run(binding.runId, binding.profileId, binding.routeRevision, binding.routeFingerprint, binding.authEpoch,
-          identity.kind, identity.kind === 'known' ? identity.ownerKey : null, Date.now());
+      if (profile && (profile.state !== 'signed-in' || profile.identity_ref === null)) {
+        throw new ProviderAccountStoreError('identity-unproved');
+      }
+      const rawBinding = db.prepare('SELECT * FROM provider_account_run_bindings WHERE run_id = ?').get(request.runId);
+      const binding = rawBinding ? this.parseBinding(rawBinding) : null;
+      if (binding) {
+        if (!profile || binding.profileId !== profile.profile_id || binding.authEpoch > profile.auth_epoch) {
+          throw new ProviderAccountStoreError('conflict');
+        }
+        if (binding.routeFingerprint !== profile.route_fingerprint || binding.routeRevision !== profile.route_revision) {
+          throw new ProviderAccountStoreError('route-changed');
+        }
+      }
+      const lease: StoredRunLease = {
+        run_id: request.runId, profile_id: request.profileId, route_fingerprint: request.route.fingerprint,
+        auth_epoch: profile?.auth_epoch ?? 0, route_revision: profile?.route_revision ?? 0, lease_state: 'live',
+      };
       db.prepare(`INSERT INTO provider_account_run_leases
-        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at) VALUES (?, ?, 'claude', ?, ?, ?, ?)`)
-        .run(request.reservationId, request.runId, request.profileId, request.route.fingerprint, request.operationId, Date.now());
-      return { binding: binding ? Object.freeze(binding) : null, reservation: {
-        kind: 'run', phase: 'reserved', provider: 'claude', routeKind: profile ? 'named' : 'ambient',
-        reservationId: request.reservationId, operationId: request.operationId, runId: request.runId,
-        routeFingerprint: request.route.fingerprint, routeRevision: profile?.route_revision ?? 0, authEpoch: profile?.auth_epoch ?? 0,
-      } };
+        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at, auth_epoch, route_revision, lease_state)
+        VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, 'live')`)
+        .run(request.reservationId, lease.run_id, lease.profile_id, lease.route_fingerprint, request.operationId, Date.now(),
+          lease.auth_epoch, lease.route_revision);
+      return { binding, reservation: this.runReservation(request, lease, 'reserved') };
     });
   }
 
@@ -348,10 +437,12 @@ export class ProviderAccountStore {
   }
 
   /** Unproved termination retains exclusion, even when the last observation is disconnected. */
-  completeStatus(operationId: string, ownerId: string, authEpoch: number, state: ProviderAccountState, terminated: boolean): void {
+  completeStatus(operationId: string, ownerId: string, authEpoch: number, state: ProviderAccountState, terminated: boolean,
+    identityRef?: string | null): void {
     this.validateIds(operationId, ownerId);
     this.validateRevision(authEpoch);
     if (!PROVIDER_ACCOUNT_STATES.includes(state)) throw new ProviderAccountStoreError('conflict');
+    this.validateIdentityRef(identityRef);
     this.atomic(db => {
       const raw = db.prepare(`SELECT profile_id, expected_revision FROM provider_account_operations
         WHERE operation_id = ? AND owner_id = ? AND auth_epoch = ? AND kind = 'status'`)
@@ -360,9 +451,10 @@ export class ProviderAccountStore {
       const op = z.object({ profile_id: opaqueId, expected_revision: revision }).parse(raw);
       const profile = this.profile(db, op.profile_id, op.expected_revision);
       if (profile.auth_epoch !== authEpoch) throw new ProviderAccountStoreError('conflict');
-      if (profile.state !== state) {
-        db.prepare('UPDATE provider_account_profiles SET state = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
-          .run(state, Date.now(), op.profile_id);
+      const nextRef = identityRef === undefined ? profile.identity_ref : identityRef;
+      if (profile.state !== state || profile.identity_ref !== nextRef) {
+        db.prepare('UPDATE provider_account_profiles SET state = ?, identity_ref = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
+          .run(state, nextRef, Date.now(), op.profile_id);
         if (!terminated) db.prepare('UPDATE provider_account_operations SET expected_revision = expected_revision + 1 WHERE operation_id = ?')
           .run(operationId);
       }
@@ -393,10 +485,12 @@ export class ProviderAccountStore {
   }
 
   /** Caller invokes only after child termination is established; otherwise leave held. */
-  completeAuth(operationId: string, ownerId: string, authEpoch: number, state: ProviderAccountState): void {
+  completeAuth(operationId: string, ownerId: string, authEpoch: number, state: ProviderAccountState,
+    identityRef?: string | null): void {
     this.validateIds(operationId, ownerId);
     this.validateRevision(authEpoch);
     if (!PROVIDER_ACCOUNT_STATES.includes(state)) throw new ProviderAccountStoreError('conflict');
+    this.validateIdentityRef(identityRef);
     this.atomic(db => {
       const raw = db.prepare('SELECT profile_id, expected_revision FROM provider_account_operations WHERE operation_id = ? AND owner_id = ? AND auth_epoch = ?')
         .get(operationId, ownerId, authEpoch);
@@ -405,32 +499,56 @@ export class ProviderAccountStore {
       if (op.profile_id) {
         const profile = this.profile(db, op.profile_id, op.expected_revision);
         if (profile.auth_epoch !== authEpoch) throw new ProviderAccountStoreError('conflict');
-        db.prepare('UPDATE provider_account_profiles SET state = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
-          .run(state, Date.now(), op.profile_id);
+        const nextRef = identityRef === undefined ? profile.identity_ref : identityRef;
+        db.prepare('UPDATE provider_account_profiles SET state = ?, identity_ref = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
+          .run(state, nextRef, Date.now(), op.profile_id);
       }
       db.prepare('DELETE FROM provider_account_operations WHERE operation_id = ?').run(operationId);
     });
   }
 
   /** Termination proof belongs to the admission service, not a clock or PID heuristic. */
-  release(command: ClaudeAccountReservationRelease): void {
-    this.atomic(db => {
-      this.held(db, command);
+  release(command: ClaudeAccountReservationRelease): ClaudeAccountRunReservation & { readonly phase: 'released' } {
+    if (!RELEASE_REASONS.includes(command.reason)) throw new ProviderAccountStoreError('conflict');
+    return this.atomic(db => {
+      const lease = this.held(db, command);
       db.prepare('DELETE FROM provider_account_run_leases WHERE lease_id = ?').run(command.reservationId);
+      return this.runReservation(command, lease, 'released');
     });
   }
 
-  retain(command: ClaudeAccountReservationRetain): void { this.atomic(db => this.held(db, command)); }
+  /** Checks ownership and epoch only; the lease stays. */
+  retain(command: ClaudeAccountReservationRetain): ClaudeAccountRunReservation & { readonly phase: 'retained' } {
+    return this.atomic(db => this.runReservation(command, this.held(db, command), 'retained'));
+  }
 
-  private held(db: SqliteDatabase, command: ClaudeAccountReservationRetain): void {
+  /**
+   * The lease must be live, owned and at the caller's epoch. A quarantined
+   * legacy row is never released or retained by a command.
+   */
+  private held(db: SqliteDatabase, command: ClaudeAccountReservationRetain): StoredRunLease {
     this.validateIds(command.reservationId, command.operationId);
     this.validateRevision(command.authEpoch);
-    const raw = db.prepare(`SELECT COALESCE(b.auth_epoch, 0) AS auth_epoch FROM provider_account_run_leases l
-      LEFT JOIN provider_account_run_bindings b ON b.run_id = l.run_id WHERE l.lease_id = ? AND l.owner_id = ?`)
+    const raw = db.prepare(`SELECT run_id, profile_id, route_fingerprint, auth_epoch, route_revision, lease_state
+      FROM provider_account_run_leases WHERE lease_id = ? AND owner_id = ?`)
       .get(command.reservationId, command.operationId);
-    if (!raw || z.object({ auth_epoch: revision }).parse(raw).auth_epoch !== command.authEpoch) {
+    if (!raw) throw new ProviderAccountStoreError('conflict');
+    const parsed = leaseSchema.safeParse(raw);
+    if (!parsed.success) throw new ProviderAccountStoreError('unavailable-storage');
+    if (parsed.data.lease_state !== 'live' || parsed.data.auth_epoch !== command.authEpoch) {
       throw new ProviderAccountStoreError('conflict');
     }
+    return parsed.data;
+  }
+
+  private runReservation<P extends 'reserved' | 'released' | 'retained'>(
+    keys: { readonly reservationId: string; readonly operationId: string }, lease: StoredRunLease, phase: P,
+  ): ClaudeAccountRunReservation & { readonly phase: P } {
+    return Object.freeze({
+      kind: 'run', phase, provider: 'claude', routeKind: lease.profile_id === null ? 'ambient' : 'named',
+      reservationId: keys.reservationId, operationId: keys.operationId, runId: lease.run_id,
+      routeFingerprint: lease.route_fingerprint, routeRevision: lease.route_revision, authEpoch: lease.auth_epoch,
+    } as const);
   }
 
   private routeProfile(db: SqliteDatabase, id: string | null, expected: number, route: CanonicalProviderAccountRoute): StoredProviderAccount | null {
@@ -468,6 +586,11 @@ export class ProviderAccountStore {
   private validateProfile(id: string, label: string): void {
     this.validateIds(id);
     if (typeof label !== 'string' || !isSafeProviderAccountLabel(label)) throw new ProviderAccountStoreError('conflict');
+  }
+  private validateIdentityRef(identityRef: string | null | undefined): void {
+    if (identityRef !== undefined && identityRef !== null && !isProviderAccountIdentityRef(identityRef)) {
+      throw new ProviderAccountStoreError('conflict');
+    }
   }
   private validateIdentity(identity: ProviderAccountIdentityEvidence): void {
     const parsed = z.discriminatedUnion('kind', [

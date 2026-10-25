@@ -5,14 +5,31 @@ import { z } from 'zod';
 import { inject, injectable } from 'tsyringe';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { ProviderAccountAdmissionPort, ClaudeAccountAdmissionRequest, ClaudeAccountAdmissionOutcome,
+  ClaudeAccountNamedRoute, ClaudeAccountSelectionReader,
   ClaudeAccountReservationRelease, ClaudeAccountReservationReleaseOutcome,
   ClaudeAccountReservationRetain, ClaudeAccountReservationRetainOutcome, ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 import { accountActionResult } from './claude-account-command';
+import { ClaudeRouteCertifier, type ClaudeRouteCertification } from './claude-route-certifier';
 import type { SqliteConnectionService, SqliteDatabase } from '@ptah-extension/persistence-sqlite';
-import { isProviderAccountOpaqueId, isSafeProviderAccountLabel, type ProviderAccountScope, type ProviderAccountSummary } from '@ptah-extension/shared';
-import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection, type AccountRunAdmission, type AccountBindingLookup,
-  type AccountSdkSessionAttachment, type AccountSdkSessionAttachmentResult, type AccountSdkSessionLookup } from './provider-account.store';
-import { ProviderAccountStoreError, providerAccountErrorCode } from './provider-account-route';
+import { isProviderAccountOpaqueId, isSafeProviderAccountLabel, type ProviderAccountBinding,
+  type ProviderAccountScope, type ProviderAccountSummary } from '@ptah-extension/shared';
+import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection, type AccountBindingLookup,
+  type AccountRunBindingCommit, type AccountRunLease, type AccountSdkSessionAttachment, type AccountSdkSessionAttachmentResult,
+  type AccountSdkSessionLookup } from './provider-account.store';
+import { ProviderAccountStoreError, providerAccountErrorCode, resolveProviderAccountRoute,
+  type CanonicalProviderAccountRoute } from './provider-account-route';
+
+/** Run working directory: absolute, bounded, no NUL. */
+function isRunWorkingDirectory(value: string): boolean {
+  return value.length <= 4096 && !value.includes('\0') && isAbsolute(value);
+}
+
+/** Every named run certifies with the CLI's default setting sources (Component 7). */
+const RUN_SETTING_SOURCES = ['user', 'project', 'local'] as const;
+
+function storeCode(error: unknown): ProviderAccountPortRefusal['code'] {
+  return error instanceof ProviderAccountStoreError ? error.code : 'unavailable-storage';
+}
 
 const admissionRequestSchema = z.object({
   provider: z.literal('claude'), scope: z.enum(['main', 'lane']),
@@ -23,6 +40,7 @@ const admissionRequestSchema = z.object({
     z.object({ kind: z.literal('ambient') }).strict(),
     z.object({ kind: z.literal('named'), profileId: z.string().refine(isProviderAccountOpaqueId) }).strict(),
   ]),
+  workingDirectory: z.string().min(1).refine(isRunWorkingDirectory).optional(),
 }).strict();
 
 /**
@@ -35,19 +53,35 @@ function profileIdForRequest(requestId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-/** Metadata and fail-closed admission. Construction never reads the database. */
+/** Metadata, admission and stored selection. Construction never reads the database. */
 @injectable()
-export class ProviderAccountService implements ProviderAccountAdmissionPort {
+export class ProviderAccountService implements ProviderAccountAdmissionPort, ClaudeAccountSelectionReader {
   private disposed = false;
+  /** Aborts in-flight certification children on disposal; disposal is not termination proof. */
+  private readonly disposal = new AbortController();
 
   constructor(@inject(ProviderAccountStore) private readonly store: ProviderAccountStore,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: Pick<SqliteConnectionService, 'db' | 'dbPath'>) {}
+    private readonly connection: Pick<SqliteConnectionService, 'db' | 'dbPath'>,
+    @inject(ClaudeRouteCertifier) private readonly certifier: ClaudeRouteCertifier) {}
 
-  /** Persistence checkpoint; admission remains held until the SDK gate is certified. */
-  async commitRunBinding(request: AccountRunAdmission): Promise<ReturnType<ProviderAccountStore['admit']>> {
+  /** Persistence checkpoint for a live lease; prompt release still waits for the SDK gate. */
+  async commitRunBinding(command: AccountRunBindingCommit): Promise<ProviderAccountBinding> {
     if (this.disposed) throw new ProviderAccountStoreError('unavailable-storage');
-    return this.store.commitRunBinding(request);
+    return this.store.commitRunBinding(command);
+  }
+
+  /**
+   * Fails closed: a storage error throws `unavailable-storage` (or `busy`)
+   * instead of returning null, which would silently pick the default account.
+   */
+  async readStoredSelection(workspaceRoot: string, scope: ProviderAccountScope): Promise<{ readonly profileId: string | null }> {
+    if (this.disposed) throw new ProviderAccountStoreError('unavailable-storage');
+    try {
+      return { profileId: this.store.selection(workspaceRoot, scope).profileId };
+    } catch (error: unknown) {
+      throw new ProviderAccountStoreError(storeCode(error));
+    }
   }
 
   async lookupRunBinding(runId: string): Promise<AccountBindingLookup> {
@@ -65,32 +99,83 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
     return this.store.lookupBySdkSession(request);
   }
 
+  /**
+   * Lease, certify, then hand out a named route. A certification refusal
+   * releases the lease only when every probe child's close was observed;
+   * otherwise the lease is retained (no age or PID reclaim).
+   */
   async admitClaudeRoute(request: ClaudeAccountAdmissionRequest): Promise<ClaudeAccountAdmissionOutcome> {
+    if (this.disposed) return this.refusal('unavailable-storage');
+    if (request.provider !== 'claude') return this.refusal('wrong-provider');
+    const parsed = admissionRequestSchema.safeParse(request);
+    if (!parsed.success) return this.refusal('conflict');
+    const { selection, runId, operationId, workingDirectory } = parsed.data;
+    // The default route is never admitted through this port.
+    if (selection.kind !== 'named') return this.refusal('conflict');
+    let route: CanonicalProviderAccountRoute;
+    let lease: AccountRunLease;
+    let identityRef: string | null;
     try {
-      if (this.disposed) return this.refusal('unavailable-storage');
-      if (request.provider !== 'claude') return this.refusal('wrong-provider');
-      const parsed = admissionRequestSchema.safeParse(request);
-      if (!parsed.success) return this.refusal('conflict');
-      const selection = parsed.data.selection;
-      if (selection.kind === 'named') this.store.get(selection.profileId);
-      // D7: certification and successful admission belong to later batches.
-      // Never manufacture a certified route from persisted directory metadata.
-      return this.refusal('release-held');
+      const profile = this.store.get(selection.profileId);
+      route = resolveProviderAccountRoute(profile.canonical_route);
+      lease = this.store.acquireRunLease({ profileId: profile.profile_id, expectedRevision: profile.revision, route,
+        runId, reservationId: randomUUID(), operationId });
+      identityRef = profile.identity_ref;
     } catch (error: unknown) {
-      return this.refusal(error instanceof ProviderAccountStoreError ? error.code : 'unavailable-storage');
+      return this.refusal(storeCode(error));
+    }
+    const { reservation } = lease;
+    const settle = { reservationId: reservation.reservationId, operationId, authEpoch: reservation.authEpoch };
+    let certification: ClaudeRouteCertification;
+    try {
+      certification = await this.certifier.certify({ route, profile: { identityRef }, signal: this.disposal.signal,
+        cwd: workingDirectory ?? route.canonicalPath, settingSources: RUN_SETTING_SOURCES });
+    } catch {
+      // degradation-audit: reported - a thrown certification proves no child close; the lease is retained and the run refused.
+      certification = { ok: false, code: 'identity-unproved', terminated: false };
+    }
+    if (!certification.ok) {
+      try {
+        if (certification.terminated) this.store.release({ ...settle, reason: 'startup-failure' });
+        else this.store.retain(settle);
+      } catch (error: unknown) {
+        return this.refusal(storeCode(error));
+      }
+      return this.refusal(certification.code);
+    }
+    // The only place the certification marker is asserted: after the lease and a passed certification.
+    const namedRoute = Object.freeze({
+      kind: 'named', provider: 'claude', profileId: selection.profileId, canonicalConfigDir: route.canonicalPath,
+      routeFingerprint: reservation.routeFingerprint, routeRevision: reservation.routeRevision,
+      authEpoch: reservation.authEpoch, runId,
+    }) as ClaudeAccountNamedRoute;
+    return { code: 'ok', reservation, resources: Object.freeze({
+      kind: 'named', route: namedRoute, accountDataDir: route.canonicalPath,
+      filesystemIdentity: route.filesystemIdentity, launch: certification.launch,
+    } as const) };
+  }
+
+  async releaseReservation(command: ClaudeAccountReservationRelease): Promise<ClaudeAccountReservationReleaseOutcome> {
+    if (this.disposed) return this.refusal('unavailable-storage');
+    try {
+      return { code: 'ok', reservation: this.store.release(command) };
+    } catch (error: unknown) {
+      return this.refusal(storeCode(error));
     }
   }
 
-  async releaseReservation(_command: ClaudeAccountReservationRelease): Promise<ClaudeAccountReservationReleaseOutcome> {
-    return this.refusal('conflict');
-  }
-
-  async retainUnresolvedReservation(_command: ClaudeAccountReservationRetain): Promise<ClaudeAccountReservationRetainOutcome> {
-    return this.refusal('conflict');
+  async retainUnresolvedReservation(command: ClaudeAccountReservationRetain): Promise<ClaudeAccountReservationRetainOutcome> {
+    if (this.disposed) return this.refusal('unavailable-storage');
+    try {
+      return { code: 'ok', reservation: this.store.retain(command) };
+    } catch (error: unknown) {
+      return this.refusal(storeCode(error));
+    }
   }
 
   dispose(): void {
     this.disposed = true;
+    this.disposal.abort();
     // Disposal is not termination proof. Never sweep persisted reservations.
   }
 

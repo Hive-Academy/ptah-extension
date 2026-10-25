@@ -1,61 +1,86 @@
 import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
-import { killProcessTree, type ProcessSpawnRequest, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { killProcessTree, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { isSafeProviderAccountSummary, PROVIDER_ACCOUNT_RESULT_CODES } from '@ptah-extension/shared';
 import { ProviderAccountStore } from './provider-account.store';
 import { ProviderAccountService } from './provider-account.service';
 import { ProviderAccountActionsService } from './provider-account-actions.service';
 import { accountActionResult, ClaudeAccountCommand } from './claude-account-command';
+import type { ClaudeAccountStatus } from './claude-account-status';
+import { ClaudeLoginConsole } from './claude-login-console';
+import { ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeStatusProbeResult } from './claude-route-certifier';
 import { ProviderAccountStoreError, resolveProviderAccountRoute } from './provider-account-route';
 
+// The console tree kill must never reach a real process from a spec.
 jest.mock('@ptah-extension/platform-core', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/platform-core')>('@ptah-extension/platform-core'),
   killProcessTree: jest.fn().mockResolvedValue(undefined),
 }));
 
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const schema = MIGRATIONS.find(entry => entry.version === 58)?.sql;
-if (!schema) throw new Error('Provider account migration is missing');
+const schema = [58, 59, 60].map(version => {
+  const migration = MIGRATIONS.find(entry => entry.version === version);
+  if (!migration?.sql) throw new Error('Provider account migration is missing');
+  return migration.sql;
+}).join('\n');
 
-class Child extends EventEmitter implements SpawnedProcessHandle {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
-  readonly whenSpawned = Promise.resolve(1234);
-  readonly pid = 1234;
+/** A console window: no stdio, only `close`. */
+class ConsoleChild extends EventEmitter implements SpawnedProcessHandle {
+  readonly stdin = null;
+  readonly stdout = null;
+  readonly stderr = null;
+  readonly pid = 4321;
   readonly killed = false;
   readonly exitCode = null;
+  constructor(readonly whenSpawned: Promise<number | null> = Promise.resolve(4321)) { super(); }
   kill(): boolean { return true; }
-  close(code = 0, data = ''): void {
-    this.stdout.write(data);
-    this.emit('close', code, null);
-  }
 }
 
-describe('Provider account official actions', () => {
+const signedIn = (accountClass: 'P' | 'O' = 'P'): ClaudeStatusProbeResult => ({
+  status: { loggedIn: true, accountClass, identityReference: 'identity-ref-0001', configDirectoryMatches: true },
+  terminated: true,
+});
+const signedOut: ClaudeStatusProbeResult = { status: { loggedIn: false } as ClaudeAccountStatus, terminated: true };
+const unproved: ClaudeStatusProbeResult = { status: null, terminated: false };
+const refusal = { ok: false as const, code: 'unsupported-source' as const, terminated: true };
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+describe('ProviderAccountActionsService', () => {
   let root: string;
   let db: SqliteDatabase;
   let store: ProviderAccountStore;
   let service: ProviderAccountService;
   let actions: ProviderAccountActionsService;
-  let commands: ClaudeAccountCommand;
-  let children: Child[];
-  let requests: ProcessSpawnRequest[];
   let id: string;
-  const detector = { findExecutable: jest.fn() };
+  let context: ClaudeAuthContext;
+  let commands: { status: jest.Mock; logout: jest.Mock };
+  let certifier: { authContext: jest.Mock; checkCoverage: jest.Mock };
+  let loginConsole: { launch: jest.Mock; fallbackScript: jest.Mock };
+  let completeAuth: jest.SpyInstance;
+
   const target = () => ({ provider: 'claude' as const, profileId: id });
   const command = (operationId = 'operation-0001') => ({ ...target(), operationId, expectedRevision: store.get(id).revision });
-  const flush = async (): Promise<void> => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
-  const status = (method: string) => JSON.stringify({ configDir: store.get(id).canonical_route, authMethod: method });
-  const permitMocks = (): void => {
-    jest.spyOn(commands, 'authorization').mockReturnValue('ok');
-    jest.spyOn(commands, 'environment').mockImplementation(route => ({ CLAUDE_CONFIG_DIR: route.canonicalPath }));
+  const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  const advance = async (ms: number): Promise<void> => { await jest.advanceTimersByTimeAsync(ms); await flush(); };
+  const operations = () => db.prepare('SELECT * FROM provider_account_operations').all();
+  const build = (): ProviderAccountActionsService => new ProviderAccountActionsService(store,
+    Object.assign(Object.create(ClaudeAccountCommand.prototype) as ClaudeAccountCommand, commands),
+    Object.assign(Object.create(ClaudeRouteCertifier.prototype) as ClaudeRouteCertifier, certifier),
+    Object.assign(Object.create(ClaudeLoginConsole.prototype) as ClaudeLoginConsole, loginConsole));
+  const signIn = (accountState: 'signed-in' | 'signed-out'): void => {
+    db.prepare('UPDATE provider_account_profiles SET state = ?, identity_ref = ? WHERE profile_id = ?')
+      .run(accountState, accountState === 'signed-in' ? 'identity-ref-0001' : null, id);
   };
+
   beforeEach(() => {
     jest.useFakeTimers();
     root = mkdtempSync(join(tmpdir(), 'ptah-account-actions-'));
@@ -63,238 +88,304 @@ describe('Provider account official actions', () => {
     db = new Database(dbPath);
     db.exec(schema);
     store = new ProviderAccountStore({ db });
-    service = new ProviderAccountService(store, { db, dbPath });
+    const certifyOnly = Object.assign(Object.create(ClaudeRouteCertifier.prototype) as ClaudeRouteCertifier,
+      { certify: jest.fn() });
+    service = new ProviderAccountService(store, { db, dbPath }, certifyOnly);
     id = service.add('Work').profileId;
-    children = []; requests = [];
-    detector.findExecutable.mockResolvedValue({ path: 'mock-claude', source: 'path', version: 'fixture' });
-    commands = new ClaudeAccountCommand(detector, { spawnProcess: request => {
-      requests.push(request);
-      const child = new Child(); children.push(child); return child;
-    } });
-    actions = new ProviderAccountActionsService(store, commands);
+    const dir = store.get(id).canonical_route;
+    context = Object.freeze({
+      canonicalDir: dir, cwd: dir, env: { CLAUDE_CONFIG_DIR: dir }, envDigest: 'digest',
+      executable: { command: 'claude', prefixArgs: [], sdkExecutablePath: 'claude', version: '2.1.310',
+        fingerprint: { size: 1, mtimeMs: 1 } },
+      policy: { coverage: 'win32@2.1.310' } as ClaudeAuthContext['policy'],
+    });
+    commands = { status: jest.fn().mockResolvedValue(signedOut), logout: jest.fn().mockResolvedValue({ exitCode: 0, terminated: true }) };
+    certifier = { authContext: jest.fn().mockResolvedValue({ ok: true, context }), checkCoverage: jest.fn().mockResolvedValue({ ok: true }) };
+    loginConsole = {
+      launch: jest.fn().mockResolvedValue({ kind: 'unavailable' }),
+      fallbackScript: jest.fn().mockReturnValue({ dialect: 'powershell', script: 'Set-Location fixture' }),
+    };
+    actions = build();
+    completeAuth = jest.spyOn(store, 'completeAuth');
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await actions.dispose();
     jest.restoreAllMocks(); jest.clearAllMocks(); jest.useRealTimers();
     db.close(); rmSync(root, { recursive: true, force: true });
   });
 
-  it('holds live named commands before discovery and leaves ambient selections alone', async () => {
-    expect((await actions.startSignIn(command())).code).toBe('release-held');
-    expect((await actions.signOut(command())).code).toBe('release-held');
-    expect((await actions.readStatus(target())).code).toBe('release-held');
-    expect(detector.findExecutable).not.toHaveBeenCalled();
-    expect(children).toHaveLength(0);
-    expect(service.selection(root, 'main')).toEqual({ profileId: null, revision: -1 });
-    expect(store.get(id).state).toBe('not-signed-in');
-  });
+  describe('coverage refusal starts no settings-reading child', () => {
+    beforeEach(() => { certifier.checkCoverage.mockResolvedValue(refusal); });
 
-  it('adds label-only beside the profile DB without selecting and changes both defaults atomically', () => {
-    expect(store.get(id).canonical_route).toBe(join(root, 'provider-accounts', 'claude', id));
-    expect(service.selection(root, 'lane').profileId).toBeNull();
-    service.select(root, 'main', id, -1, 0);
-    expect(service.selection(root, 'lane').profileId).toBeNull();
-    expect(() => service.setDefault(root, id, { main: 0, lane: 4 }, 0)).toThrow();
-    expect(service.selection(root, 'main').revision).toBe(0);
-    service.setDefault(root, id, { main: 0, lane: -1 }, 0);
-    expect(service.selection(root, 'lane').profileId).toBe(id);
-    service.rename(id, 0, 'Personal');
-    expect(service.list()[0].label).toBe('Personal');
-    const directory = store.get(id).canonical_route;
-    service.remove(id, 1);
-    expect(service.list()).toEqual([]);
-    expect(existsSync(directory)).toBe(true);
-    expect(service.selection(root, 'main').profileId).toBeNull();
-  });
-
-  it('idle signed-in status preserves epoch, state and revision and never makes sign-in busy by pending', async () => {
-    permitMocks();
-    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
-    const before = store.get(id);
-    const pending = actions.readStatus(target()); await flush();
-    expect(store.get(id)).toEqual(before);
-    const other = new ProviderAccountActionsService(store, commands);
-    expect((await other.startSignIn(command('operation-concurrent'))).code).toBe('busy');
-    expect(store.get(id).state).toBe('signed-in');
-    children[0].close(0, status('claude.ai'));
-    expect((await pending).code).toBe('ok');
-    expect(store.get(id)).toEqual(before);
-    const login = other.startSignIn(command('operation-after-status')); await flush();
-    expect(store.get(id).state).toBe('pending');
-    children[1].close(1); await login;
-  });
-
-  it.each([
-    ['none', 0, 'signed-out'],
-    ['claude.ai', 0, 'signed-in'],
-    ['none', 1, 'disconnected'],
-    ['unproved', 0, 'disconnected'],
-  ] as const)('status %s with exit %s persists %s without changing epoch', async (method, code, state) => {
-    permitMocks();
-    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
-    const before = store.get(id);
-    const pending = actions.readStatus(target()); await flush();
-    children[0].close(code, status(method)); await pending;
-    expect(store.get(id)).toMatchObject({ state, auth_epoch: before.auth_epoch,
-      revision: before.revision + (state === before.state ? 0 : 1) });
-    expect(db.prepare('SELECT * FROM provider_account_operations').all()).toEqual([]);
-  });
-
-  it('unproved status termination marks signed-in disconnected and retains exclusion', async () => {
-    permitMocks();
-    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
-    const before = store.get(id);
-    jest.spyOn(commands, 'execute').mockResolvedValue({ code: 'timeout', terminated: false });
-    await actions.readStatus(target());
-    expect(store.get(id)).toMatchObject({ state: 'disconnected', auth_epoch: before.auth_epoch, revision: before.revision + 1 });
-    expect(db.prepare('SELECT * FROM provider_account_operations').all()).toHaveLength(1);
-    expect((await actions.startSignIn(command())).code).toBe('busy');
-  });
-
-  it('moves not-signed-in through pending to signed-in and verified signed-out', async () => {
-    permitMocks();
-    const login = actions.startSignIn(command()); await flush();
-    expect(store.get(id).state).toBe('pending');
-    children[0].close(); await flush();
-    children[1].close(0, status('claude.ai'));
-    expect((await login).code).toBe('ok');
-    expect(store.get(id).state).toBe('signed-in');
-    const logout = actions.signOut(command('operation-0002')); await flush();
-    children[2].close(); await flush(); children[3].close(0, status('none'));
-    expect((await logout).code).toBe('ok');
-    expect(store.get(id).state).toBe('signed-out');
-    expect(requests.map(request => request.args)).toEqual([
-      ['auth', 'login'], ['auth', 'status'], ['auth', 'logout'], ['auth', 'status'],
-    ]);
-    expect(requests[0].launchGuard?.fileIdentities?.[0].realpath).toBe(store.get(id).canonical_route);
-  });
-
-  it('reports failed and disconnected without raw credential-shaped output', async () => {
-    permitMocks();
-    const failed = actions.startSignIn(command()); await flush();
-    children[0].stderr.write('sk-ant-secret person@example.test');
-    children[0].close(1, 'Bearer private');
-    expect(await failed).toEqual(accountActionResult('unsupported-source'));
-    expect(store.get(id).state).toBe('failed');
-    const good = actions.readStatus(target()); await flush(); children[1].close(0, status('claude.ai')); await good;
-    const lost = actions.readStatus(target()); await flush(); children[2].close(1, 'private'); await lost;
-    expect(store.get(id).state).toBe('disconnected');
-  });
-
-  it('compares operation ID and auth epoch on cancel and completion', async () => {
-    permitMocks();
-    const login = actions.startSignIn(command()); await flush();
-    expect((await actions.cancelSignIn(command('wrong-operation'))).code).toBe('conflict');
-    expect(() => store.completeAuth('operation-0001', 'wrong-owner', 999, 'signed-in')).toThrow();
-    const cancel = actions.cancelSignIn(command()); await flush();
-    expect(killProcessTree).toHaveBeenCalledWith(1234, 'SIGKILL');
-    children[0].close(0); await flush();
-    children[1].close(0, status('claude.ai'));
-    expect((await cancel).code).toBe('cancelled'); await login;
-    expect(store.get(id).state).toBe('cancelled');
-    const recheck = actions.readStatus(target()); await flush(); children[2].close(0, status('claude.ai')); await recheck;
-    expect(store.get(id).state).toBe('signed-in');
-  });
-
-  it('retains unproved termination after two second grace and ignores late success', async () => {
-    permitMocks();
-    const login = actions.startSignIn(command()); await flush();
-    const cancel = actions.cancelSignIn(command()); await flush();
-    jest.advanceTimersByTime(2_000); await flush();
-    expect((await cancel).code).toBe('cancelled'); await login;
-    children[0].close(0, status('claude.ai')); await flush();
-    expect(store.get(id).state).toBe('pending');
-    expect((await actions.readStatus(target())).code).toBe('busy');
-    expect(children[0].listenerCount('close')).toBe(0);
-    expect(children[0].stdout.listenerCount('data')).toBe(0);
-    expect(jest.getTimerCount()).toBe(0);
-  });
-
-  it('cancellation during the post-login status check cannot become success', async () => {
-    permitMocks();
-    const login = actions.startSignIn(command()); await flush();
-    children[0].close(); await flush();
-    const cancelled = actions.cancelSignIn(command()); await flush();
-    children[1].close(0, status('claude.ai'));
-    expect((await cancelled).code).toBe('cancelled'); await login;
-    expect(store.get(id).state).toBe('cancelled');
-  });
-
-  it('bounds output and drains stderr without returning it', async () => {
-    permitMocks();
-    const pending = actions.readStatus(target()); await flush();
-    children[0].stderr.write('private identity');
-    children[0].stdout.write('x'.repeat(16_385)); await flush();
-    children[0].close();
-    expect(await pending).toEqual(accountActionResult('unsupported-source'));
-    expect(store.get(id).state).toBe('failed');
-  });
-
-  it.each([['status', 10_000], ['logout', 10_000], ['login', 300_000]] as const)(
-    'enforces %s deadline and kill grace', async (kind, deadline) => {
-      permitMocks();
-      const pending = commands.execute(kind, resolveProviderAccountRoute(store.get(id).canonical_route), new AbortController().signal);
-      await flush(); jest.advanceTimersByTime(deadline - 1); await flush();
-      expect(killProcessTree).not.toHaveBeenCalled();
-      jest.advanceTimersByTime(1); await flush();
-      expect(killProcessTree).toHaveBeenCalled();
-      jest.advanceTimersByTime(2_000); await flush();
-      expect(await pending).toEqual({ code: 'timeout', terminated: false });
+    it('for sign-in, readStatus and sign-out', async () => {
+      expect((await actions.startSignIn(command())).code).toBe('unsupported-source');
+      expect(store.get(id).state).toBe('failed');
+      expect((await actions.readStatus(target())).code).toBe('unsupported-source');
+      expect((await actions.signOut(command('operation-0002'))).code).toBe('unsupported-source');
+      expect(commands.status).not.toHaveBeenCalled();
+      expect(commands.logout).not.toHaveBeenCalled();
+      expect(loginConsole.launch).not.toHaveBeenCalled();
+      expect(operations()).toEqual([]);
     });
 
-  it('includes stalled CLI discovery in the status deadline', async () => {
-    permitMocks();
-    detector.findExecutable.mockImplementationOnce(() => new Promise(() => { /* Deliberately unresolved detector. */ }));
-    const pending = commands.execute('status', resolveProviderAccountRoute(store.get(id).canonical_route), new AbortController().signal);
-    await flush(); jest.advanceTimersByTime(10_000); await flush();
-    expect(await pending).toEqual({ code: 'timeout', terminated: true });
-    expect(children).toHaveLength(0);
-    expect(jest.getTimerCount()).toBe(0);
+    it('between two polls, stopping the polling', async () => {
+      certifier.checkCoverage.mockReset()
+        .mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: true })
+        .mockResolvedValue(refusal);
+      expect((await actions.startSignIn(command())).code).toBe('ok');
+      await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(1);
+      await advance(2_000);
+      expect(store.get(id).state).toBe('failed');
+      await advance(20_000);
+      expect(commands.status).toHaveBeenCalledTimes(1);
+      expect(jest.getTimerCount()).toBe(0);
+    });
   });
 
-  it('reports restart pending as unresolved and refuses duplicate host copies', async () => {
-    permitMocks();
-    const login = actions.startSignIn(command()); await flush();
-    const other = new ProviderAccountActionsService(new ProviderAccountStore({ db }), commands);
-    expect((await other.readStatus(target())).code).toBe('busy');
-    expect((await other.startSignIn(command('operation-0002'))).code).toBe('busy');
-    children[0].close(1); await login;
-    expect(children).toHaveLength(1);
+  describe('fallback mode', () => {
+    it('returns the generated script for the auth context and completes when every child closed', async () => {
+      const started = await actions.startSignIn(command());
+      expect(started).toEqual({ ...accountActionResult('ok'), fallback: { platform: 'win32', script: 'Set-Location fixture' } });
+      expect(loginConsole.fallbackScript).toHaveBeenCalledWith(context);
+      expect(store.get(id).state).toBe('pending');
+      commands.status.mockResolvedValue(signedIn());
+      await advance(2_000);
+      expect(completeAuth).toHaveBeenCalledWith('operation-0001', expect.any(String), 1, 'signed-in', 'identity-ref-0001');
+      expect(store.get(id).state).toBe('signed-in');
+      expect(store.identityRef(id)).toBe('identity-ref-0001');
+      expect(operations()).toEqual([]);
+    });
+
+    it('completes a class O account as signed-in (its named runs refuse later)', async () => {
+      await actions.startSignIn(command());
+      commands.status.mockResolvedValue(signedIn('O'));
+      await advance(2_000);
+      expect(store.get(id).state).toBe('signed-in');
+    });
+
+    it.each(['cancel', 'deadline'] as const)('completes on %s when every child closed', async how => {
+      await actions.startSignIn(command());
+      await advance(2_000);
+      if (how === 'cancel') {
+        expect((await actions.cancelSignIn(command())).code).toBe('cancelled');
+        expect(store.get(id).state).toBe('cancelled');
+      } else {
+        await advance(300_000);
+        expect(store.get(id).state).toBe('failed');
+      }
+      expect(completeAuth).toHaveBeenCalledTimes(1);
+      expect(operations()).toEqual([]);
+    });
+
+    it('an unproved status child, then a success status: no completeAuth, pending, busy', async () => {
+      commands.status.mockResolvedValueOnce(unproved).mockResolvedValue(signedIn());
+      await actions.startSignIn(command());
+      await advance(2_000);
+      await advance(2_000);
+      expect(commands.status).toHaveBeenCalledTimes(2);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      expect((await actions.readStatus(target())).code).toBe('busy');
+      expect((await build().startSignIn(command('operation-0002'))).code).toBe('busy');
+      expect(operations()).toHaveLength(1);
+    });
+
+    it.each(['cancel', 'deadline', 'disposal'] as const)('an unproved child, then %s: no completeAuth', async how => {
+      commands.status.mockResolvedValue(unproved);
+      await actions.startSignIn(command());
+      await advance(2_000);
+      if (how === 'cancel') expect((await actions.cancelSignIn(command())).code).toBe('busy');
+      else if (how === 'deadline') await advance(300_000);
+      else await actions.dispose();
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      expect(operations()).toHaveLength(1);
+    });
+
+    it('stops polling after three unproved children', async () => {
+      commands.status.mockResolvedValue(unproved);
+      await actions.startSignIn(command());
+      await advance(30_000);
+      expect(commands.status).toHaveBeenCalledTimes(3);
+    });
   });
 
-  it('refuses an active run lease without spawning or advancing the epoch', async () => {
-    permitMocks();
-    store.admit({ profileId: id, expectedRevision: 0, route: resolveProviderAccountRoute(store.get(id).canonical_route),
+  describe('console mode', () => {
+    it('an unclosed console blocks completion and a late close then allows it', async () => {
+      const child = new ConsoleChild();
+      loginConsole.launch.mockResolvedValue({ kind: 'started', child });
+      const started = await actions.startSignIn(command());
+      // No accessor exposes the console handle.
+      expect(Object.keys(started).sort()).toEqual(['code', 'summary']);
+      commands.status.mockResolvedValue(signedIn());
+      await advance(2_000);
+      expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
+      await advance(2_000);
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      child.emit('close', 0, null);
+      expect(store.get(id).state).toBe('signed-in');
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+    });
+
+    it('a console closed by the kill settles within the grace', async () => {
+      const child = new ConsoleChild();
+      loginConsole.launch.mockResolvedValue({ kind: 'started', child });
+      (killProcessTree as jest.Mock).mockImplementationOnce(async () => { child.emit('close', 1, null); });
+      await actions.startSignIn(command());
+      expect((await actions.cancelSignIn(command())).code).toBe('cancelled');
+      expect(store.get(id).state).toBe('cancelled');
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('disposal', () => {
+    it('waits for a bounded status, retains an unproved operation and refuses every new action', async () => {
+      signIn('signed-in');
+      const probe = deferred<ClaudeStatusProbeResult>();
+      commands.status.mockReturnValue(probe.promise);
+      const pending = actions.readStatus(target()); await flush();
+      let disposed = false;
+      const disposal = actions.dispose().then(() => { disposed = true; });
+      await flush();
+      expect(commands.status.mock.calls[0][1].aborted).toBe(true);
+      expect(disposed).toBe(false);
+      probe.resolve(unproved);
+      await disposal; await pending;
+      expect(operations()).toHaveLength(1);
+      for (const result of [await actions.readStatus(target()), await actions.startSignIn(command('operation-0002')),
+        await actions.signOut(command('operation-0003')), await actions.cancelSignIn(command('operation-0004'))]) {
+        expect(result.code).toBe('unavailable-storage');
+      }
+    });
+
+    it('aborts an in-flight sign-in status poll and retains its unproved operation', async () => {
+      const probe = deferred<ClaudeStatusProbeResult>();
+      commands.status.mockReturnValue(probe.promise);
+      await actions.startSignIn(command());
+      await advance(2_000);
+      const disposal = actions.dispose(); await flush();
+      expect(commands.status.mock.calls[0][1].aborted).toBe(true);
+      probe.resolve(unproved);
+      await disposal;
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('pending');
+      expect(operations()).toHaveLength(1);
+    });
+
+    it.each([true, false])('stops a pending console sign-in (close proved: %s) and leaves no listener or timer', async proved => {
+      const child = new ConsoleChild();
+      loginConsole.launch.mockResolvedValue({ kind: 'started', child });
+      await actions.startSignIn(command());
+      const disposal = actions.dispose(); await flush();
+      expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
+      if (proved) child.emit('close', 1, null);
+      else await advance(2_000);
+      await disposal;
+      expect(store.get(id).state).toBe(proved ? 'cancelled' : 'pending');
+      expect(operations()).toHaveLength(proved ? 0 : 1);
+      expect(child.listenerCount('close')).toBe(0);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    it('releases a never-spawned console sign-in at once, without the grace or a tree kill', async () => {
+      loginConsole.launch.mockResolvedValue({ kind: 'started', child: new ConsoleChild(Promise.resolve(null)) });
+      await actions.startSignIn(command());
+      await actions.dispose();
+      expect(killProcessTree).not.toHaveBeenCalled();
+      expect(store.get(id).state).toBe('cancelled');
+      expect(operations()).toEqual([]);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('status and sign-out', () => {
+    it.each([
+      [signedIn(), 'signed-in', 'identity-ref-0001', 'ok'],
+      [signedOut, 'signed-out', null, 'ok'],
+      [{ status: null, terminated: true }, 'disconnected', 'identity-ref-0001', 'unsupported-source'],
+    ] as const)('readStatus records %#', async (probe, state, ref, code) => {
+      signIn('signed-in');
+      commands.status.mockResolvedValue(probe);
+      const before = store.get(id);
+      expect((await actions.readStatus(target())).code).toBe(code);
+      expect(store.get(id)).toMatchObject({ state, auth_epoch: before.auth_epoch });
+      expect(store.identityRef(id)).toBe(ref);
+      expect(operations()).toEqual([]);
+    });
+
+    it('unproved status termination retains exclusion', async () => {
+      signIn('signed-in');
+      commands.status.mockResolvedValue(unproved);
+      expect((await actions.readStatus(target())).code).toBe('identity-unproved');
+      expect(operations()).toHaveLength(1);
+      expect((await actions.startSignIn(command())).code).toBe('busy');
+    });
+
+    it('signs out only when status proves loggedIn:false and clears the identity reference', async () => {
+      signIn('signed-in');
+      expect((await actions.signOut(command())).code).toBe('ok');
+      expect(commands.logout).toHaveBeenCalledWith(context, expect.any(AbortSignal));
+      expect(store.get(id).state).toBe('signed-out');
+      expect(store.identityRef(id)).toBeNull();
+      signIn('signed-in');
+      commands.status.mockResolvedValue(signedIn());
+      expect((await actions.signOut(command('operation-0002'))).code).toBe('unsupported-source');
+      expect(store.get(id).state).toBe('disconnected');
+    });
+
+    it('an unproved logout child keeps the reservation', async () => {
+      signIn('signed-in');
+      commands.logout.mockResolvedValue({ exitCode: null, terminated: false });
+      expect((await actions.signOut(command())).code).toBe('busy');
+      expect(commands.status).not.toHaveBeenCalled();
+      expect(completeAuth).not.toHaveBeenCalled();
+      expect(operations()).toHaveLength(1);
+    });
+  });
+
+  it('refuses an active run lease without a child or a new epoch', async () => {
+    signIn('signed-in');
+    const profile = store.get(id);
+    store.acquireRunLease({ profileId: id, expectedRevision: profile.revision,
+      route: resolveProviderAccountRoute(profile.canonical_route),
       runId: 'run-00001', reservationId: 'lease-00001', operationId: 'admit-00001' });
     expect((await actions.startSignIn(command())).code).toBe('busy');
-    expect(children).toHaveLength(0);
+    expect(certifier.authContext).not.toHaveBeenCalled();
     expect(store.get(id).auth_epoch).toBe(0);
     expect(service.list()[0].activeRunCount).toBe(1);
   });
 
-  it('rejects stale operation and epoch completions while preserving the current reservation', () => {
-    const route = resolveProviderAccountRoute(store.get(id).canonical_route);
-    const first = store.reserveAuth(id, 0, route, 'operation-first', 'owner-00001', 'sign-in');
-    expect(() => store.completeAuth('operation-first', 'owner-00001', first.authEpoch + 1, 'signed-in')).toThrow();
-    expect(store.get(id).state).toBe('pending');
-    store.completeAuth('operation-first', 'owner-00001', first.authEpoch, 'cancelled');
-    const second = store.reserveAuth(id, store.get(id).revision, route, 'operation-second', 'owner-00001', 'sign-in');
-    expect(() => store.completeAuth('operation-first', 'owner-00001', first.authEpoch, 'signed-in')).toThrow();
-    expect(store.get(id).auth_epoch).toBe(second.authEpoch);
-    expect(store.get(id).state).toBe('pending');
-    store.completeAuth('operation-second', 'owner-00001', second.authEpoch, 'failed');
+  it('compares operation id, revision and epoch on cancel', async () => {
+    await actions.startSignIn(command());
+    expect((await actions.cancelSignIn(command('wrong-operation'))).code).toBe('conflict');
+    expect((await actions.cancelSignIn(command())).code).toBe('cancelled');
+  });
+
+  it('notifies state changes with a snapshot and stops after unsubscribe', async () => {
+    const changes: unknown[] = [];
+    const stop = actions.onStateChanged(change => changes.push(change));
+    await actions.startSignIn(command());
+    expect(changes).toContainEqual({ profileId: id, state: 'pending', revision: store.get(id).revision });
+    stop();
+    await actions.cancelSignIn(command());
+    expect(changes).toHaveLength(1);
+  });
+
+  it('adds label-only beside the profile DB without selecting', () => {
+    expect(store.get(id).canonical_route).toBe(join(root, 'provider-accounts', 'claude', id));
+    expect(service.selection(root, 'lane').profileId).toBeNull();
+    const directory = store.get(id).canonical_route;
+    service.remove(id, 0);
+    expect(service.list()).toEqual([]);
+    expect(existsSync(directory)).toBe(true);
   });
 
   it('maps closed codes to fixed safe sentences even when dependency errors contain secrets', async () => {
     for (const code of PROVIDER_ACCOUNT_RESULT_CODES) expect(isSafeProviderAccountSummary(accountActionResult(code).summary)).toBe(true);
     jest.spyOn(store, 'get').mockImplementation(() => { throw new ProviderAccountStoreError('conflict', 'sk-ant-secret person@example.test'); });
     expect(await actions.readStatus(target())).toEqual(accountActionResult('conflict'));
-  });
-
-  it('uses direct Node arguments only when the detector requires cliJsPath', async () => {
-    permitMocks();
-    detector.findExecutable.mockResolvedValue({ path: 'wrapper', useDirectExecution: true, cliJsPath: 'fixture cli.js' });
-    const pending = actions.readStatus(target()); await flush(); children[0].close(0, status('none')); await pending;
-    expect(requests[0].command).toBe(process.execPath);
-    expect(requests[0].args).toEqual(['fixture cli.js', 'auth', 'status']);
   });
 });
