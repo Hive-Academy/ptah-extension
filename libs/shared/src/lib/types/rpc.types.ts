@@ -18,6 +18,7 @@ export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
 export * from './rpc/rpc-provider-accounts.types';
 export * from './rpc/rpc-setup.types';
+export * from './rpc/rpc-setup-decisions.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
@@ -91,10 +92,12 @@ import type {
   ExternalMarketplace,
   ExternalUninstallParams,
   ExternalUninstallResult,
+  KeptItem,
   ListMarketplacesResult,
   MarketplaceBrowseParams,
   MarketplaceSourceParams,
 } from './rpc/rpc-plugin-marketplace.types';
+import type { LibraryPassStatus } from './rpc/rpc-setup-decisions.types';
 
 import type {
   SubagentQueryParams,
@@ -651,7 +654,7 @@ import type {
   QualityExportParams,
   QualityExportResult,
   PluginInfo,
-  PluginConfigState,
+  PluginConfigStateWithHome,
   PluginSkillEntry,
 } from './rpc/rpc-misc.types';
 import type {
@@ -1276,7 +1279,8 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   };
   'plugins:get-config': {
     params: Record<string, never>;
-    result: PluginConfigState;
+    /** `configHome` is Electron-only and absent when no notice applies. */
+    result: PluginConfigStateWithHome;
   };
   'plugins:save-config': {
     params: {
@@ -1289,7 +1293,13 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
        */
       disabledPluginIds?: string[];
     };
-    result: { success: boolean; error?: string };
+    result: {
+      success: boolean;
+      error?: string;
+      /** Local items an enable left as the user's (plugin enable/agents). */
+      kept?: KeptItem[];
+      libraryPass?: LibraryPassStatus;
+    };
   };
   'plugins:list-skills': {
     params: { pluginIds: string[] };
@@ -1503,7 +1513,13 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
       source: string;
       skillId?: string;
     };
-    result: { success: boolean; error?: string };
+    result: {
+      success: boolean;
+      error?: string;
+      /** Local items the install left as the user's. */
+      kept?: KeptItem[];
+      libraryPass?: LibraryPassStatus;
+    };
   };
   'skillsSh:uninstall': {
     params: { name: string };

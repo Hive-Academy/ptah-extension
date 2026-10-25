@@ -12,6 +12,10 @@ import type {
   AgentModelProvider,
   AgentModelSettingsValue,
 } from '../agent-models.types';
+import type {
+  DivergedReason,
+  LibraryProvenance,
+} from '../library-provenance';
 
 export type SkillCloneKind = 'skill' | 'agent' | 'command';
 export type SkillCloneStatus = 'clone' | 'authored' | 'synth' | 'diverged';
@@ -53,6 +57,15 @@ export interface CloneSummary {
    * consumers — use `=== true`, never a bare truthiness flip.
    */
   orphaned?: boolean;
+  /**
+   * Recorded origin, for the provenance badge (`provenanceLabel`). Absent when
+   * the producer did not resolve it; consumers render "Workspace file".
+   */
+  provenance?: LibraryProvenance;
+  /** Why a `diverged` clone diverged. Absent when not diverged or unknown. */
+  divergedReason?: DivergedReason;
+  /** Slug of the source this clone collides with, from the sidecar. */
+  conflictsWith?: string;
 }
 
 export interface SkillCloneHistoryEntry {
@@ -73,6 +86,8 @@ export interface SkillCloneInvocationStats {
 export type SkillSynthesisListClonesParams = Record<string, never>;
 export interface SkillSynthesisListClonesResult {
   clones: CloneSummary[];
+  /** Harness root the agent list was scoped to. Absent on older hosts. */
+  scopeRoot?: string;
 }
 
 export interface SkillSynthesisGetCloneParams {

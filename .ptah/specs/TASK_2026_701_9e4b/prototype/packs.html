@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Community pack install (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Community packs (Electron)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">A. Wizard Community Packs tab (agent-selection.component.ts): browse, expand, Install / Install All, per-file status and retry, target choice before install</h2>
+<div class="w-wide"><div class="tabs" role="tablist" aria-label="Agent source"><button class="tab" role="tab" aria-selected="false" aria-controls="t1">Recommended agents</button><button class="tab" role="tab" aria-selected="true" aria-controls="t2">Community Packs</button></div><div id="t1" role="tabpanel" hidden></div><div id="t2" role="tabpanel"><div class="cards"><article class="card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><h3 style="margin:0;font-size:14px">acme-agents</h3><span class="badge ">6 agents</span><span class="badge ">Community pack</span><span class="sp" style="flex:1"></span><button class="disc" aria-expanded="true" aria-controls="pk-files" data-toggle="pk-files" data-label-open="Collapse" data-label-closed="Expand">Collapse</button></div>
+  <p class="muted" style="margin:0;font-size:12px">Backend and ops agents shared by the Acme team.</p>
+  <p class="tgt-inline"><span>Install to:</span> <code>D:/work/acme/.claude/agents</code> <span class="badge badge-ghost">project root</span> <button type="button" class="tbtn" data-open="ov-pack" data-scope="pack">Choose location</button></p>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-primary btn-xs" data-open="ov-pack" data-scope="pack">Install All</button></div>
+  <ul class="files" id="pk-files" style="margin-top:8px">
+  <li class="file"><div class="file-head"><code class="grow">api-designer.md</code><span class="badge badge-done">Installed</span></div></li>
+  <li class="file"><div class="file-head"><code class="grow">docs-writer.md</code><span class="badge ">Kept</span></div><p class="file-note">Your file was not changed. Origin stays Workspace file.</p></li>
+  <li class="file"><div class="file-head"><code class="grow">perf-tuner.md</code><button class="btn btn-outline btn-xs" data-open="ov-pack" data-scope="file" data-file="perf-tuner.md" data-open-key="pk-file" aria-label="Install perf-tuner.md">Install</button></div></li>
+  <li class="file"><div class="file-head"><code class="grow">release-bot.md</code><span class="badge badge-ink-err">Failed</span><button class="btn btn-outline btn-xs" data-open="ov-pack" data-scope="file" data-file="release-bot.md" aria-label="Retry release-bot.md">Retry</button></div><p class="file-note" style="color:var(--ink-err)">Could not write release-bot.md (permission denied). Not installed.</p></li>
+  <li class="file"><div class="file-head"><code class="grow">test-writer.md</code><button class="btn btn-outline btn-xs" data-open="ov-pack" data-scope="file" data-file="test-writer.md" aria-label="Install test-writer.md">Install</button></div></li>
+  <li class="file"><div class="file-head"><code class="grow">ops-runner.md</code><button class="btn btn-outline btn-xs" data-open="ov-pack" data-scope="file" data-file="ops-runner.md" aria-label="Install ops-runner.md">Install</button></div></li></ul></article></div></div></div>
+  <div class="overlay w-wide" id="ov-pack" style="margin-top:12px" data-scope="pack"><div class="modal-box w-modal" role="dialog" aria-modal="true" aria-labelledby="pk1-t"><h3 id="pk1-t"><span data-when-scope="pack">Install community pack "acme-agents"?</span><span data-when-scope="file" hidden>Install <code data-file-name>perf-tuner.md</code> from "acme-agents"?</span></h3>
+  <p class="muted" style="font-size:12px;margin:2px 0 0">Nothing is written until you confirm. <span data-when-scope="pack">Scope: all 6 pack files that are not installed yet.</span><span data-when-scope="file" hidden>Scope: this one file only.</span></p>
+  <div data-target-scope data-files>
+    <h4 id="th7">Where should the agents be written?</h4>
+<div role="radiogroup" aria-labelledby="th7">
+  <button type="button" class="target" role="radio" aria-checked="true" tabindex="0" data-target="root">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Project root (recommended)</strong> <span class="badge badge-ghost">Default</span><br><code>D:/work/acme/.claude/agents</code><br><span class="muted">The Library, other CLIs and model settings read this folder.</span></span>
+  </button>
+  <button type="button" class="target" role="radio" aria-checked="false" tabindex="-1" data-target="sub" data-open-key="pk-sub">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Opened folder only</strong><br><code>D:/work/acme/packages/api/.claude/agents</code></span>
+  </button>
+</div>
+<p class="callout-warn" role="alert" data-when-target="sub" hidden>Agents written to the opened folder will not reach other CLIs and will not appear in the Library.</p>
+    <p class="callout-info" role="status" data-reset-note hidden>Target changed. The comparison was run again and every choice is reset to Keep.</p>
+    <div data-loading hidden><p role="status" class="muted" style="font-size:12px">Comparing pack files with the chosen folder...</p><div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:40%"></div></div>
+    <div data-view>
+      <p class="tgt-inline"><span class="muted">Writing to</span> <code data-target-line>D:/work/acme/.claude/agents</code></p>
+      <div data-for-target="root"><p class="callout-info" role="status"><span data-when-scope="pack">No file differs. All 6 pack files are new in this folder and install into the folder above.</span><span data-when-scope="file" hidden><code data-file-name>perf-tuner.md</code> is new in this folder and installs into the folder above.</span></p></div>
+      <div data-for-target="sub" hidden>
+        <p class="callout-warn" role="alert" data-sub-some><span data-when-scope="pack">1 existing file differs from the pack version in this folder.</span><span data-when-scope="file" hidden>This file exists in this folder and differs from the pack version.</span> Your file is kept unless you choose to replace it.</p>
+        <p class="callout-info" role="status" data-sub-none hidden><code data-file-name>file</code> is new in this folder. No file differs; it installs into the folder above.</p>
+        <ul class="files" data-sub-list><li class="file" data-sub-row data-file="perf-tuner.md"><div class="file-head"><code class="grow">perf-tuner.md</code><span class="badge badge-ghost">Differs from local file</span></div><p class="file-note">Origin of the existing file: Workspace file.</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace perf-tuner.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file perf-tuner.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace perf-tuner.md with pack version">Replace with pack version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="pk-d1">Show differences</button></div><div class="diff" id="pk-d1" hidden><div class="del">- model: sonnet</div><div class="add">+ model: opus</div></div></li></ul>
+      </div>
+      <div class="modal-footer"><span class="summary muted" role="status" aria-live="polite" data-summary></span><button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-confirm data-tpl-keep="Install" data-tpl-rep="Install, replace {n} {files}">Install</button></div>
+    </div>
+  </div></div></div>
+</section>
+<section class="">
+<h2 class="stage-title">B. Prompt when no file differs: target choice only, one primary action</h2>
+<div class="frame w-modal"><div class="modal-box"><h3 id="pk2-t">Install community pack "acme-agents"?</h3>
+  <p class="muted" style="font-size:12px;margin:2px 0 0">Nothing is written until you confirm.</p>
+  <div data-target-scope data-files>
+    <h4 id="th14">Where should the agents be written?</h4>
+<div role="radiogroup" aria-labelledby="th14">
+  <button type="button" class="target" role="radio" aria-checked="true" tabindex="0" data-target="root">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Project root (recommended)</strong> <span class="badge badge-ghost">Default</span><br><code>D:/work/acme/.claude/agents</code><br><span class="muted">The Library, other CLIs and model settings read this folder.</span></span>
+  </button>
+  <button type="button" class="target" role="radio" aria-checked="false" tabindex="-1" data-target="sub" data-open-key="pk-sub">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Opened folder only</strong><br><code>D:/work/acme/packages/api/.claude/agents</code></span>
+  </button>
+</div>
+<p class="callout-warn" role="alert" data-when-target="sub" hidden>Agents written to the opened folder will not reach other CLIs and will not appear in the Library.</p>
+    <p class="callout-info" role="status" data-reset-note hidden>Target changed. The comparison was run again and every choice is reset to Keep.</p>
+    <div data-loading hidden><p role="status" class="muted" style="font-size:12px">Comparing pack files with the chosen folder...</p><div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:40%"></div></div>
+    <div data-view>
+      <p class="tgt-inline"><span class="muted">Writing to</span> <code data-target-line>D:/work/acme/.claude/agents</code></p>
+      <p class="callout-info" role="status">No file differs. All 6 pack files are new and install into the folder above.</p>
+      <div class="modal-footer"><span class="summary muted" role="status" aria-live="polite" data-summary></span><button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-confirm data-tpl-keep="Install pack" data-tpl-rep="Install pack, replace {n} {files}">Install pack</button></div>
+    </div>
+  </div></div></div>
+</section>
+<section class="">
+<h2 class="stage-title">C. Second entry surface: community-packs-panel in the sidebar width</h2>
+<div class="frame w-sidebar"><h2 style="font-size:15px;margin:0 0 6px">Community packs</h2>
+ <article class="card"><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><h3 style="margin:0;font-size:14px">acme-agents</h3><span class="badge ">6 agents</span></div>
+  <p class="tgt-inline">Install to: <code>.claude/agents</code> <span class="badge badge-ghost">project root</span> <button class="tbtn" data-open="ov-pack" data-scope="pack" aria-label="Change install location for acme-agents">Change</button></p>
+  <div><button class="btn btn-primary btn-xs" data-open="ov-pack" data-scope="pack">Install All</button></div>
+  <ul class="files"><li class="file"><div class="file-head"><code class="grow">api-designer.md</code><span class="badge badge-done">Installed</span></div></li>
+  <li class="file"><div class="file-head"><code class="grow">docs-writer.md</code><span class="badge ">Kept</span></div></li>
+  <li class="file"><div class="file-head"><code class="grow">release-bot.md</code><span class="badge badge-ink-err">Failed</span><button class="btn btn-outline btn-xs" data-open="ov-pack" data-scope="file" data-file="release-bot.md" aria-label="Retry release-bot.md">Retry</button></div></li></ul></article><p class="muted" style="font-size:11px;margin:6px 0 0">Change, Install All and Retry here open the same install dialog as the wizard (shown in A), scoped to the whole pack or to the one file.</p></div>
+</section>
+<section class="">
+<h2 class="stage-title">D. Pack results by target and host; primary failure</h2>
+<div class="frame w-modal stack">
+  <div class="modal-box"><h3>Pack "acme-agents" installed to the project root</h3>
+    <div class="outcomes"><div class="outcome"><b>3</b>Installed</div><div class="outcome"><b>1</b>Kept (your file)</div><div class="outcome"><b>1</b>Failed</div></div>
+    <p class="file-note">Kept files stay as they are and keep the origin "Workspace file". A retry of a failed file never replaces a kept file.</p></div>
+  <div class="modal-box"><h3>Pack "acme-agents" installed to the opened folder (Electron)</h3>
+    <p class="callout-warn" role="alert">These agents are in <code>packages/api/.claude/agents</code>. They will not reach other CLIs and will not appear in the Library.</p></div>
+  <div class="modal-box"><h3>Same result in VS Code (no Library copy)</h3>
+    <p class="callout-warn" role="alert">These agents are in <code>packages/api/.claude/agents</code>. They will not reach other CLIs.</p></div>
+  <div class="modal-box"><h3>Install failed (primary failure)</h3>
+    <p class="callout-err" role="alert"><strong>Could not install the pack.</strong> The pack could not be downloaded (network error). Nothing from this pack was written. Check your connection and retry.</p><button class="btn btn-outline btn-xs">Retry install</button></div>
+</div>
+</section>
+</main>
+<script src="assets/proto.js"></script>
+</body></html>

@@ -23,6 +23,12 @@
  *    `external/` without a store entry stays unresolvable.
  */
 
+import type { HarnessTargetId } from '../harness-sync.types';
+import type {
+  FileDecision,
+  LibraryPassStatus,
+} from './rpc-setup-decisions.types';
+
 /** An MCP server a plugin declares, rendered for the consent dialog. */
 export interface ExternalPluginMcpServer {
   /** Server key from the manifest, e.g. `binlog`. */
@@ -147,6 +153,94 @@ export interface ExternalInstallPlan {
    * makes consent re-required on every version change.
    */
   consentToken: string;
+  /**
+   * Existing local items the install would otherwise overwrite. Each is kept
+   * unless the user chooses replace for its `approvalId`. Absent or empty when
+   * nothing local is in the way.
+   */
+  localItems?: ExternalLocalItem[];
+}
+
+/**
+ * The installer family a local item belongs to. A kept item is only ever
+ * replaced through its own family's route.
+ */
+export type LocalItemFamily =
+  | 'external'
+  | 'skills-sh'
+  | 'plugin-enable'
+  | 'plugin-agent';
+
+/**
+ * What is in the way at a destination.
+ *
+ * - `unowned`: a file Ptah did not create.
+ * - `owned-edited`: a file Ptah wrote and the user has edited since.
+ * - `library-clone`: an edited Library copy.
+ * - `agent-source`: a workspace agent that shadows a plugin agent.
+ * - `unreadable`: could not be read; always kept, replace is refused.
+ */
+export type ExternalLocalItemKind =
+  | 'unowned'
+  | 'owned-edited'
+  | 'library-clone'
+  | 'agent-source'
+  | 'unreadable';
+
+/**
+ * One existing local item an install would affect. The server records its
+ * content digest under `approvalId`; neither a digest nor a hash is ever sent
+ * to the client.
+ */
+export interface ExternalLocalItem {
+  /** Server-issued id; send it back with the user's decision. */
+  approvalId: string;
+  /** CLI target whose copy this is. Absent for Library clones. */
+  target?: HarnessTargetId;
+  /** Path relative to the harness root (or the Library root for clones). */
+  relPath: string;
+  family: LocalItemFamily;
+  kind: ExternalLocalItemKind;
+  /** Plugin version Ptah last wrote here, when known. */
+  recordedVersion?: string;
+}
+
+/**
+ * Why an item was kept instead of replaced.
+ *
+ * - `unowned` / `owned-edited` / `unreadable`: as {@link ExternalLocalItemKind}.
+ * - `shadowed`: another active source already provides this name.
+ * - `changed-since-approval`: replace was chosen, but the item changed after
+ *   the plan, so it was kept.
+ */
+export type KeptItemReason =
+  | 'unowned'
+  | 'owned-edited'
+  | 'unreadable'
+  | 'shadowed'
+  | 'changed-since-approval';
+
+/** One local item an install or enable left as the user's. */
+export interface KeptItem {
+  /** Server-issued id; send it to `plugins:replace-kept-items` to replace. */
+  approvalId: string;
+  family: LocalItemFamily;
+  target?: HarnessTargetId;
+  relPath: string;
+  reason: KeptItemReason;
+}
+
+/** Params for `plugins:replace-kept-items`. */
+export interface PluginsReplaceKeptItemsParams {
+  decisions: Record<string, FileDecision>;
+}
+
+/** Result of `plugins:replace-kept-items`. */
+export interface PluginsReplaceKeptItemsResult {
+  replaced: KeptItem[];
+  /** Items still kept; `error` is set when a replace was attempted and failed. */
+  kept: Array<KeptItem & { error?: string }>;
+  libraryPass: LibraryPassStatus;
 }
 
 /** Outcome of an authorized `plugins:install-external` call. */
@@ -177,6 +271,12 @@ export interface ExternalInstallResult {
    * did not.
    */
   mcpWarnings?: string[];
+  /** Local items left as the user's. */
+  kept?: KeptItem[];
+  /** Local items replaced because the user chose replace in the plan. */
+  replaced?: ExternalLocalItem[];
+  /** Whether the Library was refreshed after the install. */
+  libraryPass?: LibraryPassStatus;
 }
 
 /**
@@ -216,6 +316,8 @@ export interface ExternalInstallParams {
    * Present and valid ⇒ the install proceeds.
    */
   consentToken?: string;
+  /** Keep/replace per plan `approvalId`. Absent or missing entries = keep. */
+  localItemDecisions?: Record<string, FileDecision>;
 }
 
 /** Params for `plugins:uninstall-external`. */

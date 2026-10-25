@@ -196,6 +196,15 @@ export interface AuthLoginOutputPayload {
   readonly line: string;
 }
 
+/** Payload for MESSAGE_TYPES.LIBRARY_CHANGED ('library:changed'). */
+export interface LibraryChangedPayload {
+  /** Harness root whose Library the pass refreshed. */
+  workspaceRoot: string;
+  status: 'updated' | 'failed';
+  /** Why the pass ran, e.g. `setup-wizard` or a plugin id. */
+  reasons: string[];
+}
+
 /** Host push to the main webview for a generation workflow. */
 export interface SetupGenerationOpenPayload {
   workspacePath: string;
@@ -448,6 +457,7 @@ export interface MessagePayloadMap {
   'git:turnChangeSet': GitTurnChangeSetPayload;
   'git:operationOutput': GitOperationOutputPayload;
   'file:content-changed': FileContentChangedPayload;
+  'library:changed': LibraryChangedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

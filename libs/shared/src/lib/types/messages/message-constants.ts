@@ -347,6 +347,12 @@ export const MESSAGE_TYPES = {
    * re-reads with `provider:listAccounts` after a reconnect.
    */
   PROVIDER_ACCOUNTS_CHANGED: 'provider:accountsChanged',
+  /**
+   * Backend → Frontend: a Library refresh pass for one workspace finished.
+   * Carries `LibraryChangedPayload`. A consumer ignores a push whose
+   * `workspaceRoot` is not the root its list is scoped to.
+   */
+  LIBRARY_CHANGED: 'library:changed',
 } as const;
 
 /**

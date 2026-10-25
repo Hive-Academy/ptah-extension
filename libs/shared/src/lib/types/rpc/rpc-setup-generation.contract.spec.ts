@@ -12,12 +12,19 @@ import type {
   SetupGenerationRunState,
   WizardCancelParams,
   WizardGetGenerationRunStateParams,
+  WizardInstallPackAgentsResult,
   WizardPreviewGenerationParams,
   WizardRetryItemParams,
   WizardSubmitSelectionParams,
   WizardSubmitSelectionResponse,
 } from './rpc-setup.types';
 import type {
+  FileOutcome,
+  GenerationTargetInfo,
+  WizardPlanPackInstallResult,
+} from './rpc-setup-decisions.types';
+import type {
+  GenerationAgentOutcome,
   GenerationCompletePayload,
   GenerationProgressPayload,
   GenerationStreamPayload,
@@ -71,6 +78,19 @@ type _PreviewRequiredReason = Assert<
   'preview-required' extends import('./rpc-setup.types').SetupGenerationRejection['reason']
     ? true
     : false
+>;
+type _FileOutcomeUnion = Assert<
+  Equal<
+    FileOutcome,
+    'written' | 'kept' | 'unchanged' | 'changed-since-preview' | 'failed'
+  >
+>;
+/**
+ * The generation outcome union is widened to `FileOutcome` together with its
+ * consumers (checkpoint store, completion tiles), not in the shared batch.
+ */
+type _AgentOutcomeNotYetWidened = Assert<
+  Equal<GenerationAgentOutcome['status'], 'written' | 'unchanged' | 'failed'>
 >;
 type _GuidanceCancelOutcomeOptional = Assert<
   Equal<
@@ -134,6 +154,65 @@ describe('setup generation compatibility contract', () => {
     expect(facts.agentOutcomes?.[0].fileName).toBe('agent.md');
     expect(facts.propagation?.consent).toBe('granted');
   });
+  it('types decision params, kept counts, pack outcomes and the Library pass', () => {
+    const target: GenerationTargetInfo = {
+      harnessRoot: '/workspace',
+      openedFolder: '/workspace/packages/app',
+      chosen: 'harness-root',
+      openedIsHarnessRoot: false,
+    };
+    const facts: SetupGenerationResultFacts = {
+      status: 'completed',
+      success: true,
+      source,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'claude-sonnet',
+      counts: {
+        total: 2,
+        written: 0,
+        unchanged: 0,
+        failed: 0,
+        skipped: 0,
+        rejected: 0,
+        kept: 1,
+        changedSincePreview: 1,
+      },
+      target,
+      libraryPass: 'not-applicable',
+      libraryDiverged: [],
+    };
+    const submit: WizardSubmitSelectionParams = {
+      selectedAgentIds: ['tester'],
+      previewToken: 'token-1',
+      fileDecisions: { tester: { decision: 'replace', revision: 'rev-1' } },
+      target: 'harness-root',
+    };
+    const plan: WizardPlanPackInstallResult = {
+      planToken: 'plan-1',
+      target,
+      files: [{ file: 'docs-writer.md', state: 'differs', revision: 'rev-2' }],
+    };
+    const install: WizardInstallPackAgentsResult = {
+      success: true,
+      agentsDownloaded: 1,
+      fromCache: false,
+      files: [
+        { file: 'docs-writer.md', outcome: 'kept' },
+        { file: 'tester.md', outcome: 'changed-since-preview' },
+      ],
+      libraryPass: 'updated',
+    };
+    expect(facts.counts?.kept).toBe(1);
+    expect(facts.counts?.changedSincePreview).toBe(1);
+    expect(facts.libraryPass).toBe('not-applicable');
+    expect(install.files?.map((entry) => entry.outcome)).toEqual([
+      'kept',
+      'changed-since-preview',
+    ]);
+    expect(submit.fileDecisions?.['tester'].decision).toBe('replace');
+    expect(plan.files[0].state).toBe('differs');
+  });
+
   it('keeps tabless requests and awaited result shapes valid', () => {
     const submit: WizardSubmitSelectionParams = { selectedAgentIds: ['agent'] };
     const guidance: EnhancedPromptsRunWizardParams = {

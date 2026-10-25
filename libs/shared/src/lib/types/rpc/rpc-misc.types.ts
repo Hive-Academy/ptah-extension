@@ -9,6 +9,7 @@ import type {
   ProjectIntelligence,
   QualityHistoryEntry,
 } from '../quality-assessment.types';
+import type { LibraryPassStatus } from './rpc-setup-decisions.types';
 
 /**
  * Workspace-scoping param shared by the `@` file picker (`context:*`) and the
@@ -524,6 +525,14 @@ export interface PluginInfo {
   status?: PluginHealthStatus;
   /** Populated exactly when `status` is `'broken'`. */
   issues?: PluginHealthIssue[];
+  /** Number of agents in this plugin. Absent on legacy payloads. */
+  agentCount?: number;
+  /** Skill names the plugin ships, for the Marketplace inspector. */
+  skillNames?: string[];
+  /** Agent names the plugin ships. */
+  agentNames?: string[];
+  /** Command names the plugin ships. */
+  commandNames?: string[];
 }
 
 /** Per-workspace plugin configuration state */
@@ -569,6 +578,57 @@ export interface PluginConfigState {
   enabledSkillIds?: string[];
   /** ISO timestamp of last configuration change */
   lastUpdated?: string;
+}
+
+/**
+ * A folder under one harness root that carries its own saved plugin
+ * configuration (D14).
+ */
+export interface PluginConfigHomeCandidate {
+  /** Absolute folder path. */
+  folder: string;
+  /** ISO timestamp of that folder's last configuration change, when recorded. */
+  lastUpdated?: string;
+  enabledCount: number;
+  disabledCount: number;
+  /** True when its configuration differs from the harness root's. */
+  differsFromHome: boolean;
+}
+
+/**
+ * Where plugin configuration lives for one harness root, and whether a choice
+ * is needed.
+ *
+ * - `home`: the harness root's configuration governs; nothing to choose.
+ * - `imported`: a single sub-folder configuration was taken over as home.
+ * - `conflict`: several sub-folders disagree; `governingFolder` is the interim
+ *   source until the user adopts or dismisses.
+ * - `differs`: the home exists and a sub-folder's configuration differs.
+ */
+export interface PluginConfigHomeStatus {
+  harnessRoot: string;
+  state: 'home' | 'imported' | 'conflict' | 'differs';
+  /** Set only in `conflict`. */
+  governingFolder?: string;
+  candidates: PluginConfigHomeCandidate[];
+}
+
+/** Result of `plugins:get-config`. `configHome` is absent where no notice applies. */
+export type PluginConfigStateWithHome = PluginConfigState & {
+  configHome?: PluginConfigHomeStatus;
+};
+
+/** Params for `plugins:resolve-config-home`. */
+export interface PluginsResolveConfigHomeParams {
+  action: 'adopt' | 'dismiss';
+  /** One of the status's candidate folders. */
+  folder: string;
+}
+
+/** Result of `plugins:resolve-config-home`. */
+export interface PluginsResolveConfigHomeResult {
+  configHome?: PluginConfigHomeStatus;
+  libraryPass?: LibraryPassStatus;
 }
 
 /**

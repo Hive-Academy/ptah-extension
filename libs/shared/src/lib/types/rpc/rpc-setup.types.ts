@@ -7,6 +7,16 @@
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 import type { HarnessTargetId } from '../harness-sync.types';
 import type { GenerationAgentOutcome } from '../wizard/phase';
+import type {
+  AgentModelPreview,
+  FileDecisionEntry,
+  GenerationRivalStatus,
+  GenerationTargetChoice,
+  GenerationTargetInfo,
+  LibraryPassStatus,
+  LocalFileState,
+  PackFileOutcome,
+} from './rpc-setup-decisions.types';
 
 export type SetupGenerationWorkflow =
   'setup-agent-generation' | 'setup-project-prompt';
@@ -85,6 +95,10 @@ export interface SetupGenerationResultFacts {
     failed: number;
     skipped: number;
     rejected: number;
+    /** Existing files kept as the user's (by choice or because unreadable). */
+    kept?: number;
+    /** Replace chosen, but the file changed after the preview, so it was kept. */
+    changedSincePreview?: number;
   };
   rejectedSections?: number;
   tailoredSections?: number;
@@ -93,6 +107,15 @@ export interface SetupGenerationResultFacts {
     status: 'completed' | 'unavailable' | 'failed' | 'not-attempted';
     targets?: HarnessTargetId[];
   };
+  /** Root the agents were written to. Absent on results from older hosts. */
+  target?: GenerationTargetInfo;
+  /** Whether the Library was refreshed after this run. */
+  libraryPass?: LibraryPassStatus;
+  /**
+   * Agents written by this run whose Library copy carries the user's edits and
+   * is now diverged from the new source. Never lists a kept agent.
+   */
+  libraryDiverged?: string[];
 }
 
 export interface SetupGenerationRunState {
@@ -307,6 +330,15 @@ export interface WizardSubmitSelectionParams {
   analysisDir?: string;
   /** Continue a persisted generation run instead of starting a new run. */
   resume?: boolean;
+  /**
+   * Token from `wizard:preview-generation`. Required by the server for any
+   * replace decision; a submit without one only creates missing files.
+   */
+  previewToken?: string;
+  /** Keep/replace per agent id for files that already exist. Absent = keep. */
+  fileDecisions?: Record<string, FileDecisionEntry>;
+  /** Root to write to. Absent = the harness root. */
+  target?: GenerationTargetChoice;
 }
 
 /** Parameters for the read-only resumable-run discovery RPC method. */
@@ -355,6 +387,8 @@ export interface WizardPreviewGenerationParams {
   selectedAgentIds: string[];
   /** Tab and workspace requesting this pre-run preview. */
   tabBinding?: SetupGenerationTabBinding;
+  /** Root to compare against. Absent = the harness root. */
+  target?: GenerationTargetChoice;
 }
 
 /**
@@ -380,12 +414,25 @@ export interface GenerationPreviewFile {
   condition?: string;
   /** Something already exists at this path and will be replaced. */
   willOverwrite: boolean;
+  /** What is at the path now. Set for the `claude` target only. */
+  localState?: LocalFileState;
+  /**
+   * Opaque baseline revision of the local file. Set for the `claude` target
+   * only; echo it with a replace decision.
+   */
+  revision?: string;
 }
 
 /** Every file the preview expects for one selected agent. */
 export interface GenerationPreviewAgent {
   agentId: string;
   files: GenerationPreviewFile[];
+  /** The model line the generated agent will carry, and its origin. */
+  agentModel?: AgentModelPreview;
+  /** The agent's Library copy carries user edits (Electron only). */
+  libraryCopyEdited?: boolean;
+  /** The local file still matches what the setup wizard last wrote. */
+  unchangedSinceWizardWrite?: boolean;
 }
 
 /**
@@ -400,6 +447,12 @@ export interface WizardPreviewGenerationResponse {
    * the Claude paths only and promises nothing about other CLIs.
    */
   warning?: string;
+  /** Opaque token binding a later submit's replace decisions to this preview. */
+  previewToken?: string;
+  /** Roots compared and the one that applies. */
+  target?: GenerationTargetInfo;
+  /** Why rival CLI files are or are not listed. */
+  rivalStatus?: GenerationRivalStatus;
 }
 
 /** Parameters for wizard:cancel RPC method */
@@ -643,6 +696,12 @@ export interface WizardInstallPackAgentsParams {
   agentFiles: string[];
   /** Optional explicit workspace path; overrides the backend's detected root. */
   workspacePath?: string;
+  /** Token from `wizard:plan-pack-install`; required for any replace. */
+  planToken?: string;
+  /** Keep/replace per pack file name. Absent = keep. */
+  decisions?: Record<string, FileDecisionEntry>;
+  /** Root to write to. Absent = the harness root. */
+  target?: GenerationTargetChoice;
 }
 
 /** Response from wizard:install-pack-agents RPC method */
@@ -651,4 +710,8 @@ export interface WizardInstallPackAgentsResult {
   agentsDownloaded: number;
   fromCache: boolean;
   error?: string;
+  /** Per-file outcome, in plan order. */
+  files?: PackFileOutcome[];
+  /** Whether the Library was refreshed after the install. */
+  libraryPass?: LibraryPassStatus;
 }
