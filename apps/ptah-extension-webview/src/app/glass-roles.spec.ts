@@ -42,6 +42,19 @@ describe('glass surface roles', () => {
     expect(css).toMatch(/ptah-app-shell > \.bg-surface-0/);
     expect(css).toMatch(/ptah-marketplace-shell > \.bg-surface-0/);
     expect(css).toMatch(/ptah-thoth-shell > \.bg-surface-0/);
+    // The app root <main> and the Electron welcome root are root planes: they
+    // sit in the same clear list, so the tinted scene shows on every screen.
+    const clearList =
+      /:root\[data-glass='on'\] :is\(([^)]*)\) \{ background-color: transparent; \}/.exec(css)?.[1] ?? '';
+    const cleared = clearList.split(',').map((item) => item.trim());
+    expect(cleared).toEqual(
+      expect.arrayContaining([
+        '.electron-shell-root',
+        'ptah-root > main',
+        'ptah-electron-welcome > .bg-base-100',
+        'ptah-app-shell > .bg-surface-0',
+      ]),
+    );
     expect(css).toMatch(
       /\.cs-answer\[data-glass-surface='content'\] \{[^}]*padding:\s*var\(--sidebar-spacing-sm\) var\(--sidebar-spacing-md\)/,
     );
