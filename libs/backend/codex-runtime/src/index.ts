@@ -42,6 +42,10 @@ export type {
   CodexHomeAuthReader,
 } from './lib/codex-home-auth-reader';
 export { CODEX_RUNTIME_TOKENS } from './lib/di/tokens';
+export {
+  readCodexDevRouteOverride,
+  type CodexDevRouteOverride,
+} from './lib/codex-dev-route';
 export { CodexRuntime, type CodexRuntimeOptions } from './lib/codex-runtime';
 export { CodexAccountUsageClient } from './lib/codex-account-usage-client';
 export {
