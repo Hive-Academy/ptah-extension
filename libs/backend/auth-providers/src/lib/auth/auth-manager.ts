@@ -12,7 +12,7 @@
  * 5. Tracking the active strategy for teardown
  * 6. Environment summary logging
  *
- * Public API is UNCHANGED:
+ * Existing callers may omit the operation context:
  * - configureAuthentication(rawAuthMethod: string): Promise<AuthResult>
  * - clearAuthentication(): void
  */
@@ -21,7 +21,13 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { AuthEnv, AuthStrategyType } from '@ptah-extension/shared';
 import { resolveStrategy, type LegacyAuthMethod } from '@ptah-extension/shared';
-import type { IAuthStrategy } from './auth-strategy.types';
+import {
+  authOperationContextSchema,
+  type AuthOperationContext,
+  type IAuthStrategy,
+} from './auth-strategy.types';
+import { SdkError } from '@ptah-extension/agent-sdk';
+import { resolveCodexProxyPolicy } from './codex-proxy-policy';
 import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { IAuthEnvProvider } from '@ptah-extension/agent-sdk';
@@ -59,6 +65,7 @@ const AUTH_ENV_VARS = [
  */
 @injectable()
 export class AuthManager implements IAuthEnvProvider {
+  private readonly authFlights = new Map<string, Promise<AuthResult>>();
   private configInProgress: Promise<AuthResult> | null = null;
   private activeStrategy: IAuthStrategy | null = null;
 
@@ -119,20 +126,72 @@ export class AuthManager implements IAuthEnvProvider {
    * 4. Delegate to strategy.configure()
    * 5. Log env summary (boolean presence, no secrets)
    */
-  async configureAuthentication(rawAuthMethod?: string): Promise<AuthResult> {
-    if (this.configInProgress !== null) {
-      this.logger.debug(
-        '[AuthManager] configureAuthentication already in progress, awaiting existing call',
+  async configureAuthentication(
+    rawAuthMethod?: string,
+    context?: AuthOperationContext,
+  ): Promise<AuthResult> {
+    const operationContext =
+      context === undefined ? undefined : this.parseOperationContext(context);
+    const authMethod =
+      rawAuthMethod === undefined
+        ? this.activeProviderResolver.resolveActiveAuth().authMethod
+        : normalizeAuthMethod(rawAuthMethod);
+    const resolved = this.resolveProviderAndStrategy(authMethod);
+    const providerId = operationContext?.providerId ?? resolved.providerId;
+    if (
+      resolveCodexProxyPolicy(operationContext) !== 'native-return' &&
+      authMethod !== 'thirdParty' &&
+      providerId !== resolved.providerId
+    ) {
+      throw new SdkError('Auth operation provider does not match auth method');
+    }
+    const strategyType =
+      authMethod === 'thirdParty'
+        ? resolveStrategy('thirdParty', getAnthropicProvider(providerId))
+        : resolved.strategyType;
+    const key = JSON.stringify([
+      authMethod,
+      providerId,
+      operationContext?.normalizedHome ?? null,
+      operationContext?.reason ?? null,
+      operationContext?.hostNativeCodex ?? false,
+    ]);
+    const existing = this.authFlights.get(key);
+    if (existing) return existing;
+
+    if (rawAuthMethod !== undefined && rawAuthMethod !== authMethod) {
+      this.logger.warn(
+        `[AuthManager] Normalized auth method '${rawAuthMethod}' → '${authMethod}'`,
       );
-      return this.configInProgress;
     }
 
-    this.configInProgress = this.doConfigureAuthentication(rawAuthMethod);
+    const run = () =>
+      this.doConfigureAuthentication(
+        authMethod,
+        providerId,
+        strategyType,
+        operationContext,
+      );
+    // Capture provider and intent at submission, even if settings change while queued.
+    const flight = this.configInProgress
+      ? this.configInProgress.then(run, run)
+      : run();
+    this.authFlights.set(key, flight);
+    this.configInProgress = flight;
     try {
-      return await this.configInProgress;
+      return await flight;
     } finally {
-      this.configInProgress = null;
+      this.authFlights.delete(key);
+      if (this.configInProgress === flight) this.configInProgress = null;
     }
+  }
+
+  private parseOperationContext(
+    context: AuthOperationContext,
+  ): AuthOperationContext {
+    const parsed = authOperationContextSchema.safeParse(context);
+    if (!parsed.success) throw new SdkError('Invalid auth operation context');
+    return parsed.data;
   }
 
   resolveActiveAuth(): ActiveAuth {
@@ -155,17 +214,18 @@ export class AuthManager implements IAuthEnvProvider {
    * Internal implementation of configureAuthentication (guarded by concurrency mutex above)
    */
   private async doConfigureAuthentication(
-    rawAuthMethod?: string,
+    authMethod: LegacyAuthMethod,
+    providerId: string,
+    strategyType: AuthStrategyType,
+    operationContext?: AuthOperationContext,
   ): Promise<AuthResult> {
-    const authMethod =
-      rawAuthMethod === undefined
-        ? this.activeProviderResolver.resolveActiveAuth().authMethod
-        : normalizeAuthMethod(rawAuthMethod);
-
-    if (rawAuthMethod !== undefined && rawAuthMethod !== authMethod) {
-      this.logger.warn(
-        `[AuthManager] Normalized auth method '${rawAuthMethod}' → '${authMethod}'`,
-      );
+    const nativeReturn =
+      resolveCodexProxyPolicy(operationContext) === 'native-return';
+    if (nativeReturn && !this.activeStrategy) {
+      return {
+        configured: false,
+        details: ['Codex authentication is owned by the native runtime.'],
+      };
     }
 
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
@@ -189,8 +249,13 @@ export class AuthManager implements IAuthEnvProvider {
       }
       this.activeStrategy = null;
     }
-    const { providerId, strategyType } =
-      this.resolveProviderAndStrategy(authMethod);
+
+    if (nativeReturn) {
+      return {
+        configured: false,
+        details: ['Codex authentication is owned by the native runtime.'],
+      };
+    }
 
     this.logger.debug(
       `[AuthManager] Resolved strategy: ${strategyType} (provider: ${providerId})`,
@@ -211,6 +276,7 @@ export class AuthManager implements IAuthEnvProvider {
       providerId,
       authEnv: this.authEnv,
       envSnapshot,
+      ...(operationContext ? { operationContext } : {}),
     });
     if (result.configured) {
       this.activeStrategy = strategy;

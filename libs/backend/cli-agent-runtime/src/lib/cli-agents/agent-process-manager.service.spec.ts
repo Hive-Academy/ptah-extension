@@ -606,7 +606,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       getMcpPort.mockReturnValue(51821);
       let notifyTimeout: (() => void) | undefined;
       let attachment:
-        import('./mcp-attachment-probe.port').McpAttachment | undefined;
+        import('./mcp-attachment-probe.port').McpAttachment | undefined =
+        undefined;
       let resolveAttachment: (
         entry: import('./mcp-attachment-probe.port').McpAttachment | undefined,
       ) => void = () => undefined;
