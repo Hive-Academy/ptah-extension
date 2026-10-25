@@ -876,12 +876,6 @@ export class ChatSessionService {
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
     });
 
-    const currentModel =
-      options?.model ||
-      this.workspaceProviderProfileResolver.resolveStoredModel(
-        workspaceId,
-        this.modelSettings.selectedModel.get(),
-      );
     const files = options?.files ?? [];
     if (files.length > 0) {
       this.logger.debug(`RPC: ${logLabel} received files`, {
@@ -894,6 +888,14 @@ export class ChatSessionService {
     const mcpServersOverride = await this.buildMcpServersOverride(
       input.mcpServersOverride,
     );
+    // Checked after the last await before the profile read, so both see the
+    // same provider.
+    const currentModel =
+      options?.model ||
+      this.workspaceProviderProfileResolver.resolveStoredModel(
+        workspaceId,
+        this.modelSettings.selectedModel.get(),
+      );
     // Resolve an isolated per-workspace provider profile so a session in
     // workspace A runs against A's provider even when a different workspace's
     // provider is currently the process-global active one. `undefined` only
