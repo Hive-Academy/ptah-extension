@@ -851,7 +851,7 @@ export async function bootSettings(
     ...overrides,
   });
   await page.addInitScript((t: string) => {
-    localStorage.setItem('ptah-theme', t);
+    localStorage.setItem('ptah-theme-v2', t);
   }, theme);
   // Batch 53.6: the app build's `load` takes 2-3 s here, but on a machine at 100 % CPU it was seen past the 15 s
   // navigation default. Boot is setup, not what these tests measure, so it gets 30 s; every assertion keeps its own.

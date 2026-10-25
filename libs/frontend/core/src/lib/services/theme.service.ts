@@ -139,9 +139,35 @@ const ALL_THEME_NAMES: ReadonlySet<string> = new Set(
 );
 
 /**
- * State storage key for theme persistence
+ * State storage key for theme persistence.
+ *
+ * Versioned (`-v2`) so the switch to the Ptah glass default reaches users who
+ * upgrade, not only new installs: a value under this key can only have been
+ * written by `setTheme` in a build that already ships glass, so it is a real
+ * choice and always wins. A user with only the legacy key is migrated by
+ * {@link migrateLegacyTheme}. Versioning the key instead of writing a
+ * "migrated" marker is deliberate: a boot-time marker write can be lost next
+ * to concurrent main-process writers (Electron webview state, PR #805), and a
+ * lost marker would re-run the migration over a choice made afterwards. This
+ * key is written only by `setTheme`, never at boot.
+ *
+ * Must match the key read by `apps/ptah-extension-webview/src/index.html`.
  */
-const THEME_STATE_KEY = 'theme';
+const THEME_STATE_KEY = 'theme-v2';
+
+/**
+ * Pre-glass state key. Read only to migrate it, never written, and left in
+ * place so a downgrade still finds the user's old choice.
+ *
+ * Accepted consequence — downgrade, pick, re-upgrade: a pre-glass build
+ * writes only this key and ignores `theme-v2`, so a theme picked while
+ * downgraded is shadowed on re-upgrade by whatever `theme-v2` held before
+ * the downgrade. Detecting that would need a timestamp or version marker
+ * written next to the legacy value, which is the boot-time write this design
+ * exists to avoid. The user simply picks again; `theme.service.spec.ts` pins
+ * this behaviour so it is not mistaken for a regression.
+ */
+const LEGACY_THEME_STATE_KEY = 'theme';
 
 /**
  * The four themes compiled into the initial `styles.css`. Every other entry of
@@ -159,9 +185,14 @@ const EAGER_THEMES: ReadonlySet<string> = new Set(['anubis', 'anubis-light', 'pt
  * synchronously in `<head>` in both hosts, so the pre-paint script uses this
  * mirror to decide whether it must block the first paint on `theme-extra.css`.
  *
+ * Versioned together with {@link THEME_STATE_KEY}, for the same reason.
+ *
  * Must match the key read by `apps/ptah-extension-webview/src/index.html`.
  */
-const THEME_HINT_KEY = 'ptah-theme';
+const THEME_HINT_KEY = 'ptah-theme-v2';
+
+/** Pre-glass mirror of {@link LEGACY_THEME_STATE_KEY}; read-only, never written. */
+const LEGACY_THEME_HINT_KEY = 'ptah-theme';
 
 /** Non-fetching `<link>` in `index.html` that carries the deferred sheet URL. */
 const DEFERRED_SHEET_MARKER_ID = 'ptah-theme-extra';
@@ -244,8 +275,12 @@ export class ThemeService {
    * way:
    * 1. Persisted theme from `vscode.getState()` (authoritative)
    * 2. The `localStorage` mirror this service writes on every `setTheme`
-   * 3. VS Code theme kind mapping (first-launch default)
-   * 4. Default 'ptah-glass' (dark)
+   * 3. Only when neither 1 nor 2 holds anything: the legacy (pre-glass)
+   *    value from their old keys, migrated to the glass pair — see
+   *    {@link migrateLegacyTheme}. A present but unknown value in 1 or 2
+   *    skips this step and goes to 4.
+   * 4. VS Code theme kind mapping (first-launch default)
+   * 5. Default 'ptah-glass' (dark)
    *
    * Step 2 is not redundant. The pre-paint script has already applied the
    * user's theme from whichever of (1) or (2) answered first; if this service
@@ -257,26 +292,44 @@ export class ThemeService {
    * is the only surviving record of the user's choice on exactly that path.
    */
   private initializeTheme(): void {
-    const authoritative = this.vscode.getState<string>(THEME_STATE_KEY);
-    const persisted = authoritative ?? this.readThemeHint();
-    if (persisted && this.isValidTheme(persisted)) {
-      this._currentTheme.set(persisted);
-      // Re-arm the pre-paint hint. On the first launch after upgrade the
-      // mirror does not exist yet, so a VS Code user on one of the 32 deferred
-      // themes gets one last frame of `anubis` — exactly what happens on every
-      // launch today. Writing it here means it does not happen again.
-      this.writeThemeHint(persisted);
-      if (authoritative === undefined) {
-        // Recovered from the mirror: repair the authoritative store so the
-        // choice does not depend on `localStorage` surviving alone.
-        this.vscode.setState(THEME_STATE_KEY, persisted);
+    // No state write anywhere on this path, including when only the mirror
+    // answered. Webview state is per workspace in Electron while the mirror is
+    // origin-wide, so "mirror present, state absent" is the normal first open
+    // of every further workspace. Repairing state there would replace the
+    // whole record from a snapshot that can be stale next to concurrent
+    // main-process writers (PR #805). The mirror already carries the choice
+    // to the pre-paint script and to this read in both hosts.
+    const persisted =
+      this.vscode.getState<string>(THEME_STATE_KEY) ?? this.readThemeHint();
+    if (persisted !== undefined) {
+      if (this.isValidTheme(persisted)) {
+        this._currentTheme.set(persisted);
+        // Re-arm the pre-paint hint (localStorage only). Where the mirror was
+        // lost but state survived, a VS Code user on one of the 32 deferred
+        // themes gets one frame of the default; this stops it recurring.
+        this.writeThemeHint(persisted);
+        if (!EAGER_THEMES.has(persisted)) {
+          // Sheet is normally already in the document (inserted
+          // render-blocking by index.html). This covers a lost mirror.
+          void this.loadDeferredThemeSheet();
+        }
+        return;
       }
-      if (!EAGER_THEMES.has(persisted)) {
-        // Sheet is normally already in the document (inserted render-blocking
-        // by index.html). This covers the upgrade path above, where it is not.
-        void this.loadDeferredThemeSheet();
+      // A v2 value this build does not know (a theme retired or added by
+      // another version) is still proof the user chose after the migration,
+      // so the legacy value must not come back. Fall to the theme-kind
+      // default; index.html does the same.
+    } else {
+      const migrated = this.migrateLegacyTheme();
+      if (migrated) {
+        // Deliberately no write of either key. The migration is a pure
+        // function of the legacy value, so re-deriving it on every launch
+        // until the user picks a theme is idempotent, and the first `setTheme`
+        // ends it. Both results are in styles.css, so no deferred sheet and
+        // no hint is needed.
+        this._currentTheme.set(migrated);
+        return;
       }
-      return;
     }
 
     // Theme-kind fallback can only ever pick `ptah-glass-light`, which is in
@@ -319,13 +372,31 @@ export class ThemeService {
   }
 
   /**
+   * Map a theme saved before the glass default (legacy keys) onto the glass
+   * pair by lightness, so an upgraded user lands on Ptah glass without losing
+   * whether they wanted a dark or a light UI. A legacy glass choice maps to
+   * itself. Same source order as the current keys (state, then mirror), and
+   * the same `??` semantics: a present but unknown value does not fall
+   * through to the mirror. `index.html`'s pre-paint script mirrors this.
+   */
+  private migrateLegacyTheme(): ThemeName | undefined {
+    const legacy =
+      this.vscode.getState<string>(LEGACY_THEME_STATE_KEY) ??
+      this.readThemeHint(LEGACY_THEME_HINT_KEY);
+    if (!this.isValidTheme(legacy)) {
+      return undefined;
+    }
+    return DARK_THEMES.has(legacy) ? 'ptah-glass' : 'ptah-glass-light';
+  }
+
+  /**
    * Read the `localStorage` mirror written by {@link writeThemeHint}. Best
    * effort for the same reasons: storage can be unavailable, and an absent or
    * unreadable hint simply means the next fallback decides.
    */
-  private readThemeHint(): string | undefined {
+  private readThemeHint(key: string = THEME_HINT_KEY): string | undefined {
     try {
-      return localStorage.getItem(THEME_HINT_KEY) ?? undefined;
+      return localStorage.getItem(key) ?? undefined;
     } catch {
       // degradation-audit: optional-capability - the localStorage hint only
       // buys one pre-paint frame of the correct theme at launch; where storage

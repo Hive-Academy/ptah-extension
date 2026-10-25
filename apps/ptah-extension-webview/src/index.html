@@ -35,17 +35,28 @@
       must never fetch it at all.
 
       The persisted theme is read SYNCHRONOUSLY from, in order:
-        1. window.vscode.getState().theme — available in Electron, where the
-           contextBridge preload runs before any document script and backs
+        1. window.vscode.getState()['theme-v2'] — available in Electron, where
+           the contextBridge preload runs before any document script and backs
            getState with ipcRenderer.sendSync('get-state').
-        2. localStorage 'ptah-theme' — the mirror ThemeService writes on every
-           setTheme(). This is the only source available inside the VS Code
-           webview, where the host's `acquireVsCodeApi()` call is injected at
-           the END of <body> and so has not run yet at <head> parse time.
+        2. localStorage 'ptah-theme-v2' — the mirror ThemeService writes on
+           every setTheme(). This is the only source available inside the VS
+           Code webview, where the host's `acquireVsCodeApi()` call is injected
+           at the END of <body> and so has not run yet at <head> parse time.
+        3. Only when NEITHER -v2 key is present: the pre-glass keys (state
+           'theme', then localStorage 'ptah-theme'), mapped onto the glass pair
+           by lightness — the one-time migration to the Ptah glass default.
+           Nothing writes the -v2 keys at boot, so this re-derives the same
+           result every launch until the user picks. A present but unknown
+           -v2 value keeps the default instead: the user already chose.
+      This is the same order, with the same mapping, as initializeTheme() and
+      migrateLegacyTheme() in ThemeService; a difference shows up as a repaint
+      one frame after boot.
 
-      Keep these three name lists in sync with DAISYUI_THEMES in
+      Keep the name lists below in sync with DAISYUI_THEMES and EAGER_THEMES in
       libs/frontend/core/src/lib/services/theme.service.ts —
-      theme.service.spec.ts asserts they still match.
+      apps/ptah-extension-webview/src/app/theme-boot-lists.spec.ts asserts they
+      still match, and theme-pre-paint-parity.spec.ts runs this script against
+      ThemeService.
     -->
     <script>
       (function () {
@@ -77,21 +88,41 @@
           }
         }
 
-        var theme = null;
+        function known(name) {
+          return has(EAGER, name) || has(DEFERRED, name);
+        }
+
+        // State first, then the localStorage mirror, for one key pair. Same
+        // `??` semantics as ThemeService: a present state value answers even
+        // when it is not a usable name, and null means neither is present.
+        function read(state, stateKey, hintKey) {
+          if (state && state[stateKey] != null) {
+            return state[stateKey];
+          }
+          try {
+            return localStorage.getItem(hintKey);
+          } catch (e) {
+            return null;
+          }
+        }
+
         var state = null;
         try {
           state =
             window.vscode && typeof window.vscode.getState === 'function'
               ? window.vscode.getState()
               : null;
-          if (state && typeof state.theme === 'string') {
-            theme = state.theme;
-          }
         } catch (e) {}
-        if (!theme) {
-          try {
-            theme = localStorage.getItem('ptah-theme');
-          } catch (e) {}
+        var theme = read(state, 'theme-v2', 'ptah-theme-v2');
+        if (theme != null) {
+          if (!known(theme)) theme = null;
+        } else {
+          var legacy = read(state, 'theme', 'ptah-theme');
+          theme = known(legacy)
+            ? has(DARK, legacy)
+              ? 'ptah-glass'
+              : 'ptah-glass-light'
+            : null;
         }
 
         var accent = state && state['ptah-accent'];
