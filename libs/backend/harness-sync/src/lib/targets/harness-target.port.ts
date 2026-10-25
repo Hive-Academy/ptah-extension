@@ -60,14 +60,12 @@ export interface HarnessPlanWrite {
   /** Agents only: the model the transformed copy carries. */
   model?: string;
   isDirectory: boolean;
-  reason: 'create' | 'update';
   /**
-   * True when the on-disk content differs from what the manifest says Ptah
-   * wrote — i.e. someone hand-edited a managed copy. The write still proceeds
-   * (source wins; edits belong in the user layer) but it is reported so the
-   * user finds out where their change went (E10).
+   * `update` replaces an owned copy that still holds exactly what Ptah wrote,
+   * or an adopted one. A hand-edited owned copy is never planned as a write:
+   * it is listed in {@link HarnessPlan.keptLocalEdit} instead (D8).
    */
-  overwritesLocalEdit: boolean;
+  reason: 'create' | 'update';
   /**
    * `kind: 'mcp'` only: the server entry to install, and under which key.
    * Absent for every other kind, whose content is read from {@link source}.
@@ -140,6 +138,17 @@ export interface HarnessPlan {
    */
   adopted: string[];
   /**
+   * DESIRED, manifest-owned paths whose on-disk copy no longer matches the hash
+   * Ptah recorded — a hand edit, of any facet. They are KEPT: never written,
+   * and their manifest entry keeps the old hash, so every later pass finds the
+   * same edit and keeps it again until the user chooses to replace it (D8).
+   *
+   * Counted neither as `unchanged` nor as a write, so health reports them in
+   * neither `found` nor `missing`. Read off the plan by health, so a read-only
+   * verify and a reconcile name the same paths.
+   */
+  keptLocalEdit: string[];
+  /**
    * Manifest entries as they stand AFTER migration adoption but BEFORE apply.
    * The reconciler starts from this map so adopted legacy entries survive even
    * when nothing else changed.
@@ -166,6 +175,12 @@ export interface HarnessApplyResult {
   /** Relative paths successfully removed. */
   removed: string[];
   writeFailed: Array<{ relPath: string; reason: string }>;
+  /**
+   * Paths this APPLY kept although the plan scheduled a write: the copy was
+   * found hand-edited only when the write was about to replace it (a save
+   * landing between plan and apply) and was put back untouched. The plan's own
+   * {@link HarnessPlan.keptLocalEdit} is not repeated here; health merges both.
+   */
   keptLocalEdit: string[];
   /**
    * Manifest-owned paths that had been hand-edited, were snapshotted to

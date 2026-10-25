@@ -182,6 +182,7 @@ export class ClaudeTarget implements IHarnessTarget {
     );
 
     const writes: HarnessPlanWrite[] = [];
+    const keptLocalEdit: string[] = [];
     let unchanged = 0;
 
     for (const skill of desired.skills) {
@@ -212,6 +213,12 @@ export class ClaudeTarget implements IHarnessTarget {
         unchanged++;
         continue;
       }
+      if (outcome === 'kept') {
+        // The owned entry stays exactly as the manifest has it, old hash
+        // included, so the next pass finds the same edit and keeps it again.
+        keptLocalEdit.push(relPath);
+        continue;
+      }
       writes.push({
         relPath,
         kind: 'skill',
@@ -219,7 +226,6 @@ export class ClaudeTarget implements IHarnessTarget {
         hash: skill.contentHash,
         isDirectory: true,
         reason: outcome.reason,
-        overwritesLocalEdit: outcome.overwritesLocalEdit,
       });
     }
 
@@ -248,6 +254,12 @@ export class ClaudeTarget implements IHarnessTarget {
         unchanged++;
         continue;
       }
+      if (outcome === 'kept') {
+        // The owned entry stays exactly as the manifest has it, old hash
+        // included, so the next pass finds the same edit and keeps it again.
+        keptLocalEdit.push(relPath);
+        continue;
+      }
       writes.push({
         relPath,
         kind: 'command',
@@ -255,7 +267,6 @@ export class ClaudeTarget implements IHarnessTarget {
         hash: command.contentHash,
         isDirectory: false,
         reason: outcome.reason,
-        overwritesLocalEdit: outcome.overwritesLocalEdit,
       });
     }
 
@@ -296,6 +307,7 @@ export class ClaudeTarget implements IHarnessTarget {
       collisions: desired.collisions,
       migrations,
       adopted,
+      keptLocalEdit: [...keptLocalEdit, ...mcpPlan.keptLocalEdit],
       baseEntries,
       unchanged: unchanged + mcpPlan.unchanged,
       expected: desiredRel.size + mcpPlan.expected,
@@ -378,9 +390,6 @@ export class ClaudeTarget implements IHarnessTarget {
           write.source,
           write.kind,
         );
-        if (write.overwritesLocalEdit) {
-          result.keptLocalEdit.push(write.relPath);
-        }
       } catch (error: unknown) {
         result.writeFailed.push({
           relPath: write.relPath,
@@ -457,10 +466,15 @@ export class ClaudeTarget implements IHarnessTarget {
    * Ownership + drift decision for one entry.
    *
    * Returns `'foreign'` when the path exists and Ptah cannot prove it wrote it,
-   * `'unchanged'` when the on-disk hash already equals the desired hash, and a
-   * write descriptor otherwise.
+   * `'unchanged'` when the on-disk hash already equals the desired hash,
+   * `'kept'` when an owned copy no longer holds what Ptah wrote, and a write
+   * descriptor otherwise.
    *
-   * Two rules here are about NOT destroying the user's work:
+   * Three rules here are about NOT destroying the user's work:
+   *
+   * - **A hand-edited owned copy is kept** (D8). It is never written over, and
+   *   its manifest entry keeps the old hash, so every later pass reaches the
+   *   same answer until the user chooses to replace it.
    *
    * - **A symlink is unlinked only when it points into a declared source root.**
    *   A leftover `SkillJunctionService` junction resolves inside `~/.ptah/**`
@@ -484,9 +498,7 @@ export class ClaudeTarget implements IHarnessTarget {
     sourceRoots: readonly string[],
     hashOptions: ContentHashOptions,
   ): Promise<
-    | 'foreign'
-    | 'unchanged'
-    | { reason: 'create' | 'update'; overwritesLocalEdit: boolean }
+    'foreign' | 'unchanged' | 'kept' | { reason: 'create' | 'update' }
   > {
     throwIfPassAborted(hashOptions.signal);
     const absolute = toAbsolute(workspaceRoot, relPath);
@@ -497,11 +509,11 @@ export class ClaudeTarget implements IHarnessTarget {
       if (!migrations.some((m) => m.path === absolute)) {
         migrations.push({ kind: 'unlink-junction', path: absolute });
       }
-      return { reason: 'create', overwritesLocalEdit: false };
+      return { reason: 'create' };
     }
 
     if (stat === null) {
-      return { reason: 'create', overwritesLocalEdit: false };
+      return { reason: 'create' };
     }
 
     const actual = await hashOnDisk(absolute);
@@ -513,11 +525,9 @@ export class ClaudeTarget implements IHarnessTarget {
     }
 
     if (actual === desiredHash) return 'unchanged';
+    if (actual !== null && actual !== owned.hash) return 'kept';
 
-    return {
-      reason: 'update',
-      overwritesLocalEdit: actual !== null && actual !== owned.hash,
-    };
+    return { reason: 'update' };
   }
 
   /**

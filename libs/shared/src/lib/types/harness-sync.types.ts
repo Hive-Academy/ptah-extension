@@ -49,9 +49,7 @@ export type HarnessFacet = 'skills' | 'commands' | 'agents' | 'mcp';
  * doing so would feed derived output back into the source layer.
  */
 export type HarnessFacetSupport =
-  | 'supported'
-  | 'unsupported'
-  | 'source-managed';
+  'supported' | 'unsupported' | 'source-managed';
 
 /** Per-facet capability of one target. */
 export type HarnessFacetMatrix = Readonly<
@@ -75,10 +73,7 @@ export type HarnessFacetMatrix = Readonly<
  *   `degraded`, like every other non-`ok` sources status.
  */
 export type HarnessSourcesStatus =
-  | 'ok'
-  | 'sources-missing'
-  | 'pending-download'
-  | 'policy-unknown';
+  'ok' | 'sources-missing' | 'pending-download' | 'policy-unknown';
 
 /** Why a desired entry could not be written. */
 export interface HarnessWriteFailure {
@@ -143,7 +138,16 @@ export interface HarnessTargetHealth {
   /** Paths that exist but are not manifest-owned — never touched. */
   foreign: string[];
   writeFailed: HarnessWriteFailure[];
-  /** Manifest-owned paths whose local edits were overwritten (source wins). */
+  /**
+   * Manifest-owned paths that were hand-edited and are KEPT as they are: no
+   * sync pass writes over them, and their ownership record keeps the hash Ptah
+   * wrote, so every later pass keeps them again until the user chooses to
+   * replace them (D8). Counted in neither {@link found} nor {@link missing}.
+   *
+   * A read-only report names the same paths a reconcile would keep. A `full`
+   * report also names a copy saved between that pass's plan and its write,
+   * which the write found edited and put back untouched.
+   */
   keptLocalEdit: string[];
   /** Manifest-owned paths deleted because the source disappeared. */
   removed: string[];
@@ -172,12 +176,9 @@ export interface HarnessTargetHealth {
   adopted?: string[];
   /**
    * Manifest-owned paths, of any facet, whose on-disk copy no longer matches
-   * what Ptah wrote — a hand edit. On a read-only report these are what a
-   * repair WOULD overwrite; on a `full` report they are what this pass found
-   * edited, whether or not the overwrite then landed (see
-   * {@link keptLocalEdit} for the ones that did). Every overwrite saves
-   * the edited copy to `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`
-   * first (TASK_2026_609).
+   * what Ptah wrote — a hand edit — as the pass's plan found them. Every one is
+   * kept, never overwritten (see {@link keptLocalEdit}), on a read-only report
+   * and a `full` one alike, so the two name the same paths over one tree.
    *
    * Optional for the same reason as {@link adopted}.
    */

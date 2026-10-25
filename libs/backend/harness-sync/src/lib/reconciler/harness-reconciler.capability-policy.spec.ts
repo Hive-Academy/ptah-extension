@@ -359,7 +359,6 @@ describe('HarnessReconcilerService — the frozen plan', () => {
       hash: `h:${relPath}`,
       isDirectory: kind === 'skill',
       reason: 'create' as const,
-      overwritesLocalEdit: false,
     });
     const plan: HarnessPlan = {
       target: 'claude',
@@ -383,6 +382,7 @@ describe('HarnessReconcilerService — the frozen plan', () => {
       collisions: [],
       migrations: [{ kind: 'unlink-junction', path: join(ws, 'junction') }],
       adopted: ['.claude/skills/legacy'],
+      keptLocalEdit: [],
       baseEntries: {
         '.claude/skills/legacy': {
           hash: 'h:legacy',

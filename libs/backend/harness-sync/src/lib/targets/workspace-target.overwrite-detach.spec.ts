@@ -1,13 +1,14 @@
 /**
- * Overwriting an owned rival-CLI copy never loses a byte the user put there
- * (TASK_2026_609, Part B review findings 1 and 3).
+ * Replacing an owned rival-CLI copy never loses a byte the user put there
+ * (TASK_2026_609, Part B review findings 1 and 3; TASK_2026_701 D8).
  *
  * - Finding 3: a model-only change used to skip local-edit detection because
- *   the source hash differed, so an edited Codex copy was overwritten with no
- *   snapshot and no report.
- * - Finding 1: the copy is detached into history and decided on there, and the
- *   replacement is published with an exclusive create, so a save landing after
- *   the detach — or between plan and apply — is kept.
+ *   the source hash differed. An edited copy is now judged on the copy alone,
+ *   and it is kept, never written over (D8).
+ * - Finding 1: an unmodified copy is detached into history and decided on
+ *   there, and the replacement is published with an exclusive create. A save
+ *   landing between plan and apply is put back and reported kept; one landing
+ *   after the detach survives as a conflict.
  *
  * Interleavings are injected deterministically: a path-filtered `rename` spy
  * on the module object the detach calls, and a wrapped `apply`.
@@ -51,7 +52,7 @@ jest.mock('os', () => ({
   homedir: jest.fn(),
 }));
 
-describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', () => {
+describe('WorkspaceHarnessTarget — keep edits, detach before replacing (TASK_2026_609, D8)', () => {
   const slug = 'backend-developer';
   const COPY = `.codex/agents/${slug}.toml`;
   const HISTORY = '.ptah/harness/.history';
@@ -186,18 +187,21 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
 
   // ------------------------------------------------------------------ cases
 
-  it('an edited Codex copy under a model-only change is snapshotted, overwritten and reported (finding 3)', async () => {
+  it('an edited Codex copy under a model-only change is kept byte-identical and reported (finding 3, D8)', async () => {
     await reconcile();
     writeFileSync(abs(COPY), 'HAND EDITED', 'utf-8');
+    const hashBefore = ownedHash();
     changeModel();
 
-    const codex = codexRow(await reconcile());
-
-    expect(codex.writeFailed).toEqual([]);
-    expect(codex.localEdit).toEqual([COPY]);
-    expect(codex.keptLocalEdit).toEqual([COPY]);
-    expect(read(COPY)).toContain('model = "model-two"');
-    expect(snapshots()).toEqual(['HAND EDITED']);
+    for (let pass = 0; pass < 2; pass++) {
+      const codex = codexRow(await reconcile());
+      expect(codex.writeFailed).toEqual([]);
+      expect(codex.localEdit).toEqual([COPY]);
+      expect(codex.keptLocalEdit).toEqual([COPY]);
+      expect(read(COPY)).toBe('HAND EDITED');
+      expect(snapshots()).toEqual([]);
+      expect(ownedHash()).toBe(hashBefore);
+    }
   });
 
   it('an untouched Codex copy under a model change is rewritten with no snapshot and no report, as before', async () => {
@@ -214,35 +218,9 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
     expect(existsSync(abs(HISTORY))).toBe(false);
   });
 
-  it('a save landing after the detach and before the publish survives; the earlier edit stays in history (finding 1)', async () => {
+  it('a save landing between plan and apply on an untouched copy is put back untouched and reported kept (finding 1, D8)', async () => {
     await reconcile();
-    writeFileSync(abs(COPY), 'HAND EDITED', 'utf-8');
     const hashBefore = ownedHash();
-    changeModel();
-    onDetach(() => writeFileSync(abs(COPY), 'NEWER SAVE', 'utf-8'));
-
-    const codex = codexRow(await reconcile());
-
-    expect(read(COPY)).toBe('NEWER SAVE');
-    expect(snapshots()).toEqual(['HAND EDITED']);
-    const failure = codex.writeFailed.find((f) => f.relPath === COPY);
-    expect(failure?.reason).toMatch(
-      /^a new copy appeared at .* while it was being replaced; kept it; the earlier local edit is saved at /,
-    );
-    expect(codex.keptLocalEdit).toEqual([]);
-    // Still owned with the old hash, so the next pass retries.
-    expect(ownedHash()).toBe(hashBefore);
-
-    jest.restoreAllMocks();
-    const retried = codexRow(await reconcile());
-    expect(retried.writeFailed).toEqual([]);
-    expect(retried.keptLocalEdit).toEqual([COPY]);
-    expect(read(COPY)).toContain('model = "model-two"');
-    expect(snapshots()).toEqual(['HAND EDITED', 'NEWER SAVE']);
-  });
-
-  it('a save landing between plan and apply on an untouched copy is snapshotted and reported, not lost (finding 1)', async () => {
-    await reconcile();
     changeModel();
 
     const codex = codexRow(
@@ -253,16 +231,70 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
 
     // The plan saw an untouched copy ...
     expect(codex.localEdit).toEqual([]);
-    // ... the apply decided on what was really there.
+    // ... the apply decided on what was really there, and kept it.
     expect(codex.writeFailed).toEqual([]);
     expect(codex.keptLocalEdit).toEqual([COPY]);
-    expect(snapshots()).toEqual(['SAVED AFTER PLAN']);
-    expect(read(COPY)).toContain('model = "model-two"');
+    expect(read(COPY)).toBe('SAVED AFTER PLAN');
+    expect(snapshots()).toEqual([]);
+    expect(ownedHash()).toBe(hashBefore);
+
+    // The next plan sees the edit itself and keeps it again.
+    const next = codexRow(await reconcile());
+    expect(next.localEdit).toEqual([COPY]);
+    expect(next.keptLocalEdit).toEqual([COPY]);
+    expect(read(COPY)).toBe('SAVED AFTER PLAN');
   });
 
-  it('a detach that cannot rename writes nothing and keeps the edit and its ownership for the next pass', async () => {
+  it('a save landing after the detach while an earlier save is being put back survives; the earlier one stays in history (finding 1)', async () => {
     await reconcile();
-    writeFileSync(abs(COPY), 'HAND EDITED', 'utf-8');
+    const hashBefore = ownedHash();
+    changeModel();
+    onDetach(() => writeFileSync(abs(COPY), 'NEWER SAVE', 'utf-8'));
+
+    const codex = codexRow(
+      await reconcile(() =>
+        writeFileSync(abs(COPY), 'SAVED AFTER PLAN', 'utf-8'),
+      ),
+    );
+
+    expect(read(COPY)).toBe('NEWER SAVE');
+    expect(snapshots()).toEqual(['SAVED AFTER PLAN']);
+    const failure = codex.writeFailed.find((f) => f.relPath === COPY);
+    expect(failure?.reason).toMatch(
+      /^a new copy appeared at .* while a local edit there was being kept; kept it; the earlier local edit is saved at /,
+    );
+    expect(codex.keptLocalEdit).toEqual([]);
+    // Still owned with the old hash, so the next pass finds the newer save.
+    expect(ownedHash()).toBe(hashBefore);
+
+    jest.restoreAllMocks();
+    const retried = codexRow(await reconcile());
+    expect(retried.writeFailed).toEqual([]);
+    expect(retried.keptLocalEdit).toEqual([COPY]);
+    expect(read(COPY)).toBe('NEWER SAVE');
+  });
+
+  it('a save landing after the detach of an untouched copy survives as a conflict, with no snapshot left behind (finding 1)', async () => {
+    await reconcile();
+    const hashBefore = ownedHash();
+    changeModel();
+    onDetach(() => writeFileSync(abs(COPY), 'NEWER SAVE', 'utf-8'));
+
+    const codex = codexRow(await reconcile());
+
+    expect(read(COPY)).toBe('NEWER SAVE');
+    expect(snapshots()).toEqual([]);
+    const failure = codex.writeFailed.find((f) => f.relPath === COPY);
+    expect(failure?.reason).toMatch(
+      /^a new copy appeared at .* while it was being replaced; kept it$/,
+    );
+    expect(codex.keptLocalEdit).toEqual([]);
+    expect(ownedHash()).toBe(hashBefore);
+  });
+
+  it('a detach that cannot rename writes nothing and keeps the copy and its ownership for the next pass', async () => {
+    await reconcile();
+    const before = read(COPY);
     const hashBefore = ownedHash();
     changeModel();
     const fsPromises =
@@ -279,10 +311,10 @@ describe('WorkspaceHarnessTarget — detach before overwrite (TASK_2026_609)', (
 
     const codex = codexRow(await reconcile());
 
-    expect(read(COPY)).toBe('HAND EDITED');
-    expect(
-      codex.writeFailed.find((f) => f.relPath === COPY)?.reason,
-    ).toMatch(/could not detach for overwrite: EXDEV/);
+    expect(read(COPY)).toBe(before);
+    expect(codex.writeFailed.find((f) => f.relPath === COPY)?.reason).toMatch(
+      /could not detach for overwrite: EXDEV/,
+    );
     expect(codex.keptLocalEdit).toEqual([]);
     expect(ownedHash()).toBe(hashBefore);
     expect(existsSync(abs(HISTORY))).toBe(false);

@@ -304,6 +304,7 @@ export class HarnessReconcilerService {
               collisions: [],
               migrations: [],
               adopted: [],
+              keptLocalEdit: [],
               baseEntries: manifest.entries,
               unchanged: 0,
               expected: 0,

@@ -1,17 +1,15 @@
 /**
- * Health names every hand-edited owned copy, and a repair saves each one before
- * overwriting it (TASK_2026_609, C1).
+ * Health names every hand-edited owned copy, and no sync pass writes over one
+ * (TASK_2026_609 C1, TASK_2026_701 D8).
  *
- * Before this, a read-only verify reported a hand-edited copy only as
- * `missing`, indistinguishable from a copy that was never written, and a
- * reconcile overwrote it with no saved copy — the only trace was
- * `keptLocalEdit`, after the fact. Now:
- *
- *   - `localEdit` lists the edited owned paths of every facet, on verify and on
- *     reconcile alike, so a UI can warn before anything is touched;
- *   - a reconcile snapshots the edit to
- *     `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>` and overwrites only
- *     once the snapshot verifies; a failed snapshot writes nothing;
+ *   - `localEdit` and `keptLocalEdit` list the edited owned paths of every
+ *     facet, on verify and on reconcile alike, so a UI can name them before
+ *     the user decides anything;
+ *   - a reconcile keeps each edit byte for byte, writes no history snapshot,
+ *     and leaves the ownership record at the hash Ptah wrote, so every later
+ *     pass keeps it again;
+ *   - an unmodified owned copy is still replaced, through the detach into
+ *     history, and a detach that cannot save writes nothing;
  *   - `agentsInSync` lists the agent copies that are on disk exactly as Ptah
  *     would write them, and never a disabled agent.
  *
@@ -65,9 +63,7 @@ function detectorFor(installed: HarnessTargetId[]): IHarnessCliDetector {
   return { isInstalled: (target) => Promise.resolve(set.has(target)) };
 }
 
-const TIMESTAMP_DIR = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/;
-
-describe('HarnessReconcilerService — local-edit report and snapshot before overwrite (TASK_2026_609)', () => {
+describe('HarnessReconcilerService — local-edit report and keep policy (TASK_2026_609, D8)', () => {
   let ws: string;
   let sourcesRoot: string;
   let home: string;
@@ -110,6 +106,19 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
         'utf-8',
       );
     }
+  }
+
+  function writeAgentSourceBody(slug: string, body: string): void {
+    writeFileSync(
+      join(sourcesRoot, 'agents', `${slug}.md`),
+      `---
+name: ${slug}
+description: the ${slug} agent
+---
+${body}
+`,
+      'utf-8',
+    );
   }
 
   function writeSkillSource(slug: string): void {
@@ -196,7 +205,7 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
 
   // ------------------------------------------------------------------ cases
 
-  it('(a) a read-only verify over a hand-edited Codex agent copy lists it in localEdit and writes nothing', async () => {
+  it('(a) a read-only verify over a hand-edited Codex agent copy lists it as kept and writes nothing', async () => {
     await reconcile();
     writeFileSync(abs(CODEX_ONE), 'HAND EDITED', 'utf-8');
     const hashBefore = ownedHash('codex', CODEX_ONE);
@@ -205,7 +214,8 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
 
     const codex = row(health, 'codex');
     expect(codex.localEdit).toEqual([CODEX_ONE]);
-    expect(codex.missing).toContain(CODEX_ONE);
+    expect(codex.keptLocalEdit).toEqual([CODEX_ONE]);
+    expect(codex.missing).not.toContain(CODEX_ONE);
     expect(codex.agentsInSync).toEqual([CODEX_TWO]);
     expect(row(health, 'copilot').localEdit).toEqual([]);
     expect(read(CODEX_ONE)).toBe('HAND EDITED');
@@ -232,85 +242,74 @@ describe('HarnessReconcilerService — local-edit report and snapshot before ove
     expect(exists(HISTORY)).toBe(false);
   });
 
-  it('(b) a reconcile snapshots each hand-edited copy, then overwrites it and reports keptLocalEdit', async () => {
+  it('(b) a reconcile keeps each hand-edited copy byte for byte, in every pass, and reports it', async () => {
     writeSkillSource('tuned');
     await reconcile();
-    const written = read(CODEX_ONE);
-    const writtenSkill = read(`${CODEX_SKILL}/SKILL.md`);
     writeFileSync(abs(CODEX_ONE), 'HAND EDITED', 'utf-8');
     writeFileSync(abs(`${CODEX_SKILL}/SKILL.md`), 'TUNED SKILL', 'utf-8');
-
-    const health = await reconcile();
-
-    const codex = row(health, 'codex');
-    expect(codex.writeFailed).toEqual([]);
-    expect(codex.localEdit).toEqual(
-      expect.arrayContaining([CODEX_ONE, CODEX_SKILL]),
+    const agentHash = ownedHash('codex', CODEX_ONE);
+    const skillHash = ownedHash('codex', CODEX_SKILL);
+    // A source change must not turn a kept edit back into a write.
+    writeSkillSource('tuned');
+    writeFileSync(
+      join(sourcesRoot, 'skills', 'tuned', 'EXTRA.md'),
+      'upstream addition',
+      'utf-8',
     );
-    expect(codex.keptLocalEdit).toEqual(
-      expect.arrayContaining([CODEX_ONE, CODEX_SKILL]),
-    );
-    expect(codex.keptLocalEdit).toHaveLength(2);
 
-    // Source wins on disk ...
-    expect(read(CODEX_ONE)).toBe(written);
-    expect(read(`${CODEX_SKILL}/SKILL.md`)).toBe(writtenSkill);
-    // ... and the edit is kept, byte for byte.
-    const agentStamps = snapshotStamps('agent-one');
-    expect(agentStamps).toHaveLength(1);
-    expect(agentStamps[0]).toMatch(TIMESTAMP_DIR);
-    expect(read(`${HISTORY}/agent-one/${agentStamps[0]}/${CODEX_ONE}`)).toBe(
-      'HAND EDITED',
-    );
-    const skillStamps = snapshotStamps('tuned');
-    expect(skillStamps).toHaveLength(1);
-    expect(
-      read(`${HISTORY}/tuned/${skillStamps[0]}/${CODEX_SKILL}/SKILL.md`),
-    ).toBe('TUNED SKILL');
+    for (let pass = 0; pass < 2; pass++) {
+      const codex = row(await reconcile(), 'codex');
+      expect(codex.writeFailed).toEqual([]);
+      expect(codex.localEdit?.sort()).toEqual([CODEX_SKILL, CODEX_ONE].sort());
+      expect(codex.keptLocalEdit.sort()).toEqual(
+        [CODEX_SKILL, CODEX_ONE].sort(),
+      );
+      expect(codex.missing).toEqual([]);
+      expect(codex.agentsInSync).toEqual([CODEX_TWO]);
 
-    // Repaired: the next verify finds nothing edited and the agent in sync.
-    const after = row(await verify(), 'codex');
-    expect(after.localEdit).toEqual([]);
-    expect(after.agentsInSync).toEqual(
-      expect.arrayContaining([CODEX_ONE, CODEX_TWO]),
-    );
+      expect(read(CODEX_ONE)).toBe('HAND EDITED');
+      expect(read(`${CODEX_SKILL}/SKILL.md`)).toBe('TUNED SKILL');
+      expect(exists(`${CODEX_SKILL}/EXTRA.md`)).toBe(false);
+      expect(exists(HISTORY)).toBe(false);
+      expect(ownedHash('codex', CODEX_ONE)).toBe(agentHash);
+      expect(ownedHash('codex', CODEX_SKILL)).toBe(skillHash);
+    }
+
+    // The unedited sibling target followed the source as usual.
+    expect(row(await verify(), 'copilot').localEdit).toEqual([]);
   });
 
-  it('(c) when the snapshot cannot be saved nothing is written, the edit stays byte-unchanged, and the path is a write failure', async () => {
+  it('(c) when an unmodified copy cannot be detached into history nothing is written and the path is a write failure', async () => {
     await reconcile();
-    writeFileSync(abs(CODEX_ONE), 'HAND EDITED', 'utf-8');
+    const before = read(CODEX_ONE);
     const hashBefore = ownedHash('codex', CODEX_ONE);
+    writeAgentSourceBody('agent-one', 'agent-one instructions, revised');
     // A regular FILE where the history directory must go.
     mkdirSync(abs('.ptah/harness'), { recursive: true });
     writeFileSync(abs(HISTORY), 'not a directory', 'utf-8');
 
     const health = await reconcile();
 
-    expect(read(CODEX_ONE)).toBe('HAND EDITED');
+    expect(read(CODEX_ONE)).toBe(before);
     const codex = row(health, 'codex');
     const failure = codex.writeFailed.find((f) => f.relPath === CODEX_ONE);
     expect(failure?.reason).toMatch(
       /^could not save local edit before overwrite: /,
     );
     expect(codex.keptLocalEdit).toEqual([]);
-    expect(codex.localEdit).toEqual([CODEX_ONE]);
+    expect(codex.localEdit).toEqual([]);
     expect(codex.missing).toContain(CODEX_ONE);
-    expect(codex.agentsInSync).toEqual([CODEX_TWO]);
     // Still owned with the hash Ptah wrote, so the next pass tries again.
     expect(ownedHash('codex', CODEX_ONE)).toBe(hashBefore);
-    // Nothing else in the pass was held back.
-    expect(row(health, 'copilot').writeFailed).toEqual([]);
 
-    // Once the history location is usable the retry saves and overwrites.
+    // Once the history location is usable the retry replaces it, and an
+    // unmodified copy leaves no snapshot behind.
     rmSync(abs(HISTORY), { force: true });
     const retried = row(await reconcile(), 'codex');
     expect(retried.writeFailed).toEqual([]);
-    expect(retried.keptLocalEdit).toEqual([CODEX_ONE]);
-    const stamps = snapshotStamps('agent-one');
-    expect(stamps).toHaveLength(1);
-    expect(read(`${HISTORY}/agent-one/${stamps[0]}/${CODEX_ONE}`)).toBe(
-      'HAND EDITED',
-    );
+    expect(retried.keptLocalEdit).toEqual([]);
+    expect(read(CODEX_ONE)).toContain('agent-one instructions, revised');
+    expect(snapshotStamps('agent-one')).toEqual([]);
   });
 
   it('(d) agentsInSync lists written and unchanged agent copies, by the shared path rule, and excludes a disabled agent', async () => {

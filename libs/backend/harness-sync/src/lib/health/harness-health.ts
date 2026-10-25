@@ -55,6 +55,10 @@ export function undetectedTargetHealth(
  * else's file carries none of Ptah's content either. The blocked set is also
  * still `foreign`, and reporting it in both places is the point: `foreign`
  * answers "why", `missing` answers "is the harness whole".
+ *
+ * A hand-edited owned copy is KEPT, not written (D8), on a verify exactly as on
+ * the reconcile that follows it: it is listed in `keptLocalEdit` and in
+ * `localEdit`, and counted in neither `found` nor `missing`.
  */
 export function plannedTargetHealth(
   plan: HarnessPlan,
@@ -71,10 +75,10 @@ export function plannedTargetHealth(
     missing: [...plan.writes.map((write) => write.relPath), ...plan.blocked],
     foreign: [...plan.foreign],
     writeFailed: [],
-    keptLocalEdit: [],
+    keptLocalEdit: [...plan.keptLocalEdit],
     removed: [],
     adopted: [...plan.adopted],
-    localEdit: localEditPaths(plan),
+    localEdit: [...plan.keptLocalEdit],
     agentsInSync: [...(plan.unchangedAgents ?? [])],
     durationMs,
   };
@@ -93,6 +97,10 @@ export function plannedTargetHealth(
  * because every desired path was occupied reported `missing: 0` and read as a
  * clean pass, while the next `verify` over the identical tree reported all of
  * them as gaps.
+ *
+ * `keptLocalEdit` merges the edits the plan kept with the ones the apply kept
+ * when a save landed between plan and apply. `localEdit` stays the plan's list,
+ * so it equals what a read-only verify over the same tree reports.
  */
 export function appliedTargetHealth(
   plan: HarnessPlan,
@@ -114,11 +122,13 @@ export function appliedTargetHealth(
     missing: [...missing, ...plan.blocked],
     foreign: [...plan.foreign],
     writeFailed: [...result.writeFailed],
-    keptLocalEdit: [...result.keptLocalEdit],
+    keptLocalEdit: [
+      ...new Set([...plan.keptLocalEdit, ...result.keptLocalEdit]),
+    ],
     removed: [...result.removed],
     removedLocalEdit: [...(result.removedLocalEdit ?? [])],
     adopted: [...plan.adopted],
-    localEdit: localEditPaths(plan),
+    localEdit: [...plan.keptLocalEdit],
     agentsInSync: [
       ...(plan.unchangedAgents ?? []),
       ...Object.entries(result.written)
@@ -127,20 +137,6 @@ export function appliedTargetHealth(
     ],
     durationMs,
   };
-}
-
-/**
- * Owned copies the plan found hand-edited, across every facet (TASK_2026_609).
- *
- * Read off the plan rather than the apply result so a read-only verify and the
- * reconcile that follows it name the same paths: these are what a repair
- * overwrites (after saving each one), and a user deciding whether to run it
- * needs the list before anything is touched.
- */
-function localEditPaths(plan: HarnessPlan): string[] {
-  return plan.writes
-    .filter((write) => write.overwritesLocalEdit)
-    .map((write) => write.relPath);
 }
 
 /**
