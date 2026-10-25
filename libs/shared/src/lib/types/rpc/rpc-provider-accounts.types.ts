@@ -193,9 +193,20 @@ export interface ProviderStartAccountSignInParams
   extends ProviderAccountProfileWrite {
   readonly workspaceRoot: string;
 }
+/**
+ * Manual sign-in script shown when the host cannot open a login console.
+ * The script carries no secret, email, organization or directory value.
+ */
+export interface ProviderAccountSignInFallback {
+  readonly platform: 'win32' | 'posix';
+  readonly script: string;
+}
+
 export type ProviderStartAccountSignInResult = ProviderAccountRpcResult<
   ProviderAccountCommittedWrite & {
     readonly operation: ProviderAccountOperation;
+    /** Present when no login console could be opened for this sign-in. */
+    readonly fallback?: ProviderAccountSignInFallback;
   }
 >;
 
