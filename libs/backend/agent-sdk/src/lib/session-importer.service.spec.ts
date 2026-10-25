@@ -39,8 +39,11 @@ jest.mock('os', () => ({
 
 import * as fs from 'fs';
 import * as os from 'os';
-import { SessionImporterService } from './session-importer.service';
+import { SessionImporterService, type SessionImportBindingLookup } from './session-importer.service';
 import { SessionMetadataStore } from './session-metadata-store';
+import type { ProviderAccountBinding } from '@ptah-extension/shared';
+import type { ClaudeAccountNamedResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
+import * as historyResources from './helpers/history/jsonl-reader.service';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
@@ -49,7 +52,8 @@ import {
 import type { Logger } from '@ptah-extension/vscode-core';
 
 function asLogger(mock: MockLogger): Logger {
-  return mock as unknown as Logger;
+  const loggerMethods: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'> = mock;
+  return loggerMethods as Logger;
 }
 
 const WORKSPACE = '/workspace/my-project';
@@ -100,6 +104,222 @@ function primeFindSessionsDir(matchingDir = ESCAPED): void {
     ReturnType<typeof fsPromises.readdir>
   >);
 }
+
+describe('SessionImporterService named linkage', () => {
+  const sessionId = '740a7874-5cea-4bf5-ae16-760f66499b82';
+  const binding: ProviderAccountBinding = {
+    version: 1, provider: 'claude', profileId: 'profile-0001', runId: 'run-00001',
+    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+    identity: { kind: 'known', ownerKey: 'b'.repeat(64) },
+  };
+  const context: ClaudeAccountNamedResolvedResourceContext = {
+    kind: 'named', accountDataDir: '/named/metadata',
+    filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+    route: {
+      kind: 'named', provider: 'claude', profileId: binding.profileId,
+      canonicalConfigDir: '/named/config', routeFingerprint: binding.routeFingerprint,
+      routeRevision: 0, authEpoch: 0, runId: 'scan-0001',
+    } as ClaudeAccountNamedResolvedResourceContext['route'],
+  };
+  const metadata = {
+    sessionId, workspaceId: WORKSPACE, name: 'Imported session', createdAt: 1,
+    lastActiveAt: 1, totalCost: 0, totalTokens: { input: 0, output: 0 },
+  };
+  let store: SessionMetadataStore;
+  let importer: SessionImporterService;
+  let lookup: jest.Mocked<SessionImportBindingLookup>;
+  let logger: MockLogger;
+
+  function prime(strategy: 'index' | 'jsonl'): void {
+    fsPromises.access.mockResolvedValue(undefined);
+    (fsPromises.readdir as jest.Mock).mockImplementation(async (target: string) =>
+      target.replace(/\\/g, '/').endsWith('/projects')
+        ? [ESCAPED] : strategy === 'jsonl' ? [`${sessionId}.jsonl`] : []);
+    fsPromises.readFile.mockResolvedValue(makeIndex(strategy === 'index'
+      ? [{ sessionId, summary: 'Imported session', fileMtime: 1000 }] : []));
+    (fsPromises.stat as jest.Mock).mockResolvedValue({ mtimeMs: 1000 });
+    const content = Buffer.from([
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }),
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Imported session' } }),
+      '',
+    ].join('\n'));
+    (fsPromises.open as jest.Mock).mockResolvedValue({
+      read: jest.fn(async (buffer: Buffer) => {
+        content.copy(buffer);
+        return { bytesRead: content.length, buffer };
+      }),
+      close: jest.fn(async () => undefined),
+    });
+  }
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    mockedHomedir.mockReturnValue('/home/testuser');
+    jest.spyOn(historyResources, 'claudeProjectsRoot').mockResolvedValue('/named/projects');
+    logger = createMockLogger();
+    store = new SessionMetadataStore(createMockStateStorage(), asLogger(logger));
+    lookup = { lookupBySdkSession: jest.fn().mockResolvedValue({ status: 'bound', binding }) };
+    importer = new SessionImporterService(asLogger(logger), store, lookup);
+  });
+
+  afterEach(() => {
+    importer.dispose();
+    jest.restoreAllMocks();
+    jest.resetAllMocks();
+  });
+
+  describe.each(['index', 'jsonl'] as const)('%s discovery', strategy => {
+    beforeEach(() => prime(strategy));
+
+    it('resolves the route and counts success only after bound persistence finishes', async () => {
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const saving = new Promise<void>(resolve => { entered = resolve; });
+      const originalSave = store.saveAccountBound.bind(store);
+      const save = jest.spyOn(store, 'saveAccountBound').mockImplementationOnce(async (value, resolved) => {
+        entered();
+        await gate;
+        await originalSave(value, resolved);
+      });
+      const child = jest.spyOn(store, 'createChild');
+      const prune = jest.spyOn(store, 'delete');
+      let completed = false;
+      const scan = importer.scanAndImport(WORKSPACE, 1, undefined, context).then(count => {
+        completed = true;
+        return count;
+      });
+      await Promise.race([saving, scan]);
+      expect(completed).toBe(false);
+      expect(await store.get(sessionId)).toBeNull();
+      expect(lookup.lookupBySdkSession).toHaveBeenCalledWith({ provider: 'claude', sdkSessionId: sessionId });
+      expect(historyResources.claudeProjectsRoot).toHaveBeenCalledWith(context);
+      release();
+      await expect(scan).resolves.toBe(1);
+      expect(save).toHaveBeenCalledWith(expect.objectContaining({ sessionId }), binding);
+      expect(await store.get(sessionId)).toMatchObject({ accountBinding: binding });
+      expect(child).not.toHaveBeenCalled();
+      expect(prune).not.toHaveBeenCalled();
+    });
+
+    it('propagates metadata write failure without reporting success', async () => {
+      jest.spyOn(store, 'saveAccountBound').mockRejectedValueOnce(new Error('checkpoint failed'));
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context)).rejects.toThrow('checkpoint failed');
+      expect(await store.get(sessionId)).toBeNull();
+    });
+
+    it.each(['ambient', 'other-route'] as const)('refuses a same-id %s collision before skipping', async existing => {
+      if (existing === 'ambient') await store.save(metadata);
+      else await store.saveAccountBound(metadata, { ...binding, profileId: 'profile-0002' });
+      const save = jest.spyOn(store, 'saveAccountBound');
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context))
+        .rejects.toMatchObject({ code: 'binding-conflict' });
+      expect(save).not.toHaveBeenCalled();
+      expect((await store.get(sessionId))?.accountBinding?.profileId)
+        .toBe(existing === 'ambient' ? undefined : 'profile-0002');
+    });
+
+    it('skips only a matching existing binding', async () => {
+      await store.saveAccountBound(metadata, binding);
+      const save = jest.spyOn(store, 'saveAccountBound');
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context)).resolves.toBe(0);
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('refuses a global child reference without creating unbound child metadata', async () => {
+      jest.spyOn(store, 'isReferencedAsChildSession').mockResolvedValue(true);
+      const child = jest.spyOn(store, 'createChild');
+      const save = jest.spyOn(store, 'save');
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context))
+        .rejects.toMatchObject({ code: 'linkage-incomplete' });
+      expect(child).not.toHaveBeenCalled();
+      expect(save).not.toHaveBeenCalled();
+      expect(await store.get(sessionId)).toBeNull();
+    });
+
+    it.each(['absent', 'invalid-bound', 'unavailable-storage'] as const)('refuses authoritative %s', async status => {
+      lookup.lookupBySdkSession.mockResolvedValue({ status });
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context))
+        .rejects.toMatchObject({ code: status === 'absent' ? 'linkage-incomplete' : status });
+      expect(await store.get(sessionId)).toBeNull();
+    });
+
+    it('refuses an authoritative binding for another route', async () => {
+      lookup.lookupBySdkSession.mockResolvedValue({ status: 'bound', binding: { ...binding, authEpoch: 1 } });
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context))
+        .rejects.toMatchObject({ code: 'binding-conflict' });
+      expect(await store.get(sessionId)).toBeNull();
+    });
+
+    it('persists unknown identity as import evidence while resume stays refused', async () => {
+      const unknown: ProviderAccountBinding = { ...binding, identity: { kind: 'unknown' } };
+      lookup.lookupBySdkSession.mockResolvedValue({ status: 'bound', binding: unknown });
+      await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context)).resolves.toBe(1);
+      await expect(store.resolveAccountBinding(sessionId, async () => ({ status: 'bound', binding: unknown })))
+        .rejects.toMatchObject({ code: 'identity-unproved' });
+    });
+
+    it('keeps ambient imports unbound and never calls the lookup', async () => {
+      await expect(importer.scanAndImport(WORKSPACE, 1)).resolves.toBe(1);
+      expect(lookup.lookupBySdkSession).not.toHaveBeenCalled();
+      expect((await store.get(sessionId))?.accountBinding).toBeUndefined();
+    });
+  });
+
+  it('refuses named import without a lookup before reading files or metadata', async () => {
+    const withoutLookup = new SessionImporterService(asLogger(logger), store);
+    const read = jest.spyOn(store, 'get');
+    await expect(withoutLookup.scanAndImport(WORKSPACE, 1, undefined, context))
+      .rejects.toMatchObject({ code: 'unsupported' });
+    expect(fsPromises.access).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    withoutLookup.dispose();
+  });
+
+  it('awaits the authoritative attachment before reading local linkage', async () => {
+    prime('index');
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const lookingUp = new Promise<void>(resolve => { entered = resolve; });
+    lookup.lookupBySdkSession.mockImplementationOnce(async () => {
+      entered();
+      await gate;
+      return { status: 'bound', binding };
+    });
+    const read = jest.spyOn(store, 'getAccountBound');
+    const scan = importer.scanAndImport(WORKSPACE, 1, undefined, context);
+    await Promise.race([lookingUp, scan]);
+    expect(read).not.toHaveBeenCalled();
+    release();
+    await expect(scan).resolves.toBe(1);
+    expect(read).toHaveBeenCalledWith(sessionId, binding);
+  });
+
+  it('refuses named transcript read errors without logging the account path', async () => {
+    prime('jsonl');
+    fsPromises.open.mockRejectedValueOnce(new Error('/named/config/private-session.jsonl'));
+    await expect(importer.scanAndImport(WORKSPACE, 1, undefined, context))
+      .rejects.toMatchObject({ code: 'unavailable' });
+    expect(JSON.stringify([logger.warn.mock.calls, logger.debug.mock.calls, logger.info.mock.calls]))
+      .not.toContain('/named');
+    expect(await store.get(sessionId)).toBeNull();
+  });
+
+  it('joins only scans with the same workspace and route identity', async () => {
+    prime('index');
+    fsPromises.readFile.mockResolvedValue(makeIndex([]));
+    const named = importer.scanAndImport(WORKSPACE, 1, undefined, context);
+    expect(importer.scanAndImport(WORKSPACE, 1, undefined, context)).toBe(named);
+    const ambient = importer.scanAndImport(WORKSPACE, 1);
+    const other = importer.scanAndImport(WORKSPACE, 1, undefined, {
+      ...context, route: { ...context.route, routeFingerprint: 'c'.repeat(64) },
+    });
+    expect(ambient).not.toBe(named);
+    expect(other).not.toBe(named);
+    await expect(Promise.all([named, ambient, other])).resolves.toEqual([0, 0, 0]);
+  });
+});
 
 describe('SessionImporterService', () => {
   let store: SessionMetadataStore;

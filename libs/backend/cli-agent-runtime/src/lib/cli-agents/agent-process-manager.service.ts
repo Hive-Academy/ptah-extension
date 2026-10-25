@@ -58,6 +58,9 @@ import {
 import type {
   CliCommandOptions,
   SdkHandle,
+  LaneAccountBindingFields,
+  LaneAccountReference,
+  LaneAccountBindingPort,
 } from './cli-adapters/cli-adapter.interface';
 import {
   DEFAULT_INACTIVITY_TIMEOUT,
@@ -78,6 +81,11 @@ import {
   buildLaneHandoffTask,
   collectHandoffCarryOver,
   type LaneResumeGate,
+  LaneAccountResumeError,
+  laneAccountErrorCode,
+  laneAccountFields,
+  snapshotLaneAccountReference,
+  resolveLaneAccountResume,
 } from './lane-resume-gate';
 import { LaneBudgetGuard } from './lane-budget-guard';
 import { findBlockedLaneModel } from './lane-spawn-policy';
@@ -160,6 +168,8 @@ export interface AgentRoleStamp {
 }
 
 interface SdkSpawnOptions {
+  readonly accountReference?: LaneAccountReference;
+  readonly accountBindings?: LaneAccountBindingPort;
   readonly expectsMcp?: boolean;
   readonly runSdk: (options: CliCommandOptions) => Promise<SdkHandle>;
   readonly request: SpawnAgentRequest;
@@ -184,6 +194,7 @@ interface SdkSpawnOptions {
  * and the decision to report to the caller.
  */
 export interface GatedResume {
+  readonly accountReference?: LaneAccountReference;
   readonly task: string;
   readonly resumeSessionId?: string;
   readonly resumeDecision: AgentResumeOutcome;
@@ -282,6 +293,7 @@ export class LaneModelBlockedError extends Error {
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  private readonly turns = new WeakMap<TrackedAgent, symbol>();
   /**
    * One tool-call budget guard per running lane (TASK_2026_597, component 16),
    * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
@@ -438,6 +450,8 @@ export class AgentProcessManager {
       ? await this.gateResume(request.task, request.resumeSessionId, cli)
       : undefined;
     return this.doSpawnSdk({
+      accountReference: gated?.accountReference,
+      accountBindings: adapter.accountBindings,
       resumeDecision: gated?.resumeDecision,
       originalTask: gated?.originalTask,
       runSdk: adapter.runSdk.bind(adapter),
@@ -484,6 +498,8 @@ export class AgentProcessManager {
     const gate = await this.resumeGate.evaluate({
       cli,
       cliSessionId: resumeSessionId,
+      accountReference: latest ? laneAccountFields(latest.info) : undefined,
+      accountBindings: this.cliDetection.getAdapter(cli)?.accountBindings,
       ...(Number.isFinite(lastActivityAt) ? { lastActivityAt } : {}),
       ...(lastRequestContext ? { lastRequestContext } : {}),
     });
@@ -502,6 +518,7 @@ export class AgentProcessManager {
       return {
         task,
         resumeSessionId,
+        ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
         resumeDecision: {
           decision: 'resumed',
           reason: gate.reason,
@@ -529,6 +546,7 @@ export class AgentProcessManager {
         finalText,
         changedFiles: carryOver.changedFiles,
       }),
+      ...(gate.accountReference ? { accountReference: gate.accountReference } : {}),
       resumeDecision: {
         decision: 'fresh',
         reason: gate.reason,
@@ -636,7 +654,8 @@ export class AgentProcessManager {
       ? { role: roleDefinition.name, roleDelivery: 'preamble', roleChannel }
       : undefined;
 
-    const info: AgentProcessInfo = {
+    const info: AgentProcessInfo & LaneAccountBindingFields = {
+      ...options.accountReference,
       agentId,
       cli,
       task: request.task,
@@ -698,9 +717,22 @@ export class AgentProcessManager {
     };
     this.logger.info('[AgentProcessManager] Lane policy', lanePolicy);
 
+    let admittedReference = options.accountReference;
+    let admittedSdkSessionId: string | undefined;
     let sdkHandle: SdkHandle;
     try {
       sdkHandle = await runSdk({
+      ...options.accountReference,
+      onAccountBinding: async (reference, sdkSessionId) => {
+        const snapshot = snapshotLaneAccountReference(reference);
+        if (!snapshot || !options.accountBindings) throw new LaneAccountResumeError('unavailable-storage');
+        if (admittedReference && JSON.stringify(admittedReference) !== JSON.stringify(snapshot)) {
+          throw new LaneAccountResumeError('invalid-bound');
+        }
+        await options.accountBindings.persistReference(snapshot, sdkSessionId);
+        admittedReference = snapshot;
+        admittedSdkSessionId = sdkSessionId;
+      },
       task,
       workingDirectory,
       files: request.files,
@@ -740,8 +772,9 @@ export class AgentProcessManager {
     // back to the task prompt the role stays on developer instructions, and
     // Pi reports its shared channel here too (4332578858).
     const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
-    const effectiveInfo = roleStamp ? { ...info, roleChannel: effectiveChannel } : info;
-    const initialCliSessionId = sdkHandle.getSessionId?.();
+    const boundInfo = { ...info, ...admittedReference };
+    const effectiveInfo = roleStamp ? { ...boundInfo, roleChannel: effectiveChannel } : boundInfo;
+    const initialCliSessionId = sdkHandle.getSessionId?.() ?? admittedSdkSessionId;
     const infoWithSession = initialCliSessionId
       ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
       : effectiveInfo;
@@ -806,6 +839,7 @@ export class AgentProcessManager {
       resumeDecision?: AgentResumeOutcome;
       /** First task of the lane chain, from {@link prepareSdkHandleSpawn} on a fresh lane. */
       originalTask?: string;
+      accountReference?: LaneAccountReference;
     },
   ): Promise<SpawnAgentResult> {
     await this.reserveSpawnSlot();
@@ -818,6 +852,7 @@ export class AgentProcessManager {
       const startedAt = new Date().toISOString();
 
       const info: AgentProcessInfo = {
+        ...meta.accountReference,
         agentId,
         cli: meta.cli,
         task: meta.task,
@@ -893,6 +928,13 @@ export class AgentProcessManager {
     mcp?: { readonly mcpPort?: number; readonly expectsMcp?: boolean },
   ): SpawnAgentResult {
     const agentId = info.agentId;
+    const handleReference = snapshotLaneAccountReference(laneAccountFields(sdkHandle));
+    const requestedReference = snapshotLaneAccountReference(laneAccountFields(info));
+    if (handleReference && requestedReference && JSON.stringify(handleReference) !== JSON.stringify(requestedReference)) {
+      throw new LaneAccountResumeError('invalid-bound');
+    }
+    const reference = handleReference ?? requestedReference;
+    info = { ...info, ...reference };
     const inactivityTimeoutMs =
       AgentProcessManager.resolveInactivityTimeout(requestedTimeout);
     const timeoutHandle =
@@ -900,6 +942,7 @@ export class AgentProcessManager {
         ? undefined
         : this.unrefTimer(
             setTimeout(() => {
+              if (this.agents.get(agentId)?.sdkHandle !== sdkHandle) return;
               this.handleTimeout(agentId);
             }, inactivityTimeoutMs),
           );
@@ -940,13 +983,16 @@ export class AgentProcessManager {
     };
 
     this.agents.set(agentId, tracked);
+    const turn = Symbol('lane-turn');
+    this.turns.set(tracked, turn);
     sdkHandle.setAgentId?.(agentId);
     const onFlushDue = (): void => {
+      if (this.agents.get(agentId) !== tracked) return;
       this.flushDelta(agentId);
     };
     sdkHandle.onOutput((data: string) => {
       const current = this.agents.get(agentId);
-      if (!current) return;
+      if (current !== tracked) return;
       this.outputBuffer.appendOutput(
         agentId,
         current,
@@ -962,6 +1008,7 @@ export class AgentProcessManager {
         | 'lane-exited-before-handshake'
         | 'config-write-failed',
     ): void => {
+      if (this.agents.get(agentId) !== tracked) return;
       if (tracked.info.mcpAttachmentWarning) return;
       const warning = `Ptah MCP did not connect for this lane (${cause}); report in your final message.`;
       tracked.info = { ...tracked.info, mcpAttachmentWarning: warning };
@@ -990,6 +1037,7 @@ export class AgentProcessManager {
       const port = mcp.mcpPort;
       const probe = this.attachmentProbe;
       const clearWarning = (): void => {
+        if (this.agents.get(agentId) !== tracked) return;
         if (!probe.get(agentId, port)) return;
         const { mcpAttachmentWarning: _warning, ...withoutWarning } =
           tracked.info;
@@ -1026,6 +1074,7 @@ export class AgentProcessManager {
         new LaneBudgetGuard(this.spawnEnvironment.resolveLaneGuardThresholds()),
       );
       sdkHandle.onSegment((segment: CliOutputSegment) => {
+        if (this.agents.get(agentId) !== tracked) return;
         this.outputBuffer.appendSegment(
           agentId,
           this.agents.get(agentId),
@@ -1044,6 +1093,7 @@ export class AgentProcessManager {
     }
     if (sdkHandle.onStreamEvent) {
       sdkHandle.onStreamEvent((event: FlatStreamEventUnion) => {
+        if (this.agents.get(agentId) !== tracked) return;
         this.outputBuffer.appendStreamEvent(
           agentId,
           this.agents.get(agentId),
@@ -1054,6 +1104,7 @@ export class AgentProcessManager {
     }
     if (sdkHandle.onSessionResolved) {
       sdkHandle.onSessionResolved((sessionId: string) => {
+        if (this.agents.get(agentId) !== tracked) return;
         if (sessionId && sessionId !== tracked.info.cliSessionId) {
           tracked.info = { ...tracked.info, cliSessionId: sessionId };
         }
@@ -1061,9 +1112,11 @@ export class AgentProcessManager {
     }
     sdkHandle.done.then(
       (exitCode) => {
+        if (!this.isCurrentTurn(tracked, turn)) return;
         this.handleExit(agentId, exitCode, null);
       },
       (error: unknown) => {
+        if (!this.isCurrentTurn(tracked, turn)) return;
         const message = error instanceof Error ? error.message : String(error);
         this.logger.error('[AgentProcessManager] SDK agent error', {
           agentId,
@@ -1322,6 +1375,9 @@ export class AgentProcessManager {
 
       const stdout = ref.stdout ?? '';
       const info: AgentProcessInfo = {
+        // Keep corrupt fields present: the account gate must refuse them,
+        // never restore them as ambient legacy.
+        ...laneAccountFields(ref),
         agentId: ref.agentId,
         cli: ref.cli,
         task: ref.task,
@@ -1890,6 +1946,20 @@ export class AgentProcessManager {
     if (!tracked) {
       throw new AgentContinueError('not_found', `Agent not found: ${agentId}`);
     }
+    const accountReference = laneAccountFields(tracked.info);
+    const accountScoped = String(tracked.info.cli) === 'claude' ||
+      accountReference.accountBinding !== undefined || accountReference.accountBindingId !== undefined;
+    if (accountScoped) {
+      await resolveLaneAccountResume({
+        cli: tracked.info.cli,
+        cliSessionId: tracked.info.cliSessionId ?? '',
+        accountReference,
+        accountBindings: this.cliDetection.getAdapter(tracked.info.cli)?.accountBindings,
+      });
+      if (this.agents.get(agentId) !== tracked) {
+        throw new AgentContinueError('released', 'Lane was replaced during account validation.');
+      }
+    }
 
     // Before the `unsupported` check below: a restored record has no handle at
     // all, so it would answer "does not support continuation" — true of the
@@ -1935,6 +2005,9 @@ export class AgentProcessManager {
       );
     }
 
+    const turn = Symbol('lane-turn');
+    this.turns.set(tracked, turn);
+
     // The continuation is the reason the subprocess was kept alive — stand the
     // idle countdown down before doing anything that can await.
     this.clearIdleRelease(tracked);
@@ -1970,6 +2043,11 @@ export class AgentProcessManager {
       this.outputBuffer.markTurnBoundary(agentId);
       outcome = await sdkHandle.continue(message);
     } catch (error: unknown) {
+      if (!this.isCurrentTurn(tracked, turn)) throw error;
+      if (accountScoped) {
+        this.handleExit(agentId, 1, null);
+        throw new LaneAccountResumeError(laneAccountErrorCode(error) ?? 'unavailable-storage');
+      }
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error('[AgentProcessManager] continue() failed to start', {
@@ -1984,9 +2062,11 @@ export class AgentProcessManager {
 
     outcome.done.then(
       (exitCode) => {
+        if (!this.isCurrentTurn(tracked, turn)) return;
         this.handleExit(agentId, exitCode, null);
       },
       (error: unknown) => {
+        if (!this.isCurrentTurn(tracked, turn)) return;
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error('[AgentProcessManager] continued turn error', {
@@ -2272,6 +2352,7 @@ export class AgentProcessManager {
     if (window === undefined) return;
     tracked.timeoutHandle = this.unrefTimer(
       setTimeout(() => {
+        if (this.agents.get(agentId) !== tracked) return;
         this.handleTimeout(agentId);
       }, window),
     );
@@ -2333,6 +2414,7 @@ export class AgentProcessManager {
     tracked.idleSince = Date.now();
     tracked.idleReleaseHandle = this.unrefTimer(
       setTimeout(() => {
+        if (this.agents.get(agentId) !== tracked) return;
         void this.releaseTracked(agentId, 'idle');
       }, idleMs),
     );
@@ -2431,6 +2513,7 @@ export class AgentProcessManager {
       cliSessionId: tracked.info.cliSessionId,
     });
 
+    if (this.agents.get(agentId) !== tracked) return;
     this.events.emit('agent:released', {
       agentId,
       reason,
@@ -2508,7 +2591,7 @@ export class AgentProcessManager {
     tracked.exitEmitHandle = this.unrefTimer(
       setTimeout(() => {
         const current = this.agents.get(agentId);
-        if (current && !current.hasExited) {
+        if (current !== tracked || !current.hasExited) {
           return;
         }
         // The owner may have been upgraded during the grace delay
@@ -2713,6 +2796,7 @@ export class AgentProcessManager {
         // BEFORE the delete, holding its own record reference, so the delete
         // below stays synchronous for callers reading the map right after.
         const record = this.agents.get(agentId);
+        if (record !== tracked) return;
         if (record) {
           void this.releaseSubprocess(agentId, record, 'expired');
         }
@@ -2808,6 +2892,10 @@ export class AgentProcessManager {
         clearTimeout(settleTimer);
       }
     }
+  }
+
+  private isCurrentTurn(tracked: TrackedAgent, turn: symbol): boolean {
+    return this.agents.get(tracked.info.agentId) === tracked && this.turns.get(tracked) === turn;
   }
 
   private getRunningCount(): number {

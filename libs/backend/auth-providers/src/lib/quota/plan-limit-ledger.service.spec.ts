@@ -87,6 +87,8 @@ function harness(options: { storage?: MemoryStorage; at?: number } = {}) {
   const probe = {
     readAccount: jest.fn(async () => account.current),
     readPlanUsage: jest.fn(async () => null),
+    readAccountForRoute: jest.fn(),
+    readPlanUsageForRoute: jest.fn(),
     sessionRoute: jest.fn(() => ({
       providerId: 'anthropic',
       routeKind: 'native' as const,

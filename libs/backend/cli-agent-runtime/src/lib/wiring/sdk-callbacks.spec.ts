@@ -236,6 +236,7 @@ describe('wireSdkCallbacks — re-persist only what actually changed', () => {
       }),
       listTrackedAgents: jest.fn(() => agents),
       readOutputForPersistence: jest.fn().mockReturnValue(undefined),
+      findAgentInfo: () => undefined,
     };
 
     const registry = new Map<symbol, unknown>([

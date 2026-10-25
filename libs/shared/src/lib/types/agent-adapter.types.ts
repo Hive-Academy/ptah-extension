@@ -17,6 +17,7 @@ import type { McpHttpServerOverride } from './rpc/rpc-chat.types';
 import type { SessionStatsEntry } from './rpc/rpc-session.types';
 import type { PermissionLevel } from './model-autopilot.types';
 import type { ProviderProfile } from './provider-profile.types';
+import type { ProviderAccountSelection } from './provider-account.types';
 import type { SessionBudgetState } from './session-budget.types';
 
 /**
@@ -174,6 +175,8 @@ export type AgentPermissionLevel =
  * that SdkAgentAdapter's concrete implementation already accepts.
  */
 export interface AgentSessionStartConfig extends AISessionConfig {
+  /** Requested route only; admission supplies the binding in providerProfile. */
+  accountSelection?: ProviderAccountSelection;
   tabId: string;
   name?: string;
   prompt?: string;
@@ -222,6 +225,8 @@ export interface AgentSessionStartConfig extends AISessionConfig {
  * Extended session config used by resumeSession.
  */
 export interface AgentSessionResumeConfig extends AISessionConfig {
+  /** Cannot override a persisted binding; absence preserves legacy routing. */
+  accountSelection?: ProviderAccountSelection;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
@@ -245,6 +250,8 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
  * Configuration for slash command execution.
  */
 export interface SlashCommandRunConfig {
+  /** Cannot override a persisted binding; admission remains backend-owned. */
+  accountSelection?: ProviderAccountSelection;
   sessionConfig?: AISessionConfig;
   mcpServerRunning?: boolean;
   enhancedPromptsContent?: string;

@@ -16,9 +16,10 @@
  * vanished because of a typo is the failure mode this surface exists to fix.
  *
  * A missing `output-styles` directory is a normal state, not an error
- * (Req 1.5). Nothing in here throws past its boundary.
+ * (Req 1.5). Invalid explicit account roots reject with a closed resource error.
  *
- * All I/O goes through `IFileSystemProvider`; there is no `node:fs` import.
+ * Content I/O uses `IFileSystemProvider`; named root checks use Node realpath
+ * because the port does not expose filesystem canonicalization.
  * `node:path` is used for pure string computation only, which is not I/O and
  * therefore not port-mediated.
  *
@@ -27,6 +28,8 @@
  * nothing enumerates it yet.
  */
 import * as path from 'path';
+import { promises as nodeFs } from 'node:fs';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
 import { homedir } from 'os';
 import { inject, injectable } from 'tsyringe';
 import {
@@ -83,9 +86,92 @@ export function resolveHomeDirectory(): string {
   return process.env['HOME'] || process.env['USERPROFILE'] || homedir();
 }
 
-/** `~/.claude/output-styles`. */
-export function userOutputStyleDirectory(): string {
+/** Safe failure for an explicitly requested account resource. */
+export class OutputStyleAccountResourceError extends Error {
+  readonly code = 'unavailable';
+
+  constructor() {
+    super('The requested Claude account output style is unavailable.');
+    this.name = 'OutputStyleAccountResourceError';
+  }
+}
+
+/** Selected `<config>/output-styles`, or the existing ambient user directory. */
+export function userOutputStyleDirectory(
+  context?: ClaudeAccountResolvedResourceContext,
+): string {
+  if (context?.kind === 'named') {
+    const config = context.route.canonicalConfigDir;
+    if (!config.trim() || !path.isAbsolute(config)) {
+      throw new OutputStyleAccountResourceError();
+    }
+    return path.join(config, 'output-styles');
+  }
   return path.join(resolveHomeDirectory(), ...OUTPUT_STYLES_DIR_SEGMENTS);
+}
+
+/** Bound named user resources to the real account root, as history boundPath does. */
+export async function boundOutputStyleDirectory(
+  directory: string,
+  tier: FileOutputStyleTier,
+  context?: ClaudeAccountResolvedResourceContext,
+): Promise<string> {
+  if (context?.kind !== 'named' || tier !== 'user') return directory;
+  try {
+    const root = await nodeFs.realpath(context.route.canonicalConfigDir);
+    let resolved: string;
+    try {
+      resolved = await nodeFs.realpath(directory);
+    } catch (error: unknown) {
+      if (filesystemErrorCode(error) !== 'ENOENT') throw error;
+      // A genuinely absent directory is normal and may be created by save.
+      // A dangling symlink exists under lstat and must still be refused.
+      try {
+        await nodeFs.lstat(directory);
+      } catch (statError: unknown) {
+        if (filesystemErrorCode(statError) === 'ENOENT') {
+          return path.join(root, 'output-styles');
+        }
+        throw statError;
+      }
+      throw new OutputStyleAccountResourceError();
+    }
+    const relative = path.relative(root, resolved);
+    if (
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      throw new OutputStyleAccountResourceError();
+    }
+    return resolved;
+  } catch {
+    throw new OutputStyleAccountResourceError();
+  }
+}
+
+function filesystemErrorCode(error: unknown): string | undefined {
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+    ? error.code
+    : undefined;
+}
+
+/** Never serialize filesystem messages or paths for named account failures. */
+export function accountFileError(
+  error: unknown,
+  fileName: string,
+): { code: string; fileName: string } {
+  const code = filesystemErrorCode(error);
+  return {
+    code:
+      code !== undefined && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)
+        ? code
+        : 'UNKNOWN',
+    fileName: path.basename(fileName),
+  };
 }
 
 /** `<workspaceRoot>/.claude/output-styles`. */
@@ -100,8 +186,9 @@ export function projectOutputStyleDirectory(workspaceRoot: string): string {
 export function outputStyleDirectoryFor(
   tier: FileOutputStyleTier,
   workspaceRoot: string | undefined,
+  context?: ClaudeAccountResolvedResourceContext,
 ): string | undefined {
-  if (tier === 'user') return userOutputStyleDirectory();
+  if (tier === 'user') return userOutputStyleDirectory(context);
   return workspaceRoot === undefined
     ? undefined
     : projectOutputStyleDirectory(workspaceRoot);
@@ -114,7 +201,11 @@ export function outputStyleDirectoryFor(
 export function toDisplayPath(
   tier: FileOutputStyleTier,
   fileName: string,
+  context?: ClaudeAccountResolvedResourceContext,
 ): string {
+  if (tier === 'user' && context?.kind === 'named') {
+    return `account:output-styles/${fileName}`;
+  }
   const prefix = tier === 'user' ? '~/' : '';
   return `${prefix}${OUTPUT_STYLES_DIR_SEGMENTS.join('/')}/${fileName}`;
 }
@@ -157,6 +248,7 @@ export class OutputStyleDiscoveryService {
 
   async discover(
     options: DiscoverOutputStylesOptions = {},
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<OutputStyleDiscoveryResult> {
     const workspaceRoot = this.resolveWorkspaceRoot(options.workspaceRoot);
 
@@ -166,9 +258,10 @@ export class OutputStyleDiscoveryService {
     const invalid: InvalidOutputStyle[] = [];
 
     for (const tier of FILE_OUTPUT_STYLE_TIERS) {
-      const directory = outputStyleDirectoryFor(tier, workspaceRoot);
+      const directory = outputStyleDirectoryFor(tier, workspaceRoot, context);
       if (directory === undefined) continue;
-      const scanned = await this.scanTier(tier, directory);
+      const bounded = await boundOutputStyleDirectory(directory, tier, context);
+      const scanned = await this.scanTier(tier, bounded, context);
       ordered.push(...scanned.styles);
       invalid.push(...scanned.invalid);
     }
@@ -194,6 +287,7 @@ export class OutputStyleDiscoveryService {
   private async scanTier(
     tier: FileOutputStyleTier,
     directory: string,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<{
     styles: OutputStyleEntry[];
     invalid: InvalidOutputStyle[];
@@ -212,26 +306,29 @@ export class OutputStyleDiscoveryService {
     } catch (error: unknown) {
       // Req 1.5: an absent or unreadable styles directory is not an error the
       // user needs to see. It is logged and the tier is simply empty.
-      this.logger.debug('[output-styles] tier directory not readable', {
-        tier,
-        error: errorMessage(error),
-      });
+      this.logger.debug(
+        '[output-styles] tier directory not readable',
+        context?.kind === 'named'
+          ? accountFileError(error, directory)
+          : { tier, error: errorMessage(error) },
+      );
       return { styles, invalid };
     }
 
     for (const fileName of fileNames) {
       const absolute = path.join(directory, fileName);
-      const relativePath = toDisplayPath(tier, fileName);
+      const relativePath = toDisplayPath(tier, fileName, context);
 
       let content: string;
       try {
         content = await this.fs.readFile(absolute);
       } catch (error: unknown) {
-        this.logger.warn('[output-styles] style file unreadable', {
-          tier,
-          fileName,
-          error: errorMessage(error),
-        });
+        this.logger.warn(
+          '[output-styles] style file unreadable',
+          context?.kind === 'named'
+            ? accountFileError(error, fileName)
+            : { tier, fileName, error: errorMessage(error) },
+        );
         invalid.push({
           fileName,
           relativePath,
@@ -252,9 +349,8 @@ export class OutputStyleDiscoveryService {
           relativePath,
           tier,
           error: parsed.error,
-          // Req 7.5: both file tiers are Ptah-writable, so an invalid file in
-          // either can be opened in the editor sub-view and fixed.
-          openable: true,
+          // Named user labels cannot be resolved by the ambient editor route.
+          openable: !(context?.kind === 'named' && tier === 'user'),
         });
         continue;
       }
@@ -264,7 +360,10 @@ export class OutputStyleDiscoveryService {
         tier,
         description: parsed.style.description,
         keepCodingInstructions: parsed.style.keepCodingInstructions,
-        editable: true,
+        editable: !(context?.kind === 'named' && tier === 'user'),
+        ...(context?.kind === 'named' && tier === 'user'
+          ? { immutableReason: 'Account-scoped editing is unavailable.' }
+          : {}),
         deletable: true,
         body: parsed.style.body,
         fileName,

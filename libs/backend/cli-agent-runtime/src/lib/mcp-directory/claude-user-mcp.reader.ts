@@ -35,6 +35,7 @@
  * it and which one wins would depend on JSON property order.
  */
 
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -77,10 +78,35 @@ export function claudeUserConfigPath(homeDir: string = homedir()): string {
  * read of somebody else's file on a display path and a malformed one must not
  * take the whole Installed tab down with it.
  */
+export interface ClaudeUserMcpUnsupportedResult {
+  readonly status: 'unsupported';
+  readonly code: 'unsupported';
+  readonly reason: 'verified-user-state-locator-unavailable';
+}
+
+export function readClaudeUserMcpServers(
+  workspaceRoot: string | undefined,
+  options?: ClaudeUserMcpReaderOptions,
+): ClaudeUserMcpEntry[];
+export function readClaudeUserMcpServers(
+  workspaceRoot: string | undefined,
+  options: ClaudeUserMcpReaderOptions | undefined,
+  context: ClaudeAccountResolvedResourceContext | undefined,
+): ClaudeUserMcpEntry[] | ClaudeUserMcpUnsupportedResult;
 export function readClaudeUserMcpServers(
   workspaceRoot: string | undefined,
   options: ClaudeUserMcpReaderOptions = {},
-): ClaudeUserMcpEntry[] {
+  context?: ClaudeAccountResolvedResourceContext,
+): ClaudeUserMcpEntry[] | ClaudeUserMcpUnsupportedResult {
+  // A certified config root is not proof of a user-state file location.
+  // Explicit Ptah MCP configuration is independent of this import reader.
+  if (context?.kind === 'named') {
+    return {
+      status: 'unsupported',
+      code: 'unsupported',
+      reason: 'verified-user-state-locator-unavailable',
+    };
+  }
   const configPath = claudeUserConfigPath(options.homeDir);
   const parsed = readJsonObject(configPath);
   if (parsed === null) return [];

@@ -14,11 +14,30 @@ import * as path from 'path';
 import * as os from 'os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SessionId } from '@ptah-extension/shared';
+import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import {
   SessionMetadataStore,
   SessionMetadata,
+  SessionAccountBindingError,
+  type SessionAccountBindingLookup,
 } from './session-metadata-store';
 import { SDK_TOKENS } from './di/tokens';
+import type { ClaudeAccountNamedResolvedResourceContext, ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
+import {
+  ClaudeAccountResourceError,
+  claudeProjectsRoot,
+  claudeResourceKey,
+} from './helpers/history/jsonl-reader.service';
+
+/** Host-owned adapter to authoritative, committed SDK-session attachments.
+ * This must not use the resume resolver, which requires metadata already to exist.
+ * No binding or identity evidence may be inferred from a transcript directory.
+ */
+export interface SessionImportBindingLookup {
+  lookupBySdkSession(request: { provider: 'claude'; sdkSessionId: string }): Promise<SessionAccountBindingLookup>;
+}
+
+export const SDK_SESSION_IMPORT_BINDING_LOOKUP = Symbol.for('SdkSessionImportBindingLookup');
 
 /**
  * Session file info for sorting
@@ -179,11 +198,19 @@ export class SessionImporterService {
    * `WorkspaceRpcHandlers.deferSessionImport`.
    */
   private readonly scansInFlight = new Map<string, Promise<number>>();
+  private readonly shutdown = new AbortController();
+
+  dispose(): void {
+    this.shutdown.abort();
+    this.scansInFlight.clear();
+  }
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
+    @inject(SDK_SESSION_IMPORT_BINDING_LOOKUP, { isOptional: true })
+    private readonly bindingLookup?: SessionImportBindingLookup,
   ) {}
 
   /**
@@ -224,8 +251,13 @@ export class SessionImporterService {
     workspacePath: string,
     limit = 50,
     options?: ScanAndImportOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<number> {
-    const key = normalizeWorkspaceKey(workspacePath);
+    // Until the host supplies the authoritative lookup, named import stays held.
+    if (context?.kind === 'named' && !this.bindingLookup)
+      return Promise.reject(new ClaudeAccountResourceError('unsupported'));
+    const key = JSON.stringify([normalizeWorkspaceKey(workspacePath), claudeResourceKey(context),
+      context?.kind === 'named' ? context.route.profileId : null]);
     const joined = this.scansInFlight.get(key);
     if (joined !== undefined) {
       this.logger.debug(
@@ -238,7 +270,7 @@ export class SessionImporterService {
     // Reserved synchronously. `runScan` is async, so it returns at its first
     // await and the map is populated in the same turn as the call that started
     // it — a second caller in the same tick cannot slip past into a second scan.
-    const scan = this.runScan(workspacePath, limit, options).finally(() => {
+    const scan = this.runScan(workspacePath, limit, options, context).finally(() => {
       this.scansInFlight.delete(key);
     });
     this.scansInFlight.set(key, scan);
@@ -249,16 +281,19 @@ export class SessionImporterService {
     workspacePath: string,
     limit: number,
     options?: ScanAndImportOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,
       limit,
     });
 
-    const signal = options?.signal;
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, this.shutdown.signal])
+      : this.shutdown.signal;
     if (signal?.aborted === true) return 0;
 
-    const sessionsDir = await this.findSessionsDirectory(workspacePath);
+    const sessionsDir = await this.findSessionsDirectory(workspacePath, context);
     if (!sessionsDir) {
       this.logger.debug('[SessionImporter] Sessions directory not found');
       return 0;
@@ -270,6 +305,7 @@ export class SessionImporterService {
       workspacePath,
       limit,
       signal,
+      context,
     );
     imported += indexImported;
     const remainingLimit = limit - imported;
@@ -279,11 +315,15 @@ export class SessionImporterService {
         workspacePath,
         remainingLimit,
         signal,
+        context,
       );
       imported += fileImported;
     }
 
-    await this.pruneTitleOnlySessions(sessionsDir, workspacePath, signal);
+    // Pruning uses global SDK ids and cannot establish account ownership.
+    if (context?.kind !== 'named') {
+      await this.pruneTitleOnlySessions(sessionsDir, workspacePath, signal);
+    }
 
     this.logger.info('[SessionImporter] Import complete', {
       imported,
@@ -291,6 +331,24 @@ export class SessionImporterService {
     });
 
     return imported;
+  }
+
+  private async lookupImportBinding(
+    sessionId: string,
+    context: ClaudeAccountNamedResolvedResourceContext,
+  ): Promise<ProviderAccountBinding> {
+    if (!this.bindingLookup) throw new ClaudeAccountResourceError('unsupported');
+    const result = await this.bindingLookup.lookupBySdkSession({ provider: 'claude', sdkSessionId: sessionId });
+    if (result.status === 'absent') throw new SessionAccountBindingError('linkage-incomplete');
+    if (result.status !== 'bound') throw new SessionAccountBindingError(result.status);
+    const { binding } = result;
+    const { route } = context;
+    if (binding.provider !== route.provider || binding.profileId !== route.profileId ||
+        binding.routeFingerprint !== route.routeFingerprint || binding.routeRevision !== route.routeRevision ||
+        binding.authEpoch !== route.authEpoch) {
+      throw new SessionAccountBindingError('binding-conflict');
+    }
+    return binding;
   }
 
   /**
@@ -341,6 +399,7 @@ export class SessionImporterService {
           continue;
         }
         if (await this.isContentlessSessionFile(filePath)) {
+          if (signal?.aborted) break;
           await this.metadataStore.delete(entry.sessionId);
           pruned++;
         }
@@ -487,6 +546,7 @@ export class SessionImporterService {
     workspacePath: string,
     limit: number,
     signal?: AbortSignal,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<number> {
     const indexPath = path.join(sessionsDir, 'sessions-index.json');
 
@@ -545,7 +605,11 @@ export class SessionImporterService {
             continue;
           }
 
-          const existing = await this.metadataStore.get(entry.sessionId);
+          const binding = context?.kind === 'named'
+            ? await this.lookupImportBinding(entry.sessionId, context) : undefined;
+          const existing = binding
+            ? await this.metadataStore.getAccountBound(entry.sessionId, binding)
+            : await this.metadataStore.get(entry.sessionId);
           if (existing) {
             continue;
           }
@@ -553,6 +617,9 @@ export class SessionImporterService {
           if (
             await this.metadataStore.isReferencedAsChildSession(entry.sessionId)
           ) {
+            // The global child reference has no verified route linkage.
+            if (binding) throw new SessionAccountBindingError('linkage-incomplete');
+            if (signal?.aborted) break;
             await this.metadataStore.createChild(
               entry.sessionId,
               workspacePath,
@@ -589,13 +656,16 @@ export class SessionImporterService {
             totalTokens: { input: 0, output: 0 },
           };
 
-          await this.metadataStore.save(metadata);
+          if (signal?.aborted) break;
+          if (binding) await this.metadataStore.saveAccountBound(metadata, binding);
+          else await this.metadataStore.save(metadata);
           imported++;
           this.logger.info('[SessionImporter] Imported session from index', {
             sessionId: entry.sessionId,
             name,
           });
         } catch (error) {
+          if (context?.kind === 'named') throw error;
           this.logger.debug('[SessionImporter] Failed to import index entry', {
             sessionId: entry.sessionId,
             error: error instanceof Error ? error.message : String(error),
@@ -610,6 +680,7 @@ export class SessionImporterService {
 
       return imported;
     } catch (error) {
+      if (context?.kind === 'named') throw error;
       this.logger.debug(
         '[SessionImporter] Failed to read sessions-index.json',
         {
@@ -631,8 +702,9 @@ export class SessionImporterService {
     workspacePath: string,
     limit: number,
     signal?: AbortSignal,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<number> {
-    const recentFiles = await this.getRecentSessionFiles(sessionsDir, limit);
+    const recentFiles = await this.getRecentSessionFiles(sessionsDir, limit, context);
 
     let imported = 0;
     for (const file of recentFiles) {
@@ -642,16 +714,22 @@ export class SessionImporterService {
         const sessionId = this.extractSessionIdFromFilename(file.filename);
         if (!sessionId) continue;
 
-        const existing = await this.metadataStore.get(sessionId);
+        const binding = context?.kind === 'named'
+          ? await this.lookupImportBinding(sessionId, context) : undefined;
+        const existing = binding
+          ? await this.metadataStore.getAccountBound(sessionId, binding)
+          : await this.metadataStore.get(sessionId);
         if (existing) {
           continue;
         }
 
         if (await this.metadataStore.isReferencedAsChildSession(sessionId)) {
+          if (binding) throw new SessionAccountBindingError('linkage-incomplete');
           this.logger.info(
             '[SessionImporter] Detected child session via cross-reference, creating child metadata',
             { sessionId },
           );
+          if (signal?.aborted) break;
           await this.metadataStore.createChild(
             sessionId,
             workspacePath,
@@ -664,10 +742,16 @@ export class SessionImporterService {
           file.path,
           workspacePath,
           file.mtime,
+          context,
         );
 
         if (metadata) {
-          await this.metadataStore.save(metadata);
+          if (binding && metadata.sessionId !== sessionId) {
+            throw new SessionAccountBindingError('binding-conflict');
+          }
+          if (signal?.aborted) break;
+          if (binding) await this.metadataStore.saveAccountBound(metadata, binding);
+          else await this.metadataStore.save(metadata);
           imported++;
           this.logger.info('[SessionImporter] Imported session from file', {
             sessionId: metadata.sessionId,
@@ -675,6 +759,7 @@ export class SessionImporterService {
           });
         }
       } catch (error) {
+        if (context?.kind === 'named') throw error;
         this.logger.debug('[SessionImporter] Failed to import session file', {
           file: file.filename,
           error: error instanceof Error ? error.message : String(error),
@@ -711,6 +796,7 @@ export class SessionImporterService {
   private async getRecentSessionFiles(
     sessionsDir: string,
     limit: number,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionFileInfo[]> {
     try {
       const files = await fs.promises.readdir(sessionsDir);
@@ -730,6 +816,7 @@ export class SessionImporterService {
       }
       return fileInfos.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
     } catch (error) {
+      if (context?.kind === 'named') throw new ClaudeAccountResourceError('unavailable');
       this.logger.debug('[SessionImporter] Failed to read sessions directory', {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -768,6 +855,7 @@ export class SessionImporterService {
     filePath: string,
     workspaceId: string,
     mtime: number,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionMetadata | null> {
     try {
       const fd = await fs.promises.open(filePath, 'r');
@@ -820,6 +908,7 @@ export class SessionImporterService {
       // corrupt rather than merely truncated. Warn — a whole directory failing
       // this way is exactly what stayed invisible behind `imported: 0`.
       if (lines.length > 0 && parsedRecords === 0) {
+        if (context?.kind === 'named') throw new ClaudeAccountResourceError('unavailable');
         this.logger.warn(
           '[SessionImporter] No parseable records in session file prefix',
           { filePath, completeLines: lines.length },
@@ -898,6 +987,7 @@ export class SessionImporterService {
         totalTokens: { input: 0, output: 0 },
       };
     } catch (error) {
+      if (context?.kind === 'named') throw new ClaudeAccountResourceError('unavailable');
       // Only I/O now reaches here — per-record parse failures are handled
       // above. A file we could open but not read is worth more than debug.
       // degradation-audit: optional-capability - metadata extraction is
@@ -940,9 +1030,13 @@ export class SessionImporterService {
    */
   private async findSessionsDirectory(
     workspacePath: string,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<string | null> {
     const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    const projectsDir =
+      context?.kind === 'named'
+        ? await claudeProjectsRoot(context)
+        : path.join(homeDir, '.claude', 'projects');
 
     try {
       await fs.promises.access(projectsDir);
@@ -950,6 +1044,9 @@ export class SessionImporterService {
       // degradation-audit: optional-capability - ~/.claude/projects is absent
       // on a machine that has never run the Claude CLI; null means "nothing
       // to import for this workspace", which the importer treats as zero.
+      // A named account refuses explicitly instead.
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       return null;
     }
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');

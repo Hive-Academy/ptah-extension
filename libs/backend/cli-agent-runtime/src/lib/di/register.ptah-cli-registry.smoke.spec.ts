@@ -34,6 +34,8 @@ import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
 import { registerCliAgentRuntimeServices } from './register';
 import { PtahCliRegistry } from '../ptah-cli';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
+import { ClaudeCliAdapter } from '../cli-agents/cli-adapters/claude-cli.adapter';
+import { ClaudeSdkLaneRunner } from '../claude/claude-sdk-lane-runner';
 
 function createMockLogger(): Logger {
   return {
@@ -51,7 +53,13 @@ function buildSmokeContainer(): DependencyContainer {
 
   c.register(TOKENS.LOGGER, { useValue: logger });
   c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
-    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+    useValue: {
+      present: jest.fn(),
+      resolve: jest.fn(),
+      isEligible: jest.fn(() => false),
+      open: jest.fn(),
+      dispose: jest.fn(),
+    },
   });
 
   // Platform dependencies required by ConfigWatcher during registerSdkServices
@@ -148,6 +156,30 @@ describe('registerCliAgentRuntimeServices — PtahCliRegistry DI smoke', () => {
 
   beforeEach(() => {
     container = buildSmokeContainer();
+  });
+
+  it('registers a cached constructible Claude adapter with the real SDK runner and spawner', () => {
+    const adapter = container.resolve(ClaudeCliAdapter);
+    expect(adapter).toBeInstanceOf(ClaudeCliAdapter);
+    expect(container.resolve(ClaudeCliAdapter)).toBe(adapter);
+    const deps = (
+      adapter as unknown as {
+        deps: {
+          runner: ClaudeSdkLaneRunner;
+          processSpawner: ISdkProcessSpawner;
+        };
+      }
+    ).deps;
+    expect(deps.runner).toBeInstanceOf(ClaudeSdkLaneRunner);
+    expect(deps.runner).toBe(container.resolve(ClaudeSdkLaneRunner));
+    expect(deps.processSpawner.constructor.name).toBe(
+      'OffThreadProcessSpawner',
+    );
+    expect(adapter.capabilities()).toEqual({
+      continuation: true,
+      steer: false,
+      interrupt: false,
+    });
   });
 
   it('resolves CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY to a PtahCliRegistry instance', () => {
