@@ -451,4 +451,19 @@ export {
 
 export const AGENT_SDK_VERSION = '0.0.1';
 export { applyClaudeAccountRouteEnv } from './lib/helpers/claude-account-route-env';
+export {
+  CLAUDE_CERTIFIED_ENV_KEYS,
+  CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
+  buildCertifiedClaudeEnv,
+  certifiedEnvDigest,
+  certifiedNamedEnv,
+  claudeSettingsOverride,
+  isCertifiedClaudeEnvKey,
+  type ClaudeActualLaunch,
+  type ClaudeCertifiedLaunchRefusalCode,
+  type ClaudeRunPolicyKey,
+} from './lib/helpers/claude-certified-launch';
+export { claudeIdentityReference } from './lib/helpers/claude-identity-reference';
 export * from './lib/helpers/named-account-prompt-gate';
