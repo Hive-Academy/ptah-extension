@@ -485,6 +485,8 @@ export interface CliOutputSegment {
   readonly changeKind?: string;
   /** Links a tool-call segment to its corresponding tool-result segment */
   readonly toolCallId?: string;
+  /** Provider message the text belongs to; a change starts a new text block. */
+  readonly messageId?: string;
 }
 
 export interface AgentOutputDelta {

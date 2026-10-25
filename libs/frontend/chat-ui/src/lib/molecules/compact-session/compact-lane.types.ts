@@ -27,6 +27,8 @@ export interface CompactLaneSummary {
   readonly moreCount: number;
   readonly total: number;
   readonly counts: Readonly<Record<CompactLaneStatus, number>>;
+  /** Lanes per kind over all `total` lanes, shown rows and capped ones. */
+  readonly kinds: Readonly<Record<CompactLaneKind, number>>;
 }
 
 /** A pending permission, from the session itself or from a CLI lane. */

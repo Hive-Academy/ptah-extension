@@ -100,12 +100,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
         (toggleClicked)="toggleCollapse()"
       />
 
-      @if (artifact(); as record) {
+      @if (canOpenArtifacts && artifact(); as record) {
         <ptah-artifact-card [artifact]="record" (open)="openArtifact($event)" (fullscreen)="openArtifact($event, true)" />
       } @else if (publishedArtifact(); as published) {
         <article class="flex flex-col gap-1 rounded-box border border-base-content/15 bg-base-200/40 p-3" data-testid="artifact-card">
           <p class="truncate text-sm font-semibold" data-testid="artifact-card-title">{{ published.title }}</p>
-          <p class="text-xs text-base-content-muted">Not loaded yet</p>
+          <p class="text-xs text-base-content-muted" data-testid="artifact-card-status">
+            {{ artifact() ? 'Preview not available here' : 'Not loaded yet' }}
+          </p>
         </article>
       }
 
@@ -144,8 +146,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 })
 export class ToolCallItemComponent {
   private readonly artifacts = inject(ArtifactStore);
-  private readonly dock = inject(DisplayDockState);
-  private readonly sheet = inject(DisplaySheetState);
+  // Optional: only a session chat view provides the Display dock and sheet
+  // (and VS Code provides a null dock). A subagent or CLI lane renders the
+  // same tool rows without them; there the artifact shows as a read-only
+  // card instead of offering Open / Full screen actions that cannot work.
+  private readonly dock = inject(DisplayDockState, { optional: true });
+  private readonly sheet = inject(DisplaySheetState, { optional: true });
+  protected readonly canOpenArtifacts = this.dock !== null;
   private readonly tabs = inject(TabManagerService);
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
@@ -175,11 +182,11 @@ export class ToolCallItemComponent {
 
   protected openArtifact(id: string, full = false): void {
     const tabId = this.tabs.activeTabId();
-    if (!tabId) return;
+    if (!tabId || !this.dock) return;
     this.dock.openArtifact(tabId, id);
     if (full) {
       this.dock.requestFullscreenArtifact(tabId, id);
-      this.sheet.setMode(tabId, 'full');
+      this.sheet?.setMode(tabId, 'full');
     }
   }
 

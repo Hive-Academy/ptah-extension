@@ -52,8 +52,8 @@ describe('SubagentLaneComposerComponent', () => {
 
   const root = (fixture: ComponentFixture<unknown>): HTMLElement =>
     fixture.nativeElement as HTMLElement;
-  const field = (fixture: ComponentFixture<unknown>): HTMLInputElement =>
-    root(fixture).querySelector('input') as HTMLInputElement;
+  const field = (fixture: ComponentFixture<unknown>): HTMLTextAreaElement =>
+    root(fixture).querySelector('textarea') as HTMLTextAreaElement;
   const byId = (fixture: ComponentFixture<unknown>, id: string) =>
     root(fixture).querySelector(`[data-testid="${id}"]`);
 
@@ -104,7 +104,7 @@ describe('SubagentLaneComposerComponent', () => {
       expect(
         byId(fixture, 'subagent-composer-unavailable')?.textContent,
       ).toContain('This agent cannot take messages right now');
-      expect(root(fixture).querySelector('input')).toBeNull();
+      expect(root(fixture).querySelector('textarea, input')).toBeNull();
     },
   );
 
@@ -123,7 +123,7 @@ describe('SubagentLaneComposerComponent', () => {
     expect(
       byId(fixture, 'subagent-composer-unavailable')?.textContent,
     ).toContain("This agent's session is not open");
-    expect(root(fixture).querySelector('input')).toBeNull();
+    expect(root(fixture).querySelector('textarea, input')).toBeNull();
   });
 
   it('steers a running agent, keeps the draft on failure and clears it on success', async () => {

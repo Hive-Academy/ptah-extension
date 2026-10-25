@@ -244,11 +244,23 @@ describe('CanvasLaneViewComponent', () => {
     expect(input).not.toBeNull();
     // Below the card, inside the same lane column.
     expect(card?.nextElementSibling).toBe(input);
+    // The main chat shell (TASK_2026_717 D3): the chrome panel, the session
+    // layout, and the composer in the centered column.
+    const cliPanel = card?.closest('[data-testid="lane-panel"]');
+    expect(cliPanel?.getAttribute('data-glass-surface')).toBe('chrome');
+    expect(card?.parentElement?.tagName).toBe('PTAH-CHAT-SESSION-LAYOUT');
+    expect(input?.classList.contains('mx-auto')).toBe(true);
+    expect(input?.classList.contains('w-[calc(100cqw-1.5rem)]')).toBe(true);
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('ptah-agent-continue-input'),
     ).toBeNull();
+    const subLane = fixture.nativeElement.querySelector('ptah-subagent-lane');
+    expect(subLane?.parentElement?.tagName).toBe('PTAH-CHAT-SESSION-LAYOUT');
+    expect(
+      subLane?.closest('[data-testid="lane-panel"]')?.getAttribute('data-glass-surface'),
+    ).toBe('chrome');
   });
 
   it('keeps the lane subtree for unrelated input changes and replaces it on lane switch', () => {

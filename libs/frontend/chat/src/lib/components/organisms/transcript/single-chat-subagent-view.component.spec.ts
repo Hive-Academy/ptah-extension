@@ -45,6 +45,14 @@ jest.mock('ngx-markdown', () => {
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { provideMarkdown } from 'ngx-markdown';
+import {
+  ClaudeRpcService,
+  FILE_LINK_OPENER,
+  SURFACE_ACTIVE,
+  VSCodeService,
+} from '@ptah-extension/core';
+import { createMockRpcService } from '@ptah-extension/core/testing';
 import {
   createExecutionNode,
   type ExecutionNode,
@@ -55,8 +63,14 @@ import {
   AgentMonitorStore,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { ArtifactStore } from '../../../services/artifact.store';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
+import { DisplaySheetState } from '../display-sheet/display-sheet.state';
 import { ChatStore } from '../../../services/chat.store';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
+import { MessageBubbleComponent } from '../message-bubble.component';
+import { LaneTranscriptComponent } from './lane-transcript.component';
 import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 
@@ -92,10 +106,15 @@ class SubagentLaneStub {
   readonly permissionResponded = output<PermissionResponse>();
 }
 
-const PENDING = {
+const PENDING: PermissionRequest = {
   id: 'perm-1',
+  toolName: 'Bash',
+  toolInput: { command: 'pwd' },
   toolUseId: 'tool-p',
-} as unknown as PermissionRequest;
+  timestamp: 0,
+  description: 'Run pwd',
+  timeoutAt: 0,
+};
 
 function agentNode(children: readonly ExecutionNode[] = []): ExecutionNode {
   return createExecutionNode({
@@ -136,6 +155,12 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
   const nodeStub = (): ExecutionNodeStub | null =>
     (fixture.debugElement.query(By.directive(ExecutionNodeStub))
       ?.componentInstance as ExecutionNodeStub | undefined) ?? null;
+  const transcript = (): LaneTranscriptComponent =>
+    fixture.debugElement.query(By.directive(LaneTranscriptComponent))
+      .componentInstance as LaneTranscriptComponent;
+  const bubble = (): MessageBubbleComponent =>
+    fixture.debugElement.query(By.directive(MessageBubbleComponent))
+      .componentInstance as MessageBubbleComponent;
   const byTestId = (id: string): HTMLElement | null =>
     fixture.nativeElement.querySelector(`[data-testid="${id}"]`);
 
@@ -150,8 +175,26 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
     TestBed.configureTestingModule({
       imports: [SingleChatSubagentViewComponent],
       providers: [
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        { provide: VSCodeService, useValue: { isElectron: false } },
         { provide: ChatStore, useValue: chatStore },
-        { provide: AgentMonitorStore, useValue: { subagents } },
+        {
+          provide: ArtifactStore,
+          useValue: {
+            records: signal({}),
+            lastError: signal(null),
+            recordById: () => null,
+            forSession: () => signal([]),
+            reload: jest.fn(),
+          },
+        },
+        DisplayDockState,
+        DisplaySheetState,
+        { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
+        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+        provideMarkdown(),
+        { provide: AgentMonitorStore, useValue: { subagents, tick: signal(0) } },
       ],
     });
     TestBed.overrideComponent(SingleChatSubagentViewComponent, {
@@ -167,37 +210,47 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
     mount(first, true);
 
     const stub = nodeStub();
-    expect(stub?.node()).toBe(first);
+    const lane = transcript();
+    const message = bubble();
+    expect(stub?.node()).toEqual({ ...first, children: [] });
+    expect(lane.nodes()).toBe(first.children);
+    expect(message.message().streamingState?.children).toEqual(first.children);
+    expect(message.isStreaming()).toBe(true);
     expect(stub?.agentTileMode()).toBe(false);
     expect(stub?.isStreaming()).toBe(true);
     expect(byTestId('subagent-view-name')?.textContent?.trim()).toBe(
       'reviewer',
     );
 
-    // A rebuilt tree hands a new node: same execution-node instance, new input.
+    // A rebuilt tree updates the header and transcript in place.
     const next = agentNode([bash('tool-a'), bash('tool-b')]);
     fixture.componentRef.setInput('node', next);
     fixture.componentRef.setInput('isStreaming', false);
     fixture.detectChanges();
     expect(nodeStub()).toBe(stub);
-    expect(stub?.node()).toBe(next);
+    expect(stub?.node()).toEqual({ ...next, children: [] });
+    expect(transcript()).toBe(lane);
+    expect(bubble()).toBe(message);
+    expect(lane.nodes()).toBe(next.children);
+    expect(message.message().streamingState?.children).toEqual(next.children);
+    expect(message.isStreaming()).toBe(false);
     expect(stub?.isStreaming()).toBe(false);
   });
 
   it('keeps a pending descendant permission answerable through ChatStore (R9g finding 3)', () => {
     mount(agentNode([bash('tool-p')]));
-    const stub = nodeStub();
-    const lookup = stub?.getPermissionForTool();
+    const message = bubble();
+    const lookup = message.permissionLookup();
 
     expect(lookup?.('tool-p')).toBe(PENDING);
     expect(lookup?.('tool-x')).toBeNull();
     expect(chatStore.getPermissionForTool).toHaveBeenCalledWith('tool-p');
 
-    const response = {
+    const response: PermissionResponse = {
       id: 'perm-1',
       decision: 'allow',
-    } as unknown as PermissionResponse;
-    stub?.permissionResponded.emit(response);
+    };
+    message.permissionResponded.emit(response);
     expect(chatStore.handlePermissionResponse).toHaveBeenCalledWith(response);
   });
 
@@ -215,10 +268,10 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
     expect(lane?.sessionId()).toBe('session-9');
     expect(nodeStub()).toBeNull();
     expect(lane?.getPermissionForTool()?.('tool-p')).toBe(PENDING);
-    const response = {
+    const response: PermissionResponse = {
       id: 'perm-1',
       decision: 'allow',
-    } as PermissionResponse;
+    };
     lane?.permissionResponded.emit(response);
     expect(chatStore.handlePermissionResponse).toHaveBeenCalledWith(response);
   });
