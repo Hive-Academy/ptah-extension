@@ -570,6 +570,19 @@ describe('ProviderAccountRpcHandlers', () => {
       expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('sk-ant');
     });
+
+    it('reports a committed write with an unreadable snapshot as timeout', async () => {
+      const { call, flush, service, sent } = setup();
+      jest.spyOn(service, 'list').mockImplementationOnce(() => {
+        throw new FakeStoreError('unavailable-storage');
+      });
+      const result = await call('provider:addAccount', addParams(1));
+      await flush();
+      expect(result).toMatchObject({ ok: false, result: { code: 'timeout' } });
+      expect(service.profiles.size).toBe(1);
+      expect(sent).toEqual([]);
+      await expect(call('provider:addAccount', addParams(1))).resolves.toEqual(result);
+    });
   });
 
   describe('construction and notification evidence (Batch 35)', () => {

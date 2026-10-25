@@ -320,7 +320,9 @@ export class ProviderAccountRpcHandlers {
       this.logger.warn(`${LOG_PREFIX} ${method} snapshot read failed`, {
         code: resultCode(error),
       });
-      return refusal('unavailable-storage', UNCONFIRMED_SNAPSHOT);
+      // The write committed and only the read-back failed: `timeout` is the
+      // contract's "unconfirmed, re-read the snapshot" code.
+      return refusal('timeout', UNCONFIRMED_SNAPSHOT);
     }
 
     this.notify({ snapshot, requestId });
