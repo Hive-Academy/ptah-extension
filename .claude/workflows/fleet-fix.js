@@ -137,7 +137,7 @@ async function runTask(task) {
 
     if (task.status !== 'in_review' && task.status !== 'done' && task.stage !== 'implement' && task.stage !== 'judge') {
       const implementation = await agent(
-        `Implement ${task.id}: ${task.title}\nArea: ${task.area}\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead ${taskFolder}/context.md and ${taskFolder}/task.md. Edit the code and add focused tests. For one changed Test project, run npx nx test <project> --parallel=1; for several changed Test projects, run npx nx run-many -t test -p A B --parallel=1 and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller verifies your artifact and updates it. Append an Implementation notes section to context.md. Write ${taskFolder}/implementation.json with { taskId, summary, filesChanged, testOutcome, typecheckOutcome, blocked } before returning the identical object.`,
+        `Implement ${task.id}: ${task.title}\nArea: ${task.area}\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nRead ${taskFolder}/context.md and ${taskFolder}/task.md. Edit the code and add focused tests. For the changed Test projects, run npm run verify -- -t test -p A,B (it waits for the machine-wide verify lock) and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller verifies your artifact and updates it. Append an Implementation notes section to context.md. Write ${taskFolder}/implementation.json with { taskId, summary, filesChanged, testOutcome, typecheckOutcome, blocked } before returning the identical object.`,
         {
           label: `implement:${task.id}`,
           phase: 'Implement',
@@ -172,7 +172,7 @@ async function runTask(task) {
       if (round < maxJudgeRounds) {
         const revisionPath = `${taskFolder}/revision-round-${round}.json`;
         const revision = await agent(
-          `Revise ${task.id} after judge round ${round}.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nDefects to fix: ${JSON.stringify(verdict.defects)}\nRead the verdict and implementation context, fix every verified defect, and add or update focused tests. For one changed Test project, run npx nx test <project> --parallel=1; for several changed Test projects, run npx nx run-many -t test -p A B --parallel=1 and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller updates it. Write ${revisionPath} with the revision result before returning the identical object.`,
+          `Revise ${task.id} after judge round ${round}.\nRepo: ${args.repo}\nTask folder: ${taskFolder}\n${artifactRules}\nDefects to fix: ${JSON.stringify(verdict.defects)}\nRead the verdict and implementation context, fix every verified defect, and add or update focused tests. For the changed Test projects, run npm run verify -- -t test -p A,B (it waits for the machine-wide verify lock) and check the output header says "Running target test for N projects" with the requested N. Never use positional nx test A B. Do not edit task.md status; the caller updates it. Write ${revisionPath} with the revision result before returning the identical object.`,
           {
             label: `revise${round}:${task.id}`,
             phase: 'Judge',

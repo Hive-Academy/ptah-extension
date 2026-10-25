@@ -3,26 +3,17 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/platform-electron/src",
   "projectType": "library",
-  "tags": [
-    "scope:electron",
-    "type:feature"
-  ],
+  "tags": ["scope:electron", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/platform-electron",
         "main": "libs/backend/platform-electron/src/index.ts",
         "tsConfig": "libs/backend/platform-electron/tsconfig.lib.json",
-        "assets": [
-          "libs/backend/platform-electron/*.md"
-        ],
-        "format": [
-          "cjs"
-        ],
+        "assets": ["libs/backend/platform-electron/*.md"],
+        "format": ["cjs"],
         "external": [
           "tsyringe",
           "reflect-metadata",
@@ -35,9 +26,7 @@
     "test": {
       "dependsOn": [
         {
-          "projects": [
-            "ptah-electron"
-          ],
+          "projects": ["ptah-electron"],
           "target": "build-workspace-watch-host"
         }
       ],
@@ -58,11 +47,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

@@ -3,24 +3,17 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/task-specs/src",
-  "tags": [
-    "scope:extension",
-    "type:feature"
-  ],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/task-specs",
         "main": "libs/backend/task-specs/src/index.ts",
         "tsConfig": "libs/backend/task-specs/tsconfig.lib.json",
         "assets": [],
-        "format": [
-          "cjs"
-        ],
+        "format": ["cjs"],
         "external": [
           "vscode",
           "tsyringe",
@@ -32,6 +25,17 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/apps/**/*.ts",
+        "{workspaceRoot}/apps/**/*.tsx",
+        "{workspaceRoot}/libs/**/*.ts",
+        "{workspaceRoot}/libs/**/*.tsx",
+        "{workspaceRoot}/libs/backend/agent-generation/templates/agents/**/*.md",
+        "{workspaceRoot}/apps/ptah-extension-vscode/assets/plugins/ptah-core/skills/orchestration/**/*.md"
+      ],
       "options": {
         "passWithNoTests": true
       }
@@ -49,11 +53,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

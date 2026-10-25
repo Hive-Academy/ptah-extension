@@ -3,13 +3,8 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-electron/src",
-  "tags": [
-    "scope:electron",
-    "type:app"
-  ],
-  "implicitDependencies": [
-    "ptah-extension-webview"
-  ],
+  "tags": ["scope:electron", "type:app"],
+  "implicitDependencies": ["ptah-extension-webview"],
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
@@ -30,9 +25,7 @@
         "main": "apps/ptah-electron/src/main.ts",
         "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.build.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -134,17 +127,13 @@
     "build-preload": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/preload.js"
-      ],
+      "outputs": ["{options.outputPath}/preload.js"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/preload.ts",
         "outputFileName": "preload.js",
         "tsConfig": "apps/ptah-electron/tsconfig.preload.json",
-        "format": [
-          "cjs"
-        ],
+        "format": ["cjs"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -155,25 +144,19 @@
             ".js": ".js"
           }
         },
-        "external": [
-          "electron"
-        ]
+        "external": ["electron"]
       }
     },
     "build-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/embedder-worker.mjs"
-      ],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
         "outputFileName": "embedder-worker.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.embedder-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -185,25 +168,19 @@
             ".js": ".mjs"
           }
         },
-        "external": [
-          "@huggingface/transformers"
-        ]
+        "external": ["@huggingface/transformers"]
       }
     },
     "build-integrity-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/integrity-worker.mjs"
-      ],
+      "outputs": ["{options.outputPath}/integrity-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
         "outputFileName": "integrity-worker.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.integrity-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -218,25 +195,19 @@
             "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "better-sqlite3"
-        ]
+        "external": ["better-sqlite3"]
       }
     },
     "build-workspace-watch-host": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/workspace-watch-host.mjs"
-      ],
+      "outputs": ["{options.outputPath}/workspace-watch-host.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/platform-electron/src/workspace-watch/workspace-watch-host.entry.ts",
         "outputFileName": "workspace-watch-host.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.workspace-watch-host.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -251,25 +222,19 @@
             "js": "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "@parcel/watcher"
-        ]
+        "external": ["@parcel/watcher"]
       }
     },
     "build-state-storage-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/state-storage-worker.mjs"
-      ],
+      "outputs": ["{options.outputPath}/state-storage-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/platform-electron/src/implementations/electron-state-storage-worker.ts",
         "outputFileName": "state-storage-worker.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.state-storage-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -286,17 +251,13 @@
     "build-voice-worker": {
       "executor": "@nx/esbuild:esbuild",
       "dependsOn": [],
-      "outputs": [
-        "{options.outputPath}/voice-worker.mjs"
-      ],
+      "outputs": ["{options.outputPath}/voice-worker.mjs"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "libs/backend/voice-providers/src/lib/worker/voice-worker.ts",
         "outputFileName": "voice-worker.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.voice-worker.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -308,17 +269,11 @@
             ".js": ".mjs"
           }
         },
-        "external": [
-          "@huggingface/transformers",
-          "kokoro-js"
-        ]
+        "external": ["@huggingface/transformers", "kokoro-js"]
       }
     },
     "build": {
-      "inputs": [
-        "default",
-        "^production"
-      ],
+      "inputs": ["default", "^production"],
       "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
@@ -353,10 +308,7 @@
       }
     },
     "build-dev": {
-      "inputs": [
-        "default",
-        "^production"
-      ],
+      "inputs": ["default", "^production"],
       "executor": "nx:run-commands",
       "options": {
         "commands": [
@@ -374,21 +326,14 @@
     },
     "copy-renderer": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "ptah-extension-webview:build"
-      ],
-      "outputs": [
-        "{workspaceRoot}/dist/apps/ptah-electron/renderer"
-      ],
+      "dependsOn": ["ptah-extension-webview:build"],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
         "command": "node apps/ptah-electron/scripts/copy-renderer.js"
       }
     },
     "copy-renderer-dev": {
-      "inputs": [
-        "default",
-        "^production"
-      ],
+      "inputs": ["default", "^production"],
       "executor": "nx:run-commands",
       "options": {
         "commands": [
@@ -437,11 +382,7 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build",
-        "copy-renderer",
-        "rebuild-native"
-      ],
+      "dependsOn": ["build", "copy-renderer", "rebuild-native"],
       "options": {
         "commands": [
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
@@ -458,14 +399,8 @@
     "package-local-production": {
       "executor": "nx:run-commands",
       "cache": false,
-      "dependsOn": [
-        "build",
-        "copy-renderer",
-        "rebuild-native"
-      ],
-      "outputs": [
-        "{workspaceRoot}/dist/release/local-production"
-      ],
+      "dependsOn": ["build", "copy-renderer", "rebuild-native"],
+      "outputs": ["{workspaceRoot}/dist/release/local-production"],
       "options": {
         "commands": [
           "node scripts/copy-wasm.js dist/apps/ptah-electron",
@@ -487,14 +422,25 @@
     },
     "validate-deps": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-main"
-      ],
+      "dependsOn": ["build-main"],
       "options": {
         "command": "node apps/ptah-electron/scripts/validate-deps.js"
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/scripts/copy-webview.js",
+        "{workspaceRoot}/scripts/electron-only-chunks.js",
+        "{workspaceRoot}/scripts/eager-closure-gate.js",
+        "{workspaceRoot}/.github/workflows/publish-electron.yml",
+        {
+          "dependentTasksOutputFiles": "**/*.mjs",
+          "transitive": false
+        }
+      ],
       "dependsOn": [
         "build-main",
         "build-embedder-worker",
@@ -514,11 +460,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

@@ -23,6 +23,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/scripts/tree-sitter-grammars.json",
+        "{workspaceRoot}/assets/tree-sitter/**/*"
+      ],
       "options": {
         "passWithNoTests": true
       }

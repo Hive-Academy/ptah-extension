@@ -18,6 +18,20 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/apps/ptah-cli/src/services/mcp/session-submit.service.spec.ts",
+        "{workspaceRoot}/apps/ptah-electron/src/services/electron-ide-capabilities.spec.ts",
+        "{workspaceRoot}/libs/backend/memory-curator/src/lib/code-symbol.store.spec.ts",
+        "{workspaceRoot}/libs/backend/workspace-intelligence/src/diagnostics/type-script-diagnostics-provider.spec.ts",
+        "{workspaceRoot}/libs/backend/workspace-intelligence/src/testing/mcp-contract/mcp-contract.bench.spec.ts",
+        "{workspaceRoot}/tools/mcp-bench/baseline/gate-baseline.json",
+        "{workspaceRoot}/apps/ptah-extension-vscode/assets/plugins/**/*.md",
+        "{workspaceRoot}/.claude/skills/agent-lanes/SKILL.md",
+        "{workspaceRoot}/assets/tree-sitter/**/*"
+      ],
       "options": {
         "passWithNoTests": true
       }

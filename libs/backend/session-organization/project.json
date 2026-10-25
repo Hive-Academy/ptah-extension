@@ -3,24 +3,17 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
   "sourceRoot": "libs/backend/session-organization/src",
-  "tags": [
-    "scope:extension",
-    "type:feature"
-  ],
+  "tags": ["scope:extension", "type:feature"],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/libs/backend/session-organization",
         "main": "libs/backend/session-organization/src/index.ts",
         "tsConfig": "libs/backend/session-organization/tsconfig.lib.json",
         "assets": [],
-        "format": [
-          "cjs"
-        ],
+        "format": ["cjs"],
         "external": [
           "vscode",
           "tsyringe",
@@ -48,11 +41,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

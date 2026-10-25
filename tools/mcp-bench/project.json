@@ -3,9 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "tools/mcp-bench/src",
   "projectType": "application",
-  "tags": [
-    "type:tool"
-  ],
+  "tags": ["type:tool"],
   "targets": {
     "build-host": {
       "executor": "nx:run-commands",
@@ -15,29 +13,21 @@
         "build-host-embedder-worker",
         "build-host-watch-host"
       ],
-      "outputs": [
-        "{workspaceRoot}/dist/tools/mcp-bench/wasm"
-      ],
+      "outputs": ["{workspaceRoot}/dist/tools/mcp-bench/wasm"],
       "options": {
         "command": "node scripts/copy-wasm.js dist/tools/mcp-bench"
       }
     },
     "build-host-integrity-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "dependsOn": [
-        "build-host-bundle"
-      ],
-      "outputs": [
-        "{options.outputPath}/integrity-worker.mjs"
-      ],
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/integrity-worker.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "libs/backend/persistence-sqlite/src/lib/integrity/integrity-worker.ts",
         "outputFileName": "integrity-worker.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -52,27 +42,19 @@
             "js": "import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "better-sqlite3"
-        ]
+        "external": ["better-sqlite3"]
       }
     },
     "build-host-embedder-worker": {
       "executor": "@nx/esbuild:esbuild",
-      "dependsOn": [
-        "build-host-bundle"
-      ],
-      "outputs": [
-        "{options.outputPath}/embedder-worker.mjs"
-      ],
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/embedder-worker.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "libs/backend/memory-curator/src/lib/embedder/embedder-worker.ts",
         "outputFileName": "embedder-worker.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -84,27 +66,19 @@
             ".js": ".mjs"
           }
         },
-        "external": [
-          "@huggingface/transformers"
-        ]
+        "external": ["@huggingface/transformers"]
       }
     },
     "build-host-watch-host": {
       "executor": "@nx/esbuild:esbuild",
-      "dependsOn": [
-        "build-host-bundle"
-      ],
-      "outputs": [
-        "{options.outputPath}/workspace-watch-host.mjs"
-      ],
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/workspace-watch-host.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "libs/backend/platform-cli/src/workspace-watch/workspace-watch-host.entry.ts",
         "outputFileName": "workspace-watch-host.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -119,24 +93,18 @@
             "js": "import { createRequire as __esm_createRequire } from 'node:module'; const require = __esm_createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "@parcel/watcher"
-        ]
+        "external": ["@parcel/watcher"]
       }
     },
     "build-host-bundle": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": [
-        "{options.outputPath}/bench-host.mjs"
-      ],
+      "outputs": ["{options.outputPath}/bench-host.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "tools/mcp-bench/src/transport/bench-host.entry.ts",
         "outputFileName": "bench-host.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -201,20 +169,14 @@
     },
     "build-bench": {
       "executor": "@nx/esbuild:esbuild",
-      "dependsOn": [
-        "build-host-bundle"
-      ],
-      "outputs": [
-        "{options.outputPath}/bench.mjs"
-      ],
+      "dependsOn": ["build-host-bundle"],
+      "outputs": ["{options.outputPath}/bench.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "tools/mcp-bench/src/main.ts",
         "outputFileName": "bench.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -244,10 +206,7 @@
     },
     "bench": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-host",
-        "build-bench"
-      ],
+      "dependsOn": ["build-host", "build-bench"],
       "cache": false,
       "options": {
         "command": "node dist/tools/mcp-bench/bench.mjs bench",
@@ -256,9 +215,7 @@
     },
     "gate": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-bench"
-      ],
+      "dependsOn": ["build-bench"],
       "cache": false,
       "options": {
         "command": "node dist/tools/mcp-bench/bench.mjs gate",
@@ -267,9 +224,7 @@
     },
     "record-baseline": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-bench"
-      ],
+      "dependsOn": ["build-bench"],
       "cache": false,
       "options": {
         "command": "node dist/tools/mcp-bench/bench.mjs record-baseline",
@@ -278,10 +233,7 @@
     },
     "measure-noise": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-host",
-        "build-bench"
-      ],
+      "dependsOn": ["build-host", "build-bench"],
       "cache": false,
       "options": {
         "command": "node dist/tools/mcp-bench/bench.mjs measure-noise",
@@ -290,9 +242,7 @@
     },
     "generate": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-bench"
-      ],
+      "dependsOn": ["build-bench"],
       "cache": false,
       "options": {
         "command": "node dist/tools/mcp-bench/bench.mjs generate",
@@ -312,20 +262,14 @@
     },
     "build-host-memory-skills": {
       "executor": "@nx/esbuild:esbuild",
-      "dependsOn": [
-        "build-host"
-      ],
-      "outputs": [
-        "{options.outputPath}/memory-skills-host.mjs"
-      ],
+      "dependsOn": ["build-host"],
+      "outputs": ["{options.outputPath}/memory-skills-host.mjs"],
       "options": {
         "outputPath": "dist/tools/mcp-bench",
         "main": "tools/mcp-bench/src/memory-skills/host/memory-skills-host.entry.ts",
         "outputFileName": "memory-skills-host.mjs",
         "tsConfig": "tools/mcp-bench/tsconfig.json",
-        "format": [
-          "esm"
-        ],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -390,9 +334,7 @@
     },
     "bench-memory-skills": {
       "executor": "nx:run-commands",
-      "dependsOn": [
-        "build-host-memory-skills"
-      ],
+      "dependsOn": ["build-host-memory-skills"],
       "options": {
         "parallel": false,
         "commands": [
@@ -411,11 +353,11 @@
         "{workspaceRoot}/.eslintrc.json",
         "{workspaceRoot}/.eslintignore",
         "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/eslint.angular.config.mjs",
+        "{workspaceRoot}/eslint.spec-change-detection.mjs",
         "{workspaceRoot}/tools/eslint-rules/**/*",
         {
-          "externalDependencies": [
-            "eslint"
-          ]
+          "externalDependencies": ["eslint"]
         }
       ],
       "executor": "nx:run-commands",

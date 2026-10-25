@@ -120,6 +120,13 @@
       }
     },
     "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.ts",
+        "{workspaceRoot}/libs/frontend/webview-e2e-harness/**/*.html"
+      ],
       "options": {
         "passWithNoTests": true
       }
