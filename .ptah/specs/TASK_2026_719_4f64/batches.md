@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 9/22 (B1-B9)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 10/22 (B1-B9, B11)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -286,19 +286,19 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - Implementation details: implements `NamedAccountPersistencePort` and structurally `ClaudeLaneAccountPersistence` with no cli-agent-runtime import; constructor gains the certifier; `checkLaunchBoundary` = `assertRouteCurrent` semantics first, then `certifier.checkLaunch`, outcome unchanged; no per-run state.
 - Acceptance: ok; certifier refusal passes `code` and `terminated` through; revalidation failure gives `route-changed` with the certifier mock never called.
 
-## Batch 11: Model service and runner cleanup — PENDING
+## Batch 11: Model service and runner cleanup — COMPLETE (runner deletion moved to B13, D21)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B3 (types), order after B9 | Phase: P3
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/agent-sdk` (N = 1)
 
-### Task 11.1: `getSupportedModels(route, signal, launch?)`; runner field removal — PENDING
+### Task 11.1: `getSupportedModels(route, signal, launch?)`; runner field removal — COMPLETE
 
 - Files: M `libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/sdk-model-service.accounts.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/plan-limits/session-quota-probe.accounts.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.ts`
 - Plan reference: implementation-plan.md:805-812 (Component 9 runner/model service), 1032; regression row 893
 - Existing specs affected: `sdk-model-service.spec.ts`, `sdk-query-runner.service.spec.ts` (ambient, unchanged)
 - DI guard: none
-- Acceptance: named without `launch` returns `[]` and no query factory call; with `launch` the probe uses `certifiedNamedEnv`, `launch.cwd`, `launch.executable`; runner's unused `accountRoute` field and wrapper deleted; ambient env literal byte-identical.
+- Acceptance: named without `launch` returns `[]` and no query factory call; with `launch` the probe uses `certifiedNamedEnv`, `launch.cwd`, `launch.executable`; (runner deletion moved to B13, D21); ambient env literal byte-identical.
 
 ## Batch 12: Claude CLI lane named run (D-M, 7 files) — PENDING
 
@@ -324,7 +324,7 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 
 ### Task 13.1: Certified named main-chat run with boundary checks — PENDING
 
-- Files: M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts`
+- Files (D21: + runner deletion moved from B11): M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-runner.service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.ts`; M `libs/backend/agent-sdk/src/lib/helpers/claude-account-route-env.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`; M `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts`
 - Plan reference: implementation-plan.md:772-804 (Component 9 executor/builder/route-env), 1034; regression rows 880, 887, 890, 891, 892, 910, 911, 912
 - Existing specs affected: `route-env.spec:316-336`; `executor.accounts.spec:77-392` (fixtures gain `launch`; HELD defaults); `sdk-query-options-builder*.spec.ts` (ambient, unchanged); cli-agent-runtime suites (no named caller left after B12). Only port fake of `NamedAccountPersistencePort` is in `session-query-executor.accounts.spec.ts`.
 - DI guard: none

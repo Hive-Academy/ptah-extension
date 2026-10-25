@@ -114,3 +114,15 @@
 - WP-a hit its tool-call ceiling after 4 files and was resumed inside the cache window to finish 2 files (rule: resume only under 5 minutes).
 - `register.spec.ts:145` keeps the string `'certifyClaudeAccountEnvironment'` in its "must not be exported" list. It is a negative guard for the deleted member, not a reference. Kept.
 - Decision: commit B8 (`28e3bbd4d`) and B9. Reversible.
+
+## D20 — Phase P2 code review (2026-10-25, orchestrator)
+
+- Codex lane (no role, reviewer family codex, implementer Claude): REVISE 7/10 (`code-logic-review-p2.md`). 1 Serious (auth children lost the reserved directory physical-identity guard), 2 Moderate (late probe close never unblocks a pending auth operation; empty or headerless successful registry output treated as absence).
+- Decision: fix all three in one fix round. Moderate 2 leaves a profile pending with a persisted operation that needs manual recovery (state loss); Moderate 3 is a fail-open policy check (security). Both meet the "can break config or lose data" bar. Style note (add an explicit `implements` clause in B9 if the interface is importable without a boundary violation) is taken in the same round.
+- Fix run 1: finding 1. Fix run 2: findings 2 and 3 and the style note. Sequential (shared files). Then one short codex re-review on the fix diff.
+
+## D21 — B11 runner deletion moved to B13 (2026-10-25, orchestrator, evidence step)
+
+- Deleting the runner's unused `accountRoute` field and wrapper (`sdk-query-runner.service.ts`) breaks typecheck in `claude-account-route-env.spec.ts` (one-shot cases at lines 156-183, the `'one-shot'` `describe.each` row at 291, the call at 347). That spec belongs to B13. The B11 executor reverted the runner to HEAD.
+- Decision: B11 ships the model-service change only. B13 takes `sdk-query-runner.service.ts` as a sixth file and does the runner deletion together with the spec edit (B11 report has the verified edit: env literal identical to its pre-`697b7e31a` form). File-disjointness holds; B13 grows from 5 to 6 files. Reversible.
+- B11 also removed the optional `cliDetector` constructor dependency from `SdkModelService` (its only use was the named path; only the two B11 specs passed it). Accepted; the agent-sdk verify covers DI.
