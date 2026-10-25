@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, Injector, inject, signal } from '@angular/core';
 import type {
   ConfigGetScopesResult,
   RpcMethodName,
@@ -6,6 +6,8 @@ import type {
   RpcMethodResult,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
+import { EffortStateService } from './effort-state.service';
+import { ModelStateService } from './model-state.service';
 import { requireRpcData } from './providers-settings-sections';
 import type {
   ProvidersEditContext,
@@ -64,6 +66,8 @@ export interface ProvidersCommitHooks {
 export class ProvidersCommitService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly workspace = inject(WorkspaceScopeService);
+  /** Resolves the model and effort state only when a write needs it: both load on construction. */
+  private readonly injector = inject(Injector);
   private readonly commitState = signal<ProvidersSettingsCommit>(EMPTY_COMMIT);
   readonly commit = this.commitState.asReadonly();
 
@@ -96,6 +100,13 @@ export class ProvidersCommitService {
         fields: ['Main agent model'],
         write: async () => {
           await this.require('config:model-switch', params);
+          // A provider change in the same save re-syncs the model list on
+          // the auth read, which can land before this write. Re-read so the
+          // open session sends with the model just saved. Not awaited: the
+          // save must not wait for a list read (it never rejects).
+          void this.injector
+            .get(ModelStateService)
+            .refreshModels({ fresh: true });
           return true;
         },
         readBack: async () =>
@@ -108,6 +119,7 @@ export class ProvidersCommitService {
         fields: ['Main agent reasoning effort'],
         write: async () => {
           await this.require('config:effort-set', params);
+          void this.injector.get(EffortStateService).refreshEffort();
           return true;
         },
         readBack: async () =>
@@ -134,13 +146,15 @@ export class ProvidersCommitService {
     for (const field of ['provider', 'model', 'timeoutMs'] as const) {
       const requested = patch.enhancement?.[field];
       if (requested === undefined) continue;
-      const value = field === 'model' && typeof requested === 'string'
-        ? requested.trim() || 'inherit'
-        : requested;
+      const value =
+        field === 'model' && typeof requested === 'string'
+          ? requested.trim() || 'inherit'
+          : requested;
       const key = PROVIDERS_ENHANCEMENT_KEYS[field];
       operations.push({
         fields: [key],
-        write: async () => (await this.require('settings:set', { key, value })).success,
+        write: async () =>
+          (await this.require('settings:set', { key, value })).success,
         readBack: async () => {
           const stored = await this.require('settings:get', { key });
           return stored.success && stored.value === value;
