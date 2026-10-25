@@ -77,7 +77,10 @@ function makeHarness(
       resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     } as never,
     { streamEventsToWebview } as never,
-    { resolveProviderProfileForWorkspace: resolveProvider } as never,
+    {
+      resolveStoredModel: (_path: string, model: string) => model || 'default',
+      resolveProviderProfileForWorkspace: resolveProvider,
+    } as never,
     admission,
   );
   const route = (routeParams: ChatContinueParams = params) =>

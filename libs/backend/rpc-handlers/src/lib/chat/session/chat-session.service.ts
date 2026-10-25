@@ -877,7 +877,11 @@ export class ChatSessionService {
     });
 
     const currentModel =
-      options?.model || this.modelSettings.selectedModel.get() || 'default';
+      options?.model ||
+      this.workspaceProviderProfileResolver.resolveStoredModel(
+        workspaceId,
+        this.modelSettings.selectedModel.get(),
+      );
     const files = options?.files ?? [];
     if (files.length > 0) {
       this.logger.debug(`RPC: ${logLabel} received files`, {
@@ -1618,7 +1622,11 @@ export class ChatSessionService {
     });
 
     const currentModel =
-      params.model || this.modelSettings.selectedModel.get() || 'default';
+      params.model ||
+      this.workspaceProviderProfileResolver.resolveStoredModel(
+        workspacePath,
+        this.modelSettings.selectedModel.get(),
+      );
 
     try {
       // Same per-workspace isolation as chat:start — the resumed turn must run

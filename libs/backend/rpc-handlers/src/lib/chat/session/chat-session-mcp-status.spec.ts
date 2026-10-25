@@ -137,6 +137,9 @@ function makeHarness(opts: { broadcastRejects?: boolean } = {}): Harness {
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as never,
     {
+      resolveStoredModel: jest.fn(
+        (_path: string, model: string) => model || 'default',
+      ),
       resolveProviderProfileForWorkspace: jest
         .fn()
         .mockResolvedValue(undefined),

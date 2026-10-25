@@ -176,7 +176,10 @@ function makeHarness(
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
       hasProviderKey: jest.fn().mockResolvedValue(false),
     } as never,
-    { resolveProviderProfileForWorkspace } as never,
+    {
+      resolveStoredModel: (_path: string, model: string) => model || 'default',
+      resolveProviderProfileForWorkspace,
+    } as never,
     { resolveSessionFields } as never,
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,

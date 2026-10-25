@@ -100,6 +100,8 @@ interface Harness {
   startChatSession: jest.Mock;
   resumeSession: jest.Mock;
   executeSlashCommand: jest.Mock;
+  resolveStoredModel: jest.Mock;
+  storedModel: jest.Mock;
 }
 
 function makeHarness(resolve: jest.Mock): Harness {
@@ -118,7 +120,14 @@ function makeHarness(resolve: jest.Mock): Harness {
     interruptSession: jest.fn().mockResolvedValue(undefined),
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
   } as unknown as IAgentAdapter;
-  const resolver = { resolveProviderProfileForWorkspace: resolve } as never;
+  const resolveStoredModel = jest.fn(
+    (_path: string, model: string) => model || 'default',
+  );
+  const resolver = {
+    resolveStoredModel,
+    resolveProviderProfileForWorkspace: resolve,
+  } as never;
+  const modelSettings = createMockModelSettings();
   const sdkContext = {
     isMcpServerRunning: jest.fn().mockReturnValue(false),
     resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
@@ -132,7 +141,7 @@ function makeHarness(resolve: jest.Mock): Harness {
   const router = new ChatSlashCommandRouterService(
     createMockLogger() as unknown as Logger,
     { broadcastMessage: noop } as never,
-    createMockModelSettings() as unknown as ModelSettings,
+    modelSettings as unknown as ModelSettings,
     sdkAdapter,
     {
       intercept: jest
@@ -211,7 +220,7 @@ function makeHarness(resolve: jest.Mock): Harness {
           ? router.routeFollowUpSlashCommand(...args)
           : Promise.resolve(null),
     } as never,
-    createMockModelSettings() as unknown as ModelSettings,
+    modelSettings as unknown as ModelSettings,
     {
       getProviderKey: jest.fn().mockResolvedValue(null),
       setProviderKey: jest.fn().mockResolvedValue(undefined),
@@ -231,6 +240,8 @@ function makeHarness(resolve: jest.Mock): Harness {
     startChatSession,
     resumeSession,
     executeSlashCommand,
+    resolveStoredModel,
+    storedModel: modelSettings.selectedModel.get,
   };
 }
 
@@ -359,5 +370,77 @@ describe('no snapshot, shared env serves the same provider', () => {
     expect(result.success).toBe(true);
     const [config] = h.startChatSession.mock.calls[0];
     expect(config.providerProfile).toBeUndefined();
+  });
+});
+
+describe('the stored model is checked against the workspace provider', () => {
+  // The stored model belongs to whatever provider was active when it was
+  // saved; a send without its own `model` must not carry e.g. a Codex id to
+  // Anthropic. `resolveStoredModel` decides, and its answer is what runs.
+  function withStaleStoredModel(): Harness {
+    const h = makeHarness(jest.fn().mockResolvedValue(undefined));
+    h.storedModel.mockReturnValue('gpt-6-luna');
+    h.resolveStoredModel.mockReturnValue('default');
+    return h;
+  }
+
+  it('chat:start runs on the checked model, not the stored one', async () => {
+    const h = withStaleStoredModel();
+
+    await h.service.startSession({
+      tabId: TAB_ID,
+      prompt: 'Hello',
+      workspacePath: OPEN_FOLDER,
+    });
+
+    expect(h.resolveStoredModel).toHaveBeenCalledWith(
+      OPEN_FOLDER,
+      'gpt-6-luna',
+    );
+    expect(h.resolve).toHaveBeenCalledWith(OPEN_FOLDER, 'default');
+    const [config] = h.startChatSession.mock.calls[0];
+    expect(config.model).toBe('default');
+  });
+
+  it('chat:start keeps an explicit request model without the check', async () => {
+    const h = withStaleStoredModel();
+
+    await h.service.startSession({
+      tabId: TAB_ID,
+      prompt: 'Hello',
+      workspacePath: OPEN_FOLDER,
+      options: { model: 'claude-sonnet-5-5' },
+    });
+
+    expect(h.resolveStoredModel).not.toHaveBeenCalled();
+    const [config] = h.startChatSession.mock.calls[0];
+    expect(config.model).toBe('claude-sonnet-5-5');
+  });
+
+  it('chat:continue resumes on the checked model', async () => {
+    const h = withStaleStoredModel();
+
+    await h.service.continueSession(continueParams('More'));
+
+    expect(h.resolveStoredModel).toHaveBeenCalledWith(
+      OPEN_FOLDER,
+      'gpt-6-luna',
+    );
+    const [, config] = h.resumeSession.mock.calls[0];
+    expect(config.model).toBe('default');
+  });
+
+  it('a slash-command relaunch runs on the checked model', async () => {
+    const h = withStaleStoredModel();
+
+    await h.service.continueSession(continueParams('/compact'));
+
+    expect(h.resolveStoredModel).toHaveBeenCalledWith(
+      OPEN_FOLDER,
+      'gpt-6-luna',
+    );
+    expect(h.resolve).toHaveBeenCalledWith(OPEN_FOLDER, 'default');
+    const [, , config] = h.executeSlashCommand.mock.calls[0];
+    expect(config.sessionConfig.model).toBe('default');
   });
 });
