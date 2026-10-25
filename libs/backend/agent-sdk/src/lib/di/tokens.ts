@@ -23,6 +23,16 @@
  * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
 export const SDK_TOKENS = {
+  SESSION_APPROVAL_ROUTER: Symbol.for('SessionApprovalRouter'),
+  SESSION_RUNTIME_ROUTER: Symbol.for('SessionRuntimeRouter'),
+  SESSION_RUNTIME_IDENTITY_LOOKUP: Symbol.for('SessionRuntimeIdentityLookup'),
+  LEGACY_SESSION_CONTROL_PORTS: Symbol.for('LegacySessionControlPorts'),
+  NATIVE_SESSION_CONTROLS: Symbol.for('NativeSessionControls'),
+  LEGACY_SESSION_CONTROLS: Symbol.for('LegacySessionControls'),
+  ROUTING_AGENT_ADAPTER: Symbol.for('RoutingAgentAdapter'),
+  CODEX_CHAT_ADAPTER: Symbol.for('CodexChatAdapter'),
+  CODEX_CHAT_ADAPTER_PORTS: Symbol.for('CodexChatAdapterPorts'),
+  RUNTIME_HOST_CAPABILITIES: Symbol.for('RuntimeHostCapabilities'),
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
   HOST_ATTENTION_COORDINATOR: Symbol.for('HostAttentionCoordinator'),

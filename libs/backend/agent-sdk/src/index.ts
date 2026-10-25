@@ -141,9 +141,54 @@ export {
 } from './lib/errors';
 export {
   registerSdkServices,
+  registerCodexChatServices,
+  createCodexChatMetadataPort,
+  initializeSessionRuntimeIdentityLookup,
+  type InitializedSessionRuntimeIdentityLookup,
+  type LegacySessionControlPorts,
   wireAgentAdapterAliases,
 } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
+export {
+  CodexChatAdapter,
+  CodexChatAdapterError,
+  type CodexChatAdapterPorts,
+  type CodexChatMetadataPort,
+  type CodexChatScope,
+} from './lib/codex-app-server/codex-chat-adapter';
+export { RoutingAgentAdapter } from './lib/codex-app-server/routing-agent-adapter';
+export {
+  SessionApprovalRouter,
+  type SessionApprovalAddress,
+  type SessionApprovalReply,
+} from './lib/codex-app-server/session-approval-router';
+export {
+  SessionRuntimeRouter,
+  SessionRuntimeRoutingError,
+  type SessionRuntimeIdentityLookup,
+  type NativeSessionControls,
+} from './lib/codex-app-server/session-runtime-router';
+export {
+  LegacySessionControls,
+  LegacySessionControlError,
+  type LegacyControlledSession,
+  type LegacySessionLookup,
+  type LegacySettingsPersistence,
+  type LegacySlashCommands,
+} from './lib/codex-app-server/legacy-session-controls';
+export {
+  CodexChatApprovalSink,
+  CODEX_CHAT_APPROVAL_CHOICES,
+  type CodexChatApprovalReply,
+  type CodexChatApprovalPresentation,
+  type CodexChatApprovalFollowUp,
+} from './lib/codex-app-server/codex-chat-approval-sink';
+export {
+  CodexChatEvents,
+  type CodexChatTurnIdentity,
+  type CodexChatResult,
+  type CodexChatEventCallbacks,
+} from './lib/codex-app-server/codex-chat-events';
 export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
 export type { SdkDIToken } from './lib/di/tokens';
 export {

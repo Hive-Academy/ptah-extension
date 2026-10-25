@@ -29,6 +29,27 @@ import type {
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
 import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import {
+  SessionId,
+  type RuntimeHostCapabilities,
+  type SessionRuntimeIdentity,
+  type SessionRuntimeControls,
+  type IAgentAdapter,
+} from '@ptah-extension/shared';
+import { normalizeCodexWorkspaceKey } from '@ptah-extension/codex-runtime';
+import { RoutingAgentAdapter } from '../codex-app-server/routing-agent-adapter';
+import { LegacySessionControls } from '../codex-app-server/legacy-session-controls';
+import {
+  SessionRuntimeRouter,
+  type SessionRuntimeIdentityLookup,
+} from '../codex-app-server/session-runtime-router';
+import type { SessionMetadata } from '../session-metadata-store';
+import {
+  CodexChatAdapter,
+  type CodexChatAdapterPorts,
+  type CodexChatMetadataPort,
+} from '../codex-app-server/codex-chat-adapter';
+import { SessionApprovalRouter } from '../codex-app-server/session-approval-router';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
 import {
@@ -206,6 +227,7 @@ export function registerSdkServices(
   logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
+  registerCodexChatServices(container);
   // Product hosts do not consume model-dispatch provenance. Benchmark record
   // mode replaces this default with its collector after the container boots.
   container.registerInstance(
@@ -952,8 +974,264 @@ export function registerSdkServices(
   });
 }
 
+export type LegacySessionControlPorts = ConstructorParameters<
+  typeof LegacySessionControls
+>;
+
+export interface InitializedSessionRuntimeIdentityLookup extends SessionRuntimeIdentityLookup {
+  /** All native identity writes in composition must use this write-through port. */
+  updateCodexExecution: SessionMetadataStore['updateCodexExecution'];
+  releaseSession(sessionId: string): void;
+  dispose(): void;
+}
+
+/** Await before registering the lookup and enabling native routing. Hosts own disposal. */
+export async function initializeSessionRuntimeIdentityLookup(
+  store: Pick<
+    SessionMetadataStore,
+    'getAll' | 'get' | 'onMetadataChanged' | 'updateCodexExecution'
+  >,
+): Promise<InitializedSessionRuntimeIdentityLookup> {
+  const entries = new Map<string, SessionRuntimeIdentity>();
+  const sequences = new Map<string, number>();
+  const releases = new Map<string, number>();
+  const refreshing = new Set<Promise<void>>();
+  let disposed = false;
+  const advance = (id: string) => {
+    const sequence = (sequences.get(id) ?? 0) + 1;
+    sequences.set(id, sequence);
+    return sequence;
+  };
+  const replace = (id: string, metadata: SessionMetadata | null) => {
+    if (!metadata) {
+      entries.delete(id);
+      return;
+    }
+    entries.set(
+      id,
+      metadata.codexExecution ?? {
+        version: 1,
+        sessionId: SessionId.from(id),
+        runtime: 'claude-sdk',
+        providerId: metadata.providerId ?? 'claude-cli',
+        workspaceId: metadata.workspaceId,
+      },
+    );
+  };
+  const releaseSession = (id: string) => {
+    if (disposed) return;
+    releases.set(id, advance(id));
+    entries.delete(id);
+  };
+  const unsubscribe = store.onMetadataChanged(({ sessionId, kind }) => {
+    if (disposed) return;
+    if (kind === 'deleted') {
+      releaseSession(sessionId);
+      return;
+    }
+    const sequence = advance(sessionId);
+    const refresh = store
+      .get(sessionId)
+      .then((metadata) => {
+        if (!disposed && sequences.get(sessionId) === sequence)
+          replace(sessionId, metadata);
+      })
+      .catch(() => {
+        // Failed refreshes cannot retain a potentially stale runtime binding.
+        if (!disposed && sequences.get(sessionId) === sequence)
+          entries.delete(sessionId);
+      });
+    refreshing.add(refresh);
+    void refresh.finally(() => refreshing.delete(refresh));
+  });
+  const dispose = () => {
+    disposed = true;
+    unsubscribe();
+    entries.clear();
+    sequences.clear();
+    releases.clear();
+  };
+  try {
+    for (const row of await store.getAll()) {
+      if (!sequences.has(row.sessionId)) replace(row.sessionId, row);
+    }
+    await Promise.all(refreshing);
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+  return {
+    lookup: (id) => {
+      const persisted = entries.get(id);
+      return persisted ? { persisted } : undefined;
+    },
+    updateCodexExecution: async (id, updater) => {
+      if (disposed)
+        throw new Error('Session runtime identity lookup is disposed');
+      const releaseVersion = releases.get(id);
+      let written:
+        | Extract<SessionRuntimeIdentity, { runtime: 'codex-app-server' }>
+        | undefined;
+      await store.updateCodexExecution(id, (current) => {
+        const proposed = updater(current);
+        written = {
+          ...proposed,
+          workspaceId: normalizeCodexWorkspaceKey(
+            proposed.workspaceId,
+            process.platform,
+          ),
+        };
+        return written;
+      });
+      if (!disposed && written && releases.get(id) === releaseVersion) {
+        advance(id);
+        entries.set(id, written);
+      }
+    },
+    releaseSession,
+    dispose,
+  };
+}
+
+/** Pass the initialized lookup as the writer so persistence also updates routing. */
+export function createCodexChatMetadataPort(
+  store: Pick<SessionMetadataStore, 'updateCodexExecution'>,
+): CodexChatMetadataPort {
+  return {
+    save: (sessionId, identity) => {
+      if (sessionId !== identity.threadId) {
+        return Promise.reject(
+          new Error('Codex session/thread identity mismatch'),
+        );
+      }
+      return store.updateCodexExecution(sessionId, () => ({
+        version: 1,
+        runtime: 'codex-app-server',
+        sessionId,
+        providerId: identity.providerId,
+        workspaceId: identity.workspaceId,
+        codex: { normalizedHome: identity.normalizedHome },
+      }));
+    },
+  };
+}
+
+/** Hosts supply ports before first resolution; registration alone opens no runtime. */
+export function registerCodexChatServices(
+  container: DependencyContainer,
+): void {
+  if (!container.isRegistered(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, true)) {
+    container.registerInstance<RuntimeHostCapabilities>(
+      SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+      { nativeCodex: false },
+    );
+  }
+  if (!container.isRegistered(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, true)) {
+    container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
+      useFactory: () => null,
+    });
+  }
+  for (const token of [
+    SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+    SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+    SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+  ]) {
+    if (!container.isRegistered(token, true))
+      container.register(token, { useFactory: () => null });
+  }
+  container.register(SDK_TOKENS.LEGACY_SESSION_CONTROLS, {
+    useFactory: instanceCachingFactory((c) => {
+      const ports = c.resolve<LegacySessionControlPorts | null>(
+        SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS,
+      );
+      return ports ? new LegacySessionControls(...ports) : null;
+    }),
+  });
+  container.register(SDK_TOKENS.SESSION_RUNTIME_ROUTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      const legacy = c.resolve<LegacySessionControls | null>(
+        SDK_TOKENS.LEGACY_SESSION_CONTROLS,
+      );
+      const native = c.resolve<SessionRuntimeControls | null>(
+        SDK_TOKENS.NATIVE_SESSION_CONTROLS,
+      );
+      return identities && legacy && native
+        ? new SessionRuntimeRouter(identities, legacy, native)
+        : null;
+    }),
+  });
+  container.register(SDK_TOKENS.ROUTING_AGENT_ADAPTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      const native = c.resolve<CodexChatAdapter | null>(
+        SDK_TOKENS.CODEX_CHAT_ADAPTER,
+      );
+      return identities && native
+        ? new RoutingAgentAdapter(
+            identities,
+            c.resolve<IAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+            native,
+            c.resolve<RuntimeHostCapabilities>(
+              SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+            ),
+          )
+        : null;
+    }),
+  });
+  container.register(SDK_TOKENS.SESSION_APPROVAL_ROUTER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new SessionApprovalRouter(
+          c.resolve<SdkPermissionHandler>(SDK_TOKENS.SDK_PERMISSION_HANDLER),
+          (payload) =>
+            c
+              .resolve<CodexChatAdapterPorts | null>(
+                SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+              )
+              ?.presentation.cancelPrompt(payload),
+        ),
+    ),
+  });
+  container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER, {
+    useFactory: instanceCachingFactory((c) => {
+      const ports = c.resolve<CodexChatAdapterPorts | null>(
+        SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
+      );
+      if (!ports) return null;
+      const identities =
+        c.resolve<InitializedSessionRuntimeIdentityLookup | null>(
+          SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
+        );
+      if (!identities) return null;
+      return new CodexChatAdapter({
+        ...ports,
+        approvals: c.resolve<SessionApprovalRouter>(
+          SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+        ),
+        metadata: createCodexChatMetadataPort(identities),
+      });
+    }),
+  });
+}
+
 export function wireAgentAdapterAliases(container: DependencyContainer): void {
   container.register(TOKENS.AGENT_ADAPTER, {
-    useFactory: (c) => c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER),
+    useFactory: (c) => {
+      const routing = c.isRegistered(SDK_TOKENS.ROUTING_AGENT_ADAPTER, true)
+        ? c.resolve<RoutingAgentAdapter | null>(
+            SDK_TOKENS.ROUTING_AGENT_ADAPTER,
+          )
+        : null;
+      return (
+        routing ?? c.resolve<SdkAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER)
+      );
+    },
   });
 }
