@@ -1,6 +1,6 @@
 ---
 name: agent-lanes
-description: 'Contract for spawning, resuming and messaging background CLI agent lanes via the ptah_agent_* tools. Load before any ptah_agent_spawn, or when orchestration or tribunal refers here.'
+description: 'Contract for background CLI agent lanes via the ptah_agent_* tools. Use when a task spawns or resumes a lane, or checks, messages, recovers or verifies one, even if it never names a tool, orchestration or tribunal. Load before any ptah_agent_spawn. This is the mechanic orchestration and tribunal load for lane work, not a substitute for the engineering workflow or for a multi-vendor panel.'
 ---
 
 # Agent Lanes
@@ -244,7 +244,7 @@ Child-side sources of truth:
 
 - `PTAH_LANE_POLICY` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`), on each CLI's strongest channel (canary `Lane policy id: …`).
 - `TWO_WAY_MESSAGING_GUIDANCE` (same file), only when that spawn has an MCP port and an agent id. Branch on the returned `mode`. Do not treat a messaging mode as available.
-- `renderLaneCompletionContract` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`), on every lane. Its shared `PTAH_MCP_TOOL_GUIDANCE` tells the child to use the identifier shown for the Ptah server, including one found through MCP search. If no Ptah server is connected, the child reports in its final message and continues.
+- `renderLaneCompletionContract` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`), on every lane.
 
 This section and the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
 

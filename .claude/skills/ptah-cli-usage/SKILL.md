@@ -1,20 +1,16 @@
 ---
 name: ptah-cli-usage
-description: Drives the headless Ptah CLI (@hive-academy/ptah-cli, JSON-RPC over stdio) for CI pipelines, agent-to-agent bridges such as OpenClaw or NemoClaw, scripted refactors and MCP serving. Use when the user mentions ptah cli, ptah session start, ptah interact, ptah auth, ptah provider or headless Ptah.
+description: Drives the headless Ptah CLI when CI, another process, or a bridge must run Ptah with no clickable UI, including agent-to-agent bridges, scripted refactors, batch jobs, daemons and serving Ptah tools to another MCP host. If a person needs to click, use the VS Code extension or the Electron app.
 ---
 
 # Ptah CLI Usage
 
-## When to use this skill
+## Which surface
 
 `@hive-academy/ptah-cli` ships the same DI graph used by the Ptah VS Code
 extension and Electron app, exposed as a single `ptah` binary that speaks
-JSON-RPC 2.0 NDJSON over stdio. Reach for it whenever Ptah has to run
-**headless**: agent-to-agent bridges, CI pipelines, scripted refactors,
-batch operations, daemon integrations, or serving Ptah's tools to another
-MCP host. If a human needs to click something, use the VS Code extension
-or the Electron app instead — the CLI has no UI and exits when stdin
-closes.
+JSON-RPC 2.0 NDJSON over stdio. The CLI has no clickable UI. One-shot commands exit
+after their terminal result, and an `interact` session ends when stdin closes.
 
 | Need                                                     | Use                           |
 | -------------------------------------------------------- | ----------------------------- |
