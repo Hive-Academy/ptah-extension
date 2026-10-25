@@ -102,8 +102,9 @@ export class ProvidersCommitService {
           await this.require('config:model-switch', params);
           // A provider change in the same save re-syncs the model list on
           // the auth read, which can land before this write. Re-read so the
-          // open session sends with the model just saved.
-          await this.injector
+          // open session sends with the model just saved. Not awaited: the
+          // save must not wait for a list read (it never rejects).
+          void this.injector
             .get(ModelStateService)
             .refreshModels({ fresh: true });
           return true;
@@ -118,7 +119,7 @@ export class ProvidersCommitService {
         fields: ['Main agent reasoning effort'],
         write: async () => {
           await this.require('config:effort-set', params);
-          await this.injector.get(EffortStateService).refreshEffort();
+          void this.injector.get(EffortStateService).refreshEffort();
           return true;
         },
         readBack: async () =>

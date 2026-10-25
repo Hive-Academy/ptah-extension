@@ -434,6 +434,17 @@ describe('ProvidersCommitService', () => {
       expect(refreshEffort).toHaveBeenCalledTimes(1);
     });
 
+    it('does not make the save wait for the model or effort re-read', async () => {
+      refreshModels.mockReturnValue(new Promise<void>(() => undefined));
+      refreshEffort.mockReturnValue(new Promise<void>(() => undefined));
+      const [model, effort] = service.operations({
+        model: { model: 'haiku' },
+        effort: { effort: 'low' },
+      });
+      await expect(model.write()).resolves.toBe(true);
+      await expect(effort.write()).resolves.toBe(true);
+    });
+
     it('never names a CLI credential value, only its field', () => {
       const [operation] = service.operations({
         cli: [
