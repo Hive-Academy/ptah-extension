@@ -40,6 +40,11 @@ import {
 
 import { ExternalPluginStateStore } from '@ptah-extension/plugin-marketplace';
 
+import { SdkError } from '../errors';
+import {
+  PLUGIN_CONFIG_HOME_KEY_PREFIX,
+  canonicalRootKey,
+} from './plugin-config-home';
 import { PluginLoaderService } from './plugin-loader.service';
 
 /**
@@ -1588,5 +1593,741 @@ describe('PluginLoaderService — reads scoped to a workspace root', () => {
     expect(h.service.resolveCurrentPluginPaths(root)).toEqual([
       wsPlugin(h, 'ptah-harness-solo'),
     ]);
+  });
+});
+
+describe('PluginLoaderService — harness-root configuration home (D14)', () => {
+  const CONFIG_KEY = 'ptah.plugins.config';
+
+  type MapStorage = IStateStorage & { raw: Map<string, unknown> };
+
+  function mapStorage(initial?: unknown): MapStorage {
+    const raw = new Map<string, unknown>();
+    if (initial !== undefined) raw.set(CONFIG_KEY, initial);
+    return {
+      raw,
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        raw.has(key) ? (raw.get(key) as T) : defaultValue,
+      update: async (key: string, value: unknown): Promise<void> => {
+        raw.set(key, value);
+      },
+      keys: (): readonly string[] => [...raw.keys()],
+    };
+  }
+
+  /** Global storage whose writes can be failed or held open. */
+  function createHomeStorage() {
+    const raw = new Map<string, unknown>();
+    const writes: Array<{ key: string; value: unknown }> = [];
+    let failures = 0;
+    let gate: Promise<void> | null = null;
+    const storage: IStateStorage = {
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        raw.has(key) ? (raw.get(key) as T) : defaultValue,
+      update: async (key: string, value: unknown): Promise<void> => {
+        writes.push({ key, value });
+        if (gate !== null) await gate;
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error('disk full');
+        }
+        raw.set(key, value);
+      },
+      keys: (): readonly string[] => [...raw.keys()],
+    };
+    return {
+      storage,
+      raw,
+      writes,
+      failNextWrites(count: number): void {
+        failures = count;
+      },
+      /** Hold every write until the returned release is called. */
+      hold(): () => void {
+        let release: () => void = () => undefined;
+        gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return () => {
+          gate = null;
+          release();
+        };
+      },
+    };
+  }
+
+  function cfg(overrides: Partial<PluginConfigState> = {}): PluginConfigState {
+    return {
+      enabledPluginIds: [],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+      disabledAgentIds: [],
+      ...overrides,
+    };
+  }
+
+  /** Every microtask and the write chains behind them have run. */
+  const flush = (): Promise<void> =>
+    new Promise<void>((resolve) => setImmediate(resolve));
+
+  interface HomeEnv {
+    service: PluginLoaderService;
+    logger: MockLogger;
+    repo: string;
+    a: string;
+    b: string;
+    nested: string;
+    folders: Map<string, MapStorage>;
+    home: ReturnType<typeof createHomeStorage>;
+    open(folder: string, config?: unknown): void;
+    close(folder: string): void;
+    setActive(folder: string): void;
+    /** The home record of `root` (the repository by default). */
+    record(root?: string): unknown;
+    /** The stored folder config of `folder`. */
+    folderConfig(folder: string): unknown;
+  }
+
+  function makeHomeEnv(options: { withHome?: boolean } = {}): HomeEnv {
+    const pluginsBasePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-home-plugins-'),
+    );
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-home-repo-'));
+    created.push(pluginsBasePath, repo);
+    const a = path.join(repo, 'a');
+    const b = path.join(repo, 'b');
+    const nested = path.join(repo, 'nested');
+    for (const dir of [a, b, nested]) fs.mkdirSync(dir, { recursive: true });
+
+    const folders = new Map<string, MapStorage>();
+    let active = a;
+    const activeStorage = (): MapStorage => {
+      const storage = folders.get(path.resolve(active));
+      if (storage === undefined) throw new Error('no active folder storage');
+      return storage;
+    };
+    const scoped = {
+      get: <T>(key: string, defaultValue?: T): T | undefined =>
+        folders.get(path.resolve(active))?.get<T>(key, defaultValue),
+      update: (key: string, value: unknown): Promise<void> =>
+        activeStorage().update(key, value),
+      keys: (): readonly string[] =>
+        folders.get(path.resolve(active))?.keys() ?? [],
+      getStorageForWorkspace: (workspacePath: string) =>
+        folders.get(workspacePath),
+      getAllWorkspacePaths: () => [...folders.keys()],
+    };
+
+    // `nested` is its own repository; everything else belongs to `repo`.
+    const nestedKey = canonicalRootKey(nested);
+    const harnessRootOf = (folder: string): string => {
+      const key = canonicalRootKey(folder);
+      return key === nestedKey || key.startsWith(nestedKey + path.sep)
+        ? nested
+        : repo;
+    };
+
+    const home = createHomeStorage();
+    const logger = createMockLogger();
+    const externalStore = new ExternalPluginStateStore();
+    externalStore.initialize(pluginsBasePath);
+    const service = new PluginLoaderService(
+      logger as unknown as Logger,
+      externalStore,
+      { getWorkspaceRoot: () => active } as never,
+    );
+    service.initialize(
+      pluginsBasePath,
+      scoped as unknown as IStateStorage,
+      options.withHome === false
+        ? {}
+        : { harnessRootOf, homeStorage: home.storage },
+    );
+
+    return {
+      service,
+      logger,
+      repo,
+      a,
+      b,
+      nested,
+      folders,
+      home,
+      open(folder, config) {
+        folders.set(path.resolve(folder), mapStorage(config));
+      },
+      close(folder) {
+        folders.delete(path.resolve(folder));
+      },
+      setActive(folder) {
+        active = folder;
+      },
+      record(root = repo) {
+        return home.raw.get(
+          `${PLUGIN_CONFIG_HOME_KEY_PREFIX}${canonicalRootKey(root)}`,
+        );
+      },
+      folderConfig(folder) {
+        return folders.get(path.resolve(folder))?.raw.get(CONFIG_KEY);
+      },
+    };
+  }
+
+  function seedRecord(env: HomeEnv, config: unknown): void {
+    env.home.raw.set(
+      `${PLUGIN_CONFIG_HOME_KEY_PREFIX}${canonicalRootKey(env.repo)}`,
+      {
+        version: 1,
+        harnessRoot: path.resolve(env.repo),
+        config,
+        origin: 'saved',
+        sourceFolders: [],
+        dismissed: {},
+      },
+    );
+  }
+
+  const withoutStamp = (config: unknown): PluginConfigState => ({
+    ...(config as PluginConfigState),
+    lastUpdated: undefined,
+  });
+
+  it('home inactive: a single-scope storage with both options reads and saves exactly as without them', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-home-single-'));
+    const pluginsBasePath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-home-single-plugins-'),
+    );
+    created.push(root, pluginsBasePath);
+    const stored = cfg({ disabledSkillIds: ['x'], lastUpdated: 't1' });
+    const make = (withOptions: boolean) => {
+      const storage = mapStorage(stored);
+      const home = createHomeStorage();
+      const externalStore = new ExternalPluginStateStore();
+      externalStore.initialize(pluginsBasePath);
+      const service = new PluginLoaderService(
+        createMockLogger() as unknown as Logger,
+        externalStore,
+        createWorkspaceProvider(root) as never,
+      );
+      service.initialize(
+        pluginsBasePath,
+        storage,
+        withOptions
+          ? { harnessRootOf: () => root, homeStorage: home.storage }
+          : {},
+      );
+      return { service, storage, home };
+    };
+    const plain = make(false);
+    const withOptions = make(true);
+
+    for (const target of [undefined, root, path.join(root, 'elsewhere')]) {
+      expect(withOptions.service.getWorkspacePluginConfig(target)).toEqual(
+        plain.service.getWorkspacePluginConfig(target),
+      );
+      expect(
+        (await withOptions.service.getEffectivePluginConfig(target)).config,
+      ).toEqual((await plain.service.getEffectivePluginConfig(target)).config);
+    }
+
+    const payload = { enabledPluginIds: ['ptah-core'], disabledSkillIds: [] };
+    await plain.service.saveWorkspacePluginConfig(payload);
+    await withOptions.service.saveWorkspacePluginConfig(payload);
+    expect(withoutStamp(withOptions.storage.get(CONFIG_KEY))).toEqual(
+      withoutStamp(plain.storage.get(CONFIG_KEY)),
+    );
+    expect(withOptions.home.writes).toEqual([]);
+    expect(withOptions.service.getConfigHomeStatus()).toBeNull();
+    await expect(
+      withOptions.service.adoptFolderConfig(root, root),
+    ).rejects.toBeInstanceOf(SdkError);
+  });
+
+  it('home inactive: workspace-scoped storage without options keeps per-folder reads', () => {
+    const env = makeHomeEnv({ withHome: false });
+    env.open(env.a, cfg({ disabledSkillIds: ['a-skill'] }));
+    env.open(env.b, cfg({ disabledSkillIds: ['b-skill'] }));
+
+    expect(
+      env.service.getWorkspacePluginConfig(env.b).disabledSkillIds,
+    ).toEqual(['b-skill']);
+    expect(env.service.hasWorkspaceState(env.repo)).toBe(false);
+    expect(env.service.getConfigHomeStatus(env.a)).toBeNull();
+    expect(env.home.writes).toEqual([]);
+  });
+
+  it('sole legacy config in a sub-folder, empty home: the read returns it and the record is imported once (idempotent)', async () => {
+    const env = makeHomeEnv();
+    const legacy = cfg({
+      disabledSkillIds: ['s1'],
+      lastUpdated: '2026-01-01T00:00:00.000Z',
+    });
+    env.open(env.a, legacy);
+
+    expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(legacy);
+    await flush();
+    expect(env.home.writes).toHaveLength(1);
+    expect(env.record()).toMatchObject({
+      version: 1,
+      origin: 'imported',
+      sourceFolders: [path.resolve(env.a)],
+      config: { disabledSkillIds: ['s1'] },
+    });
+    expect(env.service.getConfigHomeStatus(env.a)).toMatchObject({
+      harnessRoot: path.resolve(env.repo),
+      state: 'imported',
+    });
+
+    env.service.getWorkspacePluginConfig(env.a);
+    env.service.getWorkspacePluginConfig(env.b);
+    env.service.getWorkspacePluginConfig();
+    await flush();
+    expect(env.home.writes).toHaveLength(1);
+    // The folder record is read only.
+    expect(env.folderConfig(env.a)).toEqual(legacy);
+
+    // The import notice is dismissible.
+    await env.service.dismissFolderConfig(env.repo, env.a);
+    expect(env.service.getConfigHomeStatus(env.a)).toBeNull();
+  });
+
+  it('an intentionally saved empty config is present: it is imported as empty, not treated as absent', async () => {
+    const env = makeHomeEnv();
+    const empty = cfg({ lastUpdated: '2026-02-01T00:00:00.000Z' });
+    env.open(env.a, empty);
+
+    expect(env.service.getWorkspacePluginConfig(env.b)).toEqual(empty);
+    await flush();
+    expect(env.record()).toMatchObject({ origin: 'imported', config: empty });
+
+    // Beside a non-empty sibling it is a real, different choice.
+    const other = makeHomeEnv();
+    other.open(other.a, empty);
+    other.open(
+      other.b,
+      cfg({
+        disabledSkillIds: ['s2'],
+        lastUpdated: '2026-01-01T00:00:00.000Z',
+      }),
+    );
+    expect(other.service.getConfigHomeStatus(other.b)).toMatchObject({
+      state: 'conflict',
+      governingFolder: path.resolve(other.a),
+    });
+    expect(
+      other.service.getWorkspacePluginConfig(other.b).disabledSkillIds,
+    ).toEqual([]);
+  });
+
+  it('home present and empty, sibling holds a non-empty config: the home governs, state differs, sibling bytes unchanged', async () => {
+    const env = makeHomeEnv();
+    seedRecord(env, cfg());
+    const sibling = cfg({ disabledPluginIds: ['p'], lastUpdated: 't' });
+    env.open(env.a, sibling);
+
+    expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(cfg());
+    expect(env.service.getConfigHomeStatus(env.a)).toEqual({
+      harnessRoot: path.resolve(env.repo),
+      state: 'differs',
+      candidates: [
+        {
+          folder: path.resolve(env.a),
+          lastUpdated: 't',
+          enabledCount: 0,
+          disabledCount: 1,
+          differsFromHome: true,
+        },
+      ],
+    });
+    await flush();
+    expect(env.home.writes).toEqual([]);
+    expect(env.folderConfig(env.a)).toEqual(sibling);
+  });
+
+  describe('repo/a and repo/b open at once with conflicting lists', () => {
+    const configA = cfg({
+      enabledPluginIds: ['ptah-core'],
+      disabledSkillIds: ['x'],
+      lastUpdated: '2026-03-01T00:00:00.000Z',
+    });
+    const configB = cfg({
+      enabledPluginIds: ['ptah-angular'],
+      disabledPluginIds: ['ptah-harness-z'],
+      lastUpdated: '2026-04-01T00:00:00.000Z',
+    });
+
+    function conflictEnv(): HomeEnv {
+      const env = makeHomeEnv();
+      env.open(env.a, configA);
+      env.open(env.b, configB);
+      return env;
+    }
+
+    it('reports a conflict, reads the later lastUpdated everywhere and writes nothing', async () => {
+      const env = conflictEnv();
+
+      for (const target of [env.a, env.b, env.repo, undefined]) {
+        expect(env.service.getWorkspacePluginConfig(target)).toEqual(configB);
+      }
+      expect(env.service.getConfigHomeStatus(env.a)).toMatchObject({
+        state: 'conflict',
+        governingFolder: path.resolve(env.b),
+        candidates: [
+          { folder: path.resolve(env.a), differsFromHome: true },
+          { folder: path.resolve(env.b), differsFromHome: false },
+        ],
+      });
+      await flush();
+      expect(env.home.writes).toEqual([]);
+      expect(env.folderConfig(env.a)).toEqual(configA);
+      expect(env.folderConfig(env.b)).toEqual(configB);
+    });
+
+    it('a tie on lastUpdated goes to the lowest folder key', () => {
+      const env = makeHomeEnv();
+      env.open(env.a, { ...configA, lastUpdated: 'same' });
+      env.open(env.b, { ...configB, lastUpdated: 'same' });
+
+      expect(env.service.getConfigHomeStatus(env.b)?.governingFolder).toBe(
+        path.resolve(env.a),
+      );
+      expect(
+        env.service.getWorkspacePluginConfig(env.b).enabledPluginIds,
+      ).toEqual(['ptah-core']);
+    });
+
+    it('adopt(repo/b) makes the home equal b exactly (no union) and a then shows as differs', async () => {
+      const env = conflictEnv();
+
+      await env.service.adoptFolderConfig(env.repo, env.b);
+
+      expect(env.record()).toMatchObject({
+        origin: 'adopted',
+        sourceFolders: [path.resolve(env.b)],
+        config: configB,
+      });
+      expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(configB);
+      expect(env.service.getConfigHomeStatus(env.a)).toMatchObject({
+        state: 'differs',
+        candidates: [
+          { folder: path.resolve(env.a), differsFromHome: true },
+          { folder: path.resolve(env.b), differsFromHome: false },
+        ],
+      });
+    });
+
+    it('dismiss(repo/a) hides its notice until the lastUpdated of a changes', async () => {
+      const env = conflictEnv();
+      await env.service.adoptFolderConfig(env.repo, env.b);
+
+      await env.service.dismissFolderConfig(env.repo, env.a);
+      expect(env.service.getConfigHomeStatus(env.a)).toBeNull();
+
+      env.open(env.a, { ...configA, lastUpdated: '2026-05-01T00:00:00.000Z' });
+      expect(env.service.getConfigHomeStatus(env.a)?.state).toBe('differs');
+    });
+
+    it('dismiss is refused while the folders conflict; a conflict is resolved by adopting', async () => {
+      const env = conflictEnv();
+      await expect(
+        env.service.dismissFolderConfig(env.repo, env.a),
+      ).rejects.toBeInstanceOf(SdkError);
+      expect(env.home.writes).toEqual([]);
+    });
+
+    it('adopt rejects a folder that holds no config under the root', async () => {
+      const env = conflictEnv();
+      env.open(env.nested, configA);
+      await expect(
+        env.service.adoptFolderConfig(env.repo, env.nested),
+      ).rejects.toBeInstanceOf(SdkError);
+      await expect(
+        env.service.adoptFolderConfig(env.repo, path.join(env.repo, 'c')),
+      ).rejects.toBeInstanceOf(SdkError);
+      expect(env.home.writes).toEqual([]);
+    });
+
+    it('a save during the conflict creates the record from the payload; the other folders show as differs', async () => {
+      const env = conflictEnv();
+
+      await env.service.saveWorkspacePluginConfig(
+        { enabledPluginIds: ['ptah-react'], disabledSkillIds: [] },
+        env.a,
+      );
+
+      expect(env.record()).toMatchObject({
+        origin: 'saved',
+        config: { enabledPluginIds: ['ptah-react'], disabledSkillIds: [] },
+      });
+      expect(env.service.getConfigHomeStatus(env.b)).toMatchObject({
+        state: 'differs',
+        candidates: [
+          { folder: path.resolve(env.a), differsFromHome: true },
+          { folder: path.resolve(env.b), differsFromHome: true },
+        ],
+      });
+      expect(env.folderConfig(env.a)).toEqual(configA);
+      expect(env.folderConfig(env.b)).toEqual(configB);
+    });
+  });
+
+  it('transitions keep the home: active folder change, an earlier sibling, closing the imported folder, opening the root', async () => {
+    const env = makeHomeEnv();
+    const governing = cfg({ disabledSkillIds: ['kept'], lastUpdated: 't-b' });
+    env.open(env.b, governing);
+    env.setActive(env.b);
+    expect(env.service.getWorkspacePluginConfig()).toEqual(governing);
+    await flush();
+    expect(env.record()).toMatchObject({ origin: 'imported' });
+
+    // A lexically earlier sibling with its own saved settings opens.
+    env.open(env.a, cfg({ disabledSkillIds: ['other'], lastUpdated: 't-a' }));
+    expect(
+      env.service.getWorkspacePluginConfig(env.a).disabledSkillIds,
+    ).toEqual(['kept']);
+    // The active folder changes.
+    env.setActive(env.a);
+    expect(env.service.getWorkspacePluginConfig().disabledSkillIds).toEqual([
+      'kept',
+    ]);
+    // The imported folder closes.
+    env.close(env.b);
+    expect(
+      env.service.getWorkspacePluginConfig(env.a).disabledSkillIds,
+    ).toEqual(['kept']);
+    // The repository root itself opens.
+    env.open(env.repo);
+    env.setActive(env.repo);
+    expect(env.service.getWorkspacePluginConfig().disabledSkillIds).toEqual([
+      'kept',
+    ]);
+
+    await flush();
+    expect(env.home.writes).toHaveLength(1);
+  });
+
+  it('an import write that fails leaves reads on the folder config and is retried on the next read', async () => {
+    const env = makeHomeEnv();
+    const legacy = cfg({ disabledSkillIds: ['s1'], lastUpdated: 't' });
+    env.open(env.a, legacy);
+    env.home.failNextWrites(1);
+
+    expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(legacy);
+    await flush();
+    expect(env.record()).toBeUndefined();
+    expect(env.service.getConfigHomeStatus(env.a)).toBeNull();
+    expect(env.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('import failed'),
+      expect.objectContaining({ harnessRoot: path.resolve(env.repo) }),
+    );
+
+    expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(legacy);
+    await flush();
+    expect(env.home.writes).toHaveLength(2);
+    expect(env.record()).toMatchObject({ origin: 'imported' });
+  });
+
+  it('a save write that fails throws SdkError and leaves the record unchanged', async () => {
+    const env = makeHomeEnv();
+    env.open(env.a);
+    seedRecord(env, cfg({ disabledSkillIds: ['before'] }));
+    const before = env.record();
+    env.home.failNextWrites(1);
+
+    await expect(
+      env.service.saveWorkspacePluginConfig(
+        { enabledPluginIds: ['ptah-core'], disabledSkillIds: [] },
+        env.a,
+      ),
+    ).rejects.toBeInstanceOf(SdkError);
+    expect(env.record()).toBe(before);
+  });
+
+  it('a concurrent save during a pending import is serialized after it and wins without losing a list', async () => {
+    const env = makeHomeEnv();
+    env.open(
+      env.a,
+      cfg({
+        disabledSkillIds: ['s1'],
+        disabledAgentIds: ['agent-1'],
+        lastUpdated: 't',
+      }),
+    );
+    const release = env.home.hold();
+
+    env.service.getWorkspacePluginConfig(env.a);
+    const save = env.service.saveWorkspacePluginConfig(
+      { enabledPluginIds: ['ptah-core'], disabledSkillIds: ['s1', 's2'] },
+      env.a,
+    );
+    await flush();
+    expect(env.home.writes).toHaveLength(1);
+
+    release();
+    await save;
+    await flush();
+    expect(
+      env.home.writes.map(
+        (write) => (write.value as { origin: string }).origin,
+      ),
+    ).toEqual(['imported', 'saved']);
+    expect(env.record()).toMatchObject({
+      origin: 'saved',
+      config: {
+        enabledPluginIds: ['ptah-core'],
+        disabledSkillIds: ['s1', 's2'],
+        disabledAgentIds: ['agent-1'],
+      },
+    });
+  });
+
+  it('a nested repository (another harness root) is never a candidate', async () => {
+    const env = makeHomeEnv();
+    env.open(env.a, cfg({ disabledSkillIds: ['outer'], lastUpdated: 't' }));
+    env.open(
+      env.nested,
+      cfg({ disabledSkillIds: ['inner'], lastUpdated: 't' }),
+    );
+
+    expect(
+      env.service.getWorkspacePluginConfig(env.a).disabledSkillIds,
+    ).toEqual(['outer']);
+    expect(
+      env.service.getWorkspacePluginConfig(env.nested).disabledSkillIds,
+    ).toEqual(['inner']);
+    await flush();
+    expect(env.record()).toMatchObject({
+      sourceFolders: [path.resolve(env.a)],
+    });
+    expect(env.record(env.nested)).toMatchObject({
+      sourceFolders: [path.resolve(env.nested)],
+    });
+    expect(
+      env.service
+        .getConfigHomeStatus(env.a)
+        ?.candidates.map((candidate) => candidate.folder),
+    ).toEqual([path.resolve(env.a)]);
+  });
+
+  it('hasWorkspaceState is true for a sub-folder and for the harness root when the home is active', () => {
+    const env = makeHomeEnv();
+    env.open(env.a);
+
+    expect(env.service.hasWorkspaceState(env.a)).toBe(true);
+    expect(env.service.hasWorkspaceState(env.repo)).toBe(true);
+    expect(env.service.hasWorkspaceState(env.b)).toBe(true);
+  });
+
+  it('a malformed home record makes the strict read an error and the lenient read the empty default', async () => {
+    const env = makeHomeEnv();
+    env.open(env.a, cfg({ disabledSkillIds: ['s1'], lastUpdated: 't' }));
+    seedRecord(env, 'garbage');
+
+    expect(env.service.getWorkspacePluginConfig(env.a)).toEqual(
+      cfg({ lastUpdated: undefined }),
+    );
+    await expect(
+      env.service.getEffectivePluginConfig(env.a),
+    ).rejects.toBeInstanceOf(SdkError);
+    expect(env.service.getConfigHomeStatus(env.a)).toBeNull();
+    await flush();
+    expect(env.home.writes).toEqual([]);
+  });
+});
+
+describe('PluginLoaderService — plugin source descriptors and contents', () => {
+  it('describes all four families, keeping two externals with one basename apart', async () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        harnessDirs: [
+          'ptah-harness-release-notes',
+          'ptah-skillssh-acme-tailwind-v4',
+        ],
+        workspaceHarnessDirs: ['ptah-harness-local'],
+      }),
+    );
+    for (const [pluginId, source, displayName] of [
+      ['external:acme/toolkit/toolkit', 'acme/toolkit', 'Acme Toolkit'],
+      ['external:beta/plugins/toolkit', 'beta/plugins', 'Beta Toolkit'],
+    ]) {
+      await h.externalStore.recordInstall({
+        ...externalRecord(pluginId, 'toolkit'),
+        source,
+        displayName,
+      });
+    }
+
+    const descriptors = h.service.getPluginSourceDescriptors();
+    const names = new Map(
+      h.service.getAvailablePlugins().map((plugin) => [plugin.id, plugin.name]),
+    );
+    const base = h.pluginsBasePath;
+
+    expect(descriptors[path.join(base, 'ptah-core')]).toEqual({
+      sourceRef: 'ptah:ptah-core',
+      label: names.get('ptah-core'),
+    });
+    expect(descriptors[path.join(base, 'ptah-harness-release-notes')]).toEqual({
+      sourceRef: 'harness:ptah-harness-release-notes',
+      label: 'Release Notes',
+    });
+    expect(descriptors[wsPlugin(h, 'ptah-harness-local')]).toEqual({
+      sourceRef: 'harness:ptah-harness-local',
+      label: 'Local',
+    });
+    expect(
+      descriptors[path.join(base, 'ptah-skillssh-acme-tailwind-v4')],
+    ).toEqual({
+      sourceRef: 'skills-sh:ptah-skillssh-acme-tailwind-v4',
+      label: names.get('ptah-skillssh-acme-tailwind-v4'),
+    });
+    expect(
+      descriptors[path.join(base, 'external', 'acme', 'toolkit', 'toolkit')],
+    ).toEqual({
+      sourceRef: 'external:acme/toolkit/toolkit',
+      label: 'Acme Toolkit',
+    });
+    expect(
+      descriptors[path.join(base, 'external', 'beta', 'plugins', 'toolkit')],
+    ).toEqual({
+      sourceRef: 'external:beta/plugins/toolkit',
+      label: 'Beta Toolkit',
+    });
+  });
+
+  it('carries agent, skill and command names and counts listed from disk', () => {
+    const h = track(
+      makeHarness({
+        bundledDirs: ['ptah-core'],
+        skills: {
+          'ptah-harness-kit': [{ dir: 'b-skill' }, { dir: 'a-skill' }],
+        },
+      }),
+    );
+    const kit = path.join(h.pluginsBasePath, 'ptah-harness-kit');
+    fs.mkdirSync(path.join(kit, 'agents'), { recursive: true });
+    fs.mkdirSync(path.join(kit, 'commands'), { recursive: true });
+    fs.writeFileSync(path.join(kit, 'agents', 'reviewer.md'), 'r', 'utf-8');
+    fs.writeFileSync(path.join(kit, 'agents', 'architect.md'), 'a', 'utf-8');
+    fs.writeFileSync(path.join(kit, 'agents', 'notes.txt'), 'n', 'utf-8');
+    fs.writeFileSync(path.join(kit, 'commands', 'ship.md'), 's', 'utf-8');
+
+    const plugins = h.service.getAvailablePlugins();
+
+    expect(
+      plugins.find((plugin) => plugin.id === 'ptah-harness-kit'),
+    ).toMatchObject({
+      skillCount: 2,
+      skillNames: ['a-skill', 'b-skill'],
+      agentCount: 2,
+      agentNames: ['architect', 'reviewer'],
+      commandCount: 1,
+      commandNames: ['ship'],
+    });
+    // A bundled plugin that has not downloaded claims no contents.
+    expect(
+      plugins.find((plugin) => plugin.id === 'ptah-core'),
+    ).not.toHaveProperty('agentNames');
   });
 });

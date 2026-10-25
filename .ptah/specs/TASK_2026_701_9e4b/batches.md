@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 33 | Batches: 26 | Complete: 2/26
+Total tasks: 33 | Batches: 26 | Complete: 3/26
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -193,7 +193,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (pre-existing circular dependency), accepted for every batch.
 - Report: reports/batch-1-report.md
 
-## Batch 2: D11 rename and D16 schema bump (B16) — COMPLETE
+## Batch 2: D11 rename and D16 schema bump (B16) — COMPLETE (commit: b0f9d3402)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -249,7 +249,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   the `{@link keptLocalEdit}` wording near `:178`.
 - Report: reports/batch-2-report.md
 
-## Batch 3: Plugin loader harness-root config home (B15) — PENDING
+## Batch 3: Plugin loader harness-root config home (B15) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -260,7 +260,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 1
 - Phase: P1 | Phase review: P1 code-logic + style
 
-### Task 3.1: `PluginConfigHome`, storage routing, descriptors, plugin contents — PENDING
+### Task 3.1: `PluginConfigHome`, storage routing, descriptors, plugin contents — COMPLETE
 
 - Files: CREATE `libs/backend/agent-sdk/src/lib/helpers/plugin-config-home.ts` (+ spec); MODIFY `libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts` (+ spec); MODIFY `libs/backend/cli-agent-runtime/src/lib/capabilities/capability-resolver.service.spec.ts` (agreement case only)
 - Plan reference: implementation-plan.md:971-1102; decisions.md D14
@@ -274,6 +274,22 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Files exist; every matrix case above is a named spec case
 - `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/cli-agent-runtime,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+
+### Batch 3 outcome
+
+- Verified on disk by team-leader: 2 new files (`plugin-config-home.ts` 692 lines, spec 232),
+  3 modified (`plugin-loader.service.ts`, its spec, the cli-agent-runtime agreement case). No
+  stubs, no `any`; the moved helpers (`countPluginCommands`, `normalizeStoredConfig`, private
+  `canonicalRootKey`) have no remaining callers. Every D14 matrix item maps to a named spec case
+  (report table). No agent-sdk → harness-sync import (`harnessRootOf` injected).
+- Verify (D21, combined with Batch 4, re-run by team-leader): 64 tasks, 63 pass (61 cached);
+  only `@ptah-extension/agent-sdk:lint` fails, on 2 `no-unexpected-multiline` errors in
+  `session-query-executor.accounts.spec.ts:174,183`, a file identical to `main` (pre-existing).
+  `eslint` on the four Batch 3 agent-sdk files: 0 errors.
+- Carried forward: `PluginLoaderInitOptions` / `PluginSourceDescriptor` are not re-exported from
+  the agent-sdk barrel; Batch 9 (host wiring of config-home options) adds the export if a host
+  needs the named type.
+- Report: reports/batch-3-report.md
 
 ## Batch 4: Wizard agent-origin store (B4) — PENDING
 
