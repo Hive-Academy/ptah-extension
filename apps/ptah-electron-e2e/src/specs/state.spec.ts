@@ -127,7 +127,10 @@ test.describe('webview state IPC', () => {
         };
         ipcMain.emit(
           'set-state',
-          { sender: win?.webContents } as Electron.IpcMainEvent,
+          {
+            sender: win?.webContents,
+            senderFrame: win?.webContents.mainFrame,
+          } as Electron.IpcMainEvent,
           naughty,
         );
         return { threw: false };

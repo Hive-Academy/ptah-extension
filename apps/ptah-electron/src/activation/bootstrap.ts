@@ -185,7 +185,10 @@ export async function startAgentAdapterInitialization(
 export function createMainWindowHandleGetter(
   getMainWindow: () =>
     | (Pick<BrowserWindow, 'isDestroyed'> & {
-        webContents: Pick<BrowserWindow['webContents'], 'send' | 'isDestroyed'>;
+        webContents: Pick<
+          BrowserWindow['webContents'],
+          'id' | 'send' | 'isDestroyed'
+        >;
       })
     | null,
 ): ConstructorParameters<typeof IpcBridge>[1] {
@@ -194,6 +197,7 @@ export function createMainWindowHandleGetter(
     if (!win || win.isDestroyed()) return null;
     return {
       webContents: {
+        id: win.webContents.id,
         send: (channel: string, ...args: unknown[]) =>
           win.webContents.send(channel, ...args),
         isDestroyed: () => win.isDestroyed() || win.webContents.isDestroyed(),
@@ -477,6 +481,10 @@ export async function bootstrapElectron(
   const ipcBridge = new IpcBridge(
     container,
     createMainWindowHandleGetter(getMainWindow),
+    [
+      path.join(__dirname, 'renderer', 'index.html'),
+      path.join(__dirname, 'assets', 'preparing-workspace.html'),
+    ],
   );
 
   try {
