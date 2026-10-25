@@ -1037,6 +1037,101 @@ describe('AuthStateService', () => {
       });
     });
 
+    it('discards an older auth response that resolves after a newer one', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+
+      let releaseOlder!: () => void;
+      const olderGate = new Promise<void>((r) => (releaseOlder = r));
+      rpc.call.mockImplementationOnce(async () => {
+        await olderGate;
+        return rpcSuccess(
+          makeAuthStatusResponse({
+            authMethod: 'claudeCli',
+            anthropicProviderId: 'openai-codex',
+          }),
+        );
+      });
+      const older = service.refreshAuthStatus();
+
+      statusOnce('thirdParty', 'kimi-code');
+      await service.refreshAuthStatus();
+      releaseOlder();
+      await older;
+
+      expect(service.persistedProviderId()).toBe('kimi-code');
+      expect(service.activeProviderId()).toBe('kimi-code');
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(planLimits.load).toHaveBeenCalledTimes(1);
+      expect(planLimits.load).toHaveBeenCalledWith({ providerId: 'kimi-code' });
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('re-syncs for a superseded read that applied a provider when the newer read fails', async () => {
+      statusOnce('thirdParty', 'openai-codex');
+      const service = createService();
+      await service.loadAuthStatus();
+
+      let releaseScope!: () => void;
+      const scopeGate = new Promise<void>((r) => (releaseScope = r));
+      let authCalls = 0;
+      rpc.call.mockImplementation(async (method: string) => {
+        if (method === 'auth:getScope') {
+          await scopeGate;
+          return rpcError('unused');
+        }
+        authCalls++;
+        return authCalls === 1
+          ? rpcSuccess(
+              makeAuthStatusResponse({
+                authMethod: 'thirdParty',
+                anthropicProviderId: 'kimi-code',
+              }),
+            )
+          : rpcError('backend offline');
+      });
+      const older = service.refreshAuthStatus();
+      await new Promise((r) => setTimeout(r, 0)); // older applied, awaits scope
+
+      await service.refreshAuthStatus();
+      releaseScope();
+      await older;
+
+      expect(service.persistedProviderId()).toBe('kimi-code');
+      expect(modelState.refreshModels).toHaveBeenCalledTimes(1);
+      expect(planLimits.load).toHaveBeenCalledWith({ providerId: 'kimi-code' });
+      expect(service.isLoading()).toBe(false);
+    });
+
+    it('resolves a superseded load only after the newer read applied its state', async () => {
+      const gates: Array<() => void> = [];
+      rpc.call.mockImplementation(async (method: string) => {
+        if (method !== 'auth:getAuthStatus') return rpcError('unused');
+        const provider = gates.length === 0 ? 'openai-codex' : 'kimi-code';
+        await new Promise<void>((r) => gates.push(r));
+        return rpcSuccess(
+          makeAuthStatusResponse({
+            authMethod: 'thirdParty',
+            anthropicProviderId: provider,
+          }),
+        );
+      });
+      const service = createService();
+      let loadDone = false;
+      const load = service.loadAuthStatus().then(() => (loadDone = true));
+      const refresh = service.refreshAuthStatus();
+
+      gates[0]();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(loadDone).toBe(false);
+
+      gates[1]();
+      await Promise.all([load, refresh]);
+      expect(service.isLoaded()).toBe(true);
+      expect(service.persistedProviderId()).toBe('kimi-code');
+    });
+
     it('keeps the auth refresh successful when the re-sync fails', async () => {
       statusOnce('thirdParty', 'openai-codex');
       const service = createService();

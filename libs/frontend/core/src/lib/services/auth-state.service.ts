@@ -110,6 +110,13 @@ export class AuthStateService {
    */
   private syncedProviderIdentity: string | null = null;
 
+  /** Bumped by every auth-status read: a response that a newer read superseded is discarded. */
+  private authReadSeq = 0;
+  /** The newest auth-status read: a superseded read resolves with its result. */
+  private latestAuthRead: Promise<boolean> = Promise.resolve(false);
+  /** A read applied a response whose provider re-sync has not run yet. */
+  private populatedUnsynced = false;
+
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
 
@@ -1230,17 +1237,28 @@ export class AuthStateService {
    *
    * @returns true if the fetch succeeded, false otherwise
    */
-  private async fetchAndPopulateAuthStatus(): Promise<boolean> {
+  private fetchAndPopulateAuthStatus(): Promise<boolean> {
+    const read = this.readAuthStatus(++this.authReadSeq);
+    this.latestAuthRead = read;
+    return read;
+  }
+
+  private async readAuthStatus(seq: number): Promise<boolean> {
+    const superseded = () => seq !== this.authReadSeq;
     this._isLoading.set(true);
-    let loaded = false;
 
     try {
       const result = await this.rpc.call('auth:getAuthStatus', {});
+      // An older response must not overwrite the newer read's provider state
+      // or start a re-sync for a provider that is no longer active. Its caller
+      // gets the newer read's result, so it awaits the final state.
+      if (superseded()) return this.latestAuthRead;
 
       if (result.isSuccess() && result.data) {
         this.populateFromResponse(result.data);
-        await this.fetchAndPopulateScope();
-        loaded = true;
+        this.populatedUnsynced = true;
+        await this.fetchAndPopulateScope(superseded);
+        if (superseded()) return this.latestAuthRead;
         return true;
       } else {
         console.error(
@@ -1253,6 +1271,7 @@ export class AuthStateService {
         return false;
       }
     } catch (error) {
+      if (superseded()) return this.latestAuthRead;
       console.error(
         '[AuthStateService] fetchAndPopulateAuthStatus error:',
         error,
@@ -1264,16 +1283,25 @@ export class AuthStateService {
       );
       return false;
     } finally {
-      this._isLoading.set(false);
-      // Not awaited: the re-sync waits on model, effort and quota reads, and
-      // the auth read (with its loading state) must not hold for them.
-      if (loaded) {
-        void this.syncProviderDependents();
-      } else if (this.syncedProviderIdentity === null) {
-        // The boot read failed, so the boot model list may belong to a
-        // provider the next successful read no longer reports.
-        this.syncedProviderIdentity = UNSYNCED_PROVIDER_IDENTITY;
-      }
+      // A superseded read leaves the loading state and the re-sync to the
+      // newer read.
+      if (!superseded()) this.finishAuthRead();
+    }
+  }
+
+  private finishAuthRead(): void {
+    this._isLoading.set(false);
+    // Not awaited: the re-sync waits on model, effort and quota reads, and
+    // the auth read (with its loading state) must not hold for them. Runs
+    // even when this read failed: a superseded read may have applied a new
+    // provider and left the re-sync to this one.
+    if (this.populatedUnsynced) {
+      this.populatedUnsynced = false;
+      void this.syncProviderDependents();
+    } else if (this.syncedProviderIdentity === null) {
+      // The boot read failed, so the boot model list may belong to a
+      // provider the next successful read no longer reports.
+      this.syncedProviderIdentity = UNSYNCED_PROVIDER_IDENTITY;
     }
   }
 
@@ -1351,12 +1379,15 @@ export class AuthStateService {
     }
   }
 
-  private async fetchAndPopulateScope(): Promise<void> {
+  private async fetchAndPopulateScope(
+    superseded: () => boolean,
+  ): Promise<void> {
     try {
       const result = await this.rpc.call(
         'auth:getScope',
         {} as Record<string, never>,
       );
+      if (superseded()) return;
       if (result.isSuccess() && result.data) {
         this._authScope.set(result.data.authMethodScope);
         this._providerScope.set(result.data.providerScope);

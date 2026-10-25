@@ -44,8 +44,12 @@ export function savedModelOption(
   const staticModel = getAnthropicProvider(providerId)?.staticModels?.find(
     (model) => model.id === savedModel,
   );
-  const inCatalog = cachedModelIds?.includes(savedModel) ?? false;
-  if (!inCatalog && !staticModel) return null;
+  // A live catalog, when on hand, decides alone: the static list may still
+  // name a model the provider has withdrawn.
+  const offered = cachedModelIds
+    ? cachedModelIds.includes(savedModel)
+    : !!staticModel;
+  if (!offered) return null;
 
   return {
     id: savedModel,

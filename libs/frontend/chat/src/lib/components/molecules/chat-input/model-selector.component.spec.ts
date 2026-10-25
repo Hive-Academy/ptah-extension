@@ -19,6 +19,7 @@ function makeHarness(options: {
   sessionContext?: Signal<TabId | null> | null;
   currentModel?: string;
   availableIds?: string[];
+  selectedId?: string;
 }) {
   const currentModel = signal(options.currentModel ?? 'default');
   const tabs = signal(options.tabs);
@@ -29,7 +30,11 @@ function makeHarness(options: {
   const modelStateStub = {
     currentModel: currentModel.asReadonly(),
     availableModels: signal(
-      (options.availableIds ?? []).map((id) => ({ id, name: id })),
+      (options.availableIds ?? []).map((id) => ({
+        id,
+        name: id,
+        isSelected: id === options.selectedId,
+      })),
     ).asReadonly(),
     isPending: signal(false).asReadonly(),
     isLoaded: signal(true).asReadonly(),
@@ -126,6 +131,37 @@ describe('ModelSelectorComponent.effectiveModel', () => {
     });
 
     expect(component.effectiveModel()).toBe('default');
+  });
+
+  it('falls back like the send path, not to sessionModel, when the override is not offered', () => {
+    const activeTabId = TabId.create();
+    const { component } = makeHarness({
+      tabs: [
+        {
+          id: activeTabId,
+          overrideModel: 'gpt-5.6-luna',
+          sessionModel: 'gpt-5.6-luna',
+        },
+      ],
+      activeTabId,
+      currentModel: 'haiku',
+      availableIds: ['default', 'opus', 'haiku'],
+      selectedId: 'haiku',
+    });
+
+    expect(component.effectiveModel()).toBe('haiku');
+  });
+
+  it('falls back to the first offered model when none is selected and there is no default', () => {
+    const activeTabId = TabId.create();
+    const { component } = makeHarness({
+      tabs: [{ id: activeTabId, overrideModel: 'gone', sessionModel: 'gone' }],
+      activeTabId,
+      currentModel: 'gone',
+      availableIds: ['opus', 'haiku'],
+    });
+
+    expect(component.effectiveModel()).toBe('opus');
   });
 
   it('keeps an override the list still offers', () => {

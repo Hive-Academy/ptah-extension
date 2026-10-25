@@ -1041,9 +1041,20 @@ describe('ConfigRpcHandlers', () => {
           models: Array<{ id: string; isSelected: boolean }>;
         }>(h, 'config:models-list');
 
-        expect(result.models.find((m) => m.isSelected)?.id).toBe(
-          'gpt-7-nova',
-        );
+        expect(result.models.find((m) => m.isSelected)?.id).toBe('gpt-7-nova');
+      });
+
+      it('does not offer a static model that the live catalog leaves out', async () => {
+        const h = codexHarness('gpt-6-luna');
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6.1-sol']);
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        expect(result.models.map((m) => m.id)).not.toContain('gpt-6-luna');
+        expect(result.models.some((m) => m.isSelected)).toBe(false);
       });
 
       it('does not invent an entry for a model the provider does not declare', async () => {

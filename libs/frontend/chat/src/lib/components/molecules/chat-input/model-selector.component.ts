@@ -218,14 +218,19 @@ export class ModelSelectorComponent {
     // model the next turn will not use.
     const override = tab?.overrideModel;
     const models = this.modelState.availableModels();
-    const overrideOffered =
-      !!override &&
-      (models.length === 0 || models.some((m) => m.id === override));
-    return (
-      (overrideOffered ? override : null) ??
-      tab?.sessionModel ??
-      this.modelState.currentModel()
-    );
+    if (
+      override &&
+      models.length > 0 &&
+      !models.some((m) => m.id === override)
+    ) {
+      // Same fallback order as `resolveValidModel`.
+      const fallback =
+        models.find((m) => m.isSelected) ??
+        models.find((m) => m.id === 'default') ??
+        models[0];
+      return fallback.id;
+    }
+    return override ?? tab?.sessionModel ?? this.modelState.currentModel();
   });
 
   /**
