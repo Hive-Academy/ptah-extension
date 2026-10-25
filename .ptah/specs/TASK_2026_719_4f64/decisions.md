@@ -91,3 +91,14 @@
 - Team-leader MODE 1 wrote `batches.md` (22 batches, phases P1-P5, B10 moved after B16). The orchestrator runs verify and commits per the user's handoff; batch states in `batches.md` are updated by the orchestrator.
 - B2, B3 and B4 ran in parallel (file-disjoint, no edges between them) and were verified together (`-p shared,rpc-handlers,agent-sdk,platform-core`): 11/12 tasks passed.
 - The failing task was `@ptah-extension/agent-sdk:lint`: 2 `no-unexpected-multiline` errors in `session-query-executor.accounts.spec.ts:174,183`. The file is unchanged from main, so the error is pre-existing. Decision: fix it in its own `fix(agent-sdk)` commit (join `it.each([...])` with its call). Reason: B11 and B13 verify agent-sdk again, and lint must be green. The change has no runtime effect; B13 still owns the later functional edits to that spec. Reversible.
+
+## D16 — Phase P1 code review (2026-10-25, orchestrator)
+
+- Reviewer: codex lane (no role), different family from the Claude implementers. Verdict REVISE 7/10 (`code-logic-review-p1.md`): 2 Serious (env digest newline ambiguity; settings bypass via bootstrap `flagSettings` and `extraArgs.settings`), 1 Minor (fallback doc comment). All accepted and fixed in one round by a fresh backend-developer subagent (`p1-fix-report.md`); exported signatures unchanged.
+- Re-review: fresh codex lane (resume refused for context size). Verdict APPROVED (`code-logic-review-p1-rereview.md`); it re-ran the three adversarial inputs and each now refuses.
+- B7 pin packages ran on the smaller `sonnet` model (mechanical 59 -> 60 edits); WP-a ran on the default model.
+
+## D17 — Pre-existing persistence-sqlite lint errors (2026-10-25, orchestrator, evidence step)
+
+- B7 verify: test and typecheck pass; `@ptah-extension/persistence-sqlite:lint` fails with 10 `no-restricted-syntax` errors (SQL template interpolation) in `0057_drop_skill_pipeline.ts`, `0057_drop_skill_pipeline.spec.ts` and `0058_provider_accounts.spec.ts`. Those files are unchanged from main; ESLint on the 22 B7 files alone reports 0 errors (3 warnings).
+- Decision: commit B7; do not edit shipped migrations in this task. Report the main-branch lint debt in the PR; if CI lint blocks the PR, decide then (a separate minimal fix commit for the specs, never for shipped migration SQL without review). Reversible.
