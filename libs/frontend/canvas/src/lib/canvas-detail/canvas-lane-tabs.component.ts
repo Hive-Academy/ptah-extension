@@ -93,12 +93,17 @@ interface DockLayout {
          drop shadow under it, and 20px of air before the messages. The lane
          view below is flex-1 min-h-0, so the transcript still scrolls and the
          composer stays at the bottom. The strip keeps relative z-10, so its
-         card and dropdown still stack above the content. */
+         card and dropdown still stack above the content. The contrast and
+         forced-colours settings keep the strip's fill and rule. */
       :host-context([data-theme][data-glass='on']) > [role='tablist'] {
-        background-color: transparent;
-        border-bottom-color: transparent;
-        box-shadow: none;
         margin-bottom: 20px;
+      }
+      @media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+        :host-context([data-theme][data-glass='on']) > [role='tablist'] {
+          background-color: transparent;
+          border-bottom-color: transparent;
+          box-shadow: none;
+        }
       }
       /* The selected chip: a soft secondary glow (see styles.css section 9
          --glass-glow-*) in place of the solid ring. The focus-visible
