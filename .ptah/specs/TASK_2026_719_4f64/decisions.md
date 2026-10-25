@@ -85,3 +85,9 @@
 - implementation-plan.md revision 4: author Claude software-architect subagents (rev1-rev4), reviewer codex lane 97c02976 (no role, cross-side). Verdict APPROVED, no Blocking/Serious findings. No removals proposed. Gate 2 passes in `lane-review` mode; the user directed the extra rounds (D10, D12, D13).
 - Three non-blocking notes go into batches.md: (1) Moderate: add `stat` (size/mtimeMs) to the injected filesystem contract, factory and B6 fakes (B6/B8); (2) Minor: class O returns `unsupported-source` before the identity comparison, `identity-mismatch` stays for class P mismatch; pin an apiKeySource / non-firstParty case at certifier level; (3) Minor: fix E4 wording (S9 absence no longer decides; presence/unreadability still refuses).
 - Next: team-leader decomposition (batches.md).
+
+## D15 — Implementation start and pre-existing agent-sdk lint error (2026-10-25, orchestrator, evidence step)
+
+- Team-leader MODE 1 wrote `batches.md` (22 batches, phases P1-P5, B10 moved after B16). The orchestrator runs verify and commits per the user's handoff; batch states in `batches.md` are updated by the orchestrator.
+- B2, B3 and B4 ran in parallel (file-disjoint, no edges between them) and were verified together (`-p shared,rpc-handlers,agent-sdk,platform-core`): 11/12 tasks passed.
+- The failing task was `@ptah-extension/agent-sdk:lint`: 2 `no-unexpected-multiline` errors in `session-query-executor.accounts.spec.ts:174,183`. The file is unchanged from main, so the error is pre-existing. Decision: fix it in its own `fix(agent-sdk)` commit (join `it.each([...])` with its call). Reason: B11 and B13 verify agent-sdk again, and lint must be green. The change has no runtime effect; B13 still owns the later functional edits to that spec. Reversible.

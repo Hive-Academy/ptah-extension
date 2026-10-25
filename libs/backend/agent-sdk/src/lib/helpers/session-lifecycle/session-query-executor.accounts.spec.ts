@@ -170,8 +170,7 @@ describe('named SDK bootstrap and final admission', () => {
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])
-  ('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
+  it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
     const f = fixture({ fail });
     await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
     expect(f.yielded()).toBe(0);
@@ -179,8 +178,7 @@ describe('named SDK bootstrap and final admission', () => {
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(fail === 'admit' ? 0 : 1);
   });
 
-  it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])
-  ('cancels at %s with closed gates and a single settlement', async (cancel) => {
+  it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
     const f = fixture({ cancel });
     await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'release-held' });
     await flush();
