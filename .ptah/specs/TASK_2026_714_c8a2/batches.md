@@ -912,6 +912,16 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 7 wrap-up, 2026-10-25)
+
+- Done this session: P5 closed; P5b (DS1 0541f372b, review APPROVED 8/10); 6p (389d08ce1).
+- In progress: Phase P6 (6p COMPLETE; 6a-6e PENDING). No lane running, no uncommitted task files.
+- Next batch: 6a (Codex lane; 6c may run in parallel with 6a, file-disjoint, but not while a
+  commit hook runs). Then 6b, 6d, 6e -> host typecheck -> P6 phase review (code-logic + style).
+- Open items: 7c waits for the fix/provider-switch-model-sync merge into main and then into this
+  branch; 8a acceptance check M2 (Electron passes `app.isPackaged` verbatim); lane deliverable
+  paths must be absolute (the task-folder-relative form is doubled by the checker).
+
 # Session 7 plan (2026-10-25) — order, rules and validation
 
 Order (user decision, decisions.md last rows): P5b dev route switch -> P6 -> P7 -> P8 -> P9 (9b)
@@ -1038,7 +1048,19 @@ Verification for every agent-sdk batch: `npm run verify -- -p @ptah-extension/ag
 Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent on disk
 2026-10-25 — every D file is CREATE). Phase gate adds the host typecheck.
 
-## Batch 6p: P5 carried items — shared workspace key and model substitution — IN_PROGRESS
+## Batch 6p: P5 carried items — shared workspace key and model substitution — COMPLETE (389d08ce1)
+
+- Result (team-leader, 2026-10-25): files verified on disk (report batch-6p-report.md, Codex
+  lane). codex-runtime lint/test (17 suites, 808 tests)/typecheck PASS. auth-providers typecheck
+  PASS; test: 75 suites pass, only `translation-proxy.sdk.integration.spec.ts` fails (known
+  Windows EPERM noise, 6 tests); lint: the 3 known pre-existing errors (package.json:9,
+  provider-account.store.spec.ts:132, provider-account.store.ts:16 — untouched files). Lane ran
+  the 7-project typecheck (ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui,
+  gateway-chat-bridge, agent-sdk, rpc-handlers): PASS.
+- Handed on: the normalizedHome refine lives in
+  W/libs/shared/src/lib/types/session-runtime.schemas.ts:20 (`z.string().min(1)`) -> moved to
+  6d. Relative stored workspace ids are now rejected (content-free AuthRequiredError) instead
+  of resolved against cwd — acceptable while the gate is closed; note for the P6 review.
 
 - Executor: CLI lane, Codex family | sequential | Review: Claude | Subagent reason: N/A
 - Files (6, 2 projects): MODIFY W/libs/backend/codex-runtime/src/lib/codex-home-path.ts and
@@ -1091,7 +1113,9 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 
 - Files: MODIFY W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts and
   `session-metadata-store.spec.ts`, W/libs/backend/agent-sdk/src/lib/sdk-agent-adapter.ts;
-  CREATE W/libs/backend/agent-sdk/src/lib/legacy-runtime-auth.spec.ts
+  CREATE W/libs/backend/agent-sdk/src/lib/legacy-runtime-auth.spec.ts; MODIFY
+  W/libs/shared/src/lib/types/session-runtime.schemas.ts (normalizedHome refine, carried from
+  6p) — 5 files, 2 projects; verify `-p @ptah-extension/agent-sdk,@ptah-extension/shared`
 - Plan reference: implementation-plan.md:161, :230
 - Details: optional `codexExecution` metadata via `updateCodexExecution` (sole writer, existing
   enqueueWrite); workspaceId persisted through `normalizeCodexWorkspaceKey` (6p), the same helper
