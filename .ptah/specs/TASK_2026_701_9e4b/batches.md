@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 33 | Batches: 26 | Complete: 3/26
+Total tasks: 33 | Batches: 26 | Complete: 4/26
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -249,7 +249,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   the `{@link keptLocalEdit}` wording near `:178`.
 - Report: reports/batch-2-report.md
 
-## Batch 3: Plugin loader harness-root config home (B15) — COMPLETE
+## Batch 3: Plugin loader harness-root config home (B15) — COMPLETE (commit: e7a2be488)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -291,7 +291,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   needs the named type.
 - Report: reports/batch-3-report.md
 
-## Batch 4: Wizard agent-origin store (B4) — PENDING
+## Batch 4: Wizard agent-origin store (B4) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -302,7 +302,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 1
 - Phase: P1 | Phase review: P1 code-logic
 
-### Task 4.1: `WizardAgentOriginStore` + `AGENT_ORIGIN_STORE` token — PENDING
+### Task 4.1: `WizardAgentOriginStore` + `AGENT_ORIGIN_STORE` token — COMPLETE
 
 - Files: CREATE `libs/backend/agent-generation/src/lib/services/wizard-agent-origin.store.ts` (+ spec); MODIFY `libs/backend/agent-generation/src/lib/di/tokens.ts`, `libs/backend/agent-generation/src/lib/di/register.ts`, `libs/backend/agent-generation/src/index.ts`
 - Plan reference: implementation-plan.md:384-410
@@ -315,6 +315,21 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+
+### Batch 4 outcome
+
+- Verified on disk by team-leader: `wizard-agent-origin.store.ts` (225 lines) + spec (12
+  tests); `AGENT_ORIGIN_STORE = Symbol.for('WizardAgentOriginStore')` in `tokens.ts` and the
+  token map; `register.ts` registers it `useClass` + `Lifecycle.Singleton` (needed for the
+  per-path write serialization); barrel exports the class and the two types. Zod-validated
+  `{version:1, agents}`, missing = `{}` silently, corrupt/unreadable = `{}` with warn,
+  `recordWritten`/`forget` non-fatal `Promise<boolean>`. No stubs, no `any`.
+- Accepted deviation: atomic write via harness-sync `atomicWriteWithRetry` instead of the FS
+  port (the port has no rename); same helper as the cited `managed-manifest.ts` pattern.
+- Verify (D21): the report's host failures came from Batch 3's in-progress file and are
+  superseded by the combined run (64 tasks, 63 pass; only the pre-existing agent-sdk lint).
+  Host guard specs (container.smoke, expected-resolvable, surface-composition) pass unedited.
+- Report: reports/batch-4-report.md
 
 ## Batch 5: User-layer mirror library work (B10 library part) — PENDING
 

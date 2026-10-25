@@ -47,6 +47,7 @@ import {
 } from '../services/prompt-designer';
 import { EnhancedPromptsService } from '../services/enhanced-prompts/enhanced-prompts.service';
 import { UserLayerMirrorService } from '../services/user-layer/user-layer-mirror.service';
+import { WizardAgentOriginStore } from '../services/wizard-agent-origin.store';
 
 /**
  * Register all agent-generation services in DI container
@@ -174,6 +175,13 @@ export function registerAgentGenerationServices(
   container.register(AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE, {
     useToken: UserLayerMirrorService,
   });
+  // Singleton: the store serializes read-modify-write per origins file, which
+  // only holds if every caller shares one instance.
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE,
+    { useClass: WizardAgentOriginStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
 
   logger.info('[AgentGeneration] Agent-generation services registered', {
     services: [
@@ -195,6 +203,7 @@ export function registerAgentGenerationServices(
       'PROMPT_CACHE_SERVICE',
       'ENHANCED_PROMPTS_SERVICE',
       'USER_LAYER_MIRROR_SERVICE',
+      'AGENT_ORIGIN_STORE',
     ],
   });
 }

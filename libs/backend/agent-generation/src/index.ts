@@ -139,3 +139,8 @@ export {
   collectUpstreamLiveness,
 } from './lib/services/user-layer/user-layer-orphan-reaper';
 export { UserLayerFsOps } from './lib/services/user-layer/user-layer-fs-ops';
+export { WizardAgentOriginStore } from './lib/services/wizard-agent-origin.store';
+export type {
+  AgentOriginEntry,
+  AgentOrigins,
+} from './lib/services/wizard-agent-origin.store';
