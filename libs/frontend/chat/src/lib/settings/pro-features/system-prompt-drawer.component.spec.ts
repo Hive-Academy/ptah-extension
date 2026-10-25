@@ -290,6 +290,8 @@ describe('SystemPromptDrawerComponent', () => {
       call.mockClear();
       element.querySelector<HTMLButtonElement>('[data-testid="regenerate-confirm-button"]')?.click();
       fixture.detectChanges();
+      // Regeneration also awaits a status refresh before emitting changed.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       await fixture.whenStable();
       fixture.detectChanges();
 
@@ -439,6 +441,8 @@ describe('SystemPromptDrawerComponent', () => {
 
     async function settle(): Promise<void> {
       fixture.detectChanges();
+      // Let RPC continuations complete before waiting for their signal updates.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       await fixture.whenStable();
       fixture.detectChanges();
     }

@@ -788,10 +788,14 @@ export function buildRouter(): Command {
       '--ptah-cli-id <id>',
       'pin a specific configured Ptah CLI provider (default: first enabled provider with a key)',
     )
+    .option(
+      '--account <ambient>',
+      'claude only: restate the default sign-in route (named accounts are not available yet)',
+    )
     .action(
       async (
         id: string,
-        opts: { cli: string; task: string; ptahCliId?: string },
+        opts: { cli: string; task: string; ptahCliId?: string; account?: string },
       ) => {
         const exit = await agentCliCmd.execute(
           {
@@ -800,6 +804,7 @@ export function buildRouter(): Command {
             cli: opts.cli,
             task: opts.task,
             ptahCliId: opts.ptahCliId,
+            account: opts.account,
           },
           resolveGlobals(program),
         );

@@ -300,6 +300,7 @@ function makeHarness(
   };
   const findTabBySessionIdMock = jest.fn().mockReturnValue(originTab);
   const activeTabMock = jest.fn().mockReturnValue(originTab);
+  const streamingTabIdsSig = signal<Set<string>>(new Set());
   const tabManagerStub = {
     activeTabId: activeTabIdSig.asReadonly(),
     activeTab: activeTabMock,
@@ -313,10 +314,20 @@ function makeHarness(
     createTab: createTabMock,
     activeWorkspacePath: '/ws',
     toggleTabViewMode: jest.fn(),
-    streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
+    streamingTabIds: streamingTabIdsSig.asReadonly(),
+    isTabStreaming: jest.fn((tabId: string): boolean => streamingTabIdsSig().has(tabId)),
     openSessionTab: openSessionTabMock,
     findTabBySessionId: findTabBySessionIdMock,
     findTabsBySessionId: findTabsBySessionIdMock,
+    findTabBySessionIdAcrossWorkspaces: jest.fn(
+      (_sessionId: string): ReturnType<TabManagerService['findTabBySessionIdAcrossWorkspaces']> => null,
+    ),
+    switchTab: jest.fn((tabId: string): void => { activeTabIdSig.set(tabId); }),
+    setOverrideModel: jest.fn((..._args: Parameters<TabManagerService['setOverrideModel']>): void => undefined),
+    setOverrideEffort: jest.fn((..._args: Parameters<TabManagerService['setOverrideEffort']>): void => undefined),
+    workflowForSession: jest.fn(
+      (..._args: Parameters<TabManagerService['workflowForSession']>): ReturnType<TabManagerService['workflowForSession']> => null,
+    ),
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
     forgetWorkflowSession: forgetWorkflowSessionMock,
@@ -339,7 +350,24 @@ function makeHarness(
   } as unknown as VSCodeService;
 
   const rewindFilesMock = jest.fn();
-  const rpcCallMock = jest.fn();
+  const rpcCallMock = jest.fn((method: string) => {
+    if (method === 'session:cli-sessions') {
+      return Promise.resolve(rpcOk({ cliSessions: [] }));
+    }
+    if (method === 'config:autopilot-get') {
+      return Promise.resolve(rpcOk({ enabled: false, permissionLevel: 'ask' }));
+    }
+    if (method === 'config:models-list') {
+      return Promise.resolve(rpcOk({ models: [] }));
+    }
+    if (method === 'config:pricing-get') {
+      return Promise.resolve(rpcOk({ pricing: {}, hydrated: false }));
+    }
+    if (method === 'config:effort-get') {
+      return Promise.resolve(rpcOk({ effort: undefined }));
+    }
+    return Promise.resolve(rpcOk({}));
+  });
   const forkSessionMock = jest.fn();
   const deleteSessionMock = jest
     .fn()
@@ -466,6 +494,8 @@ function makeHarness(
 
   const authStateStub = {
     authRequiredBanner: signal(null),
+    authMethodLabel: signal<string | null>(null).asReadonly(),
+    loadAuthStatus: jest.fn(async (): Promise<void> => undefined),
     codexLogin: jest.fn(async () => undefined),
     clearAuthRequiredBanner: jest.fn(),
   } as unknown as AuthStateService;
@@ -1404,6 +1434,33 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
 });
 
 describe('ChatViewComponent — branch (fork) flow', () => {
+  const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+
+  beforeAll(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: jest.fn((query: string): MediaQueryList => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(() => true),
+      })),
+    });
+  });
+
+  afterAll(() => {
+    if (originalMatchMedia) {
+      Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+    } else {
+      Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.clearAllMocks();

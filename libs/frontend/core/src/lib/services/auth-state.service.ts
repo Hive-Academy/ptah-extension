@@ -12,6 +12,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
 import { EffortStateService } from './effort-state.service';
+import { PlanLimitsStore } from './plan-limits.store';
 import type {
   SettingScope,
   AuthGetAuthStatusResponse,
@@ -92,11 +93,29 @@ const CUSTOM_ENTRY_TEST_TIMEOUT_MS = 20000;
  * await authState.saveAndTest({ authMethod: 'thirdParty', providerApiKey: 'sk-...' });
  * ```
  */
+/** Marks a failed first auth read: the next successful read always re-syncs. */
+const UNSYNCED_PROVIDER_IDENTITY = 'unsynced';
+
 @Injectable({ providedIn: 'root' })
 export class AuthStateService {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
   private readonly effortState = inject(EffortStateService);
+  private readonly planLimits = inject(PlanLimitsStore);
+
+  /**
+   * `authMethod|activeProviderId` the model, effort and plan-limit state were
+   * last synced to; `null` before the first auth-status load, and
+   * {@link UNSYNCED_PROVIDER_IDENTITY} when that load failed.
+   */
+  private syncedProviderIdentity: string | null = null;
+
+  /** Bumped by every auth-status read: a response that a newer read superseded is discarded. */
+  private authReadSeq = 0;
+  /** The newest auth-status read: a superseded read resolves with its result. */
+  private latestAuthRead: Promise<boolean> = Promise.resolve(false);
+  /** A read applied a response whose provider re-sync has not run yet. */
+  private populatedUnsynced = false;
 
   /** Whether an Anthropic API key is configured in SecretStorage */
   private readonly _hasApiKey = signal(false);
@@ -333,6 +352,19 @@ export class AuthStateService {
     if (this.hasWorkspaceOverride()) return 'workspace';
     if (this.hasAppOverride()) return 'app';
     return 'global';
+  });
+
+  /**
+   * Provider that actually serves the main agent: `anthropic` for the
+   * Claude-native methods (whose stored `anthropicProviderId` is inactive and
+   * may still name a third-party provider), else the persisted provider.
+   * Matches `QuotaOwnerRef.providerId` for plan-limit owners.
+   */
+  readonly activeProviderId = computed(() => {
+    const method = this._persistedAuthMethod();
+    return method === 'apiKey' || method === 'claudeCli'
+      ? 'anthropic'
+      : this._persistedProviderId();
   });
 
   /**
@@ -1205,15 +1237,28 @@ export class AuthStateService {
    *
    * @returns true if the fetch succeeded, false otherwise
    */
-  private async fetchAndPopulateAuthStatus(): Promise<boolean> {
+  private fetchAndPopulateAuthStatus(): Promise<boolean> {
+    const read = this.readAuthStatus(++this.authReadSeq);
+    this.latestAuthRead = read;
+    return read;
+  }
+
+  private async readAuthStatus(seq: number): Promise<boolean> {
+    const superseded = () => seq !== this.authReadSeq;
     this._isLoading.set(true);
 
     try {
       const result = await this.rpc.call('auth:getAuthStatus', {});
+      // An older response must not overwrite the newer read's provider state
+      // or start a re-sync for a provider that is no longer active. Its caller
+      // gets the newer read's result, so it awaits the final state.
+      if (superseded()) return this.latestAuthRead;
 
       if (result.isSuccess() && result.data) {
         this.populateFromResponse(result.data);
-        await this.fetchAndPopulateScope();
+        this.populatedUnsynced = true;
+        await this.fetchAndPopulateScope(superseded);
+        if (superseded()) return this.latestAuthRead;
         return true;
       } else {
         console.error(
@@ -1226,6 +1271,7 @@ export class AuthStateService {
         return false;
       }
     } catch (error) {
+      if (superseded()) return this.latestAuthRead;
       console.error(
         '[AuthStateService] fetchAndPopulateAuthStatus error:',
         error,
@@ -1237,7 +1283,25 @@ export class AuthStateService {
       );
       return false;
     } finally {
-      this._isLoading.set(false);
+      // A superseded read leaves the loading state and the re-sync to the
+      // newer read.
+      if (!superseded()) this.finishAuthRead();
+    }
+  }
+
+  private finishAuthRead(): void {
+    this._isLoading.set(false);
+    // Not awaited: the re-sync waits on model, effort and quota reads, and
+    // the auth read (with its loading state) must not hold for them. Runs
+    // even when this read failed: a superseded read may have applied a new
+    // provider and left the re-sync to this one.
+    if (this.populatedUnsynced) {
+      this.populatedUnsynced = false;
+      void this.syncProviderDependents();
+    } else if (this.syncedProviderIdentity === null) {
+      // The boot read failed, so the boot model list may belong to a
+      // provider the next successful read no longer reports.
+      this.syncedProviderIdentity = UNSYNCED_PROVIDER_IDENTITY;
     }
   }
 
@@ -1282,12 +1346,48 @@ export class AuthStateService {
     }
   }
 
-  private async fetchAndPopulateScope(): Promise<void> {
+  /**
+   * The one place the webview reacts to a provider switch, from any source:
+   * Settings (routing reassign, activation, save-and-test), a workspace
+   * switch, or a login. Every path ends in an `auth:getAuthStatus` read, so
+   * when the resolved provider identity differs from the last synced one, the
+   * model list (and with it the validity fallback for the selected model),
+   * the effort and the plan limits are re-read for the new provider.
+   *
+   * Without this a routing reassign refreshed only the auth status: the open
+   * session kept the previous provider's model list and selection, and the
+   * next turn went to the new provider with a model it cannot serve.
+   * `refreshModels` coalesces with a caller that refreshes on its own.
+   */
+  private async syncProviderDependents(): Promise<void> {
+    const identity = `${this._persistedAuthMethod()}|${this.activeProviderId()}`;
+    const previous = this.syncedProviderIdentity;
+    this.syncedProviderIdentity = identity;
+    if (previous === null || previous === identity) return;
+    try {
+      await Promise.all([
+        // Fresh: a models read already in flight may predate the switch.
+        this.modelState.refreshModels({ fresh: true }),
+        this.effortState.refreshEffort(),
+        this.planLimits.load({ providerId: this.activeProviderId() }),
+      ]);
+    } catch (error) {
+      console.warn(
+        '[AuthStateService] Re-sync after provider change failed:',
+        error,
+      );
+    }
+  }
+
+  private async fetchAndPopulateScope(
+    superseded: () => boolean,
+  ): Promise<void> {
     try {
       const result = await this.rpc.call(
         'auth:getScope',
         {} as Record<string, never>,
       );
+      if (superseded()) return;
       if (result.isSuccess() && result.data) {
         this._authScope.set(result.data.authMethodScope);
         this._providerScope.set(result.data.providerScope);

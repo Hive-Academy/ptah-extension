@@ -37,7 +37,11 @@ describe('CursorCredentialPopoverComponent', () => {
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) => el().querySelector(`[data-testid="${id}"]`) as T | null;
   const keyInput = () => q<HTMLInputElement>('cursor-credential-key');
-  async function flush() { for (let i = 0; i < 8; i += 1) await Promise.resolve(); fixture.detectChanges(); }
+  async function flush() {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
   function typeKey(value: string) {
     const input = keyInput();
     if (!input) throw new Error('no key field');

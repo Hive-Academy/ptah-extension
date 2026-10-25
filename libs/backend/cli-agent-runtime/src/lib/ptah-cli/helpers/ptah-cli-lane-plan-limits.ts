@@ -32,6 +32,7 @@ import {
   type ClaudeAccountInfo,
   type PlanLimitLedgerService,
 } from '@ptah-extension/auth-providers';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import type { QuotaOwnerRef } from '@ptah-extension/shared';
 import type { LaneOwnerResolver } from '../../cli-agents/limits/lane-owner.resolver';
 import type { PtahCliPlanLimitSignal } from './ptah-cli-stream-loop.service';
@@ -139,22 +140,34 @@ export class PtahCliLanePlanLimits {
   }
 
   /**
-   * The lane's system init arrived: read its Claude account, once. Only a
-   * `claude-cli` lane reads it; any other provider's `accountInfo()` names an
-   * API key, not the owner of a plan.
+   * The lane's system init arrived: read its Claude account, once, from this
+   * lane's own query — never another session's. Only a `claude-cli` lane
+   * reads it; any other provider's `accountInfo()` names an API key, not the
+   * owner of a plan. `route` is the certified named route the query was
+   * admitted on; it keys an unproved owner to that route, revision and auth
+   * epoch. A failed read leaves the run's owner unknown (the timeout path),
+   * and an unknown owner is never remembered as the lane's known owner.
    */
-  onSystemInit(query: LaneAccountSource): void {
+  onSystemInit(
+    query: LaneAccountSource,
+    route?: ClaudeAccountNamedRoute,
+  ): void {
     if (this.rule !== 'claude-account' || this.readState !== 'idle') return;
     const owners = this.deps.owners as LaneOwnerReader;
+    const source = route ? { ...route } : undefined;
     this.startRead(async () => {
       if (typeof query.accountInfo !== 'function') return null;
       const account = await query.accountInfo();
       this.deps.logger.debug('[PtahCliRegistry] Lane account read', {
         ptahCliId: this.deps.ptahCliId,
+        named: source !== undefined,
         hasEmail: Boolean(account?.email),
         hasOrganization: Boolean(account?.organization),
       });
-      return (agentId: string) => owners.ownerForClaudeLane(account, agentId);
+      return (agentId: string) =>
+        source
+          ? owners.ownerForClaudeLane(account, agentId, source)
+          : owners.ownerForClaudeLane(account, agentId);
     });
   }
 
@@ -251,11 +264,14 @@ export class PtahCliLanePlanLimits {
         observedAt: signal.observedAt,
       });
     } catch (error: unknown) {
-      this.deps.logger.warn('[PtahCliRegistry] Plan-limit ledger write failed', {
-        ptahCliId: this.deps.ptahCliId,
-        signal: signal.kind,
-        errorName: error instanceof Error ? error.name : typeof error,
-      });
+      this.deps.logger.warn(
+        '[PtahCliRegistry] Plan-limit ledger write failed',
+        {
+          ptahCliId: this.deps.ptahCliId,
+          signal: signal.kind,
+          errorName: error instanceof Error ? error.name : typeof error,
+        },
+      );
     }
   }
 

@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import {
   ProvidersSettingsStateService,
+  VSCodeService,
   type ProvidersConnection,
   type ProvidersConnectionDraft,
   type ProvidersEditContext,
@@ -46,6 +47,7 @@ import {
   type MainAgentFocus,
 } from './main-agent-reassign-popover.component';
 import { ProviderCatalogModalComponent } from './provider-catalog-modal.component';
+import { AccountsSectionComponent } from './accounts/accounts-section.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type {
@@ -84,6 +86,7 @@ const CONTROL =
     RoutingMapComponent,
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
+    AccountsSectionComponent,
   ],
   template: `
     <div
@@ -350,6 +353,13 @@ const CONTROL =
               + Connect another provider
             </button>
           </div>
+          <!-- Accounts (design §2, plan :250): after the Connections grid, before the unchanged catalog hint.
+               Electron only (D34); deferred like the catalog modal, so the eager route keeps its bundle budget. -->
+          @if (accountsAvailable) {
+            @defer (on immediate) {
+              <ptah-accounts-section class="block pt-1" />
+            }
+          }
           <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
                title), "Browse catalog →" right-aligned. -->
           <div
@@ -549,6 +559,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
+  /** Accounts is Electron only (D34): elsewhere the section and its state owner are never created. */
+  protected readonly accountsAvailable = inject(VSCodeService).isElectron;
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   protected readonly control = CONTROL;

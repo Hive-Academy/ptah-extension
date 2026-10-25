@@ -24,6 +24,7 @@
     "@openai/codex-sdk": "^0.155.1",
     "uuid": "^11.1.0",
     "@ptah-extension/auth-providers": "0.0.1",
+    "@ptah-extension/auth-providers-tokens": "0.0.1",
     "zod": "4.6.5"
   }
 }

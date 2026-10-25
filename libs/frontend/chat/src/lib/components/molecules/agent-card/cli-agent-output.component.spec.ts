@@ -10,11 +10,13 @@ import {
 import {
   ClaudeRpcService,
   FILE_LINK_OPENER,
+  LoggingService,
   VSCodeService,
 } from '@ptah-extension/core';
 import {
   createMockRpcService,
   provideSurfaceActiveTesting,
+  rpcSuccess,
 } from '@ptah-extension/core/testing';
 import type {
   CliOutputSegment,
@@ -62,6 +64,15 @@ describe('unified CLI agent output', () => {
         },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
+        {
+          provide: LoggingService,
+          useValue: {
+            debug: jest.fn(),
+            info: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+          } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
+        },
         DisplayDockState,
         DisplaySheetState,
         { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
@@ -69,7 +80,20 @@ describe('unified CLI agent output', () => {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()) },
         },
-        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        {
+          provide: ClaudeRpcService,
+          useValue: createMockRpcService({
+            call: jest.fn().mockImplementation(async (method: string) => {
+              if (method === 'config:models-list') {
+                return rpcSuccess({ models: [] });
+              }
+              if (method === 'config:pricing-get') {
+                return rpcSuccess({ pricing: {}, hydrated: false });
+              }
+              return rpcSuccess(undefined);
+            }),
+          }),
+        },
         {
           provide: ArtifactStore,
           useValue: {
@@ -260,6 +284,7 @@ describe('unified CLI agent output', () => {
       }),
     );
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     const node: HTMLElement = fixture.nativeElement.querySelector(
       'ptah-execution-node',
@@ -300,6 +325,7 @@ describe('unified CLI agent output', () => {
       fixture.nativeElement.querySelector('ptah-cli-agent-output'),
     ).not.toBeNull();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Raw stdout response');
     expect(fixture.nativeElement.textContent).toContain('read_file');
@@ -358,6 +384,7 @@ describe('unified CLI agent output', () => {
     ]);
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('First');
     fixture.componentRef.setInput('segments', [
@@ -365,6 +392,7 @@ describe('unified CLI agent output', () => {
     ]);
     fixture.detectChanges();
     await fixture.whenStable();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('First second');
   });

@@ -5,6 +5,8 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { EffortStateService } from './effort-state.service';
+import { ModelStateService } from './model-state.service';
 import {
   ProvidersCommitService,
   type ProvidersCommitHooks,
@@ -40,6 +42,8 @@ describe('ProvidersCommitService', () => {
     Promise<RpcResult<unknown>>,
     [RpcMethodName, unknown, unknown?]
   >;
+  let refreshModels: jest.Mock<Promise<void>, [{ fresh?: boolean }?]>;
+  let refreshEffort: jest.Mock<Promise<void>, []>;
 
   const scopesAt = (
     activePath: string | null,
@@ -73,10 +77,14 @@ describe('ProvidersCommitService', () => {
       Promise<RpcResult<unknown>>,
       [RpcMethodName, unknown, unknown?]
     >(async () => success({ success: true }));
+    refreshModels = jest.fn(async () => undefined);
+    refreshEffort = jest.fn(async () => undefined);
     TestBed.configureTestingModule({
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        { provide: ModelStateService, useValue: { refreshModels } },
+        { provide: EffortStateService, useValue: { refreshEffort } },
       ],
     });
     workspace = TestBed.inject(WorkspaceScopeService);
@@ -393,11 +401,48 @@ describe('ProvidersCommitService', () => {
       }
       expect(stored.get('skills.enhancement.model')).toBe('inherit');
       expect(call.mock.calls.map(([method]) => method)).toEqual([
-        'settings:set', 'settings:get',
-        'settings:set', 'settings:get',
-        'settings:set', 'settings:get',
+        'settings:set',
+        'settings:get',
+        'settings:set',
+        'settings:get',
+        'settings:set',
+        'settings:get',
       ]);
-      expect(call.mock.calls.some(([method]) => method.startsWith('skillSynthesis:'))).toBe(false);
+      expect(
+        call.mock.calls.some(([method]) =>
+          method.startsWith('skillSynthesis:'),
+        ),
+      ).toBe(false);
+    });
+
+    it('re-reads the model list and effort after their writes, so a provider re-sync that ran first cannot keep a stale model', async () => {
+      const [auth, model, effort] = service.operations({
+        auth: { authMethod: 'claudeCli' },
+        model: { model: 'haiku' },
+        effort: { effort: 'low' },
+      });
+      await auth.write();
+      expect(refreshModels).not.toHaveBeenCalled();
+      await model.write();
+      expect(call).toHaveBeenLastCalledWith(
+        'config:model-switch',
+        { model: 'haiku' },
+        undefined,
+      );
+      expect(refreshModels).toHaveBeenCalledWith({ fresh: true });
+      await effort.write();
+      expect(refreshEffort).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not make the save wait for the model or effort re-read', async () => {
+      refreshModels.mockReturnValue(new Promise<void>(() => undefined));
+      refreshEffort.mockReturnValue(new Promise<void>(() => undefined));
+      const [model, effort] = service.operations({
+        model: { model: 'haiku' },
+        effort: { effort: 'low' },
+      });
+      await expect(model.write()).resolves.toBe(true);
+      await expect(effort.write()).resolves.toBe(true);
     });
 
     it('never names a CLI credential value, only its field', () => {
@@ -776,6 +821,141 @@ describe('ProvidersCommitService', () => {
           undefined,
         );
       });
+      it('writes the Claude lane model and effort one field per call and confirms each by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({
+            claudeModel: 'claude-opus-4-5',
+            claudeReasoningEffort: 'high',
+          }),
+        });
+        await service.run(
+          service.operations({
+            orchestration: {
+              claudeModel: 'claude-opus-4-5',
+              claudeReasoningEffort: 'high',
+            },
+          }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: [
+            'agentOrchestration.claudeModel',
+            'agentOrchestration.claudeReasoningEffort',
+          ],
+        });
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeModel: 'claude-opus-4-5' },
+          undefined,
+        );
+        expect(call).toHaveBeenCalledWith(
+          'agent:setConfig',
+          { claudeReasoningEffort: 'high' },
+          undefined,
+        );
+      });
+      /** Typed one-field patch for the Grok / Antigravity effort rows. */
+      const effortPatch = (
+        field: 'grokReasoningEffort' | 'antigravityReasoningEffort',
+        value: string,
+      ) =>
+        field === 'grokReasoningEffort'
+          ? { grokReasoningEffort: value }
+          : { antigravityReasoningEffort: value };
+      it.each([
+        ['grokReasoningEffort', 'high'],
+        ['grokReasoningEffort', ''],
+        ['antigravityReasoningEffort', 'medium'],
+        ['antigravityReasoningEffort', ''],
+      ] as const)(
+        'writes %s alone (value "%s") in one call and confirms it by read-back',
+        async (field, value) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ [field]: value }),
+          });
+          await service.run(
+            service.operations({ orchestration: effortPatch(field, value) }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'saved',
+            saved: [`agentOrchestration.${field}`],
+          });
+          const writes = call.mock.calls.filter(
+            ([method]) => method === 'agent:setConfig',
+          );
+          expect(writes).toEqual([
+            ['agent:setConfig', { [field]: value }, undefined],
+          ]);
+          expect(methods()).toContain('agent:getConfig');
+        },
+      );
+      it.each([
+        ['grokReasoningEffort', 'low'],
+        ['grokReasoningEffort', undefined],
+        ['antigravityReasoningEffort', 'low'],
+        ['antigravityReasoningEffort', undefined],
+      ] as const)(
+        '%s read back as %s is not saved',
+        async (field, stored) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ [field]: stored }),
+          });
+          await service.run(
+            service.operations({ orchestration: effortPatch(field, 'high') }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'failed',
+            unsaved: [`agentOrchestration.${field}`],
+          });
+        },
+      );
+      it('writes an empty Claude lane model (SDK default) and confirms it by read-back', async () => {
+        host({
+          'agent:setConfig': () => success({ success: true }),
+          'agent:getConfig': config({ claudeModel: '' }),
+        });
+        await service.run(
+          service.operations({ orchestration: { claudeModel: '' } }),
+          context,
+          hooks,
+        );
+        expect(service.commit()).toMatchObject({
+          status: 'saved',
+          saved: ['agentOrchestration.claudeModel'],
+        });
+      });
+      it.each([
+        ['a different value', 'low'],
+        ['no value (a host without the field)', undefined],
+      ])(
+        'a Claude lane effort read back as %s is not saved',
+        async (_label, stored) => {
+          host({
+            'agent:setConfig': () => success({ success: true }),
+            'agent:getConfig': config({ claudeReasoningEffort: stored }),
+          });
+          await service.run(
+            service.operations({
+              orchestration: { claudeReasoningEffort: 'high' },
+            }),
+            context,
+            hooks,
+          );
+          expect(service.commit()).toMatchObject({
+            status: 'failed',
+            unsaved: ['agentOrchestration.claudeReasoningEffort'],
+          });
+        },
+      );
       it.each([
         ['a different value', '5m'],
         ['no value (a host without the field)', undefined],

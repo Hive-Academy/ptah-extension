@@ -47,6 +47,18 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'file:save-dialog',
   'file:saveContent',
   'file:viewContent',
+  // Claude account management (TASK_2026_712 D30) — `providerAccounts`
+  // capability is Electron-only, see expected-absent.ts.
+  'provider:addAccount',
+  'provider:cancelAccountSignIn',
+  'provider:getAccountStatus',
+  'provider:listAccounts',
+  'provider:removeAccount',
+  'provider:renameAccount',
+  'provider:setAccountDefault',
+  'provider:setAccountSelection',
+  'provider:signOutAccount',
+  'provider:startAccountSignIn',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',

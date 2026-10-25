@@ -34,11 +34,13 @@
  */
 
 import {
+  AMBIENT_ACCOUNT_SENTINEL,
   CLI_AGENT_SELECTORS,
   buildResumeCliSessionParams,
   execute,
   resolveCliAgentSelector,
   resolveCliAgentTarget,
+  resolveResumeAccountSelection,
   type AgentCliExecuteHooks,
   type AgentCliOptions,
 } from './agent-cli.js';
@@ -176,7 +178,6 @@ describe('CLI_AGENT_SELECTORS contract', () => {
   it('rejects ids that name no target', () => {
     for (const id of [
       'gemini', // removed from CliType by 2ef1abdde
-      'claude',
       'anthropic',
       'openai',
       'windsurf',
@@ -373,7 +374,7 @@ describe('ptah agent-cli config set', () => {
 // ---------------------------------------------------------------------------
 
 describe('ptah agent-cli models list', () => {
-  it('reports all seven system CLIs when --cli omitted', async () => {
+  it('reports every system CLI when --cli omitted', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();
     engine.scripted.set('agent:listCliModels', {
@@ -386,6 +387,7 @@ describe('ptah agent-cli models list', () => {
         opencode: ['oc1'],
         pi: ['pi1'],
         grok: ['gk1'],
+        claude: ['cl1'],
       },
     });
 
@@ -406,6 +408,7 @@ describe('ptah agent-cli models list', () => {
         opencode: ['oc1'],
         pi: ['pi1'],
         grok: ['gk1'],
+        claude: ['cl1'],
       },
     });
   });
@@ -428,6 +431,7 @@ describe('ptah agent-cli models list', () => {
       opencode: [],
       pi: [],
       grok: [],
+      claude: [],
     });
   });
 
@@ -474,6 +478,7 @@ describe('ptah agent-cli models list', () => {
           opencode: ['opencode-m'],
           pi: ['pi-m'],
           grok: ['grok-m'],
+          claude: ['claude-m'],
         },
       });
 
@@ -1212,5 +1217,131 @@ describe('buildResumeCliSessionParams satisfies AgentResumeCliSessionParamsSchem
       task: '',
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 34 (TASK_2026_712): optional account selection on `resume`. Only the
+// ambient sentinel is accepted while named admission is release-held (D7).
+// ---------------------------------------------------------------------------
+
+const NAMED_PROFILE_ID = 'profile-aaaa1111';
+
+describe('resolveResumeAccountSelection', () => {
+  const claude = resolveCliAgentTarget('claude');
+
+  it('maps the ambient sentinel to an ambient selection', () => {
+    expect(resolveResumeAccountSelection(AMBIENT_ACCOUNT_SENTINEL, claude)).toEqual({
+      status: 'ok',
+      selection: { kind: 'ambient' },
+    });
+  });
+
+  it('refuses an account ID as release-held, without echoing it', () => {
+    const result = resolveResumeAccountSelection(NAMED_PROFILE_ID, claude);
+    expect(result.status).toBe('refused');
+    expect(JSON.stringify(result)).not.toContain(NAMED_PROFILE_ID);
+    expect(JSON.stringify(result)).toContain('not available yet');
+  });
+
+  it.each(['', '   ', 'Ambient', 'C:/Users/someone/.claude', 'default'])(
+    'refuses %p without echoing it',
+    (raw) => {
+      const result = resolveResumeAccountSelection(raw, claude);
+      expect(result.status).toBe('refused');
+      if (raw.trim().length > 0) {
+        expect(JSON.stringify(result)).not.toContain(raw);
+      }
+    },
+  );
+
+  it.each(CLI_AGENT_SELECTORS.filter((selector) => selector !== 'claude'))(
+    'refuses any account on --cli %s',
+    (selector) => {
+      const result = resolveResumeAccountSelection(
+        AMBIENT_ACCOUNT_SENTINEL,
+        resolveCliAgentTarget(selector),
+      );
+      expect(result).toEqual({
+        status: 'refused',
+        message: '--account only applies to --cli claude',
+      });
+    },
+  );
+});
+
+describe('ptah agent-cli resume --account', () => {
+  async function resume(
+    opts: Partial<AgentCliOptions>,
+  ): Promise<{ code: number; engine: MockEngine; stderr: string }> {
+    const ft = makeFormatter();
+    const st = makeStderr();
+    const engine = makeEngine();
+    engine.scripted.set('agent:resumeCliSession', {
+      success: true,
+      data: { success: true, agentId: 'agent-claude' },
+    });
+    const code = await execute(
+      {
+        subcommand: 'resume',
+        cliSessionId: 'sess-1',
+        cli: 'claude',
+        task: 'continue',
+        ...opts,
+      },
+      baseGlobals,
+      {
+        formatter: ft.formatter,
+        stderr: st.stderr,
+        withEngine: engine.withEngine,
+      },
+    );
+    return { code, engine, stderr: st.buffer };
+  }
+
+  it('serializes the ambient sentinel into a schema-valid request', async () => {
+    const { code, engine } = await resume({ account: AMBIENT_ACCOUNT_SENTINEL });
+
+    expect(code).toBe(ExitCode.Success);
+    expect(engine.rpcCalls[0]).toEqual({
+      method: 'agent:resumeCliSession',
+      params: {
+        cliSessionId: 'sess-1',
+        cli: 'claude',
+        task: 'continue',
+        accountSelection: { kind: 'ambient' },
+      },
+    });
+    const parsed = AgentResumeCliSessionParamsSchema.safeParse(
+      engine.rpcCalls[0].params,
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it('sends no selection when the flag is absent (never inferred)', async () => {
+    const { code, engine } = await resume({});
+
+    expect(code).toBe(ExitCode.Success);
+    expect(engine.rpcCalls[0].params).not.toHaveProperty('accountSelection');
+  });
+
+  it('refuses a named account before any RPC, with safe text', async () => {
+    const { code, engine, stderr } = await resume({ account: NAMED_PROFILE_ID });
+
+    expect(code).toBe(ExitCode.UsageError);
+    expect(engine.invoked.count).toBe(0);
+    expect(stderr).toContain('named accounts are not available yet');
+    expect(stderr).not.toContain(NAMED_PROFILE_ID);
+  });
+
+  it('refuses an account on a CLI without account bindings', async () => {
+    const { code, engine, stderr } = await resume({
+      cli: 'codex',
+      account: AMBIENT_ACCOUNT_SENTINEL,
+    });
+
+    expect(code).toBe(ExitCode.UsageError);
+    expect(engine.invoked.count).toBe(0);
+    expect(stderr).toContain('--account only applies to --cli claude');
   });
 });

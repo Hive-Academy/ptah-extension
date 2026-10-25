@@ -1267,6 +1267,9 @@ async function handleIndividualTool(
             effort: spawnArgs.effort,
             taskKind: spawnArgs.taskKind,
             routingSource: spawnArgs.routingSource,
+            // Already refused above unless omitted or ambient on a `claude`
+            // lane (`agentSpawnAccountRefusal`), so forwarding admits nothing.
+            accountSelection: spawnArgs.accountSelection,
           });
         } catch (error: unknown) {
           // Any other failure keeps its pre-existing path: re-thrown to the

@@ -79,14 +79,14 @@ ptah auth status
 
 See `apps/ptah-cli/src/cli/commands/auth.ts` for the codex handler.
 
-### 1.5 Z.AI (GLM) and Kimi Code
+### 1.5 Z.AI (GLM) and Moonshot (Kimi)
 
 Both are Anthropic-compatible vendors using the `api-key` strategy with
 a custom base URL.
 
 ```bash
 ptah provider set-key --provider z-ai --key <ZAI_KEY>
-ptah provider set-key --provider kimi-code --key <KIMI_CODE_KEY>
+ptah provider set-key --provider moonshot --key <MOONSHOT_KEY>
 ptah provider default set z-ai
 ```
 

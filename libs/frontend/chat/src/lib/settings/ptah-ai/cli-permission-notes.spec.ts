@@ -99,8 +99,13 @@ describe('cliPermissionNote', () => {
     });
   });
 
-  it('flags exactly the new copy (Copilot, Ptah instances and Grok) for user review', () => {
+  it('describes the system Claude lane by the chat Autopilot level it follows', () => {
+    expect(cliPermissionNote('claude')).toEqual(cliPermissionNote('ptah-cli'));
+  });
+
+  it('flags exactly the new copy (Copilot, Ptah instances, Grok and Claude) for user review', () => {
     expect([...PENDING_USER_REVIEW_IDS].sort()).toEqual([
+      'claude',
       'copilot',
       'grok',
       'ptah-cli',

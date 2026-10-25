@@ -13,6 +13,7 @@ import {
   type PlanLimitLedgerService,
   type PlanOwnerTarget,
 } from '@ptah-extension/auth-providers';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import type {
   PlanLimitOwnerSnapshot,
   PlanLimitUnavailableReason,
@@ -27,6 +28,12 @@ export type PlanOwnerLedgerReader = Pick<PlanLimitLedgerService, 'snapshotFor'>;
 export interface PlanOwnerReadContext {
   /** The live session whose query a Claude read must ask. */
   readonly sessionId?: string;
+  /**
+   * The certified named route that session was admitted on. With it the read
+   * asks only a query whose immutable binding and auth epoch match; without a
+   * session it is never read (no other query may stand in).
+   */
+  readonly claudeRoute?: ClaudeAccountNamedRoute;
   /** The Ptah CLI agent whose own key (or sign-in) an Ollama Cloud read uses. */
   readonly ptahCliId?: string;
   /** Grok CLI session id recorded when Ptah started the lane. */
@@ -42,6 +49,56 @@ export interface PlanOwnerKnownStatus {
 export type PlanOwnerReadPlan =
   | { readonly kind: 'read'; readonly target: PlanOwnerTarget }
   | ({ readonly kind: 'known' } & PlanOwnerKnownStatus);
+
+/** A Claude owner with no matching live query: listed, never read. */
+export const NO_OPEN_SESSION: {
+  readonly kind: 'known';
+} & PlanOwnerKnownStatus = {
+  kind: 'known',
+  status: 'service-unavailable',
+  unavailableReason: 'no-open-session',
+};
+
+/** The immutable launch binding a session record carries; no directory. */
+export interface PlanOwnerSourceBinding {
+  readonly provider: string;
+  readonly routeFingerprint: string;
+  readonly routeRevision: number;
+  readonly authEpoch: number;
+}
+
+/**
+ * Route material for a Claude owner whose identity is not proved on a named
+ * source. It names the source (route, revision, epoch) and the run or session
+ * the read was for, so an unknown owner is never shared with another route or
+ * run, and a later epoch is a different unknown owner.
+ */
+export function namedSourceMaterial(
+  source: PlanOwnerSourceBinding,
+  run: string,
+): string {
+  return JSON.stringify([
+    source.provider,
+    source.routeFingerprint,
+    source.routeRevision,
+    source.authEpoch,
+    run,
+  ]);
+}
+
+/** Whether two bindings name the same immutable source and auth epoch. */
+export function sameSourceBinding(
+  a: PlanOwnerSourceBinding | undefined,
+  b: PlanOwnerSourceBinding | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    a.provider === b.provider &&
+    a.routeFingerprint === b.routeFingerprint &&
+    a.routeRevision === b.routeRevision &&
+    a.authEpoch === b.authEpoch
+  );
+}
 
 /** In-scope providers whose read needs no secret of Ptah's. */
 const KEYLESS_READ_PROVIDERS: ReadonlySet<string> = new Set([
@@ -60,7 +117,9 @@ const KEYLESS_READ_PROVIDERS: ReadonlySet<string> = new Set([
  * - Any other Claude owner is read only through the session it was read
  *   for. Without that session the probe would answer with whichever native
  *   session is active, which may be another account, so the owner reads as
- *   "no open session" instead.
+ *   "no open session" instead. A named account's read also carries the
+ *   certified route, so the reader asks only the query bound to that route
+ *   and epoch.
  * - Ollama Cloud reads a Ptah CLI lane through the agent's own key when it
  *   holds a real one, else through the shared `ollama-cloud` provider key (the
  *   ollama.com sign-in); the main route reads the provider key. A missing key
@@ -84,13 +143,12 @@ export function planOwnerRead(
               providerId: 'anthropic',
               ownerRef: owner,
               sessionHandle: { kind: 'session', sessionId: context.sessionId },
+              ...(context.claudeRoute && {
+                claudeRoute: { ...context.claudeRoute },
+              }),
             },
           }
-        : {
-            kind: 'known',
-            status: 'service-unavailable',
-            unavailableReason: 'no-open-session',
-          };
+        : NO_OPEN_SESSION;
     case 'ollama-cloud':
       // A Ptah CLI lane reads with the agent's own key when it holds a real
       // one, else (empty slot or the ollama.com sign-in placeholder) with the

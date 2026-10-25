@@ -14,8 +14,17 @@ import {
   type CliPermissionNote,
 } from './cli-permission-notes';
 
-/** Orchestration fields a system CLI's Model and Effort cells read and write (`agent:setConfig`). */
+/**
+ * Orchestration fields a system CLI's Model and Effort cells read and write (`agent:setConfig`).
+ * `claudeModel` / `claudeReasoningEffort` belong to the system Claude lane row, which is built once
+ * detection reports `claude`. They are distinct from Ptah CLI instance tiers and from the Claude
+ * account: the lane's account is the stored `lane` selection, chosen in Providers → Accounts
+ * ("Next Claude lane"), not a matrix cell. Nothing in the lane spawn reads that selection yet
+ * (`agent-process-manager.service.ts` `runSdk` passes no `accountAdmission`), so the matrix carries
+ * no account field until that wiring lands.
+ */
 export type CliModelSettingKey =
+  | 'claudeModel'
   | 'codexModel'
   | 'copilotModel'
   | 'cursorModel'
@@ -24,6 +33,7 @@ export type CliModelSettingKey =
   | 'piModel'
   | 'grokModel';
 export type CliEffortSettingKey =
+  | 'claudeReasoningEffort'
   | 'codexReasoningEffort'
   | 'copilotReasoningEffort'
   | 'grokReasoningEffort'
@@ -132,16 +142,29 @@ export interface CliMatrixRows {
  * The reads the matrix merges. A section that has not loaded is `null` and contributes no rows; the
  * component shows that section's loading or error state.
  */
+/** Model/effort keys the orchestration read already carries. */
+type LoadedCliSettingKey = Extract<
+  CliModelSettingKey | CliEffortSettingKey,
+  keyof ProvidersOrchestration
+>;
+/** Forward keys the read does not carry yet; optional, so absent reads as the CLI default. Becomes `never` once added. */
+type ForwardCliSettingKey = Exclude<
+  CliModelSettingKey | CliEffortSettingKey,
+  keyof ProvidersOrchestration
+>;
+
 export interface CliMatrixSources {
-  readonly orchestration: Pick<
-    ProvidersOrchestration,
-    | 'detectedClis'
-    | 'disabledClis'
-    | 'preferredAgentOrder'
-    | 'copilotAutoApprove'
-    | CliModelSettingKey
-    | CliEffortSettingKey
-  > | null;
+  readonly orchestration:
+    | (Pick<
+        ProvidersOrchestration,
+        | 'detectedClis'
+        | 'disabledClis'
+        | 'preferredAgentOrder'
+        | 'copilotAutoApprove'
+        | LoadedCliSettingKey
+      > &
+        Partial<Record<ForwardCliSettingKey, string>>)
+    | null;
   readonly cliAgents: readonly PtahCliSummary[] | null;
   readonly cliModels: ProvidersCliModels | null;
   readonly cliTest: ProvidersCliTest | null;
@@ -154,7 +177,21 @@ interface SystemCliSpec {
   readonly effortKey: CliEffortSettingKey | null;
 }
 
-const SYSTEM_CLIS: Readonly<Record<SystemCliType, SystemCliSpec>> = {
+/**
+ * Row definitions, exhaustive over `SystemCliType` plus the forward `claude` key. A row is built
+ * only for a CLI that detection reports, so the Claude definition shows nothing (and claims no
+ * installation) until the tuple member and its adapter are activated together.
+ */
+type SystemCliSpecKey = SystemCliType | 'claude';
+
+const SYSTEM_CLIS: Readonly<Record<SystemCliSpecKey, SystemCliSpec>> = {
+  claude: {
+    name: 'Claude',
+    // The sign-in family. The account each lane uses is a separate selection, never the model.
+    provider: 'Anthropic',
+    modelKey: 'claudeModel',
+    effortKey: 'claudeReasoningEffort',
+  },
   codex: {
     name: 'Codex',
     provider: 'OpenAI Codex',

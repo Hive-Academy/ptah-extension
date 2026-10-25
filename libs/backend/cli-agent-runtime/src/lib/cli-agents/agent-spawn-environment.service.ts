@@ -63,6 +63,7 @@ export class AgentSpawnEnvironment {
       opencode: 'opencodeModel',
       pi: 'piModel',
       grok: 'grokModel',
+      claude: 'claudeModel',
     };
 
   constructor(
@@ -112,6 +113,7 @@ export class AgentSpawnEnvironment {
       grok: 'grokReasoningEffort',
       antigravity: 'antigravityReasoningEffort',
       pi: 'piReasoningEffort',
+      claude: 'claudeReasoningEffort',
     };
 
   /**

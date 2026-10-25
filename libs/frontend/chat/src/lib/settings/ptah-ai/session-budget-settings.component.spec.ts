@@ -51,6 +51,8 @@ describe('SessionBudgetSettingsComponent', () => {
       .filter((call) => call[1] === 'settings:set')
       .map((call) => call[2] as { key: string; value: unknown });
   const settle = async (): Promise<void> => {
+    // Zoneless stability does not track the mocked RPC promise chain.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await fixture.whenStable();
     fixture.detectChanges();
   };
@@ -427,16 +429,24 @@ describe('SessionBudgetSettingsComponent', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
         /* expected */
       });
-      await create();
-      const box = field('enabled');
-      box.checked = false;
-      box.dispatchEvent(new Event('change'));
-      await settle();
-      expect(box.checked).toBe(true);
-      expect(byTestId('session-budget-status')?.textContent).toContain(
-        'Could not save',
-      );
-      warn.mockRestore();
+      try {
+        await create();
+        const box = field('enabled');
+        box.checked = false;
+        box.dispatchEvent(new Event('change'));
+        await settle();
+        expect(box.checked).toBe(true);
+        expect(byTestId('session-budget-status')?.textContent).toContain(
+          'Could not save',
+        );
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('[SessionBudgetSettings] settings:set failed'),
+          new Error('timeout'),
+        );
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 

@@ -135,7 +135,7 @@ it goes before the subcommand.
 | `PTAH_HOST_SCHEMA_VERSION` | A host that pins a JSON-RPC schema version        | Compared against the CLI's schema on boot; a mismatch warns on stderr and does not abort.                           |
 | `PTAH_MCP_HOST_SESSION_ID` | Set BY `mcp-serve`, read downstream               | Cost-attribution key for the life of an `mcp-serve` process.                                                        |
 | `ANTHROPIC_API_KEY`        | Anthropic direct without `set-key`                | Picked up by the api-key auth strategy.                                                                             |
-| `ANTHROPIC_AUTH_TOKEN`     | Z.AI / other Anthropic-compatible vendors (Kimi Code uses `ANTHROPIC_API_KEY`) | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint. |
+| `ANTHROPIC_AUTH_TOKEN`     | Z.AI / Moonshot / any Anthropic-compatible vendor | Used together with `ANTHROPIC_BASE_URL` to point the SDK at a non-Anthropic endpoint.                               |
 | `ANTHROPIC_BASE_URL`       | Custom Anthropic-compatible endpoint              | Overrides the SDK's default base URL.                                                                               |
 
 Reminder: `PTAH_AGENT_CLI_OVERRIDE` is **not** consulted, and there is

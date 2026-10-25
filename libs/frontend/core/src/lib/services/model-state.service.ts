@@ -88,6 +88,8 @@ export class ModelStateService {
    */
   private modelsInFlight: { scopeKey: string; promise: Promise<void> } | null =
     null;
+  /** Bumped by every `config:models-list` read; only the latest publishes. */
+  private modelsGeneration = 0;
   /**
    * Current selected model (full API name, e.g., 'claude-sonnet-4-20250514')
    * Read-only signal, updates reactively when model changes
@@ -243,8 +245,8 @@ export class ModelStateService {
    * Reload models from backend
    * Useful after configuration changes or to refresh the list
    */
-  async refreshModels(): Promise<void> {
-    await this.loadModels();
+  async refreshModels(options: { fresh?: boolean } = {}): Promise<void> {
+    await this.loadModels(options.fresh ?? false);
     // A boot that raced the catalog fetch left us on the bundled table. A
     // refresh is the natural retry point — the host has had time by now, and
     // re-merging an already-current map is a no-op.
@@ -257,34 +259,45 @@ export class ModelStateService {
    * Load available models and current selection from backend.
    *
    * Callers that arrive while a read is already in flight share it rather than
-   * issuing a second identical one; see {@link modelsInFlight}.
+   * issuing a second identical one; see {@link modelsInFlight}. A `fresh`
+   * caller (a provider switch inside the same scope) always starts its own
+   * read, and later callers join that one.
    *
    * @private
    */
-  private loadModels(): Promise<void> {
+  private loadModels(fresh = false): Promise<void> {
     const scopeKey = this.scope.scopeKey();
     const existing = this.modelsInFlight;
     // Same scope only. A caller that arrives after a workspace switch is asking
     // a DIFFERENT question — "what does the new workspace's provider offer" —
     // and handing it the pre-switch request's answer is the staleness this key
     // exists to prevent.
-    if (existing !== null && existing.scopeKey === scopeKey) {
+    if (!fresh && existing !== null && existing.scopeKey === scopeKey) {
       return existing.promise;
     }
 
-    const promise = this.fetchModels(scopeKey).finally(() => {
-      if (this.modelsInFlight?.promise === promise) {
-        this.modelsInFlight = null;
-      }
-    });
+    const promise = this.fetchModels(scopeKey, ++this.modelsGeneration).finally(
+      () => {
+        if (this.modelsInFlight?.promise === promise) {
+          this.modelsInFlight = null;
+        }
+      },
+    );
     this.modelsInFlight = { scopeKey, promise };
     return promise;
   }
 
   /** The actual round trip. Never rejects. */
-  private async fetchModels(scopeKey: string): Promise<void> {
+  private async fetchModels(
+    scopeKey: string,
+    generation: number,
+  ): Promise<void> {
     try {
       const result = await this.rpc.call('config:models-list', {});
+
+      // A newer read started while this one was in flight (a `fresh` caller
+      // after a provider switch); its answer is the one to publish.
+      if (generation !== this.modelsGeneration) return;
 
       // The user switched while this was in flight. The host resolved the
       // provider against whichever workspace was active when it PROCESSED the

@@ -2,7 +2,8 @@
  * CLI Detection Service
  *
  * Detects on first call and caches results.
- * Registered adapters: Codex, Copilot, Cursor, Antigravity, OpenCode, Pi, Grok.
+ * Registered adapters: Codex, Copilot, Cursor, Antigravity, OpenCode, Pi, Grok
+ * and, when the host registered it, the native Claude SDK lane.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
@@ -27,6 +28,7 @@ import { AntigravityCliAdapter } from './cli-adapters/antigravity-cli.adapter';
 import { OpencodeCliAdapter } from './cli-adapters/opencode-cli.adapter';
 import { PiCliAdapter } from './cli-adapters/pi-cli.adapter';
 import { GrokCliAdapter } from './cli-adapters/grok-cli.adapter';
+import { ClaudeCliAdapter } from './cli-adapters/claude-cli.adapter';
 
 @injectable()
 export class CliDetectionService {
@@ -53,6 +55,19 @@ export class CliDetectionService {
     private readonly spawner: IProcessSpawner,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecrets: IAuthSecretsService,
+    /**
+     * The native Claude SDK lane, constructed by the runtime registration
+     * (`registerCliAgentRuntime`) from SDK services every host registers.
+     * Its construction never loads the SDK or starts a query: `detect()` only
+     * resolves the bundled executable and query function, and an unavailable
+     * SDK reports `installed: false` without touching the other adapters.
+     * Detection is installation only — a signed-out account still detects
+     * as installed; named-account admission is decided at spawn time.
+     * `null` keeps a caller that constructs the service directly on the
+     * previous seven-adapter roster.
+     */
+    @inject(ClaudeCliAdapter)
+    claudeAdapter: ClaudeCliAdapter | null = null,
   ) {
     this.adapters.set('codex', new CodexCliAdapter(this.logger));
     const permissionBridge = new CopilotPermissionBridge();
@@ -76,10 +91,12 @@ export class CliDetectionService {
     this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
     this.adapters.set('pi', new PiCliAdapter(this.spawner));
     this.adapters.set('grok', new GrokCliAdapter(this.spawner, this.logger));
+    // Last, so the existing auto-detect fallback order is unchanged.
+    if (claudeAdapter) this.adapters.set('claude', claudeAdapter);
 
-    this.logger.info(
-      '[CliDetection] Service initialized with adapters: codex, copilot, cursor, antigravity, opencode, pi, grok',
-    );
+    this.logger.info('[CliDetection] Service initialized with adapters', {
+      adapters: [...this.adapters.keys()].join(', '),
+    });
   }
 
   /**

@@ -26,6 +26,15 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0 min-w-0' },
+  styles: [
+    `
+      /* Glass on (any theme): the pane's own glass shows through the whole column, from
+         the title row to the composer (styles.css "Ptah chat column"). */
+      :host-context([data-theme][data-glass='on']) > section {
+        background-color: transparent;
+      }
+    `,
+  ],
   template: `
     <section
       class="flex h-full min-h-0 flex-col bg-base-100"

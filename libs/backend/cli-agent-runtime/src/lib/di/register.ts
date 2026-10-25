@@ -17,7 +17,10 @@ import {
   PLATFORM_TOKENS,
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
+import {
+  CLAUDE_LANE_ACCOUNT_PERSISTENCE,
+  CLI_AGENT_RUNTIME_TOKENS,
+} from './tokens';
 import {
   LANE_OUTCOME_TOKENS,
   type LaneOutcomeRecorder,
@@ -75,12 +78,67 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type { ICapabilityResolver } from '@ptah-extension/shared';
 import { ClaudeCliAdapter } from '../cli-agents/cli-adapters/claude-cli.adapter';
-import { ClaudeSdkLaneRunner } from '../claude/claude-sdk-lane-runner';
+import {
+  ClaudeSdkLaneRunner,
+  type ClaudeLaneAccountPersistence,
+} from '../claude/claude-sdk-lane-runner';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 import {
   PtahCliLanePlanLimits,
   type LanePlanLimitWriter,
 } from '../ptah-cli/helpers/ptah-cli-lane-plan-limits';
+
+import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
+import type { LaneAccountBindingPort } from '../cli-agents/cli-adapters/cli-adapter.interface';
+import { LaneAccountResumeError } from '../cli-agents/lane-resume-gate';
+
+type ClaudeSessionLookupSource = Pick<ProviderAccountService, 'lookupBySdkSession'>;
+
+/**
+ * Read-only lane binding authority over the host's provider account service
+ * (TASK_2026_712 D25 F3). Lookup is authoritative, so a never-bound session
+ * (`absent`) resumes ambient. Writes stay held until certification (D7):
+ * `validateResume` refuses `release-held` and `persistReference` rejects, so a
+ * bound named session cannot resume and nothing is ever persisted here. A
+ * missing or failing service maps to `unavailable-storage`; the service's own
+ * errors and values are never forwarded.
+ */
+export function createClaudeLaneReadOnlyBindings(
+  source: () => ClaudeSessionLookupSource | null,
+): LaneAccountBindingPort {
+  return {
+    async lookupBySdkSession(request) {
+      try {
+        const service = source();
+        if (!service) return { status: 'unavailable-storage' };
+        const found = await service.lookupBySdkSession({
+          provider: 'claude',
+          sdkSessionId: request.sdkSessionId,
+        });
+        if (found.status === 'absent') return { status: 'absent' };
+        if (found.status === 'bound') {
+          const parsed = classifyProviderAccountBinding(found.binding);
+          return parsed.status === 'bound' && parsed.binding.provider === 'claude'
+            ? { status: 'bound', binding: parsed.binding }
+            : { status: 'invalid-bound' };
+        }
+        return {
+          status: found.status === 'invalid-bound' ? 'invalid-bound' : 'unavailable-storage',
+        };
+      } catch {
+        // degradation-audit: optional-capability - an unresolvable or failing account store is a typed storage refusal, never ambient absence
+        return { status: 'unavailable-storage' };
+      }
+    },
+    async validateResume() {
+      return { code: 'release-held' };
+    },
+    async persistReference() {
+      throw new LaneAccountResumeError('release-held');
+    },
+  };
+}
 
 export function registerCliAgentRuntimeServices(
   container: DependencyContainer,
@@ -100,9 +158,15 @@ export function registerCliAgentRuntimeServices(
   // Class tokens keep these runtime-local until the Batch 26 roster activation.
   // Resolve policy/owner services at spawn time to avoid a manager/detection cycle.
   container.register(ClaudeCliAdapter, {
-    useFactory: instanceCachingFactory(
-      (c) =>
-        new ClaudeCliAdapter(c.resolve<Logger>(TOKENS.LOGGER), {
+    useFactory: instanceCachingFactory((c) => {
+      // Resolved lazily per lookup: a host that does not register the
+      // account service still boots and refuses with `unavailable-storage`.
+      const readOnlyBindings = createClaudeLaneReadOnlyBindings(() =>
+        c.isRegistered(ProviderAccountService, true)
+          ? c.resolve(ProviderAccountService)
+          : null,
+      );
+      return new ClaudeCliAdapter(c.resolve<Logger>(TOKENS.LOGGER), {
           loader: c.resolve<SdkModuleLoader>(SDK_TOKENS.SDK_MODULE_LOADER),
           assembly: c.resolve<PtahCliSpawnOptions>(
             CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
@@ -134,6 +198,16 @@ export function registerCliAgentRuntimeServices(
                   AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
                 )
               : null,
+          // No host registers the full port until certification (D7), so
+          // named admission stays refused; resumes fall back to the
+          // read-only bindings (ambient continues, bound refuses held).
+          accountPersistence: () =>
+            c.isRegistered(CLAUDE_LANE_ACCOUNT_PERSISTENCE, true)
+              ? c.resolve<ClaudeLaneAccountPersistence | null>(
+                  CLAUDE_LANE_ACCOUNT_PERSISTENCE,
+                )
+              : null,
+          accountBindings: () => readOnlyBindings,
           policy: (cwd) =>
             resolveSessionCapabilityPolicy(
               c.resolve<ICapabilityResolver>(
@@ -183,8 +257,8 @@ export function registerCliAgentRuntimeServices(
                   .resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER)
                   .recordQuotaOwner(id, owner),
             }),
-        }),
-    ),
+      });
+    }),
   });
 
   container.register(

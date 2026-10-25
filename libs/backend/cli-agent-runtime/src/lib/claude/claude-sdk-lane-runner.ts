@@ -89,14 +89,16 @@ export class ClaudeSdkLaneRunner {
     } = context;
     const abortController = options.abortController;
     let closed = false;
-    let settleAbort: (() => void) | undefined;
+    // A holder, not a late const: closeMailbox can run (abort or the
+    // queryFn catch below) before finish exists.
+    const abortSettler: { settle?: () => void } = {};
     const closeMailbox = (): void => {
       if (closed) return;
       closed = true;
       mailbox.close();
       if (context.named) {
         void context.named.dispose();
-        settleAbort?.();
+        abortSettler.settle?.();
       }
     };
     abortController.signal.addEventListener('abort', closeMailbox, {
@@ -134,8 +136,9 @@ export class ClaudeSdkLaneRunner {
       agentName: agentName,
       onSessionResolved: (sessionId: string) => {
         resolvedSessionId = sessionId;
-        // The system init: the lane's own account can be read from here.
-        lanePlanLimits.onSystemInit(sdkQuery);
+        // The system init: the lane's own account can be read from here. A
+        // named lane keys an unproved owner to its certified route.
+        lanePlanLimits.onSystemInit(sdkQuery, context.named?.route);
         for (const cb of sessionResolvedCallbacks) {
           cb(sessionId);
         }
@@ -168,7 +171,7 @@ export class ClaudeSdkLaneRunner {
         while (pendingTurns.length) pendingTurns.shift()?.(exitCode);
       });
     };
-    settleAbort = () => finish(1);
+    abortSettler.settle = () => finish(1);
     streamLoop.run(sdkQuery).then(finish, (error: unknown) => {
       // Named lanes log no raw error text: it can carry account paths.
       this.logger.error(
@@ -349,12 +352,14 @@ export class ClaudeNamedLaneAdmission {
       resolve = done;
     });
     // Install the exit proof before query() can spawn or throw.
-    let query: ReturnType<LaneQueryFunction> | undefined;
+    // A holder, not a late const: the getter and close() may run before
+    // queryFn() returns, where a const would be in its temporal dead zone.
+    const opened: { query?: ReturnType<LaneQueryFunction> } = {};
     let closed = false;
     const child = {
       get query() {
-        if (!query) throw claudeLaneRefusal();
-        return query;
+        if (!opened.query) throw claudeLaneRefusal();
+        return opened.query;
       },
       get exited() {
         return exited;
@@ -364,14 +369,14 @@ export class ClaudeNamedLaneAdmission {
         if (closed) return;
         closed = true;
         try {
-          query?.close();
+          opened.query?.close();
         } catch {
           this.logger.warn('[ClaudeLane] Child close was not confirmed.');
         }
       },
     };
     this.child = child;
-    query = queryFn({
+    opened.query = queryFn({
       prompt,
       options: {
         ...options,
@@ -453,6 +458,24 @@ export class ClaudeNamedLaneAdmission {
     this.child = undefined;
   }
 
+  /** Yields each gated turn only after its account admission re-validates. */
+  private async *admittedTurns(
+    turns: ReturnType<typeof createNamedAccountPromptGate>['prompt'],
+  ): AsyncGenerator<SDKUserMessage> {
+    let initial = true;
+    for await (const message of turns) {
+      try {
+        await this.validateTurn(!initial);
+        this.assertOpen();
+        initial = false;
+        yield message;
+      } catch {
+        await this.dispose();
+        throw claudeLaneRefusal();
+      }
+    }
+  }
+
   async launch(
     queryFn: LaneQueryFunction,
     options: Options,
@@ -464,22 +487,8 @@ export class ClaudeNamedLaneAdmission {
   ): Promise<void> {
     const gate = createNamedAccountPromptGate(this.abort.signal);
     this.gates.push(gate);
-    const owner = this;
     const prompt: AsyncIterable<SDKUserMessage> = {
-      async *[Symbol.asyncIterator]() {
-        let initial = true;
-        for await (const message of gate.prompt) {
-          try {
-            await owner.validateTurn(!initial);
-            owner.assertOpen();
-            initial = false;
-            yield message;
-          } catch {
-            await owner.dispose();
-            throw claudeLaneRefusal();
-          }
-        }
-      },
+      [Symbol.asyncIterator]: () => this.admittedTurns(gate.prompt),
     };
     const canUseTool = options.canUseTool;
     const child = this.open(queryFn, prompt, {

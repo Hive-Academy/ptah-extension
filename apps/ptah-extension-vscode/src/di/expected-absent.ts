@@ -30,6 +30,7 @@ import {
   FileViewRpcHandlers,
   FileEditRpcHandlers,
   LanePlanLimitsRpcHandlers,
+  ProviderAccountRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 /** Handler classes the VS Code host must never construct.
@@ -56,6 +57,8 @@ export const EXPECTED_ABSENT_HANDLERS = [
   FileEditRpcHandlers,
   // `agent:getLanePlanLimits` belongs to the desktop display panel (R10.9).
   LanePlanLimitsRpcHandlers,
+  // Claude account management (`provider:*Account*`) is desktop-only (D30).
+  ProviderAccountRpcHandlers,
 ] as const;
 
 /**
@@ -78,4 +81,7 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   // display panel only; this host shows plan limits through
   // `provider:getPlanLimits` and must not expose per-lane rows (R10.9).
   'lanePlanLimits',
+  // Named Claude account management (`provider:*Account*`) ships in the
+  // desktop app first; this host keeps the ambient sign-in only (D30).
+  'providerAccounts',
 ] as const;
