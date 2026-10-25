@@ -195,6 +195,48 @@ describe('ClaudeAccountCommand (account child owner)', () => {
       expect(await pending).toEqual({ ok: false, code: 'timeout', terminated: true });
       expect(children).toHaveLength(0);
     });
+
+    it('a --version child that outlives timeout and grace hands its receipt to the caller; a late close settles it once', async () => {
+      const pending = command.certifyExecutable(new AbortController().signal);
+      await flush(); jest.advanceTimersByTime(10_000); await flush();
+      jest.advanceTimersByTime(2_000); await flush();
+      const result = await pending;
+      expect(result).toEqual({ ok: false, code: 'timeout', terminated: false, closeReceipt: expect.anything() });
+      const receipt = result.ok ? undefined : result.closeReceipt;
+      const child = nextChild();
+      expect(child.listenerCount('close')).toBe(1);
+      const closed = jest.fn();
+      receipt?.onClosed(closed);
+      child.finish(0); child.finish(0); await flush();
+      expect(receipt?.closed).toBe(true);
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+      expect(child.stdout.listenerCount('data')).toBe(0);
+      expect(child.stderr.listenerCount('data')).toBe(0);
+      expect(requests).toHaveLength(1);
+    });
+
+    it('a cancelled --version child past the grace: disposing its receipt removes the listeners and ignores a later close', async () => {
+      const controller = new AbortController();
+      const pending = command.certifyExecutable(controller.signal);
+      await flush();
+      controller.abort(); await flush();
+      jest.advanceTimersByTime(2_000); await flush();
+      const result = await pending;
+      expect(result).toEqual({ ok: false, code: 'cancelled', terminated: false, closeReceipt: expect.anything() });
+      const receipt = result.ok ? undefined : result.closeReceipt;
+      const child = nextChild();
+      const closed = jest.fn();
+      receipt?.onClosed(closed);
+      receipt?.dispose();
+      expect(child.listenerCount('close')).toBe(0);
+      expect(child.listenerCount('error')).toBe(0);
+      expect(child.stdout.listenerCount('data')).toBe(0);
+      child.finish(0); await flush();
+      expect(closed).not.toHaveBeenCalled();
+      expect(receipt?.closed).toBe(false);
+    });
   });
 
   describe('status and logout', () => {

@@ -287,9 +287,13 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       command, args: [...prefixArgs, '--version'], env, cwd: this.host.tempDir(),
       limitMs: Math.max(0, expiresAt - Date.now()), outputBytes: CLAUDE_ACCOUNT_CHILD_LIMITS.versionOutputBytes, signal,
     });
-    if (run.stopped === 'cancelled') return { ok: false, code: 'cancelled', terminated: run.terminated };
-    if (run.stopped === 'timeout') return { ok: false, code: 'timeout', terminated: run.terminated };
-    if (!run.terminated || run.exitCode !== 0) return { ok: false, code: 'identity-unproved', terminated: run.terminated };
+    // An unproved child's receipt goes to the caller, which owns it (tracks or disposes it).
+    const receipt = closeReceiptOf(run);
+    if (run.stopped === 'cancelled') return { ok: false, code: 'cancelled', terminated: run.terminated, ...receipt };
+    if (run.stopped === 'timeout') return { ok: false, code: 'timeout', terminated: run.terminated, ...receipt };
+    if (!run.terminated || run.exitCode !== 0) {
+      return { ok: false, code: 'identity-unproved', terminated: run.terminated, ...receipt };
+    }
     const match = VERSION_OUTPUT.exec(run.stdout.trim());
     if (!match) return { ok: false, code: 'identity-unproved', terminated: true };
     const parts = [Number(match[1]), Number(match[2]), Number(match[3])];

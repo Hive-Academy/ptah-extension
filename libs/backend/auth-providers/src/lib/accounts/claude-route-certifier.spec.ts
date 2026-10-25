@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { claudeIdentityReference } from '@ptah-extension/agent-sdk';
 import type { ClaudeCertifiedExecutable, ClaudeCertifiedLaunchContext } from '@ptah-extension/auth-providers-tokens';
+import type { ClaudeChildCloseReceipt } from './claude-account-command';
 import { parseClaudeAccountStatus } from './claude-account-status';
 import { CLAUDE_REMOTE_SETTINGS_FILES, type ClaudePolicyDirEntry, type ClaudeRegistryQueryResult } from './claude-auth-settings-scan';
 import { resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
@@ -177,6 +178,22 @@ afterAll(() => {
 });
 
 const signal = (): AbortSignal => new AbortController().signal;
+
+/** A child that outlived its limit and kill grace; `listeners` stand in for the child's listeners. */
+class FakeReceipt implements ClaudeChildCloseReceipt {
+  closed = false;
+  readonly dispose = jest.fn(() => { this.listeners.clear(); });
+  readonly listeners = new Set<() => void>();
+  onClosed(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  close(): void {
+    this.closed = true;
+    for (const listener of [...this.listeners]) listener();
+    this.listeners.clear();
+  }
+}
 const personalRef = claudeIdentityReference(EMAIL, null) as string;
 
 function certifyRequest(route: CanonicalProviderAccountRoute, identityRef: string | null = personalRef) {
@@ -364,6 +381,45 @@ describe('ClaudeRouteCertifier.certify', () => {
       h.probe.certifyExecutable.mockResolvedValueOnce({ ok: false, code: 'timeout', terminated: false });
       await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toEqual({ ok: false, code: 'timeout', terminated: false });
       expect(h.probe.status).not.toHaveBeenCalled();
+    });
+
+    it('run certification disposes an unproved --version receipt and keeps terminated:false', async () => {
+      const h = harness();
+      const receipt = new FakeReceipt();
+      receipt.onClosed(() => undefined);
+      h.probe.certifyExecutable.mockResolvedValueOnce({ ok: false, code: 'timeout', terminated: false, closeReceipt: receipt });
+      await expect(h.certifier.certify(certifyRequest(newRoute()))).resolves.toEqual({ ok: false, code: 'timeout', terminated: false });
+      expect(receipt.dispose).toHaveBeenCalledTimes(1);
+      expect(receipt.listeners.size).toBe(0);
+      expect(h.probe.status).not.toHaveBeenCalled();
+    });
+
+    it('an auth context hands the unproved --version receipt to its caller undisposed', async () => {
+      const h = harness();
+      const receipt = new FakeReceipt();
+      h.probe.certifyExecutable.mockResolvedValueOnce({ ok: false, code: 'cancelled', terminated: false, closeReceipt: receipt });
+      await expect(h.certifier.authContext({ route: newRoute(), signal: signal() }))
+        .resolves.toEqual({ ok: false, code: 'cancelled', terminated: false, closeReceipts: [receipt] });
+      expect(receipt.dispose).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['identity-unproved', false],
+      ['route-changed', true],
+    ] as const)('run certification disposes an unproved status receipt (%s)', async (code, routeChanged) => {
+      const h = harness();
+      const receipt = new FakeReceipt();
+      receipt.onClosed(() => undefined);
+      h.probe.status.mockResolvedValueOnce({
+        status: null, terminated: false, closeReceipt: receipt, ...(routeChanged ? { routeChanged: true as const } : {}),
+      });
+      const result = await h.certifier.certify(certifyRequest(newRoute()));
+      expect(result).toEqual({ ok: false, code, terminated: false });
+      expect(receipt.dispose).toHaveBeenCalledTimes(1);
+      expect(receipt.listeners.size).toBe(0);
+      receipt.close();
+      expect(receipt.dispose).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ ok: false, code, terminated: false });
     });
 
     it('an aborted signal starts no child', async () => {

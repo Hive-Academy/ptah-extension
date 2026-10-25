@@ -540,14 +540,48 @@ describe('ProviderAccountActionsService', () => {
       expect(operations()).toHaveLength(1);
     });
 
-    it('a status action disposes reg.exe receipts and keeps its reservation', async () => {
+    it('a status action releases its reservation only once every unproved reg.exe child closed', async () => {
       signIn('signed-in');
-      const late = new FakeReceipt();
-      certifier.checkCoverage.mockResolvedValue(unprovedScan(late));
+      const completeStatus = jest.spyOn(store, 'completeStatus');
+      const first = new FakeReceipt();
+      const second = new FakeReceipt();
+      certifier.checkCoverage.mockResolvedValue(unprovedScan(first, second));
       expect((await actions.readStatus(target())).code).toBe('unsupported-source');
       expect(commands.status).not.toHaveBeenCalled();
-      expect(late.disposed).toBe(true);
-      expect(late.listeners.size).toBe(0);
+      expect(first.listeners.size).toBe(1);
+      expect(second.listeners.size).toBe(1);
+      expect(operations()).toHaveLength(1);
+      first.close();
+      expect(operations()).toHaveLength(1);
+      second.close();
+      expect(operations()).toEqual([]);
+      expect(store.get(id).state).toBe('signed-in');
+      expect(store.identityRef(id)).toBe('identity-ref-0001');
+      // One retaining record and one late release: no duplicate settlement.
+      expect(completeStatus).toHaveBeenCalledTimes(2);
+      expect(completeStatus).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), expect.any(Number), 'signed-in', true, undefined);
+      first.close(); second.close();
+      expect(completeStatus).toHaveBeenCalledTimes(2);
+      certifier.checkCoverage.mockResolvedValue({ ok: true });
+      commands.status.mockResolvedValue(signedIn());
+      expect((await actions.readStatus(target())).code).toBe('ok');
+    });
+
+    it('control: a status action whose reg.exe or --version child never closes stays held; disposal removes listeners', async () => {
+      signIn('signed-in');
+      const closes = new FakeReceipt();
+      const never = new FakeReceipt();
+      certifier.authContext.mockResolvedValue({ ...unprovedScan(closes, never), code: 'timeout' });
+      expect((await actions.readStatus(target())).code).toBe('timeout');
+      closes.close();
+      await advance(600_000);
+      expect(operations()).toHaveLength(1);
+      expect((await actions.readStatus(target())).code).toBe('busy');
+      expect(never.listeners.size).toBe(1);
+      await actions.dispose();
+      expect(never.disposed).toBe(true);
+      expect(never.listeners.size).toBe(0);
+      never.close();
       expect(operations()).toHaveLength(1);
       expect(store.get(id).state).toBe('signed-in');
     });

@@ -48,6 +48,8 @@ export type ClaudeExecutableProbeResult =
       readonly ok: false;
       readonly code: 'unsupported-store' | 'unsupported-source' | 'identity-unproved' | 'cancelled' | 'timeout';
       readonly terminated: boolean;
+      /** Present only when `terminated` is false and the `--version` child exists; the caller owns it. */
+      readonly closeReceipt?: ClaudeChildCloseReceipt;
     };
 
 /** `status` is `null` when the child output proves no state (spawn error, timeout, unparseable). */
@@ -73,8 +75,14 @@ export interface ClaudeLogoutProbeResult {
 export interface ClaudeCliProbe {
   /** `--version` in `os.tmpdir()` with the certified env; cached by path and stat fingerprint. */
   certifyExecutable(signal: AbortSignal): Promise<ClaudeExecutableProbeResult>;
-  /** `auth status --json` with `context.env` and `context.cwd`. */
-  status(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeStatusProbeResult>;
+  /**
+   * `auth status --json` with `context.env` and `context.cwd`. `closeReceipt` is
+   * present only when `terminated` is false; the caller owns it.
+   */
+  status(
+    context: ClaudeAuthContext,
+    signal: AbortSignal,
+  ): Promise<ClaudeStatusProbeResult & { readonly closeReceipt?: ClaudeChildCloseReceipt }>;
   /** `auth logout` with `context.env` and `context.cwd`. */
   logout(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeLogoutProbeResult>;
   /** `reg.exe query <path> /reg:64` (win32). Output reaches the policy scan only. */
@@ -191,6 +199,9 @@ export class ClaudeRouteCertifier {
     // Step 6: the only settings-reading child of certification, and the class read (D13).
     if (signal.aborted) return refuse('cancelled', terminated);
     const probed = await this.probe.status(context, signal);
+    // Run certification cannot follow a late close: remove the child's listeners
+    // now; `terminated` stays false, so the caller still retains its lease.
+    probed.closeReceipt?.dispose();
     terminated = terminated && probed.terminated;
     if (probed.routeChanged) return refuse('route-changed', terminated);
     if (!probed.terminated) return refuse('identity-unproved', false);
@@ -272,7 +283,11 @@ export class ClaudeRouteCertifier {
 
     if (signal.aborted) return refuse('cancelled', true);
     const probed = await this.probe.certifyExecutable(signal);
-    if (!probed.ok) return refuse(probed.code, probed.terminated);
+    if (!probed.ok) {
+      // An auth caller tracks the `--version` child's late close; run certification disposes it (`withoutReceipts`).
+      const refusal = refuse(probed.code, probed.terminated);
+      return probed.closeReceipt ? { ...refusal, closeReceipts: Object.freeze([probed.closeReceipt]) } : refusal;
+    }
     if (!probed.terminated) return refuse('identity-unproved', false);
     const version = parseVersion(probed.executable.version);
     if (!version) return refuse('identity-unproved', true);

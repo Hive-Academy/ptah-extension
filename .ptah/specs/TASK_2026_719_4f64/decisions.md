@@ -142,3 +142,13 @@
 - Findings 1-3 fixed across fix runs 1-4 (p2-fix-1..4-report.md). Registry probes now return close receipts that the actions ledger tracks (late close unblocks; no close keeps the block; disposal removes listeners).
 - Making `ClaudeAuthContext.route` type-required was a fix-run-1 self-proposed hardening, not a review finding. Two runs hit the file cap on it (it fans out to 5 spec files). At runtime a missing route already fails closed (no spawn, `route-changed`). Decision: defer as Minor (later task); record in the PR. Reversible.
 - Verify: one combined run for the P2 fixes and B12 (both touch projects that ptah-electron depends on), then two commits with explicit paths.
+
+## D25 — P2 re-review REVISE 8/10; one bounded correction (2026-10-26, orchestrator)
+
+- Codex re-review (`code-logic-review-p2-rereview.md`): findings 1 and 3 closed; deviations D22 (registry rule) and D24 (optional route type) accepted. Finding 2 open for one path (status action drops registry receipts). New Moderate: `certifyExecutable` and run certification drop receipts without disposal (listener leak on a never-closing child).
+- The fix-round cap is used. Per agent-lanes §6: one bounded correction (fix run 5, both items only), then one independent scoped review. If that review finds defects, report them to the user and stop; the cap is not reset.
+
+## D26 — Phase P2 closed (2026-10-26, orchestrator)
+
+- Bounded correction (fix run 5) reviewed by a fresh codex lane: APPROVED 9/10, both items closed, no new defects (`code-logic-review-p2-correction.md`). Phase P2 (B5-B9) is closed.
+- Open Minor items for later tasks: explicit `implements NamedAccountPersistencePort` (D22); type-required `ClaudeAuthContext.route` (D24).

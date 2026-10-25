@@ -478,9 +478,24 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
       if (signal.aborted || !terminated) return complete(signal.aborted ? 'cancelled' : code, priorState, terminated);
       return complete(code, priorState === 'signed-in' ? 'disconnected' : 'failed', true);
     };
-    // The status action does not follow registry probe closes: their receipts are
-    // disposed (listeners removed) and the unproved refusal keeps the reservation.
+    // Unproved children keep the reservation (prior state, so nothing else changes)
+    // until every one of their receipts reports its close.
+    const retained = (code: ProviderAccountResultCode,
+      receipts: readonly ClaudeChildCloseReceipt[]): ProviderAccountActionResult => {
+      let result: ProviderAccountActionResult;
+      try {
+        result = unobserved(code, false);
+      } catch (error: unknown) {
+        for (const receipt of receipts) receipt.dispose();
+        throw error;
+      }
+      if (receipts.length > 0) this.releaseStatusOnClose(receipts, () => complete(code, priorState, true));
+      return result;
+    };
+    // A refusal's children (`reg.exe` and `--version`) are followed through their
+    // receipts; an unterminated refusal without receipts stays unproved.
     const refused = (refusal: ClaudeProbeRefusal): ProviderAccountActionResult => {
+      if (!refusal.terminated && refusal.closeReceipts) return retained(refusal.code, refusal.closeReceipts);
       for (const receipt of refusal.closeReceipts ?? []) receipt.dispose();
       return unobserved(refusal.code, refusal.terminated);
     };
@@ -490,19 +505,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     if (!before.ok) return refused(before);
     if (signal.aborted) return unobserved('cancelled', true);
     const probed = await this.commands.status(prepared.context, signal);
-    // An unproved child keeps the reservation until its close is seen (prior state, so nothing else changes).
-    const unproved = (code: ProviderAccountResultCode): ProviderAccountActionResult => {
-      const receipt = probed.closeReceipt;
-      let result: ProviderAccountActionResult;
-      try {
-        result = unobserved(code, false);
-      } catch (error: unknown) {
-        receipt?.dispose();
-        throw error;
-      }
-      if (receipt) this.releaseStatusOnClose(receipt, () => complete(code, priorState, true));
-      return result;
-    };
+    const unproved = (code: ProviderAccountResultCode): ProviderAccountActionResult =>
+      retained(code, probed.closeReceipt ? [probed.closeReceipt] : []);
     // No status is recorded for a changed route.
     if (probed.routeChanged) return probed.terminated ? unobserved('route-changed', true) : unproved('route-changed');
     if (!probed.terminated) return unproved('identity-unproved');
@@ -516,21 +520,25 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   }
 
   /**
-   * Keeps observing an unproved status-action child after the action returned.
-   * Only its close releases the reservation; disposal removes the listeners and
-   * leaves the reservation held.
+   * Keeps observing the unproved children of a status action after it returned.
+   * Only the close of every one of them releases the reservation, once; disposal
+   * removes the listeners and leaves the reservation held.
    */
-  private releaseStatusOnClose(receipt: ClaudeChildCloseReceipt, release: () => void): void {
-    this.statusReceipts.add(receipt);
-    receipt.onClosed(() => {
-      this.statusReceipts.delete(receipt);
-      if (this.disposalController.signal.aborted) return;
-      try {
-        release();
-      } catch {
-        // degradation-audit: reported - the store refused the late release (it changed); the reservation stays held for manual recovery.
-      }
-    });
+  private releaseStatusOnClose(receipts: readonly ClaudeChildCloseReceipt[], release: () => void): void {
+    for (const receipt of receipts) this.statusReceipts.add(receipt);
+    let open = receipts.length;
+    for (const receipt of receipts) {
+      receipt.onClosed(() => {
+        this.statusReceipts.delete(receipt);
+        open -= 1;
+        if (open > 0 || this.disposalController.signal.aborted) return;
+        try {
+          release();
+        } catch {
+          // degradation-audit: reported - the store refused the late release (it changed); the reservation stays held for manual recovery.
+        }
+      });
+    }
   }
 
   /** A coverage refusal starts no child and is a terminal failure of the operation. */
