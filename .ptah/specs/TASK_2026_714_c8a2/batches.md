@@ -965,12 +965,12 @@ Assumptions:
 
 ---
 
-# Phase P5b — Dev route switch (@ptah-extension/codex-runtime) — COMPLETE pending phase review (code-logic)
+# Phase P5b — Dev route switch (@ptah-extension/codex-runtime) — COMPLETE (review APPROVED 8/10, code-logic-review-p5b.md)
 
 Phase review: code-logic (it is a bypass of the production gate). Implementer Codex lane,
 reviewer Claude subagent.
 
-## Batch DS1: Dev-only chat route override — COMPLETE (0541f372b; plan docs 22f44920a; report batch-DS1-report.md; phase review PENDING)
+## Batch DS1: Dev-only chat route override — COMPLETE (0541f372b; plan docs 22f44920a; report batch-DS1-report.md; phase review APPROVED 8/10 code-logic-review-p5b.md, Claude reviewer)
 
 - Recommended executor: CLI lane, Codex family | Execution mode: sequential
 - Fallback order: other family same capability -> same family other provider/model -> subagent
@@ -1031,19 +1031,22 @@ reviewer Claude subagent.
 
 ---
 
-# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — PENDING (after P5b review)
+# Phase P6 — Chat runtime consumer (@ptah-extension/agent-sdk) — IN_PROGRESS
 
 Phase review: code-logic + style (new public API). Implementer: Codex; reviewer: Claude.
 Verification for every agent-sdk batch: `npm run verify -- -p @ptah-extension/agent-sdk`.
 Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent on disk
 2026-10-25 — every D file is CREATE). Phase gate adds the host typecheck.
 
-## Batch 6p: P5 carried items — shared workspace key and model substitution — PENDING
+## Batch 6p: P5 carried items — shared workspace key and model substitution — IN_PROGRESS
 
 - Executor: CLI lane, Codex family | sequential | Review: Claude | Subagent reason: N/A
-- Files (5, 2 projects): MODIFY W/libs/backend/codex-runtime/src/lib/codex-home-path.ts and
-  `codex-home-path.spec.ts`, W/libs/backend/codex-runtime/src/index.ts;
+- Files (6, 2 projects): MODIFY W/libs/backend/codex-runtime/src/lib/codex-home-path.ts and
+  `codex-home-path.spec.ts`, W/libs/backend/codex-runtime/src/index.ts,
+  W/libs/backend/codex-runtime/src/lib/codex-dev-route.spec.ts (P5b review M1 only);
   W/libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts and its spec
+- P5b review M1 (code-logic-review-p5b.md): add a codex-dev-route.spec.ts case for a missing /
+  undefined `isPackaged` (cast) returning null, the R7-1 failure mode. Test only.
 - Details: move the private `workspaceIdentityKey` (resolver :222) to an exported
   `normalizeCodexWorkspaceKey(path, platform)` next to `normalizeCodexHomeKey`; backslash ->
   slash only on win32 (fixes the POSIX collision in code-logic-review-p5-fixes.md); a relative
@@ -1162,6 +1165,9 @@ and CLI get compatible bindings only (no feature work).
   router resolves native-off by default; explicit-home auth-file invalidation (carried P5 logic
   6). Spec: gate disabled (R5); packaged -> devRoute null; unpackaged + PTAH_CODEX_RUNTIME_DEV=1
   -> chat routes native, gateway/lane do not.
+- Acceptance check from P5b review M2 (code-logic-review-p5b.md): Electron passes the real
+  `app.isPackaged` verbatim (no coercion, no default) to `readCodexDevRouteOverride`; no other
+  host (VS Code, CLI, TUI, gateway) passes a non-null `devRoute`. The 8a review must confirm both.
 - Verification: `npm run verify -- -p ptah-electron`
 
 ## Batch 8b: Electron IPC approval ownership — PENDING (needs 8a)
