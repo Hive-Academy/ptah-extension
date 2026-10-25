@@ -174,6 +174,23 @@ describe('buildCertifiedClaudeEnv', () => {
     );
   });
 
+  it('does not copy an allowlisted value carrying a line break', () => {
+    const env = buildCertifiedClaudeEnv(
+      {
+        ALL_PROXY: 'proxy\nANTHROPIC_API_KEY=fixture-key',
+        NO_PROXY: 'corp\nCLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1',
+        HOME: 'C:/Users/fixture',
+      },
+      DIR_A,
+    );
+    expect(env).toEqual({
+      HOME: 'C:/Users/fixture',
+      NO_PROXY: '127.0.0.1,localhost',
+      CLAUDE_CONFIG_DIR: DIR_A,
+      CLAUDE_SECURESTORAGE_CONFIG_DIR: DIR_A,
+    });
+  });
+
   it('refuses an empty directory', () => {
     expect(refusalCode(() => buildCertifiedClaudeEnv({}, '  '))).toBe(
       'identity-unproved',
@@ -272,6 +289,25 @@ describe('certifiedNamedEnv', () => {
       refusalCode(() => certifiedNamedEnv(route(DIR_A), { ...launch, env })),
     ).toBe('route-changed');
   });
+
+  it.each<[string, Record<string, string>]>([
+    ['an embedded line break', { ALL_PROXY: 'proxy\nANTHROPIC_API_KEY=x' }],
+    ['a credential selector', { ANTHROPIC_API_KEY: 'fixture-key' }],
+    ['a parent-managed key', { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' }],
+    ['a key with =', { 'PATH=x': 'y' }],
+  ])('refuses a self-consistent launch env carrying %s', (_label, extra) => {
+    const launch = launchFor(DIR_A);
+    const env = { ...launch.env, ...extra };
+    expect(
+      refusalCode(() =>
+        certifiedNamedEnv(route(DIR_A), {
+          ...launch,
+          env,
+          envDigest: certifiedEnvDigest(env),
+        }),
+      ),
+    ).toBe('route-changed');
+  });
 });
 
 describe('assertCertifiedLaunch', () => {
@@ -351,6 +387,105 @@ describe('assertCertifiedLaunch', () => {
         ),
       ).toBe('identity-unproved');
     });
+
+    it.each<[string, Readonly<Record<string, string | null>>]>([
+      ['settings', { settings: JSON.stringify({ apiKeyHelper: 'helper' }) }],
+      ['empty settings', { settings: '{}' }],
+      ['valueless settings', { settings: null }],
+      ['dashed settings', { '--settings': '{}' }],
+      ['inline settings value', { 'settings={}': null }],
+      ['upper-case settings', { SETTINGS: '{}' }],
+      ['setting-sources', { 'setting-sources': 'user,project,local' }],
+      ['empty setting-sources', { 'setting-sources': '' }],
+    ])(
+      'refuses an extraArgs certified-input replacement: %s',
+      (_label, extraArgs) => {
+        expect(
+          refusalCode(() =>
+            assertCertifiedLaunch(launch, base(launch, { extraArgs }), mode),
+          ),
+        ).toBe('identity-unproved');
+      },
+    );
+
+    it.each<[string, string]>([
+      ['apiKeyHelper', JSON.stringify({ apiKeyHelper: 'fixture-helper' })],
+      ['forceLoginOrgUUID', JSON.stringify({ forceLoginOrgUUID: 'org' })],
+      ['selector env', JSON.stringify({ env: { ANTHROPIC_API_KEY: 'x' } })],
+      ['plugins', JSON.stringify({ enabledPlugins: { plugin: true } })],
+      ['malformed JSON', 'not json'],
+      ['non-object JSON', '[]'],
+      ['non-object env', JSON.stringify({ env: 'PATH=x' })],
+    ])('refuses a flag settings tier: %s', (_label, flagSettings) => {
+      expect(
+        refusalCode(() =>
+          assertCertifiedLaunch(launch, base(launch, { flagSettings }), mode),
+        ),
+      ).toBe('identity-unproved');
+    });
+
+    it('accepts a flag settings tier with no auth override', () => {
+      const flagSettings = JSON.stringify({ autoMemoryEnabled: false });
+      expect(
+        refusalCode(() =>
+          assertCertifiedLaunch(launch, base(launch, { flagSettings }), mode),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('refuses an env that splits an embedded line break into a new selector', () => {
+      // A hand-made launch whose certified value embeds a separator. The
+      // split actual env serializes to the same digest lines, so only the
+      // direct entry comparison and the encodability check catch it.
+      const ambiguousEnv = {
+        ...launch.env,
+        ALL_PROXY: 'proxy\nANTHROPIC_API_KEY=fixture-key',
+      };
+      const ambiguous: ClaudeCertifiedLaunchContext = {
+        ...launch,
+        env: ambiguousEnv,
+        envDigest: certifiedEnvDigest(ambiguousEnv),
+      };
+      const split = {
+        ...launch.env,
+        ALL_PROXY: 'proxy',
+        ANTHROPIC_API_KEY: 'fixture-key',
+      };
+      expect(certifiedEnvDigest(split)).toBe(ambiguous.envDigest);
+      expect(
+        refusalCode(() =>
+          assertCertifiedLaunch(
+            ambiguous,
+            base(ambiguous, { env: split }),
+            mode,
+          ),
+        ),
+      ).toBe('route-changed');
+      expect(
+        refusalCode(() =>
+          assertCertifiedLaunch(ambiguous, base(ambiguous), mode),
+        ),
+      ).toBe('route-changed');
+    });
+
+    it.each<[string, Record<string, string>]>([
+      ['a credential selector', { ANTHROPIC_API_KEY: 'fixture-key' }],
+      ['a parent-managed key', { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' }],
+    ])(
+      'refuses an actual env adding %s even with a matching digest',
+      (_label, extra) => {
+        const env = { ...launch.env, ...extra };
+        const forged: ClaudeCertifiedLaunchContext = {
+          ...launch,
+          envDigest: certifiedEnvDigest(env),
+        };
+        expect(
+          refusalCode(() =>
+            assertCertifiedLaunch(forged, base(forged, { env }), mode),
+          ),
+        ).toBe('route-changed');
+      },
+    );
   });
 
   it('bootstrap requires no setting sources and the temp cwd', () => {
@@ -370,34 +505,23 @@ describe('assertCertifiedLaunch', () => {
     ).toBe('route-changed');
   });
 
-  it('final refuses a flag settings tier with an override or malformed JSON', () => {
-    for (const flagSettings of [
-      JSON.stringify({ apiKeyHelper: 'helper' }),
-      JSON.stringify({ forceLoginOrgUUID: 'org' }),
-      JSON.stringify({ env: { ANTHROPIC_API_KEY: 'x' } }),
-      JSON.stringify({ enabledPlugins: { plugin: true } }),
-      'not json',
-      '[]',
-    ]) {
-      expect(
-        refusalCode(() =>
-          assertCertifiedLaunch(
-            launch,
-            finalActual(launch, { flagSettings }),
-            'final',
-          ),
-        ),
-      ).toBe('identity-unproved');
-    }
-  });
-
-  it('allows other extraArgs keys', () => {
+  it('allows other extraArgs keys at both boundaries', () => {
+    const extraArgs = { 'debug-to-stderr': null, 'settings-note': 'x' };
     expect(
       refusalCode(() =>
         assertCertifiedLaunch(
           launch,
-          finalActual(launch, { extraArgs: { 'debug-to-stderr': null } }),
+          finalActual(launch, { extraArgs }),
           'final',
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      refusalCode(() =>
+        assertCertifiedLaunch(
+          launch,
+          bootstrapActual(launch, { extraArgs }),
+          'bootstrap',
         ),
       ),
     ).toBeUndefined();

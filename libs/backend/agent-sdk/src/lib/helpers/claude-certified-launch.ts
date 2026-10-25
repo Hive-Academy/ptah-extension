@@ -120,7 +120,10 @@ export interface ClaudeActualLaunch {
   readonly flagSettings?: string;
   /** SDK `managedSettings`. Any value, `{}` included, refuses. */
   readonly managedSettings?: unknown;
-  /** SDK `extraArgs`. A `managed-settings` key refuses. */
+  /**
+   * SDK `extraArgs`. A key naming `managed-settings`, `settings` or
+   * `setting-sources` (after leading dashes and any `=value`) refuses.
+   */
   readonly extraArgs?: Readonly<Record<string, string | null>>;
 }
 
@@ -133,11 +136,64 @@ function isRunPolicyKey(name: string): boolean {
   return RUN_POLICY_KEY_SET.has(name.toUpperCase());
 }
 
+function isConfigDirKey(name: string): boolean {
+  return (CONFIG_DIR_KEYS as readonly string[]).includes(name);
+}
+
+/**
+ * True when one `key=value` digest line cannot be confused with another
+ * split: no line break in the key or the value and no `=` in the key.
+ */
+function isDigestEncodable(key: string, value: string): boolean {
+  return !key.includes('=') && !key.includes('\n') && !value.includes('\n');
+}
+
+/**
+ * True when every entry of a certified env is an allowlisted key or one of the
+ * two Claude directory keys, and every entry is digest-encodable. A launch env
+ * that fails this can carry a credential selector or a parent-managed key.
+ */
+function launchEnvCertified(env: Readonly<Record<string, string>>): boolean {
+  return Object.entries(env).every(
+    ([key, value]) =>
+      typeof value === 'string' &&
+      (isCertifiedClaudeEnvKey(key) || isConfigDirKey(key)) &&
+      isDigestEncodable(key, value),
+  );
+}
+
+/**
+ * True when the actual env carries exactly the certified entries: the same
+ * key set and the same values, ignoring run-policy keys and `undefined`
+ * values. This compares entries directly, so it does not depend on the digest
+ * encoding.
+ */
+function sameCertifiedEntries(
+  actual: Readonly<Record<string, string | undefined>>,
+  expected: Readonly<Record<string, string>>,
+): boolean {
+  const actualKeys = Object.keys(actual).filter(
+    (key) => actual[key] !== undefined && !isRunPolicyKey(key),
+  );
+  const expectedKeys = Object.keys(expected).filter(
+    (key) => !isRunPolicyKey(key),
+  );
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(expected, key) &&
+        expected[key] === actual[key],
+    )
+  );
+}
+
 /**
  * Build the complete child env for a named route from an allowlist. Keys keep
  * their original casing. Every copied `NO_PROXY` (any casing) gets the local
  * hosts appended; when none was copied, `NO_PROXY` is set to them. Both Claude
- * directory keys are set to `canonicalConfigDir`. Nothing else is present.
+ * directory keys are set to `canonicalConfigDir`. An allowlisted value with a
+ * line break is not copied. Nothing else is present.
  */
 export function buildCertifiedClaudeEnv(
   sourceEnv: Readonly<Record<string, string | undefined>>,
@@ -150,6 +206,9 @@ export function buildCertifiedClaudeEnv(
   let noProxyCopied = false;
   for (const [key, value] of Object.entries(sourceEnv)) {
     if (value === undefined || !isCertifiedClaudeEnvKey(key)) continue;
+    // A value with a line break would make the digest lines ambiguous; such
+    // a value is never a valid path, proxy or locale, so it is not copied.
+    if (!isDigestEncodable(key, value)) continue;
     if (key.toUpperCase() === 'NO_PROXY') {
       noProxyCopied = true;
       env[key] = value === '' ? LOCAL_NO_PROXY : `${value},${LOCAL_NO_PROXY}`;
@@ -165,6 +224,9 @@ export function buildCertifiedClaudeEnv(
 /**
  * SHA-256 hex of the sorted `key=value` lines of `env`. Run-policy keys and
  * `undefined` values are excluded; every other key is part of the digest.
+ * The line form is unambiguous only for digest-encodable entries, so both
+ * boundaries also check the env entries directly and refuse an entry with a
+ * line break (or a key with `=`).
  */
 export function certifiedEnvDigest(
   env: Readonly<Record<string, string | undefined>>,
@@ -181,8 +243,9 @@ export function certifiedEnvDigest(
 /**
  * The env a named child starts with: a fresh copy of the certified env plus
  * the requested run-policy keys set to `'1'`. Refuses when the launch is
- * absent, when either Claude directory differs from the route, or when the
- * env no longer matches its digest.
+ * absent, when either Claude directory differs from the route, when the env
+ * carries a key off the allowlist or an entry that is not digest-encodable,
+ * or when the env no longer matches its digest.
  */
 export function certifiedNamedEnv(
   route: ClaudeAccountNamedRoute,
@@ -195,7 +258,10 @@ export function certifiedNamedEnv(
       throw new ClaudeCertifiedLaunchRefusal('route-changed');
     }
   }
-  if (certifiedEnvDigest(launch.env) !== launch.envDigest) {
+  if (
+    !launchEnvCertified(launch.env) ||
+    certifiedEnvDigest(launch.env) !== launch.envDigest
+  ) {
     throw new ClaudeCertifiedLaunchRefusal('route-changed');
   }
   const env: Record<string, string> = { ...launch.env };
@@ -234,15 +300,46 @@ function parsedFlagSettings(flagSettings: string): unknown {
 }
 
 /**
+ * CLI flags an `extraArgs` entry must not carry: each one would replace a
+ * certified input (the parent-managed tier, the flag settings tier or the
+ * setting sources) with a value this check never saw.
+ */
+const CERTIFIED_INPUT_FLAGS: ReadonlySet<string> = new Set([
+  'managed-settings',
+  'settings',
+  'setting-sources',
+]);
+
+/**
+ * The CLI flag name an `extraArgs` key turns into. The SDK emits `--<key>`,
+ * so leading dashes and an inline `=value` still name the same flag; the CLI
+ * flag parser is case-sensitive, but casing is folded so no variant slips by.
+ */
+function extraArgFlagName(key: string): string {
+  return key.replace(/^-+/, '').split('=')[0].toLowerCase();
+}
+
+function replacesCertifiedInput(
+  extraArgs: Readonly<Record<string, string | null>> | undefined,
+): boolean {
+  if (extraArgs === undefined) return false;
+  return Object.keys(extraArgs).some((key) =>
+    CERTIFIED_INPUT_FLAGS.has(extraArgFlagName(key)),
+  );
+}
+
+/**
  * Re-check a certified launch right before one SDK child starts. Throws
  * `ClaudeCertifiedLaunchRefusal`; returns only when the child may start.
  *
- * Both modes: equal executable path and env digest, run-policy keys only with
- * value `'1'`, no parent-managed settings channel (`managedSettings` or an
- * `extraArgs` `managed-settings` key).
+ * Both modes: equal executable path; an env whose non-run-policy entries equal
+ * the launch env exactly (key set and values) and match its digest; run-policy
+ * keys only with value `'1'`; no parent-managed settings channel
+ * (`managedSettings`); no `extraArgs` key that replaces a certified input
+ * (`managed-settings`, `settings`, `setting-sources`); and a flag settings
+ * tier (when present) that parses and carries no auth override.
  * `bootstrap`: `settingSources` is `[]` and `cwd` is the OS temp directory.
- * `final`: `cwd` and `settingSources` equal the launch, and the flag settings
- * tier (when present) carries no auth override.
+ * `final`: `cwd` and `settingSources` equal the launch.
  */
 export function assertCertifiedLaunch(
   launch: ClaudeCertifiedLaunchContext,
@@ -251,18 +348,24 @@ export function assertCertifiedLaunch(
 ): void {
   if (
     actual.managedSettings !== undefined ||
-    (actual.extraArgs !== undefined &&
-      Object.prototype.hasOwnProperty.call(
-        actual.extraArgs,
-        'managed-settings',
-      ))
+    replacesCertifiedInput(actual.extraArgs)
+  ) {
+    throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
+  }
+  if (
+    actual.flagSettings !== undefined &&
+    claudeSettingsOverride(parsedFlagSettings(actual.flagSettings)) !== 'none'
   ) {
     throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
   }
   if (actual.executablePath !== launch.executable.sdkExecutablePath) {
     throw new ClaudeCertifiedLaunchRefusal('route-changed');
   }
-  if (certifiedEnvDigest(actual.env) !== launch.envDigest) {
+  if (
+    !launchEnvCertified(launch.env) ||
+    !sameCertifiedEntries(actual.env, launch.env) ||
+    certifiedEnvDigest(actual.env) !== launch.envDigest
+  ) {
     throw new ClaudeCertifiedLaunchRefusal('route-changed');
   }
   if (!runPolicyValuesAllowed(actual.env)) {
@@ -275,13 +378,6 @@ export function assertCertifiedLaunch(
     !sameSources(actual.settingSources, expectedSources)
   ) {
     throw new ClaudeCertifiedLaunchRefusal('route-changed');
-  }
-  if (
-    mode === 'final' &&
-    actual.flagSettings !== undefined &&
-    claudeSettingsOverride(parsedFlagSettings(actual.flagSettings)) !== 'none'
-  ) {
-    throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
   }
 }
 
