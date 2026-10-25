@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 0/22
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 5/22 (B1-B4, B7)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -130,7 +130,7 @@ Edge cases:
 
 ---
 
-## Batch 1: Contracts (auth-providers-tokens, shared) — IN_PROGRESS
+## Batch 1: Contracts (auth-providers-tokens, shared) — COMPLETE (590bafbf1)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -143,7 +143,7 @@ Edge cases:
 - Commit also stages: `.ptah/specs/TASK_2026_719_4f64/` (task folder)
 - Suggested subject: `feat(auth-providers-tokens,shared): batch 1 - named launch contracts`
 
-### Task 1.1: Additive contract types and token — IN_PROGRESS
+### Task 1.1: Additive contract types and token — COMPLETE
 
 - Files: M `libs/backend/auth-providers-tokens/src/lib/provider-account-admission.port.ts`; M `libs/backend/auth-providers-tokens/src/lib/tokens.ts`; M `libs/backend/auth-providers-tokens/src/index.ts`; M `libs/shared/src/lib/types/rpc/rpc-provider-accounts.types.ts`; M `libs/shared/src/lib/types/rpc/rpc-agents.types.ts`
 - Plan reference: implementation-plan.md:140-172 (Component 1), 1022
@@ -152,13 +152,13 @@ Edge cases:
 - Implementation details: `ClaudeCertifiedLaunchContext` (incl. `accountClass:'personal'` closed literal, `executable.fingerprint {size,mtimeMs}`, `policy.remoteSignals:'absent'`), optional `launch` on `ClaudeAccountNamedResolvedResourceContext`, `workingDirectory?` on the admission request, `ClaudeAccountSelectionReader`, `ClaudeLaunchBoundary`, `ClaudeLaunchBoundaryOutcome`; token `SDK_PROVIDER_ACCOUNT_SELECTION_READER = Symbol.for('SdkProviderAccountSelectionReader')`; index exports; `fallback?` on `ProviderStartAccountSignInResult`; `'account_refused'` on `AgentContinueErrorCode`.
 - Acceptance: all new types exported from `auth-providers-tokens/src/index.ts`; no implementer yet and nothing else changes; both projects typecheck; no new dependency edge.
 
-## Batch 2: Chat RPC account selection schema — PENDING
+## Batch 2: Chat RPC account selection schema — COMPLETE (2e4dfb615)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B1 (order) | Phase: P1
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/shared,@ptah-extension/rpc-handlers` (N = 2)
 
-### Task 2.1: Optional `accountSelection` on start/continue/resume — PENDING
+### Task 2.1: Optional `accountSelection` on start/continue/resume — COMPLETE
 
 - Files: M `libs/shared/src/lib/types/rpc/rpc-chat.types.ts`; M `libs/shared/src/lib/types/execution/node.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.schema.spec.ts`
 - Plan reference: implementation-plan.md:167-172, 1023
@@ -167,13 +167,13 @@ Edge cases:
 - Implementation details: reuse the existing `ProviderAccountSelection` schema; strict schemas reject bad shapes; `ChatSessionSummary.accountProfileId?: string` (`node.ts:223`).
 - Acceptance: schema spec covers valid named/ambient selection, omitted field, and rejected malformed shapes on all three methods.
 
-## Batch 3: Certified launch helpers (agent-sdk) — PENDING
+## Batch 3: Certified launch helpers (agent-sdk) — COMPLETE (0cdc66248; P1 fix ada51ea3b)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B1 (hard) | Phase: P1
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/agent-sdk` (N = 1)
 
-### Task 3.1: `claude-certified-launch` and `claude-identity-reference` — PENDING
+### Task 3.1: `claude-certified-launch` and `claude-identity-reference` — COMPLETE
 
 - Files: C `libs/backend/agent-sdk/src/lib/helpers/claude-certified-launch.ts`; C `libs/backend/agent-sdk/src/lib/helpers/claude-certified-launch.spec.ts`; C `libs/backend/agent-sdk/src/lib/helpers/claude-identity-reference.ts`; C `libs/backend/agent-sdk/src/lib/helpers/claude-identity-reference.spec.ts`; M `libs/backend/agent-sdk/src/lib/helpers/index.ts`; M `libs/backend/agent-sdk/src/index.ts`
 - Plan reference: implementation-plan.md:174-229 (Component 2), 1024; regression rows 879-881, 883, 887, 909
@@ -182,13 +182,13 @@ Edge cases:
 - Implementation details: `CLAUDE_CERTIFIED_ENV_KEYS`, `isCertifiedClaudeEnvKey`, `buildCertifiedClaudeEnv`, `certifiedNamedEnv`, `assertCertifiedLaunch(...,'bootstrap'|'final')` incl. final-mode `flagSettings` check, `claudeSettingsOverride` (incl. `forceLoginOrgUUID`), `managedSettings` / `extraArgs['managed-settings']` refusal in both modes, `CLAUDE_PERSONAL_SUBSCRIPTIONS`, `ClaudeCertifiedLaunchRefusal`; `claudeIdentityReference(email, orgName)`. `claude-account-route-env.ts` is NOT touched (B13).
 - Acceptance: env allowlist drops every selector, `CLAUDE*`/`ANTHROPIC*`/cloud prefixes and `CLAUDE_CODE_FORCE_WINDOWS_CREDMAN`/`CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`, keeps casing, NO_PROXY rule; drift (executable, digest, cwd, setting sources, run-policy) refused in both modes; two routes give different `CLAUDE_CONFIG_DIR` and no shared object; flag-tier override refused at final; identity formula equals executor and quota formulas.
 
-## Batch 4: User console spawn mode — PENDING
+## Batch 4: User console spawn mode — COMPLETE (9d1ccad35)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: none (order after B3) | Phase: P1 (last; request P1 review after commit)
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/platform-core,@ptah-extension/agent-sdk` (N = 2)
 
-### Task 4.1: `ProcessSpawnRequest.userConsole` with `ignore` stdio — PENDING
+### Task 4.1: `ProcessSpawnRequest.userConsole` with `ignore` stdio — COMPLETE
 
 - Files: M `libs/backend/platform-core/src/interfaces/process-spawner.interface.ts`; M `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.ts`; M `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner-source.ts`; M `libs/backend/agent-sdk/src/lib/helpers/spawn-worker-pool.ts`; M `libs/backend/agent-sdk/src/lib/helpers/off-thread-process-spawner.spec.ts`
 - Plan reference: implementation-plan.md:540-550 (Component 5 spawner), 1025; regression row 884
@@ -197,13 +197,13 @@ Edge cases:
 - Implementation details: plan field `stdioMode: 'pipe'|'ignore'`; inline and worker paths use `['ignore','ignore','ignore']`; `windowsHide:false` stays an explicit key; non-win32 refuses with an `error` event and no child; `needsConsole` unchanged.
 - Acceptance: inline and worker modes give null streams and `windowsHide:false`; non-win32 refuses; all pipe cases unchanged.
 
-## Batch 5: Status parser and policy scan — PENDING
+## Batch 5: Status parser and policy scan — IMPLEMENTED (verify running, not committed)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B3 (hard) | Phase: P2
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers` (N = 1)
 
-### Task 5.1: `claude-account-status` and `claude-auth-settings-scan` — PENDING
+### Task 5.1: `claude-account-status` and `claude-auth-settings-scan` — IMPLEMENTED
 
 - Files: C `libs/backend/auth-providers/src/lib/accounts/claude-account-status.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-account-status.spec.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-auth-settings-scan.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-auth-settings-scan.spec.ts`
 - Plan reference: implementation-plan.md:261-467 (Component 4), 1026; D-S (plan Decisions); regression rows 882, 885-886, 897
@@ -212,13 +212,13 @@ Edge cases:
 - Validation notes (D14 note 2, parser side): the parser returns `accountClass`; `apiKeySource` other than absent/`'none'`, `apiProvider` other than `firstParty`, `forcedLoginMethod`, `allowedProviders`, `team`/`enterprise`/null/missing/unknown subscription and any unknown key all yield class O. `orgId`/`orgName` are not signals.
 - Acceptance: class P for `pro`/`max` with or without `orgId`; class O cases as above; no raw value leaks; identity formula equals the quota resolver; `CLAUDE_POLICY_COVERAGE` win32@2.1.310 only; registry absent / absent-parent / present / access-denied / generic failure / timeout / malformed, hive normalization, no output leak; darwin/linux/uncovered version refuse with no fs/registry call; drop-in, remote cache, ancestor `.git` + `settings.local.json`, `enabledPlugins` refuse; benign drop-in and home `.claude/settings.json` pass; `knownVersion` ordering fixture; S9 files are refusal signals only (no case asserts absence as proof).
 
-## Batch 6: Login console and route certifier — PENDING
+## Batch 6: Login console and route certifier — IMPLEMENTED (verify running, not committed)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B4, B5 (hard) | Phase: P2
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers` (N = 1)
 
-### Task 6.1: `ClaudeLoginConsole` and `ClaudeRouteCertifier` (unregistered) — PENDING
+### Task 6.1: `ClaudeLoginConsole` and `ClaudeRouteCertifier` (unregistered) — IMPLEMENTED
 
 - Files: C `libs/backend/auth-providers/src/lib/accounts/claude-login-console.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-login-console.spec.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-route-certifier.ts`; C `libs/backend/auth-providers/src/lib/accounts/claude-route-certifier.spec.ts`
 - Plan reference: implementation-plan.md:468-539 (Component 4a), 550-599 (console/fallback), 1027; regression rows 894-896, 898-899, 913
@@ -229,14 +229,14 @@ Edge cases:
   - D14 note 2: after the status child, a parsed class O returns `unsupported-source` BEFORE the identity comparison; `identity-mismatch` only for a class-P identity or directory mismatch. Spec pins `apiKeySource:'apiKeyHelper'` and a non-`firstParty` provider as `unsupported-source` (not `identity-mismatch`) next to `team`/`enterprise`.
 - Acceptance: order coverage, scan, executable, env, status, class, S9 re-check, revalidate; darwin/linux/2.1.311 coverage refusal with the listed probe mocks never called; unresolved managed source and ancestor ambiguity refuse before `status`; class O -> `unsupported-source`, no launch, `terminated:true`; class P -> `launch.accountClass === 'personal'`; S9 flip after status -> refuse; `checkLaunch` cases (unchanged ok, added drop-in, added remote signal, mtime change -> `identity-unproved` with no `certifyExecutable`, uncovered `knownVersion` no fs/registry call, `reg.exe` timeout -> `terminated:false`, never `probe.status`); three profiles give distinct dirs/digests and class O third leaves the others unaffected; fallback script: cwd first step aborting on failure, different-workspace `apiKeyHelper` never named, inherited selectors/values never emitted, quoting round-trip for both dialects, non-win32 `unavailable`.
 
-## Batch 7: Migration 0060 lease epoch (D-M, 22 files) — PENDING
+## Batch 7: Migration 0060 lease epoch (D-M, 22 files) — COMPLETE (30318803b)
 
 - Recommended executor: subagent backend-developer (one run per WP, in order) | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 (5 WPs) | Depends on: none (order after B6) | Phase: P2
 - Verify once after WP-e: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/persistence-sqlite` (N = 1)
 - One commit for all 22 files. Suggested subject: `feat(persistence-sqlite): batch 7 - lease epoch migration 0060`
 
-### Task 7.1: Migration 0060 and head-version pins 59 -> 60 — PENDING
+### Task 7.1: Migration 0060 and head-version pins 59 -> 60 — COMPLETE
 
 Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 

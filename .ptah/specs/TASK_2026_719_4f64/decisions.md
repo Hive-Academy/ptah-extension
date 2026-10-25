@@ -102,3 +102,8 @@
 
 - B7 verify: test and typecheck pass; `@ptah-extension/persistence-sqlite:lint` fails with 10 `no-restricted-syntax` errors (SQL template interpolation) in `0057_drop_skill_pipeline.ts`, `0057_drop_skill_pipeline.spec.ts` and `0058_provider_accounts.spec.ts`. Those files are unchanged from main; ESLint on the 22 B7 files alone reports 0 errors (3 warnings).
 - Decision: commit B7; do not edit shipped migrations in this task. Report the main-branch lint debt in the PR; if CI lint blocks the PR, decide then (a separate minimal fix commit for the specs, never for shipped migration SQL without review). Reversible.
+
+## D18 — B5/B6 verify: pre-existing failures only (2026-10-25, orchestrator, evidence step)
+
+- `npm run verify -- -t lint,test,typecheck -p @ptah-extension/auth-providers`: typecheck passes; test 79/81 suites pass (all new B5/B6 specs included), 6 tests fail in `translation/translation-proxy.sdk.integration.spec.ts` (untouched; `EPERM` in its `removeTree` temp-dir cleanup on Windows); lint has 3 errors, all in files unchanged from main (`auth-providers/package.json` dependency-check for persistence-sqlite, `provider-account.store.ts:16` no-control-regex, `provider-account.store.spec.ts:132` no-unexpected-multiline). ESLint on the 8 new B5/B6 files: 0 errors.
+- Decision: commit B5 and B6. The orchestrator added `import 'reflect-metadata';` to the two B5 specs (B6 developer found the agent-sdk barrel needs it). B8 owns `provider-account.store.ts` and its spec: the B8 executor must fix those two lint errors while it edits them. The package.json dependency-check error and the integration-spec EPERM stay main-branch debt; report them in the PR. Reversible.
