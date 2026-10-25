@@ -18,6 +18,7 @@ import type { RpcUserErrorCode } from './rpc-error-codes.types';
 import type { SessionStatsEntry } from './rpc-session.types';
 import type { SessionBudgetState } from '../session-budget.types';
 import type { AgentSessionOpenedPayload } from '../messages/agent-session';
+import type { ProviderAccountSelection } from '../provider-account.types';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
@@ -111,6 +112,12 @@ export interface ChatStartParams {
    * advanced callers get a uniform extension surface without per-feature RPCs.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Account route for this run. A missing field keeps the stored or ambient
+   * route; the RPC schema rejects any shape other than `omitted`, `ambient`
+   * or `named` with a profile id.
+   */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:start RPC method */
@@ -163,6 +170,8 @@ export interface ChatContinueParams {
   mcpToolProfile?: McpToolProfile;
   /** Whether the Electron chat client can render `ptah-ui` blocks. */
   ptahUiFence?: boolean;
+  /** Account route for this turn; same contract as `ChatStartParams.accountSelection`. */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:continue RPC method */
@@ -277,6 +286,8 @@ export interface ChatResumeParams {
   historyPage?: { readonly maxEvents: number };
   /** Opt in only for a webview load with an early claim that filters the reply. */
   historyBlockOwners?: true;
+  /** Account route for the resumed run; same contract as `ChatStartParams.accountSelection`. */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:resume RPC method */
