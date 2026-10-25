@@ -21,6 +21,7 @@ export type {
   CodexRuntimeError,
   CodexRuntimeEvent,
   CodexContext,
+  CodexModelInfo,
 } from './lib/codex-runtime.types';
 export type { CodexRuntime as CodexRuntimePort } from './lib/codex-runtime.types';
 export type {

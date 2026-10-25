@@ -235,8 +235,16 @@ export interface CodexRuntime {
     resume?: CodexThreadIdentity,
   ): Promise<CodexContext>;
 }
+export interface CodexModelInfo {
+  readonly id: string;
+  readonly displayName: string;
+  readonly description?: string;
+  readonly isDefault: boolean;
+  readonly supportedEfforts?: readonly string[];
+}
 export interface CodexContext {
   readonly identity: CodexThreadIdentity;
+  listModels(): Promise<readonly CodexModelInfo[]>;
   events(signal: AbortSignal): AsyncIterable<CodexRuntimeEvent>;
   startTurn(input: CodexTurnInput): Promise<CodexTurnReceipt>;
   steer(input: CodexTurnInput): Promise<CodexTurnReceipt>;

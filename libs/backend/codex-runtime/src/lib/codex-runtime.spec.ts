@@ -38,6 +38,19 @@ const profile: CodexExecutionProfile = {
 };
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 const turn = (id: string, status = 'inProgress') => ({ id, status, items: [] });
+const catalogModel = {
+  id: 'catalog-id',
+  model: 'wire-model',
+  displayName: 'Catalog model',
+  description: 'Model description',
+  hidden: false,
+  isDefault: true,
+  defaultReasoningEffort: 'medium',
+  supportedReasoningEfforts: [
+    { reasoningEffort: 'medium', description: 'Balanced' },
+    { reasoningEffort: 'high', description: 'Thorough' },
+  ],
+};
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   readonly stdout = new PassThrough();
@@ -49,6 +62,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
   exitCode: number | null = null;
   failMethod?: string;
   holdMethod?: string;
+  modelPages: unknown[] = [{ data: [catalogModel] }];
   completeBeforeReply = false;
   turnNumber = 0;
   readonly fixtureErrors: string[] = [];
@@ -118,6 +132,9 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
     }
     let result: unknown;
     switch (method) {
+      case 'model/list':
+        result = this.modelPages.shift();
+        break;
       case 'initialize':
         result = {
           codexHome: '/home/codex',
@@ -241,6 +258,131 @@ describe('CodexRuntime', () => {
       expect(child.listenerCount('close')).toBe(0);
       expect(child.stdout.listenerCount('data')).toBe(0);
       expect(child.stdin.listenerCount('finish')).toBe(0);
+    }
+  });
+
+  it('lists models from its own process and maps the catalog fields', async () => {
+    const context = await runtime.open(profile);
+    await expect(context.listModels()).resolves.toEqual([
+      {
+        id: 'catalog-id',
+        displayName: 'Catalog model',
+        description: 'Model description',
+        isDefault: true,
+        supportedEfforts: ['medium', 'high'],
+      },
+    ]);
+    expect(children[0].frames).toContainEqual(
+      expect.objectContaining({
+        method: 'model/list',
+        params: { limit: 100 },
+      }),
+    );
+    expect(children[0].fixtureErrors).toEqual([]);
+  });
+
+  it('fetches all model pages using opaque cursors including an empty cursor', async () => {
+    const context = await runtime.open(profile);
+    children[0].modelPages = [
+      { data: [catalogModel], nextCursor: '' },
+      {
+        data: [{ ...catalogModel, id: 'second', isDefault: false }],
+        nextCursor: null,
+      },
+    ];
+    expect((await context.listModels()).map((model) => model.id)).toEqual([
+      'catalog-id',
+      'second',
+    ]);
+    expect(
+      children[0].frames
+        .filter((frame) => frame['method'] === 'model/list')
+        .map((frame) => frame['params']),
+    ).toEqual([{ limit: 100 }, { limit: 100, cursor: '' }]);
+  });
+
+  it.each([
+    { data: [{ ...catalogModel, isDefault: 'yes' }] },
+    {
+      data: [
+        {
+          ...catalogModel,
+          supportedReasoningEfforts: [{ reasoningEffort: '', description: '' }],
+        },
+      ],
+    },
+    { data: [catalogModel], unexpected: 'secret' },
+    { data: [{ ...catalogModel, unexpected: 'secret' }] },
+  ])(
+    'rejects invalid model responses without exposing payloads',
+    async (response) => {
+      const context = await runtime.open(profile);
+      children[0].modelPages = [response];
+      await expect(context.listModels()).rejects.toThrow(
+        'Codex model listing failed',
+      );
+    },
+  );
+
+  it('bounds model pagination and rejects repeated cursors without partial results', async () => {
+    const context = await runtime.open(profile);
+    children[0].modelPages = [
+      { data: [catalogModel], nextCursor: 'repeat' },
+      { data: [catalogModel], nextCursor: 'repeat' },
+    ];
+    await expect(context.listModels()).rejects.toThrow(
+      'Codex model listing failed',
+    );
+    expect(
+      children[0].frames.filter((frame) => frame['method'] === 'model/list'),
+    ).toHaveLength(2);
+  });
+
+  it('stops after 100 model pages even when every cursor is distinct', async () => {
+    const context = await runtime.open(profile);
+    children[0].modelPages = Array.from({ length: 101 }, (_, page) => ({
+      data: [],
+      nextCursor: String(page),
+    }));
+    await expect(context.listModels()).rejects.toThrow(
+      'Codex model listing failed',
+    );
+    expect(
+      children[0].frames.filter((frame) => frame['method'] === 'model/list'),
+    ).toHaveLength(100);
+  });
+
+  it('sanitizes model request rejections', async () => {
+    const context = await runtime.open(profile);
+    children[0].failMethod = 'model/list';
+    await expect(context.listModels()).rejects.not.toThrow('secret raw error');
+  });
+
+  it('rejects model listing on a closed context without sending a request', async () => {
+    const context = await runtime.open(profile);
+    await context.close();
+    await expect(context.listModels()).rejects.toThrow(
+      'Codex context is not ready',
+    );
+    expect(
+      children[0].frames.some((frame) => frame['method'] === 'model/list'),
+    ).toBe(false);
+  });
+
+  it('strictly validates model list request parameters', () => {
+    const schema = codexRequestSchemas['model/list'].params;
+    expect(
+      schema.safeParse({ cursor: null, includeHidden: false, limit: 0 })
+        .success,
+    ).toBe(true);
+    for (const params of [
+      { limit: -1 },
+      { limit: 1.5 },
+      { limit: 4_294_967_296 },
+      { cursor: 1 },
+      { unknown: true },
+    ]) {
+      expect(schema.safeParse(params).success).toBe(false);
     }
   });
 

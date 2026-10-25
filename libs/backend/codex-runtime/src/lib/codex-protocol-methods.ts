@@ -105,6 +105,57 @@ export const codexRequestSchemas = {
   },
   'turn/interrupt': { params: z.strictObject(turnIds), result: empty },
   'thread/compact/start': { params: z.strictObject(threadId), result: empty },
+  'model/list': {
+    params: z.strictObject({
+      cursor: string.nullish(),
+      includeHidden: z.boolean().nullish(),
+      limit: integer.min(0).max(4_294_967_295).nullish(),
+    }),
+    result: z.strictObject({
+      data: z.array(
+        z.strictObject({
+          id: string,
+          model: string,
+          displayName: string,
+          description: string,
+          hidden: z.boolean(),
+          isDefault: z.boolean(),
+          defaultReasoningEffort: string.min(1),
+          supportedReasoningEfforts: z.array(
+            z.strictObject({
+              reasoningEffort: string.min(1),
+              description: string,
+            }),
+          ),
+          additionalSpeedTiers: z.array(string).optional(),
+          availabilityNux: z.strictObject({ message: string }).nullish(),
+          defaultServiceTier: string.nullish(),
+          inputModalities: z
+            .array(z.enum(['text', 'image', 'audio']))
+            .optional(),
+          modelSpecialty: string.nullish(),
+          multiAgentVersion: z.enum(['disabled', 'v1', 'v2']).nullish(),
+          serviceTiers: z
+            .array(
+              z.strictObject({ id: string, name: string, description: string }),
+            )
+            .optional(),
+          supportsPersonality: z.boolean().optional(),
+          upgrade: string.nullish(),
+          upgradeInfo: z
+            .strictObject({
+              model: string,
+              migrationMarkdown: string.nullish(),
+              modelLink: string.nullish(),
+              retirementAt: integer.nullish(),
+              upgradeCopy: string.nullish(),
+            })
+            .nullish(),
+        }),
+      ),
+      nextCursor: string.nullish(),
+    }),
+  },
   'account/rateLimits/read': {
     params: empty.nullish(),
     result: z.strictObject({

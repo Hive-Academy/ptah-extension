@@ -1,9 +1,31 @@
+import { SessionRuntimeIdentitySchema } from '@ptah-extension/shared/schemas';
 import {
   normalizeCodexHomeKey,
   normalizeCodexWorkspaceKey,
 } from './codex-home-path';
 
 describe('normalizeCodexHomeKey', () => {
+  it.each([
+    ['C:/', 'win32'],
+    ['//Server/Share/', 'win32'],
+    ['//Server/Share/Home/../Nested/', 'win32'],
+    ['/', 'posix'],
+    ['/Users/A/../B/.codex/', 'posix'],
+    ['C:/Users/A/../B/.codex/', 'win32'],
+  ])(
+    'produces a shared runtime identity home key for %s on %s',
+    (home, platform) => {
+      const identity = {
+        version: 1,
+        runtime: 'codex-app-server',
+        sessionId: '12345678-1234-4234-8234-123456789abc',
+        providerId: 'codex',
+        workspaceId: 'workspace',
+        codex: { normalizedHome: normalizeCodexHomeKey(home, platform) },
+      };
+      expect(SessionRuntimeIdentitySchema.parse(identity)).toEqual(identity);
+    },
+  );
   it.each([
     ['C:/Users/A/../B/.codex/', 'win32', 'c:\\users\\b\\.codex'],
     ['C:\\USERS\\B\\.codex\\', 'win32', 'c:\\users\\b\\.codex'],

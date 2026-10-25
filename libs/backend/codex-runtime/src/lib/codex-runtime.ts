@@ -32,6 +32,7 @@ import type {
 import type {
   AppliedSettings,
   CodexContext,
+  CodexModelInfo,
   CodexExecutionProfile,
   CodexRuntime as RuntimePort,
   CodexRuntimeEvent,
@@ -664,6 +665,45 @@ class RuntimeContext implements CodexContext {
         ...('effort' in patch ? { effort: parsed.data.effort } : {}),
       };
       return { timing: 'nextTurn', revision: ++this.revision };
+    });
+  }
+
+  listModels(): Promise<readonly CodexModelInfo[]> {
+    return this.serialize(async () => {
+      const models: CodexModelInfo[] = [];
+      const cursors = new Set<string>();
+      let cursor: string | undefined;
+      try {
+        for (let page = 0; page < 100; page++) {
+          const result = await this.process.request('model/list', {
+            limit: 100,
+            ...(cursor !== undefined ? { cursor } : {}),
+          });
+          this.assertOpen();
+          // Catalog id, displayName, description and isDefault pass through;
+          // supportedReasoningEfforts[].reasoningEffort becomes supportedEfforts.
+          models.push(
+            ...result.data.map((model) => ({
+              id: model.id,
+              displayName: model.displayName,
+              description: model.description,
+              isDefault: model.isDefault,
+              supportedEfforts: model.supportedReasoningEfforts.map(
+                (effort) => effort.reasoningEffort,
+              ),
+            })),
+          );
+          if (result.nextCursor == null) return models;
+          if (cursors.has(result.nextCursor)) break;
+          cursors.add(result.nextCursor);
+          cursor = result.nextCursor;
+        }
+        throw new Error('Codex model pagination limit reached');
+      } catch (error) {
+        if (error instanceof CodexRequestRejectedError) throw error;
+        this.onFailure();
+        throw new Error('Codex model listing failed');
+      }
     });
   }
 

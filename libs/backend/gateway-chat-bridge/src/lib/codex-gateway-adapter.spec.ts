@@ -56,6 +56,7 @@ async function setup(events: CodexRuntimeEvent[] = [terminal]) {
       .mockResolvedValue({ threadId: 'thread', turnId: 'turn', revision: 1 }),
     interrupt: jest.fn().mockResolvedValue(true),
     updateNextTurn: jest.fn(),
+    listModels: jest.fn().mockResolvedValue([]),
     compact: jest.fn(),
     close: jest.fn().mockResolvedValue(undefined),
   };

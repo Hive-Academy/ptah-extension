@@ -84,6 +84,7 @@ const requests: [string, unknown, unknown][] = [
   ],
   ['turn/interrupt', { threadId: 'thread', turnId: 'turn' }, {}],
   ['thread/compact/start', { threadId: 'thread' }, {}],
+  ['model/list', { limit: 100 }, { data: [], nextCursor: null }],
   [
     'account/rateLimits/read',
     undefined,
