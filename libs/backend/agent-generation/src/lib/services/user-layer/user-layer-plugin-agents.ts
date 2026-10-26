@@ -21,8 +21,9 @@
  *   between them is finished by the next pass instead of leaving a body that
  *   reads as user-authored.
  * - **Legacy ownership.** A sidecar without `sourceRef` is owned on its
- *   directory basename only while no other plugin root in the pass shares that
- *   basename; otherwise it is kept untouched and reported as ambiguous.
+ *   directory basename only while no other INSTALLED plugin (enabled or not)
+ *   shares that basename; otherwise it is kept untouched and reported as
+ *   ambiguous.
  * - **Collision (A8).** A clone that exists and is not this source's — a
  *   workspace agent (`pluginId: null`), another plugin, an external plugin with
  *   the same directory basename but a different `sourceRef`, or a sidecar-less
@@ -35,7 +36,7 @@
  * Per-file failures are counted in `errors` and logged, never thrown, so one
  * unreadable agent does not abandon the pass.
  */
-import { basename, join } from 'path';
+import { basename, join, resolve } from 'path';
 import { mkdir, readFile } from 'fs/promises';
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -83,7 +84,7 @@ export type ReconcilePluginAgentClone = (args: {
   readonly cloneFile: string;
   readonly agentsRoot: string;
   readonly descriptor: MirrorPluginDescriptor | undefined;
-  /** Another plugin root in this pass has the same basename (see `sourceOwnership`). */
+  /** Another installed plugin has the same basename (see `sourceOwnership`). */
   readonly basenameShared: boolean;
 }) => Promise<void>;
 
@@ -161,13 +162,15 @@ export function sourceIdentityChanged(
  * - `owned` — the ids match and, when both know one, so do the refs.
  * - `ambiguous` — the ids match but one side has no `sourceRef` (a sidecar
  *   written before `sourceRef` existed, or a source with no descriptor), so the
- *   directory basename is the only evidence, AND another plugin root in this
- *   pass has that basename. Neither source may adopt the clone: whichever came
- *   first would record its own identity and redirect the clone's upstream for
- *   good. The clone is kept as it is until only one candidate remains.
+ *   directory basename is the only evidence, AND another installed plugin
+ *   (enabled or disabled) has that basename. Neither source may adopt the
+ *   clone: whichever came first, or whichever is still enabled, would record
+ *   its own identity and redirect the clone's upstream for good. The clone is
+ *   kept as it is until only one installed candidate remains.
  *
  * `basenameShared` is {@link sharedPluginBasenames}`.has(expectedPluginId)`
- * over the pass's plugin roots; `false` for a source that is not a plugin.
+ * over the pass's plugin roots and described paths; `false` for a source that
+ * is not a plugin.
  */
 export type SourceOwnership = 'owned' | 'foreign' | 'ambiguous';
 
@@ -184,13 +187,33 @@ export function sourceOwnership(
   return basenameShared ? 'ambiguous' : 'owned';
 }
 
-/** Plugin directory basenames that more than one of `pluginPaths` ends in. */
+/**
+ * Plugin directory basenames that more than one INSTALLED plugin directory
+ * ends in.
+ *
+ * A pass names only the enabled plugin roots, so the pass alone cannot see a
+ * disabled plugin that shares a basename: with the true owner disabled, the
+ * other plugin would be the only candidate and would adopt the owner's legacy
+ * clone. Every host builds `descriptors` with
+ * `PluginLoaderService.getPluginSourceDescriptors()`, which describes every
+ * installed source whether enabled or not (all bundled ids, every harness and
+ * skills.sh directory, every external consent record). So the installed set
+ * is the pass's roots plus the described paths. A path in both counts once.
+ *
+ * A caller that supplies no descriptors cannot record a `sourceRef` on any
+ * clone (see {@link withSourceIdentity}), so its basename match only acts on
+ * the basename identity a legacy sidecar already has.
+ */
 export function sharedPluginBasenames(
   pluginPaths: readonly string[],
+  descriptors: MirrorPluginDescriptors | undefined,
 ): ReadonlySet<string> {
+  const installed = new Set(
+    [...pluginPaths, ...Object.keys(descriptors ?? {})].map((p) => resolve(p)),
+  );
   const seen = new Set<string>();
   const shared = new Set<string>();
-  for (const pluginPath of pluginPaths) {
+  for (const pluginPath of installed) {
     const id = basename(pluginPath);
     if (seen.has(id)) shared.add(id);
     seen.add(id);
@@ -229,7 +252,7 @@ export class UserLayerPluginAgents {
   ): Promise<void> {
     // First write wins inside one pass, as `mirrorSkillSlug` does for skills.
     const claimed = new Map<string, string>();
-    const shared = sharedPluginBasenames(pass.pluginPaths);
+    const shared = sharedPluginBasenames(pass.pluginPaths, pass.descriptors);
     for (const source of await this.listSources(pass, result)) {
       await pass.withSlugLock(source.slug, () =>
         this.mirrorOne(
@@ -249,7 +272,7 @@ export class UserLayerPluginAgents {
     result: PluginAgentReconcileCounters,
     reconcileClone: ReconcilePluginAgentClone,
   ): Promise<void> {
-    const shared = sharedPluginBasenames(pass.pluginPaths);
+    const shared = sharedPluginBasenames(pass.pluginPaths, pass.descriptors);
     for (const source of await this.listSources(pass, result)) {
       const cloneFile = join(pass.agentsRoot, `${source.slug}.md`);
       const sidecarPath = this.sidecarPath(pass.agentsRoot, source.slug);

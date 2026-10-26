@@ -643,7 +643,10 @@ export class UserLayerMirrorService {
     result.retiredSkills = await this.retireManagedSkills();
     const roots = this.getUserLayerRoots(sources.workspaceRoot);
     const pluginRoots = allPluginRoots(sources);
-    const sharedBasenames = sharedPluginBasenames(pluginRoots);
+    const sharedBasenames = sharedPluginBasenames(
+      pluginRoots,
+      sources.pluginDescriptors,
+    );
 
     for (const pluginPath of pluginRoots) {
       const pluginId = basename(pluginPath);

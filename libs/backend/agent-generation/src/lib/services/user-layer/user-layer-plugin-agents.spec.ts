@@ -104,12 +104,37 @@ describe('source identity helpers', () => {
 
   it('sharedPluginBasenames names only basenames that appear more than once', () => {
     expect(
-      [...sharedPluginBasenames([
-        join('a', 'external', 'acme', 'repo', 'toolkit'),
-        join('a', 'external', 'other', 'repo', 'toolkit'),
-        join('a', 'ptah-core'),
-      ])],
+      [...sharedPluginBasenames(
+        [
+          join('a', 'external', 'acme', 'repo', 'toolkit'),
+          join('a', 'external', 'other', 'repo', 'toolkit'),
+          join('a', 'ptah-core'),
+        ],
+        undefined,
+      )],
     ).toEqual(['toolkit']);
+  });
+
+  it('sharedPluginBasenames counts installed (described) plugins the pass left out', () => {
+    const acme = join('a', 'external', 'acme', 'repo', 'toolkit');
+    const other = join('a', 'external', 'other', 'repo', 'toolkit');
+    const core = join('a', 'ptah-core');
+    const descriptors = {
+      [acme]: { sourceRef: 'external:acme/repo/toolkit', label: 'Acme' },
+      [other]: { sourceRef: 'external:other/repo/toolkit', label: 'Other' },
+      [core]: { sourceRef: 'ptah:ptah-core', label: 'Ptah Core' },
+    };
+    // Acme is disabled: only other is in the pass, but both are installed.
+    expect([...sharedPluginBasenames([other, core], descriptors)]).toEqual([
+      'toolkit',
+    ]);
+    // A path that is both in the pass and described counts once.
+    expect(
+      sharedPluginBasenames([acme, core], {
+        [acme]: descriptors[acme],
+        [core]: descriptors[core],
+      }).size,
+    ).toBe(0);
   });
 });
 

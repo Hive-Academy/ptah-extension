@@ -614,17 +614,75 @@ describe('UserLayerMirrorService — plugin agents (B10)', () => {
           expect.objectContaining({ slug: 'reviewer' }),
         );
 
-        // With one candidate left the basename decides again, and the ref is
-        // recorded.
+        // With one INSTALLED candidate left (other uninstalled, so no longer
+        // described) the basename decides again, and the ref is recorded.
         const alone = await service.reconcile(
-          sources({ pluginPaths: [acme], pluginDescriptors }),
+          sources({
+            pluginPaths: [acme],
+            pluginDescriptors: { [acme]: pluginDescriptors[acme] },
+          }),
         );
+        // The agent upstream moved (fast-forward); the skill upstream did not
+        // (noop that still records the ref).
         expect(alone.fastForwarded).toBe(1);
+        expect(await readFile(join(agentsRoot(), 'reviewer.md'), 'utf8')).toBe(
+          '# acme v2',
+        );
         expect(await readSidecarFile(sidecarPath('reviewer'))).toMatchObject({
+          sourceRef: ACME_REF,
+        });
+        expect(await readSidecarFile(skillSidecarPath())).toMatchObject({
           sourceRef: ACME_REF,
         });
       },
     );
+
+    it('a disabled original owner keeps its legacy clone from an enabled same-named plugin', async () => {
+      const { acme, other, pluginDescriptors } = await seedTwoToolkits();
+      // Cloned from acme, then aged into legacy sidecars.
+      await service.mirrorAll(sources({ pluginPaths: [acme], pluginDescriptors }));
+      await makeLegacy(sidecarPath('reviewer'));
+      await makeLegacy(skillSidecarPath());
+      await writeFile(join(other, 'agents', 'reviewer.md'), '# other v2', 'utf8');
+      await writeFile(
+        join(other, 'skills', 'audit', 'SKILL.md'),
+        '# other skill v2',
+        'utf8',
+      );
+
+      // Acme is disabled: the host passes only the enabled roots, but its
+      // descriptors still describe every installed plugin, acme included.
+      const onlyOther = sources({ pluginPaths: [other], pluginDescriptors });
+      const mirrored = await service.mirrorAll(onlyOther);
+      const reconciled = await service.reconcile(onlyOther);
+
+      expect(mirrored.agentsMirrored).toBe(0);
+      expect(reconciled.fastForwarded).toBe(0);
+      expect(reconciled.diverged).toBe(0);
+      expect(reconciled.noop).toBe(0);
+      expect(await readFile(join(agentsRoot(), 'reviewer.md'), 'utf8')).toBe(
+        '# acme',
+      );
+      expect(
+        await readFile(
+          join(service.getUserLayerRoots(harnessRoot).skills, 'audit', 'SKILL.md'),
+          'utf8',
+        ),
+      ).toBe('# acme skill');
+      const agentSidecar = await readSidecarFile(sidecarPath('reviewer'));
+      const skillSidecar = await readSidecarFile(skillSidecarPath());
+      expect(agentSidecar.sourceRef).toBeUndefined();
+      expect(agentSidecar.conflictsWith).toBeUndefined();
+      expect(skillSidecar.sourceRef).toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/more than one plugin with this directory name/),
+        expect.objectContaining({ slug: 'reviewer' }),
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/more than one plugin with this directory name/),
+        expect.objectContaining({ slug: 'audit' }),
+      );
+    });
   });
 });
 
