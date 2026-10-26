@@ -140,3 +140,18 @@ export {
   AgentResumeCliSessionParamsSchema,
   type AgentResumeCliSessionInput,
 } from './lib/handlers/agent-rpc.schema';
+export {
+  createCodexChatHostPorts,
+  createCodexRuntimeAdmission,
+  type CodexChatHostPorts,
+  type CodexChatHostPortsDeps,
+  type CodexRuntimeAdmissionDeps,
+} from './lib/chat/codex-host/codex-chat-host-ports';
+export {
+  createNativeSessionControls,
+  createLegacySessionControlPorts,
+  type NativeSessionControlsDeps,
+  type LegacySessionControlPortsDeps,
+  type SessionControlPersistenceDeps,
+  type SessionControlSettings,
+} from './lib/chat/codex-host/native-session-controls';

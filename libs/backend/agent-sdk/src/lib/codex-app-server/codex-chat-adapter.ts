@@ -86,7 +86,11 @@ export interface CodexChatAdapterPorts {
   }>;
   createScope(sink: ApprovalSink): CodexChatScope;
   readonly metadata: CodexChatMetadataPort;
-  readonly approvals: SessionApprovalRouter;
+  /** Only the routing surface the adapter and hosts call; keeps the router fakeable. */
+  readonly approvals: Pick<
+    SessionApprovalRouter,
+    'register' | 'respond' | 'cancelPrompt'
+  >;
   readonly presentation: CodexChatApprovalPresentation;
   readonly replacement: Pick<
     CodexChatApprovalFollowUp,
