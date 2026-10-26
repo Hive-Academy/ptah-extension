@@ -449,3 +449,20 @@
 - Evidence: `implementation-plan-p6-review-r1.md` (codex, APPROVED 8/10; findings 1-3 fixed, no new defects).
 - Author: Claude software-architect subagent. Reviewer: codex lane (cross-side).
 - Reversible: yes.
+
+## D60 - P2 open points settled from the design
+- Decision: (a) the duplicate-name alert toast uses `ACCOUNT_COPY.nameTaken` ("That name is already used.");
+  `validateAccountName` keeps its inline text until P9. (b) Both selectors (main popover and lane cell) show the
+  ambient suffix from a ready answer. (c) A `null` from `selectionFeedback` shows no toast (no invented name).
+- Evidence: `design-spec-p6.md:42,54,106,134`; `batch-p2-report.md` open points.
+- Reversible: yes.
+
+## D61 - P6 code review fix round scope
+- Decision: fix review finding 1 (terminal sign-in result not announced; focus lost when a focused pending control
+  disappears) in one round. Defer finding 2 (page and inline toast instances both announce one message) to a named
+  later task "settings toast announcement owner".
+- Evidence: `code-logic-review-p6.md` (codex, REVISE 6/10, 2 Moderate). Finding 1 misses `design-spec-p6.md:118`
+  ("Signed in" toast) on the path the live test uses. Finding 2 existed before P6 (`batch-p1-report.md` open point 2),
+  occurs on the Models & Tiers tab (not a P6 surface), and cannot break a lane config or lose data (orchestration
+  rule 4).
+- Reversible: yes.
