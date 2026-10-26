@@ -26,7 +26,8 @@ LM cli-orchestration-matrix, PS providers-settings, CD connection-detail-drawer,
 
 | # | Evidence | Location | Architectural implication |
 |---|---|---|---|
-| 1 | One write per scope: `setSelection(provider, scope, choice)` sends `expectedSelectionRevision` of the held snapshot; `unavailable` without a snapshot | `libs/frontend/core/src/lib/services/provider-accounts-state.service.ts:384-410` | Both selectors call this; no new service method |
+| 1 | One write per scope: `setSelection(provider, scope, choice)` reads the held snapshot **when it is called** (`:390`) and sends that snapshot's `expectedSelectionRevision` (`:407`) and, for `named`, the account's `revision` as `expectedProfileRevision` (`:555`); `unavailable` without a snapshot. It takes **no** caller-supplied revision (three arguments only) | `libs/frontend/core/src/lib/services/provider-accounts-state.service.ts:384-410`, `:543-558` | Both selectors call this; no new service method. A caller that awaits something before calling it must guard the revision itself (Revision 1, P6-A12) |
+| 1a | The host rejects a selection write as `conflict` when the scope revision or the named profile revision differs from the expected one | `libs/backend/auth-providers/src/lib/accounts/provider-account.store.ts:376-380` | A local revision mismatch is the same outcome the host would give for a stale write: treat it as a confirmed refusal |
 | 2 | `{kind:'ambient'}` is written as is; `named` adds `expectedProfileRevision`; an absent named id yields `null` -> `unavailable` | same file `:543-558` | Ambient is a valid write (D53); only disabled/removed values are never written |
 | 3 | Transport loss or host `timeout` -> `unconfirmed` + automatic `refresh` | same file `:586-591` | Selector shows the re-read; never "not saved" |
 | 4 | RPC contract `provider:setAccountSelection`, params `scope`, `selection`, `expectedSelectionRevision` | `libs/shared/src/lib/types/rpc/rpc-provider-accounts.types.ts:234-240`, `:316-318` | Unchanged |
@@ -97,7 +98,7 @@ LM cli-orchestration-matrix, PS providers-settings, CD connection-detail-drawer,
 |---|---|---|---|---|
 | P6-A1 | Make `ptah-settings-toast` announce through two always-present `sr-only` regions (`role=status aria-live=polite aria-atomic=true`, `role=alert aria-atomic=true`); the visual card keeps its look, testids, Undo/Dismiss but loses `role`/`aria-live`. New text: clear both, then set the toned one after a 50 ms timer (re-announces a repeated message). Timer cleared on change and destroy. | keep card roles; per-surface regions | Design principle 4 states the toast region is persistent, but source creates it filled (evidence 14); review-r1 "live-region persistence" | yes |
 | P6-A2 | MP Save order: provider (existing) -> account -> model/effort. Account failure/unconfirmed/unavailable stops the sequence (model/effort not written). When account saved and model/effort follows, the account confirmation rides on that save's `successMessage` ("Saved {label} to {scope}. Chat uses {name}.") so Undo survives. | account last; account before provider | Spec contract 4 (provider first); evidence 15; single toast slot | yes |
-| P6-A3 | After a confirmed account refusal in MP, Save becomes natively disabled; if focus was still on Save (B-2 waiting target), focus moves to the Account select (the control to change next). Otherwise no focus move. | leave focus to body | `[disabled]="!saveReady()"` drops focus (`PRV/main-agent-reassign-popover.component.ts:205-207`); B-2 | yes |
+| P6-A3 | After a confirmed account refusal in MP (failed, unavailable, or the P6-A12 local conflict), the P6-A13 lock makes Save natively disabled even while model/effort drafts remain; if focus was still on Save (B-2 waiting target), focus moves to the Account select (the control to change next). Otherwise no focus move. `unconfirmed` sets no lock and moves no focus. | leave focus to body | `[disabled]="!saveReady()"` drops focus (`PRV/main-agent-reassign-popover.component.ts:206`); B-2 | yes |
 | P6-A4 | Ambient "Last checked …/Last check failed …" (parity §3 keep; absent from the design) moves into the ambient status word's tooltip + `sr-only` text, together with the two D54 cues. The 30 s timer stays (it updates that text). | drop; keep visible | parity §3 "keep"; design copy list has no age line; D54 tooltip mechanism | yes |
 | P6-A5 | Row "N active runs" (parity §3 keep) lives in the detail as the `{n} running` badge only; the row has no run line. | row badge too | design capability map row "Active runs"; D52 low noise | yes |
 | P6-A6 | Row body is no longer a `role=button`; Manage chevron (every named row) is the open-detail control. | keep clickable row | design list "One row is not itself a button"; parity capability (open detail) kept via Manage | yes |
@@ -105,6 +106,8 @@ LM cli-orchestration-matrix, PS providers-settings, CD connection-detail-drawer,
 | P6-A8 | `release-held`: AT remembers that any write in this tab instance was refused with code `release-held`; then Add is `aria-disabled`, `title="Not available on this host"`, and activating it announces the host sentence (or "Named accounts are not available on this host.") as an alert toast. | probe the host | release-held is only knowable from a refusal (`ACC/account-detail-view.component.ts:412-418`); no new RPC | yes |
 | P6-A9 | Leaf components announce their own synchronous results through `SettingsSaveFeedbackService.announce`: AF name validation, DV copy result and rename validation. AT announces every async write outcome. | route all through AT outputs | fewer cross-batch contracts; announce is the documented path for writes outside `save()` (`FB/settings-save-feedback.service.ts:204-210`) | yes |
 | P6-A10 | The M4a `Sign in` link opens the Claude (Subscription) drawer on its **Accounts tab** (not the account detail). MP output `accountSignInRequested`; PS closes MP and calls `openDrawer(claudeCliId, 'accounts')`; CD gets `initialTab`. | open the detail | spec contract 9 allows either; detail deep-link would need a new AT input | yes |
+| P6-A12 | (Revision 1) MP captures an **account intent** synchronously at the start of `save()`, before any await: `{ value, choice, selectionRevision: snapshot.selections.main.revision, profileRevision: named ? account.revision : null }`. After the provider await, and with no further await before the call, MP re-reads `accounts.state('claude')()`; if the snapshot is gone, the scope revision differs, the named account is absent, its revision differs, or the captured value is no longer an enabled option of `accountModel()`, it does **not** call `setSelection` and handles the step as a confirmed refusal (`selectionFeedback({status:'unavailable'},'main',{providerSaved:true})` = "Provider saved. Account not saved.", draft cleared, P6-A13 lock). Otherwise it calls the unchanged three-argument `setSelection` synchronously, whose snapshot read then equals the checked one. | add a revision parameter to ST (core change, public contract); call `setSelection` before the provider write (breaks the approved provider-first order, contract 4) | evidence 1, 1a; `save()` awaits `runDrawerWrite` first (`PRV/main-agent-reassign-popover.component.ts:490-499`); review finding 1 | yes |
+| P6-A13 | (Revision 1) MP holds `accountRefused = signal(false)`. Set true on every confirmed account refusal (failed, unavailable, P6-A12 conflict), never on `unconfirmed` or `saved`. While true, `saveReady()` is `false` regardless of provider/model/effort drafts. Reset only by (a) a user `change` event on the Account select that sets a new enabled draft, or (b) the open effect (`:367-376`, new session). Model/effort drafts are kept while locked. | clear only the account draft (review finding 2: the model/effort OR-branch re-enables Save); discard the model/effort drafts (loses user input) | design contract 4 "Save is disabled until the account changes again"; `saveReady` OR-branch `PRV/main-agent-reassign-popover.component.ts:360-364` | yes |
 | P6-A11 | AP is changed additively in wave 1 and its superseded exports are removed in a last cleanup batch, so each commit compiles and passes its tests. | change in place in wave 1 | AT/UF/AR import the old exports until waves 2 land | yes |
 
 ## Component specifications
@@ -199,21 +202,51 @@ LM cli-orchestration-matrix, PS providers-settings, CD connection-detail-drawer,
   - Draft vs pushed (contract 3): draft set on change; while draft is null the select follows the stored value; when the
     stored value changes while a draft exists, announce status "Account changed elsewhere" once per draft.
   - `accountChanged = computed(() => field visible && draft !== null && draft !== stored value && accountChoiceOf(draft) !== null)`.
-    `saveReady` = (existing main-agent condition when provider/model/effort are dirty) OR (`accountChanged` and nothing else dirty
-    and not `awaitingConfirm`); account-only saves need no Save-to target.
-  - `save()`: provider write (unchanged) -> if it did not save, stop (existing). Then, if `accountChanged()` and the draft
-    provider is Claude CLI: `accounts.setSelection('claude','main', choice)` (sends the revision held at click time, evidence 1).
-    `saved`: clear draft; if model/effort dirty, continue with `successMessage` (P6-A2), else announce the `selectionFeedback`
-    status toast. Any other outcome: announce `selectionFeedback(outcome,'main',{providerSaved})`, clear the draft (select
-    re-asserts the stored value, B-1), stop; P6-A3 focus rule. The `session` guard applies to every await.
+  - Refusal lock (P6-A13): `accountRefused = signal(false)`; the open effect resets it with the drafts; the select's `change`
+    handler resets it when it stores a new enabled draft (a disabled/`stored` value is re-asserted and does not reset it).
+  - `saveReady` = `!accountRefused()` AND ((existing main-agent condition, `:360-364`, when provider/model/effort are dirty)
+    OR (`accountChanged` and nothing else dirty and not `awaitingConfirm`)); account-only saves need no Save-to target.
+  - `save()`:
+    1. Synchronously, before the first await (next to `session` at `:486`): if `accountChanged()` and the draft provider is
+       Claude CLI, capture `accountIntent` per P6-A12 from `accounts.state('claude')()` (evidence 1, 7). No intent -> no
+       account step.
+    2. Provider write (unchanged, `:490-499`) -> if it did not save, stop (existing).
+    3. Account step, only with an intent: if a provider write ran, re-check the intent against the current snapshot and
+       `accountModel()` (P6-A12); on mismatch handle as a confirmed refusal (step 5) without calling the service. Then call
+       `accounts.setSelection('claude','main', intent.choice)` **synchronously after the check** (no await in between, so
+       ST's call-time snapshot read `:390` is the checked snapshot). An account-only save has no preceding await, so the
+       check is trivially the click-time snapshot.
+    4. `saved`: clear the draft; if model/effort dirty, continue with `successMessage` (P6-A2), else announce the
+       `selectionFeedback` status toast and close.
+    5. `failed` / `unavailable` / P6-A12 conflict (confirmed refusal): announce `selectionFeedback(outcome,'main',{providerSaved})`
+       once, clear the account draft (select re-asserts the stored value, B-1), set `accountRefused` (Save disabled although
+       model/effort drafts remain, P6-A13), stop (model/effort not written), apply the P6-A3 focus rule after render.
+    6. `unconfirmed`: announce only "May not have saved. Accounts reloaded.", clear the account draft (select follows the
+       re-read), **no lock, no focus move**, stop. Model/effort drafts stay; Save follows the normal predicate.
+    The `session` guard applies after every await; a closed/reopened popover discards the intent and moves no focus.
   - PS: `(accountSignInRequested)` -> `mainPopover.set(null)`, `openDrawer(claudeCliId, 'accounts')`, opener per A-3;
     `openDrawer(providerId, tab: ConnectionDrawerTabId = 'overview')` stores a `drawerTab` signal bound to CD `[initialTab]`.
-- Verified contracts: evidence 1-3, 13, 15-21.
-- Failure behaviour: not ready/inert/VS Code -> field absent; `unavailable` = failed; partial save stays open with one alert;
+- Verified contracts: evidence 1, 1a, 2, 3, 13, 15-21.
+- Failure behaviour: not ready/inert/VS Code -> field absent; `unavailable` and the P6-A12 conflict = failed; partial save
+  stays open with one alert and the P6-A13 lock;
   unconfirmed shows only the uncertainty toast; closing the popover mid-write -> no focus move, toast still announces.
 - Quality: no extra reads beyond one list read and one cached ambient read per open.
 - Verification seam: MP.spec with stub `ProviderAccountsStateService`/`ClaudeAmbientStatusService`/`SettingsSaveFeedbackService`
-  and `VSCodeService {isElectron}`; PS.spec for the route and `initialTab` binding.
+  and `VSCodeService {isElectron}`; PS.spec for the route and `initialTab` binding. Required MP.spec cases (Revision 1):
+  - Race (P6-A12): provider + account drafts; the stub's `activateConnection` promise stays pending, the test replaces the
+    stub `state('claude')` snapshot with a higher `selections.main.revision` (and, separately, a bumped named-account
+    `revision`, and the account removed), then resolves -> `setSelection` **not** called, one alert "Provider saved. Account
+    not saved.", draft cleared, Save disabled. Control case: no push during the await -> `setSelection('claude','main',choice)`
+    called once, and the stub sees the click-time snapshot.
+  - Lock (P6-A13), provider + account + model/effort drafts together: account refused -> `feedback.save` not called, Save
+    `disabled` although model/effort are still dirty; a second click does nothing; choosing another enabled account
+    re-enables Save and the next Save writes account then model/effort; reopening the popover clears the lock.
+  - B-2 with the lock: focus on Save at refusal -> focus lands on `#main-agent-account`; focus moved elsewhere during the
+    await -> no focus move; popover closed mid-write -> no focus move.
+  - `unconfirmed` with model/effort drafts -> no lock, Save enabled, no focus move, no "not saved" text.
+  - Account saved + model/effort failed -> account draft cleared, popover stays open, model/effort failure toast from
+    `feedback.save` only; account saved + model/effort saved -> one toast whose `successMessage` carries "Chat uses {name}"
+    and whose Undo restores only model/effort (`:557-561`).
 - Files: MODIFY `PRV/main-agent-reassign-popover.component.ts`, `.spec.ts`, `PRV/providers-settings.component.ts`, `.spec.ts`.
 
 ### 5. `ClaudeLaneAccountCellComponent` (`ptah-claude-lane-account-cell`, new) and LM wiring
@@ -336,12 +369,18 @@ Main popover (MP)
 2. Options/order/labels exactly per component 1; ambient suffix only from a ready ambient answer (M2, M3, M8).
 3. Signed-out stored: selected disabled "{name} (not signed in)" + `Sign in` link -> drawer opens on Accounts (M4a). Removed:
    "⚠ Removed account", `aria-invalid`, `sr-only` sentence; nothing reassigned (M4b, B-1).
-4. Save order provider -> account -> model/effort; `{kind:'ambient'}` is written; sends the click-time selection revision.
-5. Outcomes: saved -> close + "Chat uses {name}" (or merged successMessage); failed/unavailable after a provider save -> stays
-   open, "Provider saved. Account not saved.", select shows stored, Save disabled until changed; unconfirmed -> only "May not
-   have saved. Accounts reloaded.", select shows the re-read value (M5-M7).
+4. Save order provider -> account -> model/effort; `{kind:'ambient'}` is written. The account write is made only against
+   the selection revision (and named-profile revision) captured when Save was clicked: if either changed during the
+   provider write, `setSelection` is not called and the step is a confirmed refusal (P6-A12). Tested with a push during a
+   pending provider write.
+5. Outcomes: saved -> close + "Chat uses {name}" (or merged successMessage, Undo restores only model/effort); account saved +
+   model/effort failed -> stays open with the model/effort failure only; failed/unavailable/conflict after a provider save ->
+   stays open, one alert "Provider saved. Account not saved.", model/effort not written, select shows stored, Save
+   **disabled even with model/effort drafts** until the user picks another enabled account or reopens (P6-A13);
+   unconfirmed -> only "May not have saved. Accounts reloaded.", select shows the re-read value, no lock (M5-M7).
 6. Pushed stored change during a draft keeps the draft and announces "Account changed elsewhere" once.
-7. B-2: no programmatic focus when the popover closed or focus moved; P6-A3 only when focus is still on Save.
+7. B-2: no programmatic focus when the popover closed or focus moved; P6-A3 only when focus is still on Save at a confirmed
+   refusal (tested with provider + account + model/effort drafts, and again with focus moved away during the await).
 
 Lane cell (LM)
 8. Rendered only on the installed Claude system row, only when visible per P6-1; absent on VS Code (no RPC) (L1).
@@ -366,7 +405,14 @@ Accounts tab (AT, DV, AR, AF)
 
 Shared
 20. **Live-region persistence** (review-r1): `settings-toast-live-status` and `-alert` exist and are empty before the first
-    toast; text set after a tick; a repeated identical message is re-announced; no other live regions in P6 surfaces.
+    toast; text set after a tick; a repeated identical message is re-announced. **No duplicate mutation-feedback
+    announcer** in P6 surfaces: write outcomes (save, sign-in/out, rename, remove, add, copy, check) are announced only
+    through these two regions (no inline `role=status`/`role=alert`/`aria-live` line for them in MP, the lane cell, AT, DV,
+    AR or AF; AT's `accounts-tab-toast`/`accounts-tab-alert` lines `ACC/accounts-tab.component.ts:192-199` are removed).
+    **Retained** non-mutation regions, required by the design (`design-spec-p6.md:102-103`) and present today
+    (`ACC/accounts-tab.component.ts:146`, `:163`): the AT first-load failure row `role=alert` and the `Out of date` badge
+    `role=status`. MP's existing provider/model regions (`PRV/main-agent-reassign-popover.component.ts:118`, `:154`, `:184`,
+    `:190`, `:198`, and the provider outcome line) are outside the account feature and unchanged.
 21. Card badge "N connected" unchanged (`PS.spec:1124-1172`, `CC.spec:296-319` still pass).
 22. **Real 200% zoom** (review-r1): Electron visual review with browser zoom 200% (`webContents.setZoomFactor(2)` or Ctrl+=,
     not `deviceScaleFactor`) for MP (`w-[19rem]` popover), the lane menu and the Accounts tab; no clipping, no horizontal
@@ -375,14 +421,15 @@ Shared
 ## Integration architecture
 
 - Data flow: open/mount -> `open('claude')` + `read(false)` -> `accountSelectorModel` -> select/menu -> intent ->
-  `setSelection(scope)` (revision from the held snapshot) -> host commit -> response snapshot applied by ST
+  `setSelection(scope)` (revision from the held snapshot at call time; MP captures it at Save intent and calls only if it is
+  unchanged after the provider write, P6-A12; the lane cell calls before any await) -> host commit -> response snapshot applied by ST
   (`provider-accounts-state.service.ts:605`) and `provider:accountsChanged` push -> every selector, chip and row re-derives.
 - State: ST owns snapshots/revisions; MP owns one draft per open session; the lane cell owns only `saving`/`open`; AT owns busy,
   view and held flag; the page toast owns announcement text and timers.
 - External boundaries: host replies are already validated in ST/ClaudeAmbientStatusService; host sentences shown only when
   `isSafeProviderAccountSummary`; labels rendered as text, toasts truncate to 40 chars.
 - Failure and rollback: no optimistic state; refused/unconfirmed writes re-assert the stored value; a partial MP save is
-  reported, never rolled back.
+  reported, never rolled back, and a confirmed account refusal locks MP's Save until the account changes (P6-A13).
 - Observability: toasts (status/alert) are the user-facing evidence; no new logging.
 
 ## Architecture-level quality requirements
@@ -486,3 +533,19 @@ visual review (acceptance 9, 13, 22 incl. real 200% zoom, dark + light), live Ha
   `PAI/cli-orchestration-matrix.component.ts` + spec, `FB/settings-toast.component.ts` + spec (25 files).
 - Verification points: evidence 1-5 (no backend change); B-1/B-2 checked in code review against acceptance 3-7, 11-12, 16-18;
   review-r1 items = acceptance 10, 12, 18, 20, 22; the final verify above; the Electron visual review.
+
+## Revision 1
+
+Answers `implementation-plan-p6-review.md` (codex, REVISE 7/10). Still frontend-only, still `@ptah-extension/chat` only:
+every fix lives in MP and MP.spec, which are already batch P4 (4 files). No batch, wave, file list or executor changed; no
+change to `design-spec-p6.md` or D52-D54. Decisions recorded as D56-D58 in `decisions.md`.
+
+| # | Finding | Fix | Plan sections changed |
+|---|---|---|---|
+| 1 (serious) | The Save-click revision is lost: ST reads the snapshot when `setSelection` is called (`provider-accounts-state.service.ts:390`, `:407`, `:555`), and MP awaits the provider write first (`main-agent-reassign-popover.component.ts:490-499`), so a push during that await becomes the expected revision. | P6-A12: MP captures the account intent (choice, scope revision, named-profile revision) synchronously at Save, re-checks it against the current snapshot and the selector model after the provider await, and calls the unchanged three-argument `setSelection` synchronously only when unchanged. A mismatch is a confirmed refusal (same as the host `conflict`, `provider-account.store.ts:376-380`): "Provider saved. Account not saved.", lock. The plan no longer claims the service accepts a captured revision. Race test with a pending provider write. | Codebase evidence rows 1, 1a; Decisions P6-A12; component 4 `save()` steps 1-3 and verification seam; acceptance 4; Integration data flow |
+| 2 (moderate) | The partial-save lock contradicts the Save predicate: clearing only the account draft leaves the model/effort OR-branch (`:360-364`) enabling Save, so the next click writes model/effort without a new account choice and Save never becomes disabled for P6-A3. | P6-A13: explicit `accountRefused` signal, set only on confirmed refusal (failed/unavailable/conflict), never on `unconfirmed`; `saveReady` is gated by it before the OR-branch; reset only by a new enabled Account choice or reopening. Model/effort drafts kept. P6-A3 now rests on this lock. Tests with provider + account + model/effort drafts together, B-2 with focus moved away, unconfirmed staying unlocked, account-saved/model-failed, Undo scope. | Decisions P6-A3, P6-A13; component 4 lock/`saveReady`/`save()` steps 5-6, failure behaviour, verification seam; acceptance 5, 7; Integration failure and rollback |
+| 3 (minor) | Acceptance 20 forbade every other live region, but the design requires the stale `role=status` badge and the load-error `role=alert` row (`design-spec-p6.md:102-103`, `accounts-tab.component.ts:146`, `:163`). | Acceptance 20 now forbids only duplicate mutation-feedback announcers and explicitly retains the load/stale regions and MP's existing provider/model regions. | Acceptance 20 |
+
+Also noted from the review's limits: P6's isolated commit cannot pass its own jest run before P7/P8 land (contract
+removal order). Unchanged by design (wave note "run P6's jest once P7 and P8 files are in the tree"); the team-leader
+commits P6, P7 and P8 after one combined P6 jest run, or accepts that P6 is verified at integration.

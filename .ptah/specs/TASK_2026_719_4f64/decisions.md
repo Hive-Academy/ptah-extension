@@ -412,3 +412,40 @@
   compile in order, parity complete, no unapproved removal (P6-A4/A5/A6 accepted).
 - Next (session 9): one architect revision round on these three items, short codex re-review (resume session
   `019a…` not kept; spawn fresh with a full brief), then wave 1.
+
+## D56 — P6 plan Revision 1: MP guards the Save-click account revision (2026-10-26, architect)
+
+- Decision: MP captures the account intent (choice, `selections.main.revision`, named `revision`) synchronously at
+  Save; after the provider await it re-checks against the current snapshot and calls the unchanged three-argument
+  `setSelection` synchronously only when unchanged; a mismatch is handled as a confirmed refusal ("Provider saved.
+  Account not saved.", lock per D57). Plan P6-A12.
+- Options: frontend guard in MP (chosen); add a revision parameter to `ProviderAccountsStateService` (core public
+  contract change); write the account before the provider (breaks the approved provider-first order).
+- Evidence: `provider-accounts-state.service.ts:390,407,555` (call-time snapshot), `main-agent-reassign-popover.component.ts:490-499`
+  (provider await first), `provider-account.store.ts:376-380` (host treats a stale revision as `conflict`). Review finding 1.
+- Reversible: yes.
+
+## D57 — P6 plan Revision 1: explicit account-refusal lock on MP's Save (2026-10-26, architect)
+
+- Decision: `accountRefused` signal set on confirmed account refusal (failed, unavailable, D56 conflict), never on
+  `unconfirmed`; while set `saveReady` is false even with model/effort drafts; reset only by a new enabled Account
+  choice or reopening the popover; model/effort drafts kept. P6-A3 focus rule applies on that disable. Plan P6-A13.
+- Options: explicit lock (chosen); clear only the account draft (Save stays enabled via model/effort, contradicts the
+  design); discard model/effort drafts (loses input).
+- Evidence: `design-spec-p6.md` contract 4 ("Save is disabled until the account changes again");
+  `main-agent-reassign-popover.component.ts:360-364` (OR-branch). Review finding 2.
+- Reversible: yes.
+
+## D58 — P6 plan Revision 1: acceptance 20 limited to duplicate mutation announcers (2026-10-26, architect)
+
+- Decision: acceptance 20 forbids only duplicate mutation-feedback announcers in P6 surfaces; the AT load-error
+  `role=alert` row and the `Out of date` `role=status` badge, and MP's existing provider/model regions, are retained.
+- Options: scoped prohibition (chosen); keep the blanket prohibition (contradicts the approved design).
+- Evidence: `design-spec-p6.md:102-103`; `accounts-tab.component.ts:146,163`. Review finding 3.
+- Reversible: yes.
+
+## D59 - Gate 2 passed for P6 (lane-review)
+- Decision: the revised `implementation-plan-p6.md` (Revision 1, D56-D58) passes Gate 2. Wave 1 starts.
+- Evidence: `implementation-plan-p6-review-r1.md` (codex, APPROVED 8/10; findings 1-3 fixed, no new defects).
+- Author: Claude software-architect subagent. Reviewer: codex lane (cross-side).
+- Reversible: yes.
