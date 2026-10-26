@@ -19,7 +19,7 @@ in the Claude CLI lane row; the Accounts tab becomes a calm list with "Used by" 
 | Item | Value |
 |---|---|
 | Worktree | `D:/projects/ptah-extension/.claude-worktrees/claude-named-accounts` |
-| Branch | `feat/claude-named-accounts`; remote head `8e71fb124` (pushed, `git ls-remote` verified) |
+| Branch | `feat/claude-named-accounts`; remote head = latest local commit (P6 docs `bd4855d5d` pushed; this handoff fix-up commit pushed after it — confirm with `git ls-remote origin feat/claude-named-accounts`) |
 | PR | https://github.com/Hive-Academy/ptah-extension/pull/827 (open, never merge) |
 | CI on `8e71fb124` | all pass except "GitGuardian Security Checks" (incident 39008928, known false positive) |
 | "Before" worktree | `.claude-worktrees/claude-named-accounts-before` (detached at `396f0135b`). Keep. |
@@ -41,7 +41,7 @@ in the Claude CLI lane row; the Accounts tab becomes a calm list with "Used by" 
 
 ## In progress — P6 (all uncommitted, docs only; no code changed yet)
 
-Committed at the end of session 8 (see the last commit on the branch, docs only, not pushed): `decisions.md` (D50-D54 appended… D50/D51 already committed; D52-D54 new),
+Committed and pushed at the end of session 8 in `bd4855d5d` (docs only; CI for it not watched): `decisions.md` (D50-D54 appended… D50/D51 already committed; D52-D54 new),
 `parity-inventory-p6.md`, `design-spec-p6.md` (with D53 orchestrator correction of State contract 4),
 `design-spec-p6-review.md` (REVISE 6/10), `design-spec-p6-review-r1.md` (REVISE 7/10), `prototype/p6/`
 (index.html, README, capture/contrast/smoke scripts, shots), `implementation-plan-p6.md`, `HANDOFF-session7.md`,
