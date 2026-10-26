@@ -928,6 +928,43 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 - Verification noise added: Electron E2E `state.spec.ts:41` flaked once on 315c6a98f (passed
   on re-run).
 
+# Run state (session 14, 2026-10-26) — P8 in progress
+
+- Commits (team-leader): 18424ac85 fix degradation audit (codex-chat-host-ports `failed` now a block
+  handler logging the real Error; audit pass, baseline unchanged); df836898b 8a-2a (pin lookup +
+  UUID v4/v7; verify shared,codex-runtime pass); b5226c69a 8a-2b (verify rpc-handlers pass;
+  agent-sdk test/typecheck pass, lint only known accounts.spec:174,183).
+- 8a-2a check: literal `require` of the manifest JSON passes codex-runtime lint; Electron main is
+  an esbuild ESM bundle, which inlines a resolved relative JSON require. Carry to P8 review: the
+  bundle then also contains the manifest's diagnostic `binaryPath` (developer path) and method
+  lists; the Zod projection strips them at runtime only.
+- turnId (8a-2b CRITICAL), team-leader decision (native first): `CodexChatAdapterPorts.callbacks(
+  sessionId, turn)` receives the native turn identity from the App Server `turn/start` receipt
+  (codex-chat-adapter.ts, same object CodexChatEvents uses); `undefined` only for the session-level
+  cleanup error. The callbacks factory takes `turn` instead of `messageId()`; content without a
+  turn is refused and logged. Reversible.
+- 8a-2b triage, fixed in b5226c69a: (1) approvals — the runtime never emits approvalRequested/
+  approvalSettled on the chat event stream (translator: approvals belong to the bridge); the sink
+  presents them through `presentation` (host attention). The callbacks no longer present them
+  (no double prompt). (2) failed compaction publishes only `compaction_complete`, no synthetic
+  CHAT_ERROR (the App Server's own error/terminal ends a failed turn). (3) the callbacks' empty
+  `catch` around the logger (degradation empty-catch) removed; errors are logged with the real
+  Error. (4) settings-record reader typed as `readForPath(...): unknown` (spec TS2322 fixed, no
+  cast).
+- Deferred to 8a-2c (binding): pass the shared STREAM_DELIVERY_COORDINATOR to the callbacks; call
+  settings record `discardProfile` on a failed open, `release` on session end, `dispose` at
+  shutdown; wrap ports with `record.wrapPorts`.
+- Deferred to P8 review: compaction start uses trigger 'auto' / preTokens 0 (runtime event has
+  phase only — needs upstream metadata for manual trigger and token count); hidden-tab terminal
+  slot holds one terminal, so a callbacks CHAT_ERROR and the broadcaster CHAT_COMPLETE can
+  overwrite each other; result reconciliation block index when only deltas streamed; image/file
+  card rendering and relative native file paths (live Electron run); agent-sdk max-lines warning
+  codex-chat-adapter.ts (763 > 700).
+- User decisions (coordinator relay, session 14): per batch only the scoped verify; degradation
+  audit, di-lint, four-host typecheck and host-attention run once after 8b (plus di-lint when DI
+  registration changes, host-attention when permission emission changes). Live Electron test
+  right after 8b, BEFORE the P8 phase review. PR scope per P8 D7.
+
 # Run state (session 13, 2026-10-26) — P8 in progress, 8a-2 Part B BLOCKED
 
 - Commits (team-leader): 25326130c 8d (vscode guard specs; verify -p ptah-extension-vscode 35/35);
@@ -1644,7 +1681,7 @@ and CLI get compatible bindings only (no feature work).
   - 8a-2 Part B re-split (session 14, coordinator D1-D4; decisions.md last rows). Order
     8a-2a -> 8a-2b -> 8a-2c -> 8b. 8a-2a and 8a-2b are file-disjoint and may run in parallel;
     8a-2a commits first because the 8a-2b v7 schema spec needs it.
-  - 8a-2a — PENDING (libs: codex-runtime, shared). Executor: CLI lane, Codex family; review
+  - 8a-2a — COMPLETE (df836898b) (libs: codex-runtime, shared). Executor: CLI lane, Codex family; review
     Claude. Files (max 6):
     - codex-runtime: CREATE `src/lib/codex-executable-pin.ts` (+ `.spec.ts`): a reviewed-row
       lookup `findCodexExecutablePin(platform, arch)` over the reviewed manifest JSON, returning
@@ -1669,7 +1706,7 @@ and CLI get compatible bindings only (no feature work).
     - Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/shared`; di-lint;
       four-host typecheck; tests of the shared consumers above:
       `npm run verify -- -t test -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk`.
-  - 8a-2b — PENDING (lib: rpc-handlers). Executor: CLI lane, Codex family; review Claude.
+  - 8a-2b — COMPLETE (b5226c69a; turnId + triage below) (lib: rpc-handlers). Executor: CLI lane, Codex family; review Claude.
     Files (max 6) under R+chat/codex-host/:
     - CREATE `codex-chat-event-callbacks.ts` (+ spec) (D2, blocker 4): a factory that builds a
       concrete `CodexChatEventCallbacks` (agent-sdk codex-chat-events.ts:30-47) over the existing
@@ -1867,7 +1904,7 @@ errors). Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adap
 
 ---
 
-# Phase S — Spike turns (paid; approved 8 turns, <=30000 tokens/turn, <=100000/run)
+# Phase S — Spike turns (paid; approved 8 turns, <=30000 tokens/turn, <=100000/run) — MOVED to follow-up PR (D7)
 
 Every paid run is a stop point: the team-leader returns to the coordinator before it starts.
 
@@ -1896,7 +1933,7 @@ Every paid run is a stop point: the team-leader returns to the coordinator befor
 
 ---
 
-# Phase P11 — Native subagents — PENDING (needs P8, S1 fixture)
+# Phase P11 — Native subagents — MOVED to follow-up PR (D7)
 
 Phase review: code-logic. Implementer Codex, reviewer Claude. Native features only; the
 Ptah-owned spawn tool is dropped.
@@ -1935,7 +1972,7 @@ Ptah-owned spawn tool is dropped.
 
 ---
 
-# Phase P12 — Native sessions: history, resume, rollback — PENDING (needs P11, S1)
+# Phase P12 — Native sessions: history, resume, rollback — MOVED to follow-up PR (D7)
 
 Phase review: code-logic. Source of truth: the Codex rollout JSONL in each CODEX_HOME
 `sessions/`. Ptah keeps only metadata keyed by thread id (6d). No Ptah JSONL copy.
@@ -1976,7 +2013,7 @@ Phase review: code-logic. Source of truth: the Codex rollout JSONL in each CODEX
 
 ---
 
-# Phase P13 — File-rewind checkpoint (built; not native) — PENDING (needs P12)
+# Phase P13 — File-rewind checkpoint (built; not native) — MOVED to follow-up PR (D7)
 
 Phase review: code-logic.
 
@@ -2000,7 +2037,7 @@ Phase review: code-logic.
 
 ---
 
-# Phase P14 — Parity ledger and live Electron parity — PENDING (needs P13, S2)
+# Phase P14 — Parity ledger and live Electron parity — PENDING (D7: needs P10 incl. Removal B; P11-P13/S moved out)
 
 ## Batch 14a: Reviewed parity-gate ledger update — PENDING
 
