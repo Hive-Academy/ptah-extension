@@ -97,7 +97,11 @@ import type {
   MarketplaceBrowseParams,
   MarketplaceSourceParams,
 } from './rpc/rpc-plugin-marketplace.types';
-import type { LibraryPassStatus } from './rpc/rpc-setup-decisions.types';
+import type {
+  LibraryPassStatus,
+  WizardPlanPackInstallParams,
+  WizardPlanPackInstallResult,
+} from './rpc/rpc-setup-decisions.types';
 
 import type {
   SubagentQueryParams,
@@ -1095,6 +1099,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'wizard:list-agent-packs': {
     params: WizardListAgentPacksParams;
     result: WizardListAgentPacksResult;
+  };
+  'wizard:plan-pack-install': {
+    params: WizardPlanPackInstallParams;
+    result: WizardPlanPackInstallResult;
   };
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
@@ -3176,6 +3184,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:list-analyses': true,
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
+  'wizard:plan-pack-install': true,
   'wizard:install-pack-agents': true,
   'license:getStatus': true,
   'license:setKey': true,

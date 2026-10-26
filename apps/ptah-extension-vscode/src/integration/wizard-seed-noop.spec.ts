@@ -264,6 +264,8 @@ function makeHarness(): Harness {
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
+    // Pack methods are not exercised here (TASK_2026_701 B8).
+    { listPacks: jest.fn(), plan: jest.fn(), install: jest.fn() },
   );
 
   return {

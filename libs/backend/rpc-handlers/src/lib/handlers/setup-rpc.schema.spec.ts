@@ -10,12 +10,30 @@
 
 import 'reflect-metadata';
 
+// The pack schemas reuse the decision/target schemas of
+// `wizard-generation-rpc.schema.ts`, which imports the agent-generation
+// barrel; that reaches workspace-intelligence, whose tree-sitter loader
+// evaluates `import.meta.url` at load time (unparseable under ts-jest's CJS
+// transform). Same guard as `wizard-generation-rpc.schema.spec.ts`.
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: { Node: 'node', General: 'general', Unknown: 'unknown' },
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+}));
+
 import {
   WizardDeepAnalyzeParamsSchema,
   WizardGetResumableRunParamsSchema,
   WizardInstallPackAgentsParamsSchema,
   WizardListAnalysesParamsSchema,
   WizardLoadAnalysisParamsSchema,
+  WizardPlanPackInstallParamsSchema,
 } from './setup-rpc.schema';
 
 describe('setup-rpc.schema', () => {
@@ -101,6 +119,79 @@ describe('setup-rpc.schema', () => {
           agentFiles: ['a.md'],
         }).success,
       ).toBe(true);
+    });
+
+    it('accepts a plan token, per-file decisions and a target', () => {
+      const result = WizardInstallPackAgentsParamsSchema.safeParse({
+        source: 'https://example.com/pack',
+        agentFiles: ['a.md', 'b.md'],
+        planToken: '2b0f7c1e-8d4a-4c55-9a1b-3f6e2d7c9a10',
+        decisions: {
+          'a.md': { decision: 'replace', revision: 'rev-a' },
+          'b.md': { decision: 'keep' },
+        },
+        target: 'opened-folder',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data?.decisions?.['a.md']).toEqual({
+        decision: 'replace',
+        revision: 'rev-a',
+      });
+    });
+
+    it('rejects a non-uuid plan token, an unknown decision and an unknown target', () => {
+      const base = { source: 'https://example.com/pack', agentFiles: ['a.md'] };
+      expect(
+        WizardInstallPackAgentsParamsSchema.safeParse({
+          ...base,
+          planToken: 'not-a-token',
+        }).success,
+      ).toBe(false);
+      expect(
+        WizardInstallPackAgentsParamsSchema.safeParse({
+          ...base,
+          decisions: { 'a.md': { decision: 'overwrite' } },
+        }).success,
+      ).toBe(false);
+      expect(
+        WizardInstallPackAgentsParamsSchema.safeParse({
+          ...base,
+          target: 'elsewhere',
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('WizardPlanPackInstallParamsSchema', () => {
+    it('requires a source and at least one agent file; target is optional', () => {
+      expect(
+        WizardPlanPackInstallParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: [],
+        }).success,
+      ).toBe(false);
+      expect(
+        WizardPlanPackInstallParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: ['a.md'],
+        }).success,
+      ).toBe(true);
+      expect(
+        WizardPlanPackInstallParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: ['a.md'],
+          target: 'harness-root',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('rejects more than 200 files', () => {
+      expect(
+        WizardPlanPackInstallParamsSchema.safeParse({
+          source: 'https://example.com/pack',
+          agentFiles: Array.from({ length: 201 }, (_, i) => `a${i}.md`),
+        }).success,
+      ).toBe(false);
     });
   });
 });

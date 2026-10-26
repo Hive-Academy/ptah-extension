@@ -12,6 +12,10 @@
  */
 
 import { z } from 'zod';
+import {
+  FileDecisionEntrySchema,
+  GenerationTargetChoiceSchema,
+} from './wizard-generation-rpc.schema';
 
 const workspacePath = z.string().min(1).max(4096).optional();
 
@@ -34,8 +38,33 @@ export const WizardLoadAnalysisParamsSchema = z.object({
   workspacePath,
 });
 
+/** Most pack files one plan or install may name. */
+const MAX_PACK_FILES = 200;
+
+const packSource = z.string().min(1).max(2048);
+const packFileName = z.string().min(1).max(255);
+const packAgentFiles = z.array(packFileName).min(1).max(MAX_PACK_FILES);
+
+/** `wizard:plan-pack-install`: one file or the whole pack, and the target. */
+export const WizardPlanPackInstallParamsSchema = z.object({
+  source: packSource,
+  agentFiles: packAgentFiles,
+  target: GenerationTargetChoiceSchema.optional(),
+});
+
+/** Keep/replace per pack file name, with the revision the plan row carried. */
+export const PackFileDecisionsSchema = z
+  .record(packFileName, FileDecisionEntrySchema)
+  .refine((decisions) => Object.keys(decisions).length <= MAX_PACK_FILES, {
+    message: `At most ${MAX_PACK_FILES} file decisions are allowed.`,
+  });
+
 export const WizardInstallPackAgentsParamsSchema = z.object({
-  source: z.string().min(1).max(2048),
-  agentFiles: z.array(z.string().min(1).max(255)).min(1).max(200),
+  source: packSource,
+  agentFiles: packAgentFiles,
   workspacePath,
+  /** Token from `wizard:plan-pack-install`; random, server-held. */
+  planToken: z.string().uuid().optional(),
+  decisions: PackFileDecisionsSchema.optional(),
+  target: GenerationTargetChoiceSchema.optional(),
 });

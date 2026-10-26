@@ -50,6 +50,16 @@ describe('Electron RPC surface', () => {
     );
   });
 
+  it('serves the community pack install plan (TASK_2026_701 B8)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'wizard:plan-pack-install',
+        'wizard:install-pack-agents',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('wizard:plan-pack-install');
+  });
+
   it('serves every method owned by the live manifest', () => {
     expect(surface.registered).toEqual(manifestMethods);
     expect(surface.registered.length + surface.excluded.length).toBe(

@@ -200,6 +200,16 @@ describe('VS Code RPC surface', () => {
     );
   });
 
+  it('serves the community pack install plan (TASK_2026_701 B8)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'wizard:plan-pack-install',
+        'wizard:install-pack-agents',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('wizard:plan-pack-install');
+  });
+
   it('excludes exactly the live methods in the VS Code absent list', () => {
     expect([...surface.excluded]).toEqual([...VSCODE_EXPECTED_ABSENT_METHODS]);
   });

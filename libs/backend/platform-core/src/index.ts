@@ -370,11 +370,18 @@ export type {
   ContentDownloadResult,
   ContentProgressCallback,
 } from './content-download.service';
-export { AgentPackDownloadService } from './agent-pack-download.service';
+export {
+  AgentPackDownloadService,
+  hashPackContent,
+} from './agent-pack-download.service';
 export type {
   AgentPackInfo,
   AgentPackEntry,
-  AgentPackDownloadResult,
+  AgentPackFilePlan,
+  AgentPackPlanResult,
+  AgentPackInstallItem,
+  AgentPackInstallOutcome,
+  PackFileGuard,
 } from './agent-pack-download.service';
 export { resolveAuthProviderKey } from './settings-auth-key';
 export {
