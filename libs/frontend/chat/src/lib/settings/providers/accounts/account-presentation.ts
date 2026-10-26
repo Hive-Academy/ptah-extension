@@ -1,5 +1,7 @@
 import type {
   ClaudeAmbientStatusView,
+  ProviderAccountActionOutcome,
+  ProviderAccountChoice,
   ProviderAccountsView,
 } from '@ptah-extension/core';
 import {
@@ -8,6 +10,7 @@ import {
   PROVIDER_ACCOUNT_SCOPES,
   isProviderAccountLabelTaken,
   isSafeProviderAccountLabel,
+  isSafeProviderAccountSummary,
   type ProviderAccountScope,
   type ProviderAccountState,
   type ProviderAccountSummary,
@@ -275,4 +278,277 @@ export function connectedAccountCount(
   if (!status || status.state === 'unknown') return null;
   const named = accounts.snapshot.accounts.filter((account) => account.state === 'signed-in').length;
   return named + (status.state === 'connected' ? 1 : 0);
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * P6 rules (TASK_2026_719 P6, plan component 1). Account selectors in the main popover and the lane
+ * cell, the calm Accounts tab and every fixed toast or aria string of `design-spec-p6.md` "Copy".
+ * Derived from a host snapshot and a host ambient answer only (B-1).
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Every fixed P6 toast, option and aria string (`design-spec-p6.md` "Copy"). */
+export const ACCOUNT_COPY = {
+  // Toasts, status tone.
+  accountAdded: 'Account added',
+  signedIn: 'Signed in',
+  signedOut: 'Signed out',
+  signInCancelled: 'Sign-in cancelled',
+  statusChecked: 'Status checked',
+  nameSaved: 'Name saved',
+  accountRemoved: 'Account removed',
+  copied: 'Copied',
+  accountChangedElsewhere: 'Account changed elsewhere',
+  accountGone: 'That account is no longer in the list',
+  // Toasts, alert tone.
+  saveFailed: 'Could not save the account. Try again.',
+  providerSavedAccountNot: 'Provider saved. Account not saved.',
+  unconfirmed: 'May not have saved. Accounts reloaded.',
+  actionFailed: 'That did not work. Try again.',
+  nameTaken: 'That name is already used.',
+  copyFailed: 'Could not copy',
+  hostUnsupported: 'Named accounts are not available on this host.',
+  // Selector option text.
+  removedOption: '⚠ Removed account',
+  // Aria, title and sr-only text.
+  removedAccount: 'The saved account no longer exists. Choose another account.',
+  signInSavedAccount: 'Sign in to the saved account',
+  signInLocked: 'Locked while sign-in is in progress.',
+  resumeUnavailable: 'Runs bound to this account cannot resume until it is signed in again.',
+  notAvailableOnHost: 'Not available on this host',
+} as const;
+
+/** `'stored'` is the selected, disabled placeholder of a signed-out or removed stored account; never written. */
+export type AccountSelectorValue = 'ambient' | 'stored' | `named:${string}`;
+
+export interface AccountSelectorOption {
+  readonly value: AccountSelectorValue;
+  readonly label: string;
+  readonly disabled: boolean;
+}
+
+/**
+ * The stored selection of one scope, read from the snapshot. `removed` is derived: the selection names a
+ * profile id absent from `snapshot.accounts` (the wire selection has no such variant).
+ */
+export type AccountSelectorStored =
+  | { readonly kind: 'ambient' }
+  | { readonly kind: 'named'; readonly profileId: string; readonly label: string }
+  | { readonly kind: 'signed-out'; readonly profileId: string; readonly label: string }
+  | { readonly kind: 'removed'; readonly profileId: string };
+
+export interface AccountSelectorModel {
+  /** P6-1: some account is signed in, or the stored selection is named (in any state, or removed). */
+  readonly visible: boolean;
+  /** Exactly the stored selection: never a draft, pending or attempted value. */
+  readonly value: AccountSelectorValue;
+  readonly stored: AccountSelectorStored;
+  readonly options: readonly AccountSelectorOption[];
+  /** Label of the option `value` selects (cell text and `title`). */
+  readonly selectedText: string;
+}
+
+function storedSelection(
+  snapshot: ProviderAccountsSnapshot,
+  scope: ProviderAccountScope,
+): AccountSelectorStored {
+  const selection = snapshot.selections[scope].selection;
+  if (selection.kind !== 'named') return { kind: 'ambient' };
+  const found = snapshot.accounts.find((account) => account.profileId === selection.profileId);
+  if (!found) return { kind: 'removed', profileId: selection.profileId };
+  return found.state === 'signed-in'
+    ? { kind: 'named', profileId: found.profileId, label: found.label }
+    : { kind: 'signed-out', profileId: found.profileId, label: found.label };
+}
+
+/**
+ * Selector model of one scope (P6-1, P6-2, P6-3; spec contracts 2, 6, 7). `null` while not ready (inert host or
+ * no snapshot), so the control is absent. A signed-out or removed stored account is shown as a selected disabled
+ * `'stored'` option first; nothing here reassigns a selection (B-1). The ambient suffix comes only from a ready,
+ * non-failed host answer.
+ */
+export function accountSelectorModel(
+  view: ProviderAccountsView,
+  ambient: ClaudeAmbientStatusView,
+  scope: ProviderAccountScope,
+): AccountSelectorModel | null {
+  const snapshot = view.snapshot;
+  if (view.status === 'inert' || snapshot === null) return null;
+  const stored = storedSelection(snapshot, scope);
+  const status = readyAmbient(ambient);
+  const options: AccountSelectorOption[] = [];
+  if (stored.kind === 'signed-out') {
+    options.push({ value: 'stored', label: `${stored.label} (not signed in)`, disabled: true });
+  } else if (stored.kind === 'removed') {
+    options.push({ value: 'stored', label: ACCOUNT_COPY.removedOption, disabled: true });
+  }
+  options.push({
+    value: 'ambient',
+    label: PROVIDER_ACCOUNT_RESERVED_LABEL + (status ? AMBIENT_SUFFIX[status.state] : ''),
+    disabled: false,
+  });
+  for (const account of orderedAccounts(snapshot)) {
+    if (account.state === 'signed-in') {
+      options.push({ value: `named:${account.profileId}`, label: account.label, disabled: false });
+    } else if (stored.kind !== 'signed-out' || stored.profileId !== account.profileId) {
+      options.push({
+        value: `named:${account.profileId}`,
+        label: `${account.label} (sign in first)`,
+        disabled: true,
+      });
+    }
+  }
+  const value: AccountSelectorValue =
+    stored.kind === 'ambient' ? 'ambient' : stored.kind === 'named' ? `named:${stored.profileId}` : 'stored';
+  const selected = options.find((option) => option.value === value);
+  return {
+    visible: stored.kind !== 'ambient' || snapshot.accounts.some((account) => account.state === 'signed-in'),
+    value,
+    stored,
+    options,
+    selectedText: selected ? selected.label : '',
+  };
+}
+
+const NAMED_PREFIX = 'named:';
+
+/** The choice a selector value writes; `'stored'` (the disabled placeholder) writes nothing. */
+export function accountChoiceOf(value: AccountSelectorValue): ProviderAccountChoice | null {
+  if (value === 'ambient') return { kind: 'ambient' };
+  if (value.startsWith(NAMED_PREFIX)) {
+    return { kind: 'named', profileId: value.slice(NAMED_PREFIX.length) };
+  }
+  return null;
+}
+
+const TOAST_NAME_MAX = 40;
+
+/** Account name for a toast: at most 40 characters (code points), then `…`. */
+export function toastName(label: string): string {
+  const chars = Array.from(label);
+  return chars.length > TOAST_NAME_MAX ? `${chars.slice(0, TOAST_NAME_MAX).join('')}…` : label;
+}
+
+export type AccountFeedbackTone = 'status' | 'alert';
+
+export interface AccountFeedback {
+  readonly message: string;
+  readonly tone: AccountFeedbackTone;
+}
+
+const USES: Readonly<Record<ProviderAccountScope, string>> = {
+  main: 'Chat uses',
+  lane: 'Lanes use',
+};
+
+/**
+ * Toast for one `setSelection` outcome (spec contracts 4, 5, 8). `saved` names the account from the returned host
+ * snapshot only; `null` when that snapshot's selection names a profile it does not list (nothing honest to name).
+ * `unconfirmed` is never reported as "not saved". With `providerSaved`, a confirmed refusal is the partial-save alert.
+ */
+export function selectionFeedback(
+  outcome: ProviderAccountActionOutcome,
+  scope: ProviderAccountScope,
+  opts: { readonly providerSaved: boolean },
+): AccountFeedback | null {
+  switch (outcome.status) {
+    case 'saved': {
+      const stored = storedSelection(outcome.snapshot, scope);
+      if (stored.kind === 'removed') return null;
+      const name = stored.kind === 'ambient' ? PROVIDER_ACCOUNT_RESERVED_LABEL : stored.label;
+      return { message: `${USES[scope]} ${toastName(name)}`, tone: 'status' };
+    }
+    case 'unconfirmed':
+      return { message: ACCOUNT_COPY.unconfirmed, tone: 'alert' };
+    case 'failed':
+      if (opts.providerSaved) return { message: ACCOUNT_COPY.providerSavedAccountNot, tone: 'alert' };
+      return {
+        message: isSafeProviderAccountSummary(outcome.result.summary)
+          ? outcome.result.summary
+          : ACCOUNT_COPY.saveFailed,
+        tone: 'alert',
+      };
+    case 'unavailable':
+      return {
+        message: opts.providerSaved ? ACCOUNT_COPY.providerSavedAccountNot : ACCOUNT_COPY.saveFailed,
+        tone: 'alert',
+      };
+  }
+}
+
+export type UsedByChip = 'Chat' | 'Lanes';
+
+const USED_BY: Readonly<Record<ProviderAccountScope, UsedByChip>> = {
+  main: 'Chat',
+  lane: 'Lanes',
+};
+
+/**
+ * Row key (`AMBIENT_ROW_KEY` or a profile id) -> "Used by" chips, from the snapshot selections only (R2), in scope
+ * order (Chat, Lanes). A named id absent from the accounts gets an entry no row reads.
+ */
+export function usedByChips(
+  snapshot: ProviderAccountsSnapshot,
+): ReadonlyMap<string, readonly UsedByChip[]> {
+  const chips = new Map<string, UsedByChip[]>();
+  for (const scope of PROVIDER_ACCOUNT_SCOPES) {
+    const selection = snapshot.selections[scope].selection;
+    const key = selection.kind === 'named' ? selection.profileId : AMBIENT_ROW_KEY;
+    const list = chips.get(key) ?? [];
+    list.push(USED_BY[scope]);
+    chips.set(key, list);
+  }
+  return chips;
+}
+
+export interface AmbientStatusModel {
+  readonly tone: AmbientTone;
+  /** Status word shown in the row. */
+  readonly word: string;
+  readonly checking: boolean;
+  /** D54 cue plus the host-checked age (P6-A4), for the word's tooltip and `sr-only` text; `null` when empty. */
+  readonly hint: string | null;
+}
+
+const AMBIENT_SIGNED_OUT_CUE = 'Sign in with the Claude CLI in a terminal.';
+const AMBIENT_UNKNOWN_CUE = 'The status could not be read. This does not mean you are signed out.';
+
+function joinHint(...parts: readonly (string | null)[]): string | null {
+  const text = parts.filter((part): part is string => part !== null).join(' ');
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Ambient row of the P6 Accounts tab (design A5, D54, P6-A4). `Signed in` only from a ready host `connected`
+ * answer, never while checking; an age only from a host `checkedAt`. A local failure reads `Status unknown`.
+ */
+export function ambientStatusModel(view: ClaudeAmbientStatusView, now: number): AmbientStatusModel {
+  if (view.status === 'checking') {
+    return { tone: 'run', word: 'Checking…', checking: true, hint: null };
+  }
+  if (view.status !== 'ready') {
+    return { tone: 'idle', word: 'Not checked yet', checking: false, hint: null };
+  }
+  const result = readyAmbient(view);
+  if (!result) {
+    return { tone: 'idle', word: 'Status unknown', checking: false, hint: AMBIENT_UNKNOWN_CUE };
+  }
+  const age = result.checkedAt === null ? null : ambientAge(result.checkedAt, now);
+  switch (result.state) {
+    case 'connected':
+      return { tone: 'done', word: 'Signed in', checking: false, hint: joinHint(age && `Last checked ${age}.`) };
+    case 'signed-out':
+      return {
+        tone: 'need',
+        word: 'Not signed in',
+        checking: false,
+        hint: joinHint(AMBIENT_SIGNED_OUT_CUE, age && `Last checked ${age}.`),
+      };
+    case 'unknown':
+      return {
+        tone: 'idle',
+        word: 'Status unknown',
+        checking: false,
+        hint: joinHint(AMBIENT_UNKNOWN_CUE, age && `Last check failed ${age}.`),
+      };
+  }
 }
