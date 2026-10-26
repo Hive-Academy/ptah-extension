@@ -100,18 +100,22 @@ export async function initializeSessionRuntimeIdentityLookup(
       const persisted = entries.get(id);
       return persisted ? { persisted } : undefined;
     },
-    updateCodexExecution: async (id, updater) => {
+    updateCodexExecution: async (id, updater, thread) => {
       if (disposed)
         throw new CodexRuntimeCompositionError('identity-lookup-disposed');
       const write = {};
       writes.set(id, write);
       try {
         let written: SessionRuntimeIdentity | undefined;
-        await store.updateCodexExecution(id, (current) => {
-          const proposed = updater(current);
-          written = proposed;
-          return proposed;
-        });
+        await store.updateCodexExecution(
+          id,
+          (current) => {
+            const proposed = updater(current);
+            written = proposed;
+            return proposed;
+          },
+          thread,
+        );
         if (disposed || writes.get(id) !== write) return;
         // Commit only after persistence succeeds; prefer the normalized re-read when available.
         if (written) entries.set(id, written);

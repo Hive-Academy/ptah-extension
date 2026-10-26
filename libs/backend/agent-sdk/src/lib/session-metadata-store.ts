@@ -106,6 +106,45 @@ const accountBindingSchema = z
   })
   .strict();
 
+/**
+ * Native thread mapping stored beside `codexExecution` in the same session
+ * record (the session key is the thread id). History stays in the App Server
+ * thread; this only maps a Ptah context to its thread for `thread/resume`.
+ * `workspaceId` keeps the caller's path; `codexExecution.workspaceId` keeps
+ * its normalized key, and writes require the two to agree.
+ */
+const codexThreadRecordSchema = z
+  .object({
+    version: z.literal(1),
+    contextId: z.string().min(1),
+    processGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    workspaceId: z.string().min(1),
+    profileFingerprint: z.string().min(1),
+    state: z.enum(['active', 'inactive']),
+  })
+  .strict();
+
+export type CodexThreadRecord = z.infer<typeof codexThreadRecordSchema>;
+
+/** Returns the current thread record or the same reference to skip the write. */
+export type CodexThreadRecordUpdater = (
+  current: CodexThreadRecord | undefined,
+  execution: CodexExecution | undefined,
+) => CodexThreadRecord | undefined;
+
+/** Malformed or absent stored mappings read as absent; they never throw. */
+export function parseCodexThreadRecord(
+  value: unknown,
+): CodexThreadRecord | undefined {
+  const parsed = codexThreadRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Throws for a relative or malformed path, which refuses the write. */
+function sameCodexWorkspace(workspacePath: string, key: string): boolean {
+  return normalizeCodexWorkspaceKey(workspacePath, process.platform) === key;
+}
+
 export class SessionAccountBindingError extends Error {
   constructor(
     readonly code:
@@ -204,6 +243,9 @@ function sameAccountBinding(
 export interface SessionMetadata {
   /** Native thread binding; rollout history remains owned by Codex. */
   readonly codexExecution?: CodexExecution;
+
+  /** Context-to-thread mapping for native resume; written with `codexExecution`. */
+  readonly codexThread?: CodexThreadRecord;
 
   /**
    * Real SDK session UUID (from system 'init' message)
@@ -875,9 +917,11 @@ export class SessionMetadataStore {
   async updateCodexExecution(
     sessionId: SessionId,
     updater: (current: CodexExecution | undefined) => CodexExecution,
+    thread?: CodexThreadRecordUpdater,
   ): Promise<void> {
     let kind: SessionMetadataChangeKind = 'created';
     let workspaceId = '';
+    let skipped = false;
     await this.enqueueWrite(async () => {
       // Read authoritative detail without invoking Claude account gates. Lean
       // listings omit child references and must not replace an existing detail.
@@ -897,6 +941,19 @@ export class SessionMetadataStore {
         existing = (await this.getAll()).find(
           (row) => row.sessionId === sessionId,
         );
+      }
+      // The thread updater runs inside the queued write, so its compare and
+      // the write are atomic; returning the current record skips the write.
+      const currentThread = parseCodexThreadRecord(existing?.codexThread);
+      const nextThread = thread?.(
+        currentThread,
+        existing?.codexExecution
+          ? structuredClone(existing.codexExecution)
+          : undefined,
+      );
+      if (thread && nextThread === currentThread) {
+        skipped = true;
+        return;
       }
       if (existing && !existing.codexExecution) {
         throw new CodexSessionMetadataError(
@@ -952,6 +1009,22 @@ export class SessionMetadataStore {
           'Codex session storage is unavailable for this workspace',
         );
       }
+      const threadRecord = nextThread
+        ? codexThreadRecordSchema.safeParse(nextThread)
+        : undefined;
+      if (
+        threadRecord &&
+        (!threadRecord.success ||
+          !sameCodexWorkspace(
+            threadRecord.data.workspaceId,
+            execution.workspaceId,
+          ))
+      ) {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Invalid Codex thread mapping',
+        );
+      }
       workspaceId = execution.workspaceId;
       const now = Date.now();
       const detail: SessionMetadata = {
@@ -961,6 +1034,7 @@ export class SessionMetadataStore {
         workspaceId: execution.workspaceId,
         providerId: execution.providerId,
         codexExecution: execution,
+        ...(threadRecord?.success ? { codexThread: threadRecord.data } : {}),
         createdAt: existing?.createdAt ?? now,
         lastActiveAt: now,
         totalCost: existing?.totalCost ?? 0,
@@ -970,7 +1044,7 @@ export class SessionMetadataStore {
       // Identity is a launch checkpoint, durable even when other writes are queued.
       await this.flush();
     });
-    this.emitChange(kind, sessionId, workspaceId);
+    if (!skipped) this.emitChange(kind, sessionId, workspaceId);
   }
 
   /**
@@ -985,9 +1059,12 @@ export class SessionMetadataStore {
     metadata = validateAccountLinkage(metadata);
     const existing = await this.get(metadata.sessionId);
     if (
-      metadata.codexExecution !== undefined &&
-      JSON.stringify(metadata.codexExecution) !==
-        JSON.stringify(existing?.codexExecution)
+      (metadata.codexExecution !== undefined &&
+        JSON.stringify(metadata.codexExecution) !==
+          JSON.stringify(existing?.codexExecution)) ||
+      (metadata.codexThread !== undefined &&
+        JSON.stringify(metadata.codexThread) !==
+          JSON.stringify(existing?.codexThread))
     ) {
       throw new CodexSessionMetadataError(
         'direct-runtime-write',
@@ -1026,6 +1103,7 @@ export class SessionMetadataStore {
             workspaceId: existing.workspaceId,
           }
         : {}),
+      ...(existing?.codexThread ? { codexThread: existing.codexThread } : {}),
       ...(existing?.accountBinding
         ? { accountBinding: existing.accountBinding }
         : {}),

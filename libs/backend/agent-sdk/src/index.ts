@@ -152,6 +152,11 @@ export {
   CodexRuntimeCompositionError,
   type CodexRuntimeCompositionErrorCode,
 } from './lib/wiring/codex-runtime-composition-error';
+export {
+  createCodexThreadIdentityStore,
+  CodexThreadIdentityPersistError,
+  type CodexThreadIdentityPersistErrorCode,
+} from './lib/wiring/codex-thread-identity-store';
 export { SessionUnavailableError } from './lib/helpers/session-lifecycle/session-control.service';
 export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-controls-composition';
 export type { AuthOperationContext } from './lib/auth-env.port';
