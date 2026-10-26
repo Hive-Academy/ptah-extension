@@ -6,16 +6,18 @@
 //   npm run verify -- -t test -p shared    selected targets only
 //   npm run verify -- --base origin/main   another base for nx affected
 //   npm run verify -- -p shared -- --skip-nx-cache   extra args go to nx
-//   npm run verify -- --status             show the lock holder and the queue
+//   npm run verify -- --status             show the slot holders, the queue
+//                                          and the free memory
 //   node scripts/verify.mjs --exec --task <name> -- <command> [args...]
 //                                          run any command under the lock
 //   node scripts/verify.mjs --check-token  exit 0 when this process tree
 //                                          already holds the lock
 //
-// Every run takes the machine-wide lock in scripts/verify-lock.mjs first, so
-// only one heavy check runs at a time across all sessions and worktrees.
-// Nx runs one task at a time (nx.json `parallel: 1`, and --parallel=1 here)
-// and Jest uses 2 workers per task (jest.preset.js).
+// Every run takes a slot of the machine-wide lock in scripts/verify-lock.mjs
+// first. There are PTAH_VERIFY_SLOTS slots (default 2). A second concurrent
+// run starts only while PTAH_VERIFY_MIN_FREE_GB of memory is free (default 8).
+// Inside each run Nx runs one task at a time (nx.json `parallel: 1`, and
+// --parallel=1 here) and Jest uses 2 workers per task (jest.preset.js).
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -27,10 +29,14 @@ import {
   TOKEN_ENV,
   acquire,
   describe,
+  formatGb,
+  freeMemory,
   lockPaths,
-  readHolder,
+  minFreeBytes,
+  readHolders,
   readQueue,
   recordChild,
+  slotCount,
 } from './verify-lock.mjs';
 
 const require = createRequire(import.meta.url);
@@ -151,8 +157,14 @@ function killTree(child, signal) {
 
 function printStatus() {
   console.log(`lock dir: ${lockPaths().dir}`);
-  const holder = readHolder();
-  console.log(`holder: ${describe(holder)}`);
+  console.log(
+    `slots: ${slotCount()}, free memory: ${formatGb(freeMemory())} (a second run needs ${formatGb(minFreeBytes())})`,
+  );
+  const holders = readHolders();
+  if (!holders) console.log('holders: the lock directory cannot be read');
+  else if (!holders.length) console.log('holders: none');
+  for (const { slot, holder } of holders ?? [])
+    console.log(`slot ${slot}: ${describe(holder)}`);
   const queue = readQueue();
   if (!queue.length) console.log('queue: empty');
   queue.forEach((ticket, i) =>
@@ -176,7 +188,9 @@ async function main() {
   }
   if (values['check-token']) {
     const token = process.env[TOKEN_ENV];
-    return token && readHolder()?.token === token ? 0 : 1;
+    return token && (readHolders() ?? []).some((h) => h.holder.token === token)
+      ? 0
+      : 1;
   }
 
   let run;
@@ -216,7 +230,7 @@ async function main() {
     log(`lock already held by parent ${describe(lock.entry)}`);
   } else {
     const waited = Math.round((Date.now() - waitStart) / 1000);
-    log(`lock acquired after ${waited}s: ${task}`);
+    log(`lock slot ${lock.slot} acquired after ${waited}s: ${task}`);
   }
 
   const runStart = Date.now();
@@ -225,7 +239,8 @@ async function main() {
       ...process.env,
       [TOKEN_ENV]: lock.entry.token,
     });
-    if (!lock.reentrant && child.pid) recordChild(lock.entry, child.pid);
+    if (!lock.reentrant && child.pid)
+      recordChild(lock.entry, child.pid, lock.slot);
     child.on('error', (error) => {
       log(`could not start ${run.command}: ${error.message}`);
       resolve(1);
