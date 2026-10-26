@@ -56,8 +56,7 @@ export type ProviderAccountActionKind =
   | 'sign-in'
   | 'cancel-sign-in'
   | 'sign-out'
-  | 'select'
-  | 'default';
+  | 'select';
 
 /**
  * One user action, keyed by its idempotency `requestId`.
@@ -394,35 +393,6 @@ export class ProviderAccountsStateService implements MessageHandler {
     );
   }
 
-  /** Both scopes in one host transaction, against both revisions of the same snapshot. */
-  setDefault(
-    provider: ProviderAccountProvider,
-    choice: ProviderAccountChoice,
-  ): Promise<ProviderAccountActionOutcome> {
-    const snapshot = this.slots[provider].view().snapshot;
-    const selection = snapshot && this.selectionWrite(snapshot, choice);
-    if (!snapshot || !selection) {
-      return Promise.resolve({ status: 'unavailable' });
-    }
-    return this.write(
-      {
-        provider,
-        kind: 'default',
-        profileId: choice.kind === 'named' ? choice.profileId : null,
-        scope: null,
-      },
-      'provider:setAccountDefault',
-      (base) => ({
-        ...base,
-        selection,
-        expectedSelectionRevisions: {
-          main: snapshot.selections.main.revision,
-          lane: snapshot.selections.lane.revision,
-        },
-      }),
-    );
-  }
-
   // ---------------------------------------------------------------------------
 
   private createSlot(): Slot {
@@ -557,7 +527,7 @@ export class ProviderAccountsStateService implements MessageHandler {
   private selectionWrite(
     snapshot: ProviderAccountsSnapshot,
     choice: ProviderAccountChoice,
-  ): RpcMethodParams<'provider:setAccountDefault'>['selection'] | null {
+  ): RpcMethodParams<'provider:setAccountSelection'>['selection'] | null {
     if (choice.kind === 'ambient') return { kind: 'ambient' };
     const account = snapshot.accounts.find(
       (entry) => entry.profileId === choice.profileId,

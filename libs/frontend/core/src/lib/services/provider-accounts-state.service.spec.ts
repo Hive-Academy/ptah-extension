@@ -737,7 +737,7 @@ describe('ProviderAccountsStateService', () => {
     expect(service.state('claude')().snapshot).toEqual(snapshot(1));
   });
 
-  it('writes main and lane independently and default against one snapshot', async () => {
+  it('writes main and lane independently against one snapshot', async () => {
     const { rpc, service } = setup();
     rpc.call.mockResolvedValueOnce(
       ok({
@@ -751,7 +751,6 @@ describe('ProviderAccountsStateService', () => {
     rpc.call.mockResolvedValue(refused('conflict', 'Refresh and try again.'));
     await service.setSelection('claude', 'lane', { kind: 'named', profileId: P1 });
     await service.setSelection('claude', 'main', { kind: 'ambient' });
-    await service.setDefault('claude', { kind: 'named', profileId: P1 });
     expect(rpc.call.mock.calls[1][1]).toEqual(
       expect.objectContaining({
         scope: 'lane',
@@ -766,17 +765,10 @@ describe('ProviderAccountsStateService', () => {
         expectedSelectionRevision: 2,
       }),
     );
-    expect(rpc.call.mock.calls[3]).toEqual([
-      'provider:setAccountDefault',
-      expect.objectContaining({
-        expectedSelectionRevisions: { main: 2, lane: 9 },
-      }),
-      expect.anything(),
-    ]);
     await expect(
       service.setSelection('claude', 'main', { kind: 'named', profileId: P2 }),
     ).resolves.toEqual({ status: 'unavailable' });
-    expect(rpc.call).toHaveBeenCalledTimes(4);
+    expect(rpc.call).toHaveBeenCalledTimes(3);
   });
 
   it('clears a removed selected profile only from the committed snapshot', async () => {

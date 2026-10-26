@@ -322,3 +322,11 @@
   verify was queued; one verify run may cover F3 and F4. Later verifies use the 2-slot script from main (PR #828).
 - User choice: keep the plan order (F5 → F6 → F7 → frontend review → visual review → Electron build → live
   test). The early live test after F5 was offered and declined.
+
+## D48 — Parallel batches (2026-10-26, user request + orchestrator)
+
+- User asked to use CLI lanes with subagents in parallel. Evidence: F4 and F5 change disjoint files; the plan's
+  "F5 after F4" is a commit-order rule (no commit may lose the accounts capability), so F5 is developed in parallel
+  and committed after F4. F6 needs F5 (page imports the old section) and F7 needs F6 (old files use setDefault),
+  so F6+F7 run as one mechanical deletion batch after F5, on a CLI lane (Glm, ptah-cli). The frontend phase review
+  stays on codex so the review remains independent of the implementers. Reversible.
