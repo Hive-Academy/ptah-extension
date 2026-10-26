@@ -306,6 +306,10 @@ export class AccountsTabComponent implements OnInit {
   protected readonly held = computed(() => this.heldMessage() !== null);
   /** Accounts this tab removed itself; their disappearance from the snapshot is announced by Remove, not as "gone". */
   private readonly ownRemovals = new Set<string>();
+  /** The last authoritative state per account, as seen while no write of that account was in flight. */
+  private readonly lastStates = new Map<string, ProviderAccountState>();
+  /** Pending sign-ins whose end an explicit Cancel response already announced; their terminal push stays silent. */
+  private readonly settledByWrite = new Set<string>();
 
   protected readonly snapshot = computed(() => this.view().snapshot);
   protected readonly addUnavailable = computed(() => this.snapshot() === null || this.held());
@@ -366,6 +370,13 @@ export class AccountsTabComponent implements OnInit {
         this.feedback.announce(ACCOUNT_COPY.accountGone, 'status');
         if (focusInside) this.focusAfterRender(() => this.accountsHeading()?.nativeElement);
       });
+    });
+    // A pending sign-in that a later push ends (finished or failed in the Claude window) is announced once. While a
+    // write of the account is in flight its response owns the announcement, so that account is re-read after it.
+    effect(() => {
+      const snapshot = this.snapshot();
+      const busy = this.busy();
+      if (snapshot) untracked(() => this.observeSignIns(snapshot, busy));
     });
   }
 
@@ -463,18 +474,31 @@ export class AccountsTabComponent implements OnInit {
     void this.signIn(profileId, 'accounts-heading');
   }
 
-  /** A started sign-in announces the account's new state word from the host snapshot ("Signing in…"/"Signed in"). */
+  /**
+   * A started sign-in announces the account's state word ("Signing in…"/"Signed in"). The state service keeps only
+   * the newest snapshot, so its current one wins over a late response: pushes that ended the sign-in while the start
+   * was in flight are announced here (the observer skipped them while busy and never saw `pending`).
+   */
   protected signIn(profileId: string, fallback: FocusFallback = 'detail-heading'): Promise<void> {
     return this.run('sign-in', profileId, () => this.accounts.startSignIn(PROVIDER, profileId), fallback, (snapshot) => {
-      const state = snapshot.accounts.find((account) => account.profileId === profileId)?.state;
+      const current = this.snapshot() ?? snapshot;
+      const state = current.accounts.find((account) => account.profileId === profileId)?.state;
       if (state === 'signed-in') return ACCOUNT_COPY.signedIn;
+      if (state === 'failed') {
+        this.feedback.announce(ACCOUNT_COPY.actionFailed, 'alert');
+        return null;
+      }
       return state === 'pending' ? STATE_LABEL.pending : null;
     });
   }
 
   protected cancelSignIn(profileId: string): Promise<void> {
     return this.run('cancel-sign-in', profileId, () => this.accounts.cancelSignIn(PROVIDER, profileId),
-      'detail-heading', () => ACCOUNT_COPY.signInCancelled);
+      'detail-heading', () => {
+        // The Cancel toast is this sign-in's result; the push that ends it must not announce again.
+        this.settledByWrite.add(profileId);
+        return ACCOUNT_COPY.signInCancelled;
+      });
   }
 
   protected signOut(profileId: string): Promise<void> {
@@ -586,6 +610,35 @@ export class AccountsTabComponent implements OnInit {
       return;
     }
     this.feedback.announce(safe ?? ACCOUNT_COPY.actionFailed, 'alert');
+  }
+
+  /**
+   * Announces a pending → terminal transition exactly once: "Signed in" as a status, a failure as an alert. A push
+   * repeating a state changes nothing; an account with a write in flight keeps its earlier state until the write
+   * resolves (its response announces), so a start that returns "Signed in" directly is not announced twice. The
+   * snapshot carries no per-account host sentence, so a failure uses the fixed alert.
+   */
+  private observeSignIns(snapshot: ProviderAccountsSnapshot, busy: ReadonlyMap<string, ProviderAccountActionKind>): void {
+    const present = new Set<string>();
+    for (const { profileId, state } of snapshot.accounts) {
+      present.add(profileId);
+      if (busy.has(profileId)) continue;
+      const before = this.lastStates.get(profileId);
+      this.lastStates.set(profileId, state);
+      if (before === state) continue;
+      if (state === 'pending') {
+        this.settledByWrite.delete(profileId);
+        continue;
+      }
+      if (before !== 'pending' || this.settledByWrite.delete(profileId)) continue;
+      if (state === 'signed-in') this.feedback.announce(ACCOUNT_COPY.signedIn, 'status');
+      else if (state === 'failed') this.feedback.announce(ACCOUNT_COPY.actionFailed, 'alert');
+    }
+    for (const profileId of [...this.lastStates.keys()]) {
+      if (present.has(profileId)) continue;
+      this.lastStates.delete(profileId);
+      this.settledByWrite.delete(profileId);
+    }
   }
 
   /** The account the Add created: the one id the earlier snapshot did not hold, else the one with that name. */

@@ -204,7 +204,7 @@ describe('AccountsTabComponent', () => {
     });
 
     it('first-load failure: an alert row with Try again', () => {
-      setView({ status: 'error', snapshot: null, stale: false, error: 'x' });
+      setView({ status: 'error', snapshot: null, stale: false, error: 'Could not load accounts. Retry.' });
       const error = byTestId('accounts-tab-error');
       expect(error?.getAttribute('role')).toBe('alert');
       expect(error?.textContent).toContain('Could not load accounts');
@@ -341,6 +341,103 @@ describe('AccountsTabComponent', () => {
       await settle();
       expect(announce).toHaveBeenCalledWith('Signing in…', 'status');
       expect(busy().size).toBe(0);
+    });
+
+    describe('a later push that ends a pending sign-in', () => {
+      const PENDING_TEAM = { ...TEAM, state: 'pending' as const };
+      const calls = (message: string) => announce.mock.calls.filter(([text]) => text === message);
+      async function startPending(): Promise<void> {
+        rowOf('Team plan')?.querySelector<HTMLButtonElement>('[data-testid="accounts-tab-row-sign-in"]')?.click();
+        accounts.commit(snapshot([WORK, PENDING_TEAM]));
+        await settle();
+        expect(announce).toHaveBeenLastCalledWith('Signing in…', 'status');
+      }
+      async function push(state: ProviderAccountState, revision = 1): Promise<void> {
+        setView(ready(snapshot([WORK, { ...TEAM, state, revision }])));
+        await settle();
+      }
+
+      it('announces "Signed in" once, ignoring a duplicate push', async () => {
+        await startPending();
+        await push('signed-in');
+        expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.signedIn, 'status');
+        await push('signed-in', 2);
+        expect(calls(ACCOUNT_COPY.signedIn)).toHaveLength(1);
+      });
+
+      it.each([
+        ['signed-in', ACCOUNT_COPY.signedIn, 'status'],
+        ['failed', ACCOUNT_COPY.actionFailed, 'alert'],
+      ] as const)('a %s push that lands before a late pending response is announced once', async (state, message, tone) => {
+        rowOf('Team plan')?.querySelector<HTMLButtonElement>('[data-testid="accounts-tab-row-sign-in"]')?.click();
+        await push('pending');
+        await push(state, 2);
+        // The state service rejected the older start snapshot but still returns it as the outcome.
+        accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, PENDING_TEAM]) });
+        await settle();
+        expect(calls(message)).toEqual([[message, tone]]);
+        expect(calls('Signing in…')).toHaveLength(0);
+        await push(state, 3);
+        expect(calls(message)).toHaveLength(1);
+      });
+
+      it('announces a failure once as the fixed alert, ignoring a duplicate push', async () => {
+        await startPending();
+        await push('failed');
+        expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.actionFailed, 'alert');
+        await push('failed', 2);
+        expect(calls(ACCOUNT_COPY.actionFailed)).toHaveLength(1);
+        expect(calls(ACCOUNT_COPY.signedIn)).toHaveLength(0);
+      });
+
+      it('a start whose response is already signed in is announced once, by the response', async () => {
+        rowOf('Team plan')?.querySelector<HTMLButtonElement>('[data-testid="accounts-tab-row-sign-in"]')?.click();
+        accounts.commit(snapshot([WORK, { ...TEAM, state: 'signed-in' }]));
+        await settle();
+        await push('signed-in', 2);
+        expect(calls(ACCOUNT_COPY.signedIn)).toHaveLength(1);
+      });
+
+      it('a pending sign-in seen in a push (started elsewhere) is announced when it ends', async () => {
+        await push('pending');
+        await push('signed-in', 2);
+        expect(calls(ACCOUNT_COPY.signedIn)).toHaveLength(1);
+      });
+
+      it.each(['cancelled', 'failed'] as const)(
+        'Cancel announces once; the push that then ends the sign-in (%s) stays silent',
+        async (state) => {
+          await push('pending');
+          await openDetailOf('Team plan');
+          detail()?.cancelSignIn.emit(TEAM.profileId);
+          // The Cancel response still reads pending; the terminal state arrives in a later push.
+          accounts.commit(snapshot([WORK, PENDING_TEAM]));
+          await settle();
+          expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.signInCancelled, 'status');
+          await push(state, 2);
+          await push(state, 3);
+          expect(calls(ACCOUNT_COPY.signInCancelled)).toHaveLength(1);
+          expect(calls(ACCOUNT_COPY.actionFailed)).toHaveLength(0);
+        },
+      );
+
+      it('focus on Cancel sign-in moves to the detail heading when the push removes it', async () => {
+        await push('pending');
+        await openDetailOf('Team plan');
+        root().querySelector<HTMLButtonElement>('[data-testid="account-detail-cancel-sign-in"]')?.focus();
+        await push('signed-in', 2);
+        expect(root().querySelector('[data-testid="account-detail-cancel-sign-in"]')).toBeNull();
+        expect(document.activeElement).toBe(detailHeading());
+      });
+
+      it('focus outside the tab stays there when the push ends the sign-in', async () => {
+        await push('pending');
+        await openDetailOf('Team plan');
+        const away = focusOutside();
+        await push('failed', 2);
+        expect(document.activeElement).toBe(away);
+        expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.actionFailed, 'alert');
+      });
     });
 
     it.each([

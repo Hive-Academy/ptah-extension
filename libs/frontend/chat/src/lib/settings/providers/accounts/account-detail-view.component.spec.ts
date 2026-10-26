@@ -406,4 +406,59 @@ describe('AccountDetailViewComponent (flat panel)', () => {
     expect(q('account-detail-fallback')).toBeNull();
     expect(document.activeElement).toBe(q('account-detail-heading'));
   });
+
+  describe('a push that ends the pending sign-in (B-2)', () => {
+    const endSignIn = (state: ProviderAccountState) => {
+      host.operation.set(null);
+      host.fallback.set(null);
+      setAccount(account(state));
+      render();
+    };
+
+    it.each(['signed-in', 'failed'] as const)('focus on Cancel sign-in moves to the heading (%s)', (state) => {
+      setAccount(account('pending'));
+      btn('account-detail-cancel-sign-in').focus();
+      endSignIn(state);
+      expect(q('account-detail-cancel-sign-in')).toBeNull();
+      expect(document.activeElement).toBe(q('account-detail-heading'));
+    });
+
+    it.each(['account-detail-terminal-toggle', 'account-detail-fallback-script', 'account-detail-copy-script'])(
+      'focus on the fallback control %s moves to the heading',
+      (id) => {
+        openTerminal();
+        q(id)?.focus();
+        expect(document.activeElement).toBe(q(id));
+        endSignIn('signed-in');
+        expect(q(id)).toBeNull();
+        expect(document.activeElement).toBe(q('account-detail-heading'));
+      },
+    );
+
+    it('focus outside the pending controls stays where it is', () => {
+      setAccount(account('pending'));
+      btn('account-detail-cancel-sign-in').focus();
+      btn('elsewhere').focus();
+      endSignIn('signed-in');
+      expect(document.activeElement).toBe(btn('elsewhere'));
+    });
+
+    it('focus on a control that stays (Check status) is left there', () => {
+      setAccount(account('pending'));
+      btn('account-detail-check-status').focus();
+      endSignIn('failed');
+      expect(document.activeElement).toBe(btn('account-detail-check-status'));
+    });
+
+    it('moves nothing once the panel is gone', () => {
+      setAccount(account('pending'));
+      btn('account-detail-cancel-sign-in').focus();
+      host.account.set(account('signed-in'));
+      host.shown.set(false);
+      render();
+      render();
+      expect(q('account-detail-heading')).toBeNull();
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
 });

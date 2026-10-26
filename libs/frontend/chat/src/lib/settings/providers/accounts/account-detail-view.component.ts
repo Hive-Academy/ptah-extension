@@ -2,6 +2,8 @@ import { Clipboard } from '@angular/cdk/clipboard';
 import {
   ChangeDetectionStrategy,
   Component,
+  DOCUMENT,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -75,7 +77,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
   imports: [NativeModalComponent, LucideAngularModule, SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-6 text-sm text-base-content" data-testid="account-detail">
+    <div class="space-y-6 text-sm text-base-content" data-testid="account-detail" (focusin)="noteFocus($event)">
       <div class="space-y-3">
         <button
           type="button"
@@ -141,7 +143,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
               <button type="button" [class]="'btn btn-outline btn-error btn-sm min-h-8 ' + focusRing" [ptahBusyDisabled]="busyNow()" (click)="act('sign-out')" data-testid="account-detail-sign-out">Sign out</button>
             }
             @case ('pending') {
-              <button type="button" [class]="'btn btn-outline btn-sm min-h-8 ' + focusRing" [ptahBusyDisabled]="busyNow()" (click)="act('cancel-sign-in')" data-testid="account-detail-cancel-sign-in">Cancel sign-in</button>
+              <button type="button" [class]="'btn btn-outline btn-sm min-h-8 ' + focusRing" [ptahBusyDisabled]="busyNow()" (click)="act('cancel-sign-in')" data-pending-control data-testid="account-detail-cancel-sign-in">Cancel sign-in</button>
             }
             @default {
               <button type="button" [class]="'btn btn-primary btn-sm min-h-8 ' + focusRing" [ptahBusyDisabled]="busyNow()" (click)="act('sign-in')" data-testid="account-detail-sign-in">{{ account().state === 'failed' ? 'Try again' : 'Sign in' }}</button>
@@ -155,6 +157,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
               [attr.aria-expanded]="terminalOpen()"
               aria-controls="account-detail-terminal"
               (click)="terminalOpen.set(!terminalOpen())"
+              data-pending-control
               data-testid="account-detail-terminal-toggle"
             >Use terminal</button>
           }
@@ -165,6 +168,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
               <pre
                 tabindex="0"
                 aria-label="Sign-in script"
+                data-pending-control
                 [class]="'max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-box border border-base-300 bg-base-100 p-2 font-mono text-xs text-base-content ' + focusRing"
                 data-testid="account-detail-fallback-script"
               >{{ f.script }}</pre>
@@ -174,6 +178,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
                 aria-label="Copy script"
                 title="Copy script"
                 (click)="copyScript(f.script)"
+                data-pending-control
                 data-testid="account-detail-copy-script"
               >
                 <lucide-angular [img]="CopyIcon" class="h-3.5 w-3.5" aria-hidden="true" />
@@ -245,6 +250,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
 })
 export class AccountDetailViewComponent {
   private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
   private readonly clipboard = inject(Clipboard);
   private readonly feedback = inject(SettingsSaveFeedbackService);
 
@@ -316,8 +322,25 @@ export class AccountDetailViewComponent {
   });
 
   private shownProfileId: string | null = null;
+  /** The account and pending flag of the last render, to see a pending sign-in end. */
+  private pendingSeen: { readonly profileId: string; readonly pending: boolean } | null = null;
+  /** The last element inside this panel that took focus. */
+  private lastFocus: Element | null = null;
+  private destroyed = false;
 
   constructor() {
+    inject(DestroyRef).onDestroy(() => (this.destroyed = true));
+    // B-2: a push that ends the pending sign-in removes Cancel and the fallback controls. If one of them held focus
+    // and focus fell to the body, the heading takes it; focus the user moved elsewhere is left alone.
+    effect(() => {
+      const profileId = this.account().profileId;
+      const pending = this.pending();
+      untracked(() => {
+        const before = this.pendingSeen;
+        this.pendingSeen = { profileId, pending };
+        if (before?.profileId === profileId && before.pending && !pending) this.repairPendingFocus();
+      });
+    });
     // A different account starts closed and with its committed name; focus goes to the heading.
     effect(() => {
       const account = this.account();
@@ -397,6 +420,31 @@ export class AccountDetailViewComponent {
     if (this.locked()) return;
     this.confirmingRemove.set(false);
     this.remove.emit(this.account().profileId);
+  }
+
+  protected noteFocus(event: FocusEvent): void {
+    this.lastFocus = event.target instanceof Element ? event.target : null;
+  }
+
+  /**
+   * Runs when this account's sign-in stops being pending. Only a pending control (Cancel, Use terminal, the script or
+   * Copy) that still held focus counts; after the next render, if it is gone and focus is on the body, the heading
+   * takes focus. Destroyed (navigated away) or focus moved elsewhere: nothing happens.
+   */
+  private repairPendingFocus(): void {
+    const held = this.lastFocus;
+    if (!held?.hasAttribute('data-pending-control')) return;
+    // The render that removes the control may not have happened yet: then focus must still be on it.
+    if (held.isConnected && this.document.activeElement !== held) return;
+    afterNextRender(
+      () => {
+        if (this.destroyed || held.isConnected) return;
+        const active = this.document.activeElement;
+        if (active !== null && active !== this.document.body) return;
+        this.heading().nativeElement.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Copies the script text only; the script is never logged. */
