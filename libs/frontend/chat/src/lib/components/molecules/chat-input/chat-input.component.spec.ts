@@ -67,6 +67,7 @@ import { COMPOSER_TRIGGER_CACHE_ENABLED } from '../../../services/composer-trigg
 import { ChatStore } from '../../../services/chat.store';
 import type { SendOutcome } from '../../../services/message-sender.service';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { PROMPT_CATALOGUE } from '@ptah-extension/chat-ui';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
@@ -1252,13 +1253,117 @@ describe('ChatInputComponent', () => {
 
       const results = component.filteredSuggestions();
 
-      expect(results.length).toBe(1);
+      expect(mockCommandDiscovery.searchCommands).toHaveBeenCalledWith('');
+      // The matching command comes first; the catalogue prompts that also
+      // match the query follow it (TASK_2026_721 B8c2).
+      expect(results[0]).toEqual({
+        type: 'command',
+        name: 'orchestrate',
+        description: 'Orchestrate tasks',
+        icon: '',
+      });
+      expect(
+        results.slice(1).every((suggestion) => suggestion.type === 'prompt'),
+      ).toBe(true);
     });
 
     it('should return empty array when no mode is set', () => {
       const results = component.filteredSuggestions();
 
       expect(results).toEqual([]);
+    });
+  });
+
+  // ============================================================================
+  // SLASH DROPDOWN PROMPT CATALOGUE (TASK_2026_721 B8c2)
+  // ============================================================================
+
+  describe('slash dropdown prompt catalogue', () => {
+    const cataloguePromptCount = PROMPT_CATALOGUE.reduce(
+      (count, category) => count + category.prompts.length,
+      0,
+    );
+
+    beforeEach(() => {
+      mockCommandDiscovery.searchCommands.mockReturnValue([
+        {
+          name: 'orchestrate',
+          description: 'Orchestrate tasks',
+          scope: 'builtin' as const,
+          icon: '',
+        },
+      ]);
+    });
+
+    it('lists the whole catalogue after the commands when / activates', () => {
+      component.handleSlashActivated({ query: '', cursorPosition: 1 });
+
+      const results = component.filteredSuggestions();
+
+      expect(results.length).toBe(1 + cataloguePromptCount);
+      expect(results[0]?.type).toBe('command');
+      const firstPrompt = results.findIndex((s) => s.type === 'prompt');
+      expect(firstPrompt).toBe(1);
+      expect(results.slice(firstPrompt).every((s) => s.type === 'prompt')).toBe(
+        true,
+      );
+    });
+
+    it.each([
+      ['security', 'Security vulnerability scan'], // label match
+      ['owasp', 'Security vulnerability scan'], // description match
+      ['creative', 'Design landing page'], // category match
+      ['parallax', 'Add scroll animation'], // text match
+    ])('filters catalogue prompts matching %s', (query, expectedLabel) => {
+      component.handleSlashActivated({
+        query,
+        cursorPosition: query.length + 1,
+      });
+
+      const prompts = component
+        .filteredSuggestions()
+        .filter((s) => s.type === 'prompt');
+
+      expect(
+        prompts.some((s) => s.type === 'prompt' && s.label === expectedLabel),
+      ).toBe(true);
+    });
+
+    it('exposes the category label with the matched prompt', () => {
+      component.handleSlashActivated({ query: 'security', cursorPosition: 9 });
+
+      const prompts = component
+        .filteredSuggestions()
+        .filter((s) => s.type === 'prompt');
+
+      expect(prompts).toEqual([
+        {
+          type: 'prompt',
+          category: 'Review',
+          label: 'Security vulnerability scan',
+          text: '/review-security',
+          description: 'OWASP top 10, auth, injection',
+        },
+      ]);
+    });
+
+    it('prefills the composer with the prompt text when a prompt is selected', () => {
+      component.handleSlashActivated({ query: 'security', cursorPosition: 9 });
+      const prompts = component
+        .filteredSuggestions()
+        .filter((s) => s.type === 'prompt');
+      expect(prompts.length).toBe(1);
+
+      component.handleSuggestionSelected(prompts[0]);
+
+      expect(component.currentMessage()).toBe('/review-security');
+      expect(component.showSuggestions()).toBe(false);
+      expect(component.suggestionMode()).toBeNull();
+
+      // The queued-restore default keeps FIX #2: a non-empty input is not
+      // clobbered by a later restore without the explicit replace option.
+      component.restoreContentToInput('/orchestrate queued restore');
+      expect(component.currentMessage()).toBe('/review-security');
     });
   });
 

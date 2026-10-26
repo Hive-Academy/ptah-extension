@@ -68,6 +68,7 @@ import {
   AutopilotPopoverComponent,
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,
+  PROMPT_CATALOGUE,
 } from '@ptah-extension/chat-ui';
 import {
   FilePickerService,
@@ -106,6 +107,7 @@ interface PastedImage extends ComposerDraftImage {
 }
 
 type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
+type CommandSuggestionItem = Extract<SuggestionItem, { type: 'command' }>;
 
 /** Per-instance suffix for the textarea id (several composers can mount). */
 let nextComposerId = 0;
@@ -885,7 +887,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly _projectedQuery = signal('');
   private readonly _localSuggestions = signal<SuggestionItem[]>([]);
   private readonly _fileSuggestionCache = new Map<string, SuggestionItem[]>();
-  private _commandSuggestions: SuggestionItem[] | null = null;
+  private _commandSuggestions: CommandSuggestionItem[] | null = null;
   private _triggerProjectionTimeout: ReturnType<typeof setTimeout> | null =
     null;
   private readonly _selectedFiles = signal<ChatFile[]>([]);
@@ -1404,25 +1406,31 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const commands =
+    const commands: CommandSuggestionItem[] =
       this._commandSuggestions ??
-      this.commandDiscovery.searchCommands('').map((command) => ({
-        type: 'command' as const,
-        ...command,
-      }));
+      this.commandDiscovery.searchCommands('').map(
+        (command): CommandSuggestionItem => ({
+          type: 'command',
+          ...command,
+        }),
+      );
     this._commandSuggestions = commands;
-    this._localSuggestions.set(
-      !query
-        ? commands
-        : commands.filter(
-            (command) =>
-              command.name.toLowerCase().includes(query.toLowerCase()) ||
-              (command.description &&
-                command.description
-                  .toLowerCase()
-                  .includes(query.toLowerCase())),
-          ),
-    );
+    const matchedCommands = !query
+      ? commands
+      : commands.filter(
+          (command) =>
+            command.name.toLowerCase().includes(query.toLowerCase()) ||
+            (command.description &&
+              command.description
+                .toLowerCase()
+                .includes(query.toLowerCase())),
+        );
+    // TASK_2026_721 D7: the prompt catalogue lives behind `/`, appended after
+    // the commands so the dropdown renders one command group then prompts.
+    this._localSuggestions.set([
+      ...matchedCommands,
+      ...this.toPromptSuggestionItems(query),
+    ]);
   }
 
   private toFileSuggestionItem(file: FileSuggestion): FileSuggestionItem {
@@ -1451,6 +1459,35 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       if (oldest !== undefined) this._fileSuggestionCache.delete(oldest);
     }
     this._fileSuggestionCache.set(query, suggestions);
+  }
+
+  /**
+   * Catalogue prompt suggestions for the `/` dropdown. The typed query
+   * filters by label, description, category and text; every entry carries
+   * its category label for the "Prompt · <Category>" badge. An empty query
+   * lists the whole catalogue.
+   */
+  private toPromptSuggestionItems(query: string): SuggestionItem[] {
+    const needle = query.toLowerCase();
+    const prompts: SuggestionItem[] = [];
+    for (const category of PROMPT_CATALOGUE) {
+      for (const prompt of category.prompts) {
+        const matches =
+          !needle ||
+          prompt.label.toLowerCase().includes(needle) ||
+          (prompt.description?.toLowerCase().includes(needle) ?? false) ||
+          category.label.toLowerCase().includes(needle) ||
+          prompt.text.toLowerCase().includes(needle);
+        if (matches) {
+          prompts.push({
+            type: 'prompt',
+            category: category.label,
+            ...prompt,
+          });
+        }
+      }
+    }
+    return prompts;
   }
 
   private clearTriggerProjectionTimeout(): void {
@@ -1506,6 +1543,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       this.removeTriggerText();
     } else if (suggestion.type === 'command') {
       this.replaceTrigger(`/${suggestion.name} `);
+    } else if (suggestion.type === 'prompt') {
+      // A prompt prefills the composer for editing; it does not send.
+      this.restoreContentToInput(suggestion.text, { replace: true });
     }
 
     this.closeSuggestions();
@@ -1771,9 +1811,16 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Restore content to input textarea (called by effect when signal changes)
    * FIX #2: Check if input is empty before restoring to prevent overwriting user input
    * @param content - Content to restore to input
+   * @param options - `replace: true` overwrites a non-empty input. Used for
+   *   explicit user selections (a prompt picked from the `/` dropdown, which
+   *   replaces the trigger and the input); the queued-restore effect keeps
+   *   the default so it never clobbers typed text.
    */
-  restoreContentToInput(content: string): void {
-    if (this._currentMessage().trim()) {
+  restoreContentToInput(
+    content: string,
+    options?: { replace?: boolean },
+  ): void {
+    if (!options?.replace && this._currentMessage().trim()) {
       return;
     }
 

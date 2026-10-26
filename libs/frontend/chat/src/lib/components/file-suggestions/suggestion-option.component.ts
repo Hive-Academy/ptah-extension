@@ -7,20 +7,27 @@ import {
   inject,
   computed,
 } from '@angular/core';
-import { LucideAngularModule, type LucideIconData } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Sparkles,
+  type LucideIconData,
+} from 'lucide-angular';
 import type { CommandSuggestion } from '@ptah-extension/core';
+import type { PromptItem } from '@ptah-extension/chat-ui';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
 /**
- * Type discriminated union for file and command suggestions
+ * Type discriminated union for file, command and prompt suggestions
  * Agents are not part of this dropdown - the model picks its own sub-agents
+ * Prompt rows come from the shared PROMPT_CATALOGUE (TASK_2026_721 D7).
  */
 export type SuggestionItem =
   | ({ type: 'file'; icon: LucideIconData; description: string } & Omit<
       FileSuggestion,
       'type'
     >)
-  | ({ type: 'command' } & CommandSuggestion);
+  | ({ type: 'command' } & CommandSuggestion)
+  | ({ type: 'prompt'; category: string } & PromptItem);
 
 /**
  * SuggestionOptionComponent - Single Option in Autocomplete Dropdown
@@ -55,35 +62,51 @@ export type SuggestionItem =
   template: `
     <!-- Icon -->
     <lucide-angular
-      [img]="suggestion().icon"
+      [img]="optionIcon()"
       class="w-4 h-4 shrink-0 opacity-80"
     />
 
     <!-- Content area -->
+    <!-- The value is bound once with an @if alias so the union narrows per
+         branch; repeated suggestion() calls cannot be narrowed by the
+         template type checker. -->
     <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-      @if (suggestion().type === 'file') {
-        <!-- Files/Folders: Name prominent, directory secondary -->
-        <span class="font-medium text-xs truncate">{{
-          suggestion().name
-        }}</span>
-        <span class="text-[11px] opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
-      } @else if (suggestion().type === 'command') {
-        <!-- Commands: Name with badge styling -->
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-xs truncate">{{
-            suggestion().name
+      @if (suggestion(); as s) {
+        @if (s.type === 'file') {
+          <!-- Files/Folders: Name prominent, directory secondary -->
+          <span class="font-medium text-xs truncate">{{ s.name }}</span>
+          <span class="text-[11px] opacity-70 truncate">{{
+            s.description
           }}</span>
-          @if (isBuiltinCommand()) {
-            <span class="badge badge-accent badge-xs">Built-in</span>
-          } @else if (isPluginCommand()) {
-            <span class="badge badge-info badge-xs">Plugin</span>
+        } @else if (s.type === 'command') {
+          <!-- Commands: Name with badge styling -->
+          <div class="flex items-center gap-2">
+            <span class="font-medium text-xs truncate">{{ s.name }}</span>
+            @if (isBuiltinCommand()) {
+              <span class="badge badge-accent badge-xs">Built-in</span>
+            } @else if (isPluginCommand()) {
+              <span class="badge badge-info badge-xs">Plugin</span>
+            }
+          </div>
+          <span class="text-[11px] opacity-70 truncate">{{
+            s.description
+          }}</span>
+        } @else if (s.type === 'prompt') {
+          <!-- Prompts: Label with a category badge, description secondary -->
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="font-medium text-xs truncate">{{ s.label }}</span>
+            <span
+              class="badge badge-ghost badge-xs text-base-content shrink-0 whitespace-nowrap"
+            >
+              Prompt · {{ s.category }}
+            </span>
+          </div>
+          @if (s.description) {
+            <span class="text-[11px] opacity-70 truncate">{{
+              s.description
+            }}</span>
           }
-        </div>
-        <span class="text-[11px] opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
+        }
       }
     </div>
   `,
@@ -118,6 +141,16 @@ export class SuggestionOptionComponent {
   readonly isPluginCommand = computed(() => {
     const suggestion = this.suggestion();
     return suggestion.type === 'command' && suggestion.scope === 'plugin';
+  });
+
+  /**
+   * Icon shown on the row. File and command suggestions carry their own
+   * icon; prompt suggestions share one neutral glyph because the catalogue
+   * only tags them with a category label.
+   */
+  readonly optionIcon = computed<LucideIconData>(() => {
+    const suggestion = this.suggestion();
+    return suggestion.type === 'prompt' ? Sparkles : suggestion.icon;
   });
 
   handleClick(): void {
