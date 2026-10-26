@@ -915,6 +915,25 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 15, 2026-10-26) — P8 fix round 8f
+
+- Fresh team-leader (Mode 2). Orphaned verifies 41480/42716 gone from the lock.
+- 8f-1/8f-2/8f-3 checks done on disk: 21 removed agent-sdk barrel names have no consumer in
+  apps/ or libs/ (tracked + untracked); pin data has the six fields only; composition and spec
+  no longer import settings-core. Team-leader added one 8f-1 spec: packaged root + executable
+  outside the bundle throws `outside the host bundle`.
+- 8f-3 COMMITTED 020ec6fd8 (codex-runtime verify pass).
+- 8f-1 first verify FAILED (ptah-electron typecheck: logger port takes metadata not Error at
+  composition.ts:249; spec settingsStore mock not an ISettingsStore; main.quit-path.spec.ts:493
+  expected message string after withBudget now logs the Error). Team-leader fixed all three;
+  re-verify 14/14 pass. 8f-1 COMMITTED 1b46e5de7.
+- 8f-2 first verify: test/typecheck pass; lint new error no-unsafe-finally at
+  codex-chat-adapter.spec.ts:665 (throw in generator finally) -> team-leader replaced with an
+  explicit iterator whose next/return reject; re-verify pass (known accounts.spec lint only).
+  8f-2 COMMITTED 50c2634c7. Deferred: no metadata rollback after a later cancel (no rollback
+  API on CodexChatMetadataPort).
+- Next: 8f-4 (Codex lane), then 8f-5, then the phase gate.
+
 # Run state (session 14, 2026-10-26) — P8 in progress, 8a-2 re-split
 
 - Coordinator decisions D1-D6 recorded (decisions.md last rows). 8a-2 Part B becomes 8a-2a ->
@@ -1867,6 +1886,60 @@ and CLI get compatible bindings only (no feature work).
 - Verification: `npm run verify -- -p @ptah-extension/cli-engine,ptah-cli`
 - Executor/review as 8a. Last P8 batch -> host typecheck -> phase review (code-logic; visual
   review for 8c).
+
+## Batch 8f: P8 fix round (live-test-p8.md, code-logic-review-p8.md, code-style-review-p8.md) — IN_PROGRESS
+
+- Phase: P8 | Phase review: the one re-review, scoped to the 8f commits (code-logic + style,
+  new public API) after the coordinator reruns the live Electron test.
+- Recommended executor: CLI lane, implementation capability (Codex had the only confirmed room).
+  Fallback order: other family same capability -> same family other model -> subagent.
+  Subagent reason: N/A. Review family: implementer Codex, reviewer Claude (different family).
+- Order: 8f-1, 8f-2, 8f-3 in parallel (file-disjoint: Electron app + one new rpc-handlers file /
+  agent-sdk / codex-runtime); then 8f-4 (rpc-handlers + chat, needs 8f-1 and 8f-2); then 8f-5
+  (Electron style, needs 8f-1 and 8f-4).
+- Lanes never verify, commit or push; team-leader runs each scoped verify and commits.
+
+### Batch 8f-1: Electron boot, dev binary root, TC-18, shutdown, async verification — COMPLETE (1b46e5de7)
+
+- Items: LIVE D1, CI TC-18, logic B1, S2, S7, M1, M8, minor (profiles cleared before scope close,
+  lexical bundled-root check).
+- Files: W/apps/ptah-electron/src/activation/bootstrap.ts, `shutdown.ts`;
+  W/apps/ptah-electron/src/di/codex-runtime-composition.ts (+ .spec.ts), `codex-binding-registry.ts`;
+  CREATE W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-legacy-session-settings.ts
+  (+ .spec.ts), MODIFY rpc-handlers index.ts (one export line).
+- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/rpc-handlers,@ptah-extension/settings-core`
+
+### Batch 8f-2: agent-sdk adapter errors, split, barrel — COMPLETE (50c2634c7)
+
+- Items: LIVE D2, logic S4 (adapter + sink), M2, style S1 (adapter < 700 lines behind the same
+  class), style S4 (barrel).
+- Files: W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.ts (+ new sibling
+  file(s)), `codex-chat-approval-sink.ts`, specs, W/libs/backend/agent-sdk/src/index.ts.
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk`
+
+### Batch 8f-3: executable pin without the developer manifest — COMPLETE (020ec6fd8)
+
+- Items: style S5, logic M7 (lazy, no import-time parse).
+- Files: W/libs/backend/codex-runtime/src/lib/codex-executable-pin.ts (+ spec, + generated pin
+  data file), index.ts only if the export changes.
+- Verification: `npm run verify -- -p @ptah-extension/codex-runtime`
+
+### Batch 8f-4: host ports, callbacks, settings record, failed start — IN_PROGRESS
+
+- Items: LIVE D3, logic S1, S3, S5, S6, M3, M5; adapter side of S5 (await reconciliation).
+- Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk,@ptah-extension/chat`
+
+### Batch 8f-5: Electron composition split and typed IPC port — PENDING
+
+- Items: style S2 (rest), S3, logic M6, style minors (registry handle, console.warn, tabId).
+- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/settings-core` (+ the lib that
+  exports the responder type)
+
+### Batch 8f deferred / out of round
+
+- 8f-2 M2 remainder: metadata saved before a later cancel is not rolled back (no rollback API).
+- LIVE D4 (workspace save also writes global `provider.openai-codex.mainAgent.modelTier.*`):
+  pre-existing, the known #824 leftover; separate small PR (user).
 
 ---
 
