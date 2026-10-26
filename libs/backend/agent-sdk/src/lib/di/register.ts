@@ -46,7 +46,7 @@ import {
 } from '../wiring/legacy-session-controls-composition';
 import {
   guardRuntimeComposition,
-  registerDefaultRuntimeHostCapabilities,
+  defaultRuntimeHostCapabilitiesProvider,
 } from '../wiring/codex-runtime-composition';
 import { LegacySessionControls } from '../codex-app-server/legacy-session-controls';
 import {
@@ -988,7 +988,10 @@ export function registerCodexChatServices(
   container: DependencyContainer,
 ): void {
   if (!container.isRegistered(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, true)) {
-    registerDefaultRuntimeHostCapabilities(container);
+    container.register(
+      SDK_TOKENS.RUNTIME_HOST_CAPABILITIES,
+      defaultRuntimeHostCapabilitiesProvider(),
+    );
   }
   if (!container.isRegistered(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, true)) {
     container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {

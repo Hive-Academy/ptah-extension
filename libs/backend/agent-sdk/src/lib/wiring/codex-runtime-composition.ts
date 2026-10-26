@@ -1,4 +1,4 @@
-import type { DependencyContainer } from 'tsyringe';
+import type { DependencyContainer, FactoryProvider } from 'tsyringe';
 import type { RuntimeHostCapabilities } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { CodexRuntimeCompositionError } from './codex-runtime-composition-error';
@@ -7,16 +7,16 @@ import { CodexRuntimeCompositionError } from './codex-runtime-composition-error'
 // bind the same value (or even the same object); neither makes it our default.
 const defaultCapabilityResolutions = new WeakSet<DependencyContainer>();
 
-export function registerDefaultRuntimeHostCapabilities(
-  container: DependencyContainer,
-): void {
+/** Default provider for SDK_TOKENS.RUNTIME_HOST_CAPABILITIES. The caller registers it
+ * with a literal container.register call so di-lint sees the registration. */
+export function defaultRuntimeHostCapabilitiesProvider(): FactoryProvider<RuntimeHostCapabilities> {
   const capabilities: RuntimeHostCapabilities = { nativeCodex: false };
-  container.register(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
+  return {
     useFactory: (scope) => {
       defaultCapabilityResolutions.add(scope);
       return capabilities;
     },
-  });
+  };
 }
 
 /** Guard cached adapters against late activation and unstable host factories. */
