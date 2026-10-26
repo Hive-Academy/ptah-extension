@@ -67,6 +67,8 @@ import {
 } from '@ptah-extension/platform-core';
 import type {
   IAgentAdapter,
+  AgentSessionStartConfig,
+  AgentSessionResumeConfig,
   SessionId,
   ChatStartParams,
   ChatStartResult,
@@ -84,6 +86,7 @@ import type {
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
+import type { ChatRuntimeProfileService } from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -289,6 +292,8 @@ export class ChatSessionService {
     private readonly accounts?: ProviderAccountService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, { isOptional: true })
     private readonly activeProvider?: ActiveProviderResolver,
+    @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
+    private readonly runtimeProfile?: ChatRuntimeProfileService,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -890,16 +895,6 @@ export class ChatSessionService {
     const mcpServersOverride = await this.buildMcpServersOverride(
       input.mcpServersOverride,
     );
-    // Resolve an isolated per-workspace provider profile so a session in
-    // workspace A runs against A's provider even when a different workspace's
-    // provider is currently the process-global active one. `undefined` only
-    // when the shared auth env serves this same provider; a mismatch throws
-    // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
-    const providerProfile =
-      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-        workspaceId,
-        currentModel,
-      );
     // Output-style activation, resolved fresh for THIS session (Req 5.6).
     // Spreads to at most one field — `outputStyleName` for the flag tier or
     // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
@@ -907,7 +902,7 @@ export class ChatSessionService {
     const outputStyle = await this.outputStyleActivation.resolveSessionFields({
       workspaceRoot: workspaceId,
     });
-    const stream = await this.sdkAdapter.startChatSession({
+    const config: AgentSessionStartConfig = {
       tabId,
       workspaceId,
       model: currentModel,
@@ -924,7 +919,6 @@ export class ChatSessionService {
       workflowsDisabled: this.resolveWorkflowsDisabled(),
       includePartialMessages: options?.includePartialMessages,
       mcpServersOverride,
-      providerProfile,
       // Only agent-started sessions pass a level; `chat:start` keeps the
       // global default.
       ...(input.permissionLevel
@@ -935,6 +929,28 @@ export class ChatSessionService {
       ...(input.ptahUiFence !== undefined
         ? { ptahUiFence: input.ptahUiFence }
         : {}),
+    };
+    const execution = this.runtimeProfile
+      ? await this.runtimeProfile.prepare(config)
+      : {
+          runtime: 'claude-sdk' as const,
+          providerProfile:
+            await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+              workspaceId,
+              currentModel,
+            ),
+        };
+    if (
+      execution.runtime === 'codex-app-server' &&
+      execution.modelSubstitution
+    ) {
+      await this.runtimeProfile?.publishModelSubstitution(execution, { tabId });
+    }
+    const stream = await this.sdkAdapter.startChatSession({
+      ...config,
+      ...(execution.runtime === 'claude-sdk'
+        ? { providerProfile: execution.providerProfile }
+        : { model: execution.seed.model }),
     });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -1621,16 +1637,6 @@ export class ChatSessionService {
       params.model || this.modelSettings.selectedModel.get() || 'default';
 
     try {
-      // Same per-workspace isolation as chat:start — the resumed turn must run
-      // against the session's own workspace provider, not whichever provider
-      // is globally active after a workspace switch. Throws AuthRequiredError
-      // (→ AUTH_REQUIRED below) rather than resume on another provider.
-      const providerProfile =
-        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-          workspacePath,
-          currentModel,
-        );
-
       // Re-resolved for the resumed turn rather than carried over from the
       // original start: the provider or the style may have changed since, and
       // Req 5.6 forbids caching the decision across sessions.
@@ -1640,7 +1646,7 @@ export class ChatSessionService {
         },
       );
 
-      const stream = await this.sdkAdapter.resumeSession(sessionId, {
+      const config: AgentSessionResumeConfig = {
         projectPath: workspacePath,
         model: currentModel,
         mcpServerRunning,
@@ -1650,7 +1656,6 @@ export class ChatSessionService {
         effort: params.effort,
         workflowsDisabled: this.resolveWorkflowsDisabled(),
         prompt,
-        providerProfile,
         ...outputStyle,
         ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
         ...(params.mcpToolProfile
@@ -1659,6 +1664,34 @@ export class ChatSessionService {
         ...(params.ptahUiFence !== undefined
           ? { ptahUiFence: params.ptahUiFence }
           : {}),
+      };
+      const execution = this.runtimeProfile
+        ? await this.runtimeProfile.prepare(
+            config,
+            (await this.sessionMetadataStore.get(sessionId))?.codexExecution,
+          )
+        : {
+            runtime: 'claude-sdk' as const,
+            providerProfile:
+              await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+                workspacePath,
+                currentModel,
+              ),
+          };
+      if (
+        execution.runtime === 'codex-app-server' &&
+        execution.modelSubstitution
+      ) {
+        await this.runtimeProfile?.publishModelSubstitution(execution, {
+          tabId,
+          sessionId,
+        });
+      }
+      const stream = await this.sdkAdapter.resumeSession(sessionId, {
+        ...config,
+        ...(execution.runtime === 'claude-sdk'
+          ? { providerProfile: execution.providerProfile }
+          : { model: execution.seed.model }),
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

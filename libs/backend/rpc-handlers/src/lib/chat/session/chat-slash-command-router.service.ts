@@ -33,6 +33,8 @@ import type {
   IAgentAdapter,
   SessionId,
   AISessionConfig,
+  AgentSessionResumeConfig,
+  SessionRuntimeControls,
   ChatContinueParams,
   ChatContinueResult,
   ProviderAccountSelection,
@@ -45,6 +47,7 @@ import {
 import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
+import type { ChatRuntimeProfileService } from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type {
@@ -178,6 +181,10 @@ export class ChatSlashCommandRouterService {
     private readonly activeProvider?: ActiveProviderResolver,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { isOptional: true })
     private readonly metadata?: SessionMetadataStore,
+    @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
+    private readonly runtimeProfile?: ChatRuntimeProfileService,
+    @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
+    private readonly runtimeControls: SessionRuntimeControls | null = null,
   ) {}
 
   /**
@@ -288,14 +295,33 @@ export class ChatSlashCommandRouterService {
         params.model || this.modelSettings.selectedModel.get() || 'default';
       let reservationId: string | undefined;
       try {
-        // The relaunch is a new query: it gets the same per-workspace provider
-        // snapshot as chat:start / resume, never whatever the shared auth env
-        // was last configured for (AuthRequiredError on a mismatch).
-        const providerProfile =
-          await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-            workspacePath ?? '',
-            model,
-          );
+        const config: AgentSessionResumeConfig = {
+          model,
+          projectPath: workspacePath,
+          mcpServerRunning,
+          enhancedPromptsContent,
+          tabId,
+          ...(params.mcpToolProfile
+            ? { mcpToolProfile: params.mcpToolProfile }
+            : {}),
+          ...(params.ptahUiFence !== undefined
+            ? { ptahUiFence: params.ptahUiFence }
+            : {}),
+          ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
+        };
+        const execution = this.runtimeProfile
+          ? await this.runtimeProfile.prepare(
+              config,
+              (await this.metadata?.get(sessionId))?.codexExecution,
+            )
+          : {
+              runtime: 'claude-sdk' as const,
+              providerProfile:
+                await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+                  workspacePath ?? '',
+                  model,
+                ),
+            };
         if (
           interceptResult.commandName === 'compact' &&
           this.manualCompactAdmission
@@ -324,12 +350,32 @@ export class ChatSlashCommandRouterService {
             );
           }
         }
+        if (execution.runtime === 'codex-app-server') {
+          if (execution.modelSubstitution) {
+            await this.runtimeProfile?.publishModelSubstitution(execution, {
+              tabId,
+              sessionId,
+            });
+          }
+          if (interceptResult.commandName === 'compact') {
+            if (!this.runtimeControls) {
+              throw new Error(
+                'Native session runtime controls are unavailable.',
+              );
+            }
+            await this.runtimeControls.compact(sessionId);
+            return { success: true, sessionId, settled: true };
+          }
+        }
         const stream = await this.sdkAdapter.executeSlashCommand(
           sessionId,
           command,
           {
             sessionConfig: {
-              model,
+              model:
+                execution.runtime === 'codex-app-server'
+                  ? execution.seed.model
+                  : model,
               projectPath: workspacePath,
               ...(params.mcpToolProfile
                 ? { mcpToolProfile: params.mcpToolProfile }
@@ -344,7 +390,9 @@ export class ChatSlashCommandRouterService {
             mcpServerRunning,
             enhancedPromptsContent,
             tabId,
-            providerProfile,
+            ...(execution.runtime === 'claude-sdk'
+              ? { providerProfile: execution.providerProfile }
+              : {}),
           },
         );
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
