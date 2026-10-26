@@ -8,8 +8,13 @@ import type {
   EnhancedPromptsGetStatusResponse,
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
+  GenerationTargetChoice,
+  SetupGenerationRejection,
   WizardGetResumableRunResponse,
+  WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
+  WizardPlanPackInstallParams,
+  WizardPlanPackInstallResult,
   WizardPreviewGenerationParams,
   WizardPreviewGenerationResponse,
   SetupGenerationTabBinding,
@@ -53,11 +58,38 @@ export type BoundAgentDecisions = Pick<
 >;
 
 /**
+ * Plan binding a community-pack install carries into
+ * `wizard:install-pack-agents`: the plan token, one entry per Replace and the
+ * target root. The server refuses any Replace without a matching plan.
+ */
+export type PackInstallDecisions = Pick<
+  WizardInstallPackAgentsParams,
+  'planToken' | 'decisions' | 'target'
+>;
+
+/** Only the decision fields that are set, so absent ones keep server defaults. */
+function boundDecisionFields(
+  decisions: BoundAgentDecisions | undefined,
+): BoundAgentDecisions {
+  return {
+    ...(decisions?.previewToken !== undefined
+      ? { previewToken: decisions.previewToken }
+      : {}),
+    ...(decisions?.fileDecisions !== undefined
+      ? { fileDecisions: decisions.fileDecisions }
+      : {}),
+    ...(decisions?.target !== undefined ? { target: decisions.target } : {}),
+  };
+}
+
+/**
  * Agent selection acknowledgment response from backend.
  */
 export interface AgentSelectionResponse {
   /** Whether the selection was successfully received and processed */
   success: boolean;
+  /** Why the server refused to start, e.g. `preview-required`. */
+  rejection?: SetupGenerationRejection;
   /** Error message if the selection failed */
   error?: string;
 }
@@ -78,6 +110,8 @@ export interface AgentSelectionResponse {
  * - wizard:cancel-analysis - Cancel a running analysis
  * - wizard:deep-analyze - Deep workspace analysis (supports resume)
  * - wizard:get-resumable-run - Read-only discovery of an unfinished run
+ * - wizard:plan-pack-install - Compare pack files with the target folder
+ * - wizard:install-pack-agents - Install community pack agents
  * - wizard:recommend-agents - Get agent recommendations
  * - enhancedPrompts:runWizard - Run Enhanced Prompts wizard
  * - enhancedPrompts:getStatus - Get Enhanced Prompts status
@@ -144,15 +178,7 @@ export class WizardRpcService {
         model:
           tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
         ...(resume ? { resume: true } : {}),
-        ...(decisions?.previewToken !== undefined
-          ? { previewToken: decisions.previewToken }
-          : {}),
-        ...(decisions?.fileDecisions !== undefined
-          ? { fileDecisions: decisions.fileDecisions }
-          : {}),
-        ...(decisions?.target !== undefined
-          ? { target: decisions.target }
-          : {}),
+        ...boundDecisionFields(decisions),
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
@@ -219,11 +245,19 @@ export class WizardRpcService {
     }
   }
 
-  /** Read-only target preview; failure must not prevent generation. */
+  /**
+   * Read-only target preview; failure must not prevent generation.
+   *
+   * @param target - Root to compare against; absent = the harness root.
+   */
   public async previewGeneration(
     selectedAgentIds: string[],
+    target?: GenerationTargetChoice,
   ): Promise<WizardPreviewGenerationResponse> {
-    const params: WizardPreviewGenerationParams = { selectedAgentIds };
+    const params: WizardPreviewGenerationParams = {
+      selectedAgentIds,
+      ...(target !== undefined ? { target } : {}),
+    };
     const result = await this.rpcService.call(
       'wizard:preview-generation',
       params,
@@ -246,10 +280,13 @@ export class WizardRpcService {
    *
    * @param selections - Agent selections from the wizard
    * @param analysisDir - Multi-phase analysis directory path
+   * @param decisions - Token, Replace entries and target of the confirmed
+   *   preview; absent for "Generate without preview" (create-only).
    */
   public async submitAgentSelection(
     selections: AgentSelection[],
     analysisDir?: string,
+    decisions?: BoundAgentDecisions,
   ): Promise<AgentSelectionResponse> {
     const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
     const result = await this.rpcService.call(
@@ -258,6 +295,7 @@ export class WizardRpcService {
         selectedAgentIds: selectedIds,
         analysisDir,
         model: this.modelState.currentModel() || undefined,
+        ...boundDecisionFields(decisions),
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
@@ -646,20 +684,55 @@ export class WizardRpcService {
   }
 
   /**
+   * Read-only comparison of pack files with the target folder
+   * (`wizard:plan-pack-install`). Writes nothing; its token binds the
+   * following install's Replace decisions.
+   *
+   * @param target - Root to compare against; absent = the harness root.
+   */
+  public async planPackInstall(
+    source: string,
+    agentFiles: string[],
+    target?: GenerationTargetChoice,
+  ): Promise<WizardPlanPackInstallResult> {
+    const params: WizardPlanPackInstallParams = {
+      source,
+      agentFiles,
+      ...(target !== undefined ? { target } : {}),
+    };
+    const result = await this.rpcService.call(
+      'wizard:plan-pack-install',
+      params,
+      { timeout: WIZARD_RPC_TIMEOUTS.PACK_INSTALL_MS },
+    );
+    if (result.isSuccess() && result.data) return result.data;
+    throw new Error(result.error || 'Failed to compare the pack files');
+  }
+
+  /**
    * Install agents from a community pack into the workspace.
    * Downloads specified agent files from the pack source to .claude/agents/.
    *
    * @param source - Manifest URL of the pack to install from
    * @param agentFiles - Agent file names to install (must match manifest entries)
+   * @param plan - Token, Replace entries and target from `planPackInstall`;
+   *   absent fields keep the server defaults (keep, harness root).
    * @returns Install result with success status and download count
    */
   public async installPackAgents(
     source: string,
     agentFiles: string[],
+    plan?: PackInstallDecisions,
   ): Promise<WizardInstallPackAgentsResult> {
     const result = await this.rpcService.call(
       'wizard:install-pack-agents',
-      { source, agentFiles },
+      {
+        source,
+        agentFiles,
+        ...(plan?.planToken !== undefined ? { planToken: plan.planToken } : {}),
+        ...(plan?.decisions !== undefined ? { decisions: plan.decisions } : {}),
+        ...(plan?.target !== undefined ? { target: plan.target } : {}),
+      },
       { timeout: WIZARD_RPC_TIMEOUTS.PACK_INSTALL_MS },
     );
 

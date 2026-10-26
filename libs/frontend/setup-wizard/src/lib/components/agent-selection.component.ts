@@ -10,7 +10,11 @@ import {
   AgentRecommendation,
   SkillGenerationProgressItem,
 } from '../services/setup-wizard-state.service';
-import { WizardRpcService } from '../services/wizard-rpc.service';
+import {
+  WizardRpcService,
+  type BoundAgentDecisions,
+} from '../services/wizard-rpc.service';
+import { VSCodeService } from '@ptah-extension/core';
 import { AgentCategory } from '@ptah-extension/shared';
 import { withErrorHandling } from '../utils/error-handling';
 import {
@@ -32,10 +36,34 @@ import {
 } from 'lucide-angular';
 import type {
   AgentPackInfoDto,
-  GenerationPreviewFile,
+  FileDecision,
+  GenerationTargetChoice,
+  GenerationTargetInfo,
   WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
-import { NativeModalComponent } from '@ptah-extension/ui';
+import type { PreviewRowDecision } from './agent-preview-dialog.component';
+import { GenerationPreviewModalComponent } from './generation-preview-modal.component';
+import {
+  KEPT_PACK_NOTE,
+  PackInstallPromptComponent,
+  openedFolderNotice,
+  packResultCounts,
+  type PackFileStatus,
+  type PackInstallFinished,
+  type PackInstallRequest,
+  type PackInstallStart,
+} from './pack-install-prompt.component';
+import {
+  buildWizardRows,
+  decisionCounts,
+  decisionEntries,
+  nextSnapshot,
+  setAllDecisions,
+  setDecision,
+  targetFolder,
+  targetsSignature,
+  type DecisionSnapshot,
+} from './preview-decisions/preview-decisions.state';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -66,7 +94,11 @@ import { NativeModalComponent } from '@ptah-extension/ui';
 @Component({
   selector: 'ptah-agent-selection',
   standalone: true,
-  imports: [LucideAngularModule, NativeModalComponent],
+  imports: [
+    LucideAngularModule,
+    GenerationPreviewModalComponent,
+    PackInstallPromptComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
@@ -349,10 +381,38 @@ import { NativeModalComponent } from '@ptah-extension/ui';
 
               @if (isPackExpanded(pack.source)) {
                 <div class="px-2.5 pb-2.5">
-                  <div class="flex justify-end mb-2">
+                  <div class="flex flex-wrap items-center gap-2 mb-2">
+                    <p
+                      class="flex flex-1 flex-wrap items-center gap-1 text-[11px]"
+                      data-testid="pack-install-to"
+                    >
+                      <span class="text-base-content-muted">Install to:</span>
+                      <code class="font-mono [overflow-wrap:anywhere]">{{
+                        installToPath()
+                      }}</code>
+                      <span class="text-base-content-muted">{{
+                        installToSuffix()
+                      }}</span>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        data-testid="pack-choose-location"
+                        [disabled]="
+                          allPackAgentsInstalled(pack) || isPackInstalling(pack)
+                        "
+                        (click)="
+                          onInstallAllAgents(pack); $event.stopPropagation()
+                        "
+                      >
+                        Choose location
+                      </button>
+                    </p>
                     <button
                       class="btn btn-outline btn-xs"
-                      [disabled]="allPackAgentsInstalled(pack)"
+                      data-testid="pack-install-all"
+                      [disabled]="
+                        allPackAgentsInstalled(pack) || isPackInstalling(pack)
+                      "
                       (click)="
                         onInstallAllAgents(pack); $event.stopPropagation()
                       "
@@ -368,6 +428,45 @@ import { NativeModalComponent } from '@ptah-extension/ui';
                     </button>
                   </div>
 
+                  @if (packResults()[pack.source]; as finished) {
+                    <div
+                      role="status"
+                      class="mb-2 rounded border border-base-300/40 bg-base-200/30 px-2 py-1.5 text-[11px]"
+                      data-testid="pack-result"
+                    >
+                      @if (finished.primaryFailure) {
+                        <p>Could not install the pack. {{ finished.error }}</p>
+                      } @else {
+                        <p class="flex flex-wrap gap-x-3">
+                          <span
+                            >{{
+                              resultCounts(finished).installed
+                            }}
+                            Installed</span
+                          >
+                          <span
+                            >{{ resultCounts(finished).kept }} Kept (your
+                            file)</span
+                          >
+                          <span
+                            >{{ resultCounts(finished).failed }} Failed</span
+                          >
+                        </p>
+                        @if (resultCounts(finished).kept > 0) {
+                          <p class="text-base-content-muted">
+                            Kept files stay as they are and keep the origin
+                            "Workspace file". A retry of a failed file never
+                            replaces a kept file.
+                          </p>
+                        }
+                      }
+                      @if (resultNotice(finished); as notice) {
+                        <p data-testid="pack-opened-folder-notice">
+                          {{ notice }}
+                        </p>
+                      }
+                    </div>
+                  }
                   <div
                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2"
                   >
@@ -411,6 +510,13 @@ import { NativeModalComponent } from '@ptah-extension/ui';
                             <span
                               class="loading loading-spinner loading-xs text-primary shrink-0"
                             ></span>
+                          } @else if (isAgentKept(pack.source, agent.file)) {
+                            <span
+                              class="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-base-300/40 shrink-0"
+                              data-testid="pack-agent-kept"
+                            >
+                              Kept
+                            </span>
                           } @else if (
                             getAgentStatus(pack.source, agent.file) === 'error'
                           ) {
@@ -435,6 +541,21 @@ import { NativeModalComponent } from '@ptah-extension/ui';
                             </button>
                           }
                         </div>
+                        @if (isAgentKept(pack.source, agent.file)) {
+                          <p class="text-[11px] text-base-content-muted mb-1">
+                            {{ keptNote }}
+                          </p>
+                        } @else if (
+                          getAgentStatus(pack.source, agent.file) === 'error'
+                        ) {
+                          <p
+                            class="text-[11px] text-error mb-1"
+                            data-testid="pack-agent-failure"
+                          >
+                            Not installed.
+                            {{ failureReason(pack.source, agent.file) }}
+                          </p>
+                        }
                         <p
                           class="text-[11px] text-base-content-muted leading-relaxed mb-1.5"
                         >
@@ -494,113 +615,36 @@ import { NativeModalComponent } from '@ptah-extension/ui';
         </button>
       </div>
     </div>
-    <!-- Warning copy in this modal uses a solid warning fill with
-         warning-content text (5.67:1 light, 6.61:1 dark): bare text-warning
-         on base-100 is 2.46:1 in the light theme. -->
-    <ptah-native-modal
-      [isOpen]="previewOpen()"
-      ariaLabel="Preview agent generation"
-      size="lg"
-      (closed)="cancelPreview()"
-    >
-      <h3 modal-header class="text-sm font-semibold mb-2">
-        Preview agent generation
-      </h3>
-      @if (previewLoading()) {
-        <p role="status" class="text-xs text-base-content-muted">
-          Checking generation targets...
-        </p>
-      }
-      @if (targetsChanged()) {
-        <p
-          role="alert"
-          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
-        >
-          Targets changed since preview. Review the new list and confirm again.
-        </p>
-      }
-      @if (previewError(); as error) {
-        <p
-          role="alert"
-          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
-        >
-          Preview unavailable. You can still generate without a preview.
-        </p>
-      }
-      @if (generationPreview(); as preview) {
-        @if (preview.warning) {
-          <p
-            role="alert"
-            class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
-          >
-            {{ preview.warning }}
-          </p>
-        }
-        @for (agent of preview.agents; track agent.agentId) {
-          <section class="mb-4">
-            <h4 class="text-xs font-medium mb-2">{{ agent.agentId }}</h4>
-            <ul class="text-xs">
-              @for (
-                file of previewFiles(agent.files, 'definite');
-                track file.relPath
-              ) {
-                <li class="mb-2">
-                  <code>{{ file.relPath }}</code>
-                  @if (file.willOverwrite) {
-                    <span class="badge badge-warning badge-sm ml-1"
-                      >will overwrite</span
-                    >
-                  }
-                </li>
-              }
-            </ul>
-            @if (previewFiles(agent.files, 'conditional').length) {
-              <div
-                class="border-t border-base-300 pt-3 mt-4"
-                data-testid="conditional-files"
-              >
-                <ul class="text-xs">
-                  @for (
-                    file of previewFiles(agent.files, 'conditional');
-                    track file.relPath
-                  ) {
-                    <li class="mb-2">
-                      <p class="text-base-content-muted">
-                        May also write, if {{ file.condition }}
-                      </p>
-                      <code>{{ file.relPath }}</code>
-                      @if (file.willOverwrite) {
-                        <span class="badge badge-warning badge-sm ml-1"
-                          >will overwrite if written</span
-                        >
-                      }
-                    </li>
-                  }
-                </ul>
-              </div>
-            }
-          </section>
-        }
-      }
-      <div modal-footer class="flex gap-2 justify-end mt-4">
-        <button class="btn btn-ghost btn-sm" (click)="cancelPreview()">
-          Cancel
-        </button>
-        <button
-          class="btn btn-primary btn-sm"
-          [disabled]="previewLoading() || isGenerating()"
-          [attr.aria-busy]="previewLoading()"
-          (click)="onConfirmPreview()"
-        >
-          {{ previewError() ? 'Generate without preview' : 'Confirm Generate' }}
-        </button>
-      </div>
-    </ptah-native-modal>
+    <ptah-generation-preview-modal
+      [open]="previewOpen()"
+      [loading]="previewLoading()"
+      [changed]="targetsChanged()"
+      [error]="previewError() !== null"
+      [generating]="isGenerating()"
+      [preview]="generationPreview()"
+      [snapshot]="decisions()"
+      [isElectron]="isElectron"
+      (dismissed)="cancelPreview()"
+      (confirm)="onConfirmPreview()"
+      (decisionChange)="setRowDecision($event)"
+      (applyAll)="setAllRowDecisions($event)"
+      (targetChange)="changeTarget($event)"
+    />
+    <ptah-pack-install-prompt
+      [request]="packRequest()"
+      [isElectron]="isElectron"
+      (dismissed)="packRequest.set(null)"
+      (installStarted)="onPackInstallStarted($event)"
+      (installFinished)="onPackInstallFinished($event)"
+    />
   `,
 })
 export class AgentSelectionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+  /** Electron shows Library copy; VS Code has no Library (D3). */
+  protected readonly isElectron = inject(VSCodeService).isElectron;
+  protected readonly keptNote = KEPT_PACK_NOTE;
   protected readonly XCircleIcon = XCircle;
   protected readonly CheckIcon = Check;
   protected readonly UsersIcon = Users;
@@ -657,7 +701,42 @@ export class AgentSelectionComponent {
     signal<WizardPreviewGenerationResponse | null>(null);
   protected readonly previewError = signal<string | null>(null);
   protected readonly targetsChanged = signal(false);
+  /** Shared keep/replace state of the open preview (every row starts on Keep). */
+  protected readonly decisions = signal<DecisionSnapshot | null>(null);
+  /** Root the user chose in the preview; null = the server default. */
+  private readonly targetChoice = signal<GenerationTargetChoice | null>(null);
   private previewRequest = 0;
+
+  /** The pack install the prompt is open for, or null. */
+  protected readonly packRequest = signal<PackInstallRequest | null>(null);
+  /** Root of the last confirmed pack install; the next prompt starts there. */
+  private readonly packTarget = signal<GenerationTargetChoice | null>(null);
+  private readonly packTargetInfo = signal<GenerationTargetInfo | null>(null);
+  /** Last install result per pack source, for the results line. */
+  protected readonly packResults = signal<
+    Readonly<Record<string, PackInstallFinished>>
+  >({});
+  /** `source::file` keys whose local file was kept (the user's choice). */
+  private readonly keptPackFiles = signal<ReadonlySet<string>>(new Set());
+  /** `source::file` keys of failed files, with the failure reason. */
+  private readonly packFailures = signal<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+  protected readonly installToPath = computed(() => {
+    const info = this.packTargetInfo();
+    const choice = this.packTarget();
+    if (!info || !choice) return '.claude/agents';
+    return targetFolder(
+      info,
+      info.openedIsHarnessRoot ? 'harness-root' : choice,
+    );
+  });
+  protected readonly installToSuffix = computed(() =>
+    this.packTarget() === 'opened-folder' &&
+    this.packTargetInfo()?.openedIsHarnessRoot !== true
+      ? '(opened folder only)'
+      : '(project root)',
+  );
 
   /**
    * Agent recommendations from deep analysis.
@@ -876,58 +955,106 @@ export class AgentSelectionComponent {
   }
 
   /**
-   * Install a single agent from a community pack.
+   * Install or retry one agent from a community pack: opens the install
+   * prompt scoped to that file. A retry never replaces a kept file because
+   * every choice starts on Keep.
    */
-  protected async onInstallAgent(source: string, file: string): Promise<void> {
-    const key = `${source}::${file}`;
-    this.wizardState.setAgentInstallStatus(key, 'installing');
-    try {
-      const result = await this.wizardRpc.installPackAgents(source, [file]);
-      this.wizardState.setAgentInstallStatus(
-        key,
-        result.success ? 'installed' : 'error',
-      );
-    } catch {
-      this.wizardState.setAgentInstallStatus(key, 'error');
-    }
+  protected onInstallAgent(source: string, file: string): void {
+    if (this.packRequest() || this.isAgentBusy(source, file)) return;
+    const pack = this.communityPacks().find((entry) => entry.source === source);
+    this.packRequest.set({
+      source,
+      packName: pack?.name ?? source,
+      files: [file],
+      scope: 'file',
+      target: this.packTarget(),
+    });
   }
 
   /**
-   * Install all agents from a community pack.
+   * Install All or Choose location: opens the install prompt scoped to every
+   * pack file that is not installed yet.
    */
-  protected async onInstallAllAgents(pack: AgentPackInfoDto): Promise<void> {
+  protected onInstallAllAgents(pack: AgentPackInfoDto): void {
+    if (this.packRequest() || this.isPackInstalling(pack)) return;
     const pendingFiles = pack.agents
       .filter((a) => this.getAgentStatus(pack.source, a.file) !== 'installed')
       .map((a) => a.file);
-
     if (pendingFiles.length === 0) return;
+    this.packRequest.set({
+      source: pack.source,
+      packName: pack.name,
+      files: pendingFiles,
+      scope: 'pack',
+      target: this.packTarget(),
+    });
+  }
 
-    for (const file of pendingFiles) {
+  protected onPackInstallStarted(start: PackInstallStart): void {
+    this.packRequest.set(null);
+    for (const file of start.files) {
       this.wizardState.setAgentInstallStatus(
-        `${pack.source}::${file}`,
+        `${start.source}::${file}`,
         'installing',
       );
     }
-    try {
-      const result = await this.wizardRpc.installPackAgents(
-        pack.source,
-        pendingFiles,
+  }
+
+  protected onPackInstallFinished(finished: PackInstallFinished): void {
+    this.packTarget.set(finished.target.chosen);
+    this.packTargetInfo.set(finished.target);
+    this.packResults.update((current) => ({
+      ...current,
+      [finished.source]: finished,
+    }));
+    const kept = new Set(this.keptPackFiles());
+    const failures = new Map(this.packFailures());
+    for (const file of finished.files) {
+      const key = `${finished.source}::${file}`;
+      const status: PackFileStatus = finished.statuses[file] ?? 'failed';
+      kept.delete(key);
+      failures.delete(key);
+      if (status === 'kept') kept.add(key);
+      if (status === 'failed') failures.set(key, finished.error ?? '');
+      // A kept file is not installed: it stays idle so Install All can offer
+      // it again (on Keep), and the row says "Kept".
+      this.wizardState.setAgentInstallStatus(
+        key,
+        status === 'installed'
+          ? 'installed'
+          : status === 'failed'
+            ? 'error'
+            : 'idle',
       );
-      const status = result.success ? 'installed' : 'error';
-      for (const file of pendingFiles) {
-        this.wizardState.setAgentInstallStatus(
-          `${pack.source}::${file}`,
-          status,
-        );
-      }
-    } catch {
-      for (const file of pendingFiles) {
-        this.wizardState.setAgentInstallStatus(
-          `${pack.source}::${file}`,
-          'error',
-        );
-      }
     }
+    this.keptPackFiles.set(kept);
+    this.packFailures.set(failures);
+  }
+
+  protected isAgentKept(source: string, file: string): boolean {
+    return (
+      this.getAgentStatus(source, file) === 'idle' &&
+      this.keptPackFiles().has(`${source}::${file}`)
+    );
+  }
+
+  protected failureReason(source: string, file: string): string {
+    return this.packFailures().get(`${source}::${file}`) ?? '';
+  }
+
+  protected resultCounts(
+    finished: PackInstallFinished,
+  ): Record<PackFileStatus, number> {
+    return packResultCounts(finished.statuses);
+  }
+
+  protected resultNotice(finished: PackInstallFinished): string | null {
+    return openedFolderNotice(finished.target, this.isElectron);
+  }
+
+  private isAgentBusy(source: string, file: string): boolean {
+    const status = this.getAgentStatus(source, file);
+    return status === 'installing' || status === 'installed';
   }
 
   /**
@@ -991,19 +1118,23 @@ export class AgentSelectionComponent {
     });
   }
 
-  protected previewFiles(
-    files: GenerationPreviewFile[],
-    certainty: GenerationPreviewFile['certainty'],
-  ): GenerationPreviewFile[] {
-    return files.filter((file) => file.certainty === certainty);
-  }
-
   protected async onGenerateAgents(): Promise<void> {
     if (this.isGenerating() || this.previewOpen() || this.noneSelected())
       return;
+    await this.openPreview(false);
+  }
+
+  /**
+   * Open the modal with a fresh comparison; every existing file starts on
+   * Keep. `keepTarget` keeps the chosen root when the server asks for another
+   * review (preview-required).
+   */
+  private async openPreview(keepTarget: boolean): Promise<void> {
     this.generationPreview.set(null);
+    this.decisions.set(null);
     this.previewError.set(null);
     this.targetsChanged.set(false);
+    if (!keepTarget) this.targetChoice.set(null);
     this.previewOpen.set(true);
     await this.loadGenerationPreview(false);
   }
@@ -1018,6 +1149,8 @@ export class AgentSelectionComponent {
     if (!this.previewOpen() || this.previewLoading() || this.isGenerating())
       return;
     if (this.previewError()) {
+      // "Generate without preview": no token, so the server only creates
+      // missing files and keeps every existing one.
       this.cancelPreview();
       await this.confirmGenerate();
       return;
@@ -1025,47 +1158,103 @@ export class AgentSelectionComponent {
     await this.loadGenerationPreview(true);
   }
 
+  protected setRowDecision(change: PreviewRowDecision): void {
+    if (this.previewLoading() || this.isGenerating()) return;
+    this.decisions.update((current) =>
+      current ? setDecision(current, change.id, change.decision) : current,
+    );
+  }
+
+  protected setAllRowDecisions(decision: FileDecision): void {
+    if (this.previewLoading() || this.isGenerating()) return;
+    this.decisions.update((current) =>
+      current ? setAllDecisions(current, decision) : current,
+    );
+  }
+
+  /** A different root re-runs the comparison; every choice resets to Keep. */
+  protected async changeTarget(choice: GenerationTargetChoice): Promise<void> {
+    const current =
+      this.decisions()?.target ?? this.generationPreview()?.target?.chosen;
+    if (this.previewLoading() || this.isGenerating() || choice === current)
+      return;
+    this.targetChoice.set(choice);
+    this.targetsChanged.set(false);
+    await this.loadGenerationPreview(false);
+  }
+
   private async loadGenerationPreview(confirm: boolean): Promise<void> {
     const request = ++this.previewRequest;
     const previous = this.generationPreview();
+    const previousDecisions = this.decisions();
+    const target = this.targetChoice();
     this.previewLoading.set(true);
     try {
       const preview = await this.wizardRpc.previewGeneration(
         this.buildSelectedAgents().map((agent) => agent.id),
+        target ?? undefined,
       );
       if (request !== this.previewRequest) return;
+      const next = nextSnapshot(
+        previousDecisions,
+        buildWizardRows(preview),
+        preview.target?.chosen ?? target,
+      );
       this.generationPreview.set(preview);
-      const paths = (value: WizardPreviewGenerationResponse) =>
-        new Set(
-          value.agents.flatMap((agent) =>
-            this.previewFiles(agent.files, 'definite').map(
-              (file) => `${file.target}:${file.relPath}:${file.willOverwrite}`,
-            ),
-          ),
-        );
-      if (confirm && previous) {
-        const before = paths(previous);
-        const after = paths(preview);
-        if (
-          before.size !== after.size ||
-          [...before].some((path) => !after.has(path))
-        ) {
-          this.targetsChanged.set(true);
-          return;
-        }
-        this.cancelPreview();
-        await this.confirmGenerate();
+      this.decisions.set(next);
+      this.previewError.set(null);
+      if (!confirm) return;
+      if (
+        previous &&
+        this.needsReview(previous, preview, previousDecisions, next)
+      ) {
+        this.targetsChanged.set(true);
+        return;
       }
+      this.cancelPreview();
+      await this.confirmGenerate(this.submitDecisions(preview, next));
     } catch {
       // degradation-audit: reported - the failure is shown via previewError;
       // the early return only drops a reply a newer preview request superseded.
       if (request !== this.previewRequest) return;
       this.generationPreview.set(null);
+      this.decisions.set(null);
       this.previewError.set('Preview unavailable');
       this.targetsChanged.set(false);
     } finally {
       if (request === this.previewRequest) this.previewLoading.set(false);
     }
+  }
+
+  /**
+   * The confirm-time re-preview differs from what the user reviewed: other
+   * definite targets, another root, or a Replace that no longer applies
+   * because the file changed (its revision moved, so it is back on Keep).
+   */
+  private needsReview(
+    previous: WizardPreviewGenerationResponse,
+    fresh: WizardPreviewGenerationResponse,
+    before: DecisionSnapshot | null,
+    after: DecisionSnapshot,
+  ): boolean {
+    if (targetsSignature(previous) !== targetsSignature(fresh)) return true;
+    if (after.status !== null) return true;
+    const replacedBefore = before ? decisionCounts(before.rows).toReplace : 0;
+    return decisionCounts(after.rows).toReplace < replacedBefore;
+  }
+
+  /** Token, Replace entries and target of the confirmed preview. */
+  private submitDecisions(
+    fresh: WizardPreviewGenerationResponse,
+    snapshot: DecisionSnapshot,
+  ): BoundAgentDecisions {
+    return {
+      fileDecisions: decisionEntries(snapshot.rows),
+      ...(fresh.previewToken !== undefined
+        ? { previewToken: fresh.previewToken }
+        : {}),
+      ...(snapshot.target !== null ? { target: snapshot.target } : {}),
+    };
   }
 
   /**
@@ -1076,7 +1265,9 @@ export class AgentSelectionComponent {
    * - Display user-facing error message on failure
    * - Always reset loading state in finally block
    */
-  protected async confirmGenerate(): Promise<void> {
+  protected async confirmGenerate(
+    decisions?: BoundAgentDecisions,
+  ): Promise<void> {
     if (this.isGenerating() || this.noneSelected()) {
       return; // Prevent double-click
     }
@@ -1094,10 +1285,18 @@ export class AgentSelectionComponent {
             'No analysis data available. Please re-run the wizard scan.',
           );
         }
-        const response = await this.wizardRpc.submitAgentSelection(
-          selectedAgents,
-          multiPhase.analysisDir,
-        );
+        const response = decisions
+          ? await this.wizardRpc.submitAgentSelection(
+              selectedAgents,
+              multiPhase.analysisDir,
+              decisions,
+            )
+          : await this.wizardRpc.submitAgentSelection(
+              selectedAgents,
+              multiPhase.analysisDir,
+            );
+        // The server no longer holds the reviewed preview: review again.
+        if (response?.rejection?.reason === 'preview-required') return response;
         if (!response?.success) {
           throw new Error(
             response?.error ?? 'Backend did not acknowledge selection',
@@ -1113,6 +1312,13 @@ export class AgentSelectionComponent {
         );
       },
     );
+
+    if (result?.rejection?.reason === 'preview-required') {
+      this.isGenerating.set(false);
+      await this.openPreview(true);
+      this.targetsChanged.set(true);
+      return;
+    }
 
     if (result) {
       const selectedAgentIds = Object.entries(

@@ -858,7 +858,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   D19 ptah-extension-webview:lint). jest.config.ts not modified (spec uses jest.doMock).
 - Report: reports/batch-14-report.md
 
-## Batch 15: Wizard-view preview modal and pack install prompt (F2 + F4) — PENDING
+## Batch 15: Wizard-view preview modal and pack install prompt (F2 + F4) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -948,7 +948,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 18: CLI wizard kept-file output (F8) — COMPLETE (commit: see git log "batch 18")
+## Batch 18: CLI wizard kept-file output (F8) — COMPLETE (commit: 11c5df630)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential

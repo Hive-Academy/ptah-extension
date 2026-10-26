@@ -109,9 +109,11 @@ describe('WizardRpcService', () => {
       workspacePath: null,
       tab: { overrideModel: 'tab-model' },
     } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
-    jest.spyOn(tabs, 'getWorkspaceTabs').mockReturnValue([
-      { id: 'tab' },
-    ] as ReturnType<TabManagerService['getWorkspaceTabs']>);
+    jest
+      .spyOn(tabs, 'getWorkspaceTabs')
+      .mockReturnValue([{ id: 'tab' }] as ReturnType<
+        TabManagerService['getWorkspaceTabs']
+      >);
     const agentBinding = {
       tabId: 'tab',
       workflow: 'setup-agent-generation' as const,
@@ -182,6 +184,16 @@ describe('WizardRpcService', () => {
       );
     });
 
+    it('sends the chosen target only when one is given', async () => {
+      rpcCall.mockResolvedValue(okResult({ agents: [] }));
+      await service.previewGeneration(['a'], 'opened-folder');
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:preview-generation',
+        { selectedAgentIds: ['a'], target: 'opened-folder' },
+        { timeout: 10_000 },
+      );
+    });
+
     it('propagates a rejected preview transport error', async () => {
       rpcCall.mockRejectedValue(new Error('transport down'));
       await expect(service.previewGeneration(['a'])).rejects.toThrow(
@@ -228,6 +240,139 @@ describe('WizardRpcService', () => {
 
       await expect(service.submitAgentSelection(agents)).rejects.toThrow(
         'denied',
+      );
+    });
+
+    it('sends the preview token, replace decisions and target of a confirmed preview', async () => {
+      rpcCall.mockResolvedValue(okResult({ success: true }));
+
+      await service.submitAgentSelection(agents, '/analysis', {
+        previewToken: 'tok-1',
+        fileDecisions: { '1': { decision: 'replace', revision: 'r1' } },
+        target: 'opened-folder',
+      });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:submit-selection',
+        {
+          selectedAgentIds: ['1'],
+          analysisDir: '/analysis',
+          model: undefined,
+          previewToken: 'tok-1',
+          fileDecisions: { '1': { decision: 'replace', revision: 'r1' } },
+          target: 'opened-folder',
+        },
+        { timeout: 300_000 },
+      );
+    });
+
+    it('sends no decision fields for a submit without a preview', async () => {
+      rpcCall.mockResolvedValue(okResult({ success: true }));
+
+      await service.submitAgentSelection(agents, '/analysis');
+
+      const params = rpcCall.mock.calls[0][1];
+      expect(params).not.toHaveProperty('previewToken');
+      expect(params).not.toHaveProperty('fileDecisions');
+      expect(params).not.toHaveProperty('target');
+    });
+
+    it('returns a preview-required rejection to the caller', async () => {
+      const ack = { success: false, rejection: { reason: 'preview-required' } };
+      rpcCall.mockResolvedValue(okResult(ack));
+
+      await expect(service.submitAgentSelection(agents)).resolves.toEqual(ack);
+    });
+  });
+
+  describe('planPackInstall', () => {
+    it('calls wizard:plan-pack-install and returns the plan', async () => {
+      const plan = {
+        planToken: 'plan-1',
+        target: {
+          harnessRoot: '/repo',
+          openedFolder: '/repo',
+          chosen: 'harness-root',
+          openedIsHarnessRoot: true,
+        },
+        files: [],
+      };
+      rpcCall.mockResolvedValue(okResult(plan));
+
+      await expect(
+        service.planPackInstall('src', ['a.md'], 'opened-folder'),
+      ).resolves.toEqual(plan);
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:plan-pack-install',
+        { source: 'src', agentFiles: ['a.md'], target: 'opened-folder' },
+        { timeout: 60_000 },
+      );
+    });
+
+    it('omits the target when none is given', async () => {
+      rpcCall.mockResolvedValue(
+        okResult({ planToken: 't', target: {}, files: [] }),
+      );
+      await service.planPackInstall('src', ['a.md']);
+      expect(rpcCall.mock.calls[0][1]).toEqual({
+        source: 'src',
+        agentFiles: ['a.md'],
+      });
+    });
+
+    it('throws the plan failure reason', async () => {
+      rpcCall.mockResolvedValue(errResult('download failed'));
+      await expect(service.planPackInstall('src', ['a.md'])).rejects.toThrow(
+        'download failed',
+      );
+    });
+  });
+
+  describe('installPackAgents', () => {
+    it('sends the plan token, decisions and target', async () => {
+      rpcCall.mockResolvedValue(
+        okResult({ success: true, agentsDownloaded: 1, fromCache: false }),
+      );
+
+      await service.installPackAgents('src', ['a.md', 'b.md'], {
+        planToken: 'plan-1',
+        decisions: { 'a.md': { decision: 'replace', revision: 'r1' } },
+        target: 'harness-root',
+      });
+
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:install-pack-agents',
+        {
+          source: 'src',
+          agentFiles: ['a.md', 'b.md'],
+          planToken: 'plan-1',
+          decisions: { 'a.md': { decision: 'replace', revision: 'r1' } },
+          target: 'harness-root',
+        },
+        { timeout: 60_000 },
+      );
+    });
+
+    it('sends only source and files without a plan', async () => {
+      rpcCall.mockResolvedValue(
+        okResult({ success: true, agentsDownloaded: 1, fromCache: false }),
+      );
+      await service.installPackAgents('src', ['a.md']);
+      expect(rpcCall.mock.calls[0][1]).toEqual({
+        source: 'src',
+        agentFiles: ['a.md'],
+      });
+    });
+
+    it('turns an RPC failure into an unsuccessful result', async () => {
+      rpcCall.mockResolvedValue(errResult('Replacing a file needs a plan'));
+      await expect(service.installPackAgents('src', ['a.md'])).resolves.toEqual(
+        {
+          success: false,
+          agentsDownloaded: 0,
+          fromCache: false,
+          error: 'Replacing a file needs a plan',
+        },
       );
     });
   });
