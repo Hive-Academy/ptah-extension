@@ -484,7 +484,7 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
         pidKnown = true;
         child.off('close', exitSeen);
       };
-      // degradation-audit: optional-capability — a rejected PID only ends the wait for it; stop() reports the kill path.
+      // A rejected PID only ends the wait for it; stop() owns the kill path and its failure.
       void child.whenSpawned.then(pidSettled, pidSettled);
       const finish = (outcome: ChildOutcome): void => {
         if (settled) return;

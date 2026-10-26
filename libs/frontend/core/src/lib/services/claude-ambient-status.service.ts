@@ -101,6 +101,7 @@ export class ClaudeAmbientStatusService {
             reason: status.reason,
           };
     } catch {
+      // degradation-audit: reported - the view shows the local failure as "Could not check".
       // A rejected transport promise is a local failure like any other; the caller
       // contract is "never throws", and the view already says "Could not check".
       return null;
