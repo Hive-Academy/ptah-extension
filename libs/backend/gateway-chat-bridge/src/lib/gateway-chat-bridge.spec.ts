@@ -342,6 +342,7 @@ interface Harness {
   enhancedPromptsService: { getEnhancedPromptContent: jest.Mock };
   permissionHandler: FakePermissionHandler;
   providerProfileResolver: {
+    resolveStoredModel: jest.Mock<string, [string, string]>;
     resolveProviderProfileForWorkspace: jest.Mock<
       Promise<ProviderProfile | undefined>,
       [string, string]
@@ -430,6 +431,9 @@ function setup(options?: {
   };
   const permissionHandler = new FakePermissionHandler();
   const providerProfileResolver: Harness['providerProfileResolver'] = {
+    resolveStoredModel: jest.fn<string, [string, string]>(
+      (_path, model) => model || 'default',
+    ),
     resolveProviderProfileForWorkspace: jest
       .fn<Promise<ProviderProfile | undefined>, [string, string]>()
       .mockResolvedValue(options?.providerProfile),
@@ -2541,6 +2545,34 @@ describe('GatewayChatBridge — per-workspace provider profile', () => {
     const config = h.adapter.startChatSession.mock.calls[0][0];
     expect(config.providerProfile).toBe(PROFILE);
     expect(config.model).toBe('opus');
+  });
+
+  it('runs on the stored model as checked for the turn workspace provider', async () => {
+    // A stored id of the previously active provider (Codex) must not reach the
+    // workspace's provider (Anthropic): the checked model is what runs.
+    const h = setup({ providerProfile: PROFILE, selectedModel: 'gpt-6-luna' });
+    h.providerProfileResolver.resolveStoredModel.mockReturnValue('default');
+    const binding = makeBinding({ workspaceRoot: '/ws/proj' });
+    h.adapter.startChatSession.mockResolvedValue(
+      await scriptedStream([
+        textDelta(SDK_UUID, 'hi'),
+        messageComplete(SDK_UUID),
+      ]),
+    );
+
+    h.bridge.start();
+    h.gateway.emit('inbound', makeEvent(binding, 'go'));
+    await flushUntil(
+      () => h.gateway.completeOutboundTurn.mock.calls.length > 0,
+    );
+
+    expect(h.providerProfileResolver.resolveStoredModel.mock.calls).toEqual([
+      ['/ws/proj', 'gpt-6-luna'],
+    ]);
+    expect(
+      h.providerProfileResolver.resolveProviderProfileForWorkspace.mock.calls,
+    ).toEqual([['/ws/proj', 'default']]);
+    expect(h.adapter.startChatSession.mock.calls[0][0].model).toBe('default');
   });
 
   it('passes the profile to resumeSession', async () => {

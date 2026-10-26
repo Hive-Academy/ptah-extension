@@ -17,9 +17,9 @@
  *     optionally syncs it to an active SDK session. Sync failures are
  *     swallowed (warned, not thrown) so the config write still wins.
  *
- *   - `config:model-get`: legacy bare-tier values are resolved to full IDs
- *     and re-saved; Claude IDs and `'default'` pass through unchanged
- *     (SDK owns tier resolution).
+ *   - `config:model-get`: a pure read. The stored value is returned
+ *     verbatim and nothing is written (a read used to re-save at the
+ *     global scope and wipe the workspace override).
  *
  *   - `config:autopilot-toggle`: Permission level persists to ConfigManager,
  *     is mirrored to SdkPermissionHandler, AND is mapped/mirrored to any
@@ -72,9 +72,12 @@ import {
   createMockLogger,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type {
-  ModelSettings,
-  ReasoningSettings,
+import {
+  ModelSettings as RealModelSettings,
+  WorkspaceScopeResolver,
+  type ISettingsStore,
+  type ModelSettings,
+  type ReasoningSettings,
 } from '@ptah-extension/settings-core';
 
 import {
@@ -113,7 +116,10 @@ function createMockSdkAdapter(): MockSdkAdapter {
 }
 
 type MockProviderModels = jest.Mocked<
-  Pick<ProviderModelsService, 'getModelTiers' | 'resolveActiveProviderId'>
+  Pick<
+    ProviderModelsService,
+    'getModelTiers' | 'resolveActiveProviderId' | 'getCachedModelIds'
+  >
 >;
 
 function createMockProviderModels(): MockProviderModels {
@@ -122,6 +128,7 @@ function createMockProviderModels(): MockProviderModels {
       .fn()
       .mockReturnValue({ default: null, fast: null, reasoning: null }),
     resolveActiveProviderId: jest.fn().mockReturnValue('anthropic'),
+    getCachedModelIds: jest.fn().mockReturnValue(null),
   };
 }
 
@@ -183,6 +190,8 @@ function makeHarness(
     configSeed?: Record<string, unknown>;
     modelSelected?: string;
     reasoningEffort?: string;
+    /** A real settings repository instead of the mock (storage-level specs). */
+    modelSettings?: ModelSettings;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -225,7 +234,7 @@ function makeHarness(
     permissionHandler as unknown as SdkPermissionHandler,
     modelResolver as unknown as ModelResolver,
     sentry as unknown as SentryService,
-    modelSettings as unknown as ModelSettings,
+    opts.modelSettings ?? (modelSettings as unknown as ModelSettings),
     reasoningSettings as unknown as ReasoningSettings,
     pricingProvider,
     lifecycle as unknown as SessionLifecycleManager,
@@ -431,17 +440,71 @@ describe('ConfigRpcHandlers', () => {
       expect(h.modelResolver.resolve).not.toHaveBeenCalled();
     });
 
-    it('migrates a legacy bare-tier value to a full Claude ID and re-saves', async () => {
+    it('returns a tier alias verbatim and never writes', async () => {
       const h = makeHarness({ modelSelected: 'opus' });
       h.modelResolver.resolve.mockReturnValue('claude-opus-4-7');
       h.handlers.register();
 
       const result = await call<{ model: string }>(h, 'config:model-get');
 
-      expect(h.modelResolver.resolve).toHaveBeenCalledWith('opus');
-      expect(result.model).toBe('claude-opus-4-7');
-      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
-        'claude-opus-4-7',
+      expect(result.model).toBe('opus');
+      expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
+    });
+
+    it('returns a third-party model id verbatim and never writes', async () => {
+      const h = makeHarness({ modelSelected: 'gpt-6-luna' });
+      h.handlers.register();
+
+      const result = await call<{ model: string }>(h, 'config:model-get');
+
+      expect(result.model).toBe('gpt-6-luna');
+      expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
+    });
+
+    it('a read leaves storage unchanged and keeps the workspace override', async () => {
+      const data = new Map<string, unknown>([
+        ['authMethod', 'thirdParty'],
+        ['anthropicProviderId', 'openai-codex'],
+        ['provider.thirdParty.openai-codex.selectedModel', 'gpt-6.1-sol'],
+      ]);
+      const writeGlobal = jest.fn(async (key: string, value: unknown) => {
+        if (value === undefined) data.delete(key);
+        else data.set(key, value);
+      });
+      const store = {
+        readGlobal: <T>(key: string): T | undefined => data.get(key) as T,
+        writeGlobal,
+        readSecret: async () => undefined,
+        writeSecret: async () => undefined,
+        deleteSecret: async () => undefined,
+        watchGlobal: () => ({ dispose: () => undefined }),
+        watchSecret: () => ({ dispose: () => undefined }),
+        flushSync: () => undefined,
+      } as ISettingsStore;
+      const resolver = new WorkspaceScopeResolver(store, {
+        getActivePath: () => '/ws/codex',
+        onDidChange: () => ({ dispose: () => undefined }),
+      });
+      const settings = new RealModelSettings(store, resolver);
+      await settings.selectedModel.set('gpt-6-luna', 'workspace');
+      const before = JSON.stringify([...data.entries()]);
+      writeGlobal.mockClear();
+
+      const h = makeHarness({ modelSettings: settings });
+      h.handlers.register();
+      const result = await call<{ model: string }>(h, 'config:model-get');
+
+      expect(result.model).toBe('gpt-6-luna');
+      expect(writeGlobal).not.toHaveBeenCalled();
+      expect(JSON.stringify([...data.entries()])).toBe(before);
+      expect(
+        resolver.hasOverride(
+          'provider.thirdParty.openai-codex.selectedModel',
+          true,
+        ),
+      ).toBe(true);
+      expect(data.get('provider.thirdParty.openai-codex.selectedModel')).toBe(
+        'gpt-6.1-sol',
       );
     });
 
@@ -930,6 +993,99 @@ describe('ConfigRpcHandlers', () => {
       expect(result.models[0].providerModelId).toBeNull();
       // No tier lookup should happen for direct Anthropic
       expect(h.providerModels.getModelTiers).not.toHaveBeenCalled();
+    });
+
+    describe('saved model that is not a tier mapping (Codex)', () => {
+      const codexTierList = [
+        { value: 'default', displayName: 'Default', description: '' },
+        { value: 'gpt-6.1-sol', displayName: 'Opus', description: '' },
+        { value: 'gpt-6-sol', displayName: 'Sonnet', description: '' },
+        { value: 'gpt-5.6-terra', displayName: 'Haiku', description: '' },
+      ] as unknown as Awaited<
+        ReturnType<SdkAgentAdapter['getSupportedModels']>
+      >;
+
+      function codexHarness(saved: string): Harness {
+        const h = makeHarness({ modelSelected: saved });
+        h.providerModels.resolveActiveProviderId.mockReturnValue(
+          'openai-codex',
+        );
+        h.sdkAdapter.getSupportedModels.mockResolvedValue(codexTierList);
+        h.sdkAdapter.getApiModels.mockResolvedValue([]);
+        return h;
+      }
+
+      it('offers and selects a saved provider model missing from the tier list', async () => {
+        const h = codexHarness('gpt-6-luna');
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; name: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        const selected = result.models.filter((m) => m.isSelected);
+        expect(selected).toEqual([
+          expect.objectContaining({ id: 'gpt-6-luna', name: 'GPT 6 Luna' }),
+        ]);
+      });
+
+      it('offers a saved model found only in the live catalog', async () => {
+        const h = codexHarness('gpt-7-nova');
+        h.providerModels.getCachedModelIds.mockReturnValue([
+          'gpt-6.1-sol',
+          'gpt-7-nova',
+        ]);
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        expect(result.models.find((m) => m.isSelected)?.id).toBe('gpt-7-nova');
+      });
+
+      it('does not offer a static model that the live catalog leaves out', async () => {
+        const h = codexHarness('gpt-6-luna');
+        h.providerModels.getCachedModelIds.mockReturnValue(['gpt-6.1-sol']);
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        expect(result.models.map((m) => m.id)).not.toContain('gpt-6-luna');
+        expect(result.models.some((m) => m.isSelected)).toBe(false);
+      });
+
+      it('does not invent an entry for a model the provider does not declare', async () => {
+        const h = codexHarness('not-a-codex-model');
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        expect(result.models.map((m) => m.id)).not.toContain(
+          'not-a-codex-model',
+        );
+        expect(result.models.some((m) => m.isSelected)).toBe(false);
+      });
+
+      it('selects the tier entry a saved tier alias resolves to', async () => {
+        const h = codexHarness('haiku');
+        h.modelResolver.resolve.mockImplementation((m: string) =>
+          m === 'haiku' ? 'gpt-5.6-terra' : m,
+        );
+        h.handlers.register();
+
+        const result = await call<{
+          models: Array<{ id: string; isSelected: boolean }>;
+        }>(h, 'config:models-list');
+
+        expect(result.models.filter((m) => m.isSelected)).toEqual([
+          expect.objectContaining({ id: 'gpt-5.6-terra' }),
+        ]);
+      });
     });
   });
 

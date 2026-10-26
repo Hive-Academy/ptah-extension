@@ -133,6 +133,9 @@ function harness(bound = false) {
       }),
   };
   const provider = {
+    resolveStoredModel: jest.fn(
+      (_path: string, model: string) => model || 'default',
+    ),
     resolveProviderProfileForWorkspace: jest.fn().mockResolvedValue(undefined),
   };
   const style = { resolveSessionFields: jest.fn().mockResolvedValue({}) };

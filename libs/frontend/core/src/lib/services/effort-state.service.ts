@@ -23,6 +23,13 @@ export class EffortStateService {
   private readonly _isLoaded = signal(false);
   readonly isLoaded = this._isLoaded.asReadonly();
 
+  /** Bumped by every read: only the newest read may apply. */
+  private readGeneration = 0;
+  /** Bumped at the start and the end of every write: a read that overlaps a write is dropped. */
+  private writeEvents = 0;
+  /** A read was dropped by a write that is still pending: read again once the writes finish. */
+  private rereadAfterWrites = false;
+
   constructor() {
     this.loadEffort();
   }
@@ -40,6 +47,7 @@ export class EffortStateService {
     sessionId?: SessionId | null,
   ): Promise<boolean> {
     const finishWrite = this.changes.beginWrite();
+    this.writeEvents++;
     const previous = this._currentEffort();
     this._currentEffort.set(effort);
 
@@ -62,7 +70,12 @@ export class EffortStateService {
       this._currentEffort.set(previous);
       return false;
     } finally {
+      this.writeEvents++;
       finishWrite();
+      if (this.rereadAfterWrites && this.changes.pending() === 0) {
+        this.rereadAfterWrites = false;
+        void this.loadEffort();
+      }
     }
   }
 
@@ -77,14 +90,27 @@ export class EffortStateService {
   }
 
   private async loadEffort(): Promise<void> {
+    const generation = ++this.readGeneration;
+    const writeEventsAtStart = this.writeEvents;
     try {
       const result = await this.rpc.call('config:effort-get', {});
+      if (generation !== this.readGeneration) return;
+      if (
+        this.writeEvents !== writeEventsAtStart ||
+        this.changes.pending() > 0
+      ) {
+        // The write's value can target the slot of the provider this read was meant to replace,
+        // so do not keep it blindly: read again once no write is pending.
+        if (this.changes.pending() > 0) this.rereadAfterWrites = true;
+        else void this.loadEffort();
+        return;
+      }
       if (result.isSuccess() && result.data) {
         this._currentEffort.set(result.data.effort);
       }
-      this._isLoaded.set(true);
     } catch (error: unknown) {
       console.error('[EffortStateService] Error loading effort:', error);
+    } finally {
       this._isLoaded.set(true);
     }
   }

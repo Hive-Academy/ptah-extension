@@ -24,6 +24,7 @@ import {
   CommandDiscoveryFacade,
   VSCodeService,
 } from '@ptah-extension/core';
+import { rpcSuccess } from '@ptah-extension/core/testing';
 import {
   CommandCenterSendLockService,
   TabManagerService,
@@ -145,9 +146,15 @@ describe('ChatInputComponent Command Center lock', () => {
         {
           provide: ClaudeRpcService,
           useValue: {
-            call: jest
-              .fn()
-              .mockResolvedValue({ isSuccess: () => false, data: null }),
+            call: jest.fn(async (method: string) => {
+              if (method === 'config:models-list') {
+                return rpcSuccess({ models: [] });
+              }
+              if (method === 'config:pricing-get') {
+                return rpcSuccess({ pricing: {}, hydrated: false });
+              }
+              return { isSuccess: () => false, data: null };
+            }),
           },
         },
         {

@@ -12,6 +12,7 @@ import {
 import {
   ClaudeRpcService,
   FILE_LINK_OPENER,
+  LoggingService,
   VSCodeService,
 } from '@ptah-extension/core';
 import {
@@ -56,6 +57,15 @@ describe('agent card unified output regressions', () => {
         },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
+        {
+          provide: LoggingService,
+          useValue: {
+            debug: jest.fn(),
+            info: jest.fn(),
+            warn: jest.fn(),
+            error: jest.fn(),
+          } satisfies Pick<LoggingService, 'debug' | 'info' | 'warn' | 'error'>,
+        },
         {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()) },
@@ -154,6 +164,7 @@ describe('agent card unified output regressions', () => {
         fixture.componentRef.setInput('agent', agentData);
         fixture.detectChanges();
         await fixture.whenStable();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         fixture.detectChanges();
         const output: HTMLElement = fixture.nativeElement.querySelector(
           'ptah-cli-agent-output',
@@ -180,6 +191,7 @@ describe('agent card unified output regressions', () => {
         });
         fixture.detectChanges();
         await fixture.whenStable();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         fixture.detectChanges();
         expect(
           fixture.nativeElement.querySelector('ptah-cli-agent-output'),
@@ -195,6 +207,7 @@ describe('agent card unified output regressions', () => {
         for (const callback of frames.splice(0)) callback(performance.now());
         fixture.detectChanges();
         await fixture.whenStable();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
         fixture.detectChanges();
         expect(output.textContent).toContain(
           type === 'error'

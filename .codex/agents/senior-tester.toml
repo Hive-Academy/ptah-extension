@@ -114,7 +114,7 @@ challenge your reading rather than guess at it.
 - Reuse the shared doubles: `libs/backend/vscode-core/src/testing/index.ts`, `libs/shared/src/testing/fake-async-generator.ts` and `libs/backend/platform-core/src/testing/index.ts`. Import them through their `/testing` aliases in `tsconfig.base.json`.
 - Any new port or adapter must pass the contract runners in `libs/backend/platform-core/src/testing/contracts/`.
 - Tests that need the `vscode` module use the root mock at `__mocks__/vscode.ts`.
-- Run only the project you changed: `npm run verify -- -t test -p <project>`. It waits for the machine-wide verify lock, so do not coordinate a check slot with other sessions. These rules come from `CLAUDE.md`.
+- Run only the project you changed: `npx nx test <project> --parallel=1`, or `npx jest -c <lib>/jest.config.ts <spec> --coverage=false --maxWorkers=2`. These rules come from `CLAUDE.md`.
 - License-server e2e lives in `apps/ptah-license-server-e2e/jest.config.cts`. Never run e2e targets unless asked.
 
 ## Escalation protocol

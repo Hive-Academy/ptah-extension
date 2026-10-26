@@ -688,7 +688,7 @@ export class GatewayChatBridge {
    */
   private async prepareTurn(workspaceRoot: string): Promise<TurnPreparation> {
     const sdkContext = await this.resolveSdkContext(workspaceRoot);
-    const model = this.resolveModel();
+    const model = this.resolveModel(workspaceRoot);
     const providerProfile =
       await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
         workspaceRoot,
@@ -866,8 +866,11 @@ export class GatewayChatBridge {
     });
   }
 
-  private resolveModel(): string {
-    return this.modelSettings.selectedModel.get() || 'default';
+  private resolveModel(workspaceRoot: string): string {
+    return this.workspaceProviderProfileResolver.resolveStoredModel(
+      workspaceRoot,
+      this.modelSettings.selectedModel.get(),
+    );
   }
 
   /**

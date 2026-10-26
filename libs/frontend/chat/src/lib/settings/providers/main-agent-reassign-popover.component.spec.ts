@@ -73,7 +73,12 @@ describe('MainAgentReassignPopoverComponent', () => {
   const query = <T extends HTMLElement = HTMLElement>(id: string) => document.querySelector<T>(`[data-testid="${id}"]`);
   const buttonNamed = (label: string) =>
     Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="main-agent-popover"] button')).find((node) => node.textContent?.trim() === label);
-  async function flush() { for (let i = 0; i < 8; i += 1) await Promise.resolve(); fixture.detectChanges(); }
+  async function flush() {
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
   /** The compact searchable model control (Batch 28b) and its combobox input. */
   const modelField = () => fixture.debugElement.query(By.directive(ProviderModelSearchFieldComponent)).componentInstance as ProviderModelSearchFieldComponent;
   const modelInput = () => query<HTMLInputElement>('main-agent-model')?.querySelector<HTMLInputElement>('input') ?? null;
@@ -429,7 +434,7 @@ describe('MainAgentReassignPopoverComponent', () => {
     it('filters as the user types; arrows and Enter pick a model into the draft (keyboard, ARIA combobox)', async () => {
       const input = modelInput();
       if (!input) throw new Error('No model input');
-      input.dispatchEvent(new Event('focus')); fixture.detectChanges();
+      input.click(); fixture.detectChanges();
       expect(input.getAttribute('aria-expanded')).toBe('true');
       input.value = 'model b'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
       const listbox = document.getElementById(input.getAttribute('aria-controls') ?? '');
@@ -450,7 +455,7 @@ describe('MainAgentReassignPopoverComponent', () => {
     it('Esc closes the open model list first, and only the next Esc closes the popover', () => {
       const input = modelInput();
       if (!input) throw new Error('No model input');
-      input.dispatchEvent(new Event('focus')); fixture.detectChanges();
+      input.click(); fixture.detectChanges();
       key(input, 'Escape');
       expect(input.getAttribute('aria-expanded')).toBe('false');
       expect(fixture.componentInstance.closed).toBe(0);
@@ -487,6 +492,14 @@ describe('MainAgentReassignPopoverComponent', () => {
       nothingWritten();
       expect(query('main-agent-model')?.tagName).toBe('PTAH-PROVIDER-MODEL-SEARCH-FIELD');
       expect(document.activeElement).toBe(modelInput());
+      // Refocus opens a fresh search; closing the list reveals the drafted selection.
+      expect(modelInput()?.getAttribute('aria-expanded')).toBe('true');
+      expect(modelInput()?.value).toBe('');
+      modelInput()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush();
+      expect(modelInput()?.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(modelInput());
+      expect(fixture.componentInstance.closed).toBe(0);
       expect(modelInput()?.value).toBe('vendor/unlisted · not in current catalog');
       await save();
       expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'vendor/unlisted', applyTo: 'workspace' } }, CONTEXT);

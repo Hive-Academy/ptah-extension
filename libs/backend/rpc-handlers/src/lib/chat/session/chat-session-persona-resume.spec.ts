@@ -34,6 +34,9 @@ function service() {
       selectedModel: { get: jest.fn().mockReturnValue('default') },
     },
     workspaceProviderProfileResolver: {
+      resolveStoredModel: jest.fn(
+        (_path: string, model: string) => model || 'default',
+      ),
       resolveProviderProfileForWorkspace: jest
         .fn()
         .mockResolvedValue(undefined),

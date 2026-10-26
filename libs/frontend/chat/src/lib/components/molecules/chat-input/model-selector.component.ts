@@ -212,9 +212,25 @@ export class ModelSelectorComponent {
           .find((candidate) => candidate.id === contextTabId)
       : this.tabManager.activeTab();
 
-    return (
-      tab?.overrideModel ?? tab?.sessionModel ?? this.modelState.currentModel()
-    );
+    // An override the loaded list does not offer was picked under a provider
+    // the user switched away from. The send path drops it the same way
+    // (`MessageSenderService.resolveValidModel`), so showing it would name a
+    // model the next turn will not use.
+    const override = tab?.overrideModel;
+    const models = this.modelState.availableModels();
+    if (
+      override &&
+      models.length > 0 &&
+      !models.some((m) => m.id === override)
+    ) {
+      // Same fallback order as `resolveValidModel`.
+      const fallback =
+        models.find((m) => m.isSelected) ??
+        models.find((m) => m.id === 'default') ??
+        models[0];
+      return fallback.id;
+    }
+    return override ?? tab?.sessionModel ?? this.modelState.currentModel();
   });
 
   /**

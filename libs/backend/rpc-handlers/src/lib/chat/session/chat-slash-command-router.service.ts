@@ -277,7 +277,11 @@ export class ChatSlashCommandRouterService {
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
       const command = interceptResult.rawCommand ?? prompt;
       const model =
-        params.model || this.modelSettings.selectedModel.get() || 'default';
+        params.model ||
+        this.workspaceProviderProfileResolver.resolveStoredModel(
+          workspacePath ?? '',
+          this.modelSettings.selectedModel.get(),
+        );
       let reservationId: string | undefined;
       try {
         // The relaunch is a new query: it gets the same per-workspace provider

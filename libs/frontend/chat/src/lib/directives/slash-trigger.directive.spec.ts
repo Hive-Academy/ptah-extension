@@ -12,7 +12,7 @@
  */
 
 import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
-import { TestBed, fakeAsync, tick, flush } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import {
   SlashTriggerDirective,
   SlashTriggerEvent,
@@ -75,6 +75,7 @@ describe('SlashTriggerDirective', () => {
   let textarea: HTMLTextAreaElement;
 
   beforeEach(async () => {
+    jest.useFakeTimers();
     await TestBed.configureTestingModule({
       imports: [TestHostComponent],
     }).compileComponents();
@@ -83,6 +84,12 @@ describe('SlashTriggerDirective', () => {
     host = fixture.componentInstance;
     textarea = fixture.nativeElement.querySelector('textarea');
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
   it('should create the directive on textarea', () => {
@@ -94,41 +101,41 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('slashActivated (immediate, no debounce)', () => {
-    it('should emit slashActivated immediately when / is typed at start', fakeAsync(() => {
+    it('should emit slashActivated immediately when / is typed at start', () => {
       simulateInput(textarea, '/');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit slashActivated with query when / and text typed together', fakeAsync(() => {
+    it('should emit slashActivated with query when / and text typed together', () => {
       simulateInput(textarea, '/orch');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('orch');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should only emit slashActivated once per activation cycle', fakeAsync(() => {
+    it('should only emit slashActivated once per activation cycle', () => {
       simulateInput(textarea, '/');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       simulateInput(textarea, '/or');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1); // Still 1
 
       simulateInput(textarea, '/orch');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1); // Still 1
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -136,21 +143,21 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('slashQueryChanged (immediate, no debounce)', () => {
-    it('should emit slashQueryChanged immediately as user types', fakeAsync(() => {
+    it('should emit slashQueryChanged immediately as user types', () => {
       simulateInput(textarea, '/o');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('o');
 
       simulateInput(textarea, '/or');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('or');
 
       simulateInput(textarea, '/orc');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.queryChangedEvents).toContain('orc');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -158,38 +165,38 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('slashTriggered (debounced by 150ms)', () => {
-    it('should emit slashTriggered after 150ms debounce', fakeAsync(() => {
+    it('should emit slashTriggered after 150ms debounce', () => {
       simulateInput(textarea, '/orchestrate');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       // Not yet
       expect(host.triggeredEvents.length).toBe(0);
 
       // After debounce
-      tick(150);
+      jest.advanceTimersByTime(150);
       expect(host.triggeredEvents.length).toBe(1);
       expect(host.triggeredEvents[0].query).toBe('orchestrate');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should only emit last value when typing rapidly', fakeAsync(() => {
+    it('should only emit last value when typing rapidly', () => {
       simulateInput(textarea, '/o');
-      tick(30);
+      jest.advanceTimersByTime(30);
       simulateInput(textarea, '/or');
-      tick(30);
+      jest.advanceTimersByTime(30);
       simulateInput(textarea, '/orc');
-      tick(30);
+      jest.advanceTimersByTime(30);
       simulateInput(textarea, '/orch');
 
-      tick(150);
+      jest.advanceTimersByTime(150);
 
       // Only last stable value
       expect(host.triggeredEvents.length).toBe(1);
       expect(host.triggeredEvents[0].query).toBe('orch');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -197,42 +204,42 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('slashClosed (immediate)', () => {
-    it('should emit slashClosed when space typed (command completed)', fakeAsync(() => {
+    it('should emit slashClosed when space typed (command completed)', () => {
       simulateInput(textarea, '/orchestrate');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       simulateInput(textarea, '/orchestrate ');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit slashClosed when input cleared', fakeAsync(() => {
+    it('should emit slashClosed when input cleared', () => {
       simulateInput(textarea, '/test');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       simulateInput(textarea, '');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should emit slashClosed when @ is typed (switch to @ mode)', fakeAsync(() => {
+    it('should emit slashClosed when @ is typed (switch to @ mode)', () => {
       simulateInput(textarea, '/test');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
       // User changes to @ trigger
       simulateInput(textarea, '@file');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.closedCount).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -240,36 +247,36 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('/ detection rules', () => {
-    it('should only detect / at position 0', fakeAsync(() => {
+    it('should only detect / at position 0', () => {
       // / at position 0
       simulateInput(textarea, '/');
-      tick(0);
+      jest.advanceTimersByTime(0);
       expect(host.activatedEvents.length).toBe(1);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should NOT detect / in middle of text', fakeAsync(() => {
+    it('should NOT detect / in middle of text', () => {
       simulateInput(textarea, 'path/to/file');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
 
-    it('should still detect / even when @ is present in input', fakeAsync(() => {
+    it('should still detect / even when @ is present in input', () => {
       // The @ guard was removed — / and @ triggers now operate independently.
       // The slash trigger only cares about position 0 and no space in command name.
       // Value "/@test" starts with /, no space in command portion → activates.
       simulateInput(textarea, '/@test');
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       expect(host.activatedEvents.length).toBe(1);
       expect(host.activatedEvents[0].query).toBe('@test');
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 
   // ============================================================================
@@ -277,18 +284,18 @@ describe('SlashTriggerDirective', () => {
   // ============================================================================
 
   describe('enabled input', () => {
-    it('should not emit events when disabled', fakeAsync(() => {
+    it('should not emit events when disabled', () => {
       host.enabled.set(false);
       fixture.detectChanges();
-      tick(0);
+      jest.advanceTimersByTime(0);
 
       simulateInput(textarea, '/test');
-      tick(200);
+      jest.advanceTimersByTime(200);
 
       expect(host.activatedEvents.length).toBe(0);
       expect(host.triggeredEvents.length).toBe(0);
 
-      flush();
-    }));
+      jest.runOnlyPendingTimers();
+    });
   });
 });

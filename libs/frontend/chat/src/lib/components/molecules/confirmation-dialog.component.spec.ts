@@ -218,8 +218,9 @@ describe('ConfirmationDialogComponent', () => {
     expect(el('[data-testid="page"]').hasAttribute('inert')).toBe(true);
 
     buttons()[0].click();
-    await expect(answer).resolves.toBe(false);
+    // Check before yielding: zoneless rendering may restore focus during the await.
     expect(document.activeElement).not.toBe(opener());
+    await expect(answer).resolves.toBe(false);
 
     render();
     expect(el('[data-testid="page"]').hasAttribute('inert')).toBe(false);

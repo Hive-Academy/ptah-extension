@@ -49,6 +49,10 @@ test.describe('webview > sessions > create', () => {
         .getByRole('button', { name: 'Create', exact: true })
         .first()
         .click();
+      await expect(
+        nameInput,
+        'Create should close the new-session popover',
+      ).toBeHidden();
     }
     await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
@@ -78,13 +82,18 @@ test.describe('webview > sessions > create', () => {
     });
     if (await createBtn.count()) {
       await createBtn.first().click();
-      await expect(
-        webviewPage.getByRole('textbox', { name: /session name/i }).first(),
-      ).toBeVisible();
+      const nameInput = webviewPage
+        .getByRole('textbox', { name: /session name/i })
+        .first();
+      await expect(nameInput).toBeVisible();
       await webviewPage
         .getByRole('button', { name: 'Create', exact: true })
         .first()
         .click();
+      await expect(
+        nameInput,
+        'Create should close the new-session popover',
+      ).toBeHidden();
     }
     await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);

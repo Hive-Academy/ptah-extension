@@ -97,7 +97,16 @@ function mount(): {
         questionRequests: signal([]), resumableSubagents: signal([]).asReadonly(),
       } },
       { provide: VSCodeService, useValue: { isElectron: false, config: () => ({ workspaceRoot: '/w' }) } },
-      { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+      {
+        provide: ClaudeRpcService,
+        useValue: {
+          call: jest.fn((method: string) =>
+            method === 'session:cli-sessions'
+              ? Promise.resolve({ success: true, data: { cliSessions: [] } })
+              : undefined,
+          ),
+        },
+      },
       { provide: ConfirmationDialogService, useValue: { confirm: jest.fn() } },
       { provide: ActionBannerService, useValue: { banner: signal(null).asReadonly(), showError: jest.fn(), showInfo: jest.fn(), showWarning: jest.fn() } },
       { provide: SessionHistoryReplayer, useValue: { isReplaying: () => false, retirePersistedFilter: jest.fn() } },

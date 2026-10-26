@@ -302,6 +302,75 @@ describe('ModelStateService', () => {
       );
       expect(listCalls.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('corrects a selection the new provider does not offer (provider switch)', async () => {
+      rpc.call.mockImplementation(async (method: string) =>
+        method === 'config:models-list'
+          ? rpcSuccess({
+              models: [
+                makeModel({ id: 'default' }),
+                makeModel({ id: 'gpt-5.6-luna', isSelected: true }),
+              ],
+            })
+          : rpcSuccess({ pricing: {}, hydrated: true }),
+      );
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+      expect(harness.signal('currentModel')).toBe('gpt-5.6-luna');
+
+      // Claude list after the switch: the Codex model is gone, none selected.
+      rpc.call.mockImplementation(async (method: string) =>
+        method === 'config:models-list'
+          ? rpcSuccess({
+              models: [makeModel({ id: 'default' }), makeModel({ id: 'opus' })],
+            })
+          : rpcSuccess({ pricing: {}, hydrated: true }),
+      );
+      await service.refreshModels();
+
+      expect(harness.signal('currentModel')).toBe('default');
+      expect(harness.signal('availableModels').map((m) => m.id)).toEqual([
+        'default',
+        'opus',
+      ]);
+    });
+
+    it('a fresh refresh does not join a pre-switch read, and the late pre-switch answer is dropped', async () => {
+      rpc.call.mockImplementation(async (method: string) =>
+        method === 'config:models-list'
+          ? rpcSuccess({ models: [makeModel({ id: 'default' })] })
+          : rpcSuccess({ pricing: {}, hydrated: true }),
+      );
+      const service = createService();
+      const harness = makeSignalStoreHarness<ModelStoreState>(service);
+      await harness.flush();
+
+      let resolveStale: (value: unknown) => void = () => undefined;
+      rpc.call.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveStale = resolve)),
+      );
+      const stale = service.refreshModels();
+
+      rpc.call.mockImplementation(async (method: string) =>
+        method === 'config:models-list'
+          ? rpcSuccess({
+              models: [makeModel({ id: 'gpt-6-luna', isSelected: true })],
+            })
+          : rpcSuccess({ pricing: {}, hydrated: true }),
+      );
+      await service.refreshModels({ fresh: true });
+      expect(harness.signal('currentModel')).toBe('gpt-6-luna');
+
+      resolveStale(
+        rpcSuccess({ models: [makeModel({ id: 'opus', isSelected: true })] }),
+      );
+      await stale;
+      expect(harness.signal('currentModel')).toBe('gpt-6-luna');
+      expect(harness.signal('availableModels').map((m) => m.id)).toEqual([
+        'gpt-6-luna',
+      ]);
+    });
   });
 
   describe('pricing hydration (config:pricing-get)', () => {
