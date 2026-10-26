@@ -80,13 +80,10 @@ async function sendPromptToTile(
 }
 
 function reviewTile(page: Page): Locator {
+  // Panes have no header row: the pane's aria-label names its session.
   return page
     .locator('[data-testid="canvas-tile"]')
-    .filter({
-      has: page.locator('ptah-canvas-focus-header strong[title]', {
-        hasText: /^lane-review$/,
-      }),
-    })
+    .and(page.getByLabel(/^\w+ session: lane-review(, active)?$/))
     .locator('visible=true')
     .first();
 }
@@ -98,8 +95,16 @@ async function closeStale(page: Page, director: Director): Promise<void> {
       .first();
     if (!(await staleCard.count())) return;
     await staleCard.click({ position: { x: 10, y: 40 } });
-    const stale = reviewTile(page);
-    await director.click(stale.getByRole('button', { name: 'Close session' }));
+    // Wait for the stale session to take the pane, then close it from the
+    // sidebar's controls for the focused pane.
+    await reviewTile(page).waitFor({ state: 'visible' });
+    await director.click(
+      page.locator('ptah-canvas-rail-board:visible')
+        .locator('[data-inspector-rail], [data-inspector-dock]')
+        .getByRole('group', { name: 'Session controls' })
+        .getByRole('button', { name: 'Close session' })
+        .first(),
+    );
     await director.hold(400);
   }
   if (await page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')

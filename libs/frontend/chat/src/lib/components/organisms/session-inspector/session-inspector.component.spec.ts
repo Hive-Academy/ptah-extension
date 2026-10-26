@@ -52,11 +52,18 @@ const emptyModel: SessionInspectorModel = {
 @Component({
   standalone: true,
   imports: [SessionInspectorComponent],
-  template: `<ptah-session-inspector tabId="one" presentation="docked">
-    <button type="button" inspectorActions>Hand off</button>
+  template: `<ptah-session-inspector
+    tabId="one"
+    presentation="embedded"
+    [sessionTitle]="title"
+    sessionStatus="running"
+  >
+    <button type="button" inspectorControls>Stop session</button>
   </ptah-session-inspector>`,
 })
-class ActionsOnlyHost {}
+class ControlsHost {
+  title = '';
+}
 
 describe('SessionInspectorComponent presentation', () => {
   const model = signal(emptyModel);
@@ -241,11 +248,39 @@ describe('SessionInspectorComponent presentation', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps projected inspector actions when the identity block is empty', () => {
-    const fixture = TestBed.createComponent(ActionsOnlyHost);
+  it('puts the controls at the right of the title row, with no separate bar, and the status under the title', () => {
+    const fixture = TestBed.createComponent(ControlsHost);
+    fixture.componentInstance.title = 'A very long session title';
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    const headers = element.querySelectorAll('header');
+    expect(headers).toHaveLength(1);
+    const [identity, controls] = Array.from(headers[0].children);
+    expect(identity.classList).toContain('min-w-0');
+    expect(identity.classList).toContain('flex-1');
+    expect(identity.querySelector('h2')?.textContent?.trim()).toBe('A very long session title');
+    expect(identity.querySelector('p')?.textContent?.trim()).toBe('running');
+    expect(controls.classList).toContain('shrink-0');
+    const labels = Array.from(controls.querySelectorAll('button')).map(
+      (b) => b.getAttribute('aria-label') ?? b.textContent?.trim(),
+    );
+    // Projected session controls first, then the collapse-to-rail button last.
+    expect(labels).toEqual(['Stop session', 'Compact session details']);
+    expect(controls.lastElementChild?.hasAttribute('data-inspector-close')).toBe(true);
+  });
+
+  it('keeps projected controls without an identity and names the collapse by presentation', () => {
+    const fixture = create();
+    fixture.componentRef.setInput('presentation', 'sheet');
     fixture.detectChanges();
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('h2')).toBeNull();
-    expect(element.querySelector('[inspectorActions]')?.textContent).toContain('Hand off');
+    expect(
+      element.querySelector('[data-inspector-close]')?.getAttribute('aria-label'),
+    ).toBe('Close session details');
+    const host = TestBed.createComponent(ControlsHost);
+    host.detectChanges();
+    expect(host.nativeElement.querySelector('h2')).toBeNull();
+    expect(host.nativeElement.querySelector('[inspectorControls]')?.textContent).toContain('Stop session');
   });
 });

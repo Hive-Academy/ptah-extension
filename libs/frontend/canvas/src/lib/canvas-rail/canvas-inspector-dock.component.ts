@@ -6,7 +6,7 @@ import { LoggingService } from '@ptah-extension/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorOpenStateService,
-  ChatStore, SendToMessagingComponent, TabManagerService, injectSessionStatsSource,
+  ChatStore, TabManagerService, injectSessionStatsSource,
 } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SplitHandleComponent, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -103,7 +103,7 @@ export function injectCanvasInspectorDockState(sources: {
   selector: 'ptah-canvas-inspector-dock',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, SessionInspectorComponent, SendToMessagingComponent,
+  imports: [NgTemplateOutlet, SessionInspectorComponent,
     SplitHandleComponent, CanvasLaneTabsComponent, CanvasFocusHeaderComponent],
   providers: [InspectorDockController],
   host: { class: 'contents', '(document:keydown.escape)': 'onDocumentEscape($event)' },
@@ -129,28 +129,38 @@ export function injectCanvasInspectorDockState(sources: {
     </ng-template>
         @if (dockShown() && !compactSheetOpen()) {
           @if (focusedId(); as id) {
-            @if (!dockOpen()) {
-              <ptah-session-inspector
-                class="block h-full shrink-0"
-                [style.width.px]="occupiedWidth()"
-                data-inspector-rail
-                [tabId]="id"
-                presentation="rail"
-                [limitSummary]="stats()?.limitSummary"
-                [hasLaneSurface]="true"
-                [stats]="stats()"
-                [selectedAgentKey]="detail.laneKeyFor(id)"
-                [sessionTitle]="sessionTab(id)?.title ?? ''"
-                (expandRequested)="expandInspector($event)"
-              >
-                <ng-container inspectorRailControls [ngTemplateOutlet]="controls" [ngTemplateOutletContext]="{ rail: true }" />
-                <ptah-canvas-lane-tabs inspectorRailAgents
-                  [panelId]="panelId()" [tabId]="id" [rail]="true"
-                  [laneKey]="detail.laneKeyFor(id)"
-                  (laneSelected)="detail.selectLaneFor(id, $event)"
-                  (railPicked)="selectRailAgent(id, $event)"
-                  (expandRequested)="expandInspector('agents')" />
-              </ptah-session-inspector>
+            <!-- Every inspector reference is deferred so it stays out of the initial bundle.
+                 The block wraps the rail's @if, so it loads while the dock is open too and a
+                 later collapse renders the rail (and its focus target) synchronously.
+                 @loading holds the rail's width while the chunk loads. -->
+            @defer (on immediate) {
+              @if (!dockOpen()) {
+                <ptah-session-inspector
+                  class="block h-full shrink-0"
+                  [style.width.px]="occupiedWidth()"
+                  data-inspector-rail
+                  [tabId]="id"
+                  presentation="rail"
+                  [limitSummary]="stats()?.limitSummary"
+                  [hasLaneSurface]="true"
+                  [stats]="stats()"
+                  [selectedAgentKey]="detail.laneKeyFor(id)"
+                  [sessionTitle]="sessionTab(id)?.title ?? ''"
+                  (expandRequested)="expandInspector($event)"
+                >
+                  <ng-container inspectorRailControls [ngTemplateOutlet]="controls" [ngTemplateOutletContext]="{ rail: true }" />
+                  <ptah-canvas-lane-tabs inspectorRailAgents
+                    [panelId]="panelId()" [tabId]="id" [rail]="true"
+                    [laneKey]="detail.laneKeyFor(id)"
+                    (laneSelected)="detail.selectLaneFor(id, $event)"
+                    (railPicked)="selectRailAgent(id, $event)"
+                    (expandRequested)="expandInspector('agents')" />
+                </ptah-session-inspector>
+              }
+            } @loading {
+              @if (!dockOpen()) {
+                <div class="block h-full shrink-0" [style.width.px]="occupiedWidth()" aria-hidden="true"></div>
+              }
             }
             @if (dockShown() && dockOpen()) {
               @if (overlay()) { <div class="w-14 shrink-0" aria-hidden="true"></div> }
@@ -206,7 +216,6 @@ export function injectCanvasInspectorDockState(sources: {
                     [focusSection]="inspectorSection()"
                   >
                     <ng-container inspectorControls [ngTemplateOutlet]="controls" />
-                    <ptah-send-to-messaging inspectorActions class="shrink-0" [tabId]="id" />
                     <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                   </ptah-session-inspector>
                 } @loading {
@@ -253,7 +262,6 @@ export function injectCanvasInspectorDockState(sources: {
                   [focusSection]="inspectorSection()"
                 >
                   <ng-container inspectorControls [ngTemplateOutlet]="controls" />
-                  <ptah-send-to-messaging inspectorActions [tabId]="id" />
                   <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                 </ptah-session-inspector>
               } @loading {
@@ -384,15 +392,32 @@ export class CanvasInspectorDockComponent {
     event?.stopPropagation();
     this.stopDetailsFocusObserver();
     this.detailsOpen.set(false);
-    afterNextRender(
-      () =>
-        this.root()
-          .querySelector<HTMLElement>(
-            '[data-inspector-rail] [data-inspector-expand]',
-          )
-          ?.focus(),
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.focusRailExpand(), { injector: this.injector });
+  }
+
+  /**
+   * Focus the rail's expand control. The rail sits in a @defer block that the sheet
+   * or a cold load can leave unmounted, so wait for it while focus has not moved.
+   */
+  private focusRailExpand(): void {
+    this.stopDetailsFocusObserver();
+    const root = this.root();
+    const find = () =>
+      root.querySelector<HTMLElement>('[data-inspector-rail] [data-inspector-expand]');
+    const expand = find();
+    if (expand) {
+      expand.focus();
+      return;
+    }
+    const doc = root.ownerDocument;
+    this.detailsFocusObserver = new MutationObserver(() => {
+      const loaded = find();
+      if (!loaded) return;
+      const active = doc.activeElement;
+      if (!active || active === doc.body || !active.isConnected) loaded.focus();
+      this.stopDetailsFocusObserver();
+    });
+    this.detailsFocusObserver.observe(root, { childList: true, subtree: true });
   }
 
   onDocumentEscape(event: Event): void {
@@ -468,15 +493,7 @@ export class CanvasInspectorDockComponent {
     this.setDockExpanded(false);
     this.inspectorSection.set(null);
     this.layoutChanged.emit();
-    afterNextRender(
-      () =>
-        this.root()
-          .querySelector<HTMLElement>(
-            '[data-inspector-rail] [data-inspector-expand]',
-          )
-          ?.focus(),
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.focusRailExpand(), { injector: this.injector });
   }
   /**
    * The board crossed the 400 px compact threshold. The dock or split overlay

@@ -90,54 +90,26 @@
 }
 
 <ng-template #body>
+  @let closeLabel =
+    presentation() === 'sheet'
+      ? 'Close session details'
+      : 'Compact session details';
+  <!-- Title row: identity on the left, session controls and the collapse button on the right. -->
   <header
-    class="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-surface-border pl-4 pr-2"
+    class="flex shrink-0 items-start gap-2 border-b border-surface-border py-2 pl-3 pr-2"
   >
-    <ng-content select="[inspectorControls]" />
-    <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
-    <button
-      #closeButton
-      type="button"
-      data-inspector-close
-      class="inline-flex size-7 items-center justify-center rounded text-base-content-muted hover:bg-base-content/5 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-      [attr.aria-label]="
-        presentation() === 'sheet'
-          ? 'Close session details'
-          : 'Compact session details'
-      "
-      [title]="
-        presentation() === 'sheet'
-          ? 'Close session details'
-          : 'Compact session details'
-      "
-      (click)="closeRequested.emit()"
-    >
-      <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
-    </button>
-  </header>
-
-  @let m = model();
-  @let s = stats();
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    @let hasIdentity = !!(sessionTitle() || sessionStatus() || workflow() || branch());
-    <!-- The actions slot renders even without an identity; an empty row collapses (empty:hidden). -->
-    <div class="px-3" [class.py-2]="hasIdentity">
-      <div
-        class="flex items-center justify-between gap-2 empty:hidden"
-        [class.py-2]="!hasIdentity"
-      >
-        @if (hasIdentity) {
-          <h2 class="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">
-            {{ sessionTitle() }}
-          </h2>
-        }
-        <ng-content select="[inspectorActions]" />
-        @if (hasIdentity) {
-          <span class="shrink-0 text-xs text-base-content-muted">{{
-            sessionStatus()
-          }}</span>
-        }
-      </div>
+    <div class="min-w-0 flex-1 pt-1">
+      @if (sessionTitle()) {
+        <h2
+          class="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]"
+          [title]="sessionTitle()"
+        >
+          {{ sessionTitle() }}
+        </h2>
+      }
+      @if (sessionStatus()) {
+        <p class="text-xs text-base-content-muted">{{ sessionStatus() }}</p>
+      }
       @if (workflow()) {
         <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
           {{ workflow() }}
@@ -149,6 +121,30 @@
         </p>
       }
     </div>
+    <div class="flex shrink-0 items-center gap-1">
+      <ng-content select="[inspectorControls]" />
+      <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
+      <button
+        #closeButton
+        type="button"
+        data-inspector-close
+        class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        [attr.aria-label]="closeLabel"
+        [title]="closeLabel"
+        (click)="closeRequested.emit()"
+      >
+        <lucide-angular
+          [img]="presentation() === 'sheet' ? XIcon : PanelRightCloseIcon"
+          class="size-4"
+          aria-hidden="true"
+        />
+      </button>
+    </div>
+  </header>
+
+  @let m = model();
+  @let s = stats();
+  <div class="min-h-0 flex-1 overflow-y-auto">
     @if (m.orchestrator.requests.length > 0) {
       <ptah-inspector-request-lines
         class="block px-3 py-2"

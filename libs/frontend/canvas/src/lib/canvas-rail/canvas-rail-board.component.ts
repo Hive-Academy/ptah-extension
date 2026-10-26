@@ -43,6 +43,7 @@ import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-st
 import { CanvasInspectorDockComponent, injectCanvasInspectorDockState, isCanvasInspectorTabbable } from './canvas-inspector-dock.component';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
+import { restoreBoardFocus } from './canvas-board-focus';
 import { LucideAngularModule, Sparkles, TriangleAlert, X } from 'lucide-angular';
 import { AuroraEffectComponent } from '@ptah-extension/ui';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
@@ -1105,29 +1106,9 @@ export class CanvasRailBoardComponent {
   private title(id: string): string {
     return this.tabs.findTabByIdAcrossWorkspaces(id)?.tab.title ?? 'Session';
   }
-  /**
-   * When the control that had focus went away with its pane, focus the
-   * surviving pane's header menu trigger. Focus that is still on a live
-   * element (the header's own trigger, or a Details return) is left alone.
-   */
+  /** Focus lost with a pane's controls goes to the surviving session's control. */
   private restoreHeaderFocus(): void {
-    afterNextRender(
-      () => {
-        const active = this.host.nativeElement.ownerDocument.activeElement;
-        if (
-          active &&
-          active !== active.ownerDocument.body &&
-          active.isConnected
-        )
-          return;
-        this.host.nativeElement
-          .querySelector<HTMLElement>(
-            `[data-pane-side="${this.activeSide()}"] [data-header-menu]`,
-          )
-          ?.focus();
-      },
-      { injector: this.injector },
-    );
+    restoreBoardFocus(this.host.nativeElement, this.activeSide, this.injector);
   }
   /**
    * B3: stacked panes with a swapped `visualOrder` would Tab bottom-first in

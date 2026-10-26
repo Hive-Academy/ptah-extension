@@ -23,7 +23,7 @@ import {
   type SessionLimitSummary,
 } from '@ptah-extension/chat-ui';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { LucideAngularModule, X } from 'lucide-angular';
+import { LucideAngularModule, PanelRightClose, X } from 'lucide-angular';
 import {
   InspectorShellController,
   SessionInspectorStore,
@@ -95,6 +95,7 @@ export class SessionInspectorComponent {
   readonly answerRequested = output<string>();
 
   protected readonly XIcon = X;
+  protected readonly PanelRightCloseIcon = PanelRightClose;
 
   /** Polite live region text: request outcomes only (design 4.5). */
   protected readonly announcement = signal('');

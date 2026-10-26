@@ -193,11 +193,14 @@ class StatefulLaneStub implements OnDestroy {
   selector: 'ptah-canvas-focus-area',
   standalone: true,
   imports: [LaneStub],
-  template: `<header>
-      <button type="button" data-header-menu aria-label="More session actions">
-        ⋯
-      </button>
-    </header>
+  // Like the real focus area, per-pane controls exist only while two panes are shown.
+  template: `@if (splitDisplayed()) {
+      <header>
+        <button type="button" data-header-menu aria-label="More session actions">
+          ⋯
+        </button>
+      </header>
+    }
     @if (focusedTabId()) {
       <ptah-canvas-lane-view />
     }
@@ -212,6 +215,24 @@ class FocusStub {
   readonly closeSplitRequested = output<'left' | 'right'>();
   readonly closePaneRequested = output<'left' | 'right'>();
   readonly swapPanesRequested = output<'left' | 'right'>();
+}
+@Component({
+  selector: 'ptah-canvas-focus-header',
+  standalone: true,
+  template: `<div role="group" aria-label="Session controls">
+    <button type="button" data-compact aria-label="Switch to compact view"></button>
+    <button type="button" aria-label="Close session"></button>
+  </div>`,
+})
+class SessionControlsStub {
+  readonly tabId = input.required<string>();
+  readonly rail = input(false);
+  readonly embedded = input(false);
+  readonly running = input(false);
+  readonly viewMode = input('full');
+  readonly stop = output<void>();
+  readonly toggleViewMode = output<void>();
+  readonly closeRequested = output<void>();
 }
 @Component({
   selector: 'ptah-session-inspector',
@@ -235,7 +256,7 @@ class FocusStub {
         >
           Close
         </button>
-        <ng-content select="[inspectorActions]" />
+        <ng-content select="[inspectorControls]" />
         <ng-content select="[inspectorSection]" />
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
@@ -405,6 +426,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     surface?: WritableSignal<boolean>,
     realCard = false,
     realFocus = false,
+    sidebarControls = false,
   ) {
     sourceState.set('idle');
     jest
@@ -562,7 +584,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     });
     TestBed.overrideComponent(CanvasInspectorDockComponent, {
       set: {
-        imports: [InspectorStub, NgTemplateOutlet, SplitHandleComponent],
+        imports: [
+          InspectorStub, NgTemplateOutlet, SplitHandleComponent,
+          ...(sidebarControls ? [SessionControlsStub] : []),
+        ],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
@@ -985,9 +1010,11 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(separator?.getAttribute('aria-valuemax')).toBe('352');
   });
 
-  it('sm: the dock starts closed behind a collapsed Stats tab, with no aside and no 44 px strip', () => {
+  it('sm: the dock starts closed behind a collapsed Stats tab, with no aside and no 44 px strip', async () => {
     const { fixture, width } = mount();
     width.set(760);
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     const { tab, separator, aside } = dockParts(fixture.nativeElement);
     expect(tab?.getAttribute('aria-expanded')).toBe('false');
@@ -999,6 +1026,8 @@ describe('CanvasRailBoardComponent rendering', () => {
   it('expands the compact rail at the requested section and projects one selector', async () => {
     const { fixture } = mount(true, 2, 'a', undefined, false, true);
     fixture.componentInstance.closeDock();
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
@@ -1252,15 +1281,19 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).not.toBeNull();
   });
 
-  it('split and the compact sheet start from the rail with no separator', () => {
+  it('split and the compact sheet start from the rail with no separator', async () => {
     const { fixture, width } = mount();
     fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     expect(dockParts(fixture.nativeElement).tab).not.toBeNull();
     expect(dockParts(fixture.nativeElement).separator).toBeNull();
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
     fixture.componentInstance.closeSplit();
     width.set(380);
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     expect(dockParts(fixture.nativeElement).tab).not.toBeNull();
     expect(dockParts(fixture.nativeElement).separator).toBeNull();
@@ -2363,6 +2396,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     instance.openBeside('b');
     width.set(1600);
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
     expect(instance.dockOpen()).toBe(false);
     // Expand from the rail: the sidebar opens as an overlay over the panes.
     fixture.nativeElement
@@ -2402,6 +2437,8 @@ describe('CanvasRailBoardComponent rendering', () => {
   it('split: Escape on the expanded overlay collapses it to the rail and focuses the expand control', async () => {
     const { fixture } = mount();
     fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     fixture.componentInstance.toggleDetails();
     fixture.detectChanges();
@@ -2834,9 +2871,14 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(focused()).toBe('a');
   });
 
-  it('close active pane releases that host, focuses the survivor in its own host and header', async () => {
-    const { fixture, focused, store } = mount(true, 3);
+  const SESSION_CONTROLS = '[role="group"][aria-label="Session controls"]';
+
+  it('close active pane releases that host, focuses the survivor in its own host and the rail session controls', async () => {
+    const { fixture, focused, store } = mount(true, 3, 'a', undefined, false, false, true);
     const instance = fixture.componentInstance;
+    instance.closeDock();
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     instance.openBeside('b');
     fixture.detectChanges();
     instance.swapPanes();
@@ -2848,6 +2890,9 @@ describe('CanvasRailBoardComponent rendering', () => {
       ?.querySelector<HTMLElement>('[data-header-menu]')
       ?.focus();
     stubOf(fixture, 'right').closePaneRequested.emit('right');
+    fixture.detectChanges();
+    // The rail sits in a @defer block: focus waits for it to render.
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     await fixture.whenStable();
     expect(instance.otherTabId()).toBeNull();
@@ -2861,9 +2906,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
-    expect(document.activeElement).toBe(
-      paneOf(fixture, 'left')?.querySelector('[data-header-menu]'),
+    // Single view renders no per-pane controls: focus goes to the sidebar's session controls.
+    expect(paneOf(fixture, 'left')?.querySelector('[data-header-menu]')).toBeNull();
+    const controls = fixture.nativeElement.querySelector<HTMLElement>(
+      `[data-inspector-rail] ${SESSION_CONTROLS}`,
     );
+    expect(document.activeElement).toBe(controls?.querySelector('[data-compact]'));
     expect(instance.announcement()).toBe('Pane closed. a stays open.');
     expect(store.removeTile).not.toHaveBeenCalled();
   });
@@ -2879,6 +2927,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     (store.focusTile as jest.Mock).mockClear();
     stubOf(fixture, 'left').closePaneRequested.emit('left');
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
     await fixture.whenStable();
     expect(store.focusTile).not.toHaveBeenCalled();
     expect(focused()).toBe('b');
@@ -2887,8 +2937,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(
       paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area'),
     ).toBe(activeHost);
+    // The survivor's sidebar opens expanded; without session controls there, its collapse button takes focus.
+    expect(instance.dockOpen()).toBe(true);
     expect(document.activeElement).toBe(
-      paneOf(fixture, 'right')?.querySelector('[data-header-menu]'),
+      fixture.nativeElement.querySelector('[data-inspector-dock] [data-inspector-close]'),
     );
     const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
     expect(panes).toHaveLength(1);
@@ -2933,8 +2985,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     }
   });
 
-  it('close split from the active header keeps the active tab and the focus on that header', async () => {
-    const { fixture, focused } = mount(true, 3);
+  it('close split from the active pane keeps the active tab and moves focus to the expanded sidebar controls', async () => {
+    const { fixture, focused } = mount(true, 3, 'a', undefined, false, false, true);
     const instance = fixture.componentInstance;
     instance.openBeside('b');
     fixture.detectChanges();
@@ -2947,13 +2999,20 @@ describe('CanvasRailBoardComponent rendering', () => {
     trigger?.focus();
     stubOf(fixture, 'right').closeSplitRequested.emit('right');
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
     await fixture.whenStable();
     expect(focused()).toBe('b');
     expect(instance.otherTabId()).toBeNull();
     expect(
       paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area'),
     ).toBe(host);
-    expect(document.activeElement).toBe(trigger);
+    expect(trigger?.isConnected).toBe(false);
+    expect(instance.dockOpen()).toBe(true);
+    const controls = fixture.nativeElement.querySelector<HTMLElement>(
+      `[data-inspector-dock] ${SESSION_CONTROLS}`,
+    );
+    expect(document.activeElement).toBe(controls?.querySelector('[data-compact]'));
     expect(instance.announcement()).toBe('Split closed.');
   });
 
@@ -3017,11 +3076,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(instance.visualOrder()).toEqual(['left', 'right']);
   });
 
-  it('stacked swap keeps hosts and top-before-bottom Tab order', () => {
+  it('stacked swap keeps hosts and top-before-bottom Tab order', async () => {
     const { fixture, focused } = mount(true, 3);
     const instance = fixture.componentInstance;
     expect(instance.splitStacked()).toBe(true);
     instance.openBeside('b');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     fixture.detectChanges();
     const left = paneOf(fixture, 'left') as HTMLElement;
     const right = paneOf(fixture, 'right') as HTMLElement;

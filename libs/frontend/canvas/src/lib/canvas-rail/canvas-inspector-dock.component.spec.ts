@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, input, output, NO_ERRORS_SCHEMA } from '@angular/core';
-import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
+import { type ComponentFixture, DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
   ChatStore, INSPECTOR_TAB_WIDTH, SendToMessagingComponent, TabManagerService,
@@ -17,9 +17,11 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '<button type="button">Send to messaging</button>',
+  host: { '[attr.data-trigger]': 'trigger()' },
 })
 class MessagingStub {
   readonly tabId = input.required<string>();
+  readonly trigger = input<'text' | 'icon'>('text');
 }
 
 @Component({
@@ -44,7 +46,6 @@ class MessagingStub {
           Close
         </button>
         <ng-content select="[inspectorControls]" />
-        <ng-content select="[inspectorActions]" />
         <ng-content select="[inspectorSection]" />
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
@@ -131,6 +132,14 @@ describe('CanvasInspectorDockComponent', () => {
     return { fixture };
   }
 
+  /** The compact rail is deferred too: complete every open block, then render. */
+  async function completeDeferBlocks(fixture: ComponentFixture<CanvasInspectorDockComponent>) {
+    for (const block of await fixture.getDeferBlocks()) {
+      await block.render(DeferBlockState.Complete);
+    }
+    fixture.detectChanges();
+  }
+
   function dockParts(host: HTMLElement) {
     return {
       tab: host.querySelector<HTMLButtonElement>('[data-inspector-expand]'),
@@ -160,17 +169,18 @@ describe('CanvasInspectorDockComponent', () => {
     expect(TestBed.inject(CanvasDetailService).selectLaneFor).toHaveBeenCalledWith('a', 'cli:chosen');
   });
 
-  it.each(['near', 'at'] as const)('forwards the %s plan limit to the compact rail', (state) => {
+  it.each(['near', 'at'] as const)('forwards the %s plan limit to the compact rail', async (state) => {
     const { fixture } = mount();
     const limitSummary = { state, text: 'Plan limit', fullText: 'Weekly plan limit', extra: 0, source: 'session' };
     fixture.componentRef.setInput('stats', { limitSummary });
     fixture.componentInstance.closeDock();
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     const rail = fixture.debugElement.query(By.directive(InspectorStub)).componentInstance as InspectorStub;
     expect(rail.limitSummary()).toEqual(limitSummary);
   });
 
-  it('subtracts the compact 56px exactly once and never saves it as the dock preference', () => {
+  it('subtracts the compact 56px exactly once and never saves it as the dock preference', async () => {
     const { fixture } = mount();
     const component = fixture.componentInstance;
     component.dock.preview(400);
@@ -178,6 +188,7 @@ describe('CanvasInspectorDockComponent', () => {
     fixture.detectChanges();
     component.closeDock();
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     expect(component.occupiedWidth()).toBe(INSPECTOR_TAB_WIDTH);
     expect(component.availableWidth() - component.occupiedWidth()).toBe(1040);
     expect(fixture.nativeElement.querySelector('[data-inspector-rail]').style.width).toBe('56px');
@@ -193,6 +204,27 @@ describe('CanvasInspectorDockComponent', () => {
     expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('400');
   });
 
+  it('closing the compact sheet focuses the rail expand control once its deferred block mounts', async () => {
+    const { fixture } = mount();
+    const host: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(host);
+    fixture.componentRef.setInput('dockOpen', false);
+    fixture.componentRef.setInput('compactSheet', true);
+    fixture.componentRef.setInput('detailsOpen', true);
+    fixture.detectChanges();
+    expect(host.querySelector('[data-inspector-rail]')).toBeNull();
+    fixture.componentInstance.closeCompactSheet();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    // The sheet destroyed the rail's block: it is not mounted yet after the next render.
+    expect(host.querySelector('[data-inspector-expand]')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+    await completeDeferBlocks(fixture);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(host.querySelector('[data-inspector-expand]'));
+    host.remove();
+  });
+
   it.each(['dock', 'sheet'])('renders exactly one lane selector during and after deferred %s loading', async (presentation) => {
     const { fixture } = mount();
     if (presentation === 'sheet') {
@@ -204,13 +236,15 @@ describe('CanvasInspectorDockComponent', () => {
     const host: HTMLElement = fixture.nativeElement;
     // `when` is already true on creation, so Angular skips @placeholder and
     // shows @loading while the inspector chunk downloads.
+    // The docked view also holds the collapsed rail's block, which comes first.
     const blocks = await fixture.getDeferBlocks();
-    expect(blocks).toHaveLength(1);
-    await blocks[0].render(DeferBlockState.Loading);
+    expect(blocks).toHaveLength(presentation === 'dock' ? 2 : 1);
+    const inspectorBlock = blocks[blocks.length - 1];
+    await inspectorBlock.render(DeferBlockState.Loading);
     fixture.detectChanges();
     expect(host.querySelector('[data-inspector-skeleton] ptah-canvas-lane-tabs')).not.toBeNull();
     expect(host.querySelectorAll('ptah-canvas-lane-tabs')).toHaveLength(1);
-    await blocks[0].render(DeferBlockState.Complete);
+    await inspectorBlock.render(DeferBlockState.Complete);
     fixture.detectChanges();
     expect(host.querySelector('[data-inspector-skeleton]')).toBeNull();
     expect(host.querySelectorAll('ptah-session-inspector ptah-canvas-lane-tabs')).toHaveLength(1);
@@ -286,6 +320,7 @@ describe('CanvasInspectorDockComponent', () => {
     const { fixture } = mount({ running: true, withControls: true });
     fixture.componentInstance.closeDock();
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     const rail: HTMLElement = fixture.nativeElement.querySelector('[data-inspector-rail]');
     const closed: string[] = [];
     fixture.componentInstance.closeRequested.subscribe((id) => closed.push(id));
@@ -309,13 +344,16 @@ describe('CanvasInspectorDockComponent', () => {
   it('shows Hand off once in the expanded sidebar and keeps it in the rail menu, which escapes the scrolling rail', async () => {
     const { fixture } = mount({ withControls: true });
     const host: HTMLElement = fixture.nativeElement;
-    await (await fixture.getDeferBlocks())[0].render(DeferBlockState.Complete);
-    fixture.detectChanges();
-    // Expanded: Hand off sits beside the title only; the controls drop their empty menu.
+    await completeDeferBlocks(fixture);
+    // Expanded: Hand off is one icon button among the title-row controls; no menu there.
     expect(host.querySelectorAll('ptah-send-to-messaging')).toHaveLength(1);
+    expect(
+      host.querySelector('[data-inspector-dock] [role="group"] ptah-send-to-messaging')?.getAttribute('data-trigger'),
+    ).toBe('icon');
     expect(host.querySelector('[data-inspector-dock] [data-header-menu]')).toBeNull();
     fixture.componentInstance.closeDock();
     fixture.detectChanges();
+    await completeDeferBlocks(fixture);
     host.querySelector<HTMLButtonElement>('[data-inspector-rail] [data-header-menu]')!.click();
     fixture.detectChanges();
     const menu = host.querySelector<HTMLElement>('[data-inspector-rail] [role="menu"]')!;

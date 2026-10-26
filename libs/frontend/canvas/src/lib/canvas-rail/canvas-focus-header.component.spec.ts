@@ -8,9 +8,11 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '<button type="button">Send to messaging</button>',
+  host: { '[attr.data-trigger]': 'trigger()' },
 })
 class MessagingStub {
   readonly tabId = input.required<string>();
+  readonly trigger = input<'text' | 'icon'>('text');
 }
 
 describe('CanvasFocusHeaderComponent', () => {
@@ -101,18 +103,32 @@ describe('CanvasFocusHeaderComponent', () => {
     root.remove();
   });
 
-  it('embedded in the expanded inspector, leaves Hand off to the title row and drops an empty menu', () => {
+  it('embedded in the title row, shows Hand off as an icon between the view toggle and Close, with no menu', () => {
     const fixture = mount();
     fixture.componentRef.setInput('embedded', true);
     fixture.detectChanges();
     const root: HTMLElement = fixture.nativeElement;
     expect(root.querySelector('[data-header-menu]')).toBeNull();
+    const group = root.querySelector<HTMLElement>('[role="group"]')!;
+    const order = Array.from(group.children).map(
+      (el) =>
+        el.getAttribute('aria-label') ??
+        `${el.tagName.toLowerCase()}:${el.getAttribute('data-trigger')}`,
+    );
+    expect(order).toEqual([
+      'Stop session',
+      'Switch to compact view',
+      'ptah-send-to-messaging:icon',
+      'Close session',
+    ]);
+    // With split actions the menu returns, but never carries a second Hand off.
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.detectChanges();
     root.querySelector<HTMLButtonElement>('[data-header-menu]')!.click();
     fixture.detectChanges();
-    expect(root.querySelector('[role="menu"]')).not.toBeNull();
-    expect(root.querySelector('ptah-send-to-messaging')).toBeNull();
+    const menu = root.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.querySelector('ptah-send-to-messaging')).toBeNull();
+    expect(root.querySelectorAll('ptah-send-to-messaging')).toHaveLength(1);
   });
 
   it('opens the rail menu as a fixed layer and closes it on an outside press', () => {

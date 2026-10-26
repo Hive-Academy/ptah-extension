@@ -135,7 +135,7 @@ test.describe('Canvas Rail', () => {
 });
 
 test.describe('Canvas Rail split focus and reorder', () => {
-  test('Open beside shows two live panes with Details in the pane header, clear of the lane tabs', async ({ ui }) => {
+  test('Open beside shows two live panes with floating controls clear of the sidebar; Details opens from the sidebar rail', async ({ ui }) => {
     await ui.goto('canvas');
     const page = ui.page;
     await openSplit(page);
@@ -144,23 +144,31 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await expect(railBoard(page).locator('ptah-chat-view')).toHaveCount(2);
     await expect(panes(page).first()).toHaveAttribute('aria-label', /^(Left|Top) session: /);
     await expect(paneContainer(page).locator('[data-pane-side][aria-label$=", active"]')).toHaveCount(1);
+    // Split starts with the sidebar on its compact rail, which carries the lane tabs.
+    const sidebarRail = railBoard(page).locator('[data-inspector-rail]');
+    await expect(sidebarRail.locator('ptah-canvas-lane-tabs')).toBeVisible();
+    const railBox = await sidebarRail.boundingBox();
     for (const index of [0, 1]) {
       const pane = panes(page).nth(index);
-      const details = pane.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' });
-      const laneTabs = pane.locator('ptah-canvas-lane-tabs');
-      await expect(details).toBeVisible();
-      const detailsBox = await details.boundingBox();
-      const tabsBox = await laneTabs.boundingBox();
-      expect(detailsBox && tabsBox && detailsBox.y + detailsBox.height <= tabsBox.y + 1).toBe(true);
+      // No header row and no lane strip in a pane: only the floating control group.
+      await expect(pane.locator('ptah-canvas-lane-tabs')).toHaveCount(0);
+      await pane.hover();
+      const controls = pane.getByRole('group', { name: 'Session controls' });
+      await expect(controls).toBeVisible();
+      await expect(controls.getByRole('button', { name: 'More session actions' })).toBeVisible();
+      await expect(controls.getByRole('button', { name: 'Close session' })).toBeVisible();
+      const controlsBox = await controls.boundingBox();
+      expect(controlsBox && railBox && controlsBox.x + controlsBox.width <= railBox.x + 1).toBe(true);
     }
 
-    const active = paneContainer(page).locator('[data-pane-side][aria-label$=", active"]');
-    await active.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' }).click();
-    const dialog = active.getByRole('dialog', { name: 'Session details' });
+    // The sidebar follows the active pane; in split its expanded form is an overlay dialog.
+    const expand = sidebarRail.locator('[data-inspector-expand]');
+    await expand.click();
+    const dialog = railBoard(page).getByRole('dialog', { name: 'Session details' });
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(active.getByRole('button', { name: 'Open details' })).toBeFocused();
+    await expect(railBoard(page).locator('[data-inspector-rail] [data-inspector-expand]')).toBeFocused();
   });
 
   test('Swap panes changes only the visual order; Close split keeps the active tab in one pane', async ({ ui }) => {
@@ -235,7 +243,9 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await expect(panes(page)).toHaveCount(1);
     await expect(panes(page).first()).not.toHaveAttribute('data-pane-side', activeSide ?? '');
     await expect(railCards(page)).toHaveCount(2);
-    await expect(panes(page).first().getByRole('button', { name: 'More session actions' })).toBeFocused();
+    // The pane's floating controls leave with the split; the survivor's session
+    // controls now live in the sidebar, so focus must land on one of them, never on body.
+    await expect(railBoard(page).getByRole('group', { name: 'Session controls' }).locator(':focus')).toHaveCount(1);
   });
 
   test('Move down reorders the Rail cards and announces the new position', async ({ ui }) => {

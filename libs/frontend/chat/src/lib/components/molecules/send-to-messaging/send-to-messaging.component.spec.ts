@@ -102,6 +102,7 @@ interface SetupOptions {
   statusFails?: boolean;
   workspacePath?: string | null;
   activeWorkspacePath?: string | null;
+  trigger?: 'text' | 'icon';
 }
 
 interface Harness {
@@ -130,6 +131,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     statusFails = false,
     workspacePath = '/ws',
     activeWorkspacePath = '/ws',
+    trigger = 'text',
   } = options;
 
   TestBed.resetTestingModule();
@@ -180,6 +182,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
 
   const fixture = TestBed.createComponent(SendToMessagingComponent);
   fixture.componentRef.setInput('tabId', 'tab-1');
+  fixture.componentRef.setInput('trigger', trigger);
   fixture.detectChanges();
 
   return {
@@ -538,6 +541,36 @@ describe('SendToMessagingComponent', () => {
         'gateway:attachSession',
         expect.anything(),
       );
+    });
+  });
+
+  describe('icon trigger', () => {
+    it('renders a labelled icon button that opens the same picker', async () => {
+      const h = await setup({ trigger: 'icon' });
+      const btn = byTestId(h.el, 'tile-send-to-messaging-btn');
+      expect(btn?.textContent?.trim()).toBe('');
+      expect(btn?.getAttribute('aria-label')).toBe('Hand off session');
+      expect(btn?.classList).toContain('btn-square');
+      expect(btn?.parentElement?.getAttribute('title')).toBe('Hand off session to…');
+      await openPicker(h);
+      expect(btn?.getAttribute('aria-expanded')).toBe('true');
+      expect(h.rpcCall).toHaveBeenCalledWith('gateway:listBindings', expect.anything());
+    });
+
+    it('shows the attached state as a tinted icon whose label names the binding', async () => {
+      const h = await setup({
+        trigger: 'icon',
+        tabs: [{ id: 'tab-1', claudeSessionId: 'sess-1', attachedBinding: { bindingId: 'b-tg', platform: 'telegram' } }],
+      });
+      expect(byTestId(h.el, 'tile-send-to-messaging-btn')).toBeNull();
+      const btn = byTestId(h.el, 'tile-resolve-back-btn');
+      expect(btn?.classList).toContain('text-info');
+      const label = 'Session is driven from Telegram — resolve it back to the webview';
+      expect(btn?.getAttribute('aria-label')).toBe(label);
+      expect(btn?.getAttribute('title')).toBe(label);
+      btn?.click();
+      await settle(h.fixture);
+      expect(h.rpcCall).toHaveBeenCalledWith('gateway:detachSession', { bindingId: 'b-tg' });
     });
   });
 

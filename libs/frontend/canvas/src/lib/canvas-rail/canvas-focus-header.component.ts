@@ -41,7 +41,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
       @if (running() && !floating()) {
         <button
           type="button"
-          class="btn btn-ghost btn-xs size-7"
+          class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           data-stop
           aria-label="Stop session"
           title="Stop session"
@@ -72,6 +72,9 @@ import { FloatingUIService } from '@ptah-extension/ui';
           aria-hidden="true"
         />
       </button>
+      @if (embedded()) {
+        <ptah-send-to-messaging trigger="icon" [tabId]="tabId()" />
+      }
       @if (hasMenu()) {
         <button
           type="button"
@@ -157,7 +160,7 @@ export class CanvasFocusHeaderComponent implements DoCheck {
   readonly tabId = input.required<string>();
   readonly rail = input(false);
   readonly floating = input(false);
-  /** Rendered inside an expanded inspector that already shows Hand off beside the title. */
+  /** Rendered in the expanded inspector's title row: Hand off is an icon button here, not a menu item. */
   readonly embedded = input(false);
   readonly Minimize2Icon = Minimize2;
   readonly Maximize2Icon = Maximize2;

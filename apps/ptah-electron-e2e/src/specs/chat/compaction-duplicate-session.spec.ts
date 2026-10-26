@@ -303,12 +303,15 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
       ).toBeVisible();
     }
 
-    // The split-pane inspector overlays the transcript. Close it through its
-    // visible control before opening the compaction marker beneath it.
+    // In split the expanded sidebar overlays the transcript as a dialog. Collapse
+    // it back to the rail through its visible control before opening the
+    // compaction marker beneath it.
     const detailsDialog = board.locator(
       '[role="dialog"][aria-label="Session details"]',
     );
-    await detailsDialog.getByRole('button', { name: 'Close session details' }).click();
+    await detailsDialog
+      .getByRole('button', { name: 'Compact session details', exact: true })
+      .click();
     await expect(detailsDialog).toHaveCount(0);
 
     await secondTile

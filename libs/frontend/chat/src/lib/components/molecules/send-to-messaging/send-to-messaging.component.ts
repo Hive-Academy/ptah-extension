@@ -7,7 +7,7 @@ import {
   signal,
   computed,
 } from '@angular/core';
-import { LucideAngularModule, Unlink } from 'lucide-angular';
+import { LucideAngularModule, Send, Unlink } from 'lucide-angular';
 import type {
   GatewayBindingDto,
   GatewayPlatformId,
@@ -66,7 +66,24 @@ const RESULT_BASE_CLASS =
   template: `
     @if (isElectron) {
       <div class="relative inline-flex items-center">
-        @if (attachedReadOnly()) {
+        @if (attachedReadOnly() && trigger() === 'icon') {
+          <!-- Attached, icon variant: tinted unlink icon; the tooltip names the binding -->
+          <button
+            class="btn btn-ghost btn-xs btn-square size-7 text-info hover:text-info focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            [disabled]="detaching()"
+            (click)="detachBinding()"
+            type="button"
+            [title]="detachTooltip()"
+            [attr.aria-label]="detachTooltip()"
+            data-testid="tile-resolve-back-btn"
+          >
+            @if (detaching()) {
+              <span class="loading loading-spinner loading-xs"></span>
+            } @else {
+              <lucide-angular [img]="UnlinkIcon" class="size-4" aria-hidden="true" />
+            }
+          </button>
+        } @else if (attachedReadOnly()) {
           <!-- Attached: platform indicator + resolve back to webview -->
           <button
             class="btn btn-ghost btn-xs px-1 min-h-0 h-5 gap-1 text-info hover:text-info"
@@ -92,19 +109,34 @@ const RESULT_BASE_CLASS =
             backdropClass="transparent"
             (closed)="closePicker()"
           >
-            <span trigger [title]="triggerTooltip()">
-              <button
-                class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-[10px] font-medium text-base-content-muted hover:text-base-content"
-                type="button"
-                [disabled]="!canHandOff()"
-                [attr.aria-label]="HANDOFF_LABEL"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="pickerOpen()"
-                (click)="togglePicker()"
-                data-testid="tile-send-to-messaging-btn"
-              >
-                Hand off
-              </button>
+            <span trigger class="inline-flex" [title]="triggerTooltip()">
+              @if (trigger() === 'icon') {
+                <button
+                  class="btn btn-ghost btn-xs btn-square size-7 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                  type="button"
+                  [disabled]="!canHandOff()"
+                  aria-label="Hand off session"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="pickerOpen()"
+                  (click)="togglePicker()"
+                  data-testid="tile-send-to-messaging-btn"
+                >
+                  <lucide-angular [img]="SendIcon" class="size-4" aria-hidden="true" />
+                </button>
+              } @else {
+                <button
+                  class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-[10px] font-medium text-base-content-muted hover:text-base-content"
+                  type="button"
+                  [disabled]="!canHandOff()"
+                  [attr.aria-label]="HANDOFF_LABEL"
+                  aria-haspopup="listbox"
+                  [attr.aria-expanded]="pickerOpen()"
+                  (click)="togglePicker()"
+                  data-testid="tile-send-to-messaging-btn"
+                >
+                  Hand off
+                </button>
+              }
             </span>
 
             <div content class="w-72 text-left">
@@ -149,7 +181,11 @@ export class SendToMessagingComponent {
   /** The tab whose session may be handed off to a messaging binding. */
   readonly tabId = input.required<string>();
 
+  /** `icon`: a square icon button for toolbars (the expanded sidebar's title row). */
+  readonly trigger = input<'text' | 'icon'>('text');
+
   readonly UnlinkIcon = Unlink;
+  readonly SendIcon = Send;
   readonly HANDOFF_LABEL = 'Hand off session to…';
 
   readonly isElectron = this.vscodeService.isElectron;

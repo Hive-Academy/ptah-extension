@@ -117,10 +117,16 @@ async function closeStaleAgentTiles(
       .first();
     if (!(await staleCard.count())) return;
     await staleCard.click({ position: { x: 10, y: 40 } });
-    const stale = page.locator('[data-testid="canvas-tile"]').filter({
-      has: page.locator('ptah-canvas-focus-header strong[title]', { hasText: /^agent-\d+$/ }),
-    }).first();
-    const close = stale.getByRole('button', { name: 'Close session' }).first();
+    // Panes have no header: the pane label names the session, and Close
+    // session lives in the sidebar's controls for the focused pane.
+    const stale = page.locator('[data-testid="canvas-tile"]')
+      .and(page.getByLabel(/^\w+ session: agent-\d+(, active)?$/)).first();
+    // The card click hands the pane to the stale session on the next render.
+    if (!(await stale.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false))) return;
+    const close = page.locator('ptah-canvas-rail-board:visible')
+        .locator('[data-inspector-rail], [data-inspector-dock]')
+      .getByRole('group', { name: 'Session controls' })
+      .getByRole('button', { name: 'Close session' }).first();
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);
