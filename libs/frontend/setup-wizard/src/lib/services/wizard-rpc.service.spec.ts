@@ -387,6 +387,38 @@ describe('WizardRpcService', () => {
     });
   });
 
+  it('sends the preview token, replace decisions and target with a bound agent start', async () => {
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
+    const agentBinding = {
+      tabId: 'tab',
+      workflow: 'setup-agent-generation' as const,
+      workspacePath: '/ws',
+    };
+    await service.startBoundAgents(agentBinding, ['tester'], false, {
+      previewToken: 'token-1',
+      fileDecisions: { tester: { decision: 'replace', revision: 'rev-1' } },
+      target: 'opened-folder',
+    });
+    await service.startBoundAgents(agentBinding, ['tester']);
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'wizard:submit-selection',
+      expect.objectContaining({
+        tabBinding: agentBinding,
+        selectedAgentIds: ['tester'],
+        previewToken: 'token-1',
+        fileDecisions: { tester: { decision: 'replace', revision: 'rev-1' } },
+        target: 'opened-folder',
+      }),
+      { timeout: 300_000 },
+    );
+    const plain = rpcCall.mock.calls[1][1] as Record<string, unknown>;
+    expect(plain).not.toHaveProperty('previewToken');
+    expect(plain).not.toHaveProperty('fileDecisions');
+    expect(plain).not.toHaveProperty('target');
+    expect(plain).not.toHaveProperty('resume');
+  });
+
   it('reports an unavailable selected model without exposing host error text', async () => {
     rpcCall.mockResolvedValue(
       errResult(

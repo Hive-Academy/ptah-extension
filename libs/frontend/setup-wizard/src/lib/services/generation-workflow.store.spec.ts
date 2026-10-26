@@ -484,6 +484,43 @@ describe('GenerationWorkflowStore', () => {
     expect(store.chatTurnRejection()).toBeNull();
   });
 
+  it('passes confirmed preview decisions to the bound submit and exposes preview-required', async () => {
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      rejection: { reason: 'preview-required' },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        {
+          provide: WizardRpcService,
+          useValue: {
+            getBoundRunState: jest.fn().mockResolvedValue(null),
+            startBoundAgents,
+          },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    const decisions = {
+      previewToken: 'token-1',
+      fileDecisions: {
+        tester: { decision: 'replace' as const, revision: 'rev-1' },
+      },
+      target: 'harness-root' as const,
+    };
+    await store.startAgents(['tester'], decisions);
+    expect(startBoundAgents).toHaveBeenCalledWith(
+      binding,
+      ['tester'],
+      false,
+      decisions,
+    );
+    expect(store.rejection()).toEqual({ reason: 'preview-required' });
+    expect(store.state()).toBe('idle');
+  });
+
   it('rejects a tab owned by a different Electron workspace', async () => {
     const startBoundAgents = jest.fn();
     const getWorkspaceTabs = jest.fn().mockReturnValue([{ ...idleTab, id: 'tab' }]);

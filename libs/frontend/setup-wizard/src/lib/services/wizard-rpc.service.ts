@@ -15,6 +15,7 @@ import type {
   SetupGenerationTabBinding,
   SetupGenerationRunBinding,
   SetupGenerationRunState,
+  WizardSubmitSelectionParams,
   WizardSubmitSelectionResponse,
   WizardCancelResponse,
   EnhancedPromptsCancelResponse,
@@ -40,6 +41,16 @@ const WIZARD_RPC_TIMEOUTS = {
   PACK_INSTALL_MS: 60_000,
   DEEP_ANALYSIS_MS: 3_660_000,
 } as const;
+
+/**
+ * Keep/replace decisions a confirmed preview carries into
+ * `wizard:submit-selection`: the preview token, one entry per Replace and the
+ * target root. Absent fields keep the server defaults (keep, harness root).
+ */
+export type BoundAgentDecisions = Pick<
+  WizardSubmitSelectionParams,
+  'previewToken' | 'fileDecisions' | 'target'
+>;
 
 /**
  * Agent selection acknowledgment response from backend.
@@ -122,6 +133,7 @@ export class WizardRpcService {
     binding: SetupGenerationTabBinding,
     selectedAgentIds: string[],
     resume = false,
+    decisions?: BoundAgentDecisions,
   ): Promise<WizardSubmitSelectionResponse> {
     const tab = findBoundGenerationTab(this.tabs, binding);
     const result = await this.rpcService.call(
@@ -132,6 +144,15 @@ export class WizardRpcService {
         model:
           tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
         ...(resume ? { resume: true } : {}),
+        ...(decisions?.previewToken !== undefined
+          ? { previewToken: decisions.previewToken }
+          : {}),
+        ...(decisions?.fileDecisions !== undefined
+          ? { fileDecisions: decisions.fileDecisions }
+          : {}),
+        ...(decisions?.target !== undefined
+          ? { target: decisions.target }
+          : {}),
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
