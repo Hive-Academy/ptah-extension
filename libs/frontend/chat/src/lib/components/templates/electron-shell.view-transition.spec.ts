@@ -46,6 +46,8 @@ describe('ElectronShellComponent view-transition surface', () => {
 
   const layoutStub = {
     hasWorkspaceFolders: signal(false),
+    workspaceResolved: signal(true),
+    pendingWorkspaceName: signal<string | null>(null),
     workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: signal(240),
     editorPanelVisible: signal(false),
@@ -74,6 +76,8 @@ describe('ElectronShellComponent view-transition surface', () => {
 
   beforeEach(async () => {
     layoutStub.hasWorkspaceFolders.set(false);
+    layoutStub.workspaceResolved.set(true);
+    layoutStub.pendingWorkspaceName.set(null);
     layoutStub.workspaceSidebarVisible.set(false);
     layoutStub.editorPanelVisible.set(false);
     appStateStub.currentView.set('chat');
@@ -126,6 +130,29 @@ describe('ElectronShellComponent view-transition surface', () => {
 
   it('names only the content host when a workspace is open', () => {
     layoutStub.hasWorkspaceFolders.set(true);
+    fixture.detectChanges();
+    expectOnlySurface('[data-test="configuration-surface-host"]');
+  });
+
+  it('shows only the L1 loading state until the workspace resolves', () => {
+    layoutStub.workspaceResolved.set(false);
+    layoutStub.pendingWorkspaceName.set('ptah-extension');
+    fixture.detectChanges();
+    expectOnlySurface('ptah-workspace-loading-state');
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-electron-welcome',
+      ),
+    ).toBeNull();
+  });
+
+  it('puts the L1 loading state ahead of a cached workspace', () => {
+    layoutStub.workspaceResolved.set(false);
+    layoutStub.hasWorkspaceFolders.set(true);
+    fixture.detectChanges();
+    expectOnlySurface('ptah-workspace-loading-state');
+
+    layoutStub.workspaceResolved.set(true);
     fixture.detectChanges();
     expectOnlySurface('[data-test="configuration-surface-host"]');
   });

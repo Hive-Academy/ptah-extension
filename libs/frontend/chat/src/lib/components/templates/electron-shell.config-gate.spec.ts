@@ -64,6 +64,8 @@ describe('ElectronShellComponent configuration gate', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
   const layoutStub = {
     hasWorkspaceFolders: signal(false),
+    workspaceResolved: signal(true),
+    pendingWorkspaceName: signal<string | null>(null),
     workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: signal(240),
     editorPanelVisible: signal(false),

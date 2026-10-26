@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const roles = ['chrome', 'bar', 'overlay', 'content', 'tile', 'plate'] as const;
@@ -42,9 +42,8 @@ describe('glass surface roles', () => {
     expect(css).toMatch(/ptah-app-shell > \.bg-surface-0/);
     expect(css).toMatch(/ptah-marketplace-shell > \.bg-surface-0/);
     expect(css).toMatch(/ptah-thoth-shell > \.bg-surface-0/);
-    // The app root <main>, the Electron welcome root and the orchestra canvas
-    // root are root planes: they sit in the same clear list, so the tinted
-    // scene shows on every screen.
+    // The app root <main> and the orchestra canvas root are root planes: they
+    // sit in the same clear list, so the tinted scene shows on every screen.
     const clearList =
       /:root\[data-glass='on'\] :is\(([^)]*)\) \{ background-color: transparent; \}/.exec(css)?.[1] ?? '';
     const cleared = clearList.split(',').map((item) => item.trim());
@@ -52,7 +51,6 @@ describe('glass surface roles', () => {
       expect.arrayContaining([
         '.electron-shell-root',
         'ptah-root > main',
-        'ptah-electron-welcome > .bg-base-100',
         'ptah-orchestra-canvas > .bg-base-100',
         'ptah-app-shell > .bg-surface-0',
       ]),
@@ -60,6 +58,34 @@ describe('glass surface roles', () => {
     expect(css).toMatch(
       /\.cs-answer\[data-glass-surface='content'\] \{[^}]*padding:\s*var\(--sidebar-spacing-sm\) var\(--sidebar-spacing-md\)/,
     );
+  });
+
+  it('clears only component root planes that still exist', () => {
+    // A `<tag> > .<class>` entry is dead once that component's template stops
+    // using the class (the Electron welcome dropped its bg-base-100 plane).
+    const clearList =
+      /:root\[data-glass='on'\] :is\(([^)]*)\) \{ background-color: transparent; \}/.exec(css)?.[1] ?? '';
+    const planes = clearList
+      .split(',')
+      .map((item) => /^(ptah-[a-z-]+) > \.([\w-]+)$/.exec(item.trim()))
+      .filter((match): match is RegExpExecArray => match !== null);
+    expect(planes.length).toBeGreaterThan(0);
+    const components = ['apps/ptah-extension-webview/src', 'libs/frontend']
+      .flatMap((area) => templateFiles(join(root, area)))
+      .filter((file) => file.endsWith('.component.ts'));
+    const dead: string[] = [];
+    for (const [entry, tag, cls] of planes) {
+      const owner = components.find((file) =>
+        readFileSync(file, 'utf8').includes(`selector: '${tag}'`),
+      );
+      const html = owner?.replace(/\.ts$/, '.html');
+      const source = owner
+        ? readFileSync(owner, 'utf8') +
+          (html && existsSync(html) ? readFileSync(html, 'utf8') : '')
+        : '';
+      if (!source.includes(cls)) dead.push(entry);
+    }
+    expect(dead).toEqual([]);
   });
 
   it('uses only approved role names in component templates', () => {

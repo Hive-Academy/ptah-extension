@@ -2,7 +2,8 @@
  * Electron Shell Component
  *
  * Top-level layout for the Electron desktop application.
- * Shows the welcome page or a configuration surface before a workspace opens.
+ * Shows a loading state until the first workspace sync settles, then the
+ * welcome page or a configuration surface before a workspace opens.
  * With a workspace, the main app uses the 3-panel layout.
  *
  * 3-panel layout:
@@ -50,6 +51,7 @@ import {
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
+import { WorkspaceLoadingStateComponent } from './workspace-loading-state.component';
 import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
@@ -73,6 +75,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
   imports: [
     AppShellComponent,
     ElectronWelcomeComponent,
+    WorkspaceLoadingStateComponent,
     WorkspaceSidebarComponent,
     SidebarTabComponent,
     ElectronResizeHandleComponent,
@@ -366,8 +369,14 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         />
       </div>
 
-      <!-- Content: welcome, pre-workspace configuration, or workspace layout. -->
-      @if (
+      <!-- Content: L1 loading until the first workspace sync settles, then
+           welcome, pre-workspace configuration, or workspace layout. -->
+      @if (!layout.workspaceResolved()) {
+        <ptah-workspace-loading-state
+          class="flex-1 min-h-0 ptah-vt-surface"
+          [workspaceName]="layout.pendingWorkspaceName()"
+        />
+      } @else if (
         !layout.hasWorkspaceFolders() &&
         appState.openConfigurationSurface() === null
       ) {

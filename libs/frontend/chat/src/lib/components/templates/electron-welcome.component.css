@@ -1,0 +1,75 @@
+:host {
+  display: block;
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+}
+.ptah-welcome {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+}
+/* Frameless local text scrim: solid behind the content, fading out at
+   the edges, so no card edge is drawn. Transparent outside glass mode,
+   where the token is not defined. */
+.ptah-welcome__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  width: 100%;
+  max-width: 1040px;
+  padding: 40px 64px;
+  background: radial-gradient(
+    ellipse farthest-corner at center,
+    var(--glass-scrim-text, transparent) 0%,
+    var(--glass-scrim-text, transparent) 86%,
+    transparent 100%
+  );
+}
+.ptah-welcome__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+.ptah-welcome__zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 40px 96px;
+  width: 100%;
+}
+.ptah-welcome__recents {
+  flex: 0 1 360px;
+  min-width: 260px;
+}
+.ptah-welcome__grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* Label row 16 + gaps 12 + value row 56 + one caption line. */
+.ptah-welcome__vitals-slot {
+  height: 104px;
+}
+@media (max-width: 1000px) {
+  .ptah-welcome__stage {
+    padding: 32px 24px;
+    gap: 32px;
+  }
+  .ptah-welcome__zone {
+    flex-direction: column;
+    align-items: center;
+  }
+  .ptah-welcome__recents {
+    flex-basis: auto;
+    width: min(100%, 420px);
+  }
+}
