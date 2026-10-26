@@ -66,6 +66,14 @@ export interface ThemeInfo {
 export type AccentName = 'gold' | 'rose' | 'moonstone';
 export const ACCENTS: readonly AccentName[] = ['gold', 'rose', 'moonstone'];
 export const DEFAULT_ACCENT: AccentName = 'gold';
+export type SceneName = 'aurora' | 'ember' | 'tide' | 'horizon';
+export const SCENES: readonly SceneName[] = ['aurora', 'ember', 'tide', 'horizon'];
+export const DEFAULT_SCENE: SceneName = 'aurora';
+const SCENE_STATE_KEY = 'ptah-scene';
+const SCENE_HINT_KEY = 'ptah-scene';
+function isValidScene(value: unknown): value is SceneName {
+  return typeof value === 'string' && SCENES.some((scene) => scene === value);
+}
 /** C4 accent hex source, mirrored from glass/c4/accents.cjs and theme.config.js. */
 export const ACCENT_COLORS = {
   'ptah-glass': {
@@ -211,6 +219,8 @@ export class ThemeService {
   private readonly _currentTheme = signal<ThemeName>('ptah-glass');
   private readonly _accent = signal<AccentName>(DEFAULT_ACCENT);
   readonly accent = this._accent.asReadonly();
+  private readonly _scene = signal<SceneName>(DEFAULT_SCENE);
+  readonly scene = this._scene.asReadonly();
 
   /**
    * Public readonly signal for current theme
@@ -242,6 +252,7 @@ export class ThemeService {
 
     this.initializeTheme();
     this.initializeAccent();
+    this.initializeScene();
 
     effect(() => {
       const theme = this._currentTheme();
@@ -264,6 +275,12 @@ export class ThemeService {
       const accent = this._accent();
       if (accent === DEFAULT_ACCENT) root.removeAttribute('data-accent');
       else root.setAttribute('data-accent', accent);
+      const scene = this._scene();
+      if (scene !== DEFAULT_SCENE && (theme === 'ptah-glass' || theme === 'ptah-glass-light')) {
+        root.setAttribute('data-scene', scene);
+      } else {
+        root.removeAttribute('data-scene');
+      }
     });
   }
 
@@ -338,6 +355,20 @@ export class ThemeService {
     if (vscodeTheme === 'light') {
       this._currentTheme.set('ptah-glass-light');
     }
+  }
+
+  /** Read only at boot: never repair state or refresh the pre-paint mirror. */
+  private initializeScene(): void {
+    const state = this.vscode.getState<string>(SCENE_STATE_KEY);
+    const hint = isValidScene(state) ? undefined : this.readThemeHint(SCENE_HINT_KEY);
+    this._scene.set(isValidScene(state) ? state : isValidScene(hint) ? hint : DEFAULT_SCENE);
+  }
+
+  setScene(scene: SceneName): void {
+    if (!isValidScene(scene)) return;
+    this._scene.set(scene);
+    this.vscode.setState(SCENE_STATE_KEY, scene);
+    try { localStorage.setItem(SCENE_HINT_KEY, scene); } catch { /* optional mirror */ }
   }
 
   private initializeAccent(): void {

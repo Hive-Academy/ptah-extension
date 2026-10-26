@@ -112,3 +112,49 @@ describe('glass scene tint', () => {
     }
   });
 });
+
+
+describe('Ptah backdrop scenes', () => {
+  const scenes = ['aurora', 'ember', 'tide', 'horizon'];
+  const modes = [
+    { theme: 'ptah-glass', floors: [0.70, 0.62, 0.58, 0.50] },
+    { theme: 'ptah-glass-light', floors: [0.50, 0.42, 0.42, 0.38] },
+  ];
+
+  it.each(modes)('keeps all $theme scenes at their measured tint floors and reuses each URI', ({ theme, floors }) => {
+    const selector = `:root[data-theme='${theme}'][data-glass='on']`;
+    const start = css.indexOf(`${selector} {\n  --glass-scene-aurora:`);
+    expect(start).toBeGreaterThan(-1);
+    const body = css.slice(start, css.indexOf('}', start) + 1);
+    expect(body).toContain('--glass-scene: var(--glass-scene-aurora);');
+    expect(body).toContain('--glass-tint-alpha: var(--glass-tint-alpha-aurora);');
+    for (const [index, scene] of scenes.entries()) {
+      expect(numberValue(body, `--glass-tint-alpha-${scene}`)).toBeGreaterThanOrEqual(floors[index]);
+      const encoded = new RegExp(`--glass-scene-${scene}: url\\("data:image/svg\\+xml,([^"\\n]+)"\\);`).exec(body)?.[1];
+      expect(encoded).toBeDefined();
+      const decoded = decodeURIComponent(encoded ?? '').trim();
+      expect(decoded.startsWith('<svg')).toBe(true);
+      expect(decoded.endsWith('</svg>')).toBe(true);
+      const svg = new DOMParser().parseFromString(decoded, 'image/svg+xml');
+      expect(svg.querySelector('parsererror')).toBeNull();
+      expect(svg.documentElement.localName).toBe('svg');
+      expect(new XMLSerializer().serializeToString(svg)).toContain('xmlns="http://www.w3.org/2000/svg"');
+      expect(encoded).not.toContain("'");
+      expect(css.split(encoded ?? 'missing-uri')).toHaveLength(2);
+    }
+  });
+
+  it('scopes six overrides to the pair at specificity (0,4,0), after the dark tokens, without overriding opaque tint', () => {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => selector.includes('[data-scene='));
+    expect(rules).toHaveLength(6);
+    for (const [, selector, body] of rules) {
+      expect(selector.trim()).toMatch(/^:root\[data-theme='ptah-glass(?:-light)?'\]\[data-glass='on'\]\[data-scene='(?:ember|tide|horizon)'\]$/);
+      expect([...body.matchAll(/(--[\w-]+):/g)].map((match) => match[1])).toEqual(['--glass-scene', '--glass-tint-alpha']);
+      expect(css.indexOf(selector.trim())).toBeGreaterThan(css.indexOf(":root[data-theme][data-glass='on'][data-glass-mode='dark']"));
+      const scene = /data-scene='([^']+)'/.exec(selector)?.[1];
+      expect(body).toContain(`--glass-scene: var(--glass-scene-${scene});`);
+      expect(body).toContain(`--glass-tint-alpha: var(--glass-tint-alpha-${scene});`);
+    }
+  });
+});

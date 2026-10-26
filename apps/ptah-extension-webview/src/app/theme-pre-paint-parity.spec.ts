@@ -47,7 +47,7 @@ const INITIAL_ATTRIBUTES: Readonly<Record<string, string>> = {
   'data-glass-mode': 'dark',
 };
 
-const COMPARED = Object.keys(INITIAL_ATTRIBUTES);
+const COMPARED = [...Object.keys(INITIAL_ATTRIBUTES), 'data-accent', 'data-scene'];
 
 const STATE_TO_HINT: Readonly<Record<string, string>> = {
   'theme-v2': 'ptah-theme-v2',
@@ -74,6 +74,8 @@ function resetDocument(hints: Readonly<Record<string, string>>): void {
     localStorage.setItem(key, value);
   }
   const root = document.documentElement;
+  root.removeAttribute('data-accent');
+  root.removeAttribute('data-scene');
   for (const [name, value] of Object.entries(INITIAL_ATTRIBUTES)) {
     root.setAttribute(name, value);
   }
@@ -238,6 +240,34 @@ describe('pre-paint theme script and ThemeService agree', () => {
       // Boot never writes state, on any path.
       expect(service.writes).toEqual([]);
     });
+  });
+
+  describe.each(shapes)('scene parity: %s', (_shape, shape) => {
+    it.each([
+      ['state choice', { 'ptah-scene': 'ember' }, {}, 'ember'],
+      ['mirror only', {}, { 'ptah-scene': 'tide' }, 'tide'],
+      ['invalid state uses mirror', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'horizon' }, 'horizon'],
+      ['joined ids are invalid', { 'ptah-scene': 'ember tide' }, { 'ptah-scene': 'horizon' }, 'horizon'],
+      ['invalid values', { 'ptah-scene': 'retired' }, { 'ptah-scene': 'invalid' }, null],
+      ['stored default', { 'ptah-scene': 'aurora' }, {}, null],
+    ] as const)('%s', (_name, state, hints, expected) => {
+      for (const theme of [undefined, 'ptah-glass', 'ptah-glass-light', 'dark', 'nord', 'cupcake', 'dracula', 'light']) {
+        const persisted = shape({ state: { ...state, ...(theme ? { 'theme-v2': theme } : {}) }, hints });
+        const before = runPrePaint(persisted);
+        const after = runService(persisted);
+        expect(before.attributes['data-scene']).toBe(!theme || theme === 'ptah-glass' || theme === 'ptah-glass-light' ? expected : null);
+        expect(after.painted).toEqual(before);
+        expect(after.writes).toEqual([]);
+        expect(localStorage.getItem('ptah-scene')).toBe(persisted.hints['ptah-scene'] ?? null);
+      }
+    });
+  });
+
+  it('keeps valid state aurora ahead of a stale non-default mirror', () => {
+    const persisted = { state: { 'ptah-scene': 'aurora' }, hints: { 'ptah-scene': 'ember' } };
+    expect(runPrePaint(persisted).attributes['data-scene']).toBeNull();
+    expect(runService(persisted).painted.attributes['data-scene']).toBeNull();
+    expect(localStorage.getItem('ptah-scene')).toBe('ember');
   });
 
   it('writes nothing at boot on the migration path, so a later launch re-derives the same theme', () => {

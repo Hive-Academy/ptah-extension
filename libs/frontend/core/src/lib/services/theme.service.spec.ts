@@ -16,7 +16,7 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from './vscode.service';
-import { DAISYUI_THEMES, ThemeService, type ThemeName } from './theme.service';
+import { DAISYUI_THEMES, ThemeService, type ThemeName, type SceneName } from './theme.service';
 
 interface MockVSCodeService {
   getState: jest.Mock<unknown, [string]>;
@@ -82,12 +82,82 @@ describe('ThemeService', () => {
     document.documentElement.removeAttribute('data-glass');
     document.documentElement.removeAttribute('data-glass-mode');
     document.documentElement.removeAttribute('data-accent');
+    document.documentElement.removeAttribute('data-scene');
     document.getElementById('ptah-theme-extra')?.remove();
     document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
     localStorage.removeItem('ptah-theme');
     localStorage.removeItem('ptah-theme-v2');
     localStorage.removeItem('ptah-accent');
+    localStorage.removeItem('ptah-scene');
+    jest.restoreAllMocks();
+  });
+
+  describe('backdrop scenes', () => {
+    it.each([
+      [undefined, undefined, 'aurora'],
+      ['retired', 'invalid', 'aurora'],
+      ['ember', 'tide', 'ember'],
+      ['aurora', 'horizon', 'aurora'],
+      [undefined, 'tide', 'tide'],
+      ['retired', 'horizon', 'horizon'],
+    ])('reads state %s and mirror %s without writing either scene store', (state, hint, expected) => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-scene' ? state : undefined);
+      if (hint) localStorage.setItem('ptah-scene', hint);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      const service = configure(mock);
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.scene()).toBe(expected);
+      expect(mock.setState).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
+      expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
+      expect(localStorage.getItem('ptah-scene')).toBe(hint ?? null);
+    });
+
+    it('shares the choice across the pair and hides the attribute on every other theme', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const app = TestBed.inject(ApplicationRef);
+      service.setScene('ember');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'ember');
+      expect(localStorage.getItem('ptah-scene')).toBe('ember');
+      for (const { name } of DAISYUI_THEMES) {
+        service.setTheme(name);
+        app.tick();
+        expect(service.scene()).toBe('ember');
+        expect(document.documentElement.getAttribute('data-scene')).toBe(
+          name === 'ptah-glass' || name === 'ptah-glass-light' ? 'ember' : null,
+        );
+      }
+      service.setTheme('ptah-glass');
+      service.setScene('aurora');
+      app.tick();
+      expect(document.documentElement.hasAttribute('data-scene')).toBe(false);
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'aurora');
+      expect(localStorage.getItem('ptah-scene')).toBe('aurora');
+    });
+
+    it('ignores invalid setter input', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      service.setScene('retired' as SceneName);
+      expect(service.scene()).toBe('aurora');
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(mirrorWrite).not.toHaveBeenCalled();
+    });
+
+    it('uses state and still persists user choices when localStorage throws', () => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-scene' ? 'tide' : undefined);
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+      const service = configure(mock);
+      expect(service.scene()).toBe('tide');
+      expect(() => service.setScene('horizon')).not.toThrow();
+      expect(service.scene()).toBe('horizon');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'horizon');
+    });
   });
 
   describe('initial theme resolution', () => {

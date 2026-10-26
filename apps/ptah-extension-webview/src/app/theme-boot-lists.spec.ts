@@ -17,7 +17,7 @@
  *
  * The EAGER list is also the contract with
  * `apps/ptah-extension-webview/tailwind.config.js`, which compiles exactly
- * those two themes into the initial bundle.
+ * those four themes into the initial bundle.
  */
 
 import { readFileSync } from 'node:fs';
@@ -126,6 +126,12 @@ describe('index.html pre-paint theme boot lists', () => {
     const source = readFileSync(join(__dirname, '..', '..', '..', '..', 'libs', 'frontend', 'core', 'src', 'lib', 'services', 'theme.service.ts'), 'utf8');
     const declared = /export const ACCENTS:[^=]+ = \[([^\]]+)\]/.exec(source)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
     expect(readList(html, 'ACCENT')).toEqual(declared);
+  });
+
+  it('pre-paint accepts exactly the declared scenes, including the default', () => {
+    const declared = /export const SCENES:[^=]+ = \[([^\]]+)\]/.exec(SERVICE_SOURCE)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
+    expect(declared).toEqual(['aurora', 'ember', 'tide', 'horizon']);
+    expect(readList(html, 'SCENE')).toEqual(declared);
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {
