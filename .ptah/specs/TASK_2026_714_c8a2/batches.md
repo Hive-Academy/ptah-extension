@@ -915,6 +915,54 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 16, 2026-10-26) — P8 fix round 2 (8g)
+
+- Fresh team-leader. Inputs: live-test-p8b.md (FAIL a, D5), code-logic-review-p8f.md (REVISE 7/10),
+  code-style-review-p8f.md (APPROVE 8/10). Batch 8g decomposed (5 sub-batches, see "Batch 8g").
+- S-N0 recorded as pre-existing on main -> separate PR.
+- 8g-1 RUNNING: Codex lane a70bf6e6-6065-4495-b8e7-aa63445b1b09 (17:48Z), deliverable
+  batch-8g-1-report.md. 8g-2 RUNNING in parallel: Codex lane 907e737f-19fb-43c5-b05d-c936daf46525
+  (17:48Z), deliverable batch-8g-2-report.md.
+- WRAP-UP (coordinator, session ends): no new sub-batch or lane started after this point.
+- 8g-1 lane ended (resume 01a17953-dc41-7ad2-956a-a4c785ba34bd); it later picked up a queued
+  message, moved its real-config spec into chat-session.native.spec.ts (no
+  chat-session.service.spec.ts), and was STOPPED by the team-leader at ~18:05Z before it
+  applied the ptahUiFence mapping. Verify `-p @ptah-extension/rpc-handlers` 3/3 pass; re-run 3/3
+  cache hit (same tree). 8g-1 COMMITTED df531dd52 (body says D5 still open).
+- **D5 still OPEN.** `message-sender.service.ts:476` always sends `ptahUiFence: true`
+  (Electron) and the committed policy rejects it, so the default Electron send still fails.
+  Decision (coordinator): do not reject it; map to the native developer instructions —
+  profile `developerPrompt` carries `PTAH_UI_HINT` when `ptahUiFence === true` and the tool
+  profile is `coding` (same gate as `sdk-query-options-builder.ts:1821-1824`); add
+  `PTAH_UI_HINT` to the agent-sdk barrel (one line, `index.ts` prompt-harness block); if no
+  native carrier works, accept-and-ignore with a debug log. Frontend stays runtime-unaware.
+  The real-config spec must use the options message-sender builds by default (ptahUiFence
+  true) and assert no rejected keys + developerPrompt contains PTAH_UI_HINT. Next session:
+  resume 8g-1 lane 01a17953-dc41-7ad2-956a-a4c785ba34bd with this (task "8g-1b"), verify
+  `-p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk`.
+- 8g-2 lane ended (resume 01a17954-2161-76c0-876a-f0d93a46f38f). Report batch-8g-2-report.md:
+  M-N1, M-N2, M-N3, style M2 (new codex-binding.types.ts), M4/M5 done. Files:
+  apps/ptah-electron/src/di/codex-runtime-composition.ts (+ .spec.ts),
+  apps/ptah-electron/src/di/codex-session-binding.ts, apps/ptah-electron/src/di/codex-binding.types.ts (NEW),
+  apps/ptah-electron/src/activation/shutdown.ts (+ shutdown.spec.ts),
+  libs/backend/codex-runtime/src/lib/codex-executable-pin-data.ts (comment).
+  Verify `-p ptah-electron,@ptah-extension/codex-runtime,@ptah-extension/settings-core` FAILED
+  (13/14 tasks pass; ptah-electron:test 1 suite): `src/activation/shutdown.spec.ts` "Test suite
+  failed to run": TypeError reading `SURFACE_STATE_SERVICE` of undefined at
+  `libs/backend/rpc-handlers/src/lib/handlers/surface-rpc.handlers.ts:127`, import chain
+  shutdown.spec.ts:14 -> `src/di/codex-session-binding.ts:16` (runtime import of the
+  `@ptah-extension/rpc-handlers` barrel) -> handlers/index.ts:17. The new spec loads the real
+  binding, and the barrel's module-init order breaks in that context. 1273 other tests pass.
+  Fix direction: make codex-session-binding.ts import only types from rpc-handlers (or move
+  the runtime value it needs behind the composition), or have shutdown.spec.ts mock that
+  module; do not widen allow-lists. 8g-2 is UNCOMMITTED (files above). Next session: resume the
+  8g-2 lane 01a17954-2161-76c0-876a-f0d93a46f38f with this failure, then re-verify.
+- 8g-3, 8g-4, 8g-5: NOT STARTED. Phase gate: NOT RUN.
+- Deferred with reasons: S-N0 (pre-existing on main -> separate PR); M-N7 + M3 remainder
+  (no delivery receipt / renderer-ready port, see "Batch 8g deferred"); 8f accepted items
+  (M2 rollback, M6 surfaceMode, tabId fallback, ipc-bridge console.warn, global registry,
+  LIVE D4).
+
 # Run state (session 15, 2026-10-26) — P8 fix round 8f
 
 - Fresh team-leader (Mode 2). Orphaned verifies 41480/42716 gone from the lock.
@@ -1980,6 +2028,152 @@ and CLI get compatible bindings only (no feature work).
 - 8f-2 M2 remainder: metadata saved before a later cancel is not rolled back (no rollback API).
 - LIVE D4 (workspace save also writes global `provider.openai-codex.mainAgent.modelTier.*`):
   pre-existing, the known #824 leftover; separate small PR (user).
+
+## Batch 8g: P8 fix round 2 (live-test-p8b.md, code-logic-review-p8f.md, code-style-review-p8f.md) — IN_PROGRESS (8g-1 df531dd52; D5 open; 8g-2 uncommitted)
+
+- Phase: P8 | Phase gate once after 8g-5: degradation-audit lint, di-lint lint, 4-host typecheck
+  (ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui), vscode-core host-attention-ingress
+  test. Phase review: the coordinator's re-review after the live p8c run (code-logic + style).
+- Recommended executor: CLI lane, implementation capability (Codex: the only lane with confirmed
+  room). Fallback order: other family same capability -> same family other model -> subagent.
+  Subagent reason: N/A. Review family: implementer Codex, reviewer Claude (different family).
+- Order: 8g-1 || 8g-2 (file-disjoint: rpc-handlers / Electron + codex-runtime); 8g-3 after 8g-1
+  commits (rpc-handlers verify must not see half-written files); 8g-4 after 8g-1 and 8g-3
+  (shares the chat-session spec 8g-1 picks, needs the 8g-3 error guard); 8g-5 after 8g-4 (codes).
+- Lanes never verify, commit or push; team-leader runs each scoped verify and commits.
+
+### Plan validation (8g)
+
+Status: PASSED WITH RISKS
+
+- S-N0 (hidden-tab terminal slot overwrite) is PRE-EXISTING on main:
+  `chat-stream-delivery-coordinator.service.ts` has no diff vs main (`git diff main...HEAD` empty;
+  last change 9ff6fb2e5 on main). Per the coordinator rule it goes to a separate small PR and is
+  NOT fixed here. Recorded under "Batch 8g deferred".
+- D5 per-key decision (evidence: runtime rejects any `mcpServers` entry,
+  `codex-runtime.ts:88-97`, "secret resolution ... not present at this boundary"; parity row
+  `parity-inventory.md:39` says MCP/output-style inputs apply natively "or the turn fails
+  visibly"; partials are Claude only, `parity-inventory.md:44`):
+
+  | Key | Decision | Reason |
+  | --- | --- | --- |
+  | `mcpServerRunning` | strip, coded info log when true | host availability flag, always sent; native MCP attachment unsupported at the runtime boundary; production stays behind the parity gate |
+  | `workflowsDisabled` | strip | Claude SDK workflow toggle (`sdk-query-options-builder.ts:1377`), always sent; no native workflows on Codex chat |
+  | `includePartialMessages` | strip | Claude SDK only; App Server streams deltas natively |
+  | `mcpServersOverride` (non-empty) | reject, error names the key | user HTTP/OAuth/Smithery servers cannot be attached natively yet; fail visibly per parity row 39 |
+  | `thinking` | reject, names the key | Claude thinking config; Codex uses `effort` (supported) |
+  | `outputStyleName` | reject, names the key | flag-tier Claude output style; `outputStyleBody` is supported |
+  | `mcpToolProfile` | reject when defined and not `coding`, names the key | non-coding tool profiles need Ptah MCP (surfaces / child sessions) |
+  | `ptahUiFence` | MAP (revised 17:58Z, coordinator: a key the default Electron send always sets must not be rejected) | `message-sender.service.ts:476` sends `ptahUiFence: true` on every Electron send. Native carrier: profile `developerPrompt` (`codex-execution-profile.ts:28`) carries `PTAH_UI_HINT` when true and the tool profile is `coding`, same gate as `sdk-query-options-builder.ts:1821-1824`. 8g-1 adds `PTAH_UI_HINT` to the agent-sdk barrel (one line). |
+
+  Rule for every key: the default Electron send must pass; the 8g-1 real-config spec uses the
+  options message-sender builds by default.
+
+  Reversible: each row flips to "map" when native MCP lands (later task, parity row 39 stays open
+  for the P14 ledger).
+
+Assumptions:
+
+- The Electron renderer does not send `thinking` / `outputStyleName` for a default Codex send —
+  unverified; Task 8g-1.1 checks the real config and the 8g-1 real-config spec proves the default.
+- `buildMcpServersOverride` returns `undefined` when there are no overrides
+  (`chat-session.service.ts:474-478`) — verified by read; spec asserts it.
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| A user with Smithery/OAuth servers cannot open native Codex chat | MEDIUM | visible error naming `mcpServersOverride`; dev route only (parity gate) |
+| Resume path (`chat-session.service.ts:~1682`) builds the same keys | HIGH | 8g-1 real-config spec covers start AND resume configs |
+| Verify of 8g-1 picks up 8g-3 edits | MEDIUM | 8g-3 starts only after the 8g-1 commit |
+| Shared `rpc-error-codes.types.ts` change hits every host | MEDIUM | phase gate 4-host typecheck |
+
+### Batch 8g-1: D5 profile option policy, approval settle, undelivered prompt — IN_PROGRESS (df531dd52 committed; D5 ptahUiFence mapping still open -> 8g-1b)
+
+- Items: LIVE D5 (blocker), logic M-N4 / S3 remainder, M3 remainder (resolved-but-undelivered
+  send), M-N7 (re-present pending approvals on renderer reload — only if a native/existing
+  webview-ready hook makes it small; else return a defer reason).
+- Files (prefix R = W/libs/backend/rpc-handlers/src/lib/chat/): R/codex-host/codex-chat-host-ports.ts
+  (+ .spec.ts); CREATE R/codex-host/codex-chat-profile-options.ts (+ .spec.ts);
+  R/session/chat-session.native.spec.ts (real-config test only; chat-session.service.spec.ts does
+  not exist) or, if its mocks cannot drive launchSdkSession, CREATE
+  R/session/chat-session.codex-profile-config.spec.ts (authorized 17:52Z).
+- Task 8g-1.1: pure `classifyCodexChatOptions(config)` -> `{ supported, stripped, rejected }`
+  per the D5 table; `profile()` strips host keys, throws coded `CodexChatOptionError`
+  (code `unsupported-option`, `key`, message names the key) on the first rejected key.
+- Task 8g-1.2: spec (native.spec or the new codex-profile-config spec) that captures the config the REAL
+  `launchSdkSession` passes to `sdkAdapter.startChatSession` (chat:start and resume, default
+  settings, `mcpServerRunning: true`, `workflowsDisabled: false`) and asserts the classifier
+  rejects nothing.
+- Task 8g-1.3: `handlePermissionResponse` — when `respond` returns false or throws, settle the
+  entry (release host attention), send PERMISSION_AUTO_RESOLVED, return true (the id is Codex's;
+  must not fall through to the Claude handler). Coded warn kept.
+- Task 8g-1.4: M3 remainder / M-N7 per the item line.
+- Task 8g-1.5 (added 17:58Z): map `ptahUiFence` to the native developerPrompt (PTAH_UI_HINT);
+  one-line `PTAH_UI_HINT` export in W/libs/backend/agent-sdk/src/index.ts.
+- Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk`
+
+### Batch 8g-2: Electron binary inspection, shutdown budget, style — IN_PROGRESS (written, verify FAILED shutdown.spec.ts, uncommitted)
+
+- Items: logic M-N1 (do not cache failed/timed-out inspections), M-N2 (digest compared with the
+  pin BEFORE `--version` runs), M-N3 (budget expiry must not leave threads `active`), style M2
+  (type cycle codex-session-binding.ts <-> codex-runtime-composition.ts; exported interfaces over
+  `ReturnType` aliases), style M5 (internal helpers not exported / clearly marked), style M4
+  (single-platform note on the pin data).
+- Files: W/apps/ptah-electron/src/di/codex-runtime-composition.ts (+ .spec.ts),
+  W/apps/ptah-electron/src/di/codex-session-binding.ts (a new small types file allowed),
+  W/apps/ptah-electron/src/activation/shutdown.ts (+ its spec),
+  W/libs/backend/codex-runtime/src/lib/codex-executable-pin-data.ts (comment only).
+- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/codex-runtime,@ptah-extension/settings-core`
+
+### Batch 8g-3: compaction single signal, barrel, typed adapter error guard — PENDING
+
+- Depends on: 8g-1 committed.
+- Items: logic M-N6 (one compaction start signal, trigger/preTokens from native App Server data,
+  no hard-coded `auto`/0 when the native event says otherwise), style M1 (CodexChatAdapter and
+  registerCodexChatServices marked `@internal` for tests, or removed if the Electron spec can use
+  the container token without new Electron edits), export a typed guard
+  `isCodexChatAdapterError(error): error is CodexChatAdapterError` + its code type for M-N5.
+- Files: W/libs/backend/agent-sdk/src/index.ts, agent-sdk codex-app-server/codex-chat-turn-stream.ts
+  (+ spec), codex-chat-adapter.ts (guard only), R/codex-host/codex-chat-event-callbacks.ts (+ spec).
+- Verification: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`
+
+### Batch 8g-4: typed Codex RPC codes, cancelled is not an error, legacy settings style — PENDING
+
+- Depends on: 8g-1, 8g-3.
+- Items: logic M-N5 / M4 / D3 backend: replace the `error.name` match with the guard; dedicated
+  codes in `rpc-error-codes.types.ts` (busy, cancelled, unsupported-option with the key in the
+  message, unavailable/runtime-failed); `cancelled` maps to a non-error result; cover chat:start
+  AND resume/continue (`chat-session.service.ts:~710, ~803`). Style M3: Zod enum for effort in
+  codex-legacy-session-settings.ts, typed error code like `CodexSessionSettingsError`.
+- Files: R/session/chat-session.service.ts (+ the session spec 8g-1 used, or a new focused spec),
+  W/libs/shared/src/lib/types/rpc/rpc-error-codes.types.ts,
+  R/codex-host/codex-legacy-session-settings.ts (+ .spec.ts).
+- Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/shared`
+
+### Batch 8g-5: frontend cancelled start and Orchestrator chip state — PENDING
+
+- Depends on: 8g-4.
+- Items: D3 remainder: a `cancelled` start shows no "could not start" error; the Orchestrator
+  agent chip shows the error state (not done/green) after a failed start; new codes handled in
+  message-sender.service.ts.
+- Files: W/libs/frontend/chat/src/lib/services/message-sender.service.ts (+ spec), the chip's
+  state source (agent card / agent monitor; lane locates it) (+ spec). At most 6 files.
+- Verification: `npm run verify -- -p @ptah-extension/chat`
+
+### Batch 8g deferred / out of round
+
+- S-N0 hidden-tab terminal slot: pre-existing on main (coordinator file unchanged on this
+  branch); separate small PR against main.
+- M-N7 + M3 remainder (pending Codex approvals lost on renderer reload; a resolved but
+  undelivered PERMISSION_REQUEST): DEFERRED (approval-UX gap, not a blocker for live a-f).
+  Evidence: Codex host deps expose only `broadcastMessage(): Promise<void>`; the Electron adapter
+  `apps/ptah-electron/src/ipc/webview-manager-adapter.ts:103-111` drops the `sendToRenderer`
+  boolean, so there is no delivery receipt; renderer readiness (`bootstrap.ts:212-264`) is private
+  host wiring for `attention:getSnapshot`, not a subscription injected into the ports; the Claude
+  replay `chat:pending-questions` (`chat-rpc.handlers.ts:317-330` -> `sdk-permission-handler.ts:1216`)
+  covers AskUserQuestion only. Needs delivery receipts + a renderer-ready subscription with
+  listener cleanup (Electron + rpc-handlers). Later task.
+- Still accepted from 8f: M2 rollback, M6 surfaceMode, tabId fallback, ipc-bridge console.warn,
+  process-global binding registry, LIVE D4 (separate PR).
 
 ---
 
