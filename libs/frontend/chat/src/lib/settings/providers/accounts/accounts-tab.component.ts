@@ -213,7 +213,7 @@ type FocusFallback = 'detail-heading' | 'accounts-heading';
                         <span class="flex min-w-0 flex-wrap items-center gap-1" data-testid="accounts-tab-row-used-by">
                           <span class="text-base-content-muted">Used by</span>
                           @for (chip of row.chips; track chip) {
-                            <span class="badge badge-ghost badge-sm border-base-content/15 text-xs" data-testid="accounts-tab-row-chip">{{ chip }}</span>
+                            <span class="inline-flex h-5 items-center rounded-full border border-base-content/25 px-2 text-xs leading-none text-base-content" data-testid="accounts-tab-row-chip">{{ chip }}</span>
                           }
                         </span>
                       }
