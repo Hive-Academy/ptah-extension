@@ -110,6 +110,22 @@ function makeHarness(
   };
 }
 
+describe('SessionControl unavailable settings', () => {
+  it.each([false, true])('reports typed unavailability (registered=%s)', async (registered) => {
+    const h = makeHarness();
+    if (registered) h.registry.register(KEY, makeConfig(), new AbortController());
+    for (const apply of [
+      () => h.control.setSessionModel(KEY_ID, 'model'),
+      () => h.control.setSessionPermissionLevel(KEY_ID, 'ask'),
+      () => h.control.setSessionEffort(KEY_ID, 'high'),
+    ]) {
+      await expect(apply()).rejects.toMatchObject({
+        name: 'SessionUnavailableError', code: 'session-unavailable',
+      });
+    }
+  });
+});
+
 describe('SessionControl.interruptCurrentTurn', () => {
   it('notifies the terminal hook after a successful interrupt', async () => {
     const terminal = jest.fn();

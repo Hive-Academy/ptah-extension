@@ -89,6 +89,12 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   ): ReturnType<IAgentAdapter['startChatSession']> {
     const preparedRuntime = args[0].runtime;
     if (preparedRuntime) {
+      if (
+        preparedRuntime === 'codex-app-server' &&
+        (this.capabilities.nativeCodex !== true || !this.native || !this.admission)
+      ) {
+        throw new ChatRuntimeAdmissionError();
+      }
       const provider = await this.admission.servingProviderId(args[0]);
       const admittedRuntime =
         this.capabilities.nativeCodex && provider === 'openai-codex'

@@ -42,7 +42,7 @@
  */
 
 import 'reflect-metadata';
-import { SdkError } from '@ptah-extension/agent-sdk';
+import { SessionUnavailableError } from '@ptah-extension/agent-sdk';
 
 import type {
   ConfigManager,
@@ -734,7 +734,7 @@ describe('ConfigRpcHandlers', () => {
 
     it('swallows session-sync failures so the config write still succeeds for missing sessions', async () => {
       const h = makeHarness();
-      h.sdkAdapter.setSessionPermissionLevel.mockRejectedValue(new SdkError('session not found'));
+      h.sdkAdapter.setSessionPermissionLevel.mockRejectedValue(new SessionUnavailableError('session not found'));
       h.handlers.register();
       await expect(call(h, 'config:autopilot-toggle', {
         enabled: true, permissionLevel: 'auto-edit', sessionId: 'sess-bad',
@@ -1212,8 +1212,8 @@ describe('ConfigRpcHandlers', () => {
   it.each(['model', 'effort'] as const)('saves %s once for a session not found', async (setting) => {
     const h = makeHarness();
     h.handlers.register();
-    h.sdkAdapter.setSessionModel.mockRejectedValue(new SdkError('Session not found: history'));
-    h.sdkAdapter.setSessionEffort.mockRejectedValue(new SdkError('Session not found: history'));
+    h.sdkAdapter.setSessionModel.mockRejectedValue(new SessionUnavailableError('Session not found: history'));
+    h.sdkAdapter.setSessionEffort.mockRejectedValue(new SessionUnavailableError('Session not found: history'));
     await expect(call(h, setting === 'model' ? 'config:model-switch' : 'config:effort-set', {
       model: 'new', effort: 'high', sessionId: 'history', applyTo: 'workspace',
     })).resolves.toEqual(setting === 'model' ? { model: 'new' } : { effort: 'high' });

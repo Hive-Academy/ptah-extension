@@ -171,6 +171,36 @@ describe('chat native session preparation', () => {
     expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
   });
 
+  it('attaches the start stream when the model notice rejects', async () => {
+    const h = harness();
+    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    await expect(h.service['launchSdkSession']({
+      logLabel: 'chat:start', tabId: 'tab', workspaceId: '/original-workspace',
+      projectPath: '/original-workspace', prompt: 'hello', mcpServerRunning: false,
+      mcpServersOverride: undefined, surfaceMode: undefined,
+    })).resolves.toBeUndefined();
+    expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
+      'tab', await h.startChatSession.mock.results[0].value, 'tab', undefined,
+    );
+    expect(h.service['logger'].warn).toHaveBeenCalledWith(
+      '[RPC] Model substitution notice failed; continuing session stream',
+    );
+  });
+
+  it('attaches the resumed stream when the model notice rejects', async () => {
+    const h = harness();
+    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
+      sessionId, tabId: 'tab',
+    })).resolves.toEqual({ justResumed: true });
+    expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
+      sessionId, await h.resumeSession.mock.results[0].value, 'tab', undefined,
+    );
+    expect(h.service['logger'].warn).toHaveBeenCalledWith(
+      '[RPC] Model substitution notice failed; continuing session stream',
+    );
+  });
+
   it('never starts an adapter after a preparation refusal', async () => {
     const h = harness();
     h.prepare.mockRejectedValue(new Error('Workspace refused'));

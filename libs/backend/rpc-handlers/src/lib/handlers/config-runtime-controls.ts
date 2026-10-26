@@ -1,4 +1,4 @@
-import { SdkError, type SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import { SessionUnavailableError, type SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type { SessionRuntimeControls } from '@ptah-extension/shared';
 
 type ConfigControls = {
@@ -20,8 +20,8 @@ export function configRuntimeControls(
       await action();
       return true;
     } catch (error) {
-      // SessionControl uses these errors when history/idle tabs have no live query.
-      if (error instanceof SdkError && /^session (not found|query not initialized)(:|$)/i.test(error.message))
+      // Missing records and queries are save-only; live apply errors still reject.
+      if (error instanceof SessionUnavailableError)
         return false;
       throw error;
     }

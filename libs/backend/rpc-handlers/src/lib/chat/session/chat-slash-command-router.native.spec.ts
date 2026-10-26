@@ -166,6 +166,18 @@ describe('native slash runtime routing', () => {
     expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
   });
 
+  it('attaches the slash stream and succeeds when the model notice rejects', async () => {
+    const h = harness(native, 'review');
+    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    await expect(h.route()).resolves.toEqual({ success: true, sessionId });
+    expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
+      sessionId, await h.executeSlashCommand.mock.results[0].value, 'tab',
+    );
+    expect(h.service['logger'].warn).toHaveBeenCalledWith(
+      '[RPC] Model substitution notice failed; continuing session stream',
+    );
+  });
+
   it('coalesces a claim acquired while preparation is pending', async () => {
     const h = harness();
     h.admitManualCompact.mockReturnValue({ decision: { action: 'coalesced' } });

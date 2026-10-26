@@ -281,6 +281,43 @@ describe('RoutingAgentAdapter', () => {
     },
   );
 
+  it.each(['disabled', 'missing-adapter', 'missing-admission'] as const)(
+    'rejects a prepared Codex launch with %s native support', async (missing) => {
+      const legacy = adapter();
+      const native = adapter();
+      const router = new RoutingAgentAdapter(
+        { lookup: () => undefined }, legacy, native,
+        { servingProviderId: jest.fn().mockResolvedValue(undefined) },
+        { nativeCodex: missing !== 'disabled' },
+      );
+      if (missing === 'missing-adapter')
+        Object.defineProperty(router, 'native', { value: undefined });
+      if (missing === 'missing-admission')
+        Object.defineProperty(router, 'admission', { value: undefined });
+      await expect(router.startChatSession({
+        tabId: 'tab', runtime: 'codex-app-server',
+      })).rejects.toMatchObject({
+        name: 'ChatRuntimeAdmissionError', code: 'runtime-admission-mismatch',
+      });
+      expect(native.startChatSession).not.toHaveBeenCalled();
+      expect(legacy.startChatSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps a prepared Claude launch working with native disabled and no provider', async () => {
+    const legacy = adapter();
+    const native = adapter();
+    const router = new RoutingAgentAdapter(
+      { lookup: () => undefined }, legacy, native,
+      { servingProviderId: jest.fn().mockResolvedValue(undefined) },
+      { nativeCodex: false },
+    );
+    const config = { tabId: 'tab', runtime: 'claude-sdk' as const };
+    await router.startChatSession(config);
+    expect(legacy.startChatSession).toHaveBeenCalledWith(config);
+    expect(native.startChatSession).not.toHaveBeenCalled();
+  });
+
   it('propagates admission errors without starting either runtime', async () => {
     const legacy = adapter();
     const native = adapter();

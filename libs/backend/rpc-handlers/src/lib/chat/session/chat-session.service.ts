@@ -951,7 +951,11 @@ export class ChatSessionService {
       execution.runtime === 'codex-app-server' &&
       execution.modelSubstitution
     ) {
-      await this.runtimeProfile?.publishModelSubstitution(execution, { tabId });
+      try {
+        await this.runtimeProfile?.publishModelSubstitution(execution, { tabId });
+      } catch {
+        this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+      }
     }
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -1693,10 +1697,14 @@ export class ChatSessionService {
         execution.runtime === 'codex-app-server' &&
         execution.modelSubstitution
       ) {
-        await this.runtimeProfile?.publishModelSubstitution(execution, {
-          tabId,
-          sessionId,
-        });
+        try {
+          await this.runtimeProfile?.publishModelSubstitution(execution, {
+            tabId,
+            sessionId,
+          });
+        } catch {
+          this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
+        }
       }
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

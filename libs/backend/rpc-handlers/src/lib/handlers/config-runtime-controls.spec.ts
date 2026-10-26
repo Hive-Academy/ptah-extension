@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import {
   SdkAgentAdapter,
   SdkError,
+  SessionUnavailableError,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import type {
@@ -229,7 +230,7 @@ describe('config runtime controls', () => {
 
   it('saves without applying when the SDK session query is not initialized', async () => {
     const h = fixture(false);
-    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new SdkError('Session query not initialized: idle'));
+    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new SessionUnavailableError('No live query'));
     const response = await h.call('config:model-switch', { model: 'new', sessionId: 'idle' });
     expect(response.success).toBe(true);
     expect(h.model.selectedModel.set).toHaveBeenCalledTimes(1);
@@ -237,7 +238,7 @@ describe('config runtime controls', () => {
 
   it('does not swallow a live failure merely containing similar text', async () => {
     const h = fixture(false);
-    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new Error('Session not found: remote dependency'));
+    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new SdkError('Session not found: remote dependency'));
     const response = await h.call('config:model-switch', { model: 'new', sessionId: 'live' });
     expect(response.success).toBe(false);
     expect(h.model.selectedModel.set).not.toHaveBeenCalled();
