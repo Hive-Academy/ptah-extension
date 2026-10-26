@@ -88,17 +88,37 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
   }
 
   it('forwards the opt-in agent tile mode to each execution tree row', () => {
-    setMessage(createExecutionChatMessage({
-      id: 'agent-message', role: 'assistant', rawContent: '',
-      streamingState: { id: 'root', type: 'message', status: 'complete', content: null,
-        children: [{ id: 'text-1', type: 'text', status: 'complete', content: 'done',
-          children: [], isCollapsed: false }], isCollapsed: false },
-    }));
+    setMessage(
+      createExecutionChatMessage({
+        id: 'agent-message',
+        role: 'assistant',
+        rawContent: '',
+        streamingState: {
+          id: 'root',
+          type: 'message',
+          status: 'complete',
+          content: null,
+          children: [
+            {
+              id: 'text-1',
+              type: 'text',
+              status: 'complete',
+              content: 'done',
+              children: [],
+              isCollapsed: false,
+            },
+          ],
+          isCollapsed: false,
+        },
+      }),
+    );
     fixture.componentRef.setInput('agentTileMode', true);
     fixture.detectChanges();
     // The bubble renders the root's children itself (work log / answer),
     // each through an unchanged ptah-execution-node.
-    const row = fixture.debugElement.query(By.directive(ExecutionNodeComponent));
+    const row = fixture.debugElement.query(
+      By.directive(ExecutionNodeComponent),
+    );
     expect(row.componentInstance.node().id).toBe('text-1');
     expect(row.componentInstance.agentTileMode()).toBe(true);
   });
@@ -211,7 +231,9 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     const controlledId = button?.getAttribute('aria-controls');
     expect(button?.getAttribute('aria-expanded')).toBe('true');
     expect(controlledId).toBeTruthy();
-    expect(fixture.nativeElement.querySelector(`[id="${controlledId}"]`)).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(`[id="${controlledId}"]`),
+    ).not.toBeNull();
     expect(activityPanel()).toBeNull();
 
     await fixture.whenStable();
@@ -452,6 +474,70 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .query(By.css('[data-testid="chat-peer-label"]'))
           .nativeElement.textContent.trim(),
       ).toBe('peer session');
+    });
+
+    it('renders a lane envelope as a compact heading and its body, not the raw tags', () => {
+      setMessage(
+        createExecutionChatMessage({
+          id: 'msg-peer-envelope',
+          role: 'user',
+          rawContent:
+            '<agent-lane-completed agent-id="lane-a" agent="reviewer" cli="codex" status="completed" verdict="PASS">\nAll checks pass.\nSee the report.\n</agent-lane-completed>',
+          inboundPeer: { label: 'codex · reviewer' },
+        }),
+      );
+      const text = (selector: string): string =>
+        fixture.debugElement
+          .query(By.css(selector))
+          .nativeElement.textContent.trim();
+      const bubble = text('[data-testid="chat-peer-message"]');
+
+      expect(text('[data-testid="chat-peer-envelope-heading"]')).toBe(
+        'reviewer · completed · PASS',
+      );
+      expect(text('[data-testid="chat-peer-envelope-first-line"]')).toBe(
+        'All checks pass.',
+      );
+      expect(bubble).not.toContain('<agent-lane-completed');
+      expect(bubble).not.toContain('See the report.');
+      expect(text('[data-testid="chat-peer-unverified-caption"]')).toContain(
+        'unverified',
+      );
+
+      const toggle = fixture.debugElement.query(
+        By.css('[data-testid="chat-peer-envelope-toggle"]'),
+      );
+      expect(toggle.attributes['aria-expanded']).toBe('false');
+      toggle.nativeElement.click();
+      fixture.detectChanges();
+
+      expect(toggle.attributes['aria-expanded']).toBe('true');
+      const markdown = fixture.debugElement.query(By.css('markdown'));
+      expect(markdown.componentInstance.data).toContain('See the report.');
+      expect(markdown.componentInstance.data).not.toContain('<agent-');
+    });
+
+    it('shows a one-line report body with no expand toggle', () => {
+      setMessage(
+        createExecutionChatMessage({
+          id: 'msg-peer-report',
+          role: 'user',
+          rawContent:
+            '<agent-report agent-id="lane-b" agent="tester" cli="codex">\nAll tests pass.\n</agent-report>',
+          inboundPeer: { label: 'codex · tester' },
+        }),
+      );
+
+      expect(
+        fixture.debugElement
+          .query(By.css('[data-testid="chat-peer-envelope-heading"]'))
+          .nativeElement.textContent.trim(),
+      ).toBe('tester · report');
+      expect(
+        fixture.debugElement.query(
+          By.css('[data-testid="chat-peer-envelope-toggle"]'),
+        ),
+      ).toBeNull();
     });
 
     it('leaves an ordinary user turn on the user bubble', () => {

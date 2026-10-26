@@ -29,17 +29,26 @@ describe('HistoryEventFactory', () => {
   });
 
   it('creates an agent-scoped thinking delta with its block position', () => {
-    expect(factory.createAgentThinkingDelta('session', 'message', 'reason', 2, 3, 1000, 'task'))
-      .toMatchObject({
-        eventType: 'thinking_delta',
-        sessionId: 'session',
-        messageId: 'message',
-        parentToolUseId: 'task',
-        blockIndex: 2,
-        delta: 'reason',
-        timestamp: 1000,
-        source: 'history',
-      });
+    expect(
+      factory.createAgentThinkingDelta(
+        'session',
+        'message',
+        'reason',
+        2,
+        3,
+        1000,
+        'task',
+      ),
+    ).toMatchObject({
+      eventType: 'thinking_delta',
+      sessionId: 'session',
+      messageId: 'message',
+      parentToolUseId: 'task',
+      blockIndex: 2,
+      delta: 'reason',
+      timestamp: 1000,
+      source: 'history',
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -69,6 +78,24 @@ describe('HistoryEventFactory', () => {
 
       const none = factory.createMessageStart('s', 'm', 'user', 1, 2);
       expect(none.imageCount).toBeUndefined();
+    });
+
+    it('carries inboundPeer only when provided', () => {
+      const peer = factory.createMessageStart(
+        's',
+        'm',
+        'user',
+        1,
+        2,
+        undefined,
+        {
+          label: 'ptah-cli · Glm',
+        },
+      );
+      expect(peer.inboundPeer).toEqual({ label: 'ptah-cli · Glm' });
+
+      const plain = factory.createMessageStart('s', 'm', 'user', 1, 2);
+      expect('inboundPeer' in plain).toBe(false);
     });
   });
 

@@ -60,6 +60,7 @@ export class HistoryEventFactory {
    * @param index - Event index for ID generation
    * @param timestamp - Event timestamp
    * @param imageCount - Optional number of inline images (for user messages with images)
+   * @param inboundPeer - Set only when the user turn arrived from another session
    * @returns MessageStartEvent
    */
   createMessageStart(
@@ -69,6 +70,7 @@ export class HistoryEventFactory {
     index: number,
     timestamp: number,
     imageCount?: number,
+    inboundPeer?: { readonly label: string },
   ): MessageStartEvent {
     return {
       eventType: 'message_start',
@@ -79,6 +81,7 @@ export class HistoryEventFactory {
       timestamp,
       source: 'history',
       ...(imageCount ? { imageCount } : {}),
+      ...(inboundPeer ? { inboundPeer } : {}),
     };
   }
 

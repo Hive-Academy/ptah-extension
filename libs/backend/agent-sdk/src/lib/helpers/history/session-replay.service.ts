@@ -27,6 +27,8 @@ import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
   calculateMessageCost,
   isAgentDispatchTool,
+  laneEnvelopePeerLabel,
+  parseLaneEnvelope,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
@@ -93,7 +95,8 @@ export class SessionReplayService {
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     const recordBlock = (messageId: string | undefined): void => {
-      if (messageId) collector?.blockOwners.set(events[events.length - 1], messageId);
+      if (messageId)
+        collector?.blockOwners.set(events[events.length - 1], messageId);
     };
     let eventIndex = 0;
     let startIndex = 0;
@@ -190,6 +193,20 @@ export class SessionReplayService {
               (b) => b.type === 'image',
             ).length
           : 0;
+        // The CLI does not write a peer `origin` to the transcript, so a peer
+        // turn (lane report, lane completion) is recognised by its envelope.
+        // Only a root record can be a peer turn into this session, and a
+        // record the CLI marks as typed by the human never is, even when its
+        // text is an envelope.
+        const typedByHuman =
+          msg.origin?.kind === 'human' || msg.turnOrigin === 'human';
+        const envelope =
+          content &&
+          !typedByHuman &&
+          !msg.isSidechain &&
+          !msg.parent_tool_use_id
+            ? parseLaneEnvelope(content)
+            : null;
 
         events.push(
           this.eventFactory.createMessageStart(
@@ -199,6 +216,7 @@ export class SessionReplayService {
             eventIndex++,
             timestamp + userSeq++ * 0.001,
             imageCount > 0 ? imageCount : undefined,
+            envelope ? { label: laneEnvelopePeerLabel(envelope) } : undefined,
           ),
         );
         if (content) {
@@ -426,7 +444,9 @@ export class SessionReplayService {
                       currentMessageTimestamp + messageSequence++ * 0.001,
                     ),
                   );
-                  collector?.syntheticToolResults.add(events[events.length - 1]);
+                  collector?.syntheticToolResults.add(
+                    events[events.length - 1],
+                  );
                 }
               } else {
                 events.push(
@@ -484,7 +504,11 @@ export class SessionReplayService {
   ): string | null {
     const tasks = this.correlationService.extractTaskToolUses(mainMessages);
     const agents = this.correlationService.buildAgentDataMap(agentSessions);
-    return this.correlationService.correlateAgentsToTasks(tasks, agents).get(toolCallId) ?? null;
+    return (
+      this.correlationService
+        .correlateAgentsToTasks(tasks, agents)
+        .get(toolCallId) ?? null
+    );
   }
 
   replayAgentToStreamEvents(
@@ -493,7 +517,14 @@ export class SessionReplayService {
     messages: SessionHistoryMessage[],
   ): FlatStreamEventUnion[] {
     // Preserve-mode fallbacks must remain stable between page requests.
-    return this.processAgentMessages(sessionId, toolCallId, messages, 0, undefined, true);
+    return this.processAgentMessages(
+      sessionId,
+      toolCallId,
+      messages,
+      0,
+      undefined,
+      true,
+    );
   }
 
   /**
@@ -539,25 +570,47 @@ export class SessionReplayService {
         preserveJsonlIdentity && Number.isFinite(jsonlTimestamp)
           ? jsonlTimestamp
           : parentTimestamp + sequence++ * 0.0001;
-      const continued = preserveJsonlIdentity && !!msg.message.id && msg.message.id === previousId;
+      const continued =
+        preserveJsonlIdentity &&
+        !!msg.message.id &&
+        msg.message.id === previousId;
       const agentMessageId = preserveJsonlIdentity
-        ? (msg.message.id ?? `agent_msg_${parentToolUseId}_${messageIndex}_${msg.uuid ?? 'line'}`)
+        ? (msg.message.id ??
+          `agent_msg_${parentToolUseId}_${messageIndex}_${msg.uuid ?? 'line'}`)
         : `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(parentTimestamp)}`;
       let blockIndex = continued ? runningBlockIndex : 0;
       if (!continued) {
-        events.push(this.eventFactory.createAgentMessageStart(
-          sessionId, agentMessageId, eventIndex++, eventTime(), parentToolUseId,
-        ));
+        events.push(
+          this.eventFactory.createAgentMessageStart(
+            sessionId,
+            agentMessageId,
+            eventIndex++,
+            eventTime(),
+            parentToolUseId,
+          ),
+        );
       }
 
       for (const block of content as ContentBlock[]) {
         const eventTimestamp = eventTime();
 
         if (block.type === 'thinking' && block.thinking) {
-          events.push(this.eventFactory.createAgentThinkingDelta(
-            sessionId, agentMessageId, block.thinking, blockIndex++, eventIndex++, eventTimestamp, parentToolUseId,
-          ));
-          if (msg.message.id) collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+          events.push(
+            this.eventFactory.createAgentThinkingDelta(
+              sessionId,
+              agentMessageId,
+              block.thinking,
+              blockIndex++,
+              eventIndex++,
+              eventTimestamp,
+              parentToolUseId,
+            ),
+          );
+          if (msg.message.id)
+            collector?.blockOwners.set(
+              events[events.length - 1],
+              msg.message.id,
+            );
         } else if (block.type === 'text' && block.text) {
           events.push(
             this.eventFactory.createAgentTextDelta(
@@ -571,14 +624,19 @@ export class SessionReplayService {
             ),
           );
           if (msg.message.id) {
-            collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+            collector?.blockOwners.set(
+              events[events.length - 1],
+              msg.message.id,
+            );
           }
         } else if (block.type === 'tool_use') {
           if (preserveJsonlIdentity) blockIndex++;
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
-          const toolCallId = block.id || (preserveJsonlIdentity
-            ? `agent_tool_${parentToolUseId}_${messageIndex}_${eventIndex}`
-            : this.eventFactory.generateId());
+          const toolCallId =
+            block.id ||
+            (preserveJsonlIdentity
+              ? `agent_tool_${parentToolUseId}_${messageIndex}_${eventIndex}`
+              : this.eventFactory.generateId());
 
           events.push(
             this.eventFactory.createAgentToolStart(
@@ -593,7 +651,10 @@ export class SessionReplayService {
             ),
           );
           if (msg.message.id) {
-            collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+            collector?.blockOwners.set(
+              events[events.length - 1],
+              msg.message.id,
+            );
           }
 
           if (toolResult) {
@@ -611,15 +672,28 @@ export class SessionReplayService {
               ),
             );
           }
-        } else if (preserveJsonlIdentity && block.type === 'tool_result' && block.tool_use_id) {
+        } else if (
+          preserveJsonlIdentity &&
+          block.type === 'tool_result' &&
+          block.tool_use_id
+        ) {
           blockIndex++;
-          const output = typeof block.content === 'string'
-            ? block.content
-            : JSON.stringify(block.content ?? '');
-          events.push(this.eventFactory.createAgentToolResult(
-            sessionId, agentMessageId, block.tool_use_id, output,
-            block.is_error ?? false, eventIndex++, eventTimestamp, parentToolUseId,
-          ));
+          const output =
+            typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content ?? '');
+          events.push(
+            this.eventFactory.createAgentToolResult(
+              sessionId,
+              agentMessageId,
+              block.tool_use_id,
+              output,
+              block.is_error ?? false,
+              eventIndex++,
+              eventTimestamp,
+              parentToolUseId,
+            ),
+          );
         }
       }
 
@@ -654,18 +728,35 @@ export class SessionReplayService {
       runningBlockIndex = blockIndex;
       previousId = msg.message.id ?? null;
       let next: SessionHistoryMessage | undefined;
-      for (let nextIndex = messageIndex + 1; nextIndex < messages.length; nextIndex++) {
+      for (
+        let nextIndex = messageIndex + 1;
+        nextIndex < messages.length;
+        nextIndex++
+      ) {
         const candidate = messages[nextIndex];
-        if (candidate.type === 'assistant' && Array.isArray(candidate.message?.content)) {
+        if (
+          candidate.type === 'assistant' &&
+          Array.isArray(candidate.message?.content)
+        ) {
           next = candidate;
           break;
         }
       }
-      const continues = preserveJsonlIdentity && !!previousId && next?.message?.id === previousId;
+      const continues =
+        preserveJsonlIdentity &&
+        !!previousId &&
+        next?.message?.id === previousId;
       if (!continues) {
-        events.push(this.eventFactory.createAgentMessageComplete(
-          sessionId, agentMessageId, eventIndex++, eventTime(), parentToolUseId, agentMessageUsage,
-        ));
+        events.push(
+          this.eventFactory.createAgentMessageComplete(
+            sessionId,
+            agentMessageId,
+            eventIndex++,
+            eventTime(),
+            parentToolUseId,
+            agentMessageUsage,
+          ),
+        );
       }
     }
 
