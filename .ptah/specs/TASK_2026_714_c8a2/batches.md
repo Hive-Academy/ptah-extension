@@ -912,6 +912,36 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 13, 2026-10-26) — P8 in progress, 8a-2 Part B BLOCKED
+
+- Commits (team-leader): 25326130c 8d (vscode guard specs; verify -p ptah-extension-vscode 35/35);
+  d8b8122fe 8a-1 (rpc-handlers host ports + agent-sdk approvals narrowed to
+  Pick<SessionApprovalRouter,'register'|'respond'|'cancelPrompt'>; verify rpc-handlers 3/3);
+  f853ff5bc 8a-1c (agent-sdk CodexThreadIdentityStore; agent-sdk+rpc-handlers test/typecheck pass,
+  agent-sdk lint only known accounts.spec:174,183; di-lint pass; four-host typecheck pass);
+  9cb10a20f fix: Codex PERMISSION_REQUEST via webviewManager + hostAttention release (CI failure
+  host-attention-ingress.spec.ts:49 on d8b8122fe; rpc-handlers 3/3, vscode-core spec pass);
+  5f33eae1c 8a-2 Part A ('codex-app-server' added to shared ProviderId; shared+rpc-handlers 6/6,
+  four-host typecheck 4/4).
+- 8a-2 Part B NOT implemented — executor stopped on scope (batch-8a-2-report.md): (1) codex-runtime
+  exports only the pin type, not the manifest row (deep import forbidden); (2) Electron phase-2 is
+  synchronous, so the awaited identity init must go in bootstrap.ts (after state storage :457 and
+  webview manager :493, before registerRpcSurface wire-runtime.ts:332) plus shutdown.ts dispose;
+  (3) permission replies need ipc-bridge.ts:416 (8b); (4) G4: no existing observer consumes Codex
+  callbacks — composing "from existing observers" is impossible, needs a callbacks factory over
+  the broadcaster (contradicts the accepted G4 decision -> coordinator); (5) G3: profile() lacks the
+  provider settings namespace; (6) no concrete CodexHomeAuthReader (usage: null leaves explicit-home
+  invalidation unmet); (7) scope factory throws when the bundled binary is missing -> create lazily.
+  Proposed split: 8a-2a codex-runtime manifest-row export; 8a-2b rpc-handlers callbacks factory;
+  8a-2c Electron binding (~8 files incl. bootstrap.ts, shutdown.ts, 4 guard specs); ipc hop to 8b.
+- New risks for P8 review / live run: (a) Codex thread ids are used as Ptah SessionId
+  (codex-chat-adapter.ts:227 SessionId.from, identity store persist) and UUID_REGEX is v4-only
+  (branded.types.ts:41) — if App Server thread ids are UUIDv7 every native open is refused;
+  confirm before any live run. (b) codexThread.workspaceId raw vs codexExecution.workspaceId
+  normalized in one record — reviewers check every comparison. (c) codex-chat-host-ports pending
+  map keeps an entry after a decision until dismiss/cancel (pre-existing).
+- 8b not started (depends on the 8a-2c binding).
+
 # Run state (session 12 close, 2026-10-26) — P8 in progress
 
 - Commits (team-leader, not pushed): c8eb6ea50 feat(chat-streaming,chat): batch 8c; 93c101ba3
@@ -1559,7 +1589,9 @@ and CLI get compatible bindings only (no feature work).
     child runtime scope with runtime -> usage -> container close, awaited identity initializer).
     Report batch-8a-1-report.md (the lane stopped at the rpc-handlers export boundary). Verify
     `npm run verify -- -p ptah-electron`.
-  - 8a-1 — IN_PROGRESS, uncommitted (red test run before fix round 2; re-scoped after 8a-0; coordinator allowed narrow public exports from
+  - 8a-1 — COMPLETE (d8b8122fe + attention fix 9cb10a20f); 8a-1c — COMPLETE (f853ff5bc);
+    8a-2 Part A — COMPLETE (5f33eae1c); 8a-2 Part B — BLOCKED (see Run state session 13).
+    Original 8a-1 entry (re-scoped after 8a-0; coordinator allowed narrow public exports from
     rpc-handlers): the host-agnostic ports live in rpc-handlers, which owns ChatStreamBroadcaster,
     ChatRuntimeProfileService, permission presentation and config persistence (plan: "Electron
     registers shared ports"). CREATE R+chat/codex-host/ codex-chat-host-ports.ts (+spec: profile,
@@ -1659,7 +1691,7 @@ and CLI get compatible bindings only (no feature work).
 - Verification: `npm run verify -- -p @ptah-extension/chat-streaming,@ptah-extension/chat`
 - File-disjoint from 8a/8b: may run in parallel with 8a.
 
-## Batch 8d: VS Code compatible bindings — IN_PROGRESS, uncommitted (vscode test red; see Run state session 12)
+## Batch 8d: VS Code compatible bindings — COMPLETE (25326130c; report batch-8d-report.md)
 
 - Files: MODIFY W/apps/ptah-extension-vscode/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`
