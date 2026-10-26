@@ -27,6 +27,10 @@ import {
   type SessionId,
 } from '@ptah-extension/shared';
 import { ChatRuntimeProfileService } from '../session/chat-runtime-profile.service';
+import {
+  classifyCodexChatOptions,
+  CodexChatOptionError,
+} from './codex-chat-profile-options';
 import type {
   ChatStreamBroadcaster,
   WebviewManager,
@@ -92,26 +96,6 @@ export function createCodexRuntimeAdmission(
   };
 }
 
-// An allowlist also rejects future SDK options until their native semantics are reviewed.
-const supported = new Set([
-  'projectPath',
-  'workspaceId',
-  'model',
-  'tabId',
-  'prompt',
-  'name',
-  'sessionName',
-  'sessionTitle',
-  'runtime',
-  'permissionLevel',
-  'effort',
-  'systemPrompt',
-  'enhancedPromptsContent',
-  'outputStyleBody',
-  'files',
-  'images',
-]);
-
 export function createCodexChatHostPorts(
   deps: CodexChatHostPortsDeps,
 ): CodexChatHostPorts {
@@ -161,11 +145,14 @@ export function createCodexChatHostPorts(
     metadata: deps.metadata,
     approvals: deps.approvals,
     callbacks: (id, turn) => deps.callbacks(id, turn),
-    async profile(config, sessionId) {
-      for (const [name, value] of Object.entries(config)) {
-        if (value !== undefined && !supported.has(name))
-          throw new Error('Unsupported Codex chat option');
+    async profile(input, sessionId) {
+      const { supported: config, rejected } = classifyCodexChatOptions(input);
+      if (input.mcpServerRunning === true) {
+        deps.logger.info('Ptah MCP is not attached to Codex chat.', {
+          code: 'ptah-mcp-not-attached',
+        });
       }
+      if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);
       const resume = sessionId
         ? await deps.readResumeIdentity(sessionId)
         : undefined;
@@ -291,6 +278,7 @@ export function createCodexChatHostPorts(
                 } },
               );
             } catch {
+              // degradation-audit: reported - coded warning omits request contents.
               deps.logger.warn('Codex approval delivery decline failed.', { code: 'approval-delivery-decline-failed' });
             } finally {
               settle(id);
@@ -353,21 +341,28 @@ export function createCodexChatHostPorts(
             },
           },
         );
-        if (accepted) settle(response.id);
-        else {
-          deps.logger.warn('Codex approval response rejected.', {
-            code: 'approval-response-rejected',
-          });
+        if (accepted) {
+          settle(response.id);
+          return true;
         }
-        return accepted;
+        deps.logger.warn('Codex approval response rejected.', {
+          code: 'approval-response-rejected',
+        });
       } catch {
         // degradation-audit: reported - coded warning without request content (the
-        // sink error may carry it); false keeps the prompt pending so the user can retry.
+        // sink error may carry it). The renderer has already dismissed the prompt;
+        // settle this Codex entry and consume its reply instead of falling through.
         deps.logger.warn('Codex approval response failed.', {
           code: 'approval-response-failed',
         });
-        return false;
       }
+      settle(response.id);
+      send(MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
+        id: response.id,
+        sessionId,
+        toolName: request.toolName ?? request.kind,
+      });
+      return true;
     },
     replacement: {
       validateReplacement(request, input) {

@@ -20,6 +20,8 @@ import {
   createCodexRuntimeAdmission,
   type CodexChatHostPortsDeps,
 } from './codex-chat-host-ports';
+import { CodexChatOptionError } from './codex-chat-profile-options';
+import { ChatRuntimeProfileService } from '../session/chat-runtime-profile.service';
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
@@ -190,7 +192,7 @@ describe('Codex chat host ports', () => {
     const h = harness();
     await expect(
       h.ports.profile({ ...config(), temperature: 0.5 }),
-    ).rejects.toThrow('Unsupported');
+    ).rejects.toThrow(new CodexChatOptionError('temperature'));
     await expect(
       h.ports.profile({
         ...config(),
@@ -198,10 +200,49 @@ describe('Codex chat host ports', () => {
           private: { type: 'http', url: 'http://localhost/?secret=never-log' },
         },
       }),
-    ).rejects.toThrow('Unsupported');
+    ).rejects.toThrow(new CodexChatOptionError('mcpServersOverride'));
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
     expect(h.logger.error).not.toHaveBeenCalled();
     expect(h.logger.info).not.toHaveBeenCalled();
+  });
+  it('throws the coded option error with the rejected key', async () => {
+    const h = harness();
+    const result = h.ports.profile({ ...config(), ptahUiFence: true });
+    await expect(result).rejects.toBeInstanceOf(CodexChatOptionError);
+    await expect(result).rejects.toMatchObject({
+      code: 'unsupported-option',
+      key: 'ptahUiFence',
+      message: 'Codex chat does not support the "ptahUiFence" option.',
+    });
+  });
+  it.each([true, false])('strips host flags and reports MCP availability %s', async (mcpServerRunning) => {
+    const h = harness();
+    const input = {
+      ...config(),
+      mcpServerRunning,
+      workflowsDisabled: false,
+      includePartialMessages: true,
+      mcpServersOverride: {},
+    };
+    const prepare = jest.spyOn(
+      ChatRuntimeProfileService.prototype,
+      'prepare',
+    );
+    try {
+      const { profile } = await h.ports.profile(input);
+      expect(profile.model).toBe('gpt-5');
+      expect(prepare.mock.calls[0][0]).toEqual(config());
+      expect(h.logger.info).toHaveBeenCalledTimes(mcpServerRunning ? 1 : 0);
+      if (mcpServerRunning) {
+        expect(h.logger.info).toHaveBeenCalledWith(
+          'Ptah MCP is not attached to Codex chat.',
+          { code: 'ptah-mcp-not-attached' },
+        );
+      }
+      expect(input).toHaveProperty('mcpServerRunning', mcpServerRunning);
+    } finally {
+      prepare.mockRestore();
+    }
   });
   it('uses the same provider resolver for admission', async () => {
     const h = harness();
@@ -253,7 +294,7 @@ describe('Codex chat host ports', () => {
     ).toBe(true);
     expect(h.respond.mock.calls[0][1].response.decision).toBe(decision);
   });
-  it.each(['rejected', 'throws'] as const)('retains approval and attention when the sink %s', (failure) => {
+  it.each(['rejected', 'throws'] as const)('settles the Codex approval without falling through when the sink %s', (failure) => {
     const h = harness();
     h.ports.presentation.present(id, request(), [
       'deny',
@@ -264,12 +305,20 @@ describe('Codex chat host ports', () => {
     const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
     if (failure === 'throws') h.respond.mockImplementationOnce(() => { throw new Error('private request'); });
     else h.respond.mockReturnValueOnce(false);
-    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
-    expect(h.resolveAttention).not.toHaveBeenCalled();
+    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(true);
+    expect(h.resolveAttention).toHaveBeenCalledWith(
+      attentionRequestKey('permission', wireId),
+      h.broadcastMessage.mock.calls[0][1].timestamp,
+    );
+    expect(h.broadcastMessage).toHaveBeenLastCalledWith(
+      MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+      { id: wireId, sessionId: id, toolName: 'command' },
+    );
     expect(h.deps.logger.warn).toHaveBeenCalledWith(
       expect.any(String), { code: failure === 'throws' ? 'approval-response-failed' : 'approval-response-rejected' },
     );
-    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(true);
+    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+    expect(h.respond).toHaveBeenCalledTimes(1);
     expect(h.resolveAttention).toHaveBeenCalledTimes(1);
   });
   it('declines an undeliverable prompt and releases its pending entry', async () => {

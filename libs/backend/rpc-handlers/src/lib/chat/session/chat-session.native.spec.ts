@@ -30,7 +30,13 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
-import type { SessionId, SessionRuntimeIdentity } from '@ptah-extension/shared';
+import type {
+  AgentSessionResumeConfig,
+  AgentSessionStartConfig,
+  SessionId,
+  SessionRuntimeIdentity,
+} from '@ptah-extension/shared';
+import { classifyCodexChatOptions } from '../codex-host/codex-chat-profile-options';
 import { ChatSessionService } from './chat-session.service';
 import { ChatRuntimeProfileService, type ResolvedChatExecution } from './chat-runtime-profile.service';
 
@@ -109,6 +115,61 @@ function harness() {
 }
 
 describe('chat native session preparation', () => {
+  it('accepts the real default start and resume configs with host MCP running', async () => {
+    const h = harness();
+    Object.assign(h.service, {
+      sdkContext: {
+        resolveEnhancedPromptsContent: async () => undefined,
+        isMcpServerRunning: () => true,
+      },
+      workspaceProvider: createMockWorkspaceProvider({
+        folders: ['/original-workspace'],
+      }),
+      platformInfo: {
+        extensionPath: resolve('/codex-options-app'),
+        globalStoragePath: resolve('/codex-options-storage'),
+      },
+      codeExecutionMcp: {
+        getPort: () => 12345,
+        ensureRegisteredForSubagents: async () => ({ registered: true }),
+      },
+      slashCommandInterceptor: { intercept: () => ({ action: 'passthrough' }) },
+      outputStyleActivation: { resolveSessionFields: async () => ({}) },
+    });
+
+    // Public chat:start exercises the real launchSdkSession through existing mocks.
+    await expect(
+      h.service.startSession({ tabId: 'tab', prompt: 'hello' }),
+    ).resolves.toEqual({ success: true });
+    expect(h.startChatSession).toHaveBeenCalledTimes(1);
+    const started = h.startChatSession.mock.calls[0][0] as AgentSessionStartConfig;
+    expect(started).toMatchObject({
+      mcpServerRunning: true,
+      workflowsDisabled: false,
+      runtime: 'codex-app-server',
+    });
+    expect(started.mcpServersOverride).toBeUndefined();
+    expect(started.thinking).toBeUndefined();
+    expect(started.outputStyleName).toBeUndefined();
+    expect(classifyCodexChatOptions(started).rejected).toEqual([]);
+
+    await expect(
+      h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
+        sessionId,
+        tabId: 'tab',
+      }),
+    ).resolves.toEqual({ justResumed: true });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    const resumed = h.resumeSession.mock.calls[0][1] as AgentSessionResumeConfig;
+    expect(resumed).toMatchObject({
+      mcpServerRunning: true,
+      workflowsDisabled: false,
+    });
+    expect(resumed.thinking).toBeUndefined();
+    expect(resumed.outputStyleName).toBeUndefined();
+    expect(classifyCodexChatOptions(resumed).rejected).toEqual([]);
+  });
+
   it('prepares complete start inputs and launches through the injected adapter without legacy auth', async () => {
     const h = harness();
     await h.service['launchSdkSession']({
