@@ -19,6 +19,7 @@ import type {
   GenerationStreamPayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
+import type { AgentWriteGuard } from '../interfaces/agent-file-writer.interface';
 
 /**
  * Template definition for agent generation.
@@ -585,6 +586,40 @@ export interface GenerationOptions {
 }
 
 /**
+ * The decision for one agent file in a generation run.
+ *
+ * - `keep`: the user keeps the existing file; the agent is neither rendered
+ *   nor written, and its outcome is `kept`.
+ * - an `AgentWriteGuard`: render the agent, then write it under that guard.
+ */
+export type AgentFileGuard = AgentWriteGuard | { mode: 'keep' };
+
+/**
+ * Terminal outcome of an agent whose existing file was left alone by its
+ * decision. These outcomes are reported apart from `outcomes`, whose shared
+ * `GenerationAgentOutcome.status` union has no `kept` or
+ * `changed-since-preview` member.
+ *
+ * - `kept`: the user kept the file, it was create-only and already existed,
+ *   or it could not be read.
+ * - `changed-since-preview`: replace was chosen, but the file changed after
+ *   the preview, so it was kept.
+ */
+export interface KeptAgentOutcome {
+  agentId: string;
+  /** Absolute path of the agent file that was left alone. */
+  filePath: string;
+  status: 'kept' | 'changed-since-preview';
+}
+
+/** An agent file the orchestrator has just written with new content. */
+export interface WrittenAgentFile {
+  agentId: string;
+  /** Absolute path of the written file. */
+  filePath: string;
+}
+
+/**
  * Options accepted by the generation orchestrator.
  *
  * The service implementation owns the execution flow; this type keeps its
@@ -605,6 +640,23 @@ export interface OrchestratorGenerationOptions {
   pluginPaths?: string[];
   abortSignal?: AbortSignal;
   onAgentOutcome?: (outcome: GenerationAgentOutcome) => void | Promise<void>;
+  /**
+   * Root the agent files are written under: `{outputRoot}/.claude/agents`.
+   * Defaults to the analysed project root. Analysis always reads
+   * `workspacePath`.
+   */
+  outputRoot?: string;
+  /**
+   * Decision per agent id. An agent without an entry is written
+   * `create-only`, so an existing file is never replaced without a decision.
+   */
+  fileGuards?: Readonly<Record<string, AgentFileGuard>>;
+  /**
+   * Called once for every agent whose file was written with new content
+   * (status `written` only). A failing hook is logged and never fails the
+   * agent or the run.
+   */
+  onAgentWritten?: (written: WrittenAgentFile) => void | Promise<void>;
 }
 
 /**
@@ -662,6 +714,18 @@ export interface GenerationSummary {
   /** Number of individual agent generations that failed. */
   failedCount: number;
 
+  /**
+   * Number of agents whose existing file was kept (`kept` outcomes). Set by
+   * every orchestrator run.
+   */
+  keptCount?: number;
+
+  /**
+   * Number of agents not replaced because their file changed after the
+   * preview. Set by every orchestrator run.
+   */
+  changedSincePreviewCount?: number;
+
   /** Aggregate count of LLM sections rejected by output validation. */
   rejectedSections: number;
 
@@ -671,8 +735,18 @@ export interface GenerationSummary {
   /** Final generation lifecycle state. */
   lifecycle: 'paused' | 'completed' | 'timed-out' | 'failed';
 
-  /** Terminal outcome for every selected agent. */
+  /**
+   * Terminal outcome for every selected agent that was rendered, failed or
+   * not generated. Agents left alone by their decision are in
+   * `keptOutcomes` instead.
+   */
   outcomes: GenerationAgentOutcome[];
+
+  /**
+   * Agents whose existing file was left alone (`kept` or
+   * `changed-since-preview`). Set by every orchestrator run.
+   */
+  keptOutcomes?: KeptAgentOutcome[];
 
   /**
    * Whether enhanced prompts were used during Phase 3 customization.

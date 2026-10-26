@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 10/27
+Total tasks: 34 | Batches: 27 | Complete: 11/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -558,7 +558,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (last touched by e3965c65c); not this task's. The audit still passes.
 - Report: reports/batch-8b-report.md
 
-## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — COMPLETE
+## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — COMPLETE (commit: a96d12d50)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -638,7 +638,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   assertion should become a regex in the next batch that edits `phase-2-libraries.ts`.
 - Report: reports/batch-9-report.md
 
-## Batch 10: Guarded writer and orchestrator decisions (B2 + B3) — PENDING
+## Batch 10: Guarded writer and orchestrator decisions (B2 + B3) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -649,7 +649,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 2 | Depends on: Batch 4
 - Phase: P2 | Phase review: P2 code-logic + style
 
-### Task 10.1: `writeAgent(agent, guard)`; delete `writeAgentsBatch`/`rollback` (B2) — PENDING
+### Task 10.1: `writeAgent(agent, guard)`; delete `writeAgentsBatch`/`rollback` (B2) — COMPLETE
 
 - Files: MODIFY `libs/backend/agent-generation/src/lib/services/file-writer.service.ts` (+ spec), `libs/backend/agent-generation/src/lib/interfaces/agent-file-writer.interface.ts`
 - Plan reference: implementation-plan.md:332-355; A6, A19
@@ -658,7 +658,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: spec cases differs, identical, missing, unreadable (EACCES), create-only present, missing→present, changed hash.
 - Implementation details: `AgentWriteGuard` union per plan :336-337.
 
-### Task 10.2: Orchestrator output root, file guards, model resolution (B3) — PENDING
+### Task 10.2: Orchestrator output root, file guards, model resolution (B3) — COMPLETE
 
 - Depends on: Task 10.1
 - Files: MODIFY `libs/backend/agent-generation/src/lib/services/orchestrator.service.ts` (+ spec), `libs/backend/agent-generation/src/lib/types/core.types.ts`, `libs/backend/agent-generation/src/index.ts`; CREATE `libs/backend/agent-generation/src/lib/services/agent-model-resolution.ts` (+ spec)

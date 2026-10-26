@@ -31,6 +31,18 @@ export { AnalysisStorageService } from './lib/services/analysis-storage.service'
 export { AnalysisFreshnessService } from './lib/services/analysis-freshness.service';
 export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
+export type {
+  AgentFileGuard,
+  KeptAgentOutcome,
+  WrittenAgentFile,
+} from './lib/types/core.types';
+export type {
+  AgentWriteBaseline,
+  AgentWriteGuard,
+  AgentWriteResult,
+  AgentWriteStatus,
+} from './lib/interfaces/agent-file-writer.interface';
+export { resolveClaudeAgentModel } from './lib/services/agent-model-resolution';
 export {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,

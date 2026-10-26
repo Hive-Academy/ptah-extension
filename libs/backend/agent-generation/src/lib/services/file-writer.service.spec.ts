@@ -4,7 +4,8 @@
  * Covers:
  * - Single agent writing through the platform file-system port
  * - `written` vs `unchanged` (equal bytes are never rewritten)
- * - Batch writing with rollback of newly written files only
+ * - Write guards: `kept` and `changed-since-preview` leave the file alone,
+ *   an unreadable file is always `kept`
  * - Path traversal protection and file-system error mapping
  * - Explicit parent-directory creation before every write
  */
@@ -25,9 +26,23 @@ import {
   createMockFileSystemProvider,
   type MockFileSystemProvider,
 } from '@ptah-extension/platform-core/testing';
+import { hashContent } from '@ptah-extension/harness-sync';
 import { AgentFileWriterService } from './file-writer.service';
 import { GeneratedAgent } from '../types/core.types';
 import { FileWriteError } from '../errors/file-write.error';
+import type { AgentWriteGuard } from '../interfaces/agent-file-writer.interface';
+
+const CREATE_ONLY: AgentWriteGuard = { mode: 'create-only' };
+const REPLACE_FROM_MISSING: AgentWriteGuard = {
+  mode: 'replace-allowed',
+  baseline: { state: 'missing' },
+};
+function replaceFrom(previewedContent: string): AgentWriteGuard {
+  return {
+    mode: 'replace-allowed',
+    baseline: { state: 'present', hash: hashContent(previewedContent) },
+  };
+}
 
 interface MockLogger {
   debug: jest.Mock;
@@ -69,9 +84,14 @@ describe('AgentFileWriterService', () => {
     service = new AgentFileWriterService(mockLogger as never, fs);
   });
 
+  /** Write under `create-only` unless a test names the guard. */
+  function write(agent: GeneratedAgent, guard: AgentWriteGuard = CREATE_ONLY) {
+    return service.writeAgent(agent, guard);
+  }
+
   describe('writeAgent', () => {
     it('writes a new file and reports status "written"', async () => {
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isOk()).toBe(true);
       expect(result.value!.status).toBe('written');
@@ -92,7 +112,7 @@ describe('AgentFileWriterService', () => {
         filePath: '/workspace/.claude/commands/new-folder/command.md',
       };
 
-      const result = await service.writeAgent(agent);
+      const result = await write(agent);
 
       expect(result.isOk()).toBe(true);
       expect(fs.createDirectory).toHaveBeenCalledWith(
@@ -107,18 +127,21 @@ describe('AgentFileWriterService', () => {
       await fs.writeFile(normalize(sampleAgent.filePath), sampleAgent.content);
       fs.writeFile.mockClear();
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isOk()).toBe(true);
       expect(result.value!.status).toBe('unchanged');
       expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
-    it('overwrites in place and reports "written" when the bytes differ', async () => {
+    it('overwrites in place and reports "written" when the bytes differ and the replace baseline still matches', async () => {
       await fs.writeFile(normalize(sampleAgent.filePath), 'old content');
       fs.writeFile.mockClear();
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write(
+        { ...sampleAgent },
+        replaceFrom('old content'),
+      );
 
       expect(result.isOk()).toBe(true);
       expect(result.value!.status).toBe('written');
@@ -130,7 +153,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('returns an error when agent content is empty', async () => {
-      const result = await service.writeAgent({ ...sampleAgent, content: '' });
+      const result = await write({ ...sampleAgent, content: '' });
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
@@ -139,7 +162,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('returns an error when agent content is only whitespace', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         content: '   \n\t   ',
       });
@@ -149,7 +172,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('rejects a path traversal attempt', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '.claude/../../../etc/passwd',
       });
@@ -166,7 +189,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('rejects a write outside the .claude directory', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '/workspace/outside/agents/backend.md',
       });
@@ -182,7 +205,7 @@ describe('AgentFileWriterService', () => {
         errnoError('Permission denied', 'EACCES'),
       );
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Permission denied');
@@ -193,132 +216,143 @@ describe('AgentFileWriterService', () => {
         errnoError('No space left on device', 'ENOSPC'),
       );
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Insufficient disk space');
     });
   });
 
-  describe('writeAgentsBatch', () => {
-    const agentA = {
-      ...sampleAgent,
-      filePath: '/workspace/.claude/agents/agent-a.md',
-    };
-    const agentB = {
-      ...sampleAgent,
-      content: '# B',
-      filePath: '/workspace/.claude/agents/agent-b.md',
-    };
+  describe('write guards', () => {
+    const target = normalize(sampleAgent.filePath);
 
-    it('writes multiple agents and reports one result per agent', async () => {
-      const result = await service.writeAgentsBatch([agentA, agentB]);
-
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toHaveLength(2);
-      expect(result.value!.map((r) => r.status)).toEqual([
-        'written',
-        'written',
-      ]);
-      expect(fs.writeFile).toHaveBeenCalledTimes(2);
-    });
-
-    it('returns an empty array for an empty batch', async () => {
-      const result = await service.writeAgentsBatch([]);
-
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toEqual([]);
-      expect(fs.writeFile).not.toHaveBeenCalled();
-    });
-
-    it('distinguishes unchanged from written inside one batch', async () => {
-      await fs.writeFile(normalize(agentA.filePath), agentA.content);
+    it('keeps a file that differs under create-only and leaves its bytes alone', async () => {
+      await fs.writeFile(target, 'user content');
       fs.writeFile.mockClear();
 
-      const result = await service.writeAgentsBatch([agentA, agentB]);
+      const result = await write({ ...sampleAgent }, CREATE_ONLY);
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.map((r) => r.status)).toEqual([
-        'unchanged',
-        'written',
-      ]);
+      expect(result.value).toEqual({ filePath: target, status: 'kept' });
+      expect(fs.writeFile).not.toHaveBeenCalled();
+      expect(fs.createDirectory).not.toHaveBeenCalled();
+      expect(await fs.readFile(target)).toBe('user content');
+    });
+
+    it.each([
+      ['create-only', CREATE_ONLY],
+      ['replace-allowed', replaceFrom('# Backend Developer\n\nAgent content here.')],
+    ] as const)(
+      'reports "unchanged" for identical bytes under %s',
+      async (_label, guard) => {
+        await fs.writeFile(target, sampleAgent.content);
+        fs.writeFile.mockClear();
+
+        const result = await write({ ...sampleAgent }, guard);
+
+        expect(result.value!.status).toBe('unchanged');
+        expect(fs.writeFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['create-only', CREATE_ONLY],
+      ['replace-allowed from missing', REPLACE_FROM_MISSING],
+    ] as const)(
+      'writes a missing file under %s',
+      async (_label, guard) => {
+        const result = await write({ ...sampleAgent }, guard);
+
+        expect(result.value).toEqual({ filePath: target, status: 'written' });
+        expect(await fs.readFile(target)).toBe(sampleAgent.content);
+      },
+    );
+
+    it('treats the VS Code FileNotFound read error as a missing file', async () => {
+      const notFound = errnoError('File not found', 'FileNotFound');
+      fs.readFile.mockRejectedValueOnce(notFound);
+
+      const result = await write({ ...sampleAgent }, CREATE_ONLY);
+
+      expect(result.value!.status).toBe('written');
       expect(fs.writeFile).toHaveBeenCalledTimes(1);
     });
 
-    it('rolls back files it newly wrote when a later write fails, and keeps unchanged ones', async () => {
-      const agentC = {
-        ...sampleAgent,
-        content: '# C',
-        filePath: '/workspace/.claude/agents/agent-c.md',
-      };
-      await fs.writeFile(normalize(agentA.filePath), agentA.content);
+    it.each([
+      ['create-only', CREATE_ONLY],
+      ['replace-allowed', replaceFrom('anything')],
+      ['replace-allowed from missing', REPLACE_FROM_MISSING],
+    ] as const)(
+      'keeps an unreadable file (EACCES) under %s and never writes it',
+      async (_label, guard) => {
+        await fs.writeFile(target, 'locked content');
+        fs.writeFile.mockClear();
+        fs.readFile.mockRejectedValueOnce(
+          errnoError('Permission denied', 'EACCES'),
+        );
+
+        const result = await write({ ...sampleAgent }, guard);
+
+        expect(result.isOk()).toBe(true);
+        expect(result.value).toEqual({ filePath: target, status: 'kept' });
+        expect(fs.writeFile).not.toHaveBeenCalled();
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('cannot be read'),
+          expect.objectContaining({ code: 'EACCES' }),
+        );
+      },
+    );
+
+    it('reports "changed-since-preview" when a file appeared after a missing baseline', async () => {
+      await fs.writeFile(target, 'created after the preview');
       fs.writeFile.mockClear();
-      fs.writeFile.mockImplementationOnce(async (path, content) => {
-        fs.__state.files.set(path, new TextEncoder().encode(content));
+
+      const result = await write({ ...sampleAgent }, REPLACE_FROM_MISSING);
+
+      expect(result.value).toEqual({
+        filePath: target,
+        status: 'changed-since-preview',
       });
-      fs.writeFile.mockRejectedValueOnce(errnoError('Disk full', 'ENOSPC'));
-
-      const result = await service.writeAgentsBatch([agentA, agentB, agentC]);
-
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('index 2');
-      expect(fs.delete).toHaveBeenCalledTimes(1);
-      expect(fs.delete).toHaveBeenCalledWith(normalize(agentB.filePath));
-      expect(await fs.exists(normalize(agentA.filePath))).toBe(true);
-    });
-
-    it('validates every agent before writing any', async () => {
-      const result = await service.writeAgentsBatch([
-        agentA,
-        { ...agentB, content: '' },
-      ]);
-
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Agent content cannot be empty');
       expect(fs.writeFile).not.toHaveBeenCalled();
+      expect(await fs.readFile(target)).toBe('created after the preview');
     });
 
-    it('rejects a batch containing a path traversal attempt', async () => {
-      const result = await service.writeAgentsBatch([
-        agentA,
-        { ...agentB, filePath: '.claude/../../../etc/passwd' },
-      ]);
+    it('reports "changed-since-preview" when the file hash no longer matches the baseline', async () => {
+      await fs.writeFile(target, 'edited after the preview');
+      fs.writeFile.mockClear();
 
-      expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('Path traversal detected');
+      const result = await write(
+        { ...sampleAgent },
+        replaceFrom('content the user previewed'),
+      );
+
+      expect(result.value!.status).toBe('changed-since-preview');
       expect(fs.writeFile).not.toHaveBeenCalled();
+      expect(await fs.readFile(target)).toBe('edited after the preview');
     });
 
-    it('rejects a relative path anywhere in a batch before filesystem access', async () => {
-      const filePath = '.claude/agents/x.md';
-      const result = await service.writeAgentsBatch([
-        agentA,
-        { ...agentB, filePath },
-      ]);
+    it('writes when a file with a present baseline was deleted since the preview', async () => {
+      const result = await write(
+        { ...sampleAgent },
+        replaceFrom('content the user previewed'),
+      );
+
+      expect(result.value!.status).toBe('written');
+      expect(await fs.readFile(target)).toBe(sampleAgent.content);
+    });
+
+    it('returns an error (never a status) when the guarded write fails', async () => {
+      await fs.writeFile(target, 'old content');
+      fs.writeFile.mockClear();
+      fs.writeFile.mockRejectedValueOnce(
+        errnoError('Permission denied', 'EACCES'),
+      );
+
+      const result = await write({ ...sampleAgent }, replaceFrom('old content'));
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
-      expect(result.error).toMatchObject({ filePath, operation: 'write' });
-      expect(result.error?.message).toContain('An absolute path is required');
-      expect(fs.createDirectory).not.toHaveBeenCalled();
-      expect(fs.readFile).not.toHaveBeenCalled();
-      expect(fs.writeFile).not.toHaveBeenCalled();
-    });
-
-    it('creates every directory before the first write', async () => {
-      const nested = {
-        ...agentB,
-        filePath: '/workspace/.claude/commands/nested/deep/cmd.md',
-      };
-
-      const result = await service.writeAgentsBatch([agentA, nested]);
-
-      expect(result.isOk()).toBe(true);
-      const lastCreate = Math.max(
-        ...fs.createDirectory.mock.invocationCallOrder,
-      );
-      const firstWrite = Math.min(...fs.writeFile.mock.invocationCallOrder);
-      expect(lastCreate).toBeLessThan(firstWrite);
+      expect(await fs.readFile(target)).toBe('old content');
     });
   });
 
@@ -328,7 +362,7 @@ describe('AgentFileWriterService', () => {
         errnoError('Permission denied', 'EACCES'),
       );
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Failed to create directory');
@@ -340,7 +374,7 @@ describe('AgentFileWriterService', () => {
         errnoError('Read-only file system', 'EROFS'),
       );
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Read-only file system');
@@ -351,7 +385,7 @@ describe('AgentFileWriterService', () => {
         errnoError('Too many open files', 'EMFILE'),
       );
 
-      const result = await service.writeAgent({ ...sampleAgent });
+      const result = await write({ ...sampleAgent });
 
       expect(result.isErr()).toBe(true);
       expect(result.error?.message).toContain('Too many open files');
@@ -360,7 +394,7 @@ describe('AgentFileWriterService', () => {
     it('rejects a path exceeding the maximum length', async () => {
       const longPath = '/workspace/.claude/agents/' + 'a'.repeat(300) + '.md';
 
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: longPath,
       });
@@ -374,7 +408,7 @@ describe('AgentFileWriterService', () => {
     it.each(['.claude/agents/x.md', 'C:.claude/agents/x.md'])(
       'rejects non-absolute path %s without filesystem access',
       async (filePath) => {
-        const result = await service.writeAgent({ ...sampleAgent, filePath });
+        const result = await write({ ...sampleAgent, filePath });
 
         expect(result.isErr()).toBe(true);
         expect(result.error).toBeInstanceOf(FileWriteError);
@@ -389,7 +423,7 @@ describe('AgentFileWriterService', () => {
 
     it('accepts an absolute POSIX path', async () => {
       const filePath = '/workspace/.claude/agents/x.md';
-      const result = await service.writeAgent({ ...sampleAgent, filePath });
+      const result = await write({ ...sampleAgent, filePath });
 
       expect(result.isOk()).toBe(true);
       expect(fs.writeFile).toHaveBeenCalledWith(
@@ -402,7 +436,7 @@ describe('AgentFileWriterService', () => {
       'accepts an absolute UNC path',
       async () => {
         const filePath = '\\\\server\\share\\.claude\\agents\\x.md';
-        const result = await service.writeAgent({ ...sampleAgent, filePath });
+        const result = await write({ ...sampleAgent, filePath });
 
         expect(result.isOk()).toBe(true);
         expect(fs.writeFile).toHaveBeenCalledWith(
@@ -413,7 +447,7 @@ describe('AgentFileWriterService', () => {
     );
 
     it('allows paths within .claude/agents/', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '/workspace/.claude/agents/backend-developer.md',
       });
@@ -421,7 +455,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('allows paths within .claude/commands/', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '/workspace/.claude/commands/orchestrate.md',
       });
@@ -429,7 +463,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('rejects paths with parent directory references', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '.claude/agents/../../../passwd',
       });
@@ -444,7 +478,7 @@ describe('AgentFileWriterService', () => {
     ])(
       'flags %s (%s) as a security violation before the absolute-path check',
       async (_label, filePath) => {
-        const result = await service.writeAgent({ ...sampleAgent, filePath });
+        const result = await write({ ...sampleAgent, filePath });
 
         expect(result.isErr()).toBe(true);
         expect(result.error).toBeInstanceOf(FileWriteError);
@@ -460,7 +494,7 @@ describe('AgentFileWriterService', () => {
     );
 
     it('rejects absolute paths outside .claude/', async () => {
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         filePath: '/etc/passwd',
       });
@@ -475,7 +509,7 @@ describe('AgentFileWriterService', () => {
     (process.platform === 'win32' ? it : it.skip)(
       'handles absolute Windows-style paths',
       async () => {
-        const result = await service.writeAgent({
+        const result = await write({
           ...sampleAgent,
           filePath: 'C:\\workspace\\.claude\\agents\\backend-developer.md',
         });
@@ -489,7 +523,7 @@ describe('AgentFileWriterService', () => {
         filePath: '/workspace/.claude/agents/nested/deep/folder/agent.md',
       };
 
-      const result = await service.writeAgent(agent);
+      const result = await write(agent);
 
       expect(result.isOk()).toBe(true);
       expect(fs.createDirectory).toHaveBeenCalledWith(
@@ -503,7 +537,7 @@ describe('AgentFileWriterService', () => {
         content: '# Agent\n\nContent with émojis 🚀 and spëcial çharacters',
       };
 
-      const result = await service.writeAgent(agent);
+      const result = await write(agent);
 
       expect(result.isOk()).toBe(true);
       expect(fs.writeFile).toHaveBeenCalledWith(
@@ -515,7 +549,7 @@ describe('AgentFileWriterService', () => {
     it('handles large content (> 1MB)', async () => {
       const largeContent = 'x'.repeat(2 * 1024 * 1024);
 
-      const result = await service.writeAgent({
+      const result = await write({
         ...sampleAgent,
         content: largeContent,
       });
