@@ -27,7 +27,8 @@
  * - Harness propagation runs whenever the settled summary wrote at least one
  *   file under the harness root — a timed-out or paused run included — and
  *   stays warning-only. Its user-layer refresh decides the run's Library
- *   outcome (`generation-library-outcome.ts`).
+ *   outcome. `GenerationLibraryPassService` runs that pass for every agents
+ *   run, tab-bound or not (`wizard-generation/generation-library-pass.service.ts`).
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
@@ -46,17 +47,9 @@ import type {
   AnalysisStorageService,
   GenerationCheckpointManifest,
   OrchestratorGenerationOptions,
-  UserLayerMirrorService,
   WizardAgentOriginStore,
   WrittenAgentFile,
 } from '@ptah-extension/agent-generation';
-import {
-  HARNESS_SYNC_TOKENS,
-  resolveHarnessWorkspaceRoot,
-  type AgentSyncGate,
-  type HarnessPropagationService,
-  type UserLayerRefreshStatus,
-} from '@ptah-extension/harness-sync';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
@@ -88,10 +81,10 @@ import {
   type PreparedGenerationRun,
 } from './wizard-generation-checkpoint.service';
 import {
-  collectLibraryDiverged,
-  libraryPassFor,
-  writtenAgentIds,
-} from './wizard-generation/generation-library-outcome';
+  GenerationLibraryPassService,
+  libraryScopeOf,
+  type RunLibraryScope,
+} from './wizard-generation/generation-library-pass.service';
 import {
   GenerationRunSupervisor,
   GENERATION_CANCEL_REASON,
@@ -165,48 +158,8 @@ type AgentOriginRecorder = Pick<
   'read' | 'recordWritten' | 'hashWrittenFile'
 >;
 
-/**
- * Where a run writes, as far as the Library is concerned. Only files under
- * the harness root are a Library source; a run that writes under another
- * (opened) folder records no origin, grants no consent and runs no pass.
- */
-interface RunLibraryScope {
-  harnessRoot: string;
-  outputRoot: string;
-  atHarnessRoot: boolean;
-}
-
-/** Post-run facts of one invocation, persisted beside its outcomes. */
-type PostRunFacts = {
-  propagation: NonNullable<SetupGenerationResultFacts['propagation']>;
-  library: NonNullable<GenerationCheckpointManifest['library']>;
-};
-
 const CHANGED_SINCE_PREVIEW_RETRY_ERROR =
   'The file changed after the preview, so it was kept. Preview again to replace it.';
-
-/** Whether two paths name the same folder (case-insensitive on Windows). */
-function samePath(a: string, b: string): boolean {
-  return path.relative(path.resolve(a), path.resolve(b)) === '';
-}
-
-/**
- * The Library scope of a run from its manifest. A manifest written before
- * runs carried an output root writes under the workspace it was found in.
- */
-function libraryScopeOf(
-  workspaceRoot: string,
-  manifest: Pick<GenerationCheckpointManifest, 'target' | 'outputRoot'> | null,
-): RunLibraryScope {
-  const harnessRoot =
-    manifest?.target?.harnessRoot ?? resolveHarnessWorkspaceRoot(workspaceRoot);
-  const outputRoot = manifest?.outputRoot ?? workspaceRoot;
-  return {
-    harnessRoot,
-    outputRoot,
-    atHarnessRoot: samePath(outputRoot, harnessRoot),
-  };
-}
 
 /** Exact DI identity from auth-providers-tokens, without pulling its package into this project. */
 const SDK_PROVIDER_MODELS_TOKEN = Symbol.for('SdkProviderModels');
@@ -262,6 +215,8 @@ export class WizardGenerationRpcHandlers {
     private readonly previews: GenerationPreviewService,
     @inject(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE)
     private readonly originStore: AgentOriginRecorder,
+    @inject(GenerationLibraryPassService)
+    private readonly libraryPass: GenerationLibraryPassService,
   ) {}
 
   register(): void {
@@ -564,7 +519,12 @@ export class WizardGenerationRpcHandlers {
       };
     }
     if (prepared.agentIds.length === 0) {
-      await this.completeWithoutWork(prepared, runtime.webviewManager);
+      await this.completeWithoutWork(prepared, runtime.webviewManager, {
+        source,
+        effectiveProvider: route?.provider,
+        effectiveModel: route?.model,
+        enhancedPromptsUsed: !!runtime.enhancedPromptContent,
+      });
       if (usedPreview) this.previews.release(previewKey);
       return acceptedSubmit(tabBinding, prepared, source, route);
     }
@@ -738,12 +698,12 @@ export class WizardGenerationRpcHandlers {
                 ...tabBinding,
                 runId: prepared.manifest.runId,
               },
-              source,
-              effectiveProvider: route?.provider,
-              effectiveModel: route?.model,
-              enhancedPromptsUsed: !!runtime.enhancedPromptContent,
             }
           : {}),
+        source,
+        effectiveProvider: route?.provider,
+        effectiveModel: route?.model,
+        enhancedPromptsUsed: !!runtime.enhancedPromptContent,
         options,
         progressCallback: this.createProgressBroadcaster(
           runtime.webviewManager,
@@ -885,6 +845,12 @@ export class WizardGenerationRpcHandlers {
   private async completeWithoutWork(
     prepared: PreparedGenerationRun,
     broadcaster: WebviewBroadcaster | null,
+    live: {
+      source: GenerationContextSource;
+      effectiveProvider?: string;
+      effectiveModel?: string;
+      enhancedPromptsUsed: boolean;
+    },
   ): Promise<void> {
     await this.checkpoints.finalize(prepared.location, 'completed', true);
     const payload = buildCompletePayload({
@@ -896,11 +862,19 @@ export class WizardGenerationRpcHandlers {
       durationMs: 0,
     });
     const manifest = prepared.manifest;
+    // This invocation wrote nothing, so no Library pass was due for it; a
+    // resume drops the earlier invocation's pass (it described other writes).
+    const library = manifest.library ?? {
+      pass: 'not-applicable' as const,
+      diverged: [],
+    };
+    manifest.library = library;
     if (prepared.previousPropagation) {
       try {
         await this.checkpoints.recordPropagation(
           prepared.location,
           prepared.previousPropagation,
+          library,
         );
         manifest.propagation = prepared.previousPropagation;
       } catch (error: unknown) {
@@ -911,28 +885,28 @@ export class WizardGenerationRpcHandlers {
         );
       }
     }
-    if (manifest.tabBinding) {
-      const source = manifest.source ?? {
-        kind: 'workspace-discovery' as const,
-        reason: 'missing' as const,
-      };
-      await this.runs.broadcastCompletion(broadcaster, {
-        ...payload,
-        tabBinding: { ...manifest.tabBinding, runId: manifest.runId },
-        terminalStatus: 'completed',
-        result: {
-          status: 'completed',
-          success: true,
-          source,
-          effectiveProvider: manifest.effectiveProvider ?? 'unknown',
-          effectiveModel: manifest.effectiveModel ?? 'unknown',
-          enhancedPromptsUsed: manifest.enhancedPromptsUsed,
-          ...resultDetailsFromManifest(manifest),
-        },
-      });
-    } else {
-      await this.runs.broadcastCompletion(broadcaster, payload);
-    }
+    // Every agents run carries its result facts (A4); only the tab binding
+    // is conditional. A bound manifest's recorded facts win; an unbound run
+    // records none, so this invocation's live facts are used.
+    await this.runs.broadcastCompletion(broadcaster, {
+      ...payload,
+      ...(manifest.tabBinding
+        ? { tabBinding: { ...manifest.tabBinding, runId: manifest.runId } }
+        : {}),
+      terminalStatus: 'completed',
+      result: {
+        status: 'completed',
+        success: true,
+        source: manifest.source ?? live.source,
+        effectiveProvider:
+          manifest.effectiveProvider ?? live.effectiveProvider ?? 'unknown',
+        effectiveModel:
+          manifest.effectiveModel ?? live.effectiveModel ?? 'unknown',
+        enhancedPromptsUsed:
+          manifest.enhancedPromptsUsed ?? live.enhancedPromptsUsed,
+        ...resultDetailsFromManifest(manifest),
+      },
+    });
   }
 
   /**
@@ -940,6 +914,10 @@ export class WizardGenerationRpcHandlers {
    * propagate whenever this run actually wrote a file under the harness root
    * — a timed-out or paused run included — and record the Library outcome.
    * Runs before the single completion broadcast.
+   *
+   * The Library facts are recorded and reloaded into `resultDetails` for
+   * every run (A4); `bound` only decides that a completed tab run with a
+   * failed agent settles as `failed`.
    */
   private async afterSettled(
     method: string,
@@ -1003,27 +981,24 @@ export class WizardGenerationRpcHandlers {
         failed: settled.summary.failedCount,
         durationMs: settled.durationMs,
       });
-      const facts = await this.postRunFacts(
+      const facts = await this.libraryPass.afterRun(
         scope,
         settled.summary,
-        bound,
         previousPropagation,
       );
-      if (bound) {
-        try {
-          await this.checkpoints.recordPropagation(
-            location,
-            facts.propagation,
-            facts.library,
-          );
-          settled.propagation = facts.propagation;
-        } catch (error: unknown) {
-          // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
-          this.logger.error(
-            'RPC: propagation checkpoint update failed',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        }
+      try {
+        await this.checkpoints.recordPropagation(
+          location,
+          facts.propagation,
+          facts.library,
+        );
+        settled.propagation = facts.propagation;
+      } catch (error: unknown) {
+        // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
+        this.logger.error(
+          'RPC: propagation checkpoint update failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
       }
     } else {
       this.logger.error(`RPC: ${method} failed`, {
@@ -1032,7 +1007,7 @@ export class WizardGenerationRpcHandlers {
       });
     }
     if (finalizeError) throw finalizeError;
-    if (bound && settled.summary) {
+    if (settled.summary) {
       try {
         const committed = await this.checkpoints.loadAt(location);
         if (!committed)
@@ -1046,107 +1021,6 @@ export class WizardGenerationRpcHandlers {
         );
       }
     }
-  }
-
-  /**
-   * Propagation and Library outcome of one settled invocation.
-   *
-   * - Nothing written: no pass; a bound run restores the propagation an
-   *   earlier invocation recorded.
-   * - Written under another folder than the harness root: no consent grant,
-   *   no pass (no Library or rival CLI reads that folder).
-   * - Otherwise propagate the harness root; the user-layer refresh decides
-   *   `libraryPass`, and an updated Library lists the written agents whose
-   *   edited Library copy is now diverged (bound runs only: the list is part
-   *   of the tab's result facts).
-   */
-  private async postRunFacts(
-    scope: RunLibraryScope,
-    summary: NonNullable<SettledGenerationRun['summary']>,
-    bound: boolean,
-    previousPropagation: PreparedGenerationRun['previousPropagation'],
-  ): Promise<PostRunFacts> {
-    const notAttempted = {
-      consent: 'not-granted' as const,
-      status: 'not-attempted' as const,
-    };
-    if (summary.writtenCount === 0)
-      return {
-        propagation: previousPropagation ?? notAttempted,
-        library: { pass: 'not-applicable', diverged: [] },
-      };
-    if (!scope.atHarnessRoot) {
-      this.logger.info(
-        'RPC: generated agents were written outside the harness root; no Library pass is due',
-        { outputRoot: scope.outputRoot, harnessRoot: scope.harnessRoot },
-      );
-      return {
-        propagation: notAttempted,
-        library: { pass: 'not-applicable', diverged: [] },
-      };
-    }
-    const { propagation, userLayer } = await this.propagateGeneratedAgents(
-      scope.harnessRoot,
-    );
-    const pass = libraryPassFor({
-      atHarnessRoot: true,
-      writtenCount: summary.writtenCount,
-      userLayer,
-    });
-    const diverged =
-      bound && pass === 'updated'
-        ? await this.libraryDiverged(scope.harnessRoot, summary.outcomes)
-        : [];
-    if (pass === 'failed')
-      this.logger.warn(
-        'RPC: the Library was not refreshed after generation; the written files are unaffected',
-        { harnessRoot: scope.harnessRoot },
-      );
-    return { propagation, library: { pass, diverged } };
-  }
-
-  /**
-   * Written agents whose edited Library copy is diverged from the content
-   * this run wrote. An absent mirror (host without a Library) lists none.
-   */
-  private async libraryDiverged(
-    harnessRoot: string,
-    outcomes: NonNullable<SettledGenerationRun['summary']>['outcomes'],
-  ): Promise<string[]> {
-    const written = writtenAgentIds(outcomes);
-    if (written.length === 0) return [];
-    let mirror: UserLayerMirrorService;
-    try {
-      if (
-        !this.container.isRegistered(
-          AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-        )
-      )
-        return [];
-      mirror = this.resolveService<UserLayerMirrorService>(
-        AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-        'UserLayerMirrorService',
-      );
-    } catch (error: unknown) {
-      // degradation-audit: reported - the diverged list is an advisory notice;
-      // without the mirror it is empty and the warning says why. The run's
-      // files and outcomes are unaffected.
-      this.logger.warn('RPC: Library copies could not be checked for edits', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-    // `read` never throws: an unreadable record is empty and already warned.
-    const origins = await this.originStore.read(harnessRoot);
-    return collectLibraryDiverged({
-      writtenAgentIds: written,
-      originHashes: Object.fromEntries(
-        Object.entries(origins).map(([slug, origin]) => [slug, origin.hash]),
-      ),
-      readClone: (agentId) =>
-        mirror.readCloneOrigin('agent', agentId, harnessRoot),
-      warn: (message, meta) => this.logger.warn(`RPC: ${message}`, meta),
-    });
   }
 
   /**
@@ -1585,8 +1459,14 @@ export class WizardGenerationRpcHandlers {
     scope: RunLibraryScope,
     settled: SettledGenerationRun,
   ): Promise<void> {
-    if (settled.summary)
-      await this.postRunFacts(scope, settled.summary, false, undefined);
+    if (!settled.summary) return;
+    const facts = await this.libraryPass.afterRun(scope, settled.summary);
+    settled.resultDetails = {
+      ...settled.resultDetails,
+      propagation: facts.propagation,
+      libraryPass: facts.library.pass,
+      libraryDiverged: [...facts.library.diverged],
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1812,99 +1692,6 @@ export class WizardGenerationRpcHandlers {
   // ---------------------------------------------------------------------------
   // Propagation (non-fatal throughout)
   // ---------------------------------------------------------------------------
-
-  /**
-   * Fan freshly generated subagents out to every harness target through
-   * `HarnessPropagationService` (mirror, then reconcile — the reconciler's
-   * desired state IS the user layer, and `{ws}/.claude/agents` is a SOURCE,
-   * so an agent the wizard just wrote is invisible to a reconcile until the
-   * mirror has run). A wizard run must not fail because a rival CLI's
-   * directory was read-only.
-   */
-  private async propagateGeneratedAgents(harnessRoot: string): Promise<{
-    propagation: NonNullable<SetupGenerationResultFacts['propagation']>;
-    /** `null` when the host has no propagation (and so no Library). */
-    userLayer: UserLayerRefreshStatus | null;
-  }> {
-    let consent = false;
-    try {
-      // BEFORE the propagate, because the reconciler resolves the gate at the
-      // top of the pass: granting after it would leave the agents this run
-      // just generated sitting in the user layer until a later trigger.
-      consent = this.grantAgentSyncConsent(harnessRoot);
-      const consentFact = consent ? 'granted' : 'not-granted';
-      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION))
-        return {
-          propagation: { consent: consentFact, status: 'unavailable' },
-          userLayer: null,
-        };
-      const propagation = this.resolveService<HarnessPropagationService>(
-        HARNESS_SYNC_TOKENS.PROPAGATION,
-        'HarnessPropagationService',
-      );
-      const { health, userLayer } = await propagation.propagateWithReport(
-        harnessRoot,
-        'wizard:generation-complete',
-      );
-      if (health === null)
-        return {
-          propagation: { consent: consentFact, status: 'unavailable' },
-          userLayer,
-        };
-      const targets = health.targets
-        .filter((target) => target.detected)
-        .map((target) => target.target);
-      this.logger.info('Generated agents propagated to harness targets', {
-        targets,
-        userLayer,
-      });
-      return {
-        propagation: { consent: consentFact, status: 'completed', targets },
-        userLayer,
-      };
-    } catch (error: unknown) {
-      this.logger.warn('Harness propagation after generation failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        propagation: {
-          consent: consent ? 'granted' : 'not-granted',
-          status: 'failed',
-        },
-        userLayer: 'failed',
-      };
-    }
-  }
-
-  /**
-   * Completing the setup wizard IS the user asking Ptah to manage subagents in
-   * this workspace, so it is what grants the `agents` consent gate. Without it
-   * the reconciler would decline to fan a single generated agent out to
-   * Codex, Copilot or Cursor.
-   */
-  private grantAgentSyncConsent(workspaceRoot: string): boolean {
-    try {
-      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)) {
-        return false;
-      }
-      const gate = this.resolveService<AgentSyncGate>(
-        HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
-        'AgentSyncGate',
-      );
-      if (gate.enable(workspaceRoot)) return true;
-      this.logger.warn(
-        'Could not record agent-sync consent; generated agents may not reach rival CLIs',
-        { workspaceRoot },
-      );
-      return false;
-    } catch (error: unknown) {
-      // degradation-audit: reported - consent failure is logged and surfaced as unavailable.
-      this.logger.warn('Recording agent-sync consent failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Resolution helpers

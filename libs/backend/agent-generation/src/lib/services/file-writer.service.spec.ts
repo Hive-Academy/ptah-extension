@@ -96,11 +96,13 @@ describe('AgentFileWriterService', () => {
       expect(result.isOk()).toBe(true);
       expect(result.value!.status).toBe('written');
       expect(result.value!.filePath).toContain('backend-developer.md');
-      expect(fs.writeFile).toHaveBeenCalledTimes(1);
-      expect(fs.writeFile).toHaveBeenCalledWith(
+      // An absent target is created exclusively, never with a plain write.
+      expect(fs.writeFileExclusive).toHaveBeenCalledTimes(1);
+      expect(fs.writeFileExclusive).toHaveBeenCalledWith(
         expect.stringContaining('backend-developer.md'),
         sampleAgent.content,
       );
+      expect(fs.writeFile).not.toHaveBeenCalled();
       expect(await fs.readFile(normalize(sampleAgent.filePath))).toBe(
         sampleAgent.content,
       );
@@ -119,7 +121,7 @@ describe('AgentFileWriterService', () => {
         dirname(normalize(agent.filePath)),
       );
       const createOrder = fs.createDirectory.mock.invocationCallOrder[0];
-      const writeOrder = fs.writeFile.mock.invocationCallOrder[0];
+      const writeOrder = fs.writeFileExclusive.mock.invocationCallOrder[0];
       expect(createOrder).toBeLessThan(writeOrder);
     });
 
@@ -201,7 +203,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('maps EACCES to a permission-denied error', async () => {
-      fs.writeFile.mockRejectedValueOnce(
+      fs.writeFileExclusive.mockRejectedValueOnce(
         errnoError('Permission denied', 'EACCES'),
       );
 
@@ -212,7 +214,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('maps ENOSPC to a disk-full error', async () => {
-      fs.writeFile.mockRejectedValueOnce(
+      fs.writeFileExclusive.mockRejectedValueOnce(
         errnoError('No space left on device', 'ENOSPC'),
       );
 
@@ -275,7 +277,7 @@ describe('AgentFileWriterService', () => {
       const result = await write({ ...sampleAgent }, CREATE_ONLY);
 
       expect(result.value!.status).toBe('written');
-      expect(fs.writeFile).toHaveBeenCalledTimes(1);
+      expect(fs.writeFileExclusive).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -356,6 +358,115 @@ describe('AgentFileWriterService', () => {
     });
   });
 
+  describe('no-clobber against concurrent writers (A2)', () => {
+    const target = normalize(sampleAgent.filePath);
+
+    /**
+     * Hold the next `count` reads of `target` after they settle, until the
+     * test releases them. Resolves `allHeld` once all are held.
+     */
+    function holdReads(count: number): {
+      allHeld: Promise<void>;
+      release: Array<() => void>;
+    } {
+      const realRead = fs.readFile.getMockImplementation();
+      if (!realRead) throw new Error('mock readFile has no implementation');
+      const release: Array<() => void> = [];
+      let signal: () => void = () => undefined;
+      const allHeld = new Promise<void>((resolve) => {
+        signal = resolve;
+      });
+      fs.readFile.mockImplementation(async (path: string) => {
+        let text = '';
+        let failure: unknown;
+        let failed = false;
+        try {
+          text = await realRead(path);
+        } catch (error: unknown) {
+          failure = error;
+          failed = true;
+        }
+        if (path === target && release.length < count) {
+          await new Promise<void>((resume) => {
+            release.push(resume);
+            if (release.length === count) signal();
+          });
+        }
+        if (failed) throw failure;
+        return text;
+      });
+      return { allHeld, release };
+    }
+
+    it.each([
+      ['create-only', CREATE_ONLY, 'kept'],
+      ['replace-allowed from missing', REPLACE_FROM_MISSING, 'changed-since-preview'],
+    ] as const)(
+      'maps an exclusive-create collision under %s to "%s" and keeps the file',
+      async (_label, guard, status) => {
+        await fs.writeFile(target, 'created by someone else');
+        fs.writeFile.mockClear();
+        // The read happened before the other writer's create landed.
+        fs.readFile.mockRejectedValueOnce(errnoError('missing', 'ENOENT'));
+
+        const result = await write({ ...sampleAgent }, guard);
+
+        expect(result.value).toEqual({ filePath: target, status });
+        expect(fs.writeFile).not.toHaveBeenCalled();
+        expect(await fs.readFile(target)).toBe('created by someone else');
+      },
+    );
+
+    it('two writers paused after their initial read: the second never clobbers the first', async () => {
+      // Two service instances over one filesystem stand in for the wizard
+      // writer racing the pack installer (or another window).
+      const other = new AgentFileWriterService(mockLogger as never, fs);
+      const gate = holdReads(2);
+
+      const first = service.writeAgent(
+        { ...sampleAgent, content: '# first writer' },
+        CREATE_ONLY,
+      );
+      const second = other.writeAgent(
+        { ...sampleAgent, content: '# second writer' },
+        CREATE_ONLY,
+      );
+      await gate.allHeld;
+
+      gate.release[0]?.();
+      expect((await first).value).toEqual({
+        filePath: target,
+        status: 'written',
+      });
+      gate.release[1]?.();
+      expect((await second).value).toEqual({
+        filePath: target,
+        status: 'kept',
+      });
+      expect(await fs.readFile(target)).toBe('# first writer');
+      expect(fs.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('re-checks the baseline right before a replace', async () => {
+      await fs.writeFile(target, 'old content');
+      fs.writeFile.mockClear();
+      const gate = holdReads(1);
+
+      const pending = write({ ...sampleAgent }, replaceFrom('old content'));
+      await gate.allHeld;
+      // An editor saves after the initial (matching) read.
+      fs.__state.files.set(target, new TextEncoder().encode('edited'));
+      gate.release[0]?.();
+
+      expect((await pending).value).toEqual({
+        filePath: target,
+        status: 'changed-since-preview',
+      });
+      expect(fs.writeFile).not.toHaveBeenCalled();
+      expect(await fs.readFile(target)).toBe('edited');
+    });
+  });
+
   describe('error handling', () => {
     it('reports a directory creation failure', async () => {
       fs.createDirectory.mockRejectedValueOnce(
@@ -370,7 +481,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('maps EROFS to a read-only file system error', async () => {
-      fs.writeFile.mockRejectedValueOnce(
+      fs.writeFileExclusive.mockRejectedValueOnce(
         errnoError('Read-only file system', 'EROFS'),
       );
 
@@ -381,7 +492,7 @@ describe('AgentFileWriterService', () => {
     });
 
     it('maps EMFILE to a too-many-open-files error', async () => {
-      fs.writeFile.mockRejectedValueOnce(
+      fs.writeFileExclusive.mockRejectedValueOnce(
         errnoError('Too many open files', 'EMFILE'),
       );
 
@@ -426,7 +537,7 @@ describe('AgentFileWriterService', () => {
       const result = await write({ ...sampleAgent, filePath });
 
       expect(result.isOk()).toBe(true);
-      expect(fs.writeFile).toHaveBeenCalledWith(
+      expect(fs.writeFileExclusive).toHaveBeenCalledWith(
         normalize(filePath),
         sampleAgent.content,
       );
@@ -439,7 +550,7 @@ describe('AgentFileWriterService', () => {
         const result = await write({ ...sampleAgent, filePath });
 
         expect(result.isOk()).toBe(true);
-        expect(fs.writeFile).toHaveBeenCalledWith(
+        expect(fs.writeFileExclusive).toHaveBeenCalledWith(
           normalize(filePath),
           sampleAgent.content,
         );
@@ -540,7 +651,7 @@ describe('AgentFileWriterService', () => {
       const result = await write(agent);
 
       expect(result.isOk()).toBe(true);
-      expect(fs.writeFile).toHaveBeenCalledWith(
+      expect(fs.writeFileExclusive).toHaveBeenCalledWith(
         expect.any(String),
         agent.content,
       );
@@ -555,7 +666,7 @@ describe('AgentFileWriterService', () => {
       });
 
       expect(result.isOk()).toBe(true);
-      expect(fs.writeFile).toHaveBeenCalledWith(
+      expect(fs.writeFileExclusive).toHaveBeenCalledWith(
         expect.any(String),
         largeContent,
       );

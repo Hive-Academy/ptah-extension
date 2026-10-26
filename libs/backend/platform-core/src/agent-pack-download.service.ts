@@ -15,7 +15,12 @@
  *
  * Concurrency (A22): network fetches are deduplicated by URL only. Writes are
  * never shared between callers: installs into one canonical target directory
- * run one after another, each with its own guards and outcomes.
+ * run one after another, each with its own guards and outcomes. That queue
+ * is local to this service, so an absent destination is always created
+ * no-clobber (hard link / `wx`): a file the wizard writer or another process
+ * created meanwhile is never replaced (`kept`, or `changed-since-preview`
+ * under `replace`). A replace re-checks the baseline right before its rename;
+ * see `replaceIfBaseline` for the window that remains.
  *
  * The guard rules mirror the agent-generation writer (B2). They are restated
  * here because platform-core cannot depend on agent-generation:
@@ -130,6 +135,16 @@ function errnoCode(error: unknown): string | undefined {
   }
   return undefined;
 }
+
+/** `link` errors that mean "this filesystem has no hard links here". */
+const NO_HARD_LINK_CODES: ReadonlySet<string> = new Set([
+  'EPERM',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'ENOSYS',
+  'EXDEV',
+  'EMLINK',
+]);
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -333,8 +348,26 @@ export class AgentPackDownloadService {
     }
 
     try {
-      await this.writeAtomically(destPath, item.content);
-      return { file, outcome: 'written' };
+      if (local.state === 'absent') {
+        // The serial queue covers this service only; the wizard writer or
+        // another process can create the file after the read above, so the
+        // create itself must refuse to replace anything.
+        const created = await this.createExclusively(destPath, item.content);
+        if (created) return { file, outcome: 'written' };
+        return {
+          file,
+          outcome:
+            item.guard.mode === 'replace' ? 'changed-since-preview' : 'kept',
+        };
+      }
+      // `blockedByGuard` lets a present file through only for `replace`.
+      if (item.guard.mode !== 'replace') return { file, outcome: 'kept' };
+      const replaced = await this.replaceIfBaseline(
+        destPath,
+        item.content,
+        item.guard.baselineHash,
+      );
+      return { file, outcome: replaced ? 'written' : 'changed-since-preview' };
     } catch (error: unknown) {
       return { file, outcome: 'failed', error: errorMessage(error) };
     }
@@ -428,21 +461,107 @@ export class AgentPackDownloadService {
   }
 
   /**
-   * Write through a uniquely named temp sibling and rename it over the
-   * destination, so a reader never sees a half-written agent file.
+   * Create an absent destination without ever replacing one that appeared
+   * meanwhile. The content goes to a uniquely named temp sibling first and is
+   * hard-linked to the destination: `link` fails with EEXIST instead of
+   * replacing, and a reader never sees a half-written agent file. Where the
+   * filesystem has no hard links, an exclusive `wx` create is used instead
+   * (still no-clobber, without the all-at-once visibility).
+   *
+   * @returns `false` when the destination already exists (nothing written)
    */
-  private async writeAtomically(
+  private async createExclusively(
     destPath: string,
     content: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    return this.withTempSibling(destPath, content, (tmpPath) =>
+      this.commitNoClobber(tmpPath, destPath, content),
+    );
+  }
+
+  /**
+   * Publish a staged temp file at an absent `destPath` without replacing
+   * anything: hard link first, exclusive `wx` create where the filesystem has
+   * no hard links. `false` when the destination exists.
+   */
+  private async commitNoClobber(
+    tmpPath: string,
+    destPath: string,
+    content: string,
+  ): Promise<boolean> {
+    try {
+      await fsPromises.link(tmpPath, destPath);
+      return true;
+    } catch (error: unknown) {
+      const code = errnoCode(error);
+      if (code === 'EEXIST') return false;
+      if (code === undefined || !NO_HARD_LINK_CODES.has(code)) throw error;
+    }
+    try {
+      await fsPromises.writeFile(destPath, content, {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+      return true;
+    } catch (error: unknown) {
+      if (errnoCode(error) === 'EEXIST') return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Replace a present destination only while it still holds the bytes the
+   * user decided on. The baseline hash is re-read and re-checked after the
+   * new content is staged, immediately before the rename; a file deleted in
+   * between is created no-clobber instead.
+   *
+   * Remaining guarantee: there is no lock shared with editors or other
+   * processes, so a write that lands between this re-check and the rename
+   * is still replaced. The window is one read plus one rename.
+   *
+   * @returns `false` when the destination changed since the decision
+   */
+  private async replaceIfBaseline(
+    destPath: string,
+    content: string,
+    baselineHash: string,
+  ): Promise<boolean> {
+    return this.withTempSibling(destPath, content, async (tmpPath) => {
+      const current = await this.readLocal(destPath);
+      if (current.state === 'absent') {
+        return this.commitNoClobber(tmpPath, destPath, content);
+      }
+      if (
+        current.state === 'unreadable' ||
+        hashPackContent(current.text) !== baselineHash
+      ) {
+        return false;
+      }
+      await fsPromises.rename(tmpPath, destPath);
+      return true;
+    });
+  }
+
+  /**
+   * Stage `content` in a uniquely named temp sibling of `destPath`, run
+   * `commit` with its path, and remove whatever is left of it afterwards (a
+   * successful rename leaves nothing; a link leaves the temp name).
+   */
+  private async withTempSibling(
+    destPath: string,
+    content: string,
+    commit: (tmpPath: string) => Promise<boolean>,
+  ): Promise<boolean> {
     await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
     const tmpPath = `${destPath}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-    await fsPromises.writeFile(tmpPath, content, 'utf-8');
+    await fsPromises.writeFile(tmpPath, content, {
+      encoding: 'utf-8',
+      flag: 'wx',
+    });
     try {
-      await fsPromises.rename(tmpPath, destPath);
-    } catch (renameError: unknown) {
+      return await commit(tmpPath);
+    } finally {
       await fsPromises.rm(tmpPath, { force: true });
-      throw renameError;
     }
   }
 

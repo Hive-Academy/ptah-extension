@@ -23,7 +23,7 @@
 
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import * as path from 'path';
-import { inject, injectable, type DependencyContainer } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { RpcUserError, TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   AgentPackDownloadService,
@@ -147,12 +147,16 @@ export class PackInstallService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
     @inject(AgentPackDownloadService)
     private readonly downloads: PackDownloader,
     @inject(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE)
     private readonly originStore: AgentOriginForgetter,
+    /** Absent on a host without harness sync: no consent to record. */
+    @inject(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, { isOptional: true })
+    private readonly agentSyncGate: AgentSyncGate | undefined,
+    /** Absent on a host without harness sync, and so without a Library. */
+    @inject(HARNESS_SYNC_TOKENS.PROPAGATION, { isOptional: true })
+    private readonly propagation: HarnessPropagationService | undefined,
   ) {}
 
   /** The curated packs the wizard may list and install from. */
@@ -590,24 +594,18 @@ export class PackInstallService {
     harnessRoot: string,
   ): Promise<UserLayerRefreshStatus | null> {
     try {
-      if (this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)) {
-        const gate = this.container.resolve<AgentSyncGate>(
-          HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
-        );
-        if (!gate.enable(harnessRoot)) {
+      if (this.agentSyncGate) {
+        if (!this.agentSyncGate.enable(harnessRoot)) {
           this.logger.warn(
             'Could not record agent-sync consent; pack agents may not reach other CLIs',
             { harnessRoot },
           );
         }
       }
-      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) {
+      if (!this.propagation) {
         return null;
       }
-      const propagation = this.container.resolve<HarnessPropagationService>(
-        HARNESS_SYNC_TOKENS.PROPAGATION,
-      );
-      const { userLayer } = await propagation.propagateWithReport(
+      const { userLayer } = await this.propagation.propagateWithReport(
         harnessRoot,
         PACK_INSTALL_PASS_REASON,
       );

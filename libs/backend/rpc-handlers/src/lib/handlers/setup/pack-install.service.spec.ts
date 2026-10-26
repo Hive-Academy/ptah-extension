@@ -4,7 +4,8 @@
  * Drives the real `AgentPackDownloadService` (network mocked at `https`)
  * against temp-dir workspaces, so every guard decision is checked on real
  * files. Harness collaborators (consent gate, propagation, origin store)
- * are jest doubles registered in a child container.
+ * are jest doubles registered in a child container and injected by token
+ * (the consent gate and propagation optionally, as on a host without them).
  *
  * Contracts:
  *   - plan writes nothing; sub-folder default → harness root; single-file
@@ -184,7 +185,6 @@ function makeFixture(
       folders: [opts.openFolder === 'root' ? root : nested],
     }),
   });
-  container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
   container.register(AgentPackDownloadService, {
     useValue: new AgentPackDownloadService(),
   });

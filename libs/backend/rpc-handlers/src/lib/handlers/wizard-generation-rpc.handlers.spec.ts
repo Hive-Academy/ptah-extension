@@ -189,9 +189,17 @@ const HARNESS_SYNC_TOKENS = {
   SOURCE_RESOLVER: Symbol.for('HarnessSyncSourceResolver'),
 } as const;
 
+/** Optional collaborators injected by token (S2); absent unless registered. */
+const OPTIONAL_TOKENS = {
+  TEMPLATE_STORAGE_SERVICE: Symbol.for('TemplateStorageService'),
+  USER_LAYER_MIRROR_SERVICE: Symbol.for('PtahUserLayerMirrorService'),
+  AGENT_MODEL_SETTINGS: Symbol.for('AgentModelSettings'),
+} as const;
+
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
 import { sameWorkspacePath } from './wizard-generation-binding';
 import { GenerationPreviewService } from './wizard-generation/generation-preview.service';
+import { GenerationLibraryPassService } from './wizard-generation/generation-library-pass.service';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import {
   GENERATION_TIMEOUT_MS,
@@ -1373,28 +1381,54 @@ function makeHarness(
     hashWrittenFile: jest.fn().mockResolvedValue('sha256:written'),
     recordWritten: jest.fn().mockResolvedValue(true),
   };
-  const previews = new GenerationPreviewService(
-    hostLogger,
-    hostContainer,
-    checkpoints,
-    origins,
-  );
-
-  const handlers = new WizardGenerationRpcHandlers(
-    hostLogger,
-    rpcHandler as unknown as RpcHandler,
-    pluginLoader as unknown as PluginLoaderService,
-    workspace as unknown as IWorkspaceProvider,
-    hostContainer,
-    sentry as unknown as SentryService,
-    checkpoints,
-    runs,
-    previews,
-    origins,
-  );
+  // The preview and Library-pass collaborators take their optional host
+  // capabilities by constructor injection, so they are built from the
+  // registry on first use: a test registers a capability after makeHarness()
+  // and before its first `h.handlers` access, exactly like a host that
+  // registers it before the handler is resolved.
+  const optional = <T>(token: symbol): T | undefined =>
+    registry.get(token) as T | undefined;
+  const build = (): WizardGenerationRpcHandlers => {
+    const previews = new GenerationPreviewService(
+      hostLogger,
+      checkpoints,
+      origins,
+      optional(HARNESS_SYNC_TOKENS.RECONCILER),
+      optional(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER),
+      optional(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE),
+      optional(HARNESS_SYNC_TOKENS.PROPAGATION),
+      optional(OPTIONAL_TOKENS.TEMPLATE_STORAGE_SERVICE),
+      optional(OPTIONAL_TOKENS.USER_LAYER_MIRROR_SERVICE),
+      optional(OPTIONAL_TOKENS.AGENT_MODEL_SETTINGS),
+    );
+    const libraryPass = new GenerationLibraryPassService(
+      hostLogger,
+      origins,
+      optional(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE),
+      optional(HARNESS_SYNC_TOKENS.PROPAGATION),
+      optional(OPTIONAL_TOKENS.USER_LAYER_MIRROR_SERVICE),
+    );
+    return new WizardGenerationRpcHandlers(
+      hostLogger,
+      rpcHandler as unknown as RpcHandler,
+      pluginLoader as unknown as PluginLoaderService,
+      workspace as unknown as IWorkspaceProvider,
+      hostContainer,
+      sentry as unknown as SentryService,
+      checkpoints,
+      runs,
+      previews,
+      origins,
+      libraryPass,
+    );
+  };
+  let handlers: WizardGenerationRpcHandlers | null = null;
 
   return {
-    handlers,
+    get handlers() {
+      handlers ??= build();
+      return handlers;
+    },
     runs,
     origins,
     logger,
@@ -2907,6 +2941,8 @@ describe('WizardGenerationRpcHandlers', () => {
         skip?: Array<symbol | string>;
         disabledAgentIds?: string[];
         policyUnknown?: boolean;
+        /** Extra capabilities, registered before the handler is built. */
+        register?: Array<[symbol, unknown]>;
       } = {},
     ): PreviewHarness {
       const h = makeHarness({ workspaceRoot: tempWorkspace, skip: opts.skip });
@@ -2928,6 +2964,9 @@ describe('WizardGenerationRpcHandlers', () => {
       const gate = (h.registry.get(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE) ?? {
         enable: jest.fn(),
       }) as { enable: jest.Mock };
+      for (const [token, value] of opts.register ?? []) {
+        h.registry.set(token, value);
+      }
       h.handlers.register();
       return { ...h, reconciler, sourceResolver, gate };
     }
@@ -3822,14 +3861,15 @@ describe('WizardGenerationRpcHandlers', () => {
       });
 
       it('lists only written agents whose edited Library copy diverged from this write', async () => {
-        const h = makePreviewHarness();
         const readCloneOrigin = jest.fn(
           async (_kind: string, slug: string) => ({
             diverged: true,
             pendingSourceHash: `sha256:${slug}`,
           }),
         );
-        h.registry.set(USER_LAYER_MIRROR, { readCloneOrigin });
+        const h = makePreviewHarness({
+          register: [[USER_LAYER_MIRROR, { readCloneOrigin }]],
+        });
         h.origins.read.mockResolvedValue({
           [AGENT]: { hash: `sha256:${AGENT}`, writtenAt: 1 },
           [OTHER]: { hash: `sha256:${OTHER}`, writtenAt: 1 },
@@ -3854,6 +3894,151 @@ describe('WizardGenerationRpcHandlers', () => {
           'kept',
         ]);
         expect(payload.result?.counts).toMatchObject({ written: 1, kept: 1 });
+      });
+
+      describe('untabbed runs carry the same Library facts (A4)', () => {
+        async function untabbedRun(
+          h: Harness,
+          outcomes: GenerationAgentOutcome[],
+        ): Promise<void> {
+          recordingOrchestrator(h, outcomes);
+          const submitted = await call<{ success: boolean }>(
+            h,
+            'wizard:submit-selection',
+            { selectedAgentIds: outcomes.map((o) => o.agentId) },
+          );
+          expect(submitted.success).toBe(true);
+          await settle();
+        }
+
+        function onlyRun(h: Harness): GenerationCheckpointManifest {
+          const runs = [...h.storage.manifests.values()];
+          expect(runs).toHaveLength(1);
+          return runs[0];
+        }
+
+        it('a normal untabbed run returns target and libraryPass, and persists them', async () => {
+          const h = makePreviewHarness();
+
+          await untabbedRun(h, [agentOutcome(AGENT, 'written')]);
+
+          const payload = completeBroadcasts(h)[0];
+          expect(payload.tabBinding).toBeUndefined();
+          expect(payload.terminalStatus).toBe('completed');
+          expect(payload.result).toMatchObject({
+            status: 'completed',
+            success: true,
+            target: { chosen: 'harness-root' },
+            libraryPass: 'updated',
+            libraryDiverged: [],
+          });
+          expect(onlyRun(h).library).toEqual({
+            pass: 'updated',
+            diverged: [],
+          });
+        });
+
+        it('a failed refresh keeps file success and returns libraryPass failed', async () => {
+          const h = makePreviewHarness();
+          h.propagation.propagateWithReport.mockResolvedValue({
+            health: { targets: [] },
+            userLayer: 'failed',
+          });
+
+          await untabbedRun(h, [agentOutcome(AGENT, 'written')]);
+
+          const payload = completeBroadcasts(h)[0];
+          expect(payload.success).toBe(true);
+          expect(payload.tabBinding).toBeUndefined();
+          expect(payload.result?.libraryPass).toBe('failed');
+          expect(payload.result?.counts).toMatchObject({
+            written: 1,
+            failed: 0,
+          });
+          expect(onlyRun(h).agents[AGENT].status).toBe('written');
+        });
+
+        it('lists a diverged Library copy for an untabbed run', async () => {
+          const readCloneOrigin = jest.fn(
+            async (_kind: string, slug: string) => ({
+              diverged: true,
+              pendingSourceHash: `sha256:${slug}`,
+            }),
+          );
+          const h = makePreviewHarness({
+            register: [[USER_LAYER_MIRROR, { readCloneOrigin }]],
+          });
+          h.origins.read.mockResolvedValue({
+            [AGENT]: { hash: `sha256:${AGENT}`, writtenAt: 1 },
+          });
+
+          await untabbedRun(h, [agentOutcome(AGENT, 'written')]);
+
+          expect(completeBroadcasts(h)[0].result?.libraryDiverged).toEqual([
+            AGENT,
+          ]);
+          expect(onlyRun(h).library?.diverged).toEqual([AGENT]);
+        });
+
+        it('a resumed untabbed run returns its Library facts', async () => {
+          const h = makePreviewHarness();
+          seedRun(h, { [AGENT]: 'pending' }, { outputRoot: tempWorkspace });
+
+          recordingOrchestrator(h, [agentOutcome(AGENT, 'written')]);
+          const resumed = await call<{ success: boolean }>(
+            h,
+            'wizard:submit-selection',
+            { resume: true },
+          );
+          expect(resumed.success).toBe(true);
+          await settle();
+
+          const payload = completeBroadcasts(h)[0];
+          expect(payload.tabBinding).toBeUndefined();
+          expect(payload.result?.libraryPass).toBe('updated');
+          expect(storedRun(h, 'run-seeded').library?.pass).toBe('updated');
+        });
+
+        it('an untabbed resume with no work left returns target and libraryPass', async () => {
+          const h = makePreviewHarness();
+          const target = {
+            harnessRoot: tempWorkspace,
+            openedFolder: tempWorkspace,
+            chosen: 'harness-root' as const,
+            openedIsHarnessRoot: true,
+          };
+          seedRun(
+            h,
+            { [AGENT]: 'written' },
+            {
+              outputRoot: tempWorkspace,
+              target,
+              // The earlier invocation's pass; a resume does not replay it.
+              library: { pass: 'failed', diverged: [AGENT] },
+            },
+          );
+
+          const resumed = await call<{ success: boolean }>(
+            h,
+            'wizard:submit-selection',
+            { resume: true },
+          );
+          expect(resumed.success).toBe(true);
+          await settle();
+
+          expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
+          const payload = completeBroadcasts(h)[0];
+          expect(payload.tabBinding).toBeUndefined();
+          expect(payload.terminalStatus).toBe('completed');
+          // This invocation wrote nothing, so no Library pass was due.
+          expect(payload.result).toMatchObject({
+            status: 'completed',
+            success: true,
+            target: { chosen: 'harness-root' },
+            libraryPass: 'not-applicable',
+            libraryDiverged: [],
+          });
+        });
       });
 
       it('a resume applies the manifest guards only and carries a kept file forward as kept', async () => {

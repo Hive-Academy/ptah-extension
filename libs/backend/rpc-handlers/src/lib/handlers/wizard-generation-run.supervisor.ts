@@ -325,32 +325,32 @@ export class GenerationRunSupervisor {
         }
         if (finalizationFailed) settled.resultDetails = { finalizationFailed };
       }
-      if (request.tabBinding) {
-        const status = settled.payload.success
-          ? 'completed'
-          : abortReason === GENERATION_TIMEOUT_REASON
-            ? 'timed-out'
-            : abortReason === GENERATION_CANCEL_REASON
-              ? 'cancelled'
-              : 'failed';
-        settled.payload = {
-          ...settled.payload,
-          tabBinding: request.tabBinding,
-          terminalStatus: status,
-          result: {
-            status,
-            success: settled.payload.success,
-            source: request.source ?? {
-              kind: 'workspace-discovery',
-              reason: 'missing',
-            },
-            effectiveProvider: request.effectiveProvider ?? 'unknown',
-            effectiveModel: request.effectiveModel ?? 'unknown',
-            enhancedPromptsUsed: request.enhancedPromptsUsed,
-            ...(settled.resultDetails ?? {}),
+      // Every run reports its result facts (target, Library pass, diverged
+      // copies) on completion (A4); only the tab binding is conditional.
+      const status = settled.payload.success
+        ? 'completed'
+        : abortReason === GENERATION_TIMEOUT_REASON
+          ? 'timed-out'
+          : abortReason === GENERATION_CANCEL_REASON
+            ? 'cancelled'
+            : 'failed';
+      settled.payload = {
+        ...settled.payload,
+        ...(request.tabBinding ? { tabBinding: request.tabBinding } : {}),
+        terminalStatus: status,
+        result: {
+          status,
+          success: settled.payload.success,
+          source: request.source ?? {
+            kind: 'workspace-discovery',
+            reason: 'missing',
           },
-        };
-      }
+          effectiveProvider: request.effectiveProvider ?? 'unknown',
+          effectiveModel: request.effectiveModel ?? 'unknown',
+          enhancedPromptsUsed: request.enhancedPromptsUsed,
+          ...(settled.resultDetails ?? {}),
+        },
+      };
       await this.broadcastCompletion(request.broadcaster, settled.payload);
       return settled;
     } finally {

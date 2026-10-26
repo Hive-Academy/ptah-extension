@@ -24,7 +24,7 @@
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
-import { inject, injectable, type DependencyContainer } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   AGENT_GENERATION_TOKENS,
@@ -41,6 +41,8 @@ import {
   isAgentSelectedForSync,
   isReservedSlug,
   resolveHarnessWorkspaceRoot,
+  type AgentSyncGate,
+  type HarnessPropagationService,
   type HarnessReconcilerService,
   type IHarnessSourceResolver,
 } from '@ptah-extension/harness-sync';
@@ -62,7 +64,6 @@ import type {
   LocalFileState,
   WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { GenerationCheckpointService } from '../wizard-generation-checkpoint.service';
 
 export const PREVIEW_NO_HARNESS_WARNING =
@@ -240,12 +241,30 @@ export class GenerationPreviewService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(PLATFORM_TOKENS.DI_CONTAINER)
-    private readonly container: DependencyContainer,
     @inject(GenerationCheckpointService)
     private readonly checkpoints: GenerationCheckpointService,
     @inject(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE)
     private readonly originStore: AgentOriginReader,
+    // Optional host capabilities. Each is absent on a host without it, and
+    // the preview then degrades exactly as documented at its use site.
+    @inject(HARNESS_SYNC_TOKENS.RECONCILER, { isOptional: true })
+    private readonly reconciler: HarnessReconcilerService | undefined,
+    @inject(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER, { isOptional: true })
+    private readonly sourceResolver: IHarnessSourceResolver | undefined,
+    @inject(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, { isOptional: true })
+    private readonly agentSyncGate: AgentSyncGate | undefined,
+    @inject(HARNESS_SYNC_TOKENS.PROPAGATION, { isOptional: true })
+    private readonly propagation: HarnessPropagationService | undefined,
+    @inject(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
+      isOptional: true,
+    })
+    private readonly templates: ITemplateStorageService | undefined,
+    @inject(AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE, {
+      isOptional: true,
+    })
+    private readonly mirror: UserLayerMirrorService | undefined,
+    @inject(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS, { isOptional: true })
+    private readonly modelSettings: AgentModelSettings | undefined,
   ) {}
 
   /**
@@ -469,10 +488,8 @@ export class GenerationPreviewService {
   private async previewRivals(
     target: GenerationTargetInfo,
   ): Promise<RivalPreview> {
-    if (
-      !this.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER) ||
-      !this.isRegistered(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER)
-    ) {
+    const { reconciler, sourceResolver } = this;
+    if (!reconciler || !sourceResolver) {
       return {
         kind: 'unavailable',
         status: 'harness-unavailable',
@@ -490,12 +507,6 @@ export class GenerationPreviewService {
     }
     const { harnessRoot } = target;
     try {
-      const reconciler = this.container.resolve<HarnessReconcilerService>(
-        HARNESS_SYNC_TOKENS.RECONCILER,
-      );
-      const sourceResolver = this.container.resolve<IHarnessSourceResolver>(
-        HARNESS_SYNC_TOKENS.SOURCE_RESOLVER,
-      );
       // Fresh, not `getLastHealth()`: a CLI installed since the last pass must
       // be listed, and one uninstalled since must not be promised.
       const health = await reconciler.verify(
@@ -503,9 +514,7 @@ export class GenerationPreviewService {
         'wizard:preview-generation',
       );
       const source = await sourceResolver.resolve(harnessRoot);
-      const syncAvailable =
-        this.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE) &&
-        this.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION);
+      const syncAvailable = !!this.agentSyncGate && !!this.propagation;
       return {
         kind: 'available',
         harnessRoot,
@@ -668,16 +677,10 @@ export class GenerationPreviewService {
     const { harnessRoot } = core.target;
     const atHarnessRoot = core.target.chosen === 'harness-root';
     const layers = this.readModelLayers(harnessRoot);
-    const templates = this.lookup<ITemplateStorageService>(
-      AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE,
-    );
+    const templates = this.templates ?? null;
     // Both records describe the harness root; an opened-folder target writes
     // a file neither the Library nor the origin record reads.
-    const mirror = atHarnessRoot
-      ? this.lookup<UserLayerMirrorService>(
-          AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-        )
-      : null;
+    const mirror = atHarnessRoot ? (this.mirror ?? null) : null;
     const origins = atHarnessRoot
       ? await this.originStore.read(harnessRoot)
       : null;
@@ -737,9 +740,7 @@ export class GenerationPreviewService {
    * model, exactly as generation falls back).
    */
   private readModelLayers(harnessRoot: string): AgentModelLayers | null {
-    const settings = this.lookup<AgentModelSettings>(
-      SETTINGS_TOKENS.AGENT_MODEL_SETTINGS,
-    );
+    const settings = this.modelSettings;
     if (!settings) return null;
     try {
       return settings.layersForPath(harnessRoot);
@@ -801,26 +802,6 @@ export class GenerationPreviewService {
         { agentId, error: errorMessage(error) },
       );
       return undefined;
-    }
-  }
-
-  private isRegistered(token: symbol): boolean {
-    return this.container.isRegistered(token, true);
-  }
-
-  /** A registered optional collaborator, or null when this host has none. */
-  private lookup<T>(token: symbol): T | null {
-    if (!this.isRegistered(token)) return null;
-    try {
-      return this.container.resolve<T>(token);
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - every lookup here feeds an
-      // optional preview decoration; the warn records the failed resolution.
-      this.logger.warn(
-        'RPC: wizard:preview-generation could not resolve a collaborator',
-        { token: token.toString(), error: errorMessage(error) },
-      );
-      return null;
     }
   }
 }

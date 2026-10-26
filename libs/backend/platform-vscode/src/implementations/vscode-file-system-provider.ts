@@ -64,6 +64,29 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
     await vscode.workspace.fs.writeFile(this.toUri(path), bytes);
   }
 
+  /**
+   * Create a new file, failing with EEXIST when one is there.
+   *
+   * `vscode.workspace.fs.writeFile` has no create-only option, so — as with
+   * {@link createDirectoryExclusive} — this uses Node's `open` with `wx` and is
+   * local-disk only; a virtual scheme is rejected rather than emulated with a
+   * racy stat-then-write.
+   */
+  async writeFileExclusive(path: string, content: string): Promise<void> {
+    const uri = this.toUri(path);
+    if (uri.scheme !== 'file') {
+      throw new Error(
+        `writeFileExclusive requires a local file path, but '${path}' uses ` +
+          `the '${uri.scheme}' scheme. Virtual filesystems provide no atomic ` +
+          `exclusive-create.`,
+      );
+    }
+    await nodeFs.writeFile(uri.fsPath, content, {
+      encoding: 'utf-8',
+      flag: 'wx',
+    });
+  }
+
   async writeFileBytes(path: string, content: Uint8Array): Promise<void> {
     await vscode.workspace.fs.writeFile(this.toUri(path), content);
   }

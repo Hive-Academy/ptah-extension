@@ -34,6 +34,22 @@ export interface IFileSystemProvider {
   writeFile(path: string, content: string): Promise<void>;
 
   /**
+   * Create a NEW file with UTF-8 content, rejecting if the path already
+   * exists. The no-clobber counterpart of {@link writeFile}, for writers that
+   * must never replace a file someone else created after they looked.
+   *
+   * Contract:
+   *  - The parent directory must already exist; this call never creates it.
+   *  - If `path` already exists the returned promise REJECTS with an error
+   *    whose `code` is `'EEXIST'`, and the existing file is left untouched.
+   *  - The existence check and the creation are a single filesystem
+   *    operation (`open` with `wx`). Implementations MUST NOT stat-then-write.
+   *
+   * @throws An `Error & { code: 'EEXIST' }` when `path` already exists.
+   */
+  writeFileExclusive(path: string, content: string): Promise<void>;
+
+  /**
    * Write binary content to a file.
    * Replaces: vscode.workspace.fs.writeFile()
    */

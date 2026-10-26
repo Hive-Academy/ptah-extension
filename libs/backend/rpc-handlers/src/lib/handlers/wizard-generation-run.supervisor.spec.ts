@@ -124,4 +124,31 @@ describe('GenerationRunSupervisor ownership', () => {
     expect(settled.payload.success).toBe(false);
     expect(settled.payload.terminalStatus).toBe('failed');
   });
+
+  it('gives an untabbed run its result facts, without a tab binding (A4)', async () => {
+    const supervisor = new GenerationRunSupervisor(logger());
+    const settled = await supervisor.run({
+      options: { workspacePath: '/workspace' },
+      orchestrator: { generateAgents: async () => Result.ok(summary()) },
+      broadcaster: null,
+      outputDirectory: '/workspace/.claude/agents',
+      carriedOver: [],
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'sonnet',
+      onSettled: async (run) => {
+        run.resultDetails = { libraryPass: 'failed', libraryDiverged: [] };
+      },
+    });
+    expect(settled.payload.tabBinding).toBeUndefined();
+    expect(settled.payload.terminalStatus).toBe('completed');
+    expect(settled.payload.result).toMatchObject({
+      status: 'completed',
+      success: true,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'sonnet',
+      libraryPass: 'failed',
+      libraryDiverged: [],
+    });
+  });
 });

@@ -107,6 +107,7 @@ function makeFixture(
 
   const container = rootContainer.createChildContainer();
   container.register(TOKENS.LOGGER, { useValue: createMockLogger() });
+  // For GenerationCheckpointService, which the container builds here.
   container.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: container });
   container.register(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE, {
     useClass: WizardAgentOriginStore,

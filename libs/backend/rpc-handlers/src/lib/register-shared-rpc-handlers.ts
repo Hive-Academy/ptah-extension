@@ -36,6 +36,7 @@ import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 import { GuidanceGenerationRunSupervisor } from './handlers/guidance-generation-run.supervisor';
 import { GenerationRunSupervisor } from './handlers/wizard-generation-run.supervisor';
 import { GenerationPreviewService } from './handlers/wizard-generation/generation-preview.service';
+import { GenerationLibraryPassService } from './handlers/wizard-generation/generation-library-pass.service';
 import { PackInstallService } from './handlers/setup/pack-install.service';
 import { AgentPackDownloadService } from '@ptah-extension/platform-core';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
@@ -73,6 +74,8 @@ export function registerSharedRpcHandlers(
   // A singleton: it holds the preview token records and the per-process
   // revision secret that `wizard:submit-selection` checks decisions against.
   container.registerSingleton(GenerationPreviewService);
+  // Stateless; the post-run Library pass every wizard agents run shares.
+  container.registerSingleton(GenerationLibraryPassService);
   // Singletons: the download service shares in-flight fetches and queues
   // installs per target directory; the install service holds the pack plan
   // tokens and the per-process revision secret `wizard:install-pack-agents`

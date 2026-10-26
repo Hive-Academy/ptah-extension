@@ -140,6 +140,37 @@ jest.mock('http', () => ({
   ),
 }));
 
+/**
+ * Pass-through `fs/promises` whose `readFile` can be paused after it settles,
+ * so a test can hold two writers right after their initial destination read
+ * (A2 interleaving). With no gate set it behaves exactly like the real one.
+ */
+const mockReadGate: { hold: ((file: string) => Promise<void>) | null } = {
+  hold: null,
+};
+
+jest.mock('fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return {
+    ...actual,
+    readFile: async (file: string, encoding: BufferEncoding) => {
+      let text: string | undefined;
+      let failure: unknown;
+      let failed = false;
+      try {
+        text = await actual.readFile(file, encoding);
+      } catch (error: unknown) {
+        failure = error;
+        failed = true;
+      }
+      if (mockReadGate.hold) await mockReadGate.hold(String(file));
+      if (failed) throw failure;
+      return text;
+    },
+  };
+});
+
 import {
   AgentPackDownloadService,
   hashPackContent,
@@ -733,6 +764,123 @@ describe('AgentPackDownloadService', () => {
         { file: 'react-expert.md', outcome: 'changed-since-preview' },
       ]);
       expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // A2: writers outside this service's queue
+  // -------------------------------------------------------------------------
+
+  describe('no-clobber against writers outside the queue (A2)', () => {
+    afterEach(() => {
+      mockReadGate.hold = null;
+    });
+
+    /**
+     * Hold every read of `dest` until the test releases it; resolves once
+     * `count` reads are held.
+     */
+    function holdReads(
+      dest: string,
+      count: number,
+    ): { allHeld: Promise<void>; release: Array<() => void> } {
+      const release: Array<() => void> = [];
+      let signal: () => void = () => undefined;
+      const allHeld = new Promise<void>((resolve) => {
+        signal = resolve;
+      });
+      mockReadGate.hold = (file) => {
+        if (file !== dest || release.length >= count) return Promise.resolve();
+        return new Promise<void>((resume) => {
+          release.push(resume);
+          if (release.length === count) signal();
+        });
+      };
+      return { allHeld, release };
+    }
+
+    it('two create-only installers paused after their read: the second keeps the first', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      // Two instances: separate queues, like the wizard writer or another
+      // process racing this one.
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+
+      const first = a.installFiles(targetDir, [
+        { file: 'react-expert.md', content: REACT, guard: { mode: 'create-only' } },
+      ]);
+      const second = b.installFiles(targetDir, [
+        { file: 'react-expert.md', content: CSS, guard: { mode: 'create-only' } },
+      ]);
+      await gate.allHeld;
+
+      gate.release[0]?.();
+      expect(await first).toEqual([
+        { file: 'react-expert.md', outcome: 'written' },
+      ]);
+      gate.release[1]?.();
+      expect(await second).toEqual([
+        { file: 'react-expert.md', outcome: 'kept' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('a replace of a file deleted since the plan does not clobber a concurrent create', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+
+      const creator = a.installFiles(targetDir, [
+        { file: 'react-expert.md', content: REACT, guard: { mode: 'create-only' } },
+      ]);
+      const replacer = b.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'replace', baselineHash: hashPackContent('old') },
+        },
+      ]);
+      await gate.allHeld;
+
+      gate.release[0]?.();
+      await creator;
+      gate.release[1]?.();
+      expect(await replacer).toEqual([
+        { file: 'react-expert.md', outcome: 'changed-since-preview' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('a replace re-checks the baseline right before its rename', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      fs.writeFileSync(dest, 'old');
+      const svc = new AgentPackDownloadService();
+      const gate = holdReads(dest, 1);
+
+      const install = svc.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'replace', baselineHash: hashPackContent('old') },
+        },
+      ]);
+      await gate.allHeld;
+      // An editor saves after the initial (matching) read.
+      fs.writeFileSync(dest, 'edited');
+      gate.release[0]?.();
+
+      expect(await install).toEqual([
+        { file: 'react-expert.md', outcome: 'changed-since-preview' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe('edited');
       expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
     });
   });

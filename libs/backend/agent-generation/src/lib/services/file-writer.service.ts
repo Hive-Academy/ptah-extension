@@ -42,6 +42,15 @@ const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
   'FileNotFound',
 ]);
 
+/** The string `code` of a filesystem error, read structurally (any realm). */
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  const { code } = error;
+  return typeof code === 'string' ? code : undefined;
+}
+
 /**
  * Service for writing generated agents to the filesystem.
  *
@@ -75,7 +84,10 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * 2. Read the target: not found → absent; any other read error → `kept`
    * 3. Equal bytes → `unchanged`, no write
    * 4. Apply the guard: `kept` / `changed-since-preview` leave the file alone
-   * 5. Create the parent directory and write the new content → `written`
+   * 5. Create the parent directory and write the new content → `written`:
+   *    an absent target is created exclusively (a collision leaves the new
+   *    file alone); a present one is re-read and re-checked just before the
+   *    replace (see `replaceContent` for the window that remains)
    *
    * The target is read right before the write, so a decision made against an
    * earlier preview never overwrites content the user did not see.
@@ -130,7 +142,10 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       if (dirResult.isErr()) {
         return Result.err(dirResult.error!);
       }
-      return await this.writeContent(agent, absolutePath);
+      if (current.state === 'absent') {
+        return await this.createContent(agent, absolutePath, guard);
+      }
+      return await this.replaceContent(agent, absolutePath, guard);
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Unexpected error writing agent', err);
@@ -177,8 +192,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       const content = await this.fs.readFile(absolutePath);
       return { state: 'present', content };
     } catch (error: unknown) {
-      const code = (error as NodeJS.ErrnoException | undefined)?.code;
-      if (typeof code === 'string' && NOT_FOUND_CODES.has(code)) {
+      const code = errorCode(error);
+      if (code !== undefined && NOT_FOUND_CODES.has(code)) {
         return { state: 'absent' };
       }
       return { state: 'unreadable', code };
@@ -208,17 +223,76 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       : 'changed-since-preview';
   }
 
-  /** Write the new content; a write error is `Result.err`, never a status. */
-  private async writeContent(
+  /**
+   * Create an absent target with an exclusive create, so a file another
+   * writer (the pack installer, another window or process) created after
+   * our read is never replaced. A collision is the guard's "leave it" status:
+   * `kept` for create-only, `changed-since-preview` for replace-allowed
+   * (that file was not part of the decision).
+   */
+  private async createContent(
     agent: GeneratedAgent,
     absolutePath: string,
+    guard: AgentWriteGuard,
   ): Promise<Result<AgentWriteResult, Error>> {
     try {
-      await this.fs.writeFile(absolutePath, agent.content);
-      this.logger.info('Agent written successfully', {
+      await this.fs.writeFileExclusive(absolutePath, agent.content);
+    } catch (error: unknown) {
+      if (errorCode(error) === 'EEXIST') {
+        const status: AgentWriteStatus =
+          guard.mode === 'create-only' ? 'kept' : 'changed-since-preview';
+        this.logger.info('Agent file appeared before the create; left as is', {
+          filePath: absolutePath,
+          status,
+        });
+        return Result.ok({ filePath: absolutePath, status });
+      }
+      return this.handleFileSystemError(
+        error,
+        agent.filePath,
+        'write',
+        'Failed to write agent file',
+      );
+    }
+    return this.written(absolutePath);
+  }
+
+  /**
+   * Replace a present target that matched the guard's baseline. The target
+   * is re-read and its hash re-checked immediately before the write, which
+   * closes the gap across the directory creation and any other await since
+   * the first read.
+   *
+   * Remaining guarantee: the port has no compare-and-swap for replacement
+   * and there is no lock shared with editors or other processes, so a write
+   * landing between this re-check and `writeFile` is still replaced. The
+   * window is one read; only an absent target is fully race-free.
+   */
+  private async replaceContent(
+    agent: GeneratedAgent,
+    absolutePath: string,
+    guard: AgentWriteGuard,
+  ): Promise<Result<AgentWriteResult, Error>> {
+    const recheck = await this.readCurrent(absolutePath);
+    if (recheck.state === 'absent') {
+      return this.createContent(agent, absolutePath, guard);
+    }
+    if (recheck.state === 'unreadable') {
+      return Result.ok({ filePath: absolutePath, status: 'kept' });
+    }
+    if (recheck.content === agent.content) {
+      return Result.ok({ filePath: absolutePath, status: 'unchanged' });
+    }
+    const blocked = this.blockedByGuard(guard, recheck);
+    if (blocked !== null) {
+      this.logger.info('Agent file changed before the replace; left as is', {
         filePath: absolutePath,
+        status: blocked,
       });
-      return Result.ok({ filePath: absolutePath, status: 'written' });
+      return Result.ok({ filePath: absolutePath, status: blocked });
+    }
+    try {
+      await this.fs.writeFile(absolutePath, agent.content);
     } catch (error: unknown) {
       return this.handleFileSystemError(
         error,
@@ -227,6 +301,12 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         'Failed to write agent file',
       );
     }
+    return this.written(absolutePath);
+  }
+
+  private written(absolutePath: string): Result<AgentWriteResult, Error> {
+    this.logger.info('Agent written successfully', { filePath: absolutePath });
+    return Result.ok({ filePath: absolutePath, status: 'written' });
   }
 
   /**
