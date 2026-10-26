@@ -29,7 +29,7 @@ interface RepairCandidate {
 /**
  * Plain-language outcome for every value of {@link HarnessRepairOutcome}.
  *
- * Exhaustive by type, so a seventh outcome added to the wire contract fails to
+ * Exhaustive by type, so a new outcome added to the wire contract fails to
  * compile here rather than rendering an empty cell. Each string says what
  * happened to the USER'S content, because that is the only thing they were
  * asked to risk — "the pass did not write" is Ptah's problem; "your directory
@@ -46,6 +46,8 @@ const OUTCOME_TEXT: Readonly<Record<HarnessRepairOutcome, string>> = {
   'not-blocked': 'No longer blocked, so Ptah refused it and left it untouched.',
   'not-a-path':
     'A server key inside a config file you also write, not a file. There is nothing to move aside, so this one does not apply.',
+  'changed-since-approval':
+    'Kept: changed since approval. It no longer matches what you approved, so Ptah left it exactly as it is.',
 };
 
 /**

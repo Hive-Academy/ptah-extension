@@ -331,7 +331,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   Host guard specs (container.smoke, expected-resolvable, surface-composition) pass unedited.
 - Report: reports/batch-4-report.md
 
-## Batch 5: User-layer mirror library work (B10 library part) — COMPLETE
+## Batch 5: User-layer mirror library work (B10 library part) — COMPLETE (commit: a23b72e5a)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -374,7 +374,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Verify: orchestrator combined run (8 projects, 70 tasks, 70 succeeded, exit 0).
 - Report: reports/batch-5-report.md
 
-## Batch 6: Harness keep policy for edited managed copies (B9 part 1) — COMPLETE
+## Batch 6: Harness keep policy for edited managed copies (B9 part 1) — COMPLETE (commit: a621f0323)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -420,7 +420,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   this batch in progress and is superseded.
 - Report: reports/batch-6-report.md
 
-## Batch 7: Destination scanner and digest-checked repair (B9 part 2) — PENDING
+## Batch 7: Destination scanner and digest-checked repair (B9 part 2) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -431,7 +431,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 6
 - Phase: P1 | Phase review: P1 code-logic
 
-### Task 7.1: `HarnessDestinationScanner`, `expectedDigest` repair, outcome `changed-since-approval` — PENDING
+### Task 7.1: `HarnessDestinationScanner`, `expectedDigest` repair, outcome `changed-since-approval` — COMPLETE
 
 - Files: MODIFY `libs/shared/src/lib/types/harness-sync.types.ts` (`HarnessRepairBlockedPath.expectedDigest?`, outcome `'changed-since-approval'`); CREATE `libs/backend/harness-sync/src/lib/health/harness-destination-scanner.ts` (+ spec); MODIFY `libs/backend/harness-sync/src/lib/repair/blocked-repair.service.ts` (+ spec), `libs/backend/harness-sync/src/lib/di/register.ts`, `di/tokens.ts`, `libs/backend/harness-sync/src/index.ts`; MODIFY `libs/backend/rpc-handlers/src/lib/handlers/harness-rpc.schema.ts` (strip client `expectedDigest`, A30); marketplace consumers of the repair outcome found by A-outcome (render "Kept: changed since approval"); MODIFY the marketplace wording left over from
   Batch 6 / D8: `libs/frontend/marketplace/src/lib/data/attention.ts:165` labels
@@ -449,7 +449,26 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/shared,@ptah-extension/harness-sync,@ptah-extension/rpc-handlers,@ptah-extension/marketplace,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 8: Electron coalescer per-batch outcome (B11 part 1, A24) — COMPLETE
+### Batch 7 outcome
+
+- Verified on disk by team-leader: `harness-destination-scanner.ts` (276 lines, + 350-line
+  spec) is real; `blocked-repair.service.ts` re-digests with `probeDestination` under the
+  lock before the move and returns `changed-since-approval` on mismatch; a kept local edit
+  without a digest is refused `not-blocked`; `harness-rpc.schema.ts` accepts and drops a
+  client `expectedDigest` via `.transform` while staying `.strict()` (A30). Marketplace:
+  `attention.ts` "local edits kept", testid `harness-target-kept` (no stale
+  `harness-target-overwritten` selector left), repair dialog renders the new outcome.
+- Accepted deviation: `libs/shared/src/lib/types/harness-blocked-wording.ts` (same project,
+  outside the list) adds `HARNESS_REPAIR_REASONS.changedSinceApproval` and the dialog
+  sentence "Kept: changed since approval. ..." to the approved-prose allowlist. It matches
+  implementation-plan.md:644 and design-spec.md:76 ("Kept: changed since approval"), uses no
+  destructive verb, and is required by the wording guard spec.
+- Verify: 72/73; the one failure is `ptah-extension-webview:lint`, the accepted pre-existing
+  D19 circular dependency (webview <-> command-center), no Batch 7 file involved.
+  Degradation audit exit 0 (harness-sync 6 = baseline, rpc-handlers 1 = baseline).
+- Report: reports/batch-7-report.md
+
+## Batch 8: Electron coalescer per-batch outcome (B11 part 1, A24) — COMPLETE (commit: f083b037d)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential

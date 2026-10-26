@@ -25,13 +25,18 @@
  *   1. **Nothing consented ⇒ nothing runs.** Not even a reconcile — a pass
  *      writes files, and "declined consent leaves the filesystem byte-identical"
  *      has to mean byte-identical.
- *   2. **The blocked set is re-derived here**, from `reconciler.verify()`, and a
- *      requested path outside it is REFUSED. The caller's list is a UI's view of
- *      a report that may be minutes old; this is what keeps the RPC from being a
- *      general-purpose "move this directory" primitive.
+ *   2. **The repairable set is re-derived here**, from `reconciler.verify()`:
+ *      the blocked paths, plus the kept local edits (D8) — and a kept local
+ *      edit only when the request carries the digest the user approved
+ *      (A21). A requested path outside that set is REFUSED. The caller's list
+ *      is a UI's view of a report that may be minutes old; this is what keeps
+ *      the RPC from being a general-purpose "move this directory" primitive.
  *   3. **Move every consented occupant to quarantine first**, under the
- *      workspace lock, verifying each move. A path whose move failed is left
- *      exactly as it was.
+ *      workspace lock, verifying each move. A path carrying an approval digest
+ *      is re-digested under that lock immediately before its move; any
+ *      difference — edited again, deleted, recreated, now unreadable — leaves
+ *      it exactly as it is (`changed-since-approval`). A path whose move
+ *      failed is left exactly as it was.
  *   4. **Then one ordinary full pass.** The write is the reconciler's, not a
  *      second writer of its own — which is what makes "a failed move means no
  *      write at that path" STRUCTURAL rather than a branch somebody has to
@@ -68,6 +73,7 @@ import {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { describeError } from '../fs/windows-retry';
+import { probeDestination } from '../health/harness-destination-scanner';
 import {
   acquireWorkspaceLock,
   serializePerWorkspace,
@@ -83,6 +89,13 @@ import { resolveHarnessWorkspaceRoot } from '../workspace/workspace-root';
 
 /** The reason string the repair pass carries into logs and health reports. */
 export const REPAIR_REASON = 'harness:repairBlocked';
+
+/**
+ * The `changed-since-approval` reason. Shared by the two places that decide it
+ * (the refusal before any lock, the re-digest under it) so they cannot drift.
+ */
+const CHANGED_SINCE_APPROVAL_REASON =
+  'this changed after you approved it, so it was kept exactly as it is and nothing was moved or written';
 
 export interface HarnessBlockedRepairReport {
   /** One entry per requested path, in request order. */
@@ -133,14 +146,14 @@ export class HarnessBlockedRepairService {
     // blocked set, and refusing a path that turns out not to be blocked is the
     // safe direction to be wrong in.
     const before = await this.reconciler.verify(workspaceRoot, REPAIR_REASON);
-    const blocked = blockedByTarget(before);
+    const repairable = repairableByTarget(before);
 
     const accepted: HarnessRepairBlockedPath[] = [];
     const acceptedIndexes: number[] = [];
     consented.forEach((request, index) => {
-      const refusal = refuse(request, blocked);
+      const refusal = refuse(request, repairable);
       if (refusal !== null) {
-        results[index] = { ...request, ...refusal };
+        results[index] = { ...pathOf(request), ...refusal };
         return;
       }
       accepted.push(request);
@@ -208,31 +221,51 @@ export class HarnessBlockedRepairService {
       try {
         for (let i = 0; i < accepted.length; i++) {
           const request = accepted[i];
+          const path = pathOf(request);
           const index = acceptedIndexes[i];
           const absolute = toAbsolute(workspaceRoot, request.relPath);
+          if (
+            request.expectedDigest !== undefined &&
+            (await probeDestination(absolute)).digest !== request.expectedDigest
+          ) {
+            // Re-digested under the lock, immediately before the move (A21).
+            // The user approved replacing specific content; what is there now
+            // is not it, so it stays exactly as it is and nothing is moved.
+            results[index] = {
+              ...path,
+              outcome: 'changed-since-approval',
+              reason: CHANGED_SINCE_APPROVAL_REASON,
+            };
+            this.logger.info(
+              '[harness-sync] Kept a path that changed since its replace was approved',
+              path,
+            );
+            continue;
+          }
           try {
             const { quarantinePath } = await moveToQuarantine(
               absolute,
               this.now(),
             );
-            moved.push({ index, ...request, absolute, quarantinePath });
+            moved.push({ index, ...path, absolute, quarantinePath });
             this.logger.info(
-              '[harness-sync] Quarantined a blocked path on explicit consent',
-              { ...request, quarantinePath },
+              '[harness-sync] Quarantined a consented path on explicit consent',
+              { ...path, quarantinePath },
             );
           } catch (error: unknown) {
-            // Untouched, and no write will be attempted here: the occupant is
-            // still unowned, so the pass below classifies it foreign and drops
-            // it before `plan.writes` exists.
+            // Untouched, and no write will be attempted here: a blocked
+            // occupant is still unowned, so the pass below classifies it
+            // foreign and drops it before `plan.writes` exists; a kept local
+            // edit is still edited, so the pass keeps it (D8).
             results[index] = {
-              ...request,
+              ...path,
               outcome: 'move-failed',
               reason: `could not move the occupant aside, so nothing was written here: ${describeError(error)}`,
             };
             this.logger.warn(
-              '[harness-sync] Could not quarantine a blocked path; leaving it exactly as it was',
+              '[harness-sync] Could not quarantine a consented path; leaving it exactly as it was',
               {
-                ...request,
+                ...path,
                 error: error instanceof Error ? error.message : String(error),
               },
             );
@@ -362,15 +395,35 @@ function toAbsolute(workspaceRoot: string, relPath: string): string {
   return join(workspaceRoot, ...relPath.split('/'));
 }
 
-function blockedByTarget(
+/** The paths a fresh verify allows a repair to move, per target. */
+interface RepairablePaths {
+  blocked: ReadonlySet<string>;
+  /** Kept local edits (D8): repairable only with an approval digest (A21). */
+  keptLocalEdit: ReadonlySet<string>;
+}
+
+function repairableByTarget(
   health: HarnessHealth,
-): ReadonlyMap<HarnessTargetId, ReadonlySet<string>> {
+): ReadonlyMap<HarnessTargetId, RepairablePaths> {
   return new Map(
     health.targets.map((target) => [
       target.target,
-      new Set(blockedTargetPaths(target)),
+      {
+        blocked: new Set(blockedTargetPaths(target)),
+        keptLocalEdit: new Set(target.keptLocalEdit),
+      },
     ]),
   );
+}
+
+/**
+ * The request's identity alone. The approval digest is internal: it never
+ * reaches a result the caller is handed, nor a log line.
+ */
+function pathOf(
+  request: HarnessRepairBlockedPath,
+): Pick<HarnessRepairPathResult, 'target' | 'relPath'> {
+  return { target: request.target, relPath: request.relPath };
 }
 
 function missingByTarget(
@@ -385,13 +438,15 @@ function missingByTarget(
 /**
  * Why a requested path is refused, or `null` when it is acceptable.
  *
- * Both refusals leave the path untouched, and neither is an error: a UI showing
+ * Every refusal leaves the path untouched, and none is an error: a UI showing
  * a report from before the last reconcile can legitimately offer a path that is
- * no longer blocked.
+ * no longer blocked. A kept local edit without an approval digest is refused
+ * as `not-blocked`: it is not in the blocked set, and the user's own edit is
+ * replaceable only against the content they approved (A21).
  */
 function refuse(
   request: HarnessRepairBlockedPath,
-  blocked: ReadonlyMap<HarnessTargetId, ReadonlySet<string>>,
+  repairable: ReadonlyMap<HarnessTargetId, RepairablePaths>,
 ): Pick<HarnessRepairPathResult, 'outcome' | 'reason'> | null {
   if (isMcpFragmentKey(request.relPath)) {
     return {
@@ -400,7 +455,21 @@ function refuse(
         'this is a server key inside a config file you also write, not a file — there is nothing to move aside',
     };
   }
-  if (!blocked.get(request.target)?.has(request.relPath)) {
+  const paths = repairable.get(request.target);
+  const isBlocked = paths?.blocked.has(request.relPath) === true;
+  const isApprovedKeptEdit =
+    request.expectedDigest !== undefined &&
+    paths?.keptLocalEdit.has(request.relPath) === true;
+  if (!isBlocked && !isApprovedKeptEdit) {
+    // An approved path that is no longer blocked or kept changed state since
+    // the approval (its occupant deleted, or now Ptah's own unmodified copy):
+    // that IS a change since approval, and it is kept as it is.
+    if (request.expectedDigest !== undefined) {
+      return {
+        outcome: 'changed-since-approval',
+        reason: CHANGED_SINCE_APPROVAL_REASON,
+      };
+    }
     return {
       outcome: 'not-blocked',
       reason:

@@ -518,8 +518,25 @@ export interface HarnessRemoveResult {
 /** One path the user has explicitly consented to repair. */
 export interface HarnessRepairBlockedPath {
   target: HarnessTargetId;
-  /** Workspace-relative POSIX path, exactly as it appears in `blocked`. */
+  /**
+   * Workspace-relative POSIX path, exactly as it appears in `blocked` or in
+   * {@link HarnessTargetHealth.keptLocalEdit}.
+   */
   relPath: string;
+  /**
+   * The content digest the user approved replacing (`hashFile` for a file,
+   * `hashDir` for a skill directory) — the current content at approval time,
+   * never the manifest ownership hash. **Internal only**: recorded server-side
+   * when the item is offered and never accepted from a client
+   * (`harness:repairBlocked` strips it at its schema).
+   *
+   * Required for a `keptLocalEdit` path; optional for a blocked one. When it
+   * is present the repair re-digests the path under the workspace lock
+   * immediately before moving it, and any difference — edited again, deleted,
+   * recreated, now unreadable — leaves the path as it is with outcome
+   * `changed-since-approval`.
+   */
+  expectedDigest?: string;
 }
 
 /**
@@ -548,12 +565,16 @@ export interface HarnessRepairBlockedParams {
  *   and it could not be put back. The user's directory exists at
  *   {@link HarnessRepairPathResult.quarantinePath} and nowhere else, so that
  *   field is always populated for this outcome.
- * - `not-blocked` — the path is not in the reconciler's current blocked set.
- *   Refused, untouched. This is what stops the RPC being a general-purpose
- *   "move this directory" primitive.
+ * - `not-blocked` — the path is not in the reconciler's current blocked set
+ *   (nor a kept local edit carrying an approval digest). Refused, untouched.
+ *   This is what stops the RPC being a general-purpose "move this directory"
+ *   primitive.
  * - `not-a-path` — a blocked MCP fragment key (`.mcp.json#github`). It is a key
  *   inside a config file the user also writes, not a file, so there is nothing
  *   to move aside and this repair does not apply to it.
+ * - `changed-since-approval` — the path carried an approval digest and its
+ *   content no longer matches it (edited again, deleted, recreated or now
+ *   unreadable). Kept exactly as it is; nothing was moved or written.
  */
 export type HarnessRepairOutcome =
   | 'repaired'
@@ -561,7 +582,8 @@ export type HarnessRepairOutcome =
   | 'move-failed'
   | 'restore-failed'
   | 'not-blocked'
-  | 'not-a-path';
+  | 'not-a-path'
+  | 'changed-since-approval';
 
 /** Per-path outcome, one entry per requested path, in request order. */
 export interface HarnessRepairPathResult {

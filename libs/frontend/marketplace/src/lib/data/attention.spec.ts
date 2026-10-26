@@ -205,9 +205,9 @@ describe('needsAttention — harness', () => {
       'error',
     ],
     [
-      'overwritten local edits',
+      'kept local edits',
       harnessTarget('claude', { keptLocalEdit: ['CLAUDE.md'] }),
-      '1 local edits replaced',
+      '1 local edits kept',
       'warning',
     ],
   ])('flags a target with %s', (_case, target, detail, severity) => {

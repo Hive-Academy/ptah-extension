@@ -162,7 +162,7 @@ function harnessTargetDetail(target: HarnessTargetHealth): string {
   const parts = [
     counted(target.writeFailed.length, 'could not be written'),
     counted(target.missing.length, 'missing'),
-    counted(target.keptLocalEdit.length, 'local edits replaced'),
+    counted(target.keptLocalEdit.length, 'local edits kept'),
   ].filter((part) => part !== null);
   return parts.join(' · ');
 }

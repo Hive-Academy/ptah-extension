@@ -159,6 +159,9 @@ export const HarnessRemoveParamsSchema = z.object({
  *   what could not be a workspace-relative POSIX path in the first place, so a
  *   traversal attempt dies at the boundary as well as at the gate rather than
  *   relying on either alone.
+ * - **A client `expectedDigest` is stripped (A30).** This RPC repairs blocked
+ *   paths only. A kept local edit is replaceable only with a server-recorded
+ *   approval digest, so without one the service refuses it as `not-blocked`.
  * - **`.strict()`, not the default strip.** Stripping an unknown key is the
  *   right default almost everywhere and is the wrong one here: a caller that
  *   sends `{ paths: [], all: true }` has a MISCONCEPTION about this method, and
@@ -188,8 +191,14 @@ export const HarnessRepairBlockedParamsSchema = z
           .object({
             target: HarnessTargetIdSchema,
             relPath: HarnessRepairBlockedRelPathSchema,
+            // Accepted only to be dropped (A30). The approval digest is
+            // recorded server-side when an item is offered for replace; a
+            // digest from the client would let it vouch for content it never
+            // showed the user, so it never reaches the repair.
+            expectedDigest: z.unknown().optional(),
           })
-          .strict(),
+          .strict()
+          .transform(({ target, relPath }) => ({ target, relPath })),
       )
       .max(200),
   })

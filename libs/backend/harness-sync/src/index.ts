@@ -48,6 +48,16 @@ export {
   REPAIR_REASON,
   type HarnessBlockedRepairReport,
 } from './lib/repair/blocked-repair.service';
+// The read-only destination scanner (TASK_2026_701 B9): what sits at each
+// detected target's path for a slug, with its current content digest. Exported
+// for the callers that offer a replace and record that digest for approval.
+export {
+  HarnessDestinationScanner,
+  type HarnessDestination,
+  type HarnessDestinationItem,
+  type HarnessDestinationKind,
+  type HarnessDestinationState,
+} from './lib/health/harness-destination-scanner';
 export {
   formatQuarantineTimestamp,
   isQuarantineEntry,
