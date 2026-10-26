@@ -97,6 +97,7 @@ export class WizardPhaseGeneration {
       errors: payload.errors,
       warnings: payload.warnings,
       enhancedPromptsUsed: payload.enhancedPromptsUsed,
+      ...(payload.result ? { result: payload.result } : {}),
     };
 
     this.state.completionData.set(completionData);

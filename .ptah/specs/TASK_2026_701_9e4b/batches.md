@@ -858,7 +858,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   D19 ptah-extension-webview:lint). jest.config.ts not modified (spec uses jest.doMock).
 - Report: reports/batch-14-report.md
 
-## Batch 15: Wizard-view preview modal and pack install prompt (F2 + F4) — COMPLETE
+## Batch 15: Wizard-view preview modal and pack install prompt (F2 + F4) — COMPLETE (commit: baf2abd1f)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -923,7 +923,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   `decisions` on `startBoundAgents`. Batch 15 owns this file next and must build on it.
 - Report: reports/batch-16-report.md
 
-## Batch 17: Completion surfaces (F5) — PENDING
+## Batch 17: Completion surfaces (F5) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential

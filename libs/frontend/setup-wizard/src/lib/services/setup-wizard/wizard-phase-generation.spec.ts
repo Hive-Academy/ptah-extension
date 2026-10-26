@@ -208,6 +208,34 @@ describe('WizardPhaseGeneration (TASK_2026_107 Phase 3)', () => {
       expect(surfaces.resetPhaseSurfaces).not.toHaveBeenCalled();
     });
 
+    it('keeps the result facts (target, Library pass, diverged) on completionData', () => {
+      const result: NonNullable<GenerationCompletePayload['result']> = {
+        status: 'completed',
+        success: true,
+        source: { kind: 'workspace-discovery', reason: 'missing' },
+        effectiveProvider: 'anthropic',
+        effectiveModel: 'sonnet',
+        target: {
+          harnessRoot: 'D:\\ws',
+          openedFolder: 'D:\\ws',
+          chosen: 'harness-root',
+          openedIsHarnessRoot: true,
+        },
+        libraryPass: 'failed',
+        libraryDiverged: ['frontend-developer'],
+      };
+
+      phaseGen.handleGenerationComplete(completePayload({ result }));
+
+      expect(completionData()?.result).toEqual(result);
+    });
+
+    it('leaves result absent when the payload carries none', () => {
+      phaseGen.handleGenerationComplete(completePayload());
+
+      expect(completionData()).not.toHaveProperty('result');
+    });
+
     it('maps mixed outcomes onto items: written/unchanged complete, failed is error', () => {
       skillGenerationProgress.set([
         {

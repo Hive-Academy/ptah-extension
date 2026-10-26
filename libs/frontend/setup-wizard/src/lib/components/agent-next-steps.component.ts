@@ -1,13 +1,53 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
+  inject,
   input,
   output,
 } from '@angular/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import type {
+  FileOutcome,
+  SetupGenerationResultFacts,
+} from '@ptah-extension/shared';
+import { GenerationWorkflowStore } from '../services/generation-workflow.store';
+import { GradeExpectationComponent } from './completion/grade-expectation.component';
+import { LibraryStaleNoticeComponent } from './completion/library-stale-notice.component';
+import {
+  OutcomeSummaryComponent,
+  libraryReachable,
+  type OutcomeFileRow,
+} from './completion/outcome-summary.component';
 
+type ResultOutcome = NonNullable<
+  SetupGenerationResultFacts['agentOutcomes']
+>[number];
+
+/**
+ * The five-outcome status of a result row. `rejected` is a failed write
+ * (validation rejected its sections); `skipped` was never reached, so it has
+ * no file outcome and is not listed.
+ */
+function fileOutcomeOf(status: ResultOutcome['status']): FileOutcome | null {
+  if (status === 'skipped') return null;
+  if (status === 'rejected') return 'failed';
+  return status;
+}
+
+/**
+ * Next steps at generation-sidebar width: the verified outcome summary (C9),
+ * grade expectation (C11) and stale-Library notice (C10) of the bound run,
+ * then the project-guidance handoff.
+ */
 @Component({
   selector: 'ptah-agent-next-steps',
   standalone: true,
+  imports: [
+    OutcomeSummaryComponent,
+    GradeExpectationComponent,
+    LibraryStaleNoticeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -15,6 +55,23 @@ import {
       aria-labelledby="agent-next-title"
     >
       <h2 id="agent-next-title" class="font-semibold">Next steps</h2>
+      @if (result(); as facts) {
+        <div class="mt-2 mb-3">
+          <ptah-outcome-summary
+            [rows]="outcomeRows()"
+            [libraryDiverged]="facts.libraryDiverged ?? []"
+            [target]="facts.target"
+            [isElectron]="isElectron"
+            [compact]="true"
+            [outputDirectory]="outputDirectory()"
+            (openLibrary)="openLibrary()"
+          />
+          @if (showsLibrary()) {
+            <ptah-grade-expectation [rows]="outcomeRows()" />
+            <ptah-library-stale-notice [libraryPass]="facts.libraryPass" />
+          }
+        </div>
+      }
       @if (pending()) {
         <p>Project guidance starts in {{ remainingSeconds() }} seconds.</p>
         <p class="text-xs text-base-content-muted">
@@ -94,6 +151,45 @@ import {
   `,
 })
 export class AgentNextStepsComponent {
+  private readonly workflow = inject(GenerationWorkflowStore);
+  private readonly appState = inject(AppStateManager);
+  /** Library copy is Electron-only (D3). */
+  protected readonly isElectron = inject(VSCodeService).isElectron === true;
+
+  /** Verified result facts of the bound run; null until it reports outcomes. */
+  protected readonly result = computed(() => {
+    const result = this.workflow.run()?.result;
+    return result?.agentOutcomes ? result : null;
+  });
+
+  protected readonly outcomeRows = computed<OutcomeFileRow[]>(() => {
+    const rows: OutcomeFileRow[] = [];
+    for (const agent of this.result()?.agentOutcomes ?? []) {
+      const status = fileOutcomeOf(agent.status);
+      if (!status) continue;
+      rows.push({
+        id: agent.agentId,
+        fileName: agent.fileName || `${agent.agentId}.md`,
+        status,
+        ...(agent.error ? { error: agent.error } : {}),
+      });
+    }
+    return rows;
+  });
+
+  /** Directory for the opened-folder notice, from the reported target. */
+  protected readonly outputDirectory = computed(() => {
+    const target = this.result()?.target;
+    if (!target) return null;
+    return target.chosen === 'opened-folder'
+      ? target.openedFolder
+      : target.harnessRoot;
+  });
+
+  protected readonly showsLibrary = computed(() =>
+    libraryReachable(this.isElectron, this.result()?.target),
+  );
+
   readonly started = input(false);
   readonly pending = input(false);
   readonly remainingSeconds = input(0);
@@ -104,4 +200,9 @@ export class AgentNextStepsComponent {
   readonly startNow = output<void>();
   readonly continue = output<void>();
   readonly skip = output<void>();
+
+  /** Open the Library filtered to the diverged copies this run named. */
+  protected openLibrary(): void {
+    this.appState.openSkillsDivergedClones();
+  }
 }

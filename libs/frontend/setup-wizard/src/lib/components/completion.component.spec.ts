@@ -11,7 +11,7 @@ import {
   EnhancedPromptsWizardStatus,
   SkillGenerationProgressItem,
 } from '../services/setup-wizard-state.service';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 
 const outcome = (
   overrides: Partial<GenerationAgentOutcome> = {},
@@ -42,7 +42,8 @@ describe('CompletionComponent', () => {
   let component: CompletionComponent;
   let fixture: ComponentFixture<CompletionComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
-  let mockVSCodeService: Partial<VSCodeService>;
+  let mockVSCodeService: { postMessage: jest.Mock; isElectron: boolean };
+  let openSkillsDivergedClones: jest.Mock;
   let skillGenerationProgress: ReturnType<
     typeof signal<SkillGenerationProgressItem[]>
   >;
@@ -64,13 +65,19 @@ describe('CompletionComponent', () => {
 
     mockVSCodeService = {
       postMessage: jest.fn(),
+      isElectron: true,
     };
+    openSkillsDivergedClones = jest.fn();
 
     await TestBed.configureTestingModule({
       imports: [CompletionComponent],
       providers: [
         { provide: SetupWizardStateService, useValue: mockStateService },
         { provide: VSCodeService, useValue: mockVSCodeService },
+        {
+          provide: AppStateManager,
+          useValue: { openSkillsDivergedClones },
+        },
       ],
     }).compileComponents();
 
@@ -135,7 +142,7 @@ describe('CompletionComponent', () => {
       expect(text).toContain('(1)');
     });
 
-    it('renders a tile per verified outcome', () => {
+    it('renders a row per verified outcome', () => {
       skillGenerationProgress.set([
         {
           id: '1',
@@ -160,16 +167,8 @@ describe('CompletionComponent', () => {
       );
       fixture.detectChanges();
 
-      const tiles = fixture.nativeElement.querySelectorAll(
-        '.grid .card .card-body',
-      );
-      expect(tiles.length).toBe(2);
-    });
-
-    it('should format agent filename to Title Case without extension', () => {
-      expect(component['formatAgentName']('frontend-developer.md')).toBe(
-        'Frontend Developer',
-      );
+      const rows = fixture.nativeElement.querySelectorAll('li[data-status]');
+      expect(rows.length).toBe(2);
     });
   });
 
@@ -260,6 +259,14 @@ describe('CompletionComponent', () => {
     });
   });
 
+  function counter(status: string): string | null {
+    return (
+      (fixture.nativeElement as HTMLElement)
+        .querySelector(`[data-outcome="${status}"] b`)
+        ?.textContent?.trim() ?? null
+    );
+  }
+
   describe('Explicit outcome presentation', () => {
     const mixed = completion({
       success: false,
@@ -313,29 +320,26 @@ describe('CompletionComponent', () => {
       completionData.set(mixed);
       fixture.detectChanges();
 
-      const failedTile = fixture.nativeElement.querySelector(
+      const failedRow = fixture.nativeElement.querySelector(
         '[data-status="failed"]',
       );
-      expect(failedTile).toBeTruthy();
-      expect(failedTile.textContent).toContain('SDK timeout');
+      expect(failedRow.textContent).toContain('Failed');
+      const callout = fixture.nativeElement.querySelector(
+        '[data-testid="outcome-failure"]',
+      );
+      expect(callout.textContent).toContain('senior-tester.md');
+      expect(callout.textContent).toContain('SDK timeout');
     });
 
-    it('shows written/unchanged/failed counts from the payload', () => {
+    it('shows five counters that equal the per-file rows', () => {
       completionData.set(mixed);
       fixture.detectChanges();
 
-      const written = fixture.nativeElement.querySelector(
-        '[data-testid="written-count"]',
-      );
-      const unchanged = fixture.nativeElement.querySelector(
-        '[data-testid="unchanged-count"]',
-      );
-      const failed = fixture.nativeElement.querySelector(
-        '[data-testid="failed-count"]',
-      );
-      expect(written.textContent).toContain('1 written');
-      expect(unchanged.textContent).toContain('1 already current');
-      expect(failed.textContent).toContain('1 failed');
+      expect(counter('written')).toBe('1');
+      expect(counter('kept')).toBe('0');
+      expect(counter('unchanged')).toBe('1');
+      expect(counter('changed-since-preview')).toBe('0');
+      expect(counter('failed')).toBe('1');
     });
 
     it('shows the output directory from the payload', () => {
@@ -368,7 +372,7 @@ describe('CompletionComponent', () => {
       const writtenTile = fixture.nativeElement.querySelector(
         '[data-status="written"]',
       );
-      expect(writtenTile.textContent).toContain('Frontend Developer');
+      expect(writtenTile.textContent).toContain('frontend-developer.md');
     });
 
     it('keeps the success header when every outcome is written or unchanged', () => {
@@ -390,9 +394,7 @@ describe('CompletionComponent', () => {
 
       const heading = fixture.nativeElement.querySelector('h1');
       expect(heading.textContent).toContain('Setup Complete!');
-      expect(
-        fixture.nativeElement.querySelector('[data-testid="failed-count"]'),
-      ).toBeFalsy();
+      expect(counter('failed')).toBe('0');
     });
 
     it('does not claim completion from streamed items when no payload arrived', () => {
@@ -432,6 +434,154 @@ describe('CompletionComponent', () => {
           '[data-testid="rejected-sections-count"]',
         ),
       ).toBeFalsy();
+    });
+  });
+
+  describe('Kept outcomes, grade expectation and Library notices', () => {
+    const harnessRoot = {
+      harnessRoot: '/ws',
+      openedFolder: '/ws',
+      chosen: 'harness-root',
+      openedIsHarnessRoot: true,
+    } as const;
+    const resultFacts = (
+      facts: Partial<NonNullable<CompletionData['result']>>,
+    ): NonNullable<CompletionData['result']> => ({
+      status: 'completed',
+      success: true,
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'sonnet',
+      ...facts,
+    });
+    const keptMix = [
+      outcome({ agentId: 'tester', filePath: '/ws/.claude/agents/tester.md' }),
+      outcome({
+        agentId: 'backend-developer',
+        filePath: '/ws/.claude/agents/backend-developer.md',
+      }),
+      outcome({
+        agentId: 'frontend-developer',
+        filePath: '/ws/.claude/agents/frontend-developer.md',
+        status: 'kept',
+      }),
+      outcome({
+        agentId: 'data-engineer',
+        filePath: '/ws/.claude/agents/data-engineer.md',
+        status: 'changed-since-preview',
+      }),
+    ];
+    const text = (): string => fixture.nativeElement.textContent as string;
+    const byTestId = (id: string): HTMLElement | null =>
+      fixture.nativeElement.querySelector(`[data-testid="${id}"]`);
+
+    it('renders kept and changed-since-preview rows with their own labels', () => {
+      completionData.set(completion({ agents: keptMix }));
+      fixture.detectChanges();
+
+      const kept = fixture.nativeElement.querySelector('[data-status="kept"]');
+      expect(kept.textContent).toContain('Kept (your file)');
+      expect(kept.textContent).toContain('not regenerated');
+      const changed = fixture.nativeElement.querySelector(
+        '[data-status="changed-since-preview"]',
+      );
+      expect(changed.textContent).toContain('Changed since preview (kept)');
+      expect(counter('written')).toBe('2');
+      expect(counter('kept')).toBe('1');
+      expect(counter('changed-since-preview')).toBe('1');
+    });
+
+    it('shows no grade or Library copy when the host sent no result facts', () => {
+      completionData.set(completion({ agents: keptMix }));
+      fixture.detectChanges();
+
+      expect(text()).not.toContain('About grades.');
+      expect(byTestId('library-stale-notice')).toBeNull();
+      expect(byTestId('outcome-diverged')).toBeNull();
+    });
+
+    it('shows the grade callout and stale notice for a harness-root run in Electron', () => {
+      completionData.set(
+        completion({
+          agents: keptMix,
+          result: resultFacts({ target: harnessRoot, libraryPass: 'failed' }),
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(text()).toContain('About grades.');
+      expect(byTestId('library-stale-notice')?.textContent).toContain(
+        'Your files were written.',
+      );
+    });
+
+    it('names only written agents as diverged, never a kept one', () => {
+      completionData.set(
+        completion({
+          agents: keptMix,
+          result: resultFacts({
+            target: harnessRoot,
+            libraryPass: 'updated',
+            libraryDiverged: ['backend-developer', 'frontend-developer'],
+          }),
+        }),
+      );
+      fixture.detectChanges();
+
+      const diverged = byTestId('outcome-diverged');
+      expect(diverged?.textContent).toContain('backend-developer');
+      expect(diverged?.textContent).not.toContain('frontend-developer');
+      expect(byTestId('library-stale-notice')).toBeNull();
+      diverged?.querySelector<HTMLButtonElement>('button')?.click();
+      expect(openSkillsDivergedClones).toHaveBeenCalledTimes(1);
+    });
+
+    it('states that nothing new was written when every agent was kept or current', () => {
+      completionData.set(
+        completion({
+          writtenCount: 0,
+          unchangedCount: 1,
+          agents: [
+            outcome({ status: 'kept' }),
+            outcome({
+              agentId: 'code-reviewer',
+              filePath: '/ws/.claude/agents/code-reviewer.md',
+              status: 'unchanged',
+            }),
+          ],
+          result: resultFacts({
+            target: harnessRoot,
+            libraryPass: 'not-applicable',
+          }),
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(text()).toContain('Nothing new was written');
+      expect(text()).toContain('All 2 agents were kept or already current.');
+      expect(text()).not.toContain('About grades.');
+    });
+
+    it('shows no grade copy and an opened-folder notice for the opened-folder target', () => {
+      completionData.set(
+        completion({
+          outputDirectory: '/ws/packages/api/.claude/agents',
+          agents: keptMix,
+          result: resultFacts({
+            target: {
+              harnessRoot: '/ws',
+              openedFolder: '/ws/packages/api',
+              chosen: 'opened-folder',
+              openedIsHarnessRoot: false,
+            },
+            libraryPass: 'not-applicable',
+          }),
+        }),
+      );
+      fixture.detectChanges();
+
+      expect(text()).not.toContain('About grades.');
+      expect(text()).toContain('will not appear in the Library');
     });
   });
 
