@@ -240,3 +240,41 @@
   3. Remove the "Verified identity" badge and the UUID suffixes in selects; account names must be unique (add/rename validation). User-approved removal.
   Also user-approved (D39 item 4): remove the card UUID and "Unknown owner" from the card and Overview.
 - Orchestrator decisions (evidence step): no account-count cap (no host contract); Add does not chain sign-in — after Add, the new account opens on Access with a Sign in button; no Advanced tab; the "Window did not open?" link only when the host supplied a fallback script.
+
+## D41 — P5 before the live test; connected-accounts badge on the card (2026-10-26, user)
+
+- User (live test, E1.2): the old Accounts section is still on the base Providers page. Implement P5 first, then
+  resume the live test on the new UI. Order changed: Gate 1.7 → plan → implement → verify → review → visual
+  review → live test.
+- User request: the "Claude (Subscription)" card shows a badge for the connected accounts. This replaces
+  design-spec-p5 Decision 9 ("no count link on the base card").
+- Orchestrator decisions (evidence step, reversible): the badge is display-only (not a link; the card's Manage
+  keeps opening Overview). Text "N connected", N = named accounts with state signed-in, plus 1 when the ambient
+  login status is `connected`. Hidden when N = 0, while loading, and when the read fails (no error on the card).
+  Data: one `provider:listAccounts` read when the Providers page shows the card, plus the cached ambient status
+  read (no forced probe from the card). The count refreshes when the drawer closes or an account changes state.
+  No secrets, no labels on the card.
+
+## D42 — Gate 1.7 for P5 passed by the user with two binding rules (2026-10-26, user)
+
+- Codex re-review round 2 (`design-spec-p5-review-r2.md`): REVISE 8/10. R1, R2, R4, R5 closed; R3 partly.
+  Revise cap reached, so the items went to the user.
+- User: "Approve with fixes". No more design rounds. Binding rules for implementation (checked in code review):
+  1. Account removal never assigns a selection locally; the last authoritative snapshot stays until the host
+     returns its committed snapshot. Absent named targets are handled in general, not by fixture.
+  2. After an async operation, focus returns to the waiting target only if focus is still there and the view is
+     still active; otherwise current focus stays and the live region announces completion. §3.7 controls the
+     busy rule; the older "focus stays on the select" wording (spec §5, parity row 25) is superseded.
+- Both rules were sent to the architect for `implementation-plan-p5.md`.
+
+## D43 — Gate 2 for P5 passed; batch execution (2026-10-26, orchestrator)
+
+- Plan `implementation-plan-p5.md` (software-architect, Claude) reviewed cross-side by codex: REVISE 6/10
+  (`implementation-plan-p5-review.md`) → Revision 1 → REVISE 8/10 (`-review-r1.md`, one new Moderate: queued
+  read vs 30 s RPC timeout) → Revision 2 (25 s queue-inclusive host deadline, P5-D16) → APPROVED 9/10
+  (`-review-r2.md`). Approval mode lane-review: notice, no wait.
+- The plan's "## Batches" section (B1-B3, F1-F7, with file lists and verify commands derived from the
+  dependency graph) is the P5 batch list; no separate team-leader decomposition (evidence: the batches were
+  part of the Gate-2 review). The orchestrator runs each batch verify and commits. Executors: Claude subagents
+  (backend-developer, frontend-developer). Phase reviews: codex (different family), one per phase (backend
+  B1-B3, frontend F1-F7). Reversible.

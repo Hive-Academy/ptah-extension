@@ -2,8 +2,8 @@ import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import { PERSISTENCE_TOKENS, type SqliteConnectionService, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import {
-  isProviderAccountOpaqueId, isProviderAccountOwnerKey, isSafeProviderAccountLabel,
-  PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY, PROVIDER_ACCOUNT_STATES,
+  isProviderAccountLabelTaken, isProviderAccountOpaqueId, isProviderAccountOwnerKey, isSafeProviderAccountLabel,
+  PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY, PROVIDER_ACCOUNT_STATES,
   type ProviderAccountBinding, type ProviderAccountIdentityEvidence, type ProviderAccountScope, type ProviderAccountState,
 } from '@ptah-extension/shared';
 import type { ClaudeAccountRunReservation, ClaudeAccountAuthOperationReservation,
@@ -55,6 +55,7 @@ const leaseSchema = z.object({
 });
 type StoredRunLease = z.infer<typeof leaseSchema>;
 export type StoredProviderAccount = z.infer<typeof profileSchema>;
+const liveLabelSchema = z.object({ profile_id: z.string(), label: z.string() });
 const selectionSchema = z.object({ profile_id: opaqueId.nullable(), revision });
 export interface StoredAccountSelection { readonly profileId: string | null; readonly revision: number }
 export type AccountBindingLookup =
@@ -310,6 +311,7 @@ export class ProviderAccountStore {
         .get(route.canonicalPath, route.fingerprint)) {
         throw new ProviderAccountStoreError('conflict', PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY);
       }
+      this.assertLabelFree(db, label, null);
       this.unoccupied(db, route.fingerprint, true);
       validateOwned();
       db.prepare(`INSERT INTO provider_account_profiles
@@ -325,11 +327,27 @@ export class ProviderAccountStore {
     this.validateProfile(profileId, label);
     return this.atomic(db => {
       const profile = this.profile(db, profileId, expectedRevision);
+      this.assertLabelFree(db, label, profileId);
       this.unoccupied(db, profile.route_fingerprint, false);
       db.prepare('UPDATE provider_account_profiles SET label = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
         .run(label, Date.now(), profileId);
       return this.profile(db, profileId);
     });
+  }
+
+  /**
+   * D40: a new or renamed name must differ (trimmed, case-insensitive) from every
+   * live account and from the reserved ambient name. `exceptProfileId` is the
+   * renamed row, so a case-only change of its own name passes. Rows that already
+   * share a name are left as they are; only this write is checked.
+   */
+  private assertLabelFree(db: SqliteDatabase, label: string, exceptProfileId: string | null): void {
+    const others = db.prepare("SELECT profile_id, label FROM provider_account_profiles WHERE provider = 'claude' AND removed_at IS NULL")
+      .all().map(row => liveLabelSchema.parse(row))
+      .filter(row => row.profile_id !== exceptProfileId).map(row => row.label);
+    if (isProviderAccountLabelTaken(label, others)) {
+      throw new ProviderAccountStoreError('conflict', PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY);
+    }
   }
 
   remove(profileId: string, expectedRevision: number): void {

@@ -161,6 +161,40 @@ export function isSafeProviderAccountSummary(value: string): boolean {
   return !hasUnsafeSummaryText(value);
 }
 
+/**
+ * Display name of the ambient (unnamed) Claude login. No named account may use
+ * it, so the ambient row and a named row never read the same.
+ */
+export const PROVIDER_ACCOUNT_RESERVED_LABEL = 'Existing Claude login';
+
+/** Exact safe copy for an Add or Rename whose name is already taken. */
+export const PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY =
+  'That name is already used. Names must be different.';
+
+/** Comparison key for account names: surrounding space and case are ignored. */
+export function providerAccountLabelKey(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+/**
+ * True when `label` matches the reserved ambient name or any of
+ * `existingLabels` by {@link providerAccountLabelKey}. The caller passes only
+ * the labels to compare against; a rename leaves out the renamed account's
+ * own label so a case-only change of its own name is allowed.
+ */
+export function isProviderAccountLabelTaken(
+  label: string,
+  existingLabels: readonly string[],
+): boolean {
+  const key = providerAccountLabelKey(label);
+  if (key === providerAccountLabelKey(PROVIDER_ACCOUNT_RESERVED_LABEL)) {
+    return true;
+  }
+  return existingLabels.some(
+    (existing) => providerAccountLabelKey(existing) === key,
+  );
+}
+
 /** Opaque profile or run id: ASCII token, never a path or flag. */
 export function isProviderAccountOpaqueId(value: string): boolean {
   if (
@@ -224,6 +258,38 @@ export interface ProviderAccountSelectionRequest {
   readonly provider: ProviderAccountProvider;
   readonly scope: ProviderAccountScope;
   readonly selection: ProviderAccountSelection;
+}
+
+/** Ambient Claude login states. `unknown` is never read as signed out. */
+export const PROVIDER_AMBIENT_CLAUDE_STATES = [
+  'connected',
+  'signed-out',
+  'unknown',
+] as const;
+
+export type ProviderAmbientClaudeState =
+  (typeof PROVIDER_AMBIENT_CLAUDE_STATES)[number];
+
+/** Why an ambient status is `unknown`. */
+export const PROVIDER_AMBIENT_CLAUDE_REASONS = [
+  'cli-missing',
+  'timeout',
+  'unreadable',
+] as const;
+
+export type ProviderAmbientClaudeReason =
+  (typeof PROVIDER_AMBIENT_CLAUDE_REASONS)[number];
+
+/**
+ * Ambient (unnamed) Claude login status. No identity, directory or output.
+ * `reason` is present only with `unknown`. `checkedAt` is the ISO time at which
+ * a host probe attempt for the current ambient environment completed, and
+ * `null` when none has completed; a read that ran no probe never mints one.
+ */
+export interface ProviderAmbientClaudeStatus {
+  readonly state: ProviderAmbientClaudeState;
+  readonly checkedAt: string | null;
+  readonly reason?: ProviderAmbientClaudeReason;
 }
 
 /** RPC/list row. Never a directory, email, organization or token. */

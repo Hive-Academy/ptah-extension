@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
+import { PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_RESERVED_LABEL } from '@ptah-extension/shared';
 import { ProviderAccountStore, type AccountRunAdmission, type AccountRunLease } from './provider-account.store';
 import { ProviderAccountStoreError, resolveProviderAccountRoute } from './provider-account-route';
 import { ProviderAccountService } from './provider-account.service';
@@ -48,7 +49,8 @@ describe('ProviderAccountStore transactions', () => {
   const identityRef = 'identity-ref-0001';
   /** Adds a profile and records a signed-in status with an identity reference (admission precondition). */
   function add(id = profileId, name = 'account'): void {
-    a.add(id, 'Work', join(root, name));
+    // Live names must differ (D40): the first account is "Work", others are named by their id.
+    a.add(id, id === profileId ? 'Work' : id, join(root, name));
     first.prepare("UPDATE provider_account_profiles SET state = 'signed-in', identity_ref = ? WHERE profile_id = ?").run(identityRef, id);
   }
   function commit(store: ProviderAccountStore, lease: AccountRunLease, key = ownerKey) {
@@ -573,10 +575,61 @@ describe('ProviderAccountStore transactions', () => {
   it('creates a new account for a different request ID and refuses a reused one with another label', () => {
     const service = accountService(a);
     const one = service.add('Work', 'request-0001');
-    const two = service.add('Work', 'request-0002');
+    const two = service.add('Home', 'request-0002');
     expect(two.profileId).not.toBe(one.profileId);
     refuses(() => service.add('Personal', 'request-0001'), 'conflict');
     expect(count('profiles')).toBe(2);
+  });
+
+  describe('unique account names (D40)', () => {
+    function refusesDuplicate(action: () => unknown): void {
+      expect(action).toThrow(expect.objectContaining({ code: 'conflict', message: PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY }));
+    }
+
+    it('refuses Add of a live name in another case or with surrounding space, and leaves no row or directory', () => {
+      a.add(profileId, 'Work', join(root, 'account'));
+      refusesDuplicate(() => a.add('profile-0002', 'WORK', join(root, 'upper')));
+      // A padded name never reaches the uniqueness check: the label validator refuses it first.
+      refuses(() => a.add('profile-0002', ' work', join(root, 'spaced')));
+      expect(count('profiles')).toBe(1);
+      expect(existsSync(join(root, 'upper'))).toBe(false);
+      expect(existsSync(join(root, 'spaced'))).toBe(false);
+    });
+
+    it('refuses Add of the reserved ambient name in any case', () => {
+      refusesDuplicate(() => a.add(profileId, PROVIDER_ACCOUNT_RESERVED_LABEL, join(root, 'reserved')));
+      refusesDuplicate(() => a.add(profileId, 'existing claude LOGIN', join(root, 'reserved')));
+      expect(count('profiles')).toBe(0);
+    });
+
+    it('refuses Rename to another live account name or the reserved name, keeping the old name', () => {
+      a.add(profileId, 'Work', join(root, 'account'));
+      const other = a.add('profile-0002', 'Personal', join(root, 'other'));
+      refusesDuplicate(() => a.rename(other.profile_id, other.revision, 'work'));
+      refusesDuplicate(() => a.rename(other.profile_id, other.revision, PROVIDER_ACCOUNT_RESERVED_LABEL));
+      expect(a.get(other.profile_id)).toMatchObject({ label: 'Personal', revision: other.revision });
+    });
+
+    it('allows Rename of an account to its own name in another case', () => {
+      const own = a.add(profileId, 'Work', join(root, 'account'));
+      expect(a.rename(profileId, own.revision, 'WORK').label).toBe('WORK');
+    });
+
+    it('lets a removed account name be used again', () => {
+      const removed = a.add(profileId, 'Work', join(root, 'account'));
+      a.remove(profileId, removed.revision);
+      expect(a.add('profile-0002', 'work', join(root, 'again')).label).toBe('work');
+    });
+
+    it('returns the stored account when the same Add request is replayed', () => {
+      const service = accountService(a);
+      const added = service.add('Work', 'request-0001');
+      expect(service.add('Work', 'request-0001')).toEqual(added);
+      expect(() => service.add('work', 'request-0002')).toThrow(
+        expect.objectContaining({ code: 'conflict' }));
+      expect(count('profiles')).toBe(1);
+      service.dispose();
+    });
   });
 
   it('does not recreate a removed account when its Add request is replayed', () => {
