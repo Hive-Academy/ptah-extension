@@ -1,6 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { ClaudeAmbientStatusView } from '@ptah-extension/core';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 import { AmbientAccountRowComponent } from './ambient-account-row.component';
 
 @Component({
@@ -33,6 +34,13 @@ const connected = (checkedAt: string | null = CHECKED_AT): ClaudeAmbientStatusVi
   result: { state: 'connected', checkedAt },
   localFailure: false,
 });
+const signedOut: ClaudeAmbientStatusView = {
+  status: 'ready',
+  result: { state: 'signed-out', checkedAt: CHECKED_AT },
+  localFailure: false,
+};
+const SIGNED_OUT_CUE = 'Sign in with the Claude CLI in a terminal.';
+const UNKNOWN_CUE = 'The status could not be read. This does not mean you are signed out.';
 
 describe('AmbientAccountRowComponent', () => {
   let fixture: ComponentFixture<Host>;
@@ -40,14 +48,13 @@ describe('AmbientAccountRowComponent', () => {
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) =>
     el().querySelector(`[data-testid="${id}"]`) as T | null;
-  const status = () => q('ambient-status') as HTMLElement;
-  const checkButton = () => q<HTMLButtonElement>('ambient-check-again') as HTMLButtonElement;
-  const text = () => el().textContent?.replace(/\s+/g, ' ') ?? '';
+  const word = () => q('ambient-status') as HTMLElement;
+  const hint = () => q('ambient-hint');
+  const checkButton = () => q<HTMLButtonElement>('ambient-check');
+  const name = () => q('ambient-name') as HTMLElement;
 
   // Synchronous change detection: the clock is faked, so no scheduler wait is used.
-  const render = async () => {
-    fixture.detectChanges();
-  };
+  const render = () => fixture.detectChanges();
 
   beforeEach(async () => {
     jest.useFakeTimers({ now: Date.parse(CHECKED_AT) + 2 * 60_000 });
@@ -63,116 +70,148 @@ describe('AmbientAccountRowComponent', () => {
     jest.useRealTimers();
   });
 
-  it('shows Connected with dot, age and an enabled Check again', async () => {
+  it('shows Signed in with the age only in the tooltip and sr-only text, and no Check', () => {
     host.ambient.set(connected());
-    await render();
-    expect(status().textContent).toContain('Connected');
-    expect(status().getAttribute('role')).toBe('status');
+    render();
+    expect(name().textContent?.trim()).toBe('Existing Claude login');
+    expect(word().textContent?.trim()).toBe('Signed in');
+    expect(word().getAttribute('title')).toBe('Last checked 2 minutes ago.');
+    expect(hint()?.className).toContain('sr-only');
+    expect(hint()?.textContent).toBe('Last checked 2 minutes ago.');
     expect(q('ambient-dot')?.className).toContain('bg-state-done');
-    expect(q('ambient-age')?.textContent?.trim()).toBe('Last checked 2 minutes ago');
-    expect(checkButton().disabled).toBe(false);
-    expect(checkButton().getAttribute('aria-label')).toBe('Check the existing Claude login again');
-    expect(text()).toContain('The Claude login already on this computer. Ptah only reads its status here.');
+    expect(checkButton()).toBeNull();
   });
 
-  it('shows Not signed in with the CLI help', async () => {
-    host.ambient.set({ status: 'ready', result: { state: 'signed-out', checkedAt: CHECKED_AT }, localFailure: false });
-    await render();
-    expect(status().textContent).toContain('Not signed in');
-    expect(q('ambient-extra')?.textContent).toContain('Sign in with the Claude CLI in a terminal.');
+  it('has no helper sentence and no status live region', () => {
+    host.ambient.set(connected());
+    render();
+    expect(el().textContent).not.toContain('Ptah only reads its status here');
+    expect(el().querySelector('[role="status"], [role="alert"], [aria-live]')).toBeNull();
+    expect(q('ambient-account-row')?.getAttribute('aria-labelledby')).toBe(name().id);
+  });
+
+  it('shows Not signed in with the D54 cue in the tooltip and sr-only, plus Check', () => {
+    host.ambient.set(signedOut);
+    render();
+    expect(word().textContent?.trim()).toBe('Not signed in');
+    expect(word().getAttribute('title')).toBe(`${SIGNED_OUT_CUE} Last checked 2 minutes ago.`);
+    expect(hint()?.textContent).toBe(`${SIGNED_OUT_CUE} Last checked 2 minutes ago.`);
     expect(q('ambient-dot')?.className).toContain('bg-state-need');
+    expect(checkButton()?.textContent?.trim()).toBe('Check');
+    expect(isDisabledControl(checkButton())).toBe(false);
   });
 
-  it('shows Could not check with "Last check failed" for host unknown', async () => {
+  it('shows Status unknown with the unknown cue and "Last check failed"', () => {
     host.ambient.set({
       status: 'ready',
       result: { state: 'unknown', checkedAt: CHECKED_AT, reason: 'cli-missing' },
       localFailure: false,
     });
-    await render();
-    expect(status().textContent).toContain('Could not check');
-    expect(q('ambient-age')?.textContent?.trim()).toBe('Last check failed 2 minutes ago');
+    render();
+    expect(word().textContent?.trim()).toBe('Status unknown');
+    expect(hint()?.textContent).toBe(`${UNKNOWN_CUE} Last check failed 2 minutes ago.`);
+    expect(checkButton()).not.toBeNull();
   });
 
-  it('shows Could not check with no age line after a local failure', async () => {
+  it('shows Status unknown with the cue and no age after a local failure', () => {
     host.ambient.set({ status: 'ready', result: null, localFailure: true });
-    await render();
-    expect(status().textContent).toContain('Could not check');
-    expect(q('ambient-age')).toBeNull();
+    render();
+    expect(word().textContent?.trim()).toBe('Status unknown');
+    expect(hint()?.textContent).toBe(UNKNOWN_CUE);
   });
 
-  it('never shows Connected while checking and disables Check again', async () => {
-    host.ambient.set({ ...connected(), status: 'checking' });
-    await render();
-    expect(status().textContent).toContain('Checking…');
-    expect(text()).not.toContain('Connected');
-    expect(q('ambient-age')).toBeNull();
+  it('has no tooltip and no sr-only hint when there is nothing to add', () => {
+    host.ambient.set(connected(null));
+    render();
+    expect(word().hasAttribute('title')).toBe(false);
+    expect(hint()).toBeNull();
+  });
+
+  it('while checking shows the spinner word and keeps Check focusable but busy', () => {
+    host.ambient.set({ ...signedOut, status: 'checking' });
+    render();
+    expect(word().textContent?.trim()).toBe('Checking…');
     expect(q('ambient-spinner')?.getAttribute('aria-hidden')).toBe('true');
     expect(q('ambient-spinner')?.className).toContain('motion-reduce:animate-none');
-    expect(checkButton().disabled).toBe(true);
+    const button = checkButton() as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('emits once per press and not while checking', async () => {
-    host.ambient.set(connected());
-    await render();
-    checkButton().click();
-    await render();
+  it('emits once per press and not while checking', () => {
+    host.ambient.set(signedOut);
+    render();
+    (checkButton() as HTMLButtonElement).click();
+    render();
     expect(host.checks).toBe(1);
-    checkButton().click();
-    await render();
+    (checkButton() as HTMLButtonElement).click();
+    render();
     expect(host.checks).toBe(1);
   });
 
-  it('returns focus to Check again when focus is still on the status (B-2)', async () => {
-    host.ambient.set(connected());
-    await render();
-    checkButton().focus();
-    checkButton().click();
-    await render();
-    expect(document.activeElement).toBe(status());
-    // Programmatic-only focus target: no focus box, even under the glass theme's global :focus-visible ring.
-    expect(status().className).toContain('focus:!outline-none');
-    expect(status().className).toContain('focus:!shadow-none');
+  it('moves focus to the row name when Check vanishes while focused (B-2)', () => {
+    host.ambient.set(signedOut);
+    render();
+    const button = checkButton() as HTMLButtonElement;
+    button.focus();
+    button.click();
+    render();
+    expect(document.activeElement).toBe(button);
     host.ambient.set(connected('2026-10-26T10:02:00.000Z'));
-    await render();
-    expect(document.activeElement).toBe(checkButton());
-    expect(status().textContent).toContain('Connected');
+    render();
+    expect(checkButton()).toBeNull();
+    expect(document.activeElement).toBe(name());
+    expect(name().getAttribute('tabindex')).toBe('-1');
+    expect(name().className).toContain('focus:!outline-none');
   });
 
-  it('keeps the user focus elsewhere and announces the result in the status (B-2)', async () => {
-    host.ambient.set(connected());
-    await render();
-    checkButton().focus();
-    checkButton().click();
-    await render();
+  it('keeps focus where it is when Check stays (B-2)', () => {
+    host.ambient.set(signedOut);
+    render();
+    const button = checkButton() as HTMLButtonElement;
+    button.focus();
+    button.click();
+    render();
+    host.ambient.set(signedOut);
+    render();
+    expect(document.activeElement).toBe(checkButton());
+  });
+
+  it('does not move focus when the user moved it before Check vanished (B-2)', () => {
+    host.ambient.set(signedOut);
+    render();
+    (checkButton() as HTMLButtonElement).focus();
+    (checkButton() as HTMLButtonElement).click();
+    render();
     const elsewhere = q<HTMLButtonElement>('elsewhere') as HTMLButtonElement;
     elsewhere.focus();
-    host.ambient.set({ status: 'ready', result: null, localFailure: true });
-    await render();
+    host.ambient.set(connected());
+    render();
     expect(document.activeElement).toBe(elsewhere);
-    expect(status().getAttribute('aria-live')).toBe('polite');
-    expect(status().textContent).toContain('Could not check');
   });
 
-  it('refreshes the age line every 30 seconds while mounted and stops after destroy', async () => {
+  it('refreshes the age every 30 seconds while mounted and stops after destroy', () => {
     host.ambient.set(connected());
-    await render();
-    expect(q('ambient-age')?.textContent?.trim()).toBe('Last checked 2 minutes ago');
+    render();
+    expect(hint()?.textContent).toBe('Last checked 2 minutes ago.');
     jest.advanceTimersByTime(60_000);
-    await render();
-    expect(q('ambient-age')?.textContent?.trim()).toBe('Last checked 3 minutes ago');
+    render();
+    expect(hint()?.textContent).toBe('Last checked 3 minutes ago.');
     host.shown.set(false);
-    await render();
+    render();
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('renders chips as text nodes', async () => {
+  it('shows "Used by" chips as text nodes and omits the label when unused', () => {
     host.ambient.set(connected());
-    host.chips.set(['Used for: New chats', '<b>bold</b>']);
-    await render();
+    render();
+    expect(q('ambient-chips')).toBeNull();
+    host.chips.set(['Chat', '<b>Lanes</b>']);
+    render();
     const chips = q('ambient-chips') as HTMLElement;
-    expect(chips.textContent).toContain('Used for: New chats');
-    expect(chips.textContent).toContain('<b>bold</b>');
+    expect(chips.textContent).toContain('Used by');
+    expect(chips.textContent).toContain('Chat');
+    expect(chips.textContent).toContain('<b>Lanes</b>');
     expect(chips.querySelector('b')).toBeNull();
   });
 });

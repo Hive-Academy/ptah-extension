@@ -1,11 +1,9 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import {
-  PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY,
-  PROVIDER_ACCOUNT_LABEL_MAX_LENGTH,
-  type ProviderAccountSummary,
-} from '@ptah-extension/shared';
-import { UNSAFE_ACCOUNT_NAME_MESSAGE } from './account-presentation';
+import { PROVIDER_ACCOUNT_LABEL_MAX_LENGTH, type ProviderAccountSummary } from '@ptah-extension/shared';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { ACCOUNT_COPY, UNSAFE_ACCOUNT_NAME_MESSAGE } from './account-presentation';
 import { AddAccountFormComponent } from './add-account-form.component';
 
 @Component({
@@ -16,7 +14,6 @@ import { AddAccountFormComponent } from './add-account-form.component';
       <ptah-add-account-form
         [accounts]="accounts()"
         [pending]="pending()"
-        [refusal]="refusal()"
         (submitted)="onSubmit($event)"
         (cancelled)="open.set(false); cancelled = cancelled + 1"
       />
@@ -27,7 +24,6 @@ import { AddAccountFormComponent } from './add-account-form.component';
 class Host {
   readonly open = signal(true);
   readonly pending = signal(false);
-  readonly refusal = signal<string | null>(null);
   readonly accounts = signal<readonly ProviderAccountSummary[]>([
     {
       profileId: 'p-work-0001',
@@ -52,12 +48,13 @@ class Host {
 describe('AddAccountFormComponent', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
+  let announce: jest.Mock;
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) =>
     el().querySelector(`[data-testid="${id}"]`) as T | null;
   const input = () => q<HTMLInputElement>('add-account-name') as HTMLInputElement;
   const submit = () => q<HTMLButtonElement>('add-account-submit') as HTMLButtonElement;
-  const alert = () => q('add-account-error') as HTMLElement;
+  const cancelButton = () => q<HTMLButtonElement>('add-account-cancel') as HTMLButtonElement;
   const form = () => q<HTMLFormElement>('add-account-form') as HTMLFormElement;
   const type = (value: string) => {
     input().value = value;
@@ -70,7 +67,11 @@ describe('AddAccountFormComponent', () => {
   };
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [Host] }).compileComponents();
+    announce = jest.fn();
+    await TestBed.configureTestingModule({
+      imports: [Host],
+      providers: [{ provide: SettingsSaveFeedbackService, useValue: { announce } }],
+    }).compileComponents();
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
     document.body.appendChild(fixture.nativeElement);
@@ -83,90 +84,105 @@ describe('AddAccountFormComponent', () => {
     (fixture.nativeElement as HTMLElement).remove();
   });
 
-  it('starts empty with focus on the labelled name input', () => {
+  it('starts empty with focus on the labelled input and a read-as-disabled Add', () => {
     expect(input().value).toBe('');
     expect(document.activeElement).toBe(input());
-    expect(el().querySelector('label[for="add-account-name"]')?.textContent).toBe('Name this account');
+    expect(el().querySelector('label[for="add-account-name"]')?.textContent?.trim()).toBe('Account name');
     expect(input().getAttribute('maxlength')).toBe(String(PROVIDER_ACCOUNT_LABEL_MAX_LENGTH));
-    expect(input().getAttribute('aria-describedby')).toBe('add-account-name-hint add-account-name-error');
-    expect(alert().getAttribute('role')).toBe('alert');
-    expect(submit().disabled).toBe(true);
-    expect(submit().textContent?.trim()).toBe('Add account');
-  });
-
-  it('refuses a duplicate name case-insensitively', () => {
-    type(' work ');
-    expect(alert().textContent).toBe(PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY);
-    expect(input().getAttribute('aria-invalid')).toBe('true');
-    expect(submit().disabled).toBe(true);
-  });
-
-  it('refuses the reserved ambient name', () => {
-    type('Existing Claude login');
-    expect(alert().textContent).toBe(PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY);
-    expect(submit().disabled).toBe(true);
-  });
-
-  it('refuses an unsafe name with the validator copy', () => {
-    type('a\u0007b');
-    expect(alert().textContent).toBe(UNSAFE_ACCOUNT_NAME_MESSAGE);
-    expect(submit().disabled).toBe(true);
-  });
-
-  it('emits the trimmed name once, re-read at submit', () => {
-    type('  Personal  ');
+    expect(submit().textContent?.trim()).toBe('Add');
     expect(submit().disabled).toBe(false);
-    expect(input().getAttribute('aria-invalid')).toBe('false');
+    expect(submit().getAttribute('aria-disabled')).toBe('true');
+    expect(cancelButton().textContent?.trim()).toBe('Cancel');
+  });
+
+  it('has no helper copy and no inline status or alert line', () => {
+    expect(el().textContent).not.toContain('Only you see this name');
+    expect(el().querySelector('[role="status"], [role="alert"], [aria-live]')).toBeNull();
+  });
+
+  it('enables Add once the field is not blank', () => {
+    type('   ');
+    expect(isDisabledControl(submit())).toBe(true);
+    type('Personal');
+    expect(isDisabledControl(submit())).toBe(false);
+  });
+
+  it('ignores an empty submit without a toast', () => {
+    type('  ');
+    send();
+    expect(host.submitted).toEqual([]);
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it('announces a duplicate name as the design alert toast and keeps focus in the input', () => {
+    type(' work ');
+    submit().focus();
+    send();
+    expect(host.submitted).toEqual([]);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.nameTaken, 'alert');
+    expect(document.activeElement).toBe(input());
+    expect(input().value).toBe(' work ');
+    expect(input().getAttribute('aria-invalid')).toBe('true');
+    type('Work 2');
+    expect(input().hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('announces the reserved ambient name as taken', () => {
+    type('Existing Claude login');
+    send();
+    expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.nameTaken, 'alert');
+  });
+
+  it('announces an unsafe name with the validator copy', () => {
+    type('a\u0007b');
+    send();
+    expect(announce).toHaveBeenCalledWith(UNSAFE_ACCOUNT_NAME_MESSAGE, 'alert');
+    expect(document.activeElement).toBe(input());
+  });
+
+  it('emits the trimmed name once, re-read at submit, without a toast', () => {
+    type('  Personal  ');
     send();
     expect(host.submitted).toEqual(['Personal']);
+    expect(announce).not.toHaveBeenCalled();
   });
 
-  it('shows pending: Adding…, disabled controls, aria-busy and focus on the status', () => {
+  it('while pending shows Adding…, keeps every control focusable but busy, and keeps focus', () => {
     type('Personal');
     input().focus();
     send();
     expect(submit().textContent?.trim()).toBe('Adding…');
-    expect(submit().disabled).toBe(true);
-    expect(input().disabled).toBe(true);
-    expect((q<HTMLButtonElement>('add-account-cancel') as HTMLButtonElement).disabled).toBe(true);
+    expect(submit().disabled).toBe(false);
+    expect(submit().getAttribute('aria-disabled')).toBe('true');
+    expect(input().disabled).toBe(false);
+    expect(input().readOnly).toBe(true);
+    expect(cancelButton().getAttribute('aria-disabled')).toBe('true');
     expect(form().getAttribute('aria-busy')).toBe('true');
-    expect(document.activeElement).toBe(q('add-account-status'));
+    expect(document.activeElement).toBe(input());
     send();
     expect(host.submitted).toEqual(['Personal']);
   });
 
-  it('keeps the value on a host refusal, shows it in the alert and returns focus to the input (B-2)', () => {
+  it('keeps the value and focus after the parent ends the write without closing the form (B-2)', () => {
     type('Personal');
+    input().focus();
     send();
-    host.refusal.set(PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY);
     host.pending.set(false);
     fixture.detectChanges();
     expect(input().value).toBe('Personal');
-    expect(alert().textContent).toBe(PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY);
     expect(document.activeElement).toBe(input());
-    type('Personal 2');
-    expect(alert().textContent).toBe('');
+    expect(isDisabledControl(submit())).toBe(false);
   });
 
-  it('keeps focus elsewhere after a refusal when the user moved it (B-2)', () => {
+  it('does not take focus back when the user moved it during the write (B-2)', () => {
     type('Personal');
     send();
     const elsewhere = q<HTMLButtonElement>('elsewhere') as HTMLButtonElement;
     elsewhere.focus();
-    host.refusal.set('Could not add the account.');
     host.pending.set(false);
     fixture.detectChanges();
     expect(document.activeElement).toBe(elsewhere);
-    expect(alert().textContent).toBe('Could not add the account.');
-  });
-
-  it('replaces an unsafe host sentence with fixed copy', () => {
-    type('Personal');
-    send();
-    host.refusal.set('/home/user/.claude is not readable');
-    host.pending.set(false);
-    fixture.detectChanges();
-    expect(alert().textContent).toBe('This action did not complete. Refresh and try again.');
   });
 
   it('Escape and Cancel emit cancelled; Escape does not reach the drawer', () => {
@@ -183,15 +199,16 @@ describe('AddAccountFormComponent', () => {
     host.open.set(true);
     fixture.detectChanges();
     expect(input().value).toBe('');
-    (q<HTMLButtonElement>('add-account-cancel') as HTMLButtonElement).click();
+    cancelButton().click();
     fixture.detectChanges();
     expect(host.cancelled).toBe(2);
   });
 
-  it('ignores Escape while pending', () => {
+  it('ignores Escape and Cancel while pending', () => {
     type('Personal');
     send();
     input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    cancelButton().click();
     fixture.detectChanges();
     expect(host.cancelled).toBe(0);
   });

@@ -14,9 +14,10 @@ import {
   viewChild,
 } from '@angular/core';
 import type { ClaudeAmbientStatusView } from '@ptah-extension/core';
-import { ambientRowModel, type AmbientTone } from './account-presentation';
+import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
+import { ambientStatusModel, type AmbientTone } from './account-presentation';
 
-/** The age line is refreshed this often while the row is mounted (P5-D9: one timer, not one per row). */
+/** The age in the status hint is refreshed this often while the row is mounted (P5-D9: one timer, not one per row). */
 const AGE_REFRESH_MS = 30_000;
 
 const FOCUS =
@@ -29,46 +30,48 @@ const DOT: Readonly<Record<AmbientTone, string>> = {
   run: 'bg-state-run',
 };
 
+/** The word for which the row offers no Check (P6-7). */
+const SIGNED_IN_WORD = 'Signed in';
+
 /**
- * "Existing Claude login" row (design §3.2, plan §8). It only shows the host's ambient status and offers
- * "Check again": no identity, path, sign-in, rename or removal. Status is dot + text, never colour alone.
+ * "Existing Claude login" row of the Accounts list (design-spec-p6 "Accounts tab", plan P6 component 8). It shows the
+ * host's ambient status as dot + word and offers "Check" only when the word is not "Signed in". No identity, path,
+ * sign-in, rename or removal. The flagged cues and the age (D54, P6-A4) live in the word's tooltip and an `sr-only`
+ * copy right after it; there is no visible helper sentence. The check result is announced by the page toast (AT).
  *
- * Focus (busy rule §3.7 c, binding rule B-2): when a check starts while "Check again" holds focus, focus moves to
- * the status line (`tabindex=-1`, polite live region) before the button is disabled. When the check ends, focus
- * returns to the button only if it is still on the status line; otherwise the live status announces the result.
+ * Focus (B-2): Check stays focusable while a check runs (`ptahBusyDisabled`). When the check ends signed in, Check
+ * disappears; only if it held focus at that moment (focus fell to the body) does focus move to the row name
+ * (`tabindex=-1`). Otherwise focus is never moved.
  */
 @Component({
   selector: 'ptah-ambient-account-row',
   standalone: true,
+  imports: [SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border border-base-300 bg-base-200 p-3"
+      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-base-content"
       role="group"
-      aria-label="Existing Claude login"
+      aria-labelledby="ambient-account-name"
       data-testid="ambient-account-row"
     >
       <span
-        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-300 text-xs font-bold text-base-content"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-300 text-xs font-bold"
         aria-hidden="true"
         >E</span
       >
-      <div class="min-w-[150px] flex-1 break-words text-base-content">
-        <p class="text-sm font-bold">Existing Claude login</p>
-        <p class="text-xs text-base-content-muted">
-          The Claude login already on this computer. Ptah only reads its status here.
-        </p>
+      <div class="min-w-0 flex-1 basis-40 space-y-0.5 break-words">
         <p
-          #status
-          class="mt-1 flex items-center text-xs outline-none focus:!outline-none focus:!shadow-none"
-          role="status"
-          aria-live="polite"
+          #name
+          id="ambient-account-name"
+          class="font-semibold outline-none focus:!outline-none focus:!shadow-none"
           tabindex="-1"
-          data-testid="ambient-status"
-        >
+          data-testid="ambient-name"
+        >Existing Claude login</p>
+        <p class="flex min-w-0 items-center text-xs text-base-content-muted">
           @if (model().checking) {
             <span
-              class="mr-1.5 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-base-content-muted border-t-base-content motion-reduce:animate-none"
+              class="mr-1.5 inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-base-content-muted border-t-base-content motion-reduce:animate-none"
               aria-hidden="true"
               data-testid="ambient-spinner"
             ></span>
@@ -79,33 +82,35 @@ const DOT: Readonly<Record<AmbientTone, string>> = {
               data-testid="ambient-dot"
             ></span>
           }
-          <span>{{ model().statusText }}</span>
+          <span [attr.title]="model().hint" data-testid="ambient-status">{{ model().word }}</span>
+          @if (model().hint; as hint) {
+            <span class="sr-only" data-testid="ambient-hint">{{ hint }}</span>
+          }
         </p>
-        @if (model().extraText; as extra) {
-          <p class="mt-1 text-xs" data-testid="ambient-extra">{{ extra }}</p>
-        }
-        @if (model().ageText; as age) {
-          <p class="mt-1 text-xs text-base-content-muted" data-testid="ambient-age">{{ age }}</p>
-        }
         @if (chips().length > 0) {
-          <div class="mt-1 flex flex-wrap gap-1" data-testid="ambient-chips">
+          <p class="flex min-w-0 flex-wrap items-center gap-1 text-xs" data-testid="ambient-chips">
+            <span class="text-base-content-muted">Used by</span>
             @for (chip of chips(); track chip) {
-              <span class="badge badge-outline badge-sm text-base-content">{{ chip }}</span>
+              <span class="badge badge-ghost badge-sm h-auto max-w-full whitespace-normal break-words">{{ chip }}</span>
             }
-          </div>
+          </p>
         }
       </div>
-      <button
-        #check
-        type="button"
-        [class]="'btn btn-sm min-h-[30px] ' + focusRing"
-        aria-label="Check the existing Claude login again"
-        [disabled]="model().checking"
-        (click)="requestCheck()"
-        data-testid="ambient-check-again"
-      >
-        Check again
-      </button>
+      @if (showCheck()) {
+        <button
+          #check
+          type="button"
+          [class]="'btn btn-outline btn-sm min-h-8 shrink-0 ' + focusRing"
+          aria-label="Check the existing Claude login"
+          [ptahBusyDisabled]="model().checking"
+          (focus)="checkHadFocus = true"
+          (blur)="checkBlurred($event)"
+          (click)="requestCheck()"
+          data-testid="ambient-check"
+        >
+          Check
+        </button>
+      }
     </div>
   `,
 })
@@ -114,20 +119,22 @@ export class AmbientAccountRowComponent {
 
   /** The webview's ambient view, unchanged (`ClaudeAmbientStatusService.view`). */
   readonly ambient = input.required<ClaudeAmbientStatusView>();
-  /** "Used for" chips of this row, from the host snapshot only. */
+  /** "Used by" chips of this row ("Chat", "Lanes"), from the host snapshot only. */
   readonly chips = input<readonly string[]>([]);
-  /** The user asked for a fresh read. The parent owns the read. */
+  /** The user asked for a fresh read. The parent owns the read and announces its result. */
   readonly checkRequested = output<void>();
 
   protected readonly focusRing = FOCUS;
   private readonly now = signal(Date.now());
-  protected readonly model = computed(() => ambientRowModel(this.ambient(), this.now()));
+  protected readonly model = computed(() => ambientStatusModel(this.ambient(), this.now()));
   protected readonly dot = computed(() => DOT[this.model().tone]);
+  protected readonly showCheck = computed(() => this.model().word !== SIGNED_IN_WORD);
 
-  private readonly statusEl = viewChild.required<ElementRef<HTMLElement>>('status');
-  private readonly checkEl = viewChild.required<ElementRef<HTMLButtonElement>>('check');
-  /** Focus was moved to the status line for the requested check (B-2 waiting target). */
-  private readonly waiting = signal(false);
+  private readonly nameEl = viewChild.required<ElementRef<HTMLElement>>('name');
+  /** Check was the last focused control and focus did not move to another element since. */
+  protected checkHadFocus = false;
+  /** `showCheck` of the previous render, to see the button disappear. */
+  private checkShown = false;
 
   constructor() {
     // One timer while mounted, outside the zone; the signal write still schedules the render.
@@ -136,32 +143,29 @@ export class AmbientAccountRowComponent {
     );
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
 
-    // After render, so the button is already enabled when focus returns to it.
+    // After render, so the button is already gone and focus has fallen to the body.
     afterRenderEffect(() => {
-      const checking = this.model().checking;
-      const waiting = this.waiting();
-      const status = this.statusEl().nativeElement;
-      const button = this.checkEl().nativeElement;
+      const shown = this.showCheck();
+      const vanished = this.checkShown && !shown;
+      this.checkShown = shown;
+      if (!vanished) return;
+      const hadFocus = this.checkHadFocus;
+      this.checkHadFocus = false;
       const active = this.document.activeElement;
-      if (checking) {
-        // A check started elsewhere (for example on tab open) while the button held focus.
-        if (active === button) {
-          status.focus();
-          this.waiting.set(true);
-        }
-        return;
+      if (hadFocus && (active === null || active === this.document.body)) {
+        this.nameEl().nativeElement.focus();
       }
-      if (!waiting) return;
-      this.waiting.set(false);
-      if (active === status && status.isConnected) button.focus();
     });
   }
 
-  /** Focus leaves the button before the parent's read disables it (busy rule §3.7 c). */
+  /** A blur caused by the button's removal (no new target, element detached) keeps the flag for B-2. */
+  protected checkBlurred(event: FocusEvent): void {
+    const target = event.target as HTMLElement;
+    if (event.relatedTarget !== null || target.isConnected) this.checkHadFocus = false;
+  }
+
   protected requestCheck(): void {
     if (this.model().checking) return;
-    this.statusEl().nativeElement.focus();
-    this.waiting.set(true);
     this.checkRequested.emit();
   }
 }
