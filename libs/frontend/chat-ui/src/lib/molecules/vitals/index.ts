@@ -11,3 +11,10 @@ export {
   type ActivityDay,
   type ActivityLevel,
 } from './activity-grid.component';
+export { StatRowComponent } from './stat-row.component';
+export { StatCellComponent, type StatCellState } from './stat-cell.component';
+export { StatValueComponent } from './stat-value.component';
+export {
+  StagedStepsComponent,
+  type StagedStep,
+} from './staged-steps.component';
