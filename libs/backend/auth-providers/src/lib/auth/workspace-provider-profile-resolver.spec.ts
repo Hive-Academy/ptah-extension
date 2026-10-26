@@ -83,6 +83,7 @@ interface Harness {
   acquire: jest.Mock;
   /** Mutable: what the shared AuthEnv is configured for. */
   shared: { auth: ActiveAuth | null };
+  logger: ReturnType<typeof createMockLogger>;
 }
 
 function createHarness(opts: {
@@ -101,7 +102,8 @@ function createHarness(opts: {
   /** Workspace-scoped overrides by path, over `workspaceSettings` (mutable). */
   settingsByPath?: Record<string, Record<string, unknown>>;
 }): Harness {
-  const logger = createMockLogger() as unknown as Logger;
+  const mockLogger = createMockLogger();
+  const logger = mockLogger as unknown as Logger;
   const config = createMockConfigManager({
     values: opts.configValues ?? {},
   }) as unknown as ConfigManager;
@@ -149,7 +151,7 @@ function createHarness(opts: {
     proxyPool,
   );
 
-  return { resolver, globalAuthEnv, acquire, shared };
+  return { resolver, globalAuthEnv, acquire, shared, logger: mockLogger };
 }
 
 // ---------------------------------------------------------------------------
@@ -668,5 +670,181 @@ describe('WorkspaceProviderProfileResolver — direct Anthropic', () => {
     );
 
     expect(profile?.model).toBe('default');
+  });
+});
+
+describe('WorkspaceProviderProfileResolver — resolveStoredModel', () => {
+  const CODEX = {
+    authMethod: 'thirdParty',
+    anthropicProviderId: 'openai-codex',
+  };
+  const FALLBACK_LOG =
+    '[WorkspaceProviderProfileResolver] Stored model belongs to another provider — using the workspace provider default';
+  const catalog = (ids: string[]) => ({
+    models: ids.map((id) => ({ id, name: id })),
+    timestamp: Date.now(),
+  });
+
+  it('replaces a Codex static id on Claude CLI with the default and logs it', () => {
+    // The M3 case: Codex -> Claude must not send `gpt-6-luna` to Anthropic.
+    const { resolver, logger } = createHarness({
+      workspaceSettings: { authMethod: 'claudeCli' },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(
+      'default',
+    );
+    expect(logger.info).toHaveBeenCalledWith(FALLBACK_LOG, {
+      storedModel: 'gpt-6-luna',
+      providerId: 'anthropic',
+      workspacePath: WORKSPACE,
+    });
+  });
+
+  it('replaces an id from another provider cached catalogue on direct Anthropic', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+      configValues: {
+        'provider.openai-codex.modelCatalog': catalog(['gpt-7-nova']),
+      },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-7-nova')).toBe(
+      'default',
+    );
+  });
+
+  it('replaces a Codex id on another third-party provider that does not offer it', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'kimi-code',
+      },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(
+      'default',
+    );
+  });
+
+  it('keeps a Claude id without logging', () => {
+    const { resolver, logger } = createHarness({
+      workspaceSettings: { authMethod: 'apiKey' },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'claude-opus-5-5')).toBe(
+      'claude-opus-5-5',
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(
+      FALLBACK_LOG,
+      expect.anything(),
+    );
+  });
+
+  it('keeps a Claude id regardless of case', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'claudeCli' },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'Claude-Opus-5-5')).toBe(
+      'Claude-Opus-5-5',
+    );
+  });
+
+  it.each([
+    ['claudeCli', 'opus[1m]'],
+    ['claudeCli', 'sonnet[1m]'],
+    ['claudeCli', 'opusplan'],
+    ['apiKey', 'opus[1m]'],
+    ['apiKey', 'Sonnet[1M]'],
+  ])('keeps the SDK alias on %s: %s', (authMethod, alias) => {
+    const { resolver } = createHarness({ workspaceSettings: { authMethod } });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, alias)).toBe(alias);
+  });
+
+  it.each(['default', 'opus', 'Sonnet', 'haiku'])(
+    'keeps the alias %s on a third-party provider',
+    (alias) => {
+      const { resolver } = createHarness({ workspaceSettings: CODEX });
+
+      expect(resolver.resolveStoredModel(WORKSPACE, alias)).toBe(alias);
+    },
+  );
+
+  it('maps an empty stored model to default, as before', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: { authMethod: 'claudeCli' },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, '')).toBe('default');
+  });
+
+  it('keeps a model in the serving provider static list but not in its stale catalogue', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: CODEX,
+      configValues: {
+        'provider.openai-codex.modelCatalog': catalog(['gpt-7-nova']),
+      },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-7-nova')).toBe(
+      'gpt-7-nova',
+    );
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(
+      'gpt-6-luna',
+    );
+  });
+
+  it.each([
+    ['openrouter', 'my-org/custom-model'],
+    ['ollama', 'qwen3-coder:32b'],
+  ])(
+    'keeps a custom %s id missing from the cached catalogue',
+    (providerId, model) => {
+      const { resolver, logger } = createHarness({
+        workspaceSettings: {
+          authMethod: 'thirdParty',
+          anthropicProviderId: providerId,
+        },
+        configValues: {
+          [`provider.${providerId}.modelCatalog`]: catalog(['listed/model']),
+        },
+      });
+
+      expect(resolver.resolveStoredModel(WORKSPACE, model)).toBe(model);
+      expect(logger.info).not.toHaveBeenCalledWith(
+        FALLBACK_LOG,
+        expect.anything(),
+      );
+    },
+  );
+
+  it('passes the stored model through when no provider knows it', () => {
+    expect(getAnthropicProvider('requesty')?.staticModels).toBeUndefined();
+    const { resolver } = createHarness({
+      workspaceSettings: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'requesty',
+      },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'any/model-id')).toBe(
+      'any/model-id',
+    );
+  });
+
+  it('checks against the provider of the given workspace, not the global one', () => {
+    const { resolver } = createHarness({
+      workspaceSettings: CODEX,
+      settingsByPath: { [WORKSPACE]: { authMethod: 'claudeCli' } },
+    });
+
+    expect(resolver.resolveStoredModel(WORKSPACE, 'gpt-6-luna')).toBe(
+      'default',
+    );
+    expect(resolver.resolveStoredModel('D:/projects/other', 'gpt-6-luna')).toBe(
+      'gpt-6-luna',
+    );
   });
 });

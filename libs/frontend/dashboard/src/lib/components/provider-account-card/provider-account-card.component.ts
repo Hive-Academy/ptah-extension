@@ -14,7 +14,7 @@
  * `DashboardGridComponent` above Session Analytics; it does not depend on
  * the analytics date range.
  *
- * Selection: `AuthStateService.persistedProviderId()` drives `load({providerId})`.
+ * Selection: `AuthStateService.activeProviderId()` drives `load({providerId})`.
  * The store merges only the fields a call names, so the card passes exactly
  * `providerId` and never touches the chat view's `sessionIds` / `ownerKeys`.
  * The store owns the generation guard and the single 30 s clock; this card
@@ -177,7 +177,7 @@ export class ProviderAccountCardComponent {
     () => {
       const snapshot = this.planLimits.snapshot();
       if (snapshot === null) return null;
-      const selectedProviderId = this.auth.persistedProviderId();
+      const selectedProviderId = this.auth.activeProviderId();
       const selected = snapshot.owners.filter(
         (o) => o.owner.providerId === selectedProviderId,
       );
@@ -205,13 +205,13 @@ export class ProviderAccountCardComponent {
   });
 
   private readonly providerWatcher = effect(() => {
-    const providerId = this.auth.persistedProviderId();
+    const providerId = this.auth.activeProviderId();
     untracked(() => void this.planLimits.load({ providerId }));
   });
 
   refresh(): void {
     void this.planLimits.load({
-      providerId: this.auth.persistedProviderId(),
+      providerId: this.auth.activeProviderId(),
       refresh: true,
     });
   }

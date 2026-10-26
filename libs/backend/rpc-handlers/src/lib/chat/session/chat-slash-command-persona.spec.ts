@@ -65,6 +65,9 @@ function harness(live: boolean) {
       sdkContext,
       streamBroadcaster,
       workspaceProviderProfileResolver: {
+        resolveStoredModel: jest.fn(
+          (_path: string, model: string) => model || 'default',
+        ),
         resolveProviderProfileForWorkspace: jest
           .fn()
           .mockResolvedValue(undefined),

@@ -7,6 +7,8 @@ import type {
   SettingScope,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { EffortStateService } from './effort-state.service';
+import { ModelStateService } from './model-state.service';
 import { ProvidersCommitService } from './providers-commit.service';
 import {
   ProvidersConnectionSetupService,
@@ -121,6 +123,14 @@ describe('ProvidersConnectionSetupService', () => {
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        {
+          provide: ModelStateService,
+          useValue: { refreshModels: jest.fn(async () => undefined) },
+        },
+        {
+          provide: EffortStateService,
+          useValue: { refreshEffort: jest.fn(async () => undefined) },
+        },
       ],
     });
     const workspace = TestBed.inject(WorkspaceScopeService);
@@ -290,7 +300,11 @@ describe('ProvidersConnectionSetupService', () => {
       });
       call.mockClear();
       await expect(
-        service.connectProvider(draft({ activation: 'use-main-agent' }), context, hooks),
+        service.connectProvider(
+          draft({ activation: 'use-main-agent' }),
+          context,
+          hooks,
+        ),
       ).resolves.toBe(true);
       expect(methods()).toEqual(['auth:setApiKey', 'auth:saveSettings']);
       expect(events).toEqual(['refreshScopes', 'refresh']);

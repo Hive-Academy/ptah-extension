@@ -8,6 +8,7 @@ import type {
   ScopedSettingEntry,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { ModelStateService } from './model-state.service';
 import {
   ProvidersSettingsStateService,
   type ProvidersConnectionDraft,
@@ -119,18 +120,27 @@ describe('ProvidersSettingsStateService', () => {
       (params: unknown) => Promise<RpcResult<unknown>>
     >([
       ['auth:getApiKeyStatus', async () => success({ providers: [] })],
-      ['settings:get', async (params) => {
-        const key = (params as { key: string }).key;
-        return success({
-          success: true,
-          value: key in enhancementResponse ? enhancementResponse[key] : [],
-        });
-      }],
-      ['settings:set', async (params) => {
-        const { key, value } = params as { key: string; value: string | number };
-        enhancementResponse[key] = value;
-        return success({ success: true });
-      }],
+      [
+        'settings:get',
+        async (params) => {
+          const key = (params as { key: string }).key;
+          return success({
+            success: true,
+            value: key in enhancementResponse ? enhancementResponse[key] : [],
+          });
+        },
+      ],
+      [
+        'settings:set',
+        async (params) => {
+          const { key, value } = params as {
+            key: string;
+            value: string | number;
+          };
+          enhancementResponse[key] = value;
+          return success({ success: true });
+        },
+      ],
       [
         'llm:getProviderBaseUrl',
         async () => success({ baseUrl: null, defaultBaseUrl: null }),
@@ -187,6 +197,10 @@ describe('ProvidersSettingsStateService', () => {
         ProvidersSettingsStateService,
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        {
+          provide: ModelStateService,
+          useValue: { refreshModels: jest.fn(async () => undefined) },
+        },
         { provide: AuthStateService, useValue: { refreshAuthStatus } },
       ],
     });
@@ -206,11 +220,13 @@ describe('ProvidersSettingsStateService', () => {
       data: { provider: 'openrouter', model: 'model-one', timeoutMs: 90000 },
       error: null,
     });
-    expect(call.mock.calls.map(([method, params]) => [method, params])).toEqual([
-      ['settings:get', { key: 'skills.enhancement.provider' }],
-      ['settings:get', { key: 'skills.enhancement.model' }],
-      ['settings:get', { key: 'skills.enhancement.timeoutMs' }],
-    ]);
+    expect(call.mock.calls.map(([method, params]) => [method, params])).toEqual(
+      [
+        ['settings:get', { key: 'skills.enhancement.provider' }],
+        ['settings:get', { key: 'skills.enhancement.model' }],
+        ['settings:get', { key: 'skills.enhancement.timeoutMs' }],
+      ],
+    );
   });
 
   it('saves enhancement fields with readback', async () => {
@@ -229,7 +245,9 @@ describe('ProvidersSettingsStateService', () => {
       ],
     });
     expect(service.enhancement().data).toEqual({
-      provider: 'openrouter', model: '', timeoutMs: 90000,
+      provider: 'openrouter',
+      model: '',
+      timeoutMs: 90000,
     });
     for (const [key, value] of [
       ['skills.enhancement.provider', 'openrouter'],
@@ -237,12 +255,14 @@ describe('ProvidersSettingsStateService', () => {
       ['skills.enhancement.timeoutMs', 90000],
     ] as const) {
       const writeIndex = call.mock.calls.findIndex(
-        ([method, params]) => method === 'settings:set' &&
-          (params as { key: string }).key === key,
+        ([method, params]) =>
+          method === 'settings:set' && (params as { key: string }).key === key,
       );
       const readIndex = call.mock.calls.findIndex(
-        ([method, params], index) => index > writeIndex &&
-          method === 'settings:get' && (params as { key: string }).key === key,
+        ([method, params], index) =>
+          index > writeIndex &&
+          method === 'settings:get' &&
+          (params as { key: string }).key === key,
       );
       expect(writeIndex).toBeGreaterThanOrEqual(0);
       expect(readIndex).toBeGreaterThan(writeIndex);
@@ -1275,7 +1295,9 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.route().status).toBe('ready');
     expect(service.route().data?.driverProviderId).toBe('moonshot');
     expect(
-      service.route().data?.providers.some((provider) => provider.id === 'moonshot'),
+      service
+        .route()
+        .data?.providers.some((provider) => provider.id === 'moonshot'),
     ).toBe(false);
     expect(service.activeProviderId()).toBeNull();
   });
@@ -1382,6 +1404,10 @@ describe('ProvidersSettingsStateService', () => {
           ProvidersSettingsStateService,
           WorkspaceScopeService,
           { provide: ClaudeRpcService, useValue: { call } },
+          {
+            provide: ModelStateService,
+            useValue: { refreshModels: jest.fn(async () => undefined) },
+          },
           { provide: AuthStateService, useValue: { refreshAuthStatus } },
           { provide: VSCodeService, useValue: { isElectron } },
         ],
@@ -2487,9 +2513,10 @@ describe('ProvidersSettingsStateService', () => {
         const key = (params as { key: string }).key;
         return success({
           success: true,
-          value: key === 'ptahCliAgents'
-            ? [{ id: 'agent-1', tierMappings: { opus: 'big' } }]
-            : enhancementResponse[key],
+          value:
+            key === 'ptahCliAgents'
+              ? [{ id: 'agent-1', tierMappings: { opus: 'big' } }]
+              : enhancementResponse[key],
         });
       });
       call.mockClear();
