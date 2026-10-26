@@ -485,8 +485,8 @@ LIFECYCLE:
   over MCP; resumeSessionId continues its SDK session). modelTier applies only
   to ptahCliId lanes; system lanes ignore it. accountSelection is accepted only
   with cli 'claude': ambient or omitted uses the existing Claude login; a named
-  account is refused before spawn in this release, and a resume keeps the
-  account stored with its session.
+  account runs a fresh claude lane on that account (refused when the account
+  cannot be proved), and a resume keeps the account stored with its session.
 
 - status(agentId?) - Get agent status (omit agentId for all agents)
   returns: { agentId, status, cli, task, startedAt, exitCode? }

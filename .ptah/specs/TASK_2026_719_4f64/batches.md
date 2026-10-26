@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 20/22 (B1-B17, B19-B21)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 21/22 (B1-B21)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -402,13 +402,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - Safety: Accounts sign-in opens here; main-chat persistence becomes active here.
 - Acceptance: handler injects `SDK_PROVIDER_ACCOUNT_ACTIONS`; sign-in, cancel, sign-out call the actions port; `releaseHeld` deleted; `getAccountStatus` uses `actions.readStatus`; subscribes to `onStateChanged` and notifies the snapshot; COPY `release-held` neutral; `fallback` never logged. Electron, only when `SQLITE_CONNECTION` is registered: `registerSingleton(ClaudeNamedAccountPersistence)` and bind `SDK_NAMED_ACCOUNT_PERSISTENCE`, `SDK_SESSION_IMPORT_BINDING_LOOKUP`, `CLAUDE_LANE_ACCOUNT_PERSISTENCE` (`satisfies ClaudeLaneAccountPersistence`). Smoke: `SdkQueryRunner.accountPersistence` non-null; the three tokens and the selection reader resolve non-null; the handler resolves with the actions token. `expected-resolvable.ts` unchanged; VS Code/CLI/TUI keep null persistence.
 
-## Batch 18: Agent spawn args allow named Claude — PENDING
+## Batch 18: Agent spawn args allow named Claude — COMPLETE (+18b: parity spec, two copy files)
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B12, B14, B17 (hard) | Phase: P4
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/vscode-lm-tools` (N = 1)
 
-### Task 18.1: Schema and namespace builder text — PENDING
+### Task 18.1: Schema and namespace builder text — COMPLETE
 
 - Files: M `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-spawn-args.schema.ts`; M `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-spawn-args.schema.spec.ts`; M `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-spawn-accounts.spec.ts`; M `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`; M `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.spec.ts`
 - Plan reference: implementation-plan.md:856-857, 1039
