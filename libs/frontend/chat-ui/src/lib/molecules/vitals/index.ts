@@ -18,3 +18,17 @@ export {
   StagedStepsComponent,
   type StagedStep,
 } from './staged-steps.component';
+export {
+  ReadinessRingComponent,
+  type ReadinessAction,
+  type ReadinessCheck,
+} from './readiness-ring.component';
+export {
+  PromptLaunchersComponent,
+  buildLaunchers,
+  type PromptLauncher,
+} from './prompt-launchers.component';
+export {
+  RecentWorkspaceListComponent,
+  type RecentWorkspaceItem,
+} from './recent-workspace-list.component';

@@ -131,6 +131,13 @@ export {
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
 export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
+export {
+  LAUNCHER_IDS,
+  PROMPT_CATALOGUE,
+  type LauncherId,
+  type PromptCategory,
+  type PromptItem,
+} from './lib/molecules/setup-plugins/prompt-catalogue';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
 export { SetupStatusStore } from './lib/molecules/setup-plugins/setup-status.store';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
