@@ -960,6 +960,32 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   overwrite each other; result reconciliation block index when only deltas streamed; image/file
   card rendering and relative native file paths (live Electron run); agent-sdk max-lines warning
   codex-chat-adapter.ts (763 > 700).
+- Later session 14 commits: 3207fdda9 8b (verify -p ptah-electron,rpc-handlers,chat,shared; chat
+  lint only pre-existing lazy-load import errors; host-attention spec pass; team-leader fixes: IPC
+  `isRegistered` guard before resolving CODEX_CHAT_ADAPTER_PORTS, spec registers the production
+  null factory); 19bbb3316 8a-2c-lib (team-leader, coordinator-directed: the SDK replaces the
+  host metadata port at register.ts CODEX_CHAT_ADAPTER, so the record binds to a native adapter
+  lifecycle instead of wrapping metadata); d69ca18a3 8a-2c (Codex lane; team-leader fixes:
+  missing closing brace, TS2532 `persisted?.`, deep relative lib imports -> public agent-sdk
+  exports CodexChatAdapter/registerCodexChatServices, source-scan spec regex, binding registry
+  split into codex-binding-registry.ts so shutdown does not import rpc-handlers).
+- P8 phase-gate pass (after 8b, at d69ca18a3): degradation audit pass, di-lint OK, four-host
+  typecheck (ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui) pass, vscode-core
+  host-attention-ingress spec pass. Next: live Electron test (user), then the P8 phase review.
+- P8 review list (add to the code-logic / code-style review scope):
+  - New public API: agent-sdk CodexChatSessionLifecycle, CodexChatTurnIdentity, CodexChatAdapter,
+    registerCodexChatServices; rpc-handlers callbacks factory and settings record.
+  - First native open hashes the bundled binary (readFileSync + sha256) and runs
+    `execFileSync --version` synchronously on the Electron main thread (createScope is
+    synchronous). Dev-route only today; must move off the main thread or become async before the
+    gate opens.
+  - Electron `tabId(id)` falls back to the session id when no tab is known.
+  - Legacy control settings derive the auth namespace from the workspace's CURRENT auth, not an
+    immutable per-session snapshot (provider change within one workspace).
+  - `runtime-admission-mismatch` still missing from rpc-error-codes.types.ts; direct
+    SDK_AGENT_ADAPTER caller audit.
+  - Items listed above under "Deferred to P8 review" (compaction trigger/preTokens, hidden-tab
+    terminal slot, result block index, manifest JSON in the bundle, adapter max-lines).
 - User decisions (coordinator relay, session 14): per batch only the scoped verify; degradation
   audit, di-lint, four-host typecheck and host-attention run once after 8b (plus di-lint when DI
   registration changes, host-attention when permission emission changes). Live Electron test
@@ -1630,7 +1656,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 Phase review: code-logic; visual review (Electron, dark + light) for 8c. Electron first; VS Code
 and CLI get compatible bindings only (no feature work).
 
-## Batch 8a: Electron DI composition and dev switch wiring — IN_PROGRESS
+## Batch 8a: Electron DI composition and dev switch wiring — COMPLETE (8a-2c d69ca18a3; P8 phase review PENDING after the live Electron test)
 
 - Session 12 split (team-leader decision, 6-file cap): no host implementation of
   CodexChatAdapterPorts, RuntimeAdmissionPort, NativeSessionControls or LegacySessionControlPorts
@@ -1724,7 +1750,9 @@ and CLI get compatible bindings only (no feature work).
     - MODIFY `R+index.ts` (narrow exports); MODIFY `handlers/chat-rpc.schema.spec.ts` (a v7
       session id passes the chat schemas; needs 8a-2a).
     - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`.
-  - 8a-2c — PENDING (app: ptah-electron; 8 files, coordinator-approved exception to the 6-file
+  - 8a-2c-lib — COMPLETE (19bbb3316): agent-sdk `CodexChatAdapterPorts.sessions` lifecycle
+    (opened/closed); settings record binds to it (wrapPorts/discardProfile/release removed).
+  - 8a-2c — COMPLETE (d69ca18a3) (app: ptah-electron; 8 files, coordinator-approved exception to the 6-file
     cap: one project, four of them guard specs). Executor: CLI lane, Codex family; review Claude.
     - MODIFY `codex-runtime-composition.ts` (+ spec): async `bindElectronCodexChat(container,
       { isPackaged: app.isPackaged, env: process.env, ... })`; literal
@@ -1781,7 +1809,7 @@ and CLI get compatible bindings only (no feature work).
     content.
 - Verification: `npm run verify -- -p ptah-electron`
 
-## Batch 8b: Electron IPC approval ownership — PENDING (needs 8a)
+## Batch 8b: Electron IPC approval ownership — COMPLETE (3207fdda9; report batch-8b-report.md)
 
 - Files: MODIFY W/apps/ptah-electron/src/ipc/ipc-bridge.ts; MODIFY
   W/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts and its spec
