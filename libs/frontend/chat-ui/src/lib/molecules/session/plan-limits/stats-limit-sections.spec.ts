@@ -38,6 +38,7 @@ function laneTile(caption = LANE_CAPTION): LaneUsageTileModel {
     caption,
     tokensText: 'unknown tokens',
     costLine: 'cost unknown',
+    summary: 'Usage unavailable · Limit unavailable',
     runChip: { tone: 'neutral', text: 'Done' },
     limitChips: [],
     tone: 'neutral',

@@ -146,9 +146,11 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
   }
 
   // Spotlight the session inspector's context, tokens, cost, and time.
-  const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]').first();
-  if (await visible(inspectorToggle) && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-    await inspectorToggle.click();
+  // The sidebar's compact rail renders only while the sidebar is closed.
+  const inspectorExpand = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+    .locator('[data-inspector-rail] [data-inspector-expand]').first();
+  if (await visible(inspectorExpand)) {
+    await inspectorExpand.click();
   }
   const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
     .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]').first();

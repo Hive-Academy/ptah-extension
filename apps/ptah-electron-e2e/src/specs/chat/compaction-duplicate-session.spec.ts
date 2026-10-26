@@ -274,22 +274,23 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
       .sort();
     expect(resumeTabIds).toEqual([firstTabId, secondTabId].sort());
 
+    // In split the sidebar shows the focused pane (the second tile). Both
+    // tiles hold the same session, so one stats check covers both.
+    const board = page.locator('ptah-canvas-rail-board:visible');
+    await board.locator('[data-inspector-rail] [data-inspector-expand]').click();
+    const stats = board.locator(
+      'ptah-session-inspector:visible [data-testid="inspector-session-stats"]',
+    );
+    await expect(stats).toContainText('Tokens');
+    await expect(stats).toContainText('226.7k');
+    await expect(stats).toContainText('Cost');
+    await expect(stats).toContainText('$35.67');
+    await expect(stats).toContainText('1 compaction');
+
     for (const tile of [firstTile, secondTile]) {
       await expect(
         tile.locator('[data-testid="chat-tool-output"]'),
       ).toContainText(RESTORED_TRANSCRIPT);
-
-      const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]');
-      if (await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-        await inspectorToggle.click();
-      }
-      const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
-        .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]');
-      await expect(stats).toContainText('Tokens');
-      await expect(stats).toContainText('226.7k');
-      await expect(stats).toContainText('Cost');
-      await expect(stats).toContainText('$35.67');
-      await expect(stats).toContainText('1 compaction');
 
       const marker = tile.locator('ptah-compaction-marker');
       await expect(marker).toContainText('Context compacted');
@@ -304,8 +305,8 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
 
     // The split-pane inspector overlays the transcript. Close it through its
     // visible control before opening the compaction marker beneath it.
-    const detailsDialog = page.locator(
-      'ptah-canvas-rail-board:visible [role="dialog"][aria-label="Session details"]',
+    const detailsDialog = board.locator(
+      '[role="dialog"][aria-label="Session details"]',
     );
     await detailsDialog.getByRole('button', { name: 'Close session details' }).click();
     await expect(detailsDialog).toHaveCount(0);

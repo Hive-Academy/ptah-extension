@@ -1,11 +1,12 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { buildStatsLimitViewModel } from '@ptah-extension/chat-ui';
+import { AgentMonitorStore, type MonitoredAgent } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
 import { PlanLimitsStore } from '@ptah-extension/core';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
 import { ChatStore } from '../chat.store';
-import { injectSessionStatsSource } from './session-stats-source';
+import { injectSessionStatsSource, toStatsLimitLaneRun } from './session-stats-source';
 
 describe('injectSessionStatsSource cache projection', () => {
   const cache = { ttl: '1h' as const, lastRequestAt: 1_000, expiresAt: 3_601_000 };
@@ -53,5 +54,32 @@ describe('injectSessionStatsSource cache projection', () => {
     expect(stats.inputs()?.snapshot?.tokenCount).toBe(42);
     available.set(false);
     expect(stats.inputs()).toBeNull();
+  });
+});
+
+describe('lane usage mapping', () => {
+  const agent = {
+    agentId: 'restored', cli: 'codex', status: 'completed', restored: true,
+    startedAt: 100, segments: [
+      { type: 'info', content: '', usage: { inputTokens: 20, outputTokens: 7921, costUsd: 1.1586 } },
+    ],
+  } as MonitoredAgent;
+
+  it('uses the lane card segment fallback, marks it partial, and leaves session totals separate', () => {
+    const run = toStatsLimitLaneRun(agent);
+    expect(run.usageTotals).toMatchObject({ inputTokens: 20, outputTokens: 7921, costUsd: 1.1586, partial: true });
+    const model = buildStatsLimitViewModel({
+      sessionId: 'owner', sessionOwnerKey: null, sessionModelScope: null,
+      owners: [], laneRuns: [run], now: 200,
+      time: { timeZone: 'UTC', zoneNameLocale: 'en' },
+    });
+    expect(model.subtotal?.tokensText).toContain('≥7.9k');
+    expect(model.subtotal?.summary).toContain('≥$1.16');
+  });
+
+  it('prefers structured totals and never invents usage for an empty run', () => {
+    const usageTotals = { inputTokens: 3, outputTokens: 5, costUsd: 0 };
+    expect(toStatsLimitLaneRun({ ...agent, usageTotals }).usageTotals).toBe(usageTotals);
+    expect(toStatsLimitLaneRun({ ...agent, segments: [] }).usageTotals).toBeNull();
   });
 });

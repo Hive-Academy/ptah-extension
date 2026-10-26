@@ -37,7 +37,7 @@ export interface StatsLimitLaneRun {
   /** Owner recorded at the run; absent or malformed reads "not recorded". */
   readonly quotaOwner?: QuotaOwnerRef | null;
   /** `null` or absent means unknown, never 0. */
-  readonly usageTotals?: CliUsageTotals | null;
+  readonly usageTotals?: (Partial<CliUsageTotals> & { readonly partial?: boolean }) | null;
 }
 
 export interface StatsLimitViewModelInput {
@@ -134,15 +134,33 @@ export interface StatsLimitNote {
   readonly text: string;
 }
 
+/** Started cell: short `d MMM HH:mm` text, full timestamp for `title`. */
+export interface LaneRunStarted {
+  readonly short: string;
+  readonly full: string;
+}
+
+/** One row of a subgroup's run table. */
 export interface LaneRunRowModel {
   readonly runId: string;
-  readonly label: string;
-  readonly model: string;
+  /** 1-based position in the subgroup (the `#` column). */
+  readonly index: number;
+  /** `null` when the model is unknown. */
+  readonly model: string | null;
   readonly tokensText: string;
   readonly costText: string;
-  readonly stateText: string;
-  /** Restored runs only. */
-  readonly startedText?: string;
+  /** The run status as a badge, never a sentence. */
+  readonly status: StatsChip;
+  /** Absent when the start instant is invalid. */
+  readonly started?: LaneRunStarted;
+}
+
+/** Run-table columns that hold at least one known value. */
+export interface LaneRunColumns {
+  readonly model: boolean;
+  readonly tokens: boolean;
+  readonly cost: boolean;
+  readonly started: boolean;
 }
 
 /**
@@ -176,12 +194,18 @@ export interface LaneSubgroupModel {
   readonly state: LaneLimitState;
   readonly stateChip: StatsChip;
   readonly runs: readonly LaneRunRowModel[];
+  readonly columns: LaneRunColumns;
   readonly planTileChips: readonly LanePlanTileChip[];
   /** Windows shown in full (different owner, or not on a plan tile). */
   readonly windows: readonly PlanWindowDetailModel[];
   readonly evidenceLines: readonly string[];
   readonly cooldownLine?: string;
   readonly notes: readonly StatsLimitNote[];
+  /**
+   * `ownerText` and `notes` as one line, each phrase once and without the
+   * limit state the lane summary already states; `''` when nothing is left.
+   */
+  readonly footnote: string;
 }
 
 export interface LaneFaceChipModel {
@@ -198,6 +222,11 @@ export interface LaneUsageTileModel {
   /** "+1 unknown" when only some runs are known. */
   readonly tokensUnknownText?: string;
   readonly costLine: string;
+  /**
+   * The one muted line of the open panel: known usage (or "Usage
+   * unavailable") · the limit state (or "Limit unavailable").
+   */
+  readonly summary: string;
   readonly runChip: StatsChip;
   readonly limitChips: readonly LaneFaceChipModel[];
   readonly tone: StatsTileTone;

@@ -1,20 +1,24 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, Injector, TemplateRef,
-  afterNextRender, computed, inject, input, linkedSignal, model, output, signal, viewChild,
+  ChangeDetectionStrategy, Component, DestroyRef, Injector,
+  afterNextRender, computed, effect, inject, input, linkedSignal, model, output, signal, untracked,
 } from '@angular/core';
+import { LoggingService } from '@ptah-extension/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorOpenStateService,
-  SendToMessagingComponent, SessionInspectorStore, TabManagerService, injectSessionStatsSource,
+  ChatStore, SendToMessagingComponent, TabManagerService, injectSessionStatsSource,
 } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
-import { SplitHandleComponent, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
-import { railWidthBand } from '../canvas-board-mode';
+import { SplitHandleComponent, type CompactRailState } from '@ptah-extension/chat-ui';
+import { CanvasStore } from '../canvas.store';
+import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasLaneTabsComponent } from '../canvas-detail/canvas-lane-tabs.component';
 
 const TABBABLE =
   'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
+/** Narrowest chat beside the docked sidebar (px); below it the sidebar opens as an overlay. */
+const CHAT_MIN_BESIDE_DOCK = 560;
 const PANE_OVERLAYS =
   '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
 
@@ -56,7 +60,6 @@ export function injectCanvasInspectorDockState(sources: {
   splitDisplayed: () => boolean;
 }) {
   const openState = inject(InspectorOpenStateService);
-  const inspectorStore = inject(SessionInspectorStore);
   const detailsOpen = signal(false);
   const compactSheet = computed(() => sources.width() > 0 && sources.width() < 400);
   const compactSheetOpen = computed(() => compactSheet() && detailsOpen());
@@ -66,36 +69,33 @@ export function injectCanvasInspectorDockState(sources: {
     budget: () => sources.focusedTab()?.sessionBudget ?? null,
     available: () => sources.focusedTab() !== null,
   });
-  const closedDetailsDescription = computed(() => {
-    const current = stats.inputs();
-    const id = sources.focusedId();
-    return current && id
-      ? inspectorToggleDescription(
-          current.context, current.limitSummary,
-          inspectorStore.modelFor(id)().needsYouCount,
-        )
-      : '';
-  });
-  const dockOpenByDefault = computed(() => railWidthBand(sources.width()) !== 'sm');
-  const dockOpen = linkedSignal({
+  const dockOpenByDefault = computed(() => sources.width() >= 1200);
+  const dockOpen = linkedSignal<{ split: boolean; open: boolean }, boolean>({
     source: () => {
+      // Split shows the expanded sidebar only as an overlay: start from the rail, never auto-open.
+      if (sources.splitDisplayed()) return { split: true, open: false };
       const id = sources.focusedId();
-      return id ? openState.dockedOpen(
-        id, sources.focusedTab()?.viewMode ?? 'full',
-        dockOpenByDefault(),
-      ) : false;
+      return {
+        split: false,
+        open: id ? openState.dockedOpen(
+          id, sources.focusedTab()?.viewMode ?? 'full',
+          dockOpenByDefault(),
+        ) : false,
+      };
     },
-    computation: (open: boolean) => open,
+    // While split stays on, a focused-pane switch or a tab update keeps the user's choice;
+    // entering split starts collapsed and leaving it restores the persisted single-view state.
+    computation: (source, previous) =>
+      source.split && previous?.source.split ? previous.value : source.open,
   });
   const dockShown = computed(() =>
-    !sources.splitDisplayed() && !compactSheet() && sources.focusedId() !== null,
+    sources.focusedId() !== null,
   );
-  const dockSlotShown = computed(() => dockShown() && dockOpen());
   // The compact inspector replaces the expanded dock; it never reduces this input.
   const dockAvailableWidth = computed(() => Math.max(0, sources.width() - sources.leftRailWidth()));
   return {
-    detailsOpen, compactSheet, compactSheetOpen, stats, closedDetailsDescription,
-    dockOpen, dockShown, dockSlotShown, dockAvailableWidth,
+    detailsOpen, compactSheet, compactSheetOpen, stats,
+    dockOpen, dockShown, dockAvailableWidth,
   };
 }
 
@@ -104,69 +104,30 @@ export function injectCanvasInspectorDockState(sources: {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgTemplateOutlet, SessionInspectorComponent, SendToMessagingComponent,
-    SplitHandleComponent, CanvasLaneTabsComponent],
+    SplitHandleComponent, CanvasLaneTabsComponent, CanvasFocusHeaderComponent],
   providers: [InspectorDockController],
   host: { class: 'contents', '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
+    <ng-template #controls let-rail="rail">
+      @if (focusedId(); as id) {
+        <ptah-canvas-focus-header [tabId]="id" [rail]="rail ?? false"
+          [embedded]="!(rail ?? false)"
+          [running]="canvasStore.isSessionRunning(id)"
+          [viewMode]="sessionTab(id)?.viewMode ?? 'full'"
+          (stop)="stopSession(id)" (toggleViewMode)="toggleView(id)"
+          (closeRequested)="closeRequested.emit(id)" />
+      }
+    </ng-template>
     <ng-template #laneStrip>
       @if (focusedId(); as id) {
         <ptah-canvas-lane-tabs
-          [panelId]="panelId()" [tabId]="id"
+          [panelId]="panelId()" [tabId]="id" [sidebar]="true"
           [laneKey]="detail.laneKeyFor(id)"
           (laneSelected)="detail.selectLaneFor(id, $event)"
         />
       }
     </ng-template>
-    <ng-template #splitInspector>
-      @if (focusedId(); as id) {
-                      <aside
-                        class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl"
-                        role="dialog"
-                        aria-label="Session details"
-                        tabindex="-1"
-                        (keydown.escape)="closeSplitDetails($event)"
-                      >
-                        @defer (when detailsOpen()) {
-                          <ptah-session-inspector
-                            [tabId]="id"
-                            presentation="embedded"
-                            [hasLaneSurface]="true"
-                            [stats]="stats()"
-                            (laneRequested)="detail.selectLaneFor(id, $event)"
-                            (closeRequested)="closeSplitDetails()"
-                            [sessionTitle]="sessionTab(id)?.title ?? ''"
-                            [sessionStatus]="state()"
-                            [workflow]="sessionTab(id)?.workflow ?? null"
-                            [branch]="
-                              sessionTab(id)?.agentOrigin?.branch ?? null
-                            "
-                            [selectedAgentKey]="detail.laneKeyFor(id)"
-                            [focusSection]="inspectorSection()"
-                          >
-                            <ptah-send-to-messaging
-                              inspectorActions
-                              [tabId]="id"
-                            />
-                            <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
-                          </ptah-session-inspector>
-                        } @loading {
-                          <div
-                            class="flex flex-col gap-2 p-4"
-                            role="status"
-                            aria-label="Loading session details"
-                            data-inspector-skeleton
-                          >
-                            <ng-container [ngTemplateOutlet]="laneStrip" />
-                    <div class="skeleton h-4 w-32"></div>
-                            <div class="skeleton h-3 w-full"></div>
-                            <div class="skeleton h-3 w-3/4"></div>
-                          </div>
-                        }
-                      </aside>
-
-      }
-    </ng-template>
-        @if (dockShown()) {
+        @if (dockShown() && !compactSheetOpen()) {
           @if (focusedId(); as id) {
             @if (!dockOpen()) {
               <ptah-session-inspector
@@ -179,11 +140,22 @@ export function injectCanvasInspectorDockState(sources: {
                 [hasLaneSurface]="true"
                 [stats]="stats()"
                 [selectedAgentKey]="detail.laneKeyFor(id)"
+                [sessionTitle]="sessionTab(id)?.title ?? ''"
                 (expandRequested)="expandInspector($event)"
-              />
+              >
+                <ng-container inspectorRailControls [ngTemplateOutlet]="controls" [ngTemplateOutletContext]="{ rail: true }" />
+                <ptah-canvas-lane-tabs inspectorRailAgents
+                  [panelId]="panelId()" [tabId]="id" [rail]="true"
+                  [laneKey]="detail.laneKeyFor(id)"
+                  (laneSelected)="detail.selectLaneFor(id, $event)"
+                  (railPicked)="selectRailAgent(id, $event)"
+                  (expandRequested)="expandInspector('agents')" />
+              </ptah-session-inspector>
             }
             @if (dockShown() && dockOpen()) {
+              @if (overlay()) { <div class="w-14 shrink-0" aria-hidden="true"></div> }
               <!-- 0 px slot: the grip overlays the dock's leading edge and adds no layout width. -->
+              @if (!overlay()) {
               <div class="relative z-10 w-0 shrink-0">
                 <ptah-split-handle
                   class="absolute inset-y-0 left-0 w-3"
@@ -193,23 +165,28 @@ export function injectCanvasInspectorDockState(sources: {
                   [inverted]="true"
                   [size]="dock.width()"
                   [min]="dock.minWidth"
-                  [max]="dock.maxWidth()"
+                  [max]="dockedMaxWidth()"
                   (sizeChange)="dock.preview($event)"
                   (sizeCommit)="dock.commit()"
                   (sizeCancel)="dock.cancel()"
                   (sizeReset)="dock.reset()"
                 />
               </div>
+              }
               <aside
                 class="flex h-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
                 tabindex="-1"
-                [class.absolute]="availableWidth() < 660"
-                [class.right-0]="availableWidth() < 660"
-                [class.z-20]="availableWidth() < 660"
-                [attr.role]="availableWidth() < 660 ? 'dialog' : null"
+                [class.fixed]="overlay()"
+                [class.right-0]="overlay()"
+                [class.z-50]="overlay()"
+                [attr.role]="overlay() ? 'dialog' : null"
                 aria-label="Session details"
+                [class.inset-y-0]="overlay()"
+                style="max-width: 100vw"
+                (keydown.escape)="closeDock()"
+                (keydown)="overlay() && onSheetKeydown($event)"
                 data-inspector-dock
-                [style.width.px]="occupiedWidth()"
+                [style.width.px]="dock.width()"
               >
                 <!-- The expanded inspector loads on open; its @loading block keeps the lane strip mounted meanwhile. -->
                 @defer (when dockOpen()) {
@@ -228,7 +205,8 @@ export function injectCanvasInspectorDockState(sources: {
                     [selectedAgentKey]="detail.laneKeyFor(id)"
                     [focusSection]="inspectorSection()"
                   >
-                    <ptah-send-to-messaging inspectorActions [tabId]="id" />
+                    <ng-container inspectorControls [ngTemplateOutlet]="controls" />
+                    <ptah-send-to-messaging inspectorActions class="shrink-0" [tabId]="id" />
                     <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                   </ptah-session-inspector>
                 } @loading {
@@ -274,6 +252,7 @@ export function injectCanvasInspectorDockState(sources: {
                   [selectedAgentKey]="detail.laneKeyFor(id)"
                   [focusSection]="inspectorSection()"
                 >
+                  <ng-container inspectorControls [ngTemplateOutlet]="controls" />
                   <ptah-send-to-messaging inspectorActions [tabId]="id" />
                   <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                 </ptah-session-inspector>
@@ -299,7 +278,6 @@ export function injectCanvasInspectorDockState(sources: {
 export class CanvasInspectorDockComponent {
   readonly root = input.required<HTMLElement>();
   readonly focusedId = input<string | null>(null);
-  readonly activeSide = input<'left' | 'right'>('left');
   readonly splitDisplayed = input(false);
   readonly visible = input(true);
   readonly compactSheet = input(false);
@@ -311,7 +289,23 @@ export class CanvasInspectorDockComponent {
   readonly dockOpen = model(false);
   readonly detailsOpen = model(false);
   readonly layoutChanged = output<void>();
-  readonly splitTemplate = viewChild<TemplateRef<unknown>>('splitInspector');
+  readonly closeRequested = output<string>();
+  readonly canvasStore = inject(CanvasStore);
+  private readonly chatStore = inject(ChatStore);
+  private readonly logger = inject(LoggingService);
+  readonly overlay = computed(() =>
+    this.splitDisplayed() || this.availableWidth() - this.dock.width() < CHAT_MIN_BESIDE_DOCK,
+  );
+  /**
+   * The grip's maximum keeps the chat at least `CHAT_MIN_BESIDE_DOCK` wide, so a drag
+   * can never flip the dock into the overlay and unmount the grip mid-drag.
+   */
+  readonly dockedMaxWidth = computed(() =>
+    Math.max(
+      this.dock.minWidth,
+      Math.min(this.dock.maxWidth(), Math.floor(this.availableWidth() - CHAT_MIN_BESIDE_DOCK)),
+    ),
+  );
   readonly compactWidth = INSPECTOR_TAB_WIDTH;
   readonly dock = inject(InspectorDockController);
   readonly detail = inject(CanvasDetailService);
@@ -319,37 +313,47 @@ export class CanvasInspectorDockComponent {
   private readonly openState = inject(InspectorOpenStateService);
   private readonly injector = inject(Injector);
   private detailsFocusObserver: MutationObserver | null = null;
-  private detailsFocusReturn = false;
   readonly inspectorSection =
     signal<ReturnType<SessionInspectorComponent['focusSection']>>(null);
   readonly compactSheetOpen = computed(() => this.compactSheet() && this.detailsOpen());
   /** The rail replaces the expanded dock; neither width is subtracted twice. */
   readonly occupiedWidth = computed(() =>
-    this.dockShown() ? (this.dockOpen() ? this.dock.width() : this.compactWidth) : 0,
+    this.dockShown() ? (this.dockOpen() && !this.overlay() ? this.dock.width() : this.compactWidth) : 0,
   );
 
   constructor() {
     this.dock.bind(() => this.dockShown() && this.dockOpen(), this.availableWidth);
+    // A host resize can still flip the overlay and unmount the grip, which then reports
+    // nothing: drop its uncommitted draft so it cannot outlive the drag.
+    effect(() => {
+      if (this.overlay()) untracked(() => this.dock.cancel());
+    });
     inject(DestroyRef).onDestroy(() => this.stopDetailsFocusObserver());
+  }
+  selectRailAgent(id: string, key: string): void {
+    this.detail.selectLaneFor(id, key);
+    this.expandInspector('agents');
+  }
+  toggleView(id: string): void {
+    this.tabs.toggleTabViewMode(id);
+  }
+  async stopSession(id: string): Promise<void> {
+    if (this.tabs.activeTabId() !== id) this.canvasStore.focusTile(id);
+    try {
+      await this.chatStore.abortWithConfirmation();
+    } catch (error) {
+      this.logger.error('CanvasInspectorDock', 'Could not stop session', error);
+    }
   }
   sessionTab(id: string) {
     return this.tabs.findTabByIdAcrossWorkspaces(id)?.tab;
   }
-  openSplitDetails(): void {
-    this.detailsFocusReturn = true;
-    this.detailsOpen.set(true);
-    this.focusDetailsShell();
-  }
-  /** After the next render, focus the open overlay or sheet, then its close once the inspector loads. */
+  /** After the next render, focus the open compact sheet, then its close once the inspector loads. */
   private focusDetailsShell(): void {
     this.stopDetailsFocusObserver();
     afterNextRender(
       () => {
-        const shell = this.root().querySelector<HTMLElement>(
-          this.compactSheet()
-            ? '[data-compact-sheet]'
-            : '[role="dialog"][aria-label="Session details"]',
-        );
+        const shell = this.root().querySelector<HTMLElement>('[data-compact-sheet]');
         if (!shell || !this.detailsOpen()) return;
         shell.focus();
         const focusClose = () => {
@@ -376,47 +380,15 @@ export class CanvasInspectorDockComponent {
     this.detailsFocusObserver = null;
   }
 
-  closeSplitDetails(event?: Event): void {
-    event?.stopPropagation();
-    this.stopDetailsFocusObserver();
-    this.detailsOpen.set(false);
-    if (!this.detailsFocusReturn) return;
-    this.detailsFocusReturn = false;
-    afterNextRender(
-      () => {
-        const opener = this.root().querySelector<HTMLElement>(
-          `[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`,
-        );
-        if (this.splitDisplayed() && opener) opener.focus();
-        else {
-          const id = this.focusedId();
-          const card = [
-            ...this.root().querySelectorAll<HTMLElement>(
-              '[data-rail-card]',
-            ),
-          ].find((node) => node.dataset['tabId'] === id);
-          (
-            card?.querySelector<HTMLElement>('.rc-select, .rail-collapsed') ??
-            this.root().querySelector<HTMLElement>(
-              `[data-pane-side="${this.activeSide()}"] [role="tab"][aria-selected="true"]`,
-            )
-          )?.focus();
-        }
-      },
-      { injector: this.injector },
-    );
-  }
-
   closeCompactSheet(event?: Event): void {
     event?.stopPropagation();
     this.stopDetailsFocusObserver();
     this.detailsOpen.set(false);
-    this.detailsFocusReturn = false;
     afterNextRender(
       () =>
         this.root()
           .querySelector<HTMLElement>(
-            `[data-pane-side="${this.activeSide()}"] [aria-label="Open details"]`,
+            '[data-inspector-rail] [data-inspector-expand]',
           )
           ?.focus(),
       { injector: this.injector },
@@ -456,7 +428,8 @@ export class CanvasInspectorDockComponent {
 
   private setDockExpanded(open: boolean): void {
     const id = this.focusedId();
-    if (id)
+    // The split overlay is transient: it never overwrites the persisted single-view state.
+    if (id && !this.splitDisplayed())
       this.openState.setDocked(id, this.sessionTab(id)?.viewMode ?? 'full', open);
     this.dockOpen.set(open);
   }
@@ -467,6 +440,11 @@ export class CanvasInspectorDockComponent {
     >,
   ): void {
     this.inspectorSection.set(section ?? null);
+    if (this.compactSheet()) {
+      this.detailsOpen.set(true);
+      this.focusDetailsShell();
+      return;
+    }
     this.setDockExpanded(true);
     this.layoutChanged.emit();
     if (!section)
@@ -476,6 +454,11 @@ export class CanvasInspectorDockComponent {
   /** The Stats tab opens or closes the single-focus dock. */
   toggleDetails(): void {
     this.stopDetailsFocusObserver();
+    if (this.compactSheet()) {
+      this.detailsOpen.set(!this.detailsOpen());
+      if (this.detailsOpen()) this.focusDetailsShell();
+      return;
+    }
     this.setDockExpanded(!this.dockOpen());
     this.layoutChanged.emit();
   }
@@ -496,25 +479,19 @@ export class CanvasInspectorDockComponent {
     );
   }
   /**
-   * The board crossed the 400 px compact threshold. In single focus the dock
+   * The board crossed the 400 px compact threshold. The dock or split overlay
    * (`dockOpen`) and the compact sheet (`detailsOpen`) are separate surfaces,
    * so an open inspector moves to the destination surface, the source closes,
-   * and focus follows. In split both use `detailsOpen`; only focus moves.
+   * and focus follows.
    */
   handOffInspector(compact: boolean, dockWasOpen: boolean): void {
-    if (this.splitDisplayed()) {
-      if (this.detailsOpen()) this.focusDetailsShell();
-      return;
-    }
     if (compact && dockWasOpen) {
       this.dockOpen.set(false);
-      this.detailsFocusReturn = false;
       this.detailsOpen.set(true);
       this.focusDetailsShell();
     } else if (!compact && this.detailsOpen()) {
       this.stopDetailsFocusObserver();
       this.detailsOpen.set(false);
-      this.detailsFocusReturn = false;
       this.dockOpen.set(true);
       afterNextRender(() => this.focusDock(), { injector: this.injector });
     }

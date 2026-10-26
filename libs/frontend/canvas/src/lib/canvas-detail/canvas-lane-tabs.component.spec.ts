@@ -140,6 +140,117 @@ describe('CanvasLaneTabsComponent', () => {
     });
   });
 
+  it('rail shows five active avatars, expands overflow and selects with the shared tooltip', () => {
+    jest.useFakeTimers();
+    try {
+      agents.set([...cliRoster(7), cli({ agentId: 'finished', parentSessionId: 'owner', cli: 'Done', status: 'completed' })]);
+      const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+      fixture.componentRef.setInput('tabId', TAB_ID);
+      fixture.componentRef.setInput('rail', true);
+      fixture.detectChanges();
+      const root: HTMLElement = fixture.nativeElement;
+      expect(root.querySelectorAll('[role="tab"]')).toHaveLength(5);
+      const overflow = root.querySelector<HTMLButtonElement>('[aria-label="Show 2 more active agents"]')!;
+      expect(overflow.textContent).toContain('+2');
+      const expand = jest.fn(), select = jest.fn();
+      fixture.componentInstance.expandRequested.subscribe(expand);
+      fixture.componentInstance.railPicked.subscribe(select);
+      overflow.click();
+      expect(expand).toHaveBeenCalledTimes(1);
+      const avatar = root.querySelector<HTMLButtonElement>('[role="tab"]')!;
+      avatar.dispatchEvent(mousePointer('pointerenter'));
+      jest.advanceTimersByTime(220);
+      fixture.detectChanges();
+      expect(root.querySelector('ptah-agent-dock-card')).not.toBeNull();
+      avatar.click();
+      expect(select).toHaveBeenCalledWith('cli:c0');
+      fixture.destroy();
+    } finally { jest.useRealTimers(); }
+  });
+
+  it('rail falls back to the orchestrator when no agents are active', () => {
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('rail', true);
+    fixture.detectChanges();
+    expect(tabLabels(fixture.nativeElement)).toEqual([expect.stringContaining('Orchestrator')]);
+    fixture.destroy();
+  });
+
+  it('rail arrow keys move focus only, keep one tab stop, and leave selection to Enter or a click', async () => {
+    agents.set(cliRoster(7));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('rail', true);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    const tabs = () => [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    // One tab stop for the whole strip (roving tabindex).
+    expect(tabs().filter((tab) => tab.tabIndex === 0)).toHaveLength(1);
+    // `+N` expands the sidebar; it is not a tab, so it sits outside the tablist.
+    expect(root.querySelector('[role="tablist"] [aria-label="Show 2 more active agents"]')).toBeNull();
+    expect(root.querySelector('[aria-label="Show 2 more active agents"]')).not.toBeNull();
+    const select = jest.fn(), expand = jest.fn(), normalized = jest.fn();
+    fixture.componentInstance.railPicked.subscribe(select);
+    fixture.componentInstance.laneSelected.subscribe(normalized);
+    fixture.componentInstance.expandRequested.subscribe(expand);
+    const first = tabs()[0];
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(select).not.toHaveBeenCalled();
+    expect(expand).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(tabs()[1]);
+    expect(tabs().map((tab) => tab.tabIndex)).toEqual([-1, 0, -1, -1, -1]);
+    tabs()[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(tabs()[4]);
+    expect(select).not.toHaveBeenCalled();
+    // Enter is left to the button's native activation, which clicks: that selects.
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    tabs()[4].dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    tabs()[4].click();
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith('cli:c4');
+    expect(normalized).not.toHaveBeenCalled();
+    root.remove();
+    fixture.destroy();
+  });
+
+  it('rail key normalization updates the selection without a user pick', () => {
+    agents.set(cliRoster(3));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('rail', true);
+    const normalized = jest.fn(), picked = jest.fn();
+    fixture.componentInstance.laneSelected.subscribe(normalized);
+    fixture.componentInstance.railPicked.subscribe(picked);
+    // A stale key (the lane left the roster) is corrected by the component itself.
+    fixture.componentRef.setInput('laneKey', 'cli:gone');
+    fixture.detectChanges();
+    expect(normalized).toHaveBeenCalled();
+    expect(normalized).not.toHaveBeenCalledWith('cli:gone');
+    expect(picked).not.toHaveBeenCalled();
+    fixture.destroy();
+  });
+
+  it('sidebar reserves two rows and always labels its overflow trigger', () => {
+    agents.set(cliRoster(15));
+    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
+    fixture.componentRef.setInput('tabId', TAB_ID);
+    fixture.componentRef.setInput('sidebar', true);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.querySelector('[aria-haspopup="menu"]')?.textContent).toContain('agents');
+    expect(root.querySelectorAll('[role="tab"]').length).toBeLessThan(16);
+    expect(tabLabels(root)[0]).toContain('Orchestrator');
+    fixture.destroy();
+  });
+
   it.each([1, 5, 6])('shows the dropdown only above five agents (%i total)', (count) => {
     agents.set(Array.from({ length: count - 1 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);

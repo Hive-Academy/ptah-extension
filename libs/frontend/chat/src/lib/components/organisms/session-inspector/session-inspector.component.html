@@ -23,6 +23,9 @@
         >
       }
     </button>
+    @if (sessionTitle()) { <span class="sr-only">{{ sessionTitle() }}</span> }
+    <ng-content select="[inspectorRailControls]" />
+    <ng-content select="[inspectorRailAgents]" />
     @if (stats()) {
       @for (metric of railMetrics(); track metric.id) {
         <button
@@ -49,23 +52,9 @@
           }
         </button>
       }
-      <button
-        type="button"
-        class="relative m-1 flex min-h-10 flex-col items-center justify-center rounded-md p-1 text-xs tabular-nums hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
-        [attr.aria-label]="runLabel()"
-        [title]="runLabel()"
-        (click)="expandRequested.emit('agents')"
-      >
-        <span class="text-[10px] text-base-content-muted">Run</span>
-        <span>{{ model().agents.data?.active ?? '—' }}</span>
-        @if (model().needsYouCount > 0) {
-          <span
-            aria-hidden="true"
-            class="rounded-full bg-state-need/15 px-1 text-[10px] text-state-need"
-            >{{ model().needsYouCount }}!</span
-          >
-        }
-      </button>
+      @if (model().needsYouCount > 0) {
+        <span role="img" class="text-center text-xs text-state-need" [attr.aria-label]="runLabel()">{{ model().needsYouCount }}!</span>
+      }
       @if (railTodos(); as todos) {
         <button
           type="button"
@@ -104,6 +93,7 @@
   <header
     class="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-surface-border pl-4 pr-2"
   >
+    <ng-content select="[inspectorControls]" />
     <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
     <button
       #closeButton
@@ -129,29 +119,36 @@
   @let m = model();
   @let s = stats();
   <div class="min-h-0 flex-1 overflow-y-auto">
-    @if (sessionTitle() || sessionStatus() || workflow() || branch()) {
-      <div class="px-3 py-2">
-        <div class="flex items-start justify-between gap-2">
+    @let hasIdentity = !!(sessionTitle() || sessionStatus() || workflow() || branch());
+    <!-- The actions slot renders even without an identity; an empty row collapses (empty:hidden). -->
+    <div class="px-3" [class.py-2]="hasIdentity">
+      <div
+        class="flex items-center justify-between gap-2 empty:hidden"
+        [class.py-2]="!hasIdentity"
+      >
+        @if (hasIdentity) {
           <h2 class="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">
             {{ sessionTitle() }}
           </h2>
+        }
+        <ng-content select="[inspectorActions]" />
+        @if (hasIdentity) {
           <span class="shrink-0 text-xs text-base-content-muted">{{
             sessionStatus()
           }}</span>
-        </div>
-        @if (workflow()) {
-          <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
-            {{ workflow() }}
-          </p>
-        }
-        @if (branch()) {
-          <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
-            {{ branch() }}
-          </p>
         }
       </div>
-    }
-    <ng-content select="[inspectorActions]" />
+      @if (workflow()) {
+        <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
+          {{ workflow() }}
+        </p>
+      }
+      @if (branch()) {
+        <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
+          {{ branch() }}
+        </p>
+      }
+    </div>
     @if (m.orchestrator.requests.length > 0) {
       <ptah-inspector-request-lines
         class="block px-3 py-2"

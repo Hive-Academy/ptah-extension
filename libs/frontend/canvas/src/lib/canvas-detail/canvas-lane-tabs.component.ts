@@ -85,7 +85,12 @@ interface DockLayout {
   ],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '(document:keydown.escape)': 'onDocumentEscape($event)' },
+  host: {
+    '(document:keydown.escape)': 'onDocumentEscape($event)',
+    '[class.flex]': 'rail()',
+    '[class.flex-col]': 'rail()',
+    '[class.items-center]': 'rail()',
+  },
   styles: [
     `
       /* Glass on (any theme): the dock strip is part of the chat column's one
@@ -126,10 +131,13 @@ interface DockLayout {
       #dock
       role="tablist"
       aria-label="Lanes"
+      [class.flex-col]="rail()"
+      [class.px-0]="rail()"
+      [class.border-0]="rail()"
       class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
-        @if (!first) {
+        @if (!first && !rail() && !sidebar()) {
           <span
             class="mx-1 h-5 w-px shrink-0 self-center bg-[var(--surface-border-strong)]"
             aria-hidden="true"
@@ -137,17 +145,17 @@ interface DockLayout {
           ></span>
         }
         @for (chip of group.chips; track chip.key) {
-          @if (chip.selected) {
+          @if (!rail() && (sidebar() ? chip.agent.kind === 'orchestrator' : chip.selected)) {
             <button
               type="button"
               role="tab"
               [id]="chip.tabDomId"
               class="inline-flex h-[38px] max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border border-secondary px-1.5 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
-              [attr.aria-selected]="true"
+              [attr.aria-selected]="chip.selected"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
               [attr.aria-describedby]="cardKey() === chip.key ? view.cardId : null"
-              [tabIndex]="0"
+              [tabIndex]="chip.selected ? 0 : -1"
               (click)="onTabClick(chip.key)"
               (keydown)="onKeydown($event, chip.key)"
               (pointerenter)="onPointerEnter($event, chip.key)"
@@ -180,11 +188,11 @@ interface DockLayout {
               role="tab"
               [id]="chip.tabDomId"
               [class]="'inline-flex h-[38px] shrink-0 items-center rounded-full hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))] ' + (view.named ? namedChipClass : circleChipClass)"
-              [attr.aria-selected]="false"
+              [attr.aria-selected]="chip.selected"
               [attr.aria-controls]="panelId()"
               [attr.aria-label]="chip.label"
               [attr.aria-describedby]="cardKey() === chip.key ? view.cardId : null"
-              [tabIndex]="-1"
+              [tabIndex]="(rail() ? railTabStop() === chip.key : chip.selected) ? 0 : -1"
               (click)="onTabClick(chip.key)"
               (keydown)="onKeydown($event, chip.key)"
               (pointerenter)="onPointerEnter($event, chip.key)"
@@ -206,12 +214,12 @@ interface DockLayout {
           }
         }
       }
-      @if (!view.named) {
+      @if (!rail() && (!view.named || sidebar())) {
         <ptah-agent-dock-menu
           [agents]="agents()"
           [hidden]="view.hidden"
           [selectedKey]="selectedKey()"
-          [compact]="view.compact"
+          [compact]="sidebar() ? false : view.compact"
           [now]="now()"
           (agentSelect)="onMenuSelect($event)"
         />
@@ -219,12 +227,19 @@ interface DockLayout {
       @if (cardAgent(); as agent) {
         <ptah-agent-dock-card
           [agent]="agent"
+          [inline]="sidebar()"
           [durationText]="cardDuration()"
           [cardId]="view.cardId"
           (hovered)="onCardHovered($event)"
         />
       }
     </div>
+    <!-- Outside the tablist: it expands the sidebar, it is not a tab. -->
+    @if (rail() && view.hidden.length > 0) {
+      <button type="button" class="btn btn-ghost btn-xs size-7"
+        [attr.aria-label]="'Show ' + view.hidden.length + ' more active agents'"
+        (click)="expandRequested.emit()">+{{ view.hidden.length }}</button>
+    }
   `,
 })
 export class CanvasLaneTabsComponent {
@@ -238,6 +253,11 @@ export class CanvasLaneTabsComponent {
   readonly panelId = input('canvas-lane-panel');
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
+  /** Rail only: the user picked an agent (click, Enter, Space or the overflow menu). */
+  readonly railPicked = output<string>();
+  readonly expandRequested = output<void>();
+  readonly sidebar = input(false);
+  readonly rail = input(false);
 
   /** Measured dock width. `Infinity` until a ResizeObserver reports one. */
   private readonly width = signal(Number.POSITIVE_INFINITY);
@@ -266,7 +286,7 @@ export class CanvasLaneTabsComponent {
 
   /** Inline roster: every chip is named, so none needs the hover / focus card. */
   private readonly namesInline = computed(
-    () => this.agents().length <= DOCK_INLINE_MAX,
+    () => !this.rail() && !this.sidebar() && this.agents().length <= DOCK_INLINE_MAX,
   );
 
   protected readonly layout = computed((): DockLayout => {
@@ -274,11 +294,29 @@ export class CanvasLaneTabsComponent {
     const selected = this.selectedKey();
     const panelId = this.panelId();
     const width = this.width();
-    const { visible, hidden } = planDockOverflow(
+    let { visible, hidden } = planDockOverflow(
       this.agents(),
       selected,
       dockCapacity(width),
     );
+    if (this.rail()) {
+      const active = this.agents().filter(agent => agent.status === 'running' || agent.status === 'waiting');
+      const candidates = active.length ? active : this.agents().filter(agent => agent.kind === 'orchestrator');
+      visible = candidates.slice(0, 5);
+      hidden = candidates.slice(5);
+    } else if (this.sidebar()) {
+      // Reserve the orchestrator pill on row one and the labelled menu on row two.
+      const measured = Number.isFinite(width) ? width : 320;
+      const capacity = Math.max(0, Math.floor((measured - 196) / 40)) +
+        Math.max(0, Math.floor((measured - 128) / 40));
+      const planned = planDockOverflow(this.agents(), selected, capacity);
+      const orchestrator = this.agents().find(agent => agent.kind === 'orchestrator');
+      visible = [
+        ...(orchestrator ? [orchestrator] : []),
+        ...planned.visible.filter(agent => agent.kind !== 'orchestrator').slice(0, capacity),
+      ];
+      hidden = this.agents().filter(agent => !visible.includes(agent));
+    }
     const chips = new Map<AgentKind, DockChipModel[]>();
     for (const agent of visible) {
       const durationMs = agentDurationMs(agent, now);
@@ -310,6 +348,19 @@ export class CanvasLaneTabsComponent {
       cardId: `${panelId}-agent-card`,
       named: this.namesInline(),
     };
+  });
+
+  /** Rail strip: the agent the arrow keys last moved focus to (roving tab stop). */
+  private readonly railFocusKey = signal<string | null>(null);
+
+  /** Rail strip: the one chip in the tab order — the focused one, else the selected, else the first. */
+  protected readonly railTabStop = computed(() => {
+    if (!this.rail()) return null;
+    const keys = this.layout().groups.flatMap((group) => group.chips.map((chip) => chip.key));
+    const focused = this.railFocusKey();
+    if (focused && keys.includes(focused)) return focused;
+    const selected = this.selectedKey();
+    return keys.includes(selected) ? selected : (keys[0] ?? null);
   });
 
   protected readonly cardAgent = computed(() => {
@@ -356,12 +407,18 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabClick(key: string): void {
-    this.laneSelected.emit(key);
+    this.pick(key);
   }
 
   protected onMenuSelect(key: string): void {
-    this.laneSelected.emit(key);
+    this.pick(key);
     this.focusTab(key);
+  }
+
+  /** A user pick; in the rail it is separate from key normalization, which must never expand the sidebar. */
+  private pick(key: string): void {
+    if (this.rail()) this.railPicked.emit(key);
+    else this.laneSelected.emit(key);
   }
 
   protected onKeydown(event: KeyboardEvent, key: string): void {
@@ -384,7 +441,9 @@ export class CanvasLaneTabsComponent {
     event.preventDefault();
     event.stopPropagation();
     const nextKey = keys[next];
-    this.laneSelected.emit(nextKey);
+    // The rail only moves focus: selecting there expands the sidebar, which Enter or a click does.
+    if (this.rail()) this.railFocusKey.set(nextKey);
+    else this.laneSelected.emit(nextKey);
     this.focusTab(nextKey);
   }
 
@@ -406,6 +465,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabFocus(event: FocusEvent, key: string): void {
+    if (this.rail()) this.railFocusKey.set(key);
     if (this.isNamedChip(key)) return;
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return;
@@ -445,20 +505,21 @@ export class CanvasLaneTabsComponent {
 
   /** A chip that already shows its name opens no hover / focus card. */
   private isNamedChip(key: string): boolean {
-    return this.namesInline() || key === this.selectedKey();
+    return !this.rail() && !this.sidebar() && (this.namesInline() || key === this.selectedKey());
   }
 
   private openCard(key: string): void {
     if (this.isNamedChip(key)) return;
     this.cardKey.set(key);
+    if (this.sidebar()) return;
     afterNextRender(
       () => {
         const tab = document.getElementById(this.tabDomId(key));
         const card = document.getElementById(`${this.panelId()}-agent-card`);
         if (!tab || !card) return;
-        const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-pane-side]');
+        const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-inspector-dock]');
         void this.floatingUI.position(tab, card, {
-          placement: 'bottom-start',
+          placement: this.rail() || this.sidebar() ? 'left-start' : 'bottom-start',
           offset: 0,
           boundary: boundary ?? undefined,
         });

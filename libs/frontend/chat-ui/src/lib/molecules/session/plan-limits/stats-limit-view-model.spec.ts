@@ -289,8 +289,13 @@ describe('buildStatsLimitViewModel', () => {
       );
       const [first, second] = vm.laneTiles[0].subgroups;
       expect(first.ownerStatus).toBe('different');
-      expect(first.runs[0].stateText).toBe('Restored · completed');
-      expect(first.runs[0].startedText).toBe('started today 11:00 UTC');
+      // Status is a badge word, never a "Restored · completed" sentence.
+      expect(first.runs[0].status).toEqual({ tone: 'neutral', text: 'Completed' });
+      expect(first.runs[0].started).toEqual({
+        short: '5 Oct 11:00',
+        full: 'Mon 5 Oct 2026 11:00 UTC',
+      });
+      expect(second.runs[0].started?.short).toBe('5 Oct 11:00');
       expect(second.ownerStatus).toBe('same');
     });
 
@@ -306,6 +311,13 @@ describe('buildStatsLimitViewModel', () => {
       expect(group.ownerStatus).toBe('not-recorded');
       expect(group.ownerLabel).toBe('Unknown owner');
       expect(group.ownerText).toContain('Limit unavailable · owner not recorded');
+      // The lane summary states the limit; the footnote never repeats it.
+      expect(group.footnote).toBe(
+        "owner not recorded; no other account's windows are borrowed",
+      );
+      expect(vm.laneTiles[0].summary).toBe(
+        '1.5k tokens · cost $0.10 · Limit unavailable',
+      );
       expect(group.state).toBe('unknown');
       expect(group.windows).toEqual([]);
       expect(group.planTileChips).toEqual([]);
@@ -466,9 +478,18 @@ describe('buildStatsLimitViewModel', () => {
       expect(tile.costLine).toBe('cost $0.25 (+1 unknown)');
       const rows = tile.subgroups[0].runs;
       expect(rows[1]).toMatchObject({
-        label: 'Run 2',
+        index: 2,
         tokensText: '—',
         costText: '—',
+      });
+      expect(tile.summary).toBe(
+        '1.5k tokens (+1 unknown) · cost $0.25 (+1 unknown) · Room',
+      );
+      expect(tile.subgroups[0].columns).toEqual({
+        model: true,
+        tokens: true,
+        cost: true,
+        started: true,
       });
       expect(vm.subtotal).toEqual({
         id: 'lanes-subtotal',

@@ -35,6 +35,12 @@ import {
   type SessionPlan,
 } from './plan-limit-tiles';
 import {
+  formatRunStarted,
+  laneRunColumns,
+  runStatusBadge,
+  subgroupFootnote,
+} from './lane-detail';
+import {
   LANE_CAPTION,
   LANES_SUBTOTAL_TILE_ID,
   type LaneFaceChipModel,
@@ -116,8 +122,24 @@ export function laneTile(
   const cost =
     knownCosts.length === 0
       ? ''
-      : `cost ${formatCost(sum(knownCosts))}${unknownCosts > 0 ? ` (+${unknownCosts} unknown)` : ''}`;
+      : `cost ${runs.some(run => run.usageTotals?.partial) ? '≥' : ''}${formatCost(sum(knownCosts))}${unknownCosts > 0 ? ` (+${unknownCosts} unknown)` : ''}`;
+  const partial = runs.some(run => run.usageTotals?.partial);
   const states = subgroups.map((group) => group.state);
+  const limitChips = laneFaceChips(subgroups, runs.length);
+  const usage =
+    knownTokens.length === 0 && knownCosts.length === 0
+      ? LANE_EMPTY.usage
+      : [
+          knownTokens.length === 0
+            ? ''
+            : `${partial ? '≥' : ''}${formatTokenCount(sum(knownTokens))} tokens${unknownTokens > 0 ? ` (+${unknownTokens} unknown)` : ''}`,
+          cost,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+  const limit = limitChips.length
+    ? limitChips.map((face) => face.chip.text).join(' · ')
+    : LANE_EMPTY.limit;
   return {
     id: laneTileId(first),
     label: first.role ? `${first.cliLabel} · ${first.role}` : first.cliLabel,
@@ -125,12 +147,13 @@ export function laneTile(
     tokensText:
       knownTokens.length === 0
         ? (knownCosts.length ? '' : LANE_EMPTY.value)
-        : `${formatTokenCount(sum(knownTokens))} tokens`,
+        : `${partial ? '≥' : ''}${formatTokenCount(sum(knownTokens))} tokens`,
     ...(knownTokens.length > 0 &&
       unknownTokens > 0 && { tokensUnknownText: `+${unknownTokens} unknown` }),
     costLine: cost,
+    summary: `${usage} · ${limit}`,
     runChip: laneRunChip(runs),
-    limitChips: laneFaceChips(subgroups, runs.length),
+    limitChips,
     tone: states.includes('at-limit')
       ? 'error'
       : states.includes('near-limit')
@@ -183,15 +206,20 @@ function laneSubgroup(
   const first = runs[0];
   const owner = recordedOwner(first);
   const scope = normalisedScope(first);
+  const rows = runs.map((run, index) => runRow(run, index, ctx));
   const base = {
     key: subgroupKey(first),
     heading: [...new Set(runs.map((run) => run.model || 'unknown model'))].join(
       ' / ',
     ),
-    runs: runs.map((run, index) => runRow(run, index, runs.length, ctx)),
+    runs: rows,
+    columns: laneRunColumns(rows, LANE_EMPTY.value),
   };
   if (!owner || owner.identityKind === 'unknown') {
     const status: LaneOwnerStatus = owner ? 'undetermined' : 'not-recorded';
+    const ownerText = owner
+      ? `${LANE_EMPTY.limit} · quota owner cannot be determined; no other account's windows are borrowed`
+      : `${LANE_EMPTY.limit} · owner not recorded; no other account's windows are borrowed`;
     return {
       state: 'unknown',
       chip: LANE_STATE_CHIPS.unknown,
@@ -201,15 +229,14 @@ function laneSubgroup(
         ...base,
         ownerStatus: status,
         ownerLabel: 'Unknown owner',
-        ownerText: owner
-          ? `${LANE_EMPTY.limit} · quota owner cannot be determined; no other account's windows are borrowed`
-          : `${LANE_EMPTY.limit} · owner not recorded; no other account's windows are borrowed`,
+        ownerText,
         state: 'unknown',
         stateChip: LANE_STATE_CHIPS.unknown,
         planTileChips: [],
         windows: [],
         evidenceLines: [],
         notes: [],
+        footnote: subgroupFootnote(ownerText, [], LANE_EMPTY.limit),
       },
     };
   }
@@ -270,6 +297,7 @@ function laneSubgroup(
         : session.owner
           ? `Unknown owner · cannot be compared with this session's account; showing ${ownerDisplayLabel(owner)} only`
           : `Unknown owner · this session's account is not resolved; showing ${ownerDisplayLabel(owner)} only`;
+  const notes = laneNotes(snapshot, result, same, ctx);
   return {
     state: result.state,
     chip,
@@ -291,7 +319,8 @@ function laneSubgroup(
       windows,
       evidenceLines,
       ...(cooldown && { cooldownLine: cooldownLine(cooldown, ctx) }),
-      notes: laneNotes(snapshot, result, same, ctx),
+      notes,
+      footnote: subgroupFootnote(ownerText, notes, LANE_EMPTY.limit),
     },
   };
 }
@@ -622,13 +651,6 @@ function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function runState(run: StatsLimitLaneRun): string {
-  if (run.restored) return `Restored · ${STATUS_WORDS[run.status]}`;
-  if (run.status === 'running') return 'Live · running';
-  if (run.failureKind === 'quota') return 'Quota failure';
-  return capitalise(STATUS_WORDS[run.status]);
-}
-
 function laneRunChip(runs: readonly StatsLimitLaneRun[]): StatsChip {
   const running = runs.filter((run) => run.status === 'running').length;
   if (running > 0) {
@@ -653,21 +675,19 @@ function laneRunChip(runs: readonly StatsLimitLaneRun[]): StatsChip {
 function runRow(
   run: StatsLimitLaneRun,
   index: number,
-  count: number,
   ctx: Ctx,
 ): LaneRunRowModel {
   const tokens = runTokens(run);
   const cost = runCost(run);
+  const started = formatRunStarted(run.startedAt, ctx.time);
   return {
     runId: run.runId,
-    label: count > 1 ? `Run ${index + 1}` : 'Run',
-    model: run.model || 'unknown',
-    tokensText: tokens === undefined ? LANE_EMPTY.value : formatTokenCount(tokens),
-    costText: cost === undefined ? LANE_EMPTY.value : formatCost(cost),
-    stateText: runState(run),
-    ...(run.restored && {
-      startedText: `started ${formatLocalAbsolute(run.startedAt, ctx.now, ctx.time)}`,
-    }),
+    index: index + 1,
+    model: run.model || null,
+    tokensText: tokens === undefined ? LANE_EMPTY.value : `${run.usageTotals?.partial ? '≥' : ''}${formatTokenCount(tokens)}`,
+    costText: cost === undefined ? LANE_EMPTY.value : `${run.usageTotals?.partial ? '≥' : ''}${formatCost(cost)}`,
+    status: runStatusBadge(run),
+    ...(started && { started }),
   };
 }
 
@@ -727,8 +747,8 @@ export function subtotalTile(
   return {
     id: LANES_SUBTOTAL_TILE_ID,
     caption: LANE_CAPTION,
-    tokensText: tokens.length ? `${tokens.length < runs.length ? '≥' : ''}${formatTokenCount(sum(tokens))} tokens known` : LANE_EMPTY.value,
+    tokensText: tokens.length ? `${tokens.length < runs.length || runs.some(run => run.usageTotals?.partial) ? '≥' : ''}${formatTokenCount(sum(tokens))} tokens known` : LANE_EMPTY.value,
     summary: !tokens.length && !costs.length ? LANE_EMPTY.usage :
-      `${costs.length ? `${unknownCosts > 0 ? '≥' : ''}${formatCost(sum(costs))} known cost · ` : ''}${plural(laneCount, 'lane')} · ${plural(runs.length, 'run')} · ${unknownCosts} cost unknown`,
+      `${costs.length ? `${unknownCosts > 0 || runs.some(run => run.usageTotals?.partial) ? '≥' : ''}${formatCost(sum(costs))} known cost · ` : ''}${plural(laneCount, 'lane')} · ${plural(runs.length, 'run')} · ${unknownCosts} cost unknown`,
   };
 }

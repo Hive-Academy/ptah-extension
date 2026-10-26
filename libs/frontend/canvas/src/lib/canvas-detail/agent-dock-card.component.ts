@@ -27,8 +27,10 @@ import { agentStatusInk } from './dock-overflow';
     <div
       role="tooltip"
       [id]="cardId()"
-      class="fixed z-50 w-64 rounded-xl border border-[var(--surface-border-strong)] bg-surface-1 p-3 pt-2 text-xs text-base-content shadow-md motion-reduce:transition-none"
-      style="visibility: hidden"
+      [class.fixed]="!inline()"
+      [class.basis-full]="inline()"
+      class="z-50 w-64 max-w-full rounded-xl border border-[var(--surface-border-strong)] bg-surface-1 p-3 pt-2 text-xs text-base-content shadow-md motion-reduce:transition-none"
+      [style.visibility]="inline() ? 'visible' : 'hidden'"
       (pointerenter)="hovered.emit(true)"
       (pointerleave)="hovered.emit(false)"
     >
@@ -69,6 +71,7 @@ import { agentStatusInk } from './dock-overflow';
 })
 export class AgentDockCardComponent {
   readonly agent = input.required<SessionAgent>();
+  readonly inline = input(false);
   readonly durationText = input<string | null>(null);
   readonly cardId = input.required<string>();
   readonly hovered = output<boolean>();

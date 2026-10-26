@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { NO_ERRORS_SCHEMA, signal } from '@angular/core';
+import { Component, NO_ERRORS_SCHEMA, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { SessionStatsInputs } from '@ptah-extension/chat-ui';
@@ -48,6 +48,15 @@ const emptyModel: SessionInspectorModel = {
   requests: [],
   needsYouCount: 0,
 };
+
+@Component({
+  standalone: true,
+  imports: [SessionInspectorComponent],
+  template: `<ptah-session-inspector tabId="one" presentation="docked">
+    <button type="button" inspectorActions>Hand off</button>
+  </ptah-session-inspector>`,
+})
+class ActionsOnlyHost {}
 
 describe('SessionInspectorComponent presentation', () => {
   const model = signal(emptyModel);
@@ -157,7 +166,7 @@ describe('SessionInspectorComponent presentation', () => {
     }
     expect(element.textContent).not.toContain('Time');
     expect(element.textContent).not.toContain('Todo');
-    expect(element.querySelectorAll('button')).toHaveLength(5);
+    expect(element.querySelectorAll('button')).toHaveLength(4);
   });
 
   it('emits expansion targets and exposes the attention count', () => {
@@ -176,12 +185,12 @@ describe('SessionInspectorComponent presentation', () => {
     ).querySelectorAll<HTMLButtonElement>('button');
     buttons[0].click();
     buttons[1].click();
-    buttons[4].click();
-    expect(requests).toEqual([undefined, 'session', 'agents']);
-    expect(buttons[4].getAttribute('aria-label')).toBe(
-      'Running agents: 3; 2 need you',
-    );
-    expect(buttons[4].textContent).toContain('2!');
+    expect(requests).toEqual([undefined, 'session']);
+    const aggregate = fixture.nativeElement.querySelector('[aria-label="Running agents: 3; 2 need you"]');
+    expect(aggregate?.textContent).toContain('2!');
+    // A bare span ignores aria-label; the role makes assistive tech announce it.
+    expect(aggregate?.getAttribute('role')).toBe('img');
+    expect(fixture.nativeElement.textContent).not.toContain('Run');
   });
 
   it('focuses the requested section on expansion and the expand control on collapse', () => {
@@ -230,5 +239,13 @@ describe('SessionInspectorComponent presentation', () => {
     fixture.componentInstance.closeRequested.subscribe(close);
     element.querySelector<HTMLButtonElement>('[data-inspector-close]')?.click();
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps projected inspector actions when the identity block is empty', () => {
+    const fixture = TestBed.createComponent(ActionsOnlyHost);
+    fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('h2')).toBeNull();
+    expect(element.querySelector('[inspectorActions]')?.textContent).toContain('Hand off');
   });
 });

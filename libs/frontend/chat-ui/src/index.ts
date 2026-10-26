@@ -239,7 +239,6 @@ export {
 } from './lib/molecules/session/session-stats-view';
 export {
   sessionLimitSummary,
-  inspectorToggleDescription,
   limitAwareDot,
   type SessionLimitSummary,
 } from './lib/molecules/session/plan-limits/session-limit-summary';

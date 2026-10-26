@@ -307,37 +307,11 @@ export interface CanvasBoardNotice {
                   >
                     <ptah-canvas-focus-area
                       class="block h-full min-h-0 min-w-0"
-                      [inspectorExpanded]="
-                        (dockSlotShown() && focusedId() === id) ||
-                        (detailsOpen() &&
-                          (compactSheet() || activeSide() === side))
-                      "
                       [focusedTabId]="id" [paneId]="side"
                       [paneFocused]="activeSide() === side" [splitDisplayed]="splitDisplayed()"
-                      [paneNumber]="splitDisplayed() ? paneNumber(side) : null"
-                      [panePlace]="splitDisplayed() ? panePlace(side) : ''"
-                      [detailsOpen]="detailsOpen() && activeSide() === side"
-                      [limitCue]="
-                        activeSide() === side
-                          ? (stats.inputs()?.limitSummary ?? null)
-                          : null
-                      "
-                      [contextRingPercent]="
-                        activeSide() === side
-                          ? (stats.inputs()?.context.percent ?? null)
-                          : null
-                      "
-                      [toggleDescription]="
-                        activeSide() === side ? closedDetailsDescription() : ''
-                      "
-                      [state]="railStates().get(id) ?? 'idle'" [band]="band()"
                       (closeRequested)="close($event)" (closeSplitRequested)="closeSplit()"
                       (closePaneRequested)="closePane($event)" (swapPanesRequested)="swapPanes()"
-                      (detailsRequested)="openSplitDetails($event)"
                     />
-                    @if (splitDisplayed() && detailsOpen() && activeSide() === side && !compactSheet()) {
-                      <ng-container [ngTemplateOutlet]="inspector.splitTemplate() ?? null" />
-                    }
                   </section>
                 }
               }
@@ -368,14 +342,14 @@ export interface CanvasBoardNotice {
             </div>
           }
         </ng-template>
-        <ptah-canvas-inspector-dock #inspector
-          [root]="boardElement" [focusedId]="focusedId()" [activeSide]="activeSide()"
+        <ptah-canvas-inspector-dock
+          [root]="boardElement" [focusedId]="focusedId()"
           [splitDisplayed]="splitDisplayed()" [visible]="visible()"
           [compactSheet]="compactSheet()" [dockShown]="dockShown()"
           [availableWidth]="dockAvailableWidth()" [panelId]="inspectorPanelId(focusedId() ?? '')"
           [stats]="stats.inputs()" [state]="railStates().get(focusedId() ?? '') ?? 'idle'"
           [(dockOpen)]="dockOpen" [(detailsOpen)]="detailsOpen"
-          (layoutChanged)="anchor()"
+          (layoutChanged)="anchor()" (closeRequested)="close($event)"
         />
       </div>
       <div class="sr-only" aria-live="polite">{{ announcement() }}</div>
@@ -511,10 +485,8 @@ export class CanvasRailBoardComponent {
   readonly compactSheet = this.inspectorState.compactSheet;
   readonly compactSheetOpen = this.inspectorState.compactSheetOpen;
   readonly stats = this.inspectorState.stats;
-  readonly closedDetailsDescription = this.inspectorState.closedDetailsDescription;
   readonly dockOpen = this.inspectorState.dockOpen;
   readonly dockShown = this.inspectorState.dockShown;
-  readonly dockSlotShown = this.inspectorState.dockSlotShown;
   readonly dockAvailableWidth = this.inspectorState.dockAvailableWidth;
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
   readonly newSessionBlockReason = computed(() =>
@@ -926,7 +898,7 @@ export class CanvasRailBoardComponent {
   private collapseSplit(): void {
     this.otherTabId.set(null);
     this.visualOrder.set(['left', 'right']);
-    this.inspector()?.closeSplitDetails();
+    this.detailsOpen.set(false);
   }
   /** Header "Close split": keep the active tab in its own host. */
   closeSplit(): void {
@@ -970,12 +942,6 @@ export class CanvasRailBoardComponent {
       this.paneLabel(side, this.paneTab(side) ?? '');
     this.announce(`Panes swapped. ${label(second)}; ${label(first)}.`);
     this.restoreHeaderFocus();
-  }
-  /** Header Details control opens the active pane's overlay or compact sheet. */
-  openSplitDetails(side: 'left' | 'right'): void {
-    if (!this.splitDisplayed() && !this.compactSheet()) return;
-    this.activatePane(side);
-    this.inspector()?.openSplitDetails();
   }
 
   move(id: string, direction: -1 | 1): void {

@@ -197,16 +197,6 @@ class StatefulLaneStub implements OnDestroy {
       <button type="button" data-header-menu aria-label="More session actions">
         ⋯
       </button>
-      @if (splitDisplayed()) {
-        <button
-          type="button"
-          data-details
-          aria-label="Open details"
-          (click)="detailsRequested.emit(paneId())"
-        >
-          i
-        </button>
-      }
     </header>
     @if (focusedTabId()) {
       <ptah-canvas-lane-view />
@@ -215,23 +205,13 @@ class StatefulLaneStub implements OnDestroy {
 })
 class FocusStub {
   readonly focusedTabId = input<string | null>(null);
-  readonly limitCue = input<unknown>(null);
-  readonly contextRingPercent = input<number | null>(null);
-  readonly toggleDescription = input('');
   readonly paneId = input<'left' | 'right'>('left');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
-  readonly paneNumber = input<1 | 2 | null>(null);
-  readonly panePlace = input('');
-  readonly detailsOpen = input(false);
-  readonly inspectorExpanded = input(false);
-  readonly state = input<CompactRailState>('idle');
-  readonly band = input('lg');
   readonly closeRequested = output<string>();
   readonly closeSplitRequested = output<'left' | 'right'>();
   readonly closePaneRequested = output<'left' | 'right'>();
   readonly swapPanesRequested = output<'left' | 'right'>();
-  readonly detailsRequested = output<'left' | 'right'>();
 }
 @Component({
   selector: 'ptah-session-inspector',
@@ -244,6 +224,8 @@ class FocusStub {
       >
         Expand
       </button>
+      <ng-content select="[inspectorRailControls]" />
+      <ng-content select="[inspectorRailAgents]" />
     } @else {
       <div [attr.role]="presentation() === 'sheet' ? 'dialog' : null">
         <button
@@ -288,6 +270,22 @@ async function renderDeferBlocks(
   for (const block of await fixture.getDeferBlocks()) {
     await block.render(state);
   }
+}
+
+/**
+ * Opens the compact sheet through its toggle so the shell takes focus. Crossing
+ * below 400 px may already have handed an open dock to the sheet; close it first.
+ */
+function openCompactSheet(fixture: {
+  componentInstance: CanvasRailBoardComponent;
+  detectChanges(): void;
+}): void {
+  const board = fixture.componentInstance;
+  if (board.detailsOpen()) {
+    board.toggleDetails();
+    fixture.detectChanges();
+  }
+  board.toggleDetails();
 }
 
 function completeDeferBlocks(
@@ -638,19 +636,6 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(dialog.open).toHaveBeenCalledTimes(1);
   });
 
-  it('includes the focused session needs-you count in the closed details description', () => {
-    const { fixture, focused, needsYou } = mount();
-    needsYou.set({ a: 2, b: 3 });
-    fixture.detectChanges();
-    const focusArea = () =>
-      fixture.debugElement.query(By.directive(FocusStub))
-        .componentInstance as FocusStub;
-    expect(focusArea().toggleDescription()).toContain('2 need you.');
-    focused.set('b');
-    fixture.detectChanges();
-    expect(focusArea().toggleDescription()).toContain('3 need you.');
-  });
-
   it('renders one canvas tile per visible session pane', () => {
     const { fixture } = mount(true, 3);
     expect(
@@ -982,25 +967,22 @@ describe('CanvasRailBoardComponent rendering', () => {
       `${inspectorDockWidth(null, 1400 - 304)}px`,
     );
     expect(aside?.style.width).toBe('336px');
-    expect(separator?.getAttribute('aria-valuemax')).toBe(
-      `${inspectorMaxWidthFor(1096)}`,
-    );
-    expect(separator?.getAttribute('aria-valuemax')).toBe('560');
+    // The grip keeps 560 px of chat (1096 - 560), below the 360 px floor's max.
+    expect(inspectorMaxWidthFor(1096)).toBe(560);
+    expect(separator?.getAttribute('aria-valuemax')).toBe('536');
     expect(separator?.getAttribute('aria-valuemin')).toBe('300');
     expect(separator?.getAttribute('aria-orientation')).toBe('vertical');
   });
 
-  it('md: the dock is open at the default width beside the Stats tab, with no Open details control', () => {
+  it('md: the dock is open at the default width beside the Stats tab', () => {
     const { fixture, width } = mount();
     width.set(1200);
     fixture.detectChanges();
     const { tab, separator, aside } = dockParts(fixture.nativeElement);
     expect(tab).toBeNull();
     expect(aside?.style.width).toBe('336px');
-    expect(separator?.getAttribute('aria-valuemax')).toBe('552');
-    expect(
-      fixture.nativeElement.querySelector('[aria-label="Open details"]'),
-    ).toBeNull();
+    // 912 px shared: the grip stops where the chat keeps 560 px.
+    expect(separator?.getAttribute('aria-valuemax')).toBe('352');
   });
 
   it('sm: the dock starts closed behind a collapsed Stats tab, with no aside and no 44 px strip', () => {
@@ -1012,9 +994,6 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(separator).toBeNull();
     expect(aside).toBeNull();
     expect(fixture.nativeElement.querySelector('button.w-11')).toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('[aria-label="Open details"]'),
-    ).toBeNull();
   });
 
   it('expands the compact rail at the requested section and projects one selector', async () => {
@@ -1125,7 +1104,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     const { fixture, width } = mount();
     width.set(390);
     fixture.detectChanges();
-    fixture.componentInstance.openSplitDetails('left');
+    openCompactSheet(fixture);
     fixture.detectChanges();
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
@@ -1220,12 +1199,12 @@ describe('CanvasRailBoardComponent rendering', () => {
 
   it.each([
     // [board width, valuemax]: lg 1064 px shared, md 880, sm 672 (rail auto-collapsed), sm 552.
-    [1400, 560],
-    [1200, 552],
+    [1400, 536],
+    [1200, 352],
     [760, 344],
     [640, 300],
   ])(
-    'single-focus floor (row 18): at %p px the separator max is %p',
+    'single-focus floor (560 px chat beside the dock): at %p px the separator max is %p',
     (boardWidth, max) => {
       const { fixture, width } = mount();
       width.set(boardWidth);
@@ -1235,6 +1214,11 @@ describe('CanvasRailBoardComponent rendering', () => {
         fixture.detectChanges();
       }
       const separator = dockParts(fixture.nativeElement).separator;
+      if (boardWidth < 1000) {
+        expect(separator).toBeNull();
+        expect(dockParts(fixture.nativeElement).aside?.classList.contains('fixed')).toBe(true);
+        return;
+      }
       expect(separator?.getAttribute('aria-valuemax')).toBe(`${max}`);
       separator?.dispatchEvent(
         new KeyboardEvent('keydown', {
@@ -1268,16 +1252,17 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).not.toBeNull();
   });
 
-  it('split and the compact sheet show no Stats tab and no separator', () => {
+  it('split and the compact sheet start from the rail with no separator', () => {
     const { fixture, width } = mount();
     fixture.componentInstance.openBeside('b');
     fixture.detectChanges();
-    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).tab).not.toBeNull();
     expect(dockParts(fixture.nativeElement).separator).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
     fixture.componentInstance.closeSplit();
     width.set(380);
     fixture.detectChanges();
-    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).tab).not.toBeNull();
     expect(dockParts(fixture.nativeElement).separator).toBeNull();
   });
 
@@ -2302,11 +2287,9 @@ describe('CanvasRailBoardComponent rendering', () => {
         expect(pane.classList).toContain('min-h-[240px]');
         expect(pane.classList).not.toContain('min-h-[400px]');
         expect(pane.classList.contains('min-w-[360px]')).toBe(true);
-        // NEW-3: Details lives in the pane header; the wrapper adds no control over header or lane tabs.
+        // The pane's floating controls live in the focus area; the wrapper adds no control over them.
         expect(
-          pane.querySelector(
-            'ptah-canvas-focus-area [aria-label="Open details"]',
-          ),
+          pane.querySelector('ptah-canvas-focus-area [data-header-menu]'),
         ).not.toBeNull();
         expect(
           pane.querySelectorAll(':scope > button, :scope > .absolute'),
@@ -2370,76 +2353,80 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).toBe(false);
   });
 
-  it('split Details overlay opens on active pane at all bands, follows active tab, closes on Escape/collapse with focus return; single focus keeps the column', async () => {
+  it('split: an expanded sidebar persists across focused-pane switches and leaving split restores the single-view state', async () => {
     const { fixture, width } = mount();
     const instance = fixture.componentInstance;
+    // Single view: the user collapses the dock; that choice is persisted.
+    instance.closeDock();
+    fixture.detectChanges();
+    expect(instance.dockOpen()).toBe(false);
     instance.openBeside('b');
-    width.set(920);
+    width.set(1600);
     fixture.detectChanges();
-    const opener = fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
-      '[aria-label="Open details"]',
-    )[1];
-    opener.click();
+    expect(instance.dockOpen()).toBe(false);
+    // Expand from the rail: the sidebar opens as an overlay over the panes.
+    fixture.nativeElement
+      .querySelector('[data-inspector-rail] [data-inspector-expand]')
+      .click();
     fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('[role="dialog"]'),
-    ).not.toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-canvas-rail'),
-    ).not.toBeNull();
-    expect(instance.effectiveCollapsed()).toBe(false);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const dialog = () =>
+      fixture.nativeElement.querySelector<HTMLElement>(
+        '[data-inspector-dock][role="dialog"]',
+      );
+    expect(dialog()).not.toBeNull();
+    const inspectorTab = () =>
+      (
+        fixture.debugElement
+          .queryAll(By.directive(InspectorStub))
+          .map((node) => node.componentInstance as InspectorStub)
+          .find((stub) => stub.presentation() !== 'rail') as InspectorStub
+      ).tabId();
+    expect(inspectorTab()).toBe('b');
+    // Focusing the other pane keeps the overlay open and shows that pane's session.
     instance.focus('a');
     fixture.detectChanges();
+    expect(instance.dockOpen()).toBe(true);
+    expect(dialog()).not.toBeNull();
+    expect(inspectorTab()).toBe('a');
+    // Leaving split returns to the persisted, collapsed single-view state.
+    instance.closeSplit();
+    fixture.detectChanges();
+    expect(instance.dockOpen()).toBe(false);
     expect(
-      fixture.nativeElement.querySelector('[role="dialog"]'),
+      fixture.nativeElement.querySelector('[data-inspector-rail]'),
     ).not.toBeNull();
-    fixture.nativeElement
-      .querySelector('[role="dialog"]')
-      .dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      );
+  });
+
+  it('split: Escape on the expanded overlay collapses it to the rail and focuses the expand control', async () => {
+    const { fixture } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector<HTMLElement>(
+      '[data-inspector-dock][role="dialog"]',
+    )!;
+    expect(dialog).not.toBeNull();
+    dialog.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
     fixture.detectChanges();
     await fixture.whenStable();
     expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(
       fixture.nativeElement.querySelector(
-        '[data-pane-side="left"] [aria-label="Open details"]',
+        '[data-inspector-rail] [data-inspector-expand]',
       ),
     );
-    instance.visualOrder.set(['right', 'left']);
-    instance.closeSplit();
-    fixture.detectChanges();
-    expect(instance.visualOrder()).toEqual(['left', 'right']);
-    expect(
-      fixture.nativeElement.querySelectorAll('ptah-canvas-focus-area'),
-    ).toHaveLength(1);
-    width.set(1600);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('aside')).not.toBeNull();
-  });
-
-  it('focuses the split dialog before deferred content exists so Escape closes it', async () => {
-    const { fixture } = mount();
-    fixture.componentInstance.openBeside('b');
-    fixture.detectChanges();
-    fixture.componentInstance.openSplitDetails('right');
-    fixture.detectChanges();
-    await fixture.whenStable();
-    const dialog =
-      fixture.nativeElement.querySelector<HTMLElement>('[role="dialog"]')!;
-    expect(document.activeElement).toBe(dialog);
-    dialog.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    );
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it('focuses the compact sheet, lets Tab wrap, and reveals a selected lane', async () => {
     const { fixture, width } = mount();
     width.set(390);
     fixture.detectChanges();
-    fixture.componentInstance.openSplitDetails('left');
+    openCompactSheet(fixture);
     fixture.detectChanges();
     await fixture.whenStable();
     const wrapper = fixture.nativeElement.querySelector<HTMLElement>(
@@ -2492,7 +2479,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     const { fixture, width } = mount();
     width.set(390);
     fixture.detectChanges();
-    fixture.componentInstance.openSplitDetails('left');
+    openCompactSheet(fixture);
     fixture.detectChanges();
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
@@ -2537,7 +2524,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     const { fixture, width } = mount();
     width.set(390);
     fixture.detectChanges();
-    fixture.componentInstance.openSplitDetails('left');
+    openCompactSheet(fixture);
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('[data-compact-sheet]'),
@@ -2553,35 +2540,26 @@ describe('CanvasRailBoardComponent rendering', () => {
   });
 
   it.each([1440, 1600])(
-    'split Details stays an overlay at %i and collapse returns focus to the active card',
-    async (pixels) => {
+    'split sidebar stays a fixed overlay outside the panes at %i and closing split docks it again',
+    (pixels) => {
       const { fixture, width } = mount();
       const instance = fixture.componentInstance;
       instance.openBeside('b');
       width.set(pixels);
       fixture.detectChanges();
-      const opener = fixture.nativeElement.querySelector<HTMLButtonElement>(
-        '[data-pane-side="right"] [aria-label="Open details"]',
-      );
-      opener?.click();
+      instance.toggleDetails();
       fixture.detectChanges();
-      expect(
-        fixture.nativeElement.querySelector('[role="dialog"]'),
-      ).not.toBeNull();
-      expect(
-        fixture.nativeElement
-          .querySelector('[role="dialog"]')
-          ?.closest('[data-pane-side]'),
-      ).not.toBeNull();
+      const dock = () =>
+        fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
+      expect(dock()?.getAttribute('role')).toBe('dialog');
+      expect(dock()?.classList.contains('fixed')).toBe(true);
+      expect(dock()?.closest('[data-pane-side]')).toBeNull();
       instance.closeSplit();
       fixture.detectChanges();
-      await fixture.whenStable();
-      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
-      expect(document.activeElement).toBe(
-        fixture.nativeElement.querySelector(
-          '[data-rail-card][data-tab-id="b"] .rc-select',
-        ),
-      );
+      // Single view at this width opens docked by default.
+      expect(instance.dockOpen()).toBe(true);
+      expect(dock()?.getAttribute('role')).toBeNull();
+      expect(dock()?.classList.contains('fixed')).toBe(false);
     },
   );
 
@@ -2838,16 +2816,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     stubOf(fixture, 'right').swapPanesRequested.emit('right');
     fixture.detectChanges();
     expect(instance.visualOrder()).toEqual(['right', 'left']);
-    stubOf(fixture, 'left').detailsRequested.emit('left');
+    instance.activatePane('left');
     fixture.detectChanges();
-    expect(instance.detailsOpen()).toBe(true);
     expect(instance.activeSide()).toBe('left');
     expect(focused()).toBe('a');
-    expect(
-      paneOf(fixture, 'left')?.querySelector('[role="dialog"]'),
-    ).not.toBeNull();
-    expect(stubOf(fixture, 'left').detailsOpen()).toBe(true);
-    expect(stubOf(fixture, 'right').detailsOpen()).toBe(false);
     stubOf(fixture, 'left').closeSplitRequested.emit('left');
     fixture.detectChanges();
     expect(instance.otherTabId()).toBeNull();
@@ -3115,9 +3087,14 @@ describe('CanvasRailBoardComponent rendering', () => {
     event = tab(top[0], true);
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(rail[rail.length - 1]);
+    // The sidebar rail follows the panes in split, so the bottom pane hands off to it.
     event = tab(bottom[bottom.length - 1]);
     expect(event.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(rail[0]);
+    expect(document.activeElement).toBe(
+      fixture.nativeElement.querySelector(
+        '[data-inspector-rail] [data-inspector-expand]',
+      ),
+    );
   });
 
   it('stacked Tab handler skips hidden elements, leaves open overlays alone and is inert in the default order', async () => {
@@ -3139,9 +3116,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(tab(visibleTop[visibleTop.length - 1]).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(buttons(left)[0]);
     hidden.remove();
-    stubOf(fixture, 'right').detailsRequested.emit('right');
+    // A pane overlay (a dialog inside the pane) keeps its own Tab order.
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.appendChild(document.createElement('button'));
+    right.appendChild(overlay);
     fixture.detectChanges();
-    await completeDeferBlocks(fixture);
     const dialogButton = right.querySelector<HTMLElement>(
       '[role="dialog"] button',
     ) as HTMLElement;
@@ -3316,8 +3296,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     ) as HTMLElement;
   const identity = (fixture: Fixture) =>
     (['left', 'right'] as const).map((side) => {
-      const stub = stubOf(fixture, side);
-      return [side, stub.paneNumber(), stub.panePlace(), stub.paneFocused()];
+      const board = fixture.componentInstance;
+      return [
+        side,
+        board.paneNumber(side),
+        board.panePlace(side),
+        stubOf(fixture, side).paneFocused(),
+      ];
     });
 
   it('row 113: side by side shows a vertical divider and markers 1/2 that follow visualOrder on swap', () => {
@@ -3431,10 +3416,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       expect(panes[0].classList).not.toContain(name);
     const stub = fixture.debugElement.query(By.directive(FocusStub))
       .componentInstance as FocusStub;
-    expect([
-      stub.splitDisplayed(),
-      stub.paneNumber(),
-      stub.panePlace(),
-    ]).toEqual([false, null, '']);
+    expect(stub.splitDisplayed()).toBe(false);
+    expect(panes[0].getAttribute('aria-label')).toMatch(/^Focused session: /);
   });
 });
