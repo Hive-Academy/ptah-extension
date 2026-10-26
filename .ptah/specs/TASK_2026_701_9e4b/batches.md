@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 11/27
+Total tasks: 34 | Batches: 27 | Complete: 12/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -638,7 +638,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   assertion should become a regex in the next batch that edits `phase-2-libraries.ts`.
 - Report: reports/batch-9-report.md
 
-## Batch 10: Guarded writer and orchestrator decisions (B2 + B3) — COMPLETE
+## Batch 10: Guarded writer and orchestrator decisions (B2 + B3) — COMPLETE (commit: 4795f0b44)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -673,6 +673,10 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/agent-generation,@ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+- Result: orchestrator combined verify (agent-generation, rpc-handlers, setup-wizard,
+  ptah-electron, ptah-extension-vscode, ptah-cli, ptah-extension-webview): 66/67 passed; the
+  one failure is ptah-extension-webview:lint, pre-existing D19 (fails identically on main).
+- Report: reports/batch-10-report.md
 
 ## Batch 11: Generation preview service and token-bound decisions (B5) — PENDING
 
@@ -769,7 +773,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/rpc-handlers,@ptah-extension/shared,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
 
-## Batch 14: Setup-wizard decision components (F1) — PENDING
+## Batch 14: Setup-wizard decision components (F1) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -780,7 +784,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 1
 - Phase: P2 | Phase review: P2 code-logic + visual
 
-### Task 14.1: Keep/replace control, row, diff disclosure, bulk bar, target choice, model note, state — PENDING
+### Task 14.1: Keep/replace control, row, diff disclosure, bulk bar, target choice, model note, state — COMPLETE
 
 - Files: CREATE under `libs/frontend/setup-wizard/src/lib/components/preview-decisions/`: `keep-replace-control.component.ts`, `file-decision-row.component.ts`, `diff-disclosure.component.ts`, `bulk-decision-bar.component.ts`, `target-root-choice.component.ts`, `model-origin-note.component.ts`, `preview-decisions.state.ts`, a spec for each; MODIFY `libs/frontend/setup-wizard/jest.config.ts` only if the lazy diff import needs a mapper
 - Plan reference: implementation-plan.md:1159-1198; design-spec.md (C1-C6, Review responses :298, Revise round 2 :320); prototype/wizard-preview.html, packs.html
@@ -793,6 +797,9 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview` passes
 - No per-batch review
+- Result: same orchestrator combined verify as Batch 10 (66/67; only failure is pre-existing
+  D19 ptah-extension-webview:lint). jest.config.ts not modified (spec uses jest.doMock).
+- Report: reports/batch-14-report.md
 
 ## Batch 15: Wizard-view preview modal and pack install prompt (F2 + F4) — PENDING
 
