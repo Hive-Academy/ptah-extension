@@ -932,7 +932,42 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
   explicit iterator whose next/return reject; re-verify pass (known accounts.spec lint only).
   8f-2 COMMITTED 50c2634c7. Deferred: no metadata rollback after a later cancel (no rollback
   API on CodexChatMetadataPort).
-- Next: 8f-4 (Codex lane), then 8f-5, then the phase gate.
+- Docs COMMITTED 949c74b7e (reviews, live-test-p8.md, 8f-1..3 reports).
+- 8f-4 RUNNING: Codex lane agent 72aebf85-b6bf-4323-9f04-3bbf2b654b95 (started 16:44Z),
+  deliverable batch-8f-4-report.md. Then 8f-5, then the phase gate.
+- 8f-4 lane ended PARTIAL (D3, S3, S5/M5, S6, M3 done, uncommitted, unverified). S1 needs the
+  raw workspace in the identity cache (agent-sdk wiring/session-runtime-identity-cache.ts):
+  team-leader authorized the scope expansion; fresh Codex lane 1a31ca04-4651-4c58-8c95-6e6d72691b64
+  (16:54Z) doing S1 only, appending to batch-8f-4-report.md.
+- S1 lane done (resume id 01a17922-99de-7e13-8440-4b10cddb2515): optional lookup
+  `workspacePath` from codexThread.workspaceId; record throws `missing-workspace-path`.
+  8f-4 scoped verify (rpc-handlers, agent-sdk, chat) running; 8f-4 resume id for fixes
+  01a17919-beb2-71b2-bb25-89719874269e.
+- 8f-5 RUNNING in parallel (Electron files only, disjoint from the 8f-4 verify): Codex lane
+  98a20a26-e6a3-4d04-a0cc-9c26e63df9f7 (16:58Z), deliverable batch-8f-5-report.md. ipc-bridge
+  responder typed from rpc-handlers `CodexChatHostPorts` (no lib edit planned).
+- 8f-4 verify 1 FAILED on 3 specs (identity-store spec lacked new workspacePath; host-ports spec
+  passed a 2-item decision list; event-callbacks spec expected 5 logs though `result` is now a
+  no-op). Team-leader fixed the specs; re-verify (test,typecheck rpc-handlers+agent-sdk) running.
+  Lint: only known agent-sdk accounts.spec and chat lazy-load/voice errors (untouched files).
+- 8f-5 lane done PARTIAL (resume 01a17925-ec4b-7310-8f17-b30dd3a840c7): S2 + S3 done; M6
+  (surfaceMode) and tabId-undefined minor DEFERRED (both need libs changes: ChatSessionService
+  passes surfaceMode only to the broadcaster; host ports/controls require a string tabId);
+  console.warn kept (bridge has no Logger); global binding registry kept (BootRefs/quit paths).
+  8f-5 verify (ptah-electron, settings-core) queued.
+- 8f-4 re-verify 4/4 pass. 8f-4 COMMITTED 42dc59cea.
+- 8f-5 verify 1 FAILED: lint prefer-const `untrack` (composition.ts:541) and
+  surface-composition.spec.ts guard regex did not allow `register<CodexChatHostPorts>(`.
+  Team-leader fixed both (tracking holder; regex allows an optional type argument);
+  re-verify 11/11 pass. 8f-5 COMMITTED e1f8138f6.
+- Phase gate: degradation audit FAILED first (rpc-handlers 2 > baseline 1: codex-chat-host-ports.ts
+  catch returning false after a coded warning); team-leader added a `reported` marker
+  (60a3dada2), audit re-run PASS. di-lint PASS. Typecheck ptah-electron, ptah-extension-vscode,
+  ptah-cli, ptah-tui PASS (4/4). vscode-core host-attention-ingress test PASS.
+- 8f COMPLETE and green: 020ec6fd8 (8f-3), 1b46e5de7 (8f-1), 50c2634c7 (8f-2), 949c74b7e (docs),
+  42dc59cea (8f-4), e1f8138f6 (8f-5), 60a3dada2 (audit marker). NOT pushed (coordinator pushes).
+- Next (coordinator): push, watch PR #823 CI, live Electron test p8b (ask permission level
+  first), then the one re-review scoped to the 8f commits (code-logic + code-style).
 
 # Run state (session 14, 2026-10-26) — P8 in progress, 8a-2 re-split
 
@@ -1887,7 +1922,7 @@ and CLI get compatible bindings only (no feature work).
 - Executor/review as 8a. Last P8 batch -> host typecheck -> phase review (code-logic; visual
   review for 8c).
 
-## Batch 8f: P8 fix round (live-test-p8.md, code-logic-review-p8.md, code-style-review-p8.md) — IN_PROGRESS
+## Batch 8f: P8 fix round (live-test-p8.md, code-logic-review-p8.md, code-style-review-p8.md) — COMPLETE (020ec6fd8..60a3dada2; re-review pending after live test)
 
 - Phase: P8 | Phase review: the one re-review, scoped to the 8f commits (code-logic + style,
   new public API) after the coordinator reruns the live Electron test.
@@ -1924,12 +1959,12 @@ and CLI get compatible bindings only (no feature work).
   data file), index.ts only if the export changes.
 - Verification: `npm run verify -- -p @ptah-extension/codex-runtime`
 
-### Batch 8f-4: host ports, callbacks, settings record, failed start — IN_PROGRESS
+### Batch 8f-4: host ports, callbacks, settings record, failed start — COMPLETE (42dc59cea)
 
 - Items: LIVE D3, logic S1, S3, S5, S6, M3, M5; adapter side of S5 (await reconciliation).
 - Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk,@ptah-extension/chat`
 
-### Batch 8f-5: Electron composition split and typed IPC port — PENDING
+### Batch 8f-5: Electron composition split and typed IPC port — COMPLETE (e1f8138f6)
 
 - Items: style S2 (rest), S3, logic M6, style minors (registry handle, console.warn, tabId).
 - Verification: `npm run verify -- -p ptah-electron,@ptah-extension/settings-core` (+ the lib that
@@ -1937,6 +1972,11 @@ and CLI get compatible bindings only (no feature work).
 
 ### Batch 8f deferred / out of round
 
+- 8f-5 logic M6: Codex callbacks never receive surfaceMode (ChatSessionService passes it only to
+  the broadcaster; needs an rpc-handlers/agent-sdk config change). Later task.
+- 8f-5 minor: tabId falls back to the session id (host ports, callbacks and controls require a
+  string tabId; needs libs changes). Later task. console.warn in ipc-bridge kept (no Logger in
+  the bridge); process-global binding registry kept (BootRefs, background boot, quit paths).
 - 8f-2 M2 remainder: metadata saved before a later cancel is not rolled back (no rollback API).
 - LIVE D4 (workspace save also writes global `provider.openai-codex.mainAgent.modelTier.*`):
   pre-existing, the known #824 leftover; separate small PR (user).
