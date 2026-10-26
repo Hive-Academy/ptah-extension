@@ -2,9 +2,54 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import { isActiveWorkspaceTabSet, TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, PluginCatalogService, VSCodeService, WorkspaceScopeService } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow, SetupStatusGetResponse } from '@ptah-extension/shared';
+import { z } from 'zod';
 import { GenerationWorkflowLauncherService } from '../../services/generation-workflow-launcher.service';
 
-/** One workspace-scoped source of readiness for canvas and single-chat. */
+/**
+ * The one next step the readiness ring offers. The screen maps it to the
+ * Marketplace skills page, `launchWizard()` or
+ * `launchGeneration('setup-agent-generation')`.
+ */
+export type SetupNextAction = 'open-library' | 'run-setup' | 'generate-agents';
+
+/** What the scan check needs from one `wizard:list-analyses` answer. */
+interface ScanSnapshot {
+  readonly key: string;
+  readonly analysisCount: number;
+  /** Project type of the newest saved analysis, when it names one. */
+  readonly projectType: string | null;
+}
+
+const SCAN_ERROR = 'Could not check the project scan. Please try again.';
+
+/**
+ * The part of a `wizard:list-analyses` answer the scan check reads. The RPC
+ * result is typed, but the data crosses the host boundary unchecked, so it is
+ * validated here. Each listed analysis needs only its project type; other
+ * fields are ignored, and a missing type is allowed (older saved analyses).
+ */
+const ListAnalysesScanSchema = z.object({
+  analyses: z.array(z.object({ projectType: z.string().optional() })),
+});
+
+/** The scan check's facts from one answer (newest first); `null` when malformed. */
+function toScanFacts(data: unknown): Omit<ScanSnapshot, 'key'> | null {
+  const parsed = ListAnalysesScanSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const { analyses } = parsed.data;
+  const type = analyses[0]?.projectType?.trim() ?? '';
+  return { analysisCount: analyses.length, projectType: type === '' ? null : type };
+}
+
+/**
+ * One workspace-scoped source of readiness for canvas and single-chat: three
+ * checks (Skills, Scan, Agents). A check is `null` while unknown, and every
+ * count over the checks is `null` until all three are known.
+ *
+ * The scan check is `wizard:list-analyses` (any saved analysis). This lib must
+ * not reach the indexing lib, so the scan caption here is the project type
+ * only; the chat lib's `WorkspaceVitalsStore` adds the indexed file count.
+ */
 @Injectable({ providedIn: 'root' })
 export class SetupStatusStore {
   private readonly rpc = inject(ClaudeRpcService);
@@ -16,9 +61,13 @@ export class SetupStatusStore {
 
   private readonly snapshot = signal<{ key: string; value: SetupStatusGetResponse } | null>(null);
   private readonly pendingKey = signal<string | null>(null);
+  private readonly scanSnapshot = signal<ScanSnapshot | null>(null);
   private requestId = 0;
+  private scanRequestId = 0;
   private inFlight: { key: string; promise: Promise<void> } | null = null;
   readonly error = signal<string | null>(null);
+  /** Fixed copy when the scan list could not be read; the check stays unknown. */
+  readonly scanError = signal<string | null>(null);
   readonly launchError = signal<string | null>(null);
   readonly folderError = signal<string | null>(null);
   readonly workspaceNotOpen = signal(false);
@@ -36,18 +85,48 @@ export class SetupStatusStore {
       ? null
       : this.status()!.isConfigured,
   );
-  readonly readyCount = computed<number | null>(() => {
-    const skills = this.skillsReady();
-    const agents = this.agentsReady();
-    return skills === null || agents === null ? null : Number(skills) + Number(agents);
+  private readonly scan = computed(() => {
+    const snapshot = this.scanSnapshot();
+    return snapshot?.key === this.scope.scopeKey() && !this.workspaceNotOpen() ? snapshot : null;
   });
-  readonly allReady = computed(() => this.readyCount() === 2);
+  /** True when this workspace has a saved project analysis. */
+  readonly scanReady = computed<boolean | null>(() => {
+    const scan = this.scan();
+    return scan === null ? null : scan.analysisCount > 0;
+  });
+  /** The scan caption's project type (newest analysis); `null` when none is known. */
+  readonly scanProjectType = computed<string | null>(() => this.scan()?.projectType ?? null);
+  readonly readyCount = computed<number | null>(() => {
+    const checks = [this.skillsReady(), this.scanReady(), this.agentsReady()];
+    return checks.some((ready) => ready === null)
+      ? null
+      : checks.filter((ready) => ready === true).length;
+  });
+  readonly allReady = computed(() => this.readyCount() === 3);
+  /**
+   * The next step, once all three checks are known. Nothing ready at all is a
+   * first run, which starts with setup; otherwise the first incomplete check
+   * in the order Skills, Scan, Agents. `null` when all are ready or any is
+   * unknown.
+   */
+  readonly nextAction = computed<SetupNextAction | null>(() => {
+    const skills = this.skillsReady();
+    const scan = this.scanReady();
+    const agents = this.agentsReady();
+    if (skills === null || scan === null || agents === null) return null;
+    if (!skills && !scan && !agents) return 'run-setup';
+    if (!skills) return 'open-library';
+    if (!scan) return 'run-setup';
+    if (!agents) return 'generate-agents';
+    return null;
+  });
 
   constructor() {
     effect(() => {
       this.scope.scopeKey();
       untracked(() => {
         this.error.set(null);
+        this.scanError.set(null);
         this.launchError.set(null);
         this.folderError.set(null);
         this.workspaceNotOpen.set(false);
@@ -60,11 +139,37 @@ export class SetupStatusStore {
   async refresh(): Promise<void> {
     const key = this.scope.scopeKey();
     if (this.inFlight?.key === key) return this.inFlight.promise;
-    const promise = this.readStatus(key).finally(() => {
-      if (this.inFlight?.promise === promise) this.inFlight = null;
-    });
+    const promise = Promise.all([this.readStatus(key), this.readScan(key)])
+      .then(() => undefined)
+      .finally(() => {
+        if (this.inFlight?.promise === promise) this.inFlight = null;
+      });
     this.inFlight = { key, promise };
     return promise;
+  }
+
+  /**
+   * Reads the saved analyses for the scan check. A failure keeps the last
+   * answer of this scope (stale beats unknown) and publishes fixed copy; a
+   * superseded read is dropped.
+   */
+  private async readScan(key: string): Promise<void> {
+    const id = ++this.scanRequestId;
+    this.scanError.set(null);
+    let facts: Omit<ScanSnapshot, 'key'> | null = null;
+    try {
+      const result = await this.rpc.call('wizard:list-analyses', {}, { timeout: 10000 });
+      if (result.isSuccess()) facts = toScanFacts(result.data);
+    } catch {
+      // degradation-audit: reported - the failure is published on scanError() as fixed copy; the scan check stays unknown (null) so it is never counted as not ready. The thrown detail is withheld.
+      facts = null;
+    }
+    if (id !== this.scanRequestId || key !== this.scope.scopeKey()) return;
+    if (facts === null) {
+      this.scanError.set(SCAN_ERROR);
+      return;
+    }
+    this.scanSnapshot.set({ key, ...facts });
   }
 
   private async readStatus(key: string): Promise<void> {

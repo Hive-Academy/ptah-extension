@@ -139,7 +139,10 @@ export {
   type PromptItem,
 } from './lib/molecules/setup-plugins/prompt-catalogue';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
-export { SetupStatusStore } from './lib/molecules/setup-plugins/setup-status.store';
+export {
+  SetupStatusStore,
+  type SetupNextAction,
+} from './lib/molecules/setup-plugins/setup-status.store';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
 export { CodeOutputComponent } from './lib/molecules/tool-execution/code-output.component';
 export { fenceCodeBlock } from './lib/molecules/tool-execution/code-fence';
