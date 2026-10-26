@@ -1,6 +1,9 @@
 import type { DependencyContainer } from 'tsyringe';
 
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type IndexingProgressEvent,
+} from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceWatcher } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
@@ -490,7 +493,9 @@ export async function bootThothRuntime(
                     currentLabel: `${p.filesScanned}/${p.totalFiles} files`,
                     elapsedMs: Date.now() - startedAt,
                     totalKnown: true,
-                  },
+                    processed: p.filesScanned,
+                    total: p.totalFiles,
+                  } satisfies IndexingProgressEvent,
                 );
               },
             });
