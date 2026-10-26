@@ -1,8 +1,8 @@
-# Session handoff — TASK_2026_714_c8a2 (session 10)
+# Session handoff — TASK_2026_714_c8a2 (session 12)
 
-Written 2026-10-26. Replaces the session 9 handoff (in git history, commit 08c0e13a8).
-At handoff: no subagent, CLI lane or verify run of this task is active. The runtime worktree is
-clean. (Three Codex lanes of TASK_2026_701_9e4b belong to another session; do not touch them.)
+Written 2026-10-26. Replaces the session 10/11 handoff (in git history, commit 5200e6b3a).
+At handoff: no subagent, CLI lane or verify run of this task is active. The worktree has
+UNCOMMITTED work for batches 8a-1 and 8d (listed below) — do not discard it.
 
 ## Goal
 
@@ -12,136 +12,140 @@ two legacy paths: A = Claude Agent SDK + Codex translation proxy (main chat), B 
 `@openai/codex-sdk` (CLI lanes). Claude behavior unchanged. Electron first. No runtime-selector
 UI. Production stays behind the parity gate until parity is proven.
 
-**User decision:** the runtime PR is NOT merged until the App Server path runs main chat, gateways
-and lanes (session handling and subagents working) AND paths A and B are removed. Defects found on
-the way go out as SEPARATE small PRs that the user merges first; then `main` is merged into the
+**User decision:** PR #823 is NOT merged until the App Server path runs main chat, gateways and
+lanes (session handling and subagents working) AND paths A and B are removed. Defects found on the
+way go out as SEPARATE small PRs that the user merges first; then `main` is merged into the
 runtime branch (no rebase, no force push).
 
 **Principle (user):** use native App Server features wherever they exist; build only where they do
-not. Session decisions are rows at the end of `decisions.md` (all session 10 decisions are already
-written there: "P6 fix 1..22", "P7 fix 1..11").
+not. Session decisions are rows at the end of `decisions.md`.
+
+**Removal timing (asked by the user this session):** Removal A = P15 (needs P14 parity proof),
+Removal B = P16 (needs P15 + lane parity proof). Phase order: P8 -> P9 gateway -> P10 lanes ->
+S0/S1 paid spikes -> P11 native subagents -> P12 native sessions -> P13 file rewind -> S2 ->
+P14 parity ledger + live Electron parity -> P15 -> P16. I offered the user an option to move
+Removal B right after P10 + lane parity proof (lanes do not depend on main chat); NO answer yet —
+do not reorder without the user's go.
 
 ## PRs and branches
 
 | PR | Branch / worktree | State |
 | --- | --- | --- |
 | #824 | `fix/provider-switch-model-sync` / `.claude-worktrees/provider-switch-model-sync` | MERGED. Worktree + branch kept until the user authorizes cleanup. |
-| #826 | `fix/host-stored-model-validation` / `.claude-worktrees/host-stored-model-validation` | MERGED into main by the user (merge commit `b72dd7a54`, 2026-10-26 01:52 UTC). Worktree + branch kept until the user authorizes cleanup. |
-| #823 | `feat/codex-runtime-integration` / `.claude-worktrees/codex-runtime-integration` | DRAFT, do not merge. Pushed head before this handoff: `44e3cf44b`. Local commits on top: `e8586f4ba` (7e), `787093f0c` (P7 closed), plus this handoff commit — the orchestrator pushes them at the end of session 10 (check with `git log --oneline origin/feat/codex-runtime-integration..HEAD`). origin/main (with #826) is NOT merged into the runtime branch yet. |
+| #826 | `fix/host-stored-model-validation` / `.claude-worktrees/host-stored-model-validation` | MERGED (b72dd7a54). Now merged into the runtime branch. Worktree + branch kept. |
+| #823 | `feat/codex-runtime-integration` / `.claude-worktrees/codex-runtime-integration` | DRAFT, do not merge. Pushed head: `d24de2a2c` (merge of origin/main). CI at d24de2a2c: 19 pass, 3 skipped (bench/perf); one Electron E2E flake (`permission/config-change-permission-survival.spec.ts:204`, 8 min hang) passed on re-run. Local commits on top: c8eb6ea50, 93c101ba3, 956254955, d4edc82e2 and this handoff commit — check `git log --oneline origin/feat/codex-runtime-integration..HEAD`; push them if still unpushed. |
 
-CI on #823 at `44e3cf44b`: 18 pass, 3 skipped, 1 fail: `git-real-git (windows-latest)`, test
-`GitInfoService change-set delegates (real git) › reads HEAD text by root-relative path from a
-subdirectory` (vscode-core; this task does not touch it, probably flaky). One re-run of the failed
-job was started (run 40255621381). Earlier flaky e2e: `git/hunk-widget-mouse.spec.ts:85` passed on
-re-run.
+## Done this session (session 12)
 
-## Done this session (runtime branch, all verified by team-leader runs)
-
-| Phase | Commits | Notes |
+| Item | Commit | Notes |
 | --- | --- | --- |
-| decisions | `61e37c6f6` | session 9 decisions recorded |
-| P6 6d/6b/6e | `8aaaa169c`, `027cc1a69`, `b96812e40`, `f660c19bf`, `78e5eebcc` | metadata identity, chat + routing adapters, DI composition |
-| P6 fix 6f | `f8dfd61cc`, `47e28da09`, `ecbbc3c64` | first P6 review (logic 4/10, style 6/10) fixed; native `model/list` |
-| P6 fix 6g | `c107d55d2`, `ce987b8a6`, `d564aa4ce` | ownership routing (SN1), model slug = `Model.model`, usage = delta of `total` |
-| P6 fix 6h | `4b6f6f3a3`, `bf8712418` | N1-N3 cleanup; **P6 CLOSED** (logic re-review 2 APPROVE 7/10, style APPROVE 7/10) |
-| P7 7a/7c/7b | `b7f936961`, `d9e9956c3`, `cbbb8a337`, `74d66ede0` | chat runtime profile service, config RPC routing, native start/resume/slash |
-| P7 fix 7d | `4a2f15579`, `6a1ed5cbe`, `f57e381f9`, `44e3cf44b` | P7 review (4/10) fixed: B1, B2 (Claude regression), S1, S2, notice rules, di-lint |
-| P7 fix 7e | `e8586f4ba`, `787093f0c` | **P7 CLOSED** (re-review APPROVE 7/10); typed `SessionUnavailableError` |
+| Merge origin/main (#826) | `d24de2a2c` (pushed) | Merge rules applied: model read after the last await before `prepare()` (and after the metadata read, review M1); `resolveStoredModel` only on the Claude branch via new `ExecutionProfileRequest.requestedModelIsStored` + `prepare(config, identity, modelIsStored)`; claude-sdk `ResolvedExecutionProfile` now carries `model`; shared fallback `resolveClaudeExecution` in `chat-runtime-profile.service.ts`. Review: `code-logic-review-merge826.md` APPROVE 8/10. decisions.md row "Merge #826 (session 12)". |
+| Batch 8c | `c8eb6ea50` | Codex approval decisions in the permission prompt (chat-streaming, chat). Visual review pending a live run. |
+| Batch 8a-0 | `93c101ba3` | Electron codex runtime host infrastructure (`apps/ptah-electron/src/di/codex-runtime-composition.ts` + spec): bundled-root executable factory, chat-only dev gate/capabilities, per-session runtime scopes + cleanup, awaited identity initializer. Exported, NOT bound (no behavior change). |
+| Batch 8e | `956254955` | CLI keeps legacy chat composition (cli-engine specs, `apps/ptah-cli/src/di/expected-resolvable.ts`). |
+| Run state | `d4edc82e2` | batches.md "Run state (session 12)", decisions.md "P8 decision 1" (identity store = option A) and "P8 decision 2". |
 
-Evidence for model slug and usage semantics was checked at the pinned tag `rust-v0.155.1`
-(raw.githubusercontent.com; github.com `blob` URLs return 404): `models.rs` `id: preset.id`,
-`model: preset.model`; `protocol.rs` `append_last_usage` adds `last` into `total`;
-`non_cached_input = input - cached`.
+## In progress (UNCOMMITTED in the worktree)
 
-Last verify (7e, team-leader): rpc-handlers lint/test/typecheck PASS; agent-sdk test + typecheck
-PASS, lint FAILS only on the 2 known errors in
-`libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts:174,183`
-(`no-unexpected-multiline`, file identical to origin/main, needs a fix on main); di-lint PASS;
-typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui PASS.
+1. **Batch 8a-1 (rpc-handlers host ports)** — files:
+   `libs/backend/rpc-handlers/src/lib/chat/codex-host/` (`codex-chat-host-ports.ts` + spec,
+   `native-session-controls.ts` + spec), `libs/backend/rpc-handlers/src/index.ts` (narrow
+   exports), `libs/backend/rpc-handlers/package.json` (codex-runtime dependency),
+   `.ptah/specs/TASK_2026_714_c8a2/batch-8a-1b-report.md` (fix rounds 1 and 2).
+   Last deciding verify: rpc-handlers lint + typecheck PASS, `rpc-handlers:test` FAIL — but that
+   run started BEFORE fix round 2 landed, so fix round 2 is untested. Next: one rpc-handlers
+   verify; commit if green.
+   Open: ProviderInfo in the 8a-1 spec uses providerId `'ptah-cli'` because shared `ProviderId`
+   (`libs/shared/src/lib/types/ai-provider.types.ts:12`) has no Codex value; the factory takes
+   `info` as input, so 8a-2 decides (do not keep a wrong label; record the gap or add the value).
+2. **Batch 8d (VS Code compatible bindings)** — files: `apps/ptah-extension-vscode/src/di/`
+   `expected-resolvable.ts`, `container.smoke.spec.ts`, `rpc-surface.spec.ts`,
+   `surface-composition.spec.ts`; `.ptah/specs/TASK_2026_714_c8a2/batch-8d-report.md`.
+   `ptah-extension-vscode:test` FAILS on two spec defects:
+   - `surface-composition.spec.ts:95-99`: `readFileSync` result typed `string | Buffer`
+     (TS2339/TS2345) — pass `'utf8'` / type it as string.
+   - `rpc-surface.spec.ts`: asserts `chat:sendMessage` and `config:model-switch` /
+     `effort-set` / `autopilot-toggle`, which are not in the VS Code surface list — assert the
+     real names.
+   Next: fix, verify `-p ptah-extension-vscode`, commit.
 
 ## Open problems and decisions
 
-- **Merge origin/main (with #826) into the runtime branch — next step 2.** Expected conflicts in
-  `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts` and
-  `chat-slash-command-router.service.ts`, in the `prepare()` / fallback hunks of start, resume and
-  slash relaunch, plus ~14 chat-session specs (#826 adds a `resolveStoredModel` mock). Merge rules
-  (recorded under Batch 7d in batches.md):
-  1. compute `currentModel` after the last await before `prepare()`;
-  2. apply `resolveStoredModel(workspacePath, storedModel)` only on the Claude (legacy) branch;
-     the native path always maps to a Codex catalog model.
-  #826 also changed `libs/backend/auth-providers` (`stored-model-offer.ts`,
-  `workspace-provider-profile-resolver.ts`) and `gateway-chat-bridge.ts`.
-  Keep main's ~60 unformatted lines in chat-session.service.ts as they are.
-- **Network:** github.com git HTTPS failed twice this session (`Failed to connect to github.com
-  port 443`); `gh` API calls kept working. Retry a failed push or fetch once.
-- **Deferred items (all listed with reasons in batches.md):** live session stats (no exact message
-  count or lifetime totals for resumed threads), `review/start` (no Ptah UI), title parameter of
-  `updateCodexExecution` (name = sessionId), store workspace-key rules not unified, register.ts
-  over the max-lines warning, model list with no open session (8a), VS Code/CLI cache gap (8d/8e),
-  accumulator replay spec (frontend import boundary), cancel during `prepare()` (unchanged Claude
-  behavior), cache-write tokens inside inputTokens (open question).
-- **8a acceptance list (in batches.md under Batch 8a):** host contracts — await
-  `initializeSessionRuntimeIdentityLookup(store, logger)`; bind stable instances (registerInstance)
-  before the first adapter resolution; register literally (di-lint visible) any token a class
-  injects; native controls with `canSendFollowUp` and their own exactly-once persistence; build the
-  validated CodexExecutionProfile and do NOT publish the model notice again. Audit: direct
-  `SDK_AGENT_ADAPTER` users in chat-session.service.ts, broadcaster cleanup
-  `chat-stream-broadcaster.service.ts:351-359`, same session in two tabs, pending-resume thread-id
-  cleanup. Also FM-R2 (live effort can differ from the saved effort after a failed save) and FM-R6
-  (permission scope drift). M2 check: Electron passes `app.isPackaged` verbatim.
-- **Still open from #824 (follow-ups, not fixed):** picker label shows `tab.sessionModel` with no
-  override; reassign dialog does not preselect the workspace model; a Codex reassign to "This
-  workspace" also writes the global tier map; no host push event for changes from CLI/another window.
-- **Process lessons:** a Codex lane's queued `npm run verify` vanishes when the lane exits, so the
-  team-leader must run the deciding verify itself. Lanes often stop near ~5-7 min while waiting on
-  the FIFO lock; their code is usually complete. Team-leader subagents hit the 400k context limit
-  after long phases: start a fresh one per phase with a handoff, tell it to keep context small.
-  Declare lane deliverables at spawn. Messages queued to a Codex lane are lost if the lane exits
-  first: also send them to the team-leader.
+- **P8 decision 1 (coordinator, this session):** no persistent `CodexThreadIdentityStore` exists
+  (interface `libs/backend/codex-runtime/src/lib/codex-runtime-ports.ts:33`, no implementer).
+  Option A chosen: agent-sdk implements it on the existing `SessionMetadataStore` as new batch
+  **8a-1c**, before 8a-2. Conditions: store ONLY the identity mapping (threadId, contextId,
+  processGeneration, normalizedHome, workspaceId, active state) — history stays in the App Server
+  thread, resume via native `thread/resume`; one source of truth with
+  `SESSION_RUNTIME_IDENTITY_LOOKUP`; old `codexExecution` records stay readable (spec for an old
+  record); `persist()` is an awaited write before the first turn (failure refuses the launch with
+  a typed error); `markInactive` compares generation before it writes. The user was told and may
+  still prefer B (separate SQLite table) or C (in-memory) — if the user answers, follow it.
+- **Accepted team-leader decisions:** FM-R5 = one logical owner per write (no settings-core
+  transaction API, per code-logic-rereview-p7.md:119-122); initial control settings come from
+  `profile()` (needs 8a-1c); event callbacks composed in 8a-2 from existing observers.
+- **8c follow-ups:** wire mapping accept->allow, acceptForSession->always_allow,
+  decline->deny_with_message (no reason), cancel->deny; NO backend reverse mapping to Codex
+  decisions yet — 8b must add it. chat-ui inline card still renders Claude buttons when a Codex
+  request matches a tool node (disallowed clicks are blocked) — chat-ui follow-up.
+- **Phase-review check:** native persistence writes through `WorkspaceScopeResolver`, the config
+  RPC through its settings handles — confirm the same keys and scopes.
+- **Still open from #824 (not fixed):** picker label shows `tab.sessionModel` with no override;
+  reassign dialog does not preselect the workspace model; Codex reassign to "This workspace" also
+  writes the global tier map; no host push event for changes from CLI/another window.
+- **Deferred items** (reasons in batches.md): live session stats, `review/start`, title param of
+  `updateCodexExecution`, store workspace-key rules, register.ts max-lines, model list with no
+  open session, VS Code/CLI cache gap, accumulator replay spec, cancel during `prepare()`,
+  cache-write tokens inside inputTokens.
+- **Network:** github.com git HTTPS sometimes fails (`Failed to connect to github.com port 443`);
+  `gh` API works. Retry a failed push/fetch once (it worked on retry this session).
+- **Process lessons:** CLI lanes give up while waiting on the FIFO lock (3-5 min) and never
+  verify — the team-leader must run every deciding verify itself. Lanes sometimes write files
+  beyond their declared deliverables (8e wrote 4, declared 2) — check `git status`. Lane reports
+  arrive at the coordinator; forward them to the team-leader. The team-leader used ~230k context
+  in this session; start a FRESH one per resume with a short handoff.
 
 ## Key files
 
 - Task folder: `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/.ptah/specs/TASK_2026_714_c8a2/`
-  (`batches.md` = source of truth incl. Run state "session 11 close" and the Batch 8a acceptance
-  list; `decisions.md`; `implementation-plan.md`; review files `code-logic-review-p6.md`,
-  `code-style-review-p6.md`, `code-logic-rereview-p6.md`, `code-style-rereview-p6.md`,
-  `code-logic-rereview2-p6.md`, `code-logic-review-p7.md`, `code-logic-rereview-p7.md`; batch
-  reports `batch-6a..6h-*.md`, `batch-7a..7e-*.md`).
-- P6 code: `libs/backend/agent-sdk/src/lib/codex-app-server/` (chat adapter, events, approval sink,
-  routing adapter, routers, `session-runtime-identity.ts`), `libs/backend/agent-sdk/src/lib/wiring/`
-  (identity cache, metadata port, composition, composition errors, legacy controls composition),
-  `libs/backend/agent-sdk/src/lib/di/register.ts`, `di/tokens.ts`, `src/index.ts`,
-  `session-metadata-store.ts`; `libs/backend/codex-runtime/src/lib/` (`codex-runtime.ts`,
-  `codex-app-server-process.ts`, `codex-event-translator.ts`, `codex-protocol-methods.ts`).
-- P7 code: `libs/backend/rpc-handlers/src/lib/chat/session/chat-runtime-profile.service.ts`,
+  (`batches.md` = source of truth incl. "Run state (session 12)", P8 batches from ~line 1502,
+  "Batch 7d carried rules" ~1448, "Session 7 plan" ~978; `decisions.md`; batch reports
+  `batch-8a-1-report.md`, `batch-8a-1b-report.md`, `batch-8c-report.md`, `batch-8d-report.md`,
+  `batch-8e-report.md`; `code-logic-review-merge826.md`).
+- P8 code: `apps/ptah-electron/src/di/codex-runtime-composition.ts` (+ spec),
+  `libs/backend/rpc-handlers/src/lib/chat/codex-host/`, Electron DI guards in
+  `apps/ptah-electron/src/di/` (`phase-2-libraries.ts`, `expected-resolvable.ts`,
+  `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`).
+- Runtime contracts: `libs/backend/codex-runtime/src/lib/codex-runtime-ports.ts`,
+  `libs/backend/agent-sdk/src/lib/session-metadata-store.ts`,
+  `libs/backend/agent-sdk/src/lib/wiring/` (identity cache, codex-chat-metadata-port).
+- P7/merge code: `libs/backend/rpc-handlers/src/lib/chat/session/chat-runtime-profile.service.ts`,
   `chat-session.service.ts`, `chat-slash-command-router.service.ts`,
-  `libs/backend/rpc-handlers/src/lib/handlers/config-rpc.handlers.ts`, `config-runtime-controls.ts`.
-- Gate: `libs/backend/codex-runtime/src/lib/di/registration.ts`, `codex-parity-gate.ts`,
-  `codex-dev-route.ts`.
+  `libs/backend/auth-providers/src/lib/auth/workspace-provider-profile-resolver.ts`.
 
 ## Next steps (in order)
 
-1. Runtime worktree: `git status -sb`; `git log --oneline origin/feat/codex-runtime-integration..HEAD`.
-   If commits are unpushed, `git push origin feat/codex-runtime-integration` in the background.
-   Check CI: `gh pr checks 823` (and the re-run of `git-real-git (windows-latest)`; if it fails
-   again on the same test, look at it as a real defect, although it is outside this task).
-2. Merge main: `git fetch origin && git merge origin/main` in the runtime worktree (no rebase, no
-   force). Resolve the conflicts with the two merge rules above. Then:
-   - `npm run verify -- -p @ptah-extension/auth-providers,@ptah-extension/rpc-handlers,@ptah-extension/gateway-chat-bridge,@ptah-extension/agent-sdk`
-   - `node scripts/verify.mjs --exec --task di-lint -- npx nx run di-lint:lint`
-   - `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`
-   Commit the merge in the foreground; push in the background; watch `gh pr checks 823 --watch`.
-   Consider a short Claude code-logic review of the conflict resolution (merge commit diff of the
-   two chat session files).
-3. Start a FRESH team-leader (Mode 2) for P8 with a handoff prompt (absolute paths; keep context
-   small; Batch 8a = Electron DI composition and dev-switch wiring with the acceptance list in
-   batches.md; then the "Session 7 plan" order). Tell it to STOP before any live Electron run or
-   paid model call, and at the P8 phase review.
+1. In the worktree: `git status -sb`; `git log --oneline origin/feat/codex-runtime-integration..HEAD`.
+   If commits are unpushed: `git push origin feat/codex-runtime-integration` in the background
+   (retry once on a network error), then watch `gh pr checks 823`.
+2. Start a FRESH team-leader (Mode 2) with a short handoff prompt (absolute paths, keep context
+   small) for:
+   a. 8a-1: `npm run verify -- -p @ptah-extension/rpc-handlers`; commit if green.
+   b. 8d: fix the two spec defects above; `npm run verify -- -p ptah-extension-vscode`; commit.
+   c. 8a-1c: thread identity store (option A + conditions above) in agent-sdk;
+      `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
+   d. 8a-2: Electron binding + callbacks + ProviderInfo decision; then 8b (IPC approval ownership
+      + reverse mapping of Codex decisions).
+   Gates for 8a-1c/8a-2/8b: `node scripts/verify.mjs --exec --task di-lint -- npx nx run di-lint:lint`
+   and `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
+   STOP before any live Electron run or paid model call, and at the P8 phase review.
+3. P8 phase review (Claude code-logic, plus code-style for the new public API in rpc-handlers
+   index.ts and agent-sdk), fix rounds, then the 8c visual review in Electron (dark + light) —
+   live run only with the user's go.
 4. Before any live Electron test: ask the user. Paid runs only `haiku` and Codex luna, tiny
    prompts, <=10 turns. Back up `~/.ptah/settings.json` into a new `%TEMP%` folder and restore it
    byte-identical (`cmp`). Do not edit it without the user's go.
-5. P8 phase review (Claude code-logic, plus code-style if new public API), fix rounds, then later
-   phases per batches.md (Removal A, Removal B, each after parity proof).
+5. Then P9 (gateway), P10 (lanes) per batches.md.
 
 ## Verification rules (repeat to every lane)
 
@@ -150,11 +154,12 @@ typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui PASS.
   `node scripts/verify.mjs --exec --task <name> -- <cmd>`. Never workspace-wide, never `nx
   run-many`, never positional `nx test A B`, never build/serve/dev/e2e/package unless for an
   approved Electron live run. A lane's queued verify vanishes when the lane exits.
-- Known noise: `translation-proxy.sdk.integration.spec.ts` EPERM on Windows; agent-sdk lint 2 errors
-  in `session-query-executor.accounts.spec.ts:174,183` (from main); auth-providers 3 lint errors
-  (main's account files); cli-agent-runtime 5-6; core 2 (attention-permission-actions);
-  rpc-handlers/chat module-boundary "Static imports of lazy-loaded libraries" warning; di-lint
-  `__fixtures__` ERROR lines are its expected self-test output.
+- Known noise: `translation-proxy.sdk.integration.spec.ts` EPERM on Windows; agent-sdk lint 2
+  errors in `session-query-executor.accounts.spec.ts:174,183`; auth-providers 3 lint errors
+  (package.json dependency-checks, `provider-account.store.spec.ts:132`,
+  `provider-account.store.ts:16`); cli-agent-runtime 5-6; core 2; chat / rpc-handlers lazy-load
+  static-import errors/warnings; di-lint `__fixtures__` ERROR lines are its self-test output;
+  Electron E2E `config-change-permission-survival.spec.ts:204` flaked once (passed on re-run).
 - Never run npm ci / npm install in a worktree (node_modules is a junction).
 - Lane deliverable paths MUST be absolute and declared at spawn. Lanes do not commit or push.
 - No `as unknown as`, `any`, `@ts-ignore` or `eslint-disable` added by this task.
@@ -173,4 +178,5 @@ typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui PASS.
   `%TEMP%/ptah-live-test-3/` (`cdp.js`, `s-reassign2.js`, `s-confirm-save.js`, `s-newsession.js`,
   `s-send.js`, `sdiff.js`). Send marker in the log:
   `[SessionLifecycle] Starting SDK query with options: {"model":...}`. Stop the app with
-  `taskkill /T /F` on the root `electron.exe` of the worktree.
+  `taskkill /T /F` on the root `electron.exe` of the worktree. Native dev route:
+  `PTAH_CODEX_RUNTIME_DEV=1` on an unpackaged build (chat only).
