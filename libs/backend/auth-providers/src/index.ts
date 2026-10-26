@@ -1,6 +1,7 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
 export { ProviderAccountService } from './lib/accounts/provider-account.service';
+export { ClaudeAmbientLoginStatusReader } from './lib/accounts/claude-ambient-login-status';
 export { ClaudeNamedAccountPersistence } from './lib/accounts/claude-named-account-persistence';
 export type { ProviderAccountAdmissionPort, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 export {

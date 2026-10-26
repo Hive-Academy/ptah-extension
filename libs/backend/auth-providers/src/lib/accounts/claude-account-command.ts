@@ -7,7 +7,7 @@ import {
   killProcessTree, type IProcessSpawner, type SpawnedProcessHandle, type SpawnLaunchGuard,
 } from '@ptah-extension/platform-core';
 import type { ProviderAccountActionResult, ProviderAccountResultCode } from '@ptah-extension/shared';
-import { parseClaudeAccountStatus } from './claude-account-status';
+import { parseClaudeAccountStatus, type ClaudeAccountStatus } from './claude-account-status';
 import type { ClaudeRegistryQueryResult } from './claude-auth-settings-scan';
 import type {
   ClaudeAuthContext,
@@ -129,6 +129,27 @@ export interface ClaudeChildCloseReceipt {
 
 /** `closeReceipt` is present only when `terminated` is false and a process exists. */
 export interface ClaudeStatusProbeOutcome extends ClaudeStatusProbeResult {
+  readonly closeReceipt?: ClaudeChildCloseReceipt;
+}
+
+/** One ambient status probe: no route, so no launch guard. */
+export interface ClaudeAmbientStatusProbeRequest {
+  readonly executable: ClaudeCertifiedExecutable;
+  /** The complete child env; the caller builds it from an allowlist. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Parsed ambient status only; the child's output never leaves the command.
+ * `closeReceipt` is present only when `terminated` is false and a process exists.
+ */
+export interface ClaudeAmbientStatusProbeOutcome {
+  /** Null when the child was stopped, did not close on its own, or its output proved no state. */
+  readonly status: ClaudeAccountStatus | null;
+  readonly terminated: boolean;
+  /** True when the status limit stopped the child. */
+  readonly timedOut: boolean;
   readonly closeReceipt?: ClaudeChildCloseReceipt;
 }
 
@@ -334,6 +355,26 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       ? null
       : parseClaudeAccountStatus(run.stdout, run.exitCode, context.canonicalDir, this.host.platform);
     return { status, terminated: run.terminated, ...receipt };
+  }
+
+  /**
+   * `auth status --json` for the ambient (unnamed) login: the env the caller
+   * built, the temp directory as cwd and the status limits. There is no route,
+   * so there is no launch guard; {@link status} keeps its route guard. Only the
+   * parsed status leaves this method, never the child's output.
+   */
+  async ambientStatus(request: ClaudeAmbientStatusProbeRequest): Promise<ClaudeAmbientStatusProbeOutcome> {
+    const run = await this.run({
+      command: request.executable.command, args: [...request.executable.prefixArgs, 'auth', 'status', '--json'],
+      env: request.env, cwd: this.host.tempDir(), limitMs: CLAUDE_ACCOUNT_CHILD_LIMITS.statusMs,
+      outputBytes: CLAUDE_ACCOUNT_CHILD_LIMITS.statusOutputBytes, signal: request.signal,
+    });
+    const receipt = closeReceiptOf(run);
+    // Same rule as `status`: only a child that closed on its own within every limit is parsed.
+    const status = run.stopped || !run.terminated
+      ? null
+      : parseClaudeAccountStatus(run.stdout, run.exitCode, envValue(request.env, 'CLAUDE_CONFIG_DIR') ?? '', this.host.platform);
+    return { status, terminated: run.terminated, timedOut: run.stopped === 'timeout', ...receipt };
   }
 
   /** `auth logout` with the same route checks as {@link status}. */

@@ -15,6 +15,7 @@ import { ProviderAccountActionsService } from '../accounts/provider-account-acti
 import { accountActionResult, ClaudeAccountCommand } from '../accounts/claude-account-command';
 import { ClaudeRouteCertifier, type ClaudeRouteCertifierFs } from '../accounts/claude-route-certifier';
 import { ClaudeLoginConsole } from '../accounts/claude-login-console';
+import { ClaudeAmbientLoginStatusReader, NODE_AMBIENT_STATUS_HOST } from '../accounts/claude-ambient-login-status';
 import type { ClaudeAccountSelectionReader, ProviderAccountAdmissionPort } from '@ptah-extension/auth-providers-tokens';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -163,6 +164,12 @@ function registerProviderAccountServices(container: DependencyContainer): void {
   container.register(ClaudeAccountCommand, {
     useFactory: instanceCachingFactory((c) => new ClaudeAccountCommand(
       c.resolve(SDK_TOKENS.SDK_CLI_DETECTOR), c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+    )),
+  });
+  // Not decorated: the host (process env and clock) is a runtime value, not a token.
+  container.register(ClaudeAmbientLoginStatusReader, {
+    useFactory: instanceCachingFactory((c) => new ClaudeAmbientLoginStatusReader(
+      c.resolve(ClaudeAccountCommand), NODE_AMBIENT_STATUS_HOST, c.resolve<Logger>(TOKENS.LOGGER),
     )),
   });
   // Neither class is decorated: the platform is a runtime value, not a token.
