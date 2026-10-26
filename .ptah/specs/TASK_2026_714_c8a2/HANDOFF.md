@@ -159,7 +159,9 @@ do not reorder without the user's go.
   (package.json dependency-checks, `provider-account.store.spec.ts:132`,
   `provider-account.store.ts:16`); cli-agent-runtime 5-6; core 2; chat / rpc-handlers lazy-load
   static-import errors/warnings; di-lint `__fixtures__` ERROR lines are its self-test output;
-  Electron E2E `config-change-permission-survival.spec.ts:204` flaked once (passed on re-run).
+  Electron E2E `config-change-permission-survival.spec.ts:204` flaked once (passed on re-run);
+  Electron E2E `state.spec.ts:41` ("setState then getState reflects the written key") flaked
+  once on 315c6a98f (passed on re-run).
 - Never run npm ci / npm install in a worktree (node_modules is a junction).
 - Lane deliverable paths MUST be absolute and declared at spawn. Lanes do not commit or push.
 - No `as unknown as`, `any`, `@ts-ignore` or `eslint-disable` added by this task.

@@ -103,6 +103,9 @@ Edge cases:
 - After #808 merges and this branch rebases: P5 -> P6 -> P7 -> P8 -> P9 (9b) -> P10 (10c).
 - Superseded by the Session 7 plan (bottom of this file): P5b -> P6 -> P7 -> P8 -> P9 -> P10 ->
   S0/S1 -> P11 -> P12 -> P13 -> S2 -> P14 -> P15 -> P16. Old P11 is replaced by P11-P13.
+- Session 14 (user decision D5): P10 now ends with 10d lane parity proof and 10e.. Removal B;
+  P16 is gone. Order: P8 -> P9 -> P10 (incl. Removal B) -> S0/S1 -> P11 -> P12 -> P13 -> S2 ->
+  P14 -> P15 Removal A.
 
 ---
 
@@ -912,6 +915,19 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 14, 2026-10-26) — P8 in progress, 8a-2 re-split
+
+- Coordinator decisions D1-D6 recorded (decisions.md last rows). 8a-2 Part B becomes 8a-2a ->
+  8a-2b -> 8a-2c -> 8b (definitions under Batch 8a / 8b). Removal B moved to the end of P10
+  (10d proof, 10e.. removal); P16 removed.
+- Blocker 6 re-check: a concrete `CodexHomeAuthReader` DOES exist —
+  `CodexHomeAuthService` (auth-providers, exported index.ts:49, registered as
+  AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_AUTH). 8a-2c binds it; no new reader is built.
+- Blocker 5: authKey is derivable (`resolveAuthProviderKey(authMethod, seed.providerId)`); no
+  product decision needed.
+- Verification noise added: Electron E2E `state.spec.ts:41` flaked once on 315c6a98f (passed
+  on re-run).
+
 # Run state (session 13, 2026-10-26) — P8 in progress, 8a-2 Part B BLOCKED
 
 - Commits (team-leader): 25326130c 8d (vscode guard specs; verify -p ptah-extension-vscode 35/35);
@@ -1625,10 +1641,77 @@ and CLI get compatible bindings only (no feature work).
       unbound config RPC writes through modelSettings/reasoningSettings handles and configManager
       (config-rpc.handlers.ts:212,:749,:365). The phase review must confirm both reach the same
       physical keys and scopes.
-  - 8a-2 — PENDING: MODIFY phase-2-libraries.ts (literal registrations, awaited identity init),
-    `expected-resolvable.ts`, `container.smoke.spec.ts`, `rpc-surface.spec.ts`,
-    `surface-composition.spec.ts`; audits recorded in batch-8a-2-report.md. Verify ptah-electron
-    + di-lint.
+  - 8a-2 Part B re-split (session 14, coordinator D1-D4; decisions.md last rows). Order
+    8a-2a -> 8a-2b -> 8a-2c -> 8b. 8a-2a and 8a-2b are file-disjoint and may run in parallel;
+    8a-2a commits first because the 8a-2b v7 schema spec needs it.
+  - 8a-2a — PENDING (libs: codex-runtime, shared). Executor: CLI lane, Codex family; review
+    Claude. Files (max 6):
+    - codex-runtime: CREATE `src/lib/codex-executable-pin.ts` (+ `.spec.ts`): a reviewed-row
+      lookup `findCodexExecutablePin(platform, arch)` over the reviewed manifest JSON, returning
+      `undefined` when there is no row (blocker 1); MODIFY `src/index.ts` (export it).
+    - shared (D3): MODIFY `src/lib/types/branded.types.ts`: `UUID_REGEX` accepts version 4 OR 7
+      (`[47]` in the version nibble), RFC variant `[89ab]` kept; rewrite the comment above it
+      (v4 = Claude SDK and Ptah-minted ids; v7 = Codex App Server thread ids,
+      codex-app-server-protocol.schema.json:20434); `SessionId.create()` stays v4. MODIFY
+      `branded.types.spec.ts`: v7 accepted by SessionId.validate/from/safeParse; version 1/3/5/
+      8/9, bad variant, nil and max still rejected.
+    - Reader audit (team-leader, session 14): no reader uses "is v4" to tell id kinds apart.
+      Readers: session-stats-reader.service.ts:169,:279 (Claude JSONL filenames, v4 only on
+      disk, widening is harmless); chat-rpc.schema.ts:56, session-rpc.schema.ts:25,
+      session-rpc.handlers.ts:287, session-organization-rpc.schema.ts:65 (session id
+      boundaries — must accept v7 or a native session is refused at RPC); permission.schemas.ts
+      and permission.parsers.ts (sessionId and tabId; parsers and schemas share UUID_REGEX, so
+      wire-parsers.equivalence.spec stays in lockstep; its UUID_BAD_VERSION is version 9);
+      MessageId/CorrelationId/TabId reuse the regex (v4-minted; accepting v7 distinguishes
+      nothing). sdk-permission-handler.ts:883 uses uuid.validate (any version). Local v4-only
+      copies NOT changed (not session ids): chat-state ids.ts (ConversationId, BackgroundAgentId,
+      SurfaceId), agent-process.types.ts AgentId, ptah-tui use-chat.spec.ts.
+    - Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/shared`; di-lint;
+      four-host typecheck; tests of the shared consumers above:
+      `npm run verify -- -t test -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk`.
+  - 8a-2b — PENDING (lib: rpc-handlers). Executor: CLI lane, Codex family; review Claude.
+    Files (max 6) under R+chat/codex-host/:
+    - CREATE `codex-chat-event-callbacks.ts` (+ spec) (D2, blocker 4): a factory that builds a
+      concrete `CodexChatEventCallbacks` (agent-sdk codex-chat-events.ts:30-47) over the existing
+      `ChatStreamBroadcaster` and existing webview message types: final reasoning, compaction
+      phases, file/image/approval live events, error text. Reuse existing chat message types and
+      the existing streaming pipeline; a new message type only when no equivalent exists, with
+      the reason in the report. No log-only callback.
+    - CREATE `codex-session-settings-record.ts` (+ spec) (G3, blocker 5): records the session's
+      settings when `profile()` builds the profile (model, effort, permission, workspace) and
+      `authKey = resolveAuthProviderKey(<the session's auth method>, seed.providerId)`
+      (platform-core settings-auth-key.ts:12; the same derivation the legacy route uses,
+      effective-route-method.ts:204, workspace-scope-methods.ts:95); inactive sessions derive
+      authKey from the identity record's providerId and read the persisted provider-namespaced
+      model/effort at the workspace scope. Throws a typed error for an unknown session.
+    - MODIFY `R+index.ts` (narrow exports); MODIFY `handlers/chat-rpc.schema.spec.ts` (a v7
+      session id passes the chat schemas; needs 8a-2a).
+    - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`.
+  - 8a-2c — PENDING (app: ptah-electron; 8 files, coordinator-approved exception to the 6-file
+    cap: one project, four of them guard specs). Executor: CLI lane, Codex family; review Claude.
+    - MODIFY `codex-runtime-composition.ts` (+ spec): async `bindElectronCodexChat(container,
+      { isPackaged: app.isPackaged, env: process.env, ... })`; literal
+      `container.register(SDK_TOKENS.X, { useValue })` for SESSION_RUNTIME_IDENTITY_LOOKUP,
+      CODEX_CHAT_ADAPTER_PORTS, RUNTIME_ADMISSION_PORT, RUNTIME_HOST_CAPABILITIES,
+      NATIVE_SESSION_CONTROLS, LEGACY_SESSION_CONTROL_PORTS; ProviderInfo id
+      `'codex-app-server'`; identity store from `createCodexThreadIdentityStore(lookup,
+      metadataStore)`; callbacks from 8a-2b; settings from the 8a-2b record. Blocker 7: the scope
+      factory (bundled binary, pin from 8a-2a, sha256 + `--version` identity) is created lazily
+      and only when `capabilities.nativeCodex` is true; native off never touches the binary.
+      Blocker 6: `usage: { auth, profileForHome }` with `auth` = the existing concrete
+      `CodexHomeAuthService` (auth-providers index.ts:49, AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_AUTH,
+      register-providers.ts:63) — it already watches the explicit home's auth file; the App
+      Server's native `account/updated` and `account/login/completed` notifications and
+      `account/read` (protocol schema) are used where the runtime already consumes them; build
+      nothing new for invalidation.
+    - MODIFY `activation/bootstrap.ts` (blocker 2): await the bind after state storage (:457)
+      and WEBVIEW_MANAGER (:493), before `registerRpcSurface` (wire-runtime.ts:332) and
+      `startAgentAdapterInitialization`; MODIFY `activation/shutdown.ts`: `lookup.dispose()`,
+      scope close, runtime -> usage -> container close.
+    - MODIFY the four DI guard specs: `expected-resolvable.ts`, `container.smoke.spec.ts`,
+      `rpc-surface.spec.ts`, `surface-composition.spec.ts`.
+    - Audits (8a acceptance list) recorded in the batch report.
+    - Verify: `npm run verify -- -p ptah-electron`; di-lint; four-host typecheck.
 - Recommended executor: CLI lane, Codex family | Review: Claude | Subagent reason: N/A
 - Files: MODIFY W/apps/ptah-electron/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`; CREATE
@@ -1668,8 +1751,18 @@ and CLI get compatible bindings only (no feature work).
 - Details: IPC routes request ownership to SessionApprovalRouter; typed session-scoped cancel;
   cancelPrompt posts no response; PERMISSION_PROMPT_CANCELLED payload-map entry (carried P5
   logic 5).
-- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/chat` (2 projects; chat has
-  pre-existing lint noise — compare with main before attributing)
+- Session 14 additions (coordinator D1, D4; 3 projects, coordinator-directed exception to the
+  2-project cap):
+  - Blocker 3: `ipc-bridge.ts:416` routes a permission reply through the bound
+    `handlePermissionResponse` (Codex request ids reach the Codex host ports, others the Claude
+    `SdkPermissionHandler.handleResponse`).
+  - D4: MODIFY W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts and
+    its spec: remove a request from the pending map when the user decides (today it stays until
+    dismiss/cancel), keeping the host-attention release (host-attention-ingress.spec.ts).
+- Verification: `npm run verify -- -p ptah-electron,@ptah-extension/chat,@ptah-extension/rpc-handlers`
+  (chat has pre-existing lint noise — compare with main before attributing); di-lint; four-host
+  typecheck; `npm run verify -- -t test -p @ptah-extension/vscode-core --
+  --testPathPatterns=host-attention-ingress`.
 - Executor/review as 8a.
 
 ## Batch 8c: Codex approval decisions in the permission prompt — COMPLETE (code; report batch-8c-report.md; visual review waits for an approved live Electron run)
@@ -1757,9 +1850,20 @@ errors). Prefix L = W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adap
 - Files: MODIFY W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-detection.service.ts
   (factory instead of direct construction), `cli-adapters/cli-adapter.interface.ts` (optional
   Codex context/policy), W/libs/backend/cli-agent-runtime/src/index.ts
-- Details: legacy adapter remains default; native lane selection gated off. Last P10 batch ->
-  phase review.
+- Details: legacy adapter remains default; native lane selection gated off.
 - Executor/review as 9b.
+
+## Batch 10d: Lane parity proof on the App Server — PENDING (needs 10c; stop and return before any live or paid run)
+
+- Session 14 (user decision D5): lanes run on the App Server adapter and pass a lane parity proof
+  (refresh the lane preserve list against the base commit; every capability present with a
+  passing test or approved removal) before Removal B.
+
+## Batch 10e..: Removal B (@openai/codex-sdk for CLI lanes) — PENDING (needs 10d proof; was P16)
+
+- Moved from P16 to the END of P10 (user decision D5). Structure as P15: read-only parity
+  refresh, file-disjoint removal batches, one commit with the proof reference. Last P10 batch ->
+  phase review (code-logic + style on the removal commit).
 
 ---
 
@@ -1927,9 +2031,9 @@ Phase review: code-logic.
   behavior unchanged; host typecheck for all four hosts; re-check the fix-PR fence.
 - Phase review: code-logic + style on the removal commit.
 
-# Phase P16 — Removal B (@openai/codex-sdk CLI lanes) — PENDING (needs P15, lane parity proof)
+# Phase P16 — MOVED (session 14, user decision D5): Removal B is now Batch 10e.. at the end of P10
 
-- Same structure as P15 for the codex-sdk lane path; one commit with the proof.
+- Removal A stays P15.
 
 ---
 
