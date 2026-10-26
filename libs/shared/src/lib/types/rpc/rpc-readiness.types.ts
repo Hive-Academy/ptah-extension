@@ -155,16 +155,6 @@ export interface BootReadinessChangedPayload {
 }
 
 /**
- * Result of the `boot:getReadiness` pull.
- *
- * The same shape as the push, deliberately: a renderer that missed the push
- * (Angular installs its message listener after `did-finish-load`, and a
- * renderer reload gets no replay) reads exactly what a listener would have
- * received, so one consumer path handles both.
- */
-export type BootGetReadinessResult = BootReadinessChangedPayload;
-
-/**
  * The three host boot steps a boot screen shows, in the order they start:
  * `verify` (workspace storage), `restore` (session copy-forward) and `agents`
  * (agent adapter initialization).
@@ -217,6 +207,24 @@ export type BootProgressPayload = z.infer<typeof BootProgressPayloadSchema>;
 
 /** State of one boot step, as carried by {@link BootProgressPayload}. */
 export type BootProgressStepState = BootProgressPayload['state'];
+
+/**
+ * Result of the `boot:getReadiness` pull.
+ *
+ * The push's shape plus `steps`: a renderer that missed the push (Angular
+ * installs its message listener after `did-finish-load`, and a renderer reload
+ * gets no replay) reads exactly what a listener would have received, so one
+ * consumer path handles both.
+ *
+ * `steps` carries the latest {@link BootProgressPayload} of every host boot
+ * step that has started, for the same reason: the `boot:progress` replay on
+ * `did-finish-load` can reach the page before its listener exists, and a window
+ * replaced after every step finished gets no replay at all. Only the Electron
+ * host sets it; consumers `safeParse` each entry like a push.
+ */
+export type BootGetReadinessResult = BootReadinessChangedPayload & {
+  readonly steps?: readonly BootProgressPayload[];
+};
 
 /** True when `value` is a {@link BackendReadiness} literal. */
 export function isBackendReadiness(value: unknown): value is BackendReadiness {

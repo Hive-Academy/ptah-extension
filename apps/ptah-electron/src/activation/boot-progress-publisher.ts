@@ -6,7 +6,9 @@
  * `webContents` on the `to-renderer` channel, which the preload relays to
  * `window` as a `message` event. The same window later loads Angular; the
  * latest snapshot of every started step is replayed on `did-finish-load` so the
- * new page sees where the boot is.
+ * new page sees where the boot is. The same snapshots are readable through
+ * {@link BootProgressPublisher.snapshots} for the `boot:getReadiness` pull,
+ * which covers a replay the page's listener was not yet attached for.
  *
  * Properties that matter:
  *
@@ -60,6 +62,13 @@ export interface BootProgressPublisher {
   ): void;
   /** Mark every step that is still active as `failed`. */
   failActive(): void;
+  /**
+   * The latest payload of every started step, in step order. The pull side of
+   * the replay: `boot:getReadiness` returns it, so a page whose listener
+   * missed the `did-finish-load` replay (or that got none, after a window
+   * replacement) still learns where the boot is. Still answers after dispose.
+   */
+  snapshots(): readonly BootProgressPayload[];
   /** Clear pending ticks and stop listening for page loads. Idempotent. */
   dispose(): void;
 }
@@ -191,6 +200,11 @@ export function createBootProgressPublisher(
         }
       }
     },
+    snapshots: () =>
+      BOOT_PROGRESS_STEP_IDS.flatMap((stepId) => {
+        const record = records.get(stepId);
+        return record ? [record.payload] : [];
+      }),
     dispose: () => {
       if (disposed) return;
       disposed = true;

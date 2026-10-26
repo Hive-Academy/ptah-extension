@@ -563,6 +563,261 @@ describe('ElectronLayoutService', () => {
   });
 });
 
+// ─── Workspace resolution (TASK_2026_721 D11) ────────────────────────────────
+
+describe('ElectronLayoutService — workspaceResolved and pendingWorkspaceName', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function deferred<T>(): {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (error: unknown) => void;
+  } {
+    let resolve: (value: T) => void = () => undefined;
+    let reject: (error: unknown) => void = () => undefined;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function create(opts: {
+    isElectron?: boolean;
+    workspaceRoot?: string;
+    storedState?: unknown;
+    getInfo: () => Promise<RpcResult<unknown>>;
+    switchCall?: () => Promise<RpcResult<unknown>>;
+  }): ElectronLayoutService {
+    const isElectron = opts.isElectron ?? true;
+    const vscodeService = {
+      ...buildVscodeService(opts.storedState ?? null),
+      isElectron,
+      config: signal({
+        isElectron,
+        workspaceRoot: opts.workspaceRoot ?? '',
+        workspaceName: '',
+        isVSCode: !isElectron,
+        theme: 'dark' as const,
+        extensionUri: '',
+        baseUri: '',
+        iconUri: '',
+        userIconUri: '',
+      }).asReadonly(),
+    };
+    const rpc = buildRpc();
+    rpc.call = jest.fn(async (method: string) => {
+      if (method === 'workspace:getInfo') return opts.getInfo();
+      if (method === 'workspace:switch' && opts.switchCall) {
+        return opts.switchCall();
+      }
+      return DEFAULT_SWITCH_RESULT;
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        ElectronLayoutService,
+        { provide: VSCodeService, useValue: vscodeService },
+        { provide: AppStateManager, useValue: buildAppState() },
+        { provide: ClaudeRpcService, useValue: rpc },
+        { provide: WORKSPACE_COORDINATOR, useValue: buildCoordinator() },
+      ],
+    });
+    return TestBed.inject(ElectronLayoutService);
+  }
+
+  it('is resolved from the start outside Electron', () => {
+    const getInfo = jest.fn();
+    const service = create({ isElectron: false, getInfo });
+
+    expect(service.workspaceResolved()).toBe(true);
+    expect(getInfo).not.toHaveBeenCalled();
+  });
+
+  it('stays unresolved while workspace:getInfo is pending, then resolves on success', fakeAsync(() => {
+    const info = deferred<RpcResult<unknown>>();
+    const service = create({ getInfo: () => info.promise });
+    tick(0);
+    expect(service.workspaceResolved()).toBe(false);
+
+    info.resolve(DEFAULT_GET_INFO_RESULT);
+    tick(0);
+
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/projects/my-repo', name: 'my-repo' },
+    ]);
+  }));
+
+  it('resolves when workspace:getInfo answers unsuccessfully', fakeAsync(() => {
+    const service = create({
+      getInfo: async () =>
+        new RpcResult<unknown>(false, undefined, 'unavailable'),
+    });
+    tick(0);
+
+    expect(service.workspaceResolved()).toBe(true);
+  }));
+
+  it('resolves when workspace:getInfo throws, keeping the cached folders', fakeAsync(() => {
+    const service = create({
+      storedState: {
+        workspaceFolders: [{ path: '/cached/repo', name: 'repo' }],
+        activeWorkspaceIndex: 0,
+      },
+      getInfo: async () => {
+        throw new Error('RPC timeout: workspace:getInfo');
+      },
+    });
+    tick(0);
+
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/cached/repo', name: 'repo' },
+    ]);
+  }));
+
+  it('does not resolve early when a newer sync superseded the first one', fakeAsync(() => {
+    const first = deferred<RpcResult<unknown>>();
+    const second = deferred<RpcResult<unknown>>();
+    const answers = [first.promise, second.promise];
+    const service = create({
+      getInfo: () => answers.shift() ?? Promise.reject(new Error('extra')),
+    });
+
+    // WORKSPACE_CHANGED starts a second sync while the first is in flight.
+    service.handleMessage({ type: MESSAGE_TYPES.WORKSPACE_CHANGED });
+    first.resolve(DEFAULT_GET_INFO_RESULT);
+    tick(0);
+    expect(service.workspaceResolved()).toBe(false);
+
+    second.reject(new Error('lost'));
+    tick(0);
+    expect(service.workspaceResolved()).toBe(true);
+  }));
+
+  describe('cache fallback waits for its workspace:switch', () => {
+    const storedState = {
+      workspaceFolders: [{ path: '/cached/repo', name: 'repo' }],
+      activeWorkspaceIndex: 0,
+    };
+
+    it('stays unresolved until the cached switch succeeds', fakeAsync(() => {
+      const pendingSwitch = deferred<RpcResult<unknown>>();
+      const service = create({
+        storedState,
+        getInfo: async () => rpcSuccess({ folders: [] }),
+        switchCall: () => pendingSwitch.promise,
+      });
+      tick(0);
+
+      // The rail shows the cached folder, but the host has not switched yet.
+      expect(service.workspaceFolders()).toEqual(storedState.workspaceFolders);
+      expect(service.workspaceResolved()).toBe(false);
+
+      pendingSwitch.resolve(DEFAULT_SWITCH_RESULT);
+      tick(0);
+      expect(service.workspaceResolved()).toBe(true);
+    }));
+
+    it('logs and still resolves when the cached switch fails', fakeAsync(() => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const service = create({
+        storedState,
+        getInfo: async () => {
+          throw new Error('getInfo failed');
+        },
+        switchCall: async () =>
+          new RpcResult<unknown>(false, undefined, 'switch rejected'),
+      });
+      tick(0);
+
+      expect(service.workspaceResolved()).toBe(true);
+      expect(error).toHaveBeenCalledWith(
+        '[ElectronLayout] Fallback workspace:switch failed:',
+        expect.anything(),
+      );
+      error.mockRestore();
+    }));
+
+    it('still resolves when the cached switch throws', fakeAsync(() => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const service = create({
+        storedState,
+        getInfo: async () => new RpcResult<unknown>(false, undefined, 'no'),
+        switchCall: async () => {
+          throw new Error('ipc gone');
+        },
+      });
+      tick(0);
+
+      expect(service.workspaceResolved()).toBe(true);
+      expect(error).toHaveBeenCalled();
+      error.mockRestore();
+    }));
+  });
+
+  it('resolves after a user switch that superseded the first sync', fakeAsync(() => {
+    const info = deferred<RpcResult<unknown>>();
+    const service = create({ getInfo: () => info.promise });
+    tick(0);
+
+    service.setWorkspaceFolders([{ path: '/projects/picked', name: 'picked' }]);
+    service.switchWorkspace(0);
+    tick(100); // switch debounce
+    expect(service.workspaceResolved()).toBe(false);
+
+    // The stale sync bails, but its `finally` still settles resolution.
+    info.resolve(DEFAULT_GET_INFO_RESULT);
+    tick(0);
+
+    expect(service.workspaceResolved()).toBe(true);
+    expect(service.workspaceFolders()).toEqual([
+      { path: '/projects/picked', name: 'picked' },
+    ]);
+  }));
+
+  it('names the pending workspace from the host startup root first', () => {
+    const service = create({
+      workspaceRoot: 'D:\\projects\\host-repo\\',
+      storedState: {
+        workspaceFolders: [{ path: '/cached/cached-repo', name: 'cached' }],
+        activeWorkspaceIndex: 0,
+      },
+      getInfo: () => new Promise(() => undefined),
+    });
+
+    expect(service.pendingWorkspaceName()).toBe('host-repo');
+  });
+
+  it('falls back to the active folder of the cached layout', () => {
+    const service = create({
+      storedState: {
+        workspaceFolders: [
+          { path: '/cached/first', name: 'first' },
+          { bogus: true },
+          { path: '/cached/second', name: 'second' },
+        ],
+        activeWorkspaceIndex: 7,
+      },
+      getInfo: () => new Promise(() => undefined),
+    });
+
+    // Index 7 clamps to the last valid entry, as the cache restore does.
+    expect(service.pendingWorkspaceName()).toBe('second');
+  });
+
+  it('has no pending name without a host root or a cached folder', () => {
+    const service = create({
+      storedState: { workspaceFolders: [], activeWorkspaceIndex: 0 },
+      getInfo: () => new Promise(() => undefined),
+    });
+
+    expect(service.pendingWorkspaceName()).toBeNull();
+  });
+});
+
 // ─── Loop Prevention Tests ────────────────────────────────────────────────────
 //
 // These tests use buildTestHarness (defined above) instead of the ad-hoc

@@ -209,6 +209,35 @@ describe('createBootProgressPublisher', () => {
     ]);
   });
 
+  it('exposes the latest snapshot of every started step for the pull', () => {
+    const contents = makeContents();
+    const publisher = createBootProgressPublisher(
+      () => makeWindow(contents),
+      now,
+    );
+    expect(publisher.snapshots()).toEqual([]);
+
+    publisher.step('agents', 'active');
+    publisher.step('verify', 'active');
+    clock += 40;
+    publisher.step('verify', 'done');
+    // A coalesced tick that has not been sent yet is already in the snapshot.
+    publisher.step('agents', 'active', { done: 2, count: 5 });
+
+    const snapshots = publisher.snapshots();
+    expect(snapshots.map((p) => `${p.stepId}:${p.state}`)).toEqual([
+      'verify:done',
+      'agents:active',
+    ]);
+    expect(snapshots[0]).toMatchObject({ elapsedMs: 40 });
+    expect(snapshots[1]).toMatchObject({ done: 2, count: 5 });
+    snapshots.forEach((p) => BootProgressPayloadSchema.parse(p));
+
+    // The window may be gone by the time a replaced page pulls.
+    publisher.dispose();
+    expect(publisher.snapshots()).toHaveLength(2);
+  });
+
   it('is a no-op without a window and never throws when send fails', () => {
     const warn = jest
       .spyOn(console, 'warn')

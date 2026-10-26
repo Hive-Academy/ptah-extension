@@ -555,9 +555,10 @@ async function runBootstrap(
   // surface needs to reach. `useValue`, not `registerSingleton` — the
   // coordinator is constructed in `main.ts` before this container exists, and
   // this binding deliberately overrides `vscode-core`'s always-ready null
-  // adapter (last registration wins in tsyringe).
+  // adapter (last registration wins in tsyringe). It also answers with the boot
+  // progress snapshots, the pull fallback for a missed `boot:progress` replay.
   container.register(PLATFORM_TOKENS.BOOT_READINESS, {
-    useValue: new ElectronBootReadinessProvider(coordinator),
+    useValue: new ElectronBootReadinessProvider(coordinator, bootProgress),
   });
 
   try {
