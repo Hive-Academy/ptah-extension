@@ -55,6 +55,7 @@ import {
   SURFACE_GET_STATE_TOOL_NAME,
 } from '@ptah-extension/vscode-lm-tools';
 import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
+import { CODEX_RUNTIME_TOKENS } from '@ptah-extension/codex-runtime';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
 import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
@@ -62,13 +63,15 @@ import { CliWebviewManagerAdapter } from './transport/cli-webview-manager-adapte
 import { createCliRpcHostProfile } from './rpc/cli-host-profile';
 
 function makeLogger(): Logger {
-  return {
+  const container = rootContainer.createChildContainer();
+  container.registerInstance(TOKENS.LOGGER, {
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
     trace: jest.fn(),
-  } as unknown as Logger;
+  });
+  return container.resolve<Logger>(TOKENS.LOGGER);
 }
 
 /** A well-formed, unexpired operation id (real clock — this container has no fake one). */
@@ -155,6 +158,20 @@ function composeFullMode(): {
 }
 
 describe('CLI surface composition — collaborator-level (Req 7.4, 11.2)', () => {
+  it('composes surface state without a native Codex runtime', async () => {
+    const { container, state } = composeFullMode();
+    try {
+      expect(state).toBeInstanceOf(SurfaceStateService);
+      for (const token of Object.values(CODEX_RUNTIME_TOKENS)) {
+        expect(container.isRegistered(token, true)).toBe(false);
+      }
+      registerSurfaceRpc(container);
+      expect(container.resolve(TOKENS.RPC_HANDLER)).toBeInstanceOf(RpcHandler);
+    } finally {
+      await container.dispose();
+    }
+  });
+
   it('keeps state through the real CliWebviewManagerAdapter while delivery honestly reports no-surface', async () => {
     const { state } = composeFullMode();
 
