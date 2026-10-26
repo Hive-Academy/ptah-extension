@@ -3203,6 +3203,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:signOutAccount': true,
   'provider:setAccountSelection': true,
   'provider:setAccountDefault': true,
+  'provider:getAmbientClaudeStatus': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

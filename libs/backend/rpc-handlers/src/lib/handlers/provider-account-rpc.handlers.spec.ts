@@ -10,6 +10,7 @@
 // handler only needs it as a DI token.
 jest.mock('@ptah-extension/auth-providers', () => ({
   ProviderAccountService: class ProviderAccountService {},
+  ClaudeAmbientLoginStatusReader: class ClaudeAmbientLoginStatusReader {},
 }));
 
 import 'reflect-metadata';
@@ -17,10 +18,16 @@ import { container, type InjectionToken } from 'tsyringe';
 import { RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
-import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import {
+  ClaudeAmbientLoginStatusReader,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
 import {
   MESSAGE_TYPES,
+  PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY,
   PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY,
+  PROVIDER_ACCOUNT_RESERVED_LABEL,
+  type ProviderAmbientClaudeStatus,
   type ProviderAccountActionResult,
   PROVIDER_ACCOUNT_RPC_METHOD_NAMES,
   type ProviderAccountResultCode,
@@ -30,6 +37,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   ProviderAccountRpcHandlers,
+  type ProviderAccountAmbientStatusReader,
   type ProviderAccountBroadcaster,
   type ProviderAccountRpcActions,
   type ProviderAccountRpcService,
@@ -225,6 +233,22 @@ class FakeActions implements ProviderAccountRpcActions {
   }
 }
 
+/** Ambient reader fake: records each read and answers with `next`. */
+class FakeAmbientReader implements ProviderAccountAmbientStatusReader {
+  readonly reads: Array<{ readonly refresh?: boolean }> = [];
+  next: ProviderAmbientClaudeStatus = { state: 'signed-out', checkedAt: null };
+  failNext: Error | undefined;
+
+  read(
+    options: { readonly refresh?: boolean } = {},
+  ): Promise<ProviderAmbientClaudeStatus> {
+    this.reads.push(options);
+    const failure = this.failNext;
+    this.failNext = undefined;
+    return failure ? Promise.reject(failure) : Promise.resolve(this.next);
+  }
+}
+
 function seedProfile(service: FakeAccountService, revision = 0): void {
   service.profiles.set(PROFILE_A, {
     profileId: PROFILE_A,
@@ -244,6 +268,7 @@ function setup(
     folders?: string[];
     service?: FakeAccountService;
     actions?: FakeActions;
+    ambient?: FakeAmbientReader;
   } = {},
 ) {
   const methods = new Map<string, MethodHandler>();
@@ -285,6 +310,11 @@ function setup(
   scope.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS, {
     useValue: actions,
   });
+  const ambientToken: InjectionToken<ProviderAccountAmbientStatusReader> =
+    ClaudeAmbientLoginStatusReader;
+  scope.register(ambientToken, {
+    useValue: options.ambient ?? new FakeAmbientReader(),
+  });
   const handlers = scope.resolve(ProviderAccountRpcHandlers);
   handlers.register();
 
@@ -316,7 +346,7 @@ const addParams = (n: number, label = 'Personal') => ({
 });
 
 describe('ProviderAccountRpcHandlers', () => {
-  it('registers exactly the ten provider account methods', () => {
+  it('registers exactly the eleven provider account methods', () => {
     const { rpcHandler } = setup();
     const names = rpcHandler.registerMethod.mock.calls.map((args) => args[0]);
     expect(names).toHaveLength(PROVIDER_ACCOUNT_RPC_METHOD_NAMES.length);
@@ -955,6 +985,164 @@ describe('ProviderAccountRpcHandlers', () => {
           summary: PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY,
         },
       });
+    });
+
+    it('shows the duplicate-name sentence when add or rename is refused', async () => {
+      const { call, service, sent } = setup();
+      const refused = {
+        ok: false,
+        result: {
+          code: 'conflict',
+          summary: PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY,
+        },
+      };
+      service.failNext = new FakeStoreError(
+        'conflict',
+        PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY,
+      );
+      await expect(
+        call('provider:addAccount', addParams(1, 'work')),
+      ).resolves.toEqual(refused);
+
+      seedProfile(service);
+      service.failNext = new FakeStoreError(
+        'conflict',
+        PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY,
+      );
+      await expect(
+        call('provider:renameAccount', {
+          provider: 'claude',
+          workspaceRoot: ROOT,
+          profileId: PROFILE_A,
+          expectedRevision: 0,
+          requestId: REQ(2),
+          label: PROVIDER_ACCOUNT_RESERVED_LABEL,
+        }),
+      ).resolves.toEqual(refused);
+      expect(sent).toHaveLength(0);
+    });
+  });
+
+  describe('ambient Claude login status (P5)', () => {
+    const CHECKED_AT = '2026-10-26T10:00:00.000Z';
+
+    it('forwards refresh: true and returns the reader status', async () => {
+      const ambient = new FakeAmbientReader();
+      const { call } = setup({ ambient });
+      ambient.next = { state: 'connected', checkedAt: CHECKED_AT };
+      await expect(
+        call('provider:getAmbientClaudeStatus', {
+          provider: 'claude',
+          refresh: true,
+        }),
+      ).resolves.toEqual({
+        ok: true,
+        status: { state: 'connected', checkedAt: CHECKED_AT },
+      });
+      expect(ambient.reads).toEqual([{ refresh: true }]);
+    });
+
+    it.each([
+      ['omitted', { provider: 'claude' }],
+      ['false', { provider: 'claude', refresh: false }],
+    ])('reads without refresh when refresh is %s', async (_label, params) => {
+      const ambient = new FakeAmbientReader();
+      const { call } = setup({ ambient });
+      await call('provider:getAmbientClaudeStatus', params);
+      expect(ambient.reads).toEqual([{ refresh: false }]);
+    });
+
+    it.each([
+      ['an env bag', { provider: 'claude', env: {} }],
+      ['a workspace root', { provider: 'claude', workspaceRoot: ROOT }],
+      ['a config dir', { provider: 'claude', configDir: '/home/me/.claude' }],
+      ['a non-boolean refresh', { provider: 'claude', refresh: 'yes' }],
+      ['an unknown provider', { provider: 'gemini' }],
+      ['no params', undefined],
+    ])('rejects %s before reading', async (_label, params) => {
+      const ambient = new FakeAmbientReader();
+      const { call } = setup({ ambient });
+      await expect(
+        call('provider:getAmbientClaudeStatus', params),
+      ).rejects.toMatchObject({
+        name: 'RpcUserError',
+        errorCode: 'INVALID_PARAMS',
+      });
+      expect(ambient.reads).toEqual([]);
+    });
+
+    it('refuses another provider without reading', async () => {
+      const ambient = new FakeAmbientReader();
+      const { call } = setup({ ambient });
+      await expect(
+        call('provider:getAmbientClaudeStatus', { provider: 'codex' }),
+      ).resolves.toEqual({
+        ok: false,
+        result: {
+          code: 'wrong-provider',
+          summary: 'This action requires a Claude account.',
+        },
+      });
+      expect(ambient.reads).toEqual([]);
+    });
+
+    it('returns only state, checkedAt and reason', async () => {
+      const ambient = new FakeAmbientReader();
+      const { call, sent } = setup({ ambient });
+      // A reader result carrying extra fields must not leak them.
+      const leaky = {
+        state: 'unknown',
+        checkedAt: null,
+        reason: 'unreadable',
+        email: 'me@example.com',
+        configDir: SECRET_TEXT,
+        stdout: '{"loggedIn":true}',
+      } as const;
+      ambient.next = leaky;
+      const result = await call('provider:getAmbientClaudeStatus', {
+        provider: 'claude',
+      });
+      expect(result).toEqual({
+        ok: true,
+        status: { state: 'unknown', checkedAt: null, reason: 'unreadable' },
+      });
+      const status = (result as { status: object }).status;
+      expect(Object.keys(status).sort()).toEqual([
+        'checkedAt',
+        'reason',
+        'state',
+      ]);
+      expect(JSON.stringify(result)).not.toContain('example.com');
+      expect(JSON.stringify(result)).not.toContain('sk-ant');
+      expect(sent).toHaveLength(0);
+    });
+
+    it('drops a reason that is not paired with unknown', async () => {
+      const ambient = new FakeAmbientReader();
+      const { call } = setup({ ambient });
+      ambient.next = {
+        state: 'signed-out',
+        checkedAt: CHECKED_AT,
+        reason: 'timeout',
+      };
+      await expect(
+        call('provider:getAmbientClaudeStatus', { provider: 'claude' }),
+      ).resolves.toEqual({
+        ok: true,
+        status: { state: 'signed-out', checkedAt: CHECKED_AT },
+      });
+    });
+
+    it('maps an unexpected reader failure to a fixed refusal', async () => {
+      const ambient = new FakeAmbientReader();
+      const { call, logger } = setup({ ambient });
+      ambient.failNext = new Error(`spawn failed ${SECRET_TEXT}`);
+      const result = await call('provider:getAmbientClaudeStatus', {
+        provider: 'claude',
+      });
+      expect(result).toMatchObject({ ok: false });
+      expect(JSON.stringify(result)).not.toContain('sk-ant');
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('sk-ant');
     });
   });
 

@@ -19,6 +19,7 @@
 
 import 'reflect-metadata';
 import {
+  ClaudeAmbientLoginStatusReader,
   ClaudeNamedAccountPersistence,
   OpenRouterPricingService,
   ProviderAccountService,
@@ -340,7 +341,7 @@ describe('Electron DI — shared RPC handler resolution', () => {
 });
 
 describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
-  it('resolves ProviderAccountRpcHandlers once and registers exactly its ten methods', () => {
+  it('resolves ProviderAccountRpcHandlers once and registers exactly its eleven methods', () => {
     const c = buildMinimalContainer();
     c.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: { broadcastMessage: jest.fn(async () => undefined) },
@@ -348,6 +349,18 @@ describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
     c.register<Pick<ProviderAccountService, 'list'>>(ProviderAccountService, {
       useValue: { list: jest.fn(() => []) },
     });
+    // The ambient login read (P5) is injected by class; a stub stands in.
+    c.register<Pick<ClaudeAmbientLoginStatusReader, 'read'>>(
+      ClaudeAmbientLoginStatusReader,
+      {
+        useValue: {
+          read: jest.fn(async () => ({
+            state: 'signed-out' as const,
+            checkedAt: null,
+          })),
+        },
+      },
+    );
     // The handler injects the actions port by its token (Batch 17).
     const unsubscribe = jest.fn();
     const actions = {
@@ -377,6 +390,8 @@ describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
     expect([...registered].sort()).toEqual(
       [...ProviderAccountRpcHandlers.METHODS].sort(),
     );
+    expect(registered).toContain('provider:getAmbientClaudeStatus');
+    expect(registered).toHaveLength(11);
     expect(new Set(registered).size).toBe(registered.length);
   });
 

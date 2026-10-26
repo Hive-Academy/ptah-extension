@@ -26,6 +26,7 @@
 import type {
   ProviderAccountActionResult,
   ProviderAccountProvider,
+  ProviderAmbientClaudeStatus,
   ProviderAccountScope,
   ProviderAccountSelection,
   ProviderAccountSummary,
@@ -43,6 +44,7 @@ export const PROVIDER_ACCOUNT_RPC_METHOD_NAMES = [
   'provider:signOutAccount',
   'provider:setAccountSelection',
   'provider:setAccountDefault',
+  'provider:getAmbientClaudeStatus',
 ] as const satisfies readonly (keyof ProviderAccountRpcMethodRegistry)[];
 
 export type ProviderAccountRpcMethodName =
@@ -254,6 +256,20 @@ export interface ProviderSetAccountDefaultParams
 export type ProviderSetAccountDefaultResult =
   ProviderAccountRpcResult<ProviderAccountCommittedWrite>;
 
+/**
+ * Reads whether the existing Claude login (no named account) is signed in.
+ * The ambient login is host-wide, so no workspace root is taken. `refresh`
+ * bypasses the host's short-lived cache; the host still runs one check at a
+ * time.
+ */
+export interface ProviderGetAmbientClaudeStatusParams {
+  readonly provider: ProviderAccountProvider;
+  readonly refresh?: boolean;
+}
+export type ProviderGetAmbientClaudeStatusResult = ProviderAccountRpcResult<{
+  readonly status: ProviderAmbientClaudeStatus;
+}>;
+
 // ---------------------------------------------------------------------------
 // Registry slice
 // ---------------------------------------------------------------------------
@@ -304,6 +320,10 @@ export interface ProviderAccountRpcMethodRegistry {
   'provider:setAccountDefault': {
     params: ProviderSetAccountDefaultParams;
     result: ProviderSetAccountDefaultResult;
+  };
+  'provider:getAmbientClaudeStatus': {
+    params: ProviderGetAmbientClaudeStatusParams;
+    result: ProviderGetAmbientClaudeStatusResult;
   };
 }
 

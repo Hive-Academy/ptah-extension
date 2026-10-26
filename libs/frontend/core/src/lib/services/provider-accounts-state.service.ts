@@ -741,7 +741,9 @@ export class ProviderAccountsStateService implements MessageHandler {
 
 type AccountWriteMethod = Exclude<
   ProviderAccountRpcMethodName,
-  'provider:listAccounts' | 'provider:getAccountStatus'
+  | 'provider:listAccounts'
+  | 'provider:getAccountStatus'
+  | 'provider:getAmbientClaudeStatus'
 >;
 type AccountWriteResult = RpcMethodResult<AccountWriteMethod>;
 

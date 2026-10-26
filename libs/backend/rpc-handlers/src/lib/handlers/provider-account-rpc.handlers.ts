@@ -45,7 +45,10 @@ import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import {
+  ClaudeAmbientLoginStatusReader,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import {
@@ -69,6 +72,7 @@ import {
   type ProviderAccountSummary,
   type ProviderAccountsChangedNotification,
   type ProviderAccountsSnapshot,
+  type ProviderAmbientClaudeStatus,
 } from '@ptah-extension/shared';
 import { PROVIDER_ACCOUNT_RPC_SCHEMAS } from './provider-account-rpc.schema';
 
@@ -76,6 +80,12 @@ import { PROVIDER_ACCOUNT_RPC_SCHEMAS } from './provider-account-rpc.schema';
 export type ProviderAccountRpcService = Pick<
   ProviderAccountService,
   'list' | 'add' | 'rename' | 'remove' | 'selection' | 'select' | 'setDefault'
+>;
+
+/** The ambient (no named account) Claude login check. Kept narrow for a test fake. */
+export type ProviderAccountAmbientStatusReader = Pick<
+  ClaudeAmbientLoginStatusReader,
+  'read'
 >;
 
 /** One profile state change from the actions port. No path, identity or CLI text. */
@@ -231,6 +241,8 @@ export class ProviderAccountRpcHandlers {
     private readonly broadcaster: ProviderAccountBroadcaster,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS)
     private readonly actions: ProviderAccountRpcActions,
+    @inject(ClaudeAmbientLoginStatusReader)
+    private readonly ambient: ProviderAccountAmbientStatusReader,
   ) {}
 
   register(): void {
@@ -239,6 +251,9 @@ export class ProviderAccountRpcHandlers {
     );
     this.on('provider:listAccounts', (p) => this.listAccounts(p));
     this.on('provider:getAccountStatus', (p) => this.getAccountStatus(p));
+    this.on('provider:getAmbientClaudeStatus', (p) =>
+      this.getAmbientClaudeStatus(p),
+    );
     this.on('provider:addAccount', (p) =>
       withAccount(
         // The service keys the new profile by requestId, so a replay the
@@ -364,6 +379,28 @@ export class ProviderAccountRpcHandlers {
         : { ok: true, account: sanitizeSummary(account), operation };
     } catch (error: unknown) {
       return this.refusalFrom('provider:getAccountStatus', error);
+    }
+  }
+
+  /**
+   * Host-wide read of the existing Claude login. No workspace check (the
+   * ambient login is not per workspace), no ledger (read-only) and no
+   * broadcast. The status is copied field by field so nothing but
+   * `state`/`checkedAt`/`reason` can cross this layer.
+   */
+  private async getAmbientClaudeStatus(
+    params: Params<'provider:getAmbientClaudeStatus'>,
+  ): Promise<Result<'provider:getAmbientClaudeStatus'>> {
+    if (params.provider !== SERVED_PROVIDER) return refusal('wrong-provider');
+    try {
+      const read = await this.ambient.read({ refresh: params.refresh === true });
+      const status: ProviderAmbientClaudeStatus =
+        read.state === 'unknown' && read.reason !== undefined
+          ? { state: read.state, checkedAt: read.checkedAt, reason: read.reason }
+          : { state: read.state, checkedAt: read.checkedAt };
+      return { ok: true, status };
+    } catch (error: unknown) {
+      return this.refusalFrom('provider:getAmbientClaudeStatus', error);
     }
   }
 

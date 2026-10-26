@@ -278,3 +278,14 @@
   part of the Gate-2 review). The orchestrator runs each batch verify and commits. Executors: Claude subagents
   (backend-developer, frontend-developer). Phase reviews: codex (different family), one per phase (backend
   B1-B3, frontend F1-F7). Reversible.
+
+## D44 — B3 verify: one new typecheck failure fixed by the orchestrator (2026-10-26, orchestrator)
+
+- B3 verify (N = 10): 5 failed tasks. Three are the known pre-existing failures (auth-providers test EPERM,
+  auth-providers lint dependency-checks, webview lint circular dependency; files unchanged since `396f0135b`).
+  New: `@ptah-extension/core:typecheck` and `ptah-extension-webview:typecheck`, TS2339 `snapshot` at
+  `provider-accounts-state.service.ts:619/632/651`. Cause: `AccountWriteMethod` excludes only the two read
+  methods, so the new read method `provider:getAmbientClaudeStatus` entered the write union.
+- Fix (one-line type edit, trivial-edit exception): exclude `provider:getAmbientClaudeStatus` from
+  `AccountWriteMethod`. B3 commit becomes 9 files. The codex backend phase review covers the edit.
+  Evidence: the compiler errors; the method is a read (plan §5). Reversible.

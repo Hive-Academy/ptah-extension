@@ -123,6 +123,11 @@ export const ProviderSetAccountDefaultSchema = z
   })
   .strict();
 
+/** Host-wide read: no workspace root, profile or environment is accepted. */
+export const ProviderGetAmbientClaudeStatusSchema = z
+  .object({ provider: ProviderSchema, refresh: z.boolean().optional() })
+  .strict();
+
 /**
  * One schema per method. The mapped type proves each schema's output is
  * assignable to the shared params contract, so the two cannot drift.
@@ -142,4 +147,5 @@ export const PROVIDER_ACCOUNT_RPC_SCHEMAS: {
   'provider:signOutAccount': ProviderSignOutAccountSchema,
   'provider:setAccountSelection': ProviderSetAccountSelectionSchema,
   'provider:setAccountDefault': ProviderSetAccountDefaultSchema,
+  'provider:getAmbientClaudeStatus': ProviderGetAmbientClaudeStatusSchema,
 };
