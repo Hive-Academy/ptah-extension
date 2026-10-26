@@ -14,6 +14,8 @@ import {
   newPanelId,
   sourceChipClass,
 } from './stats-tile.styles';
+import { STATS_EMPTY } from '../session-stats-view';
+import { LANE_EMPTY } from './lane-tiles';
 import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 
 /**
@@ -59,6 +61,8 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
         <span
           class="text-xs font-semibold tabular-nums"
           data-testid="lane-tokens"
+          [class.text-base-content-muted]="t.tokensText === empty.value"
+          [attr.aria-label]="t.tokensText === empty.value ? empty.usage : null"
           >{{ t.tokensText }}
           @if (t.tokensUnknownText) {
             <span class="text-[10px] font-normal text-base-content-muted">{{
@@ -120,6 +124,7 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
       data-testid="lane-usage-panel"
     >
       @if (open()) {
+        @if (usageUnavailable()) { <p class="text-xs text-base-content-muted">{{ empty.usage }}</p> }
         @for (group of t.subgroups; track group.key; let first = $first) {
           <section
             [class]="first ? 'py-1' : subgroupDivider"
@@ -130,8 +135,8 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
             @for (run of group.runs; track run.runId) {
               <p class="text-xs mt-0.5" data-testid="lane-run-row">
                 <span class="font-semibold">{{ run.label }}</span>
-                · Model {{ run.model }} · Tokens {{ run.tokensText }} · Cost
-                {{ run.costText }} · {{ run.stateText }}
+                · Model {{ run.model }} · Tokens <span [class.text-base-content-muted]="run.tokensText === empty.value" [attr.aria-label]="run.tokensText === empty.value ? statsEmpty.tokens : null">{{ run.tokensText }}</span> · Cost
+                <span [class.text-base-content-muted]="run.costText === empty.value" [attr.aria-label]="run.costText === empty.value ? statsEmpty.cost : null">{{ run.costText }}</span> · {{ run.stateText }}
                 @if (run.startedText) {
                   · {{ run.startedText }}
                 }
@@ -141,7 +146,7 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
               {{ group.ownerText }}
             </p>
             <div class="flex flex-wrap gap-1 mt-1">
-              <span [class]="chipClass(group.stateChip.tone)">
+              <span [class]="group.state === 'unknown' ? 'text-base-content-muted' : chipClass(group.stateChip.tone)">
                 @if (group.stateChip.glyph) {
                   <span aria-hidden="true">{{ group.stateChip.glyph }}</span>
                 }
@@ -202,6 +207,10 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LaneUsageTileComponent {
+  protected readonly statsEmpty = STATS_EMPTY;
+  protected readonly empty = LANE_EMPTY;
+  protected readonly usageUnavailable = computed(() => this.tile().subgroups.some(group => group.runs.some(run => run.tokensText === LANE_EMPTY.value || run.costText === LANE_EMPTY.value)));
+
   readonly tile = input.required<LaneUsageTileModel>();
   readonly linkPlanTiles = input<boolean>(false);
   readonly planTileRequested = output<string>();

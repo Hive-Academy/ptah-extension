@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -47,6 +49,7 @@ class HeaderStub {
   readonly band = input('lg');
   readonly splitDisplayed = input(false);
   readonly detailsOpen = input(false);
+  readonly inspectorExpanded = input(false);
   readonly paneFocused = input(true);
   readonly paneNumber = input<1 | 2 | null>(null);
   readonly panePlace = input('');
@@ -169,18 +172,52 @@ describe('CanvasFocusAreaComponent', () => {
     return { fixture, lanes, tabs, selectLaneFor };
   }
 
+  it('keeps the selector only below the header while the inspector is compact', () => {
+    const { fixture } = mountWithLanes();
+    expect(fixture.debugElement.queryAll(By.directive(TabsStub))).toHaveLength(
+      1,
+    );
+    fixture.componentRef.setInput('inspectorExpanded', true);
+    fixture.detectChanges();
+    expect(fixture.debugElement.queryAll(By.directive(TabsStub))).toHaveLength(
+      0,
+    );
+    fixture.componentRef.setInput('inspectorExpanded', false);
+    fixture.detectChanges();
+    expect(fixture.debugElement.queryAll(By.directive(TabsStub))).toHaveLength(
+      1,
+    );
+  });
+
+  it('sets the common chat and lane width to 1100px', () => {
+    expect(
+      readFileSync(join(__dirname, 'canvas-focus-area.component.ts'), 'utf8'),
+    ).toMatch(/:host\s*\{\s*--chat-content-max-width: 1100px;/);
+  });
+
   it('row 113: forwards pane activity, visual number and place to the header without remounting it', () => {
     const { fixture } = mountWithLanes();
-    const header = () => fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
+    const header = () =>
+      fixture.debugElement.query(By.directive(HeaderStub))
+        .componentInstance as HeaderStub;
     const first = header();
-    expect([first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, null, '']);
+    expect([
+      first.paneFocused(),
+      first.paneNumber(),
+      first.panePlace(),
+    ]).toEqual([true, null, '']);
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.componentRef.setInput('paneFocused', false);
     fixture.componentRef.setInput('paneNumber', 2);
     fixture.componentRef.setInput('panePlace', 'Bottom');
     fixture.detectChanges();
     expect(header()).toBe(first);
-    expect([first.splitDisplayed(), first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, false, 2, 'Bottom']);
+    expect([
+      first.splitDisplayed(),
+      first.paneFocused(),
+      first.paneNumber(),
+      first.panePlace(),
+    ]).toEqual([true, false, 2, 'Bottom']);
   });
 
   it('activates an inactive tab before stopping its session', async () => {
@@ -235,7 +272,9 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('focusedTabId', 'a');
     fixture.detectChanges();
     const header = fixture.nativeElement.querySelector('header');
-    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
+    const view = fixture.debugElement.query(
+      By.directive(ViewStub),
+    ).componentInstance;
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
@@ -245,7 +284,9 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('focusedTabId', 'b');
     fixture.detectChanges();
     expect(destroyed).toEqual([]);
-    expect(fixture.debugElement.query(By.directive(ViewStub)).componentInstance).toBe(view);
+    expect(
+      fixture.debugElement.query(By.directive(ViewStub)).componentInstance,
+    ).toBe(view);
     expect(fixture.nativeElement.querySelector('header')).toBe(header);
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
@@ -269,13 +310,19 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('paneFocused', false);
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.detectChanges();
-    const tabs = fixture.debugElement.query(By.directive(TabsStub)).componentInstance;
-    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
+    const tabs = fixture.debugElement.query(
+      By.directive(TabsStub),
+    ).componentInstance;
+    const view = fixture.debugElement.query(
+      By.directive(ViewStub),
+    ).componentInstance;
     expect(tabs.panelId()).toBe('rail-right-lane-panel');
     expect(view.panelId()).toBe('rail-right-lane-panel');
     expect(view.paneFocused()).toBe(false);
     expect(view.splitDisplayed()).toBe(true);
-    expect(fixture.nativeElement.querySelector('section').hasAttribute('aria-label')).toBe(false);
+    expect(
+      fixture.nativeElement.querySelector('section').hasAttribute('aria-label'),
+    ).toBe(false);
   });
 
   it.each(['left', 'right'] as const)(
@@ -287,16 +334,25 @@ describe('CanvasFocusAreaComponent', () => {
       fixture.componentRef.setInput('detailsOpen', true);
       fixture.detectChanges();
       const area = fixture.componentInstance;
-      const header = fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
+      const header = fixture.debugElement.query(By.directive(HeaderStub))
+        .componentInstance as HeaderStub;
       expect(header.splitDisplayed()).toBe(true);
       expect(header.detailsOpen()).toBe(true);
       expect(area.panelId()).toBe(`rail-${paneId}-lane-panel`);
       const received: Array<[string, string]> = [];
-      area.closeSplitRequested.subscribe((id) => received.push(['closeSplit', id]));
-      area.closePaneRequested.subscribe((id) => received.push(['closePane', id]));
-      area.swapPanesRequested.subscribe((id) => received.push(['swapPanes', id]));
+      area.closeSplitRequested.subscribe((id) =>
+        received.push(['closeSplit', id]),
+      );
+      area.closePaneRequested.subscribe((id) =>
+        received.push(['closePane', id]),
+      );
+      area.swapPanesRequested.subscribe((id) =>
+        received.push(['swapPanes', id]),
+      );
       area.detailsRequested.subscribe((id) => received.push(['details', id]));
-      area.closeRequested.subscribe((id) => received.push(['closeSession', id]));
+      area.closeRequested.subscribe((id) =>
+        received.push(['closeSession', id]),
+      );
       header.closeSplitRequested.emit();
       header.closePaneRequested.emit();
       header.swapPanesRequested.emit();

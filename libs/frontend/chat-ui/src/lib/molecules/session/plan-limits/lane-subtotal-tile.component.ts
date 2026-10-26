@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { LANE_EMPTY } from './lane-tiles';
 import { LANE_ROW_FILL } from './stats-tile.styles';
 import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
 
@@ -21,11 +22,13 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
     <div [class]="faceClass()" data-testid="lane-subtotal-tile">
       <div class="flex min-w-0 items-center gap-2">
         <span class="min-w-16 shrink-0 text-xs text-base-content"
-          >Subtotal</span
+          >{{ empty.subtotal }}</span
         >
         <span
           class="text-xs font-semibold tabular-nums"
           data-testid="lane-subtotal-tokens"
+          [class.text-base-content-muted]="t.tokensText === empty.value"
+          [attr.aria-label]="t.tokensText === empty.value ? 'Known subtotal tokens unavailable' : null"
           >{{ t.tokensText }}</span
         >
       </div>
@@ -49,6 +52,7 @@ import type { LaneSubtotalTileModel } from './stats-limit-view-model.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LaneSubtotalTileComponent {
+  protected readonly empty = LANE_EMPTY;
   readonly tile = input.required<LaneSubtotalTileModel>();
   readonly variant = input<'strip' | 'inspector'>('strip');
   /** The section header already shows this row's caption. */

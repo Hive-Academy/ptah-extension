@@ -268,10 +268,10 @@ describe('LaneUsageTileComponent', () => {
     });
     const root = render(vm.laneTiles[0], true);
 
-    expect(text(root, 'lane-tokens')).toBe('unknown tokens');
-    expect(text(root, 'lane-cost')).toBe('cost unknown');
-    expect(text(root, 'lane-run-row')).toContain('Tokens unknown');
-    expect(text(root, 'lane-run-row')).toContain('Cost unknown');
+    expect(text(root, 'lane-tokens')).toBe('—');
+    expect(text(root, 'lane-cost')).toBe('');
+    expect(text(root, 'lane-run-row')).toContain('Tokens —');
+    expect(text(root, 'lane-run-row')?.replace(/\s+/g, ' ')).toContain('Cost —');
     expect(root.textContent).not.toMatch(/\b0 tokens|\$0\.00/);
   });
 

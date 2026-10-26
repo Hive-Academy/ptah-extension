@@ -10,7 +10,7 @@ import { costBudgetSuffix, costBudgetText, tokensBudgetSuffix } from '../session
 import { StatsTileExpansionState } from '../plan-limits/stats-tile-expansion.state';
 import { InspectorCacheTileComponent } from './inspector-cache-tile.component';
 import {
-  AGENTS_DETAILS, agentCountOf, contextDetailsText, costDetailsText, durationMsOf,
+  STATS_EMPTY, contextDetailsText, costDetailsText, durationMsOf,
   knownSubtotalOf, tokenDetailsText, type SessionStatsInputs,
 } from '../session-stats-view';
 
@@ -50,10 +50,9 @@ let nextSessionId = 0;
             @if (s.context.percent !== null) { <ptah-context-ring [percent]="s.context.percent" [size]="28" /> }
             <div class="min-w-0 flex-1">
               <div [id]="contextLabelId" class="text-[11px] text-base-content-muted">Context</div>
-              <div class="text-sm font-semibold tabular-nums">{{ s.context.label }}</div>
+              <div class="text-sm font-semibold tabular-nums" [class.text-base-content-muted]="!s.context.known" [attr.aria-label]="!s.context.known ? empty.context : null">{{ s.context.label }}</div>
               <div class="text-[11px] text-base-content-muted">
                 @if (s.context.usedTokens !== null) { {{ formatTokens(s.context.usedTokens) }} tokens }
-                @else { {{ s.context.hasLive ? 'Window unknown' : 'No data yet' }} }
               </div>
             </div>
             @if (s.compactionCount > 0) {
@@ -64,7 +63,7 @@ let nextSessionId = 0;
         </div>
         <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-tokens')">
           <div class="pr-4 text-[10px] text-base-content-muted">Tokens</div>
-          <div class="text-xs font-semibold tabular-nums">
+          <div class="text-xs font-semibold tabular-nums" [class.text-base-content-muted]="(s.snapshot?.tokenCount ?? null) === null" [attr.aria-label]="(s.snapshot?.tokenCount ?? null) === null ? empty.tokens : null">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
             {{ tokenLabel() }}
           </div>
@@ -83,7 +82,8 @@ let nextSessionId = 0;
           <div class="flex items-center gap-1 text-xs font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
             @if (costBudgetText(s.budget); as text) { {{ text }} }
-            @else { <ptah-cost-badge [cost]="s.snapshot?.totalCost ?? null" /> }
+            @else if ((s.snapshot?.totalCost ?? null) === null) { <span class="text-base-content-muted" [attr.aria-label]="empty.cost">{{ empty.value }}</span> }
+            @else { <ptah-cost-badge [cost]="s.snapshot!.totalCost" /> }
           </div>
           @if (costBudgetSuffix(s.budget); as suffix) { <p class="text-[11px] text-base-content-muted">of {{ suffix.slice(2) }} budget</p> }
           @else if (!costBudgetText(s.budget)) {
@@ -103,13 +103,6 @@ let nextSessionId = 0;
             <div class="text-[11px] text-base-content-muted">Time</div>
             <div class="text-xs font-semibold tabular-nums">{{ formatDuration(ms) }}</div>
             @if (turns() !== null) { <p class="text-[11px] text-base-content-muted">{{ turns() }} turns</p> }
-          </div>
-        }
-        @if (agents(); as count) {
-          <div class="relative rounded-md border border-surface-border bg-surface-1 p-1.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-agents')">
-            <div class="pr-4 text-[10px] text-base-content-muted">Agents</div>
-            <div class="text-xs font-semibold tabular-nums">{{ count }}</div>
-            <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Agents', key: 'sd-agents', text: agentsDetails }" />
           </div>
         }
       </div>
@@ -176,7 +169,7 @@ export class InspectorSessionStatsComponent {
   protected readonly AlertTriangleIcon = AlertTriangle;
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly InfoIcon = Info;
-  protected readonly agentsDetails = AGENTS_DETAILS;
+  protected readonly empty = STATS_EMPTY;
   protected readonly formatCost = formatCost;
   protected readonly formatDuration = formatDuration;
   protected readonly formatOptionalTokens = formatOptionalTokens;
@@ -186,11 +179,10 @@ export class InspectorSessionStatsComponent {
   protected readonly tokensBudgetSuffix = tokensBudgetSuffix;
   protected readonly floor = Math.floor;
   protected readonly knownSubtotal = computed(() => knownSubtotalOf(this.stats().snapshot));
-  protected readonly agents = computed(() => agentCountOf(this.stats().snapshot));
   protected readonly duration = computed(() => durationMsOf(this.stats().snapshot));
   protected readonly tokenLabel = computed(() => {
     const count = this.stats().snapshot?.tokenCount;
-    return typeof count === 'number' ? formatTokens(count) : '—';
+    return typeof count === 'number' ? formatTokens(count) : STATS_EMPTY.value;
   });
   protected readonly contextDetails = computed(() => contextDetailsText(this.stats().liveModelStats, this.stats().compactionCount));
   protected readonly tokenDetails = computed(() => tokenDetailsText(this.stats().snapshot, this.stats().budget));

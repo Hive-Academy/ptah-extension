@@ -1,22 +1,125 @@
-@if (presentation() === 'sheet') {
-  <div role="dialog" aria-modal="true" aria-label="This session" class="flex h-full min-h-0 flex-col bg-base-100">
+@if (presentation() === 'rail') {
+  <aside
+    aria-label="Session details"
+    class="flex h-full min-h-0 w-14 shrink-0 flex-col overflow-y-auto border-l border-surface-border bg-base-100"
+  >
+    <button
+      #expandButton
+      type="button"
+      data-inspector-expand
+      [attr.aria-label]="expandLabel()"
+      [title]="expandLabel()"
+      class="m-1 min-h-10 rounded-md p-1 text-xs hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
+      (click)="expandRequested.emit(undefined)"
+    >
+      ‹
+      @if (railLimitDot(); as dot) {
+        <span
+          aria-hidden="true"
+          class="font-semibold"
+          [class.text-state-need]="dot === 'need'"
+          [class.text-state-err]="dot === 'err'"
+          >!</span
+        >
+      }
+    </button>
+    @if (stats()) {
+      @for (metric of railMetrics(); track metric.id) {
+        <button
+          type="button"
+          class="m-1 flex min-h-10 flex-col items-center justify-center rounded-md p-1 text-xs tabular-nums hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
+          [attr.aria-label]="metric.ariaLabel"
+          [title]="metric.ariaLabel"
+          (click)="expandRequested.emit('session')"
+        >
+          <span class="text-[10px] text-base-content-muted">{{
+            metric.id === 'tokens' ? 'Tok' : metric.label
+          }}</span>
+          <span [class.text-base-content-muted]="metric.unavailable">{{
+            metric.value
+          }}</span>
+          @if (metric.id === 'context' && railLimitDot(); as dot) {
+            <span
+              aria-hidden="true"
+              class="font-semibold"
+              [class.text-state-need]="dot === 'need'"
+              [class.text-state-err]="dot === 'err'"
+              >!</span
+            >
+          }
+        </button>
+      }
+      <button
+        type="button"
+        class="relative m-1 flex min-h-10 flex-col items-center justify-center rounded-md p-1 text-xs tabular-nums hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
+        [attr.aria-label]="runLabel()"
+        [title]="runLabel()"
+        (click)="expandRequested.emit('agents')"
+      >
+        <span class="text-[10px] text-base-content-muted">Run</span>
+        <span>{{ model().agents.data?.active ?? '—' }}</span>
+        @if (model().needsYouCount > 0) {
+          <span
+            aria-hidden="true"
+            class="rounded-full bg-state-need/15 px-1 text-[10px] text-state-need"
+            >{{ model().needsYouCount }}!</span
+          >
+        }
+      </button>
+      @if (railTodos(); as todos) {
+        <button
+          type="button"
+          class="m-1 flex min-h-10 flex-col items-center justify-center rounded-md p-1 text-xs tabular-nums hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2"
+          [attr.aria-label]="
+            'Todos: ' + todos.done + ' of ' + todos.total + ' completed'
+          "
+          [title]="'Todos: ' + todos.done + ' of ' + todos.total + ' completed'"
+          (click)="expandRequested.emit('todos')"
+        >
+          <span class="text-[10px] text-base-content-muted">Todo</span>
+          <span>{{ todos.done }}/{{ todos.total }}</span>
+        </button>
+      }
+    }
+  </aside>
+} @else if (presentation() === 'sheet') {
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="This session"
+    class="flex h-full min-h-0 flex-col bg-base-100"
+  >
     <ng-container [ngTemplateOutlet]="body" />
   </div>
 } @else {
-  <aside aria-label="This session" class="flex h-full min-h-0 flex-col bg-base-100">
+  <aside
+    aria-label="This session"
+    class="flex h-full min-h-0 flex-col bg-base-100"
+  >
     <ng-container [ngTemplateOutlet]="body" />
   </aside>
 }
 
 <ng-template #body>
-  <header class="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-surface-border pl-4 pr-2">
+  <header
+    class="flex h-8 shrink-0 items-center justify-end gap-2 border-b border-surface-border pl-4 pr-2"
+  >
     <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
     <button
       #closeButton
       type="button"
       data-inspector-close
       class="inline-flex size-7 items-center justify-center rounded text-base-content-muted hover:bg-base-content/5 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-      aria-label="Close session details"
+      [attr.aria-label]="
+        presentation() === 'sheet'
+          ? 'Close session details'
+          : 'Compact session details'
+      "
+      [title]="
+        presentation() === 'sheet'
+          ? 'Close session details'
+          : 'Compact session details'
+      "
       (click)="closeRequested.emit()"
     >
       <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
@@ -26,6 +129,29 @@
   @let m = model();
   @let s = stats();
   <div class="min-h-0 flex-1 overflow-y-auto">
+    @if (sessionTitle() || sessionStatus() || workflow() || branch()) {
+      <div class="px-3 py-2">
+        <div class="flex items-start justify-between gap-2">
+          <h2 class="min-w-0 text-sm font-medium [overflow-wrap:anywhere]">
+            {{ sessionTitle() }}
+          </h2>
+          <span class="shrink-0 text-xs text-base-content-muted">{{
+            sessionStatus()
+          }}</span>
+        </div>
+        @if (workflow()) {
+          <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
+            {{ workflow() }}
+          </p>
+        }
+        @if (branch()) {
+          <p class="text-xs text-base-content-muted [overflow-wrap:anywhere]">
+            {{ branch() }}
+          </p>
+        }
+      </div>
+    }
+    <ng-content select="[inspectorActions]" />
     @if (m.orchestrator.requests.length > 0) {
       <ptah-inspector-request-lines
         class="block px-3 py-2"
@@ -43,6 +169,8 @@
 
     @if (s) {
       <ptah-inspector-session-stats
+        data-inspector-section="session"
+        tabindex="-1"
         class="st-r block border-t border-surface-border"
         [style.--i]="1"
         [stats]="s"
@@ -52,10 +180,13 @@
     }
 
     <ptah-inspector-agents-section
+      data-inspector-section="agents"
+      tabindex="-1"
       class="block border-t border-surface-border"
       [tabId]="tabId()"
       [sessionId]="m.sessionId"
       [agents]="m.agents"
+      [selectedAgentKey]="selectedAgentKey()"
       [hasLaneSurface]="hasLaneSurface()"
       [staggerStart]="agentsStaggerStart()"
       (laneRequested)="laneRequested.emit($event)"
@@ -72,11 +203,25 @@
       />
     }
 
-    <ptah-inspector-task-section class="st-r block" [style.--i]="afterAgentsIndex() + 1" [tabId]="tabId()" />
+    <ptah-inspector-task-section
+      class="st-r block"
+      [style.--i]="afterAgentsIndex() + 1"
+      [tabId]="tabId()"
+    />
 
-    <ptah-inspector-todos-section class="st-r block" [style.--i]="afterAgentsIndex() + 2" [tabId]="tabId()" />
+    <ptah-inspector-todos-section
+      data-inspector-section="todos"
+      tabindex="-1"
+      class="st-r block"
+      [style.--i]="afterAgentsIndex() + 2"
+      [tabId]="tabId()"
+    />
 
-    <ptah-inspector-git-section class="st-r block" [style.--i]="afterAgentsIndex() + 3" [tabId]="tabId()" />
+    <ptah-inspector-git-section
+      class="st-r block"
+      [style.--i]="afterAgentsIndex() + 3"
+      [tabId]="tabId()"
+    />
   </div>
 
   <p role="status" aria-live="polite" class="sr-only">{{ announcement() }}</p>

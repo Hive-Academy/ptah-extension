@@ -46,8 +46,13 @@ describe('CanvasFocusHeaderComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
-  it('shows the workflow badge as a separate header element', () => {
+  it('keeps workflow in the compact inspector fallback menu', () => {
     const fixture = mount();
+    expect(
+      fixture.nativeElement.querySelector('ptah-workflow-badge'),
+    ).toBeNull();
+    fixture.componentInstance.menuOpen.set(true);
+    fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('ptah-workflow-badge .sr-only'),
     ).not.toBeNull();
@@ -57,30 +62,83 @@ describe('CanvasFocusHeaderComponent', () => {
         ?.textContent?.trim(),
     ).toBe('Workflow: Configure Harness');
   });
+  it('moves passive identity and session actions out of the expanded header', () => {
+    const fixture = mount();
+    fixture.componentInstance.menuOpen.set(true);
+    fixture.componentRef.setInput('inspectorExpanded', true);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-workflow-badge'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-send-to-messaging'),
+    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-stop]')).not.toBeNull();
+  });
+  it.each(['running', 'error'])('keeps the %s text cue visible with details expanded', (state) => {
+    const fixture = mount();
+    fixture.componentRef.setInput('state', state);
+    fixture.componentRef.setInput('inspectorExpanded', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-session-state]')?.textContent.trim()).toBe(state);
+  });
+
+  it('hides an empty overflow menu but retains split actions', () => {
+    const fixture = mount();
+    fixture.componentInstance.menuOpen.set(true);
+    fixture.componentRef.setInput('inspectorExpanded', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-header-menu]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="menu"]')).toBeNull();
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-header-menu]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-action="swap-panes"]')).not.toBeNull();
+  });
+
   it('shows closed inspector limit, ring, dot, and description; hides them while open', () => {
     const fixture = mount();
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.componentRef.setInput('limitCue', {
-      state: 'at', text: 'Weekly plan limit reached', extra: 0,
-      source: 'session', fullText: 'Weekly plan limit reached',
+      state: 'at',
+      text: 'Weekly plan limit reached',
+      extra: 0,
+      source: 'session',
+      fullText: 'Weekly plan limit reached',
     });
     fixture.componentRef.setInput('contextRingPercent', 96);
-    fixture.componentRef.setInput('toggleDescription', 'Context 96%. Weekly plan limit reached.');
+    fixture.componentRef.setInput(
+      'toggleDescription',
+      'Context 96%. Weekly plan limit reached.',
+    );
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const trigger = host.querySelector<HTMLButtonElement>('[data-details]')!;
     expect(trigger.getAttribute('aria-label')).toBe('Open details');
     expect(trigger.getAttribute('title')).toBe('Session details');
-    expect(trigger.querySelector('lucide-angular[aria-hidden="true"] svg')).not.toBeNull();
+    expect(
+      trigger.querySelector('lucide-angular[aria-hidden="true"] svg'),
+    ).not.toBeNull();
     expect(trigger.textContent).not.toContain('ⓘ');
-    expect(trigger.classList.contains('focus-visible:outline-base-content')).toBe(true);
-    for (const button of host.querySelectorAll<HTMLButtonElement>('[data-compact], [data-header-menu], [title="Close session"]')) {
-      expect(button.classList.contains('focus-visible:outline-base-content')).toBe(true);
+    expect(
+      trigger.classList.contains('focus-visible:outline-base-content'),
+    ).toBe(true);
+    for (const button of host.querySelectorAll<HTMLButtonElement>(
+      '[data-compact], [data-header-menu], [title="Close session"]',
+    )) {
+      expect(
+        button.classList.contains('focus-visible:outline-base-content'),
+      ).toBe(true);
     }
-    expect(host.querySelector('[role="status"]')?.textContent).toContain('At limit');
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(
+      'At limit',
+    );
     expect(trigger.getAttribute('data-dot')).toBe('err');
     expect(trigger.querySelector('ptah-context-ring')).not.toBeNull();
-    expect(host.querySelector(`#${trigger.getAttribute('aria-describedby')}`)?.textContent).toBe('Context 96%. Weekly plan limit reached.');
+    expect(
+      host.querySelector(`#${trigger.getAttribute('aria-describedby')}`)
+        ?.textContent,
+    ).toBe('Context 96%. Weekly plan limit reached.');
     fixture.componentRef.setInput('detailsOpen', true);
     fixture.detectChanges();
     expect(host.querySelector('[role="status"]')).toBeNull();
@@ -107,13 +165,19 @@ describe('CanvasFocusHeaderComponent', () => {
     fixture.detectChanges();
     expect(host.querySelector('[data-stop]')).toBeNull();
     expect(document.activeElement).toBe(host.querySelector('[data-compact]'));
-    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe('Switch to compact view');
+    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe(
+      'Switch to compact view',
+    );
   });
   it('labels both icon-only view modes', () => {
     const fixture = mount();
-    const compact = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-compact]')!;
+    const compact = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLButtonElement>('[data-compact]')!;
     expect(compact.textContent?.trim()).toBe('');
-    expect(compact.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(
+      compact.querySelector('lucide-angular[aria-hidden="true"]'),
+    ).not.toBeNull();
     expect(compact.getAttribute('aria-label')).toBe('Switch to compact view');
     fixture.componentRef.setInput('viewMode', 'compact');
     fixture.detectChanges();
@@ -200,9 +264,13 @@ describe('CanvasFocusHeaderComponent', () => {
       '[aria-label="Close session"]',
     )!;
     expect(trigger.title).toBe('More session actions');
-    expect(trigger.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(
+      trigger.querySelector('lucide-angular[aria-hidden="true"]'),
+    ).not.toBeNull();
     expect(close.title).toBe('Close session');
-    expect(close.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(
+      close.querySelector('lucide-angular[aria-hidden="true"]'),
+    ).not.toBeNull();
     for (const item of items) {
       expect(item.tabIndex).toBe(0);
       expect(
@@ -317,6 +385,7 @@ describe('CanvasFocusHeaderComponent', () => {
     function pane(active: boolean, number: 1 | 2, place: string) {
       const { fixture, host } = split();
       fixture.componentRef.setInput('branch', 'feat/x');
+      fixture.componentInstance.menuOpen.set(true);
       fixture.componentRef.setInput('paneFocused', active);
       fixture.componentRef.setInput('paneNumber', number);
       fixture.componentRef.setInput('panePlace', place);
@@ -442,7 +511,11 @@ describe('CanvasFocusHeaderComponent', () => {
     expect(
       host.querySelector('[data-compact]')?.getAttribute('aria-label'),
     ).toBe('Switch to compact view');
-    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe('Switch to compact view');
-    expect(host.querySelector('[data-compact] lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe(
+      'Switch to compact view',
+    );
+    expect(
+      host.querySelector('[data-compact] lucide-angular[aria-hidden="true"]'),
+    ).not.toBeNull();
   });
 });

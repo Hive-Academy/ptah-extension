@@ -32,6 +32,13 @@ describe(InspectorSessionStatsComponent.name, () => {
     const grid = root.querySelector('[data-testid="inspector-stats-grid"]');
     expect(grid?.classList.contains('grid-cols-2')).toBe(true);
     expect(grid?.classList.contains('grid-cols-3')).toBe(false);
+    for (const field of ['Context', 'Tokens', 'Cost']) {
+      const missing = root.querySelector(`[aria-label="${field} unavailable"]`);
+      expect(missing?.textContent?.trim()).toBe('—');
+      expect(missing?.classList.contains('text-base-content-muted')).toBe(true);
+    }
+    expect(root.textContent).not.toMatch(/No data yet|Window unknown|Agents/);
+
     const cache ={ ttl: '1h' as const, lastRequestAt: 0, expiresAt: 3_600_000 };
     fixture.componentRef.setInput('stats', { ...stats, cache });
     fixture.detectChanges();

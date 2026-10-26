@@ -29,6 +29,7 @@ import {
   cooldownLine,
   evidenceLine,
   evidenceSources,
+  PLAN_EMPTY,
   windowChip,
   windowDetail,
   type SessionPlan,
@@ -49,6 +50,8 @@ import {
   type StatsLimitLaneRun,
   type StatsLimitNote,
 } from './stats-limit-view-model.types';
+
+export const LANE_EMPTY = { value: '—', usage: 'Usage unavailable', limit: 'Limit unavailable', subtotal: 'Known subtotal' } as const;
 
 // ------------------------------------------------------------------ lanes
 
@@ -112,7 +115,7 @@ export function laneTile(
   const unknownCosts = runs.length - knownCosts.length;
   const cost =
     knownCosts.length === 0
-      ? 'cost unknown'
+      ? ''
       : `cost ${formatCost(sum(knownCosts))}${unknownCosts > 0 ? ` (+${unknownCosts} unknown)` : ''}`;
   const states = subgroups.map((group) => group.state);
   return {
@@ -121,11 +124,11 @@ export function laneTile(
     caption: LANE_CAPTION,
     tokensText:
       knownTokens.length === 0
-        ? 'unknown tokens'
+        ? (knownCosts.length ? '' : LANE_EMPTY.value)
         : `${formatTokenCount(sum(knownTokens))} tokens`,
     ...(knownTokens.length > 0 &&
       unknownTokens > 0 && { tokensUnknownText: `+${unknownTokens} unknown` }),
-    costLine: runs.length > 1 ? `${cost} · ${runs.length} runs` : cost,
+    costLine: cost,
     runChip: laneRunChip(runs),
     limitChips: laneFaceChips(subgroups, runs.length),
     tone: states.includes('at-limit')
@@ -168,7 +171,7 @@ const LANE_STATE_CHIPS: Readonly<Record<LaneLimitState, StatsChip>> = {
   'at-limit': { tone: 'error', glyph: '■', text: 'At limit' },
   'near-limit': { tone: 'warning', glyph: '▲', text: 'Near limit' },
   'confirmed-room': { tone: 'success', glyph: '✓', text: 'Room' },
-  unknown: { tone: 'neutral', glyph: '?', text: 'Limit unknown' },
+  unknown: { tone: 'neutral', text: LANE_EMPTY.limit },
 };
 
 function laneSubgroup(
@@ -199,8 +202,8 @@ function laneSubgroup(
         ownerStatus: status,
         ownerLabel: 'Unknown owner',
         ownerText: owner
-          ? "Limit unknown · quota owner cannot be determined; no other account's windows are borrowed"
-          : "Limit unknown · owner not recorded; no other account's windows are borrowed",
+          ? `${LANE_EMPTY.limit} · quota owner cannot be determined; no other account's windows are borrowed`
+          : `${LANE_EMPTY.limit} · owner not recorded; no other account's windows are borrowed`,
         state: 'unknown',
         stateChip: LANE_STATE_CHIPS.unknown,
         planTileChips: [],
@@ -382,6 +385,17 @@ function lastKnownFace(
  * last-known evidence (`showsLastKnownEvidence`), never a live failure; a
  * same-owner status is on the plan tiles.
  */
+function humanStatus(status: string): string {
+  const sentences = new Map([
+    ['unsupported-config', 'This configuration does not support plan usage'],
+    ['provider-unsupported', 'This provider does not report plan usage'],
+    ['cli-unavailable', 'The CLI is unavailable'],
+    ['cli-version-unsupported', 'This CLI version does not support plan usage'],
+    ['service-unavailable', 'The usage service is unavailable'],
+  ]);
+  return sentences.get(status) ?? 'The latest usage could not be retrieved';
+}
+
 function ownerStatusNote(
   snapshot: PlanLimitOwnerSnapshot | undefined,
   same: boolean,
@@ -438,7 +452,7 @@ function ownerStatusNote(
     case 'service-unavailable':
       return {
         tone: 'neutral',
-        text: `Usage unavailable · ${snapshot.status}`,
+        text: `${PLAN_EMPTY.usage}: ${humanStatus(snapshot.status)}`,
       };
     default: {
       // Compile-time exhaustiveness only: a new ProviderAccountUsageStatus
@@ -449,7 +463,7 @@ function ownerStatusNote(
       const unhandled: never = snapshot.status;
       return {
         tone: 'neutral',
-        text: `Usage unavailable · ${unhandled}`,
+        text: `${PLAN_EMPTY.usage}: ${humanStatus(unhandled)}`,
       };
     }
   }
@@ -568,6 +582,7 @@ function laneFaceChips(
     }
   >();
   for (const group of subgroups) {
+    if (group.chip === LANE_STATE_CHIPS.unknown) continue;
     const entry = byChip.get(group.chip.text) ?? {
       state: group.state,
       chip: group.chip,
@@ -583,7 +598,7 @@ function laneFaceChips(
     .map((entry) => {
       const models = entry.runs.map((run) => run.model || 'unknown model');
       const text =
-        byChip.size > 1
+        entry.runs.length < total
           ? `${entry.chip.text} · ${entry.runs.length} of ${total} runs (${models.join(', ')})`
           : entry.chip.text;
       return {
@@ -647,8 +662,8 @@ function runRow(
     runId: run.runId,
     label: count > 1 ? `Run ${index + 1}` : 'Run',
     model: run.model || 'unknown',
-    tokensText: tokens === undefined ? 'unknown' : formatTokenCount(tokens),
-    costText: cost === undefined ? 'unknown' : formatCost(cost),
+    tokensText: tokens === undefined ? LANE_EMPTY.value : formatTokenCount(tokens),
+    costText: cost === undefined ? LANE_EMPTY.value : formatCost(cost),
     stateText: runState(run),
     ...(run.restored && {
       startedText: `started ${formatLocalAbsolute(run.startedAt, ctx.now, ctx.time)}`,
@@ -712,9 +727,8 @@ export function subtotalTile(
   return {
     id: LANES_SUBTOTAL_TILE_ID,
     caption: LANE_CAPTION,
-    tokensText: `${formatTokenCount(sum(tokens))} tokens known`,
-    summary:
-      `${formatCost(sum(costs))} known cost · ${plural(laneCount, 'lane')} · ` +
-      `${plural(runs.length, 'run')} · ${unknownCosts} cost unknown`,
+    tokensText: tokens.length ? `${tokens.length < runs.length ? '≥' : ''}${formatTokenCount(sum(tokens))} tokens known` : LANE_EMPTY.value,
+    summary: !tokens.length && !costs.length ? LANE_EMPTY.usage :
+      `${costs.length ? `${unknownCosts > 0 ? '≥' : ''}${formatCost(sum(costs))} known cost · ` : ''}${plural(laneCount, 'lane')} · ${plural(runs.length, 'run')} · ${unknownCosts} cost unknown`,
   };
 }

@@ -24,7 +24,7 @@ let nextSectionId = 0;
           <p role="status" class="border-l-2 border-info pl-2 text-[11px] text-base-content-muted">{{ vm.refreshNotice }}</p>
         }
         @let provenance = planProvenance();
-        @if (provenance.caption || provenance.sourceChips.length) {
+        @if (provenance.caption?.caption || provenance.sourceChips.length) {
           <div class="mb-2 flex items-center gap-1.5 text-[11px] text-base-content-muted">
             <lucide-angular [img]="GaugeIcon" class="size-3.5 shrink-0" aria-hidden="true" />
             @if (provenance.caption; as caption) {

@@ -15,9 +15,21 @@ import {
   WorkflowBadgeComponent,
   TabManagerService,
 } from '@ptah-extension/chat';
-import { ContextRingComponent, limitAwareDot, type CompactRailState, type SessionLimitSummary } from '@ptah-extension/chat-ui';
+import {
+  ContextRingComponent,
+  limitAwareDot,
+  type CompactRailState,
+  type SessionLimitSummary,
+} from '@ptah-extension/chat-ui';
 import type { TabViewMode } from '@ptah-extension/chat-types';
-import { Ellipsis, LucideAngularModule, Maximize2, Minimize2, PanelRight, X } from 'lucide-angular';
+import {
+  Ellipsis,
+  LucideAngularModule,
+  Maximize2,
+  Minimize2,
+  PanelRight,
+  X,
+} from 'lucide-angular';
 import { CanvasLayoutService } from '../canvas-layout.service';
 
 let nextDetailsDescriptionId = 0;
@@ -25,7 +37,12 @@ let nextDetailsDescriptionId = 0;
 @Component({
   selector: 'ptah-canvas-focus-header',
   standalone: true,
-  imports: [SendToMessagingComponent, WorkflowBadgeComponent, ContextRingComponent, LucideAngularModule],
+  imports: [
+    SendToMessagingComponent,
+    WorkflowBadgeComponent,
+    ContextRingComponent,
+    LucideAngularModule,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
     `
@@ -92,10 +109,18 @@ let nextDetailsDescriptionId = 0;
         background-color: var(--state-ink-err, oklch(var(--er)));
       }
       [data-limit='near'] {
-        border-color: color-mix(in oklch, var(--state-ink-need, oklch(var(--wa))) 55%, transparent);
+        border-color: color-mix(
+          in oklch,
+          var(--state-ink-need, oklch(var(--wa))) 55%,
+          transparent
+        );
       }
       [data-limit='at'] {
-        border-color: color-mix(in oklch, var(--state-ink-err, oklch(var(--er))) 55%, transparent);
+        border-color: color-mix(
+          in oklch,
+          var(--state-ink-err, oklch(var(--er))) 55%,
+          transparent
+        );
       }
       /* Glass on (any theme): the title row is part of the chat column's one glass
          surface (see styles.css "Ptah chat column"), so no fill and no rule
@@ -136,24 +161,16 @@ let nextDetailsDescriptionId = 0;
         [title]="title()"
         >{{ title() }}</strong
       >
-      <ptah-workflow-badge [workflow]="workflow()" />
-      @if (branch()) {
-        <span
-          class="max-w-[170px] truncate rounded bg-base-200 px-1.5 text-xs"
-          [class.text-base-content-muted]="quiet()"
-          [title]="branch()!"
-          >{{ branch() }}</span
+      @if (state() === 'needs') {
+        <span class="rounded bg-base-200 px-1.5 text-xs text-state-need"
+          >needs you</span
         >
       }
-      <span
-        class="rounded bg-base-200 px-1.5 text-xs"
-        [class.state-running]="state() === 'running'"
-        [class.state-needs]="state() === 'needs'"
-        [class.state-error]="state() === 'error'"
-        [class.state-done]="state() === 'done'"
-        [class.state-idle]="state() === 'idle'"
-        >{{ state() }}</span
-      >
+      @if (state() === 'running' || state() === 'error') {
+        <span data-session-state class="rounded bg-base-200 px-1.5 text-xs"
+          [class.state-running]="state() === 'running'"
+          [class.state-error]="state() === 'error'">{{ state() }}</span>
+      }
       @if (running()) {
         <button
           type="button"
@@ -185,7 +202,11 @@ let nextDetailsDescriptionId = 0;
         "
         (click)="toggleViewMode.emit()"
       >
-        <lucide-angular [img]="viewMode() === 'full' ? Minimize2Icon : Maximize2Icon" class="size-4" aria-hidden="true" />
+        <lucide-angular
+          [img]="viewMode() === 'full' ? Minimize2Icon : Maximize2Icon"
+          class="size-4"
+          aria-hidden="true"
+        />
       </button>
       @if (splitDisplayed() || compactDetails()) {
         @if (shownLimit(); as limit) {
@@ -198,7 +219,9 @@ let nextDetailsDescriptionId = 0;
             [attr.title]="limit.fullText"
           >
             {{ limit.state === 'at' ? 'At limit' : 'Limit near' }}
-            @if (limit.fullText) { <span class="sr-only">: {{ limit.fullText }}</span> }
+            @if (limit.fullText) {
+              <span class="sr-only">: {{ limit.fullText }}</span>
+            }
           </span>
         }
         <button
@@ -213,17 +236,30 @@ let nextDetailsDescriptionId = 0;
           [attr.data-dot]="detailsDot()"
           (click)="detailsRequested.emit()"
         >
-          @if (detailsDot()) { <span class="details-dot" aria-hidden="true"></span> }
+          @if (detailsDot()) {
+            <span class="details-dot" aria-hidden="true"></span>
+          }
           @let percent = shownRingPercent();
           @if (percent !== null) {
-            <ptah-context-ring class="pointer-events-none absolute inset-0" [percent]="percent" [size]="28" />
+            <ptah-context-ring
+              class="pointer-events-none absolute inset-0"
+              [percent]="percent"
+              [size]="28"
+            />
           }
-          <lucide-angular [img]="PanelRightIcon" class="size-4" aria-hidden="true" />
+          <lucide-angular
+            [img]="PanelRightIcon"
+            class="size-4"
+            aria-hidden="true"
+          />
         </button>
         @if (shownDescription()) {
-          <span class="sr-only" [id]="descriptionId">{{ shownDescription() }}</span>
+          <span class="sr-only" [id]="descriptionId">{{
+            shownDescription()
+          }}</span>
         }
       }
+      @if (!inspectorExpanded() || splitDisplayed()) {
       <button
         #overflow
         type="button"
@@ -235,7 +271,11 @@ let nextDetailsDescriptionId = 0;
         [attr.aria-expanded]="menuOpen()"
         (click)="menuOpen.set(!menuOpen())"
       >
-        <lucide-angular [img]="EllipsisIcon" class="size-4" aria-hidden="true" />
+        <lucide-angular
+          [img]="EllipsisIcon"
+          class="size-4"
+          aria-hidden="true"
+        />
       </button>
       @if (menuOpen()) {
         <div
@@ -243,9 +283,29 @@ let nextDetailsDescriptionId = 0;
           aria-label="Session actions"
           class="absolute right-10 top-10 z-20 flex flex-col gap-0.5 rounded-lg border border-base-content/10 bg-base-200 p-2 shadow-lg"
         >
-          <div role="menuitem">
-            <ptah-send-to-messaging [tabId]="tabId()" />
-          </div>
+          @if (!inspectorExpanded()) {
+            <ptah-workflow-badge [workflow]="workflow()" />
+            @if (branch()) {
+              <span
+                class="max-w-[170px] truncate rounded bg-base-200 px-1.5 text-xs"
+                [class.text-base-content-muted]="quiet()"
+                [title]="branch()!"
+                >{{ branch() }}</span
+              >
+            }
+            <span
+              class="rounded bg-base-200 px-1.5 text-xs"
+              [class.state-running]="state() === 'running'"
+              [class.state-needs]="state() === 'needs'"
+              [class.state-error]="state() === 'error'"
+              [class.state-done]="state() === 'done'"
+              [class.state-idle]="state() === 'idle'"
+              >{{ state() }}</span
+            >
+            <div role="menuitem">
+              <ptah-send-to-messaging [tabId]="tabId()" />
+            </div>
+          }
           @if (splitDisplayed()) {
             <button
               type="button"
@@ -276,6 +336,7 @@ let nextDetailsDescriptionId = 0;
             </button>
           }
         </div>
+      }
       }
       <button
         type="button"
@@ -316,6 +377,7 @@ export class CanvasFocusHeaderComponent implements DoCheck {
   readonly splitDisplayed = input(false);
   /** The split Details overlay is open on this pane (drives `aria-expanded`). */
   readonly detailsOpen = input(false);
+  readonly inspectorExpanded = input(false);
   readonly limitCue = input<SessionLimitSummary | null>(null);
   readonly contextRingPercent = input<number | null>(null);
   readonly toggleDescription = input('');
@@ -324,9 +386,15 @@ export class CanvasFocusHeaderComponent implements DoCheck {
     const cue = this.limitCue();
     return !this.detailsOpen() && cue?.state !== 'none' ? cue : null;
   });
-  readonly shownRingPercent = computed(() => this.detailsOpen() ? null : this.contextRingPercent());
-  readonly shownDescription = computed(() => this.detailsOpen() ? '' : this.toggleDescription());
-  readonly detailsDot = computed(() => limitAwareDot(null, this.detailsOpen(), this.limitCue()));
+  readonly shownRingPercent = computed(() =>
+    this.detailsOpen() ? null : this.contextRingPercent(),
+  );
+  readonly shownDescription = computed(() =>
+    this.detailsOpen() ? '' : this.toggleDescription(),
+  );
+  readonly detailsDot = computed(() =>
+    limitAwareDot(null, this.detailsOpen(), this.limitCue()),
+  );
   /** Split only: this pane is the active one (accent) or not (quiet). */
   readonly paneFocused = input(true);
   /** Split only: the pane's visual position, 1 for left/top, 2 for right/bottom. */

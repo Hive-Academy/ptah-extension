@@ -164,6 +164,27 @@ function noteTexts(group: LaneSubgroupModel): string[] {
 }
 
 describe('buildStatsLimitViewModel', () => {
+  it.each([
+    ['unsupported-config', 'This configuration does not support plan usage'],
+    ['provider-unsupported', 'This provider does not report plan usage'],
+    ['cli-unavailable', 'The CLI is unavailable'],
+    ['cli-version-unsupported', 'This CLI version does not support plan usage'],
+  ] as const)('explains a failed lane usage refresh (%s)', (status, explanation) => {
+    const vm = buildStatsLimitViewModel(input({
+      owners: [snapshot(CLAUDE_A), snapshot(CLAUDE_B, {
+        status, windows: [], windowSetEstablished: false,
+      })],
+      laneRuns: [run({ quotaOwner: CLAUDE_B })],
+    }));
+    expect(noteTexts(onlySubgroup(vm))).toContain(`Plan usage unavailable: ${explanation}`);
+    expect(noteTexts(onlySubgroup(vm))).not.toContain(status);
+  });
+
+  it('keeps an unavailable account tile label and value concise when its snapshot is missing', () => {
+    const vm = buildStatsLimitViewModel(input({ owners: [] }));
+    expect(vm.planTiles[0]).toMatchObject({ label: 'Usage', value: 'Unavailable' });
+  });
+
   describe('F53 owner identity (A1)', () => {
     it('same provider, account A session vs account B lane: different owner with full detail', () => {
       const vm = buildStatsLimitViewModel(
@@ -223,6 +244,7 @@ describe('buildStatsLimitViewModel', () => {
       expect(vm.planTiles).toHaveLength(1);
       expect(vm.planTiles[0]).toMatchObject({
         id: 'plan-status:none',
+        label: 'Usage',
         value: 'Unavailable',
       });
       expect(vm.indicator).toBeUndefined();
@@ -242,17 +264,12 @@ describe('buildStatsLimitViewModel', () => {
       const group = onlySubgroup(vm);
       expect(group.ownerStatus).toBe('undetermined');
       expect(group.ownerText).toBe(
-        "Limit unknown · quota owner cannot be determined; no other account's windows are borrowed",
+        "Limit unavailable · quota owner cannot be determined; no other account's windows are borrowed",
       );
       expect(group.state).toBe('unknown');
       expect(group.windows).toEqual([]);
       expect(group.planTileChips).toEqual([]);
-      expect(vm.laneTiles[0].limitChips).toEqual([
-        {
-          chip: { tone: 'neutral', glyph: '?', text: 'Limit unknown' },
-          sourceChips: [],
-        },
-      ]);
+      expect(vm.laneTiles[0].limitChips).toEqual([]);
     });
   });
 
@@ -288,7 +305,7 @@ describe('buildStatsLimitViewModel', () => {
       const group = onlySubgroup(vm);
       expect(group.ownerStatus).toBe('not-recorded');
       expect(group.ownerLabel).toBe('Unknown owner');
-      expect(group.ownerText).toContain('Limit unknown · owner not recorded');
+      expect(group.ownerText).toContain('Limit unavailable · owner not recorded');
       expect(group.state).toBe('unknown');
       expect(group.windows).toEqual([]);
       expect(group.planTileChips).toEqual([]);
@@ -420,14 +437,14 @@ describe('buildStatsLimitViewModel', () => {
         input({ laneRuns: [run({ restored: true, usageTotals })] }),
       );
       const tile = vm.laneTiles[0];
-      expect(tile.tokensText).toBe('unknown tokens');
-      expect(tile.costLine).toBe('cost unknown');
+      expect(tile.tokensText).toBe('—');
+      expect(tile.costLine).toBe('');
       expect(tile.subgroups[0].runs[0]).toMatchObject({
-        tokensText: 'unknown',
-        costText: 'unknown',
+        tokensText: '—',
+        costText: '—',
       });
       expect(vm.subtotal?.summary).toBe(
-        '$0.00 known cost · 1 lane · 1 run · 1 cost unknown',
+        'Usage unavailable',
       );
     });
 
@@ -446,18 +463,18 @@ describe('buildStatsLimitViewModel', () => {
       const tile = vm.laneTiles[0];
       expect(tile.tokensText).toBe('1.5k tokens');
       expect(tile.tokensUnknownText).toBe('+1 unknown');
-      expect(tile.costLine).toBe('cost $0.25 (+1 unknown) · 2 runs');
+      expect(tile.costLine).toBe('cost $0.25 (+1 unknown)');
       const rows = tile.subgroups[0].runs;
       expect(rows[1]).toMatchObject({
         label: 'Run 2',
-        tokensText: 'unknown',
-        costText: 'unknown',
+        tokensText: '—',
+        costText: '—',
       });
       expect(vm.subtotal).toEqual({
         id: 'lanes-subtotal',
         caption: 'lane · not in totals',
-        tokensText: '1.5k tokens known',
-        summary: '$0.25 known cost · 1 lane · 2 runs · 1 cost unknown',
+        tokensText: '≥1.5k tokens known',
+        summary: '≥$0.25 known cost · 1 lane · 2 runs · 1 cost unknown',
       });
     });
   });
@@ -682,7 +699,7 @@ describe('buildStatsLimitViewModel', () => {
       expect(vm.laneTiles[0].tone).toBe('neutral');
     });
 
-    it('(i) the face of a last-known owner shows its own last-known value, never "Limit unknown" (G3)', () => {
+    it('(i) the face of a last-known owner shows its own last-known value, never "Limit unavailable" (G3)', () => {
       const past = snapshot(CLAUDE_B, {
         status: 'service-unavailable',
         windowSetEstablished: false,
@@ -740,7 +757,7 @@ describe('buildStatsLimitViewModel', () => {
       expect(onlySubgroup(vm).state).toBe('unknown');
     });
 
-    it('(i) a last-known owner with an unknown value keeps "Limit unknown" on the face', () => {
+    it('(i) a last-known owner with an unknown value keeps "Limit unavailable" on the face', () => {
       const past = snapshot(CLAUDE_B, {
         status: 'service-unavailable',
         windowSetEstablished: false,
@@ -752,9 +769,7 @@ describe('buildStatsLimitViewModel', () => {
           laneRuns: [run({ quotaOwner: CLAUDE_B })],
         }),
       );
-      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([
-        'Limit unknown',
-      ]);
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([]);
     });
 
     it('(ii) a saved Claude account owner with no open session', () => {
@@ -779,10 +794,8 @@ describe('buildStatsLimitViewModel', () => {
       ]);
       expect(group.state).toBe('unknown');
       // No evidence of its own: the session owner's windows are never borrowed.
-      expect(group.stateChip.text).toBe('Limit unknown');
-      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([
-        'Limit unknown',
-      ]);
+      expect(group.stateChip.text).toBe('Limit unavailable');
+      expect(vm.laneTiles[0].limitChips.map((face) => face.chip.text)).toEqual([]);
     });
 
     it('(iii) a saved Anthropic API-key owner is unsupported, with no windows', () => {
@@ -810,11 +823,11 @@ describe('buildStatsLimitViewModel', () => {
 
     it('(iv) an unknown status from a newer backend is a neutral note, never a throw', () => {
       // Version skew: 'telemetry-outage' is no member this build knows, so
-      // the double cast stands in for a cached or desynced client. The
+      // the assertion stands in for a cached or desynced client. The
       // switch's default must answer with the generic note instead of
       // throwing and blanking the whole stats view model (review M2).
       const unknownStatus =
-        'telemetry-outage' as unknown as ProviderAccountUsageStatus;
+        'telemetry-outage' as ProviderAccountUsageStatus;
       const keyOwner = snapshot(ANTHROPIC_KEY, {
         status: unknownStatus,
         windowSetEstablished: false,
@@ -830,7 +843,7 @@ describe('buildStatsLimitViewModel', () => {
       expect(group.notes).toEqual([
         {
           tone: 'neutral',
-          text: 'Usage unavailable · telemetry-outage',
+          text: 'Plan usage unavailable: The latest usage could not be retrieved',
         },
       ]);
       expect(noteTexts(group).join(' ')).not.toContain('last-known');
@@ -853,7 +866,8 @@ describe('buildStatsLimitViewModel', () => {
         expect.objectContaining({
           id: `plan-status:${CLAUDE_A.key}`,
           value: 'Unavailable',
-          resetLine: 'no open session',
+          resetLine: '',
+          detailLines: ['no open session', 'Plan usage could not be read (no open session).'],
           caption: 'Claude account · aaaa',
           captionLead: 'Claude account',
           captionTail: '· aaaa',
@@ -937,6 +951,25 @@ describe('buildStatsLimitViewModel', () => {
       expect(tile.limitChips[0].sourceChips).toEqual([
         'used · reset Provider API',
         'limit From error',
+      ]);
+    });
+
+    it.each(['near-limit', 'at-limit'] as const)('counts unknown runs alongside a %s warning', (state) => {
+      const vm = buildStatsLimitViewModel(input({
+        owners: [snapshot(CLAUDE_A, {
+          // classifyWindow reports at-limit only with active exhaustion
+          // evidence; 100% used alone is near-limit by design.
+          windows: [planWindow(state === 'at-limit'
+            ? {
+              used: { kind: 'percent', percent: 100 },
+              exhaustion: { observedAt: NOW - 10 * MIN, source: 'error-derived', resetsAt: NOW + 3 * HOUR + 10 * MIN },
+            }
+            : { used: { kind: 'percent', percent: 93 } })],
+        })],
+        laneRuns: [run(), run({ quotaOwner: CLAUDE_B }), run({ quotaOwner: CLAUDE_B })],
+      }));
+      expect(vm.laneTiles[0].limitChips.map((entry) => entry.chip.text)).toEqual([
+        `${state === 'at-limit' ? 'At limit' : 'Near limit'} · 1 of 3 runs (sonnet)`,
       ]);
     });
 

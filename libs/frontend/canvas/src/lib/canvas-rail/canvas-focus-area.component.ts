@@ -1,6 +1,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -8,7 +11,10 @@ import {
   output,
 } from '@angular/core';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import type { CompactRailState, SessionLimitSummary } from '@ptah-extension/chat-ui';
+import type {
+  CompactRailState,
+  SessionLimitSummary,
+} from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
@@ -30,15 +36,16 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
     `
       /* Glass on (any theme): the pane's own glass shows through the whole column, from
          the title row to the composer (styles.css "Ptah chat column"). */
+      :host {
+        --chat-content-max-width: 1100px;
+      }
       :host-context([data-theme][data-glass='on']) > section {
         background-color: transparent;
       }
     `,
   ],
   template: `
-    <section
-      class="flex h-full min-h-0 flex-col bg-base-100"
-    >
+    <section class="flex h-full min-h-0 flex-col bg-base-100">
       @if (focusedTabId(); as id) {
         <ptah-canvas-focus-header
           [tabId]="id"
@@ -50,6 +57,7 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [band]="band()"
           [splitDisplayed]="splitDisplayed()"
           [detailsOpen]="detailsOpen()"
+          [inspectorExpanded]="inspectorExpanded()"
           [limitCue]="limitCue()"
           [contextRingPercent]="contextRingPercent()"
           [toggleDescription]="toggleDescription()"
@@ -57,28 +65,30 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [paneNumber]="paneNumber()"
           [panePlace]="panePlace()"
           (stop)="stop(id)"
-          (toggleViewMode)="tabs.toggleTabViewMode(id)"
+          (toggleViewMode)="toggleViewMode(id)"
           (closeRequested)="closeRequested.emit(id)"
           (closeSplitRequested)="closeSplitRequested.emit(paneId())"
           (closePaneRequested)="closePaneRequested.emit(paneId())"
           (swapPanesRequested)="swapPanesRequested.emit(paneId())"
           (detailsRequested)="detailsRequested.emit(paneId())"
         />
-        <ptah-canvas-lane-tabs
-          [panelId]="panelId()"
-          [tabId]="id"
-          [laneKey]="detail.laneKeyFor(id)"
-          (laneSelected)="detail.selectLaneFor(id, $event)"
-        />
+        @if (!inspectorExpanded()) {
+          <ptah-canvas-lane-tabs
+            [panelId]="panelId()"
+            [tabId]="id"
+            [laneKey]="detail.laneKeyFor(id)"
+            (laneSelected)="detail.selectLaneFor(id, $event)"
+          />
+        }
         <div class="min-h-0 flex-1">
-            <ptah-canvas-lane-view
-              [panelId]="panelId()"
-              [paneFocused]="paneFocused()"
-              [splitDisplayed]="splitDisplayed()"
-              [tabId]="id"
-              [sessionId]="tab()?.claudeSessionId ?? null"
-              [laneKey]="detail.laneKeyFor(id)"
-            />
+          <ptah-canvas-lane-view
+            [panelId]="panelId()"
+            [paneFocused]="paneFocused()"
+            [splitDisplayed]="splitDisplayed()"
+            [tabId]="id"
+            [sessionId]="tab()?.claudeSessionId ?? null"
+            [laneKey]="detail.laneKeyFor(id)"
+          />
         </div>
       } @else {
         <div
@@ -100,6 +110,7 @@ export class CanvasFocusAreaComponent {
   readonly panePlace = input('');
   /** The split Details overlay is open on this pane. */
   readonly detailsOpen = input(false);
+  readonly inspectorExpanded = input(false);
   readonly limitCue = input<SessionLimitSummary | null>(null);
   readonly contextRingPercent = input<number | null>(null);
   readonly toggleDescription = input('');
@@ -116,6 +127,8 @@ export class CanvasFocusAreaComponent {
   readonly tabs = inject(TabManagerService);
   readonly detail = inject(CanvasDetailService);
   private readonly chatStore = inject(ChatStore);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   private readonly metrics = inject(CanvasRenderMetricsService);
   readonly tab = computed(
     () =>
@@ -134,6 +147,19 @@ export class CanvasFocusAreaComponent {
       }
       this.previousId = id;
     });
+  }
+
+  toggleViewMode(id: string): void {
+    this.tabs.toggleTabViewMode(id);
+    afterNextRender(
+      () => {
+        const document = this.host.nativeElement.ownerDocument;
+        document
+          .getElementById(`${this.panelId()}-tab-${this.detail.laneKeyFor(id)}`)
+          ?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   async stop(id: string): Promise<void> {

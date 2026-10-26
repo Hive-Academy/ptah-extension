@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -13,10 +14,15 @@ import {
   viewChild,
 } from '@angular/core';
 import {
+  compactSessionMetrics,
+  limitAwareDot,
+  summarizeTodos,
   InspectorLimitsLanesComponent,
   InspectorSessionStatsComponent,
   type SessionStatsInputs,
+  type SessionLimitSummary,
 } from '@ptah-extension/chat-ui';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { LucideAngularModule, X } from 'lucide-angular';
 import {
   InspectorShellController,
@@ -29,7 +35,9 @@ import { InspectorTaskSectionComponent } from './inspector-task-section.componen
 import { InspectorTodosSectionComponent } from './inspector-todos-section.component';
 
 /** Where the inspector body is shown; `sheet` is the modal overlay band. */
-export type SessionInspectorPresentation = 'docked' | 'sheet' | 'embedded';
+export type SessionInspectorPresentation =
+  'docked' | 'sheet' | 'embedded' | 'rail';
+type InspectorFocusSection = 'session' | 'agents' | 'todos';
 
 /**
  * `ptah-session-inspector`: the "This session" body (design 4, D45). One
@@ -60,6 +68,8 @@ export type SessionInspectorPresentation = 'docked' | 'sheet' | 'embedded';
 })
 export class SessionInspectorComponent {
   private readonly store = inject(SessionInspectorStore);
+  private readonly tabs = inject(TabManagerService);
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   /** Provided by the chat-view host only; the Rail board has no sheet. */
   private readonly shell = inject(InspectorShellController, { optional: true });
 
@@ -67,10 +77,20 @@ export class SessionInspectorComponent {
   readonly presentation = input<SessionInspectorPresentation>('docked');
   /** The host has a lane surface (Rail board): agent rows open lanes. */
   readonly hasLaneSurface = input<boolean>(false);
+  /** Canvas selection; undefined retains standalone selection, null clears it. */
+  readonly selectedAgentKey = input<string | null>();
   /** Session stats of the shown view; `null` hides SESSION / PLAN LIMITS / LANES. */
   readonly stats = input<SessionStatsInputs | null>(null);
+  readonly limitSummary = input<SessionLimitSummary | null>();
+  readonly sessionTitle = input('');
+  readonly sessionStatus = input('');
+  readonly workflow = input<string | null>(null);
+  readonly branch = input<string | null>(null);
+  /** Host can retain this across a rail -> dock/sheet remount. */
+  readonly focusSection = input<InspectorFocusSection | null>(null);
 
   readonly closeRequested = output<void>();
+  readonly expandRequested = output<InspectorFocusSection | undefined>();
   readonly laneRequested = output<string>();
   readonly answerRequested = output<string>();
 
@@ -82,6 +102,49 @@ export class SessionInspectorComponent {
   private readonly closeButton =
     viewChild<ElementRef<HTMLElement>>('closeButton');
   private readonly limitsLanes = viewChild(InspectorLimitsLanesComponent);
+  private readonly expandButton =
+    viewChild<ElementRef<HTMLButtonElement>>('expandButton');
+
+  protected readonly railLimitSummary = computed(
+    () => this.limitSummary() ?? this.stats()?.limitSummary ?? null,
+  );
+  protected readonly railLimitDot = computed(() =>
+    limitAwareDot(null, false, this.railLimitSummary()),
+  );
+  protected readonly railLimitDescription = computed(() =>
+    this.railLimitDot() ? (this.railLimitSummary()?.fullText ?? '') : '',
+  );
+  protected readonly expandLabel = computed(() =>
+    this.railLimitDescription()
+      ? `Expand session details; ${this.railLimitDescription()}`
+      : 'Expand session details',
+  );
+  protected readonly railMetrics = computed(() => {
+    const stats = this.stats();
+    if (!stats) return [];
+    const warning = this.railLimitDescription();
+    return compactSessionMetrics(stats).map((metric) =>
+      metric.id === 'context' && warning
+        ? { ...metric, ariaLabel: `${metric.ariaLabel}; ${warning}` }
+        : metric,
+    );
+  });
+  protected readonly railTodos = computed(() => {
+    const tab = this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab;
+    const summary = tab
+      ? summarizeTodos(
+          tab.messages ?? [],
+          tab.streamingState ?? null,
+          tab.lastCompactionAt ?? 0,
+        )
+      : null;
+    return summary?.kind === 'known' && summary.total > 0 ? summary : null;
+  });
+  protected readonly runLabel = computed(() => {
+    const model = this.model();
+    const count = model.agents.data?.active;
+    return `${count == null ? 'Running agents unavailable' : `Running agents: ${count}`}; ${model.needsYouCount} need you`;
+  });
 
   protected readonly model = computed(() =>
     this.store.modelFor(this.tabId())(),
@@ -100,6 +163,20 @@ export class SessionInspectorComponent {
   );
 
   constructor() {
+    let previous: SessionInspectorPresentation | undefined;
+    afterRenderEffect(() => {
+      const presentation = this.presentation();
+      const section = this.focusSection();
+      if (presentation === 'rail' && previous && previous !== 'rail') {
+        this.focusExpandControl();
+      } else if (presentation !== 'rail' && section) {
+        const target = this.element.nativeElement.querySelector<HTMLElement>(
+          `[data-inspector-section="${section}"]`,
+        );
+        (target ?? this.closeButton()?.nativeElement)?.focus();
+      }
+      previous = presentation;
+    });
     // Late mount from the deferred chunk: let the shell focus the close
     // button if the sheet opened before this body rendered.
     effect(() => {
@@ -109,6 +186,11 @@ export class SessionInspectorComponent {
         untracked(() => shell.closeReady(button.nativeElement));
       }
     });
+  }
+
+  /** For hosts that replace the expanded instance with a newly mounted rail. */
+  focusExpandControl(): void {
+    this.expandButton()?.nativeElement.focus();
   }
 
   protected announce(text: string): void {

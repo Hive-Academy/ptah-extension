@@ -12,18 +12,24 @@ import {
 import {
   AGENT_KIND_LABEL,
   AgentAvatarComponent,
+  AgentLaneStatsComponent,
+  type AgentLaneStatsView,
   AgentSteerInputComponent,
   TokenBadgeComponent,
   agentAccessibleLabel,
-  backgroundAgentPopulation,
   formatAgentDuration,
   agentRunDurationMs,
   formatTokenCount,
   type AgentStatusWord,
 } from '@ptah-extension/chat-ui';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
+import {
+  cliLaneStats,
+  subagentLaneStats,
+} from '../../../utils/lane-stats.adapters';
 import { ModelStateService } from '@ptah-extension/core';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
-import { Bot, LucideAngularModule } from 'lucide-angular';
 import {
   formatEstimatedCost,
   usageTotalsFromSegments,
@@ -55,6 +61,9 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
 };
 
 interface AgentRowView {
+  readonly stats: AgentLaneStatsView | null;
+  readonly compactUsage: string;
+  readonly usageLabel: string;
   readonly key: string;
   readonly row: InspectorAgentRow;
   readonly name: string;
@@ -76,10 +85,8 @@ interface AgentRowView {
 let nextSectionId = 0;
 
 /**
- * The inspector AGENTS section (design 4.2, amended by D3.6): one row per
- * roster agent with avatar, status and duration, the background-agent tray
- * folded in (population line, model, tokens, actions menu, steer), and the
- * row's request lines.
+ * Active roster rows and selected historical details, with tray actions,
+ * steering drafts and pending requests retained independently of status.
  *
  * Row activation: with a lane surface it requests the lane; else, with a tray
  * context, it focuses the owning tab (today's tray Focus); else it only
@@ -91,8 +98,8 @@ let nextSectionId = 0;
   selector: 'ptah-inspector-agents-section',
   standalone: true,
   imports: [
-    LucideAngularModule,
     AgentAvatarComponent,
+    AgentLaneStatsComponent,
     AgentSteerInputComponent,
     TokenBadgeComponent,
     InspectorAgentActionsMenuComponent,
@@ -111,20 +118,14 @@ let nextSectionId = 0;
           [id]="headingId"
           class="sec-label text-[10.5px] font-semibold uppercase"
         >
-          AGENTS
+          ACTIVE SUBAGENTS
         </h3>
         @if (state.status !== 'loading') {
           <span class="text-[11px] tabular-nums text-base-content-muted">{{
-            meta()
+            activeRows().length
           }}</span>
         }
       </div>
-      @if (population(); as summary) {
-        <p class="mt-1 px-4 text-[11px] text-base-content-muted">
-          {{ summary }}
-        </p>
-      }
-
       @if (state.status === 'loading') {
         <ul class="mt-2" aria-hidden="true">
           @for (n of skeletonRows; track n) {
@@ -143,25 +144,13 @@ let nextSectionId = 0;
             </li>
           }
         </ul>
-      } @else if (views().length === 0) {
-        <div class="flex flex-col items-center px-4 py-[18px] text-center">
-          <span
-            class="flex size-8 items-center justify-center rounded-lg bg-surface-2"
-            aria-hidden="true"
-          >
-            <lucide-angular
-              [img]="BotIcon"
-              class="size-4 text-base-content-muted"
-            />
-          </span>
-          <p class="mt-2 text-[13px] font-semibold">No agents yet</p>
-          <p class="mt-1 text-xs text-base-content-muted">
-            Sub-agents, CLI lanes and background commands appear here while the
-            orchestrator delegates.
-          </p>
-        </div>
       } @else {
-        <ul class="mt-1.5 max-h-[260px] overflow-y-auto overscroll-contain">
+        @if (activeRows().length === 0) {
+          <p class="px-4 py-2 text-xs text-base-content-muted">
+            No active subagents
+          </p>
+        }
+        <ul class="mt-1.5">
           @for (view of views(); track view.key; let i = $index) {
             <li
               class="st-r relative transition-colors duration-[120ms]"
@@ -195,10 +184,9 @@ let nextSectionId = 0;
                   />
                   <span class="min-w-0 flex-1">
                     <span class="flex items-baseline gap-2">
-                      <span
-                        class="min-w-0 truncate text-xs font-semibold"
-                        >{{ view.name }}</span
-                      >
+                      <span class="min-w-0 truncate text-xs font-semibold">{{
+                        view.name
+                      }}</span>
                       <span
                         class="ml-auto flex shrink-0 items-baseline gap-1 text-[10px]"
                       >
@@ -207,94 +195,104 @@ let nextSectionId = 0;
                             status
                           }}</span>
                         }
-                        @if (view.duration && view.row.agent.kind !== 'cli') {
+                        @if (
+                          selectedKey() === view.key &&
+                          view.duration &&
+                          view.row.agent.kind !== 'cli'
+                        ) {
                           <span class="tabular-nums text-base-content-muted"
                             >· {{ view.duration }}</span
                           >
                         }
                       </span>
-                    </span>
-                    <span
-                      class="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-base-content-muted"
-                    >
                       <span
-                        class="h-auto shrink-0 rounded border border-surface-border bg-surface-3 px-[5px] py-[3px] text-[10px] font-medium leading-none text-base-content-muted"
-                        >{{ view.kindLabel }}</span
+                        class="shrink-0 text-xs tabular-nums text-base-content-muted"
+                        data-testid="agent-compact-usage"
+                        [attr.aria-label]="view.usageLabel"
+                        >{{ view.compactUsage }}</span
                       >
-                      @if (view.modelName) {
+                    </span>
+                    @if (selectedKey() === view.key) {
+                      <span
+                        class="mt-1 flex min-w-0 items-center gap-1 text-[10px] text-base-content-muted"
+                      >
                         <span
-                          class="shrink-0 font-medium"
-                          [attr.title]="view.modelRaw"
-                          >{{ view.modelName }}</span
+                          class="h-auto shrink-0 rounded border border-surface-border bg-surface-3 px-[5px] py-[3px] text-[10px] font-medium leading-none text-base-content-muted"
+                          >{{ view.kindLabel }}</span
                         >
-                      }
-                      @if (view.row.agent.activity) {
-                        <span class="min-w-0 truncate">{{
-                          view.row.agent.activity
-                        }}</span>
-                      }
-                      @if (view.tokens && view.row.agent.kind !== 'cli') {
-                        <span class="shrink-0 tabular-nums"
-                          >· {{ view.tokens }} tokens</span
-                        >
-                      }
-                    </span>
-                    @if (view.row.agent.kind === 'cli') {
-                      <span
-                        class="mt-1 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap"
-                      >
-                        @if (view.cliTokens !== null) {
-                          @if (view.cliUsagePartial) {
-                            <span
-                              class="badge badge-outline badge-sm cursor-help"
-                              title="From retained output, may be partial"
-                              [attr.aria-label]="
-                                'at least ' +
-                                formatTokenCount(view.cliTokens) +
-                                ' tokens'
-                              "
-                              >≥
-                              {{
-                                formatTokenCount(view.cliTokens)
-                              }}
-                              tokens</span
-                            >
-                          } @else {
-                            <ptah-token-badge [tokens]="view.cliTokens" />
-                          }
-                        }
-                        @if (view.cliCost !== null) {
+                        @if (view.modelName) {
                           <span
-                            class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
-                            [attr.title]="
-                              view.cliUsagePartial
-                                ? 'From retained output, may be partial'
-                                : 'Reported or estimated cost'
-                            "
-                            [attr.aria-label]="
-                              view.cliUsagePartial
-                                ? 'at least ' +
-                                  formatEstimatedCost(view.cliCost)
-                                : null
-                            "
-                            >{{ view.cliUsagePartial ? '≥ ' : ''
-                            }}{{ formatEstimatedCost(view.cliCost) }}</span
+                            class="shrink-0 font-medium"
+                            [attr.title]="view.modelRaw"
+                            >{{ view.modelName }}</span
                           >
                         }
-                        @if (view.duration) {
-                          <span
-                            class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
-                            title="Elapsed duration"
-                            >{{ view.duration }}</span
+                        @if (view.row.agent.activity) {
+                          <span class="min-w-0 truncate">{{
+                            view.row.agent.activity
+                          }}</span>
+                        }
+                        @if (view.tokens && view.row.agent.kind !== 'cli') {
+                          <span class="shrink-0 tabular-nums"
+                            >· {{ view.tokens }} tokens</span
                           >
                         }
                       </span>
+                      @if (view.row.agent.kind === 'cli') {
+                        <span
+                          class="mt-1 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap"
+                        >
+                          @if (view.cliTokens !== null) {
+                            @if (view.cliUsagePartial) {
+                              <span
+                                class="badge badge-outline badge-sm cursor-help"
+                                title="From retained output, may be partial"
+                                [attr.aria-label]="
+                                  'at least ' +
+                                  formatTokenCount(view.cliTokens) +
+                                  ' tokens'
+                                "
+                                >≥
+                                {{ formatTokenCount(view.cliTokens) }}
+                                tokens</span
+                              >
+                            } @else {
+                              <ptah-token-badge [tokens]="view.cliTokens" />
+                            }
+                          }
+                          @if (view.cliCost !== null) {
+                            <span
+                              class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
+                              [attr.title]="
+                                view.cliUsagePartial
+                                  ? 'From retained output, may be partial'
+                                  : 'Reported or estimated cost'
+                              "
+                              [attr.aria-label]="
+                                view.cliUsagePartial
+                                  ? 'at least ' +
+                                    formatEstimatedCost(view.cliCost)
+                                  : null
+                              "
+                              >{{ view.cliUsagePartial ? '≥ ' : ''
+                              }}{{ formatEstimatedCost(view.cliCost) }}</span
+                            >
+                          }
+                          @if (view.duration) {
+                            <span
+                              class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
+                              title="Elapsed duration"
+                              >{{ view.duration }}</span
+                            >
+                          }
+                        </span>
+                      }
                     }
                   </span>
                 </button>
                 @if (view.tray && view.hasActions) {
                   <ptah-inspector-agent-actions-menu
-                    class="mr-3 mt-[13px]"
+                    class="mr-3 mt-2"
                     [name]="view.name"
                     [ctx]="view.tray"
                     [open]="menuOpenKey() === view.key"
@@ -303,6 +301,12 @@ let nextSectionId = 0;
                   />
                 }
               </div>
+              @if (selectedKey() === view.key && view.stats; as stats) {
+                <ptah-agent-lane-stats
+                  class="block px-3 pb-2"
+                  [stats]="stats"
+                />
+              }
               @if (view.modelRaw) {
                 <span hidden [id]="modelDescId(i)"
                   >Model {{ view.modelName }}, id {{ view.modelRaw }}</span
@@ -349,10 +353,13 @@ let nextSectionId = 0;
 })
 export class InspectorAgentsSectionComponent {
   private readonly tray = inject(SessionAgentTrayService);
+  private readonly monitor = inject(AgentMonitorStore);
   private readonly modelState = inject(ModelStateService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly tabId = input.required<string>();
+  /** Roster lane key selected by the host avatar strip, including finished agents. */
+  readonly selectedAgentKey = input<string | null>();
   /** Owning session of the shown tab; scopes the tray contexts. */
   readonly sessionId = input<string | null>(null);
   readonly agents = input.required<SectionState<InspectorAgentsData>>();
@@ -365,14 +372,18 @@ export class InspectorAgentsSectionComponent {
   readonly answerRequested = output<string>();
   readonly announced = output<string>();
 
-  protected readonly BotIcon = Bot;
   protected readonly formatEstimatedCost = formatEstimatedCost;
   protected readonly formatTokenCount = formatTokenCount;
   protected readonly skeletonRows = [0, 1, 2];
   private readonly sectionId = ++nextSectionId;
   protected readonly headingId = `ptah-agents-h-${this.sectionId}`;
 
-  protected readonly selectedKey = signal<string | null>(null);
+  private readonly localSelectedKey = signal<string | null>(null);
+  protected readonly selectedKey = computed(() =>
+    this.selectedAgentKey() === undefined
+      ? this.localSelectedKey()
+      : this.selectedAgentKey(),
+  );
   protected readonly menuOpenKey = signal<string | null>(null);
   protected readonly steerOpenKey = signal<string | null>(null);
   protected readonly pendingSteerId = signal<string | null>(null);
@@ -386,19 +397,21 @@ export class InspectorAgentsSectionComponent {
     this.tray.extrasFor(this.sessionId(), this.roster()),
   );
 
-  protected readonly population = computed(() =>
-    backgroundAgentPopulation(
-      [...this.tray.contextsFor(this.sessionId()).values()].map(
-        (ctx) => ctx.entry,
-      ),
+  protected readonly activeRows = computed(() =>
+    this.rows().filter(
+      (row) => row.agent.status === 'running' || row.agent.status === 'waiting',
     ),
   );
-
-  protected readonly meta = computed(() => {
-    const data = this.agents().data;
-    if (!data || data.rows.length === 0) return 'none yet';
-    return `${data.active} active · ${data.finished} finished`;
-  });
+  private readonly visibleRows = computed(() =>
+    this.rows().filter(
+      (row) =>
+        row.agent.status === 'running' ||
+        row.agent.status === 'waiting' ||
+        row.requests.length > 0 ||
+        row.agent.key === this.selectedKey() ||
+        row.agent.key === this.steerOpenKey(),
+    ),
+  );
 
   private readonly hasRunning = computed(() =>
     this.rows().some((row) => row.agent.status === 'running'),
@@ -408,8 +421,22 @@ export class InspectorAgentsSectionComponent {
     const extras = this.extras();
     const models = this.modelState.availableModels();
     const now = this.hasRunning() ? this.now() : Date.now();
-    return this.rows().map((row): AgentRowView => {
+    return this.visibleRows().map((row): AgentRowView => {
       const agent = row.agent;
+      const lane = parseLaneKey(agent.key);
+      const subagent =
+        lane?.kind === 'subagent'
+          ? this.monitor.subagents().get(lane.id)
+          : null;
+      const cli =
+        lane?.kind === 'cli'
+          ? this.monitor.agents().find((item) => item.agentId === lane.id)
+          : null;
+      const stats = subagent
+        ? subagentLaneStats(subagent, now)
+        : cli
+          ? cliLaneStats(cli)
+          : null;
       const extra = extras.get(agent.key);
       const tray = extra?.tray ?? null;
       const durationMs = agentRunDurationMs(
@@ -421,7 +448,7 @@ export class InspectorAgentsSectionComponent {
         },
         now,
       );
-      const modelRaw = extra?.model ?? null;
+      const modelRaw = stats?.model ?? extra?.model ?? null;
       const tokens = extra?.tokens ?? null;
       const fallbackUsage =
         agent.usageTotals == null
@@ -435,6 +462,20 @@ export class InspectorAgentsSectionComponent {
               typeof usage?.outputTokens === 'number'
             ? usage.inputTokens + usage.outputTokens
             : null;
+      const compactTokens =
+        stats?.tokens ?? (agent.kind === 'cli' ? cliTokenTotal : tokens);
+      const compactCost = stats ? stats.cost : usage?.costUsd;
+      const tokenText =
+        compactTokens == null
+          ? null
+          : `${(stats?.tokensPartial ?? fallbackUsage?.partial) ? '≥ ' : ''}${formatTokenCount(compactTokens)}`;
+      const costText =
+        compactCost == null
+          ? null
+          : `${(stats?.costPartial ?? fallbackUsage?.partial) ? '≥ ' : ''}${formatEstimatedCost(compactCost)}`;
+      const compactUsage =
+        [tokenText, costText].filter((value) => value !== null).join(' · ') ||
+        '—';
       const duration =
         durationMs === null ? null : formatAgentDuration(durationMs);
       const label = agentAccessibleLabel({
@@ -444,6 +485,9 @@ export class InspectorAgentsSectionComponent {
         durationMs,
       });
       return {
+        stats,
+        compactUsage,
+        usageLabel: `${tokenText === null ? 'Tokens unavailable' : tokenText + ' tokens'}; ${costText === null ? 'Cost unavailable' : costText}`,
         key: agent.key,
         row,
         name: agent.name,
@@ -454,13 +498,13 @@ export class InspectorAgentsSectionComponent {
         modelName: modelRaw ? resolveModelDisplayName(modelRaw, models) : null,
         modelRaw,
         tokens:
-          tokens !== null && Number.isFinite(tokens) && tokens > 0
+          tokens !== null && Number.isFinite(tokens) && tokens >= 0
             ? formatTokenCount(tokens)
             : null,
         cliTokens:
           cliTokenTotal !== null &&
           Number.isFinite(cliTokenTotal) &&
-          cliTokenTotal > 0
+          cliTokenTotal >= 0
             ? cliTokenTotal
             : null,
         cliCost: usage?.costUsd ?? null,
@@ -486,7 +530,7 @@ export class InspectorAgentsSectionComponent {
   }
 
   protected activate(view: AgentRowView): void {
-    this.selectedKey.set(view.key);
+    this.localSelectedKey.set(view.key);
     if (this.hasLaneSurface()) {
       this.laneRequested.emit(view.key);
       return;

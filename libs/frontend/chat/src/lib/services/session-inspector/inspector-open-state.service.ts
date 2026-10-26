@@ -2,14 +2,16 @@ import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { TabViewMode } from '@ptah-extension/chat-types';
 
-/** A docked open/closed choice the user made, tied to the view mode it was made in. */
+/** One expanded/compact boolean, tied to the view mode it was made in. */
 interface DockedChoice {
   readonly open: boolean;
   readonly mode: TabViewMode;
 }
 
 /**
- * The per-tab docked inspector choice, in memory only. A choice made in
+ * The per-tab expanded (true) / compact (false) choice, in memory only,
+ * independent of the saved resize width. False never means a hidden rail.
+ * A choice made in
  * another view mode counts as absent, so a mode change falls back to the
  * default without a hook into `TabManagerService`. The overlay sheet never
  * writes here.
