@@ -1226,6 +1226,53 @@ describe('OffThreadProcessSpawner', () => {
       );
     });
 
+    it('ignoreStdio: null streams, no pipe, and a HIDDEN window', async () => {
+      if (process.platform !== 'win32') setPlatform('win32');
+      const messages = fakeWorkerSpawns(4444);
+      const guard: SpawnLaunchGuard = { fileContents: [] };
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        ignoreStdio: true,
+        launchGuard: guard,
+      });
+
+      expect(child.stdin).toBeNull();
+      expect(child.stdout).toBeNull();
+      expect(child.stderr).toBeNull();
+      await expect(waitForCloseCode(child)).resolves.toBe(0);
+      await expect(child.whenSpawned).resolves.toBe(4444);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toEqual(
+        expect.objectContaining({
+          stdioMode: 'ignore',
+          stderrMode: 'ignore',
+          windowsHide: true,
+          launchGuard: guard,
+        }),
+      );
+    });
+
+    it('ignoreStdio is not refused off win32', async () => {
+      setPlatform('linux');
+      const messages = fakeWorkerSpawns(4545);
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        ignoreStdio: true,
+      });
+
+      await expect(waitForCloseCode(child)).resolves.toBe(0);
+      expect(child.stdout).toBeNull();
+      expect(messages[0]).toEqual(
+        expect.objectContaining({ stdioMode: 'ignore', windowsHide: true }),
+      );
+    });
+
     it('the worker program gives an ignore-stdio child no pipe and still ends stdout once', async () => {
       const worker = new Worker(OFF_THREAD_SPAWNER_WORKER_SOURCE, {
         eval: true,

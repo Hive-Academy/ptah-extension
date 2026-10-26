@@ -710,8 +710,8 @@ const USER_CONSOLE_UNSUPPORTED = 'ENOTSUP';
 
 /**
  * The SDK seam's handles always pipe stdio; this proves it to the compiler
- * instead of casting. Only `stdioMode: 'ignore'` (the port's `userConsole`)
- * produces a handle without pipes, and `spawn()` never asks for it.
+ * instead of casting. Only `stdioMode: 'ignore'` (the port's `userConsole` or
+ * `ignoreStdio`) produces a handle without pipes, and `spawn()` never asks for it.
  */
 function hasStdioPipes(
   target: WorkerBackedProcess | InlineProcess,
@@ -793,6 +793,9 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
       refused.code = USER_CONSOLE_UNSUPPORTED;
       return new RefusedProcess(refused);
     }
+    // A user console's input and output belong to the user; an ignore-stdio
+    // request asks for no pipe on its own. Neither creates one.
+    const noStdio = userConsole || request.ignoreStdio === true;
     const env = stripUndefinedEnv(request.env);
     const parsed = parseCommand(request.command, [...request.args], {
       cwd: request.cwd,
@@ -812,9 +815,8 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
         windowsHide: !userConsole && request.needsConsole !== true,
         windowsVerbatimArguments:
           parsed.options.windowsVerbatimArguments === true,
-        // A user console's input and output belong to the user: no pipe.
-        stdioMode: userConsole ? 'ignore' : 'pipe',
-        stderrMode: userConsole ? 'ignore' : 'stream',
+        stdioMode: noStdio ? 'ignore' : 'pipe',
+        stderrMode: noStdio ? 'ignore' : 'stream',
         ...(request.launchGuard !== undefined
           ? { launchGuard: request.launchGuard }
           : {}),

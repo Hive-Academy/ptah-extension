@@ -219,3 +219,24 @@
 - Fix 4 (`pr-fix-4-report.md`): `sdk-query-options-builder.ts` keeps the literal `settingSources: includesUserSettingSource(` for the ambient value that the output-styles source guard requires; a named run overrides it with a later spread. Same runtime result for both routes.
 - Independent review of fixes 1-4: codex lane (reviewer codex, implementer Claude), APPROVED 9/10, no findings (`code-logic-review-pr-fixes.md`). Known limit kept: `prepareSdkHandleSpawn` (Ptah CLI registry path) still forwards the gate reference on `fresh`; not part of the CodeRabbit finding, recorded for a later task.
 - `@ptah-extension/output-styles` is added to the verify project list from now on.
+
+## D39 — Live test: sign-in console never shows (2026-10-26, orchestrator, evidence step)
+
+- Live Electron test (R8) stopped at E1.2: "Sign in" shows pending, but no window. Process watch: `conhost.exe` + `claude.exe` start and stop at once; no log line.
+- Probes (temp config dir, output never read): `conhost.exe claude auth login --claudeai` with `stdio: 'ignore'` exits 0 after ~800 ms with the allowlisted env and with the full env. `cmd /c start /wait` and a hidden `powershell -EncodedCommand` running `Start-Process -Wait -PassThru` both keep claude open in a new visible console; `taskkill /T` on the PowerShell PID stops the tree.
+- Cause: libuv always passes std handles (NUL for `ignore`); conhost hands them to claude, which sees no terminal and quits.
+- Decision: launch through a hidden PowerShell `Start-Process -Wait` (quoting via `quotePowerShell`, arguments as one CommandLineToArgvW string, script by `-EncodedCommand`). Fix run `live-fix-1-report.md`; then verify, a codex review, rebuild, and repeat E1. Reversible.
+- E2 step 1 has no separate probe script: the named-run bootstrap already proves `accountInfo()` before the first prompt and fails closed at 15 s; step 6 records that proof.
+- User UX feedback recorded for a new phase P5 (designer → prototype → cross-side review → Gate 1.7): (1) move Accounts into the Claude (Subscription) connection drawer; (2) show the existing Claude login as one connected account and let the user add the second, so the two selection cards do not both read "Use existing default"; (3) Manage opens on the Access tab when the account is not signed in; (4) remove the profile UUID and "Unknown owner" noise from the card and Overview.
+- Electron build for the live test ran outside the verify lock, by the user's explicit choice.
+
+## D40 — Login launcher correction and P5 user decisions (2026-10-26, orchestrator + user)
+
+- Live fix 1 review (codex, REVISE 8/10): finding 1 Moderate — `Start-Process -WorkingDirectory` treats `[`/`]` as wildcards (reproduced: exit 1, no child). Fix 1b uses .NET `ProcessStartInfo` with `UseShellExecute` (probe: works for plain, bracket and backtick paths; real login stays open; tree kill clean). Finding 2 Minor (test/harness spawners ignore `ignoreStdio`) recorded, not fixed.
+- Verify of live fix 1 (auth-providers, agent-sdk, platform-core, ptah-electron; 18 tasks): only the known pre-existing `EPERM` integration tests and the `package.json` dependency-check fail.
+- P5 design review (codex, REVISE 6/10, `design-spec-p5-review.md`). User decisions (AskUserQuestion):
+  1. Ambient row: add a read-only host status check for the existing Claude login (Connected / Not signed in / Unknown), UI-safe fields only.
+  2. Remove the one-step "Set as default" (both scopes); the two "Use for" selects replace it. User-approved removal.
+  3. Remove the "Verified identity" badge and the UUID suffixes in selects; account names must be unique (add/rename validation). User-approved removal.
+  Also user-approved (D39 item 4): remove the card UUID and "Unknown owner" from the card and Overview.
+- Orchestrator decisions (evidence step): no account-count cap (no host contract); Add does not chain sign-in — after Add, the new account opens on Access with a Sign in button; no Advanced tab; the "Window did not open?" link only when the host supplied a fallback script.

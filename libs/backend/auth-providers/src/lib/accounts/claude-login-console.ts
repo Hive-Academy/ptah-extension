@@ -33,6 +33,57 @@ export function quotePosix(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+/**
+ * One argument quoted for `CommandLineToArgvW` (and the MSVC CRT): bare when it
+ * has no blank or quote, else double-quoted with each quote escaped and the
+ * backslashes in front of a quote or the closing quote doubled.
+ */
+export function quoteWindowsArgument(value: string): string {
+  if (value !== '' && !/[\s"]/.test(value)) return value;
+  let quoted = '"';
+  let slashes = 0;
+  for (const char of value) {
+    if (char === '\\') {
+      slashes += 1;
+      continue;
+    }
+    quoted += char === '"' ? `${'\\'.repeat(slashes * 2 + 1)}"` : `${'\\'.repeat(slashes)}${char}`;
+    slashes = 0;
+  }
+  return `${quoted}${'\\'.repeat(slashes * 2)}"`;
+}
+
+/**
+ * The hidden launcher's script. `Process.Start` with `UseShellExecute` opens the
+ * target in a NEW visible console with no inherited std handles, so `claude`
+ * sees a real terminal, and `WaitForExit` keeps this PowerShell (and so the
+ * handle Ptah holds) alive until `claude` exits. The .NET `ProcessStartInfo`
+ * form, not `Start-Process`: `Start-Process -WorkingDirectory` (and its `$PWD`
+ * fallback) treats `[` and `]` as wildcards and fails before the child starts,
+ * while `ProcessStartInfo` takes every path literally. `Arguments` is ONE
+ * string, so the arguments are quoted for `CommandLineToArgvW`. Every value is
+ * a single-quoted literal.
+ */
+function launcherScript(context: ClaudeAuthContext): string {
+  const argumentLine = [...context.executable.prefixArgs, ...LOGIN_ARGS].map(quoteWindowsArgument).join(' ');
+  return [
+    "$ErrorActionPreference = 'Stop';",
+    '$i = New-Object System.Diagnostics.ProcessStartInfo;',
+    `$i.FileName = ${quotePowerShell(context.executable.command)};`,
+    `$i.Arguments = ${quotePowerShell(argumentLine)};`,
+    `$i.WorkingDirectory = ${quotePowerShell(context.cwd)};`,
+    '$i.UseShellExecute = $true;',
+    '$p = [System.Diagnostics.Process]::Start($i);',
+    '$p.WaitForExit();',
+    'exit $p.ExitCode',
+  ].join(' ');
+}
+
+/** `-EncodedCommand` form: base64 of UTF-16LE, so no command-line quoting can reach the script. */
+function encodePowerShell(script: string): string {
+  return Buffer.from(script, 'utf16le').toString('base64');
+}
+
 function envValue(env: Readonly<Record<string, string>>, name: string): string | undefined {
   const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name);
   return key === undefined ? undefined : env[key];
@@ -97,9 +148,13 @@ export class ClaudeLoginConsole {
   ) {}
 
   /**
-   * Opens `conhost.exe` running `auth login --claudeai` (win32 only). The
-   * reserved route is revalidated first (on every platform, so no fallback is
-   * offered for a replaced directory) and its file identity guards creation.
+   * Starts a hidden, output-free Windows PowerShell (win32 only) that opens
+   * `auth login --claudeai` in a new visible console and waits for it. The
+   * returned child is that PowerShell; a tree kill of its pid also stops the
+   * console and `claude`. (`conhost.exe` was not usable: libuv always passes
+   * std handles, and `claude` given NUL handles quits at once.) The reserved
+   * route is revalidated first (on every platform, so no fallback is offered
+   * for a replaced directory) and its file identity guards creation.
    */
   async launch(context: ClaudeAuthContext, signal: AbortSignal): Promise<ClaudeLoginConsoleStart> {
     if (signal.aborted) return { kind: 'unavailable' };
@@ -115,11 +170,12 @@ export class ClaudeLoginConsole {
     let child: SpawnedProcessHandle;
     try {
       child = this.spawner.spawnProcess({
-        command: win32.join(systemRoot, 'System32', 'conhost.exe'),
-        args: [context.executable.command, ...context.executable.prefixArgs, ...LOGIN_ARGS],
+        command: win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePowerShell(launcherScript(context))],
         env: context.env,
         cwd: context.cwd,
-        userConsole: true,
+        // Hidden launcher, output never read (D5); the console it opens is the visible one.
+        ignoreStdio: true,
         launchGuard: claudeAccountRouteGuard(route),
       });
     } catch {

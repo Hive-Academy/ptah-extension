@@ -84,6 +84,15 @@ export interface ProcessSpawnRequest {
    */
   readonly userConsole?: true;
   /**
+   * All three stdio slots are `ignore`: the caller never sees the child's input
+   * or output, the handle's `stdin`, `stdout` and `stderr` are `null` and no
+   * pipe is created. `close` fires once the child exits. The window follows the
+   * usual rule (hidden unless {@link needsConsole} or {@link userConsole}), so
+   * on Windows this is the hidden, output-free launcher of a process that opens
+   * its own window (the Claude sign-in console). Available on every platform.
+   */
+  readonly ignoreStdio?: true;
+  /**
    * Re-checked at the instant of creation; see {@link SpawnLaunchGuard}. An
    * implementation MUST honour it (or refuse the request); it must never
    * create the child without checking it.

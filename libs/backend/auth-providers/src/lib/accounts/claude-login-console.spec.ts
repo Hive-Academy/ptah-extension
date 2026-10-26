@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
 import { buildCertifiedClaudeEnv, certifiedEnvDigest, CLAUDE_CERTIFIED_ENV_KEYS } from '@ptah-extension/agent-sdk';
 import type { IProcessSpawner, ProcessSpawnRequest, SpawnedProcessHandle } from '@ptah-extension/platform-core';
-import { ClaudeLoginConsole, quotePosix, quotePowerShell } from './claude-login-console';
+import { ClaudeLoginConsole, quotePosix, quotePowerShell, quoteWindowsArgument } from './claude-login-console';
 import { ClaudeRouteCertifier, type ClaudeAuthContext, type ClaudeCliProbe, type ClaudeRouteCertifierFs } from './claude-route-certifier';
 import { resolveProviderAccountRoute, type CanonicalProviderAccountRoute } from './provider-account-route';
 
@@ -116,6 +116,73 @@ function after(text: string, marker: string): number {
   return at + marker.length;
 }
 
+/** The script a request carries after `-EncodedCommand` (base64 of UTF-16LE). */
+function decodedScript(request: ProcessSpawnRequest | undefined): string {
+  const args = request?.args ?? [];
+  const encoded = args[args.indexOf('-EncodedCommand') + 1];
+  if (encoded === undefined) throw new Error('no -EncodedCommand');
+  return Buffer.from(encoded, 'base64').toString('utf16le');
+}
+
+/** Code outside single-quoted literals, with each literal replaced by `''`. */
+function scriptCode(script: string): string {
+  let code = '';
+  for (let index = 0; index < script.length; index += 1) {
+    if ("'‘’‚‛".includes(script[index])) {
+      const value = readPowerShellLiteral(script, index);
+      index += quotePowerShell(value).length - 1;
+      code += "''";
+    } else {
+      code += script[index];
+    }
+  }
+  return code;
+}
+
+/** Reference parser: `CommandLineToArgvW` / MSVC CRT rules for arguments after the program name. */
+function parseWindowsArguments(line: string): string[] {
+  const parsed: string[] = [];
+  let index = 0;
+  while (index < line.length) {
+    while (line[index] === ' ' || line[index] === '\t') index += 1;
+    if (index >= line.length) break;
+    let value = '';
+    let inQuotes = false;
+    while (index < line.length && (inQuotes || (line[index] !== ' ' && line[index] !== '\t'))) {
+      const char = line[index];
+      if (char === '\\') {
+        let slashes = 0;
+        while (line[index] === '\\') {
+          slashes += 1;
+          index += 1;
+        }
+        if (line[index] === '"') {
+          value += '\\'.repeat(Math.floor(slashes / 2));
+          if (slashes % 2 === 1) {
+            value += '"';
+            index += 1;
+          }
+        } else {
+          value += '\\'.repeat(slashes);
+        }
+      } else if (char === '"') {
+        if (inQuotes && line[index + 1] === '"') {
+          value += '"';
+          index += 2;
+        } else {
+          inQuotes = !inQuotes;
+          index += 1;
+        }
+      } else {
+        value += char;
+        index += 1;
+      }
+    }
+    parsed.push(value);
+  }
+  return parsed;
+}
+
 describe('ClaudeLoginConsole.launch', () => {
   let root: string;
   let route: CanonicalProviderAccountRoute;
@@ -133,7 +200,7 @@ describe('ClaudeLoginConsole.launch', () => {
     mkdirSync(route.requestedPath);
   };
 
-  it('opens conhost.exe with the certified env, cwd, user console and file-identity guard on win32', async () => {
+  it('starts a hidden, output-free powershell.exe with the certified env, cwd and file-identity guard on win32', async () => {
     const { spawner, requests } = fakeSpawner();
     const ctx = reserved();
     const result = await new ClaudeLoginConsole(spawner, 'win32').launch(ctx, signal());
@@ -141,15 +208,77 @@ describe('ClaudeLoginConsole.launch', () => {
     expect(result.kind).toBe('started');
     expect(requests).toEqual([
       {
-        command: 'C:\\Windows\\System32\\conhost.exe',
-        args: ['C:\\tools\\node.exe', SDK_PATH, 'auth', 'login', '--claudeai'],
+        command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        args: ['-NoProfile', '-NonInteractive', '-EncodedCommand', expect.stringMatching(/^[A-Za-z0-9+/]+=*$/)],
         env: ctx.env,
         cwd: ctx.canonicalDir,
-        userConsole: true,
+        ignoreStdio: true,
         launchGuard: { fileIdentities: [{ path: route.requestedPath, realpath: route.canonicalPath,
           devIno: `${route.filesystemIdentity.volumeId}:${route.filesystemIdentity.fileId}` }] },
       },
     ]);
+    // Never a visible host window: no userConsole, no needsConsole.
+    expect(requests[0]).not.toHaveProperty('userConsole');
+    expect(requests[0]).not.toHaveProperty('needsConsole');
+  });
+
+  it('the encoded script starts claude in a new console, waits, and hands back its exit code', async () => {
+    const { spawner, requests } = fakeSpawner();
+    const ctx = reserved();
+    await new ClaudeLoginConsole(spawner, 'win32').launch(ctx, signal());
+    const script = decodedScript(requests[0]);
+
+    expect(script.startsWith(
+      "$ErrorActionPreference = 'Stop'; $i = New-Object System.Diagnostics.ProcessStartInfo; $i.FileName = '")).toBe(true);
+    expect(script.endsWith(
+      '; $i.UseShellExecute = $true; $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode')).toBe(true);
+    // No Start-Process (wildcard paths) and no WindowStyle (default Normal = visible console).
+    expect(script).not.toContain('Start-Process');
+    expect(script).not.toContain('WindowStyle');
+    expect(readPowerShellLiteral(script, after(script, '$i.FileName = '))).toBe('C:\\tools\\node.exe');
+    expect(parseWindowsArguments(readPowerShellLiteral(script, after(script, '$i.Arguments = '))))
+      .toEqual([SDK_PATH, 'auth', 'login', '--claudeai']);
+    expect(readPowerShellLiteral(script, after(script, '$i.WorkingDirectory = '))).toBe(ctx.cwd);
+  });
+
+  it.each([
+    ['spaces', 'C:\\Program Files\\Claude Code\\claude.exe', ['C:\\Program Files\\cli dir\\cli.js'], 'C:\\Users\\Jane Doe\\work'],
+    ['single quotes', "C:\\O'Brien\\claude.exe", ["C:\\it's\\cli.js", "'"], "C:\\it's here"],
+    ['typographic quotes', 'C:\\a\u2019b\\claude.exe', ['\u2018x\u2019', '\u201Ay\u201B'], 'C:\\c\u2018d'],
+    ['double quotes', 'C:\\x\\claude.exe', ['say "hi"', '"', 'a\\"b', 'end\\'], 'C:\\work'],
+    ['shell metacharacters', 'C:\\a&b%PATH%$env:X\\claude.exe', ['a&b', '%USERPROFILE%', '$env:PATH', '$(Remove-Item x)', '`n;|<>^'], 'C:\\100%&$x'],
+    ['trailing backslashes', 'C:\\x\\claude.exe', ['C:\\dir with space\\', 'C:\\plain\\', '\\\\', ''], 'C:\\work\\'],
+    ['injection', "C:\\n'; Start-Process calc; '\\claude.exe", ["'; $i.FileName = 'x", '" & calc & "'], "C:\\w'; exit 1; '"],
+    // Start-Process treated `[`/`]` as wildcards and failed before the child started.
+    ['wildcard brackets and backticks', 'C:\\Users\\Jane[work] x\\`bin`\\claude.exe', ['C:\\a[1]`b\\cli.js', '[*]'], 'C:\\Users\\Jane[work] x\\it`s `$x'],
+  ])('round-trips awkward values (%s) through the script literals and CommandLineToArgvW', async (_name, command, prefixArgs, cwd) => {
+    const { spawner, requests } = fakeSpawner();
+    const ctx: ClaudeAuthContext = { ...context({ canonicalDir: route.canonicalPath, command, prefixArgs, cwd }), route };
+    await expect(new ClaudeLoginConsole(spawner, 'win32').launch(ctx, signal())).resolves.toEqual(expect.objectContaining({ kind: 'started' }));
+    const script = decodedScript(requests[0]);
+
+    expect(readPowerShellLiteral(script, after(script, '$i.FileName = '))).toBe(command);
+    expect(parseWindowsArguments(readPowerShellLiteral(script, after(script, '$i.Arguments = '))))
+      .toEqual([...prefixArgs, 'auth', 'login', '--claudeai']);
+    expect(readPowerShellLiteral(script, after(script, '$i.WorkingDirectory = '))).toBe(cwd);
+    // Outside the three literals the script is fixed code: nothing a value carries escapes them.
+    expect(scriptCode(script)).toBe(
+      "$ErrorActionPreference = ''; $i = New-Object System.Diagnostics.ProcessStartInfo; $i.FileName = ''; $i.Arguments = ''; " +
+      "$i.WorkingDirectory = ''; $i.UseShellExecute = $true; $p = [System.Diagnostics.Process]::Start($i); $p.WaitForExit(); exit $p.ExitCode");
+  });
+
+  it.each([
+    ['plain', 'a', 'a'],
+    ['empty', '', '""'],
+    ['space', 'a b', '"a b"'],
+    ['tab', 'a\tb', '"a\tb"'],
+    ['quote', 'a"b', '"a\\"b"'],
+    ['backslash before quote', 'a\\"b', '"a\\\\\\"b"'],
+    ['trailing backslash with space', 'a b\\', '"a b\\\\"'],
+    ['backslashes not before a quote', 'C:\\x\\y', 'C:\\x\\y'],
+  ])('quoteWindowsArgument: %s', (_name, value, expected) => {
+    expect(quoteWindowsArgument(value)).toBe(expected);
+    expect(parseWindowsArguments(quoteWindowsArgument(value))).toEqual([value]);
   });
 
   it.each(['win32', 'linux'] as const)('launches nothing against a directory replaced after reservation and coverage on %s',
@@ -178,7 +307,7 @@ describe('ClaudeLoginConsole.launch', () => {
     await expect(new ClaudeLoginConsole(spawner, 'win32').launch(reserved(), signal())).resolves.toEqual({ kind: 'route-changed' });
   });
 
-  it.each(['darwin', 'linux'] as const)('never sets userConsole on %s and returns unavailable', async (platform) => {
+  it.each(['darwin', 'linux'] as const)('spawns nothing on %s and returns unavailable', async (platform) => {
     const { spawner, requests } = fakeSpawner();
     await expect(new ClaudeLoginConsole(spawner, platform).launch(reserved(), signal())).resolves.toEqual({ kind: 'unavailable' });
     expect(requests).toEqual([]);
@@ -224,26 +353,11 @@ describe('ClaudeLoginConsole.fallbackScript', () => {
     expect(script.endsWith('auth login --claudeai; exit $LASTEXITCODE }')).toBe(true);
   });
 
-  /** Code outside single-quoted literals, with each literal replaced by `''`. */
-  function powerShellCode(script: string): string {
-    let code = '';
-    for (let index = 0; index < script.length; index += 1) {
-      if ("'\u2018\u2019\u201A\u201B".includes(script[index])) {
-        const value = readPowerShellLiteral(script, index);
-        index += quotePowerShell(value).length - 1;
-        code += "''";
-      } else {
-        code += script[index];
-      }
-    }
-    return code;
-  }
-
   it.each([
     ['plain', context()],
     ['injection', context({ canonicalDir: "C:\\x' }; Remove-Item Env:PATH; & { '", command: "C:\\n'; Set-Location C:\\; '\\node.exe" })],
   ] as const)('PowerShell (%s): the env clearing and Set-Location run only inside the child block', (_label, ctx) => {
-    const code = powerShellCode(powershell.fallbackScript(ctx).script);
+    const code = scriptCode(powershell.fallbackScript(ctx).script);
     const prefix = 'powershell -NoProfile -Command {';
     expect(code.startsWith(prefix)).toBe(true);
     expect(code.endsWith(' }')).toBe(true);
