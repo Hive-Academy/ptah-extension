@@ -31,7 +31,6 @@ import {
 } from '@ptah-extension/auth-providers';
 import type { ModelResolver } from '@ptah-extension/auth-providers';
 import {
-  PermissionLevel,
   ConfigModelSwitchParams,
   ConfigModelSwitchResult,
   ConfigModelGetResult,
@@ -48,6 +47,7 @@ import {
   getModelPricingDescription,
   getPricingMap,
   type SessionId,
+  type SessionRuntimeControls,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import {
@@ -55,6 +55,7 @@ import {
   parseEffortLevel,
   parseApplyTo,
 } from './config-rpc.schema';
+import { configRuntimeControls } from './config-runtime-controls';
 import { isTierAlias, savedModelOption } from './config-saved-model-option';
 
 /**
@@ -97,6 +98,8 @@ export class ConfigRpcHandlers {
     private readonly pricingProvider: IPricingProvider,
     @inject(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
     private readonly lifecycle: SessionLifecycleManager | null = null,
+    @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
+    private readonly runtimeControls: SessionRuntimeControls | null = null,
   ) {}
 
   /**
@@ -200,23 +203,13 @@ export class ConfigRpcHandlers {
             startsWithClaude: model.startsWith('claude-'),
           },
         );
-        await this.modelSettings.selectedModel.set(model, applyTo);
         if (sessionId) {
-          try {
-            await this.sdkAdapter.setSessionModel(sessionId, model);
-            this.logger.debug('Model synced to active session', {
-              sessionId,
-              model,
-            });
-          } catch (syncError) {
-            this.logger.warn(
-              'Failed to sync model to active session (config saved)',
-              syncError instanceof Error
-                ? syncError
-                : new Error(String(syncError)),
-            );
-          }
+          await configRuntimeControls(
+            this.runtimeControls,
+            this.sdkAdapter,
+          ).setModel(sessionId, model);
         }
+        await this.modelSettings.selectedModel.set(model, applyTo);
 
         this.logger.info('Model switched successfully', { model });
 
@@ -350,39 +343,38 @@ export class ConfigRpcHandlers {
           );
         }
 
-        await this.configManager.set('autopilot.enabled', enabled);
-        await this.configManager.set(
-          'autopilot.permissionLevel',
-          permissionLevel,
-        );
-        const effectiveLevel = enabled
-          ? (permissionLevel as PermissionLevel)
-          : 'ask';
-        this.permissionHandler.setPermissionLevel(effectiveLevel);
+        const effectiveLevel = enabled ? permissionLevel : 'ask';
         const targetSessionId = this.autopilotTargetSession(sessionId);
         if (targetSessionId) {
-          try {
-            const sdkMode = enabled
-              ? this.mapPermissionToSdkMode(permissionLevel)
-              : 'default';
-            await this.sdkAdapter.setSessionPermissionLevel(
-              targetSessionId,
-              sdkMode,
-            );
-            this.logger.debug('Permission mode synced to active session', {
-              sessionId: targetSessionId,
-              sdkMode,
-              enabled,
-            });
-          } catch (syncError) {
-            this.logger.warn(
-              'Failed to sync permission mode to active session (config saved)',
-              syncError instanceof Error
-                ? syncError
-                : new Error(String(syncError)),
-            );
-          }
+          await configRuntimeControls(
+            this.runtimeControls,
+            this.sdkAdapter,
+          ).setPermission(targetSessionId, effectiveLevel);
         }
+        const previousEnabled = this.configManager.getWithDefault<boolean>(
+          'autopilot.enabled',
+          false,
+        );
+        const previousLevel = this.configManager.getWithDefault<string>(
+          'autopilot.permissionLevel',
+          'ask',
+        );
+        try {
+          await this.configManager.set('autopilot.enabled', enabled);
+          await this.configManager.set(
+            'autopilot.permissionLevel',
+            permissionLevel,
+          );
+        } catch (error) {
+          // Restore partial multi-key writes; never report saved success.
+          await this.configManager.set('autopilot.enabled', previousEnabled);
+          await this.configManager.set(
+            'autopilot.permissionLevel',
+            previousLevel,
+          );
+          throw error;
+        }
+        this.permissionHandler.setPermissionLevel(effectiveLevel);
 
         this.logger.info('Autopilot state updated', {
           enabled,
@@ -722,24 +714,13 @@ export class ConfigRpcHandlers {
           sessionId: sessionId ?? null,
         });
 
-        await this.reasoningSettings.effort.set(effort || '', applyTo);
-
         if (sessionId) {
-          try {
-            await this.sdkAdapter.setSessionEffort(sessionId, effort);
-            this.logger.debug('Effort synced to active session', {
-              sessionId,
-              effort,
-            });
-          } catch (syncError) {
-            this.logger.warn(
-              'Failed to sync effort to active session (config saved)',
-              syncError instanceof Error
-                ? syncError
-                : new Error(String(syncError)),
-            );
-          }
+          await configRuntimeControls(
+            this.runtimeControls,
+            this.sdkAdapter,
+          ).setEffort(sessionId, effort);
         }
+        await this.reasoningSettings.effort.set(effort || '', applyTo);
 
         this.logger.info('Reasoning effort saved', { effort });
         return { effort };
@@ -755,23 +736,5 @@ export class ConfigRpcHandlers {
         throw error;
       }
     });
-  }
-
-  /**
-   * Map frontend permission level to SDK permission mode
-   */
-  private mapPermissionToSdkMode(
-    level: PermissionLevel,
-  ): 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' {
-    const modeMap: Record<
-      PermissionLevel,
-      'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
-    > = {
-      ask: 'default',
-      'auto-edit': 'acceptEdits',
-      yolo: 'bypassPermissions',
-      plan: 'plan',
-    };
-    return modeMap[level];
   }
 }

@@ -13,19 +13,16 @@
  *     disabled at startup, the seeded level MUST collapse to 'ask' regardless
  *     of what was previously saved.
  *
- *   - `config:model-switch`: Persists the selected model to ConfigManager and
- *     optionally syncs it to an active SDK session. Sync failures are
- *     swallowed (warned, not thrown) so the config write still wins.
+ *   - `config:model-switch`: Applies the live change before persisting the
+ *     selection. Application failures reject without saving.
  *
  *   - `config:model-get`: a pure read. The stored value is returned
  *     verbatim and nothing is written (a read used to re-save at the
  *     global scope and wipe the workspace override).
  *
- *   - `config:autopilot-toggle`: Permission level persists to ConfigManager,
- *     is mirrored to SdkPermissionHandler, AND is mapped/mirrored to any
- *     active SDK session (`mapPermissionToSdkMode` — ask→default,
- *     auto-edit→acceptEdits, yolo→bypassPermissions, plan→plan). When
- *     disabled, the SDK session is reset to 'default' so canUseTool runs.
+ *   - `config:autopilot-toggle`: Sends frontend levels through runtime
+ *     controls before saving. The SDK owns legacy permission aliases;
+ *     yolo keeps callbacks active using SDK default mode.
  *
  *   - `config:models-list`: Merges SDK-supported models (tier shortcuts)
  *     with the /v1/models API response, dedupes by id, projects tier
@@ -363,21 +360,18 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('swallows session-sync failures so the config write still succeeds', async () => {
+    it('rejects live apply failures before persisting', async () => {
       const h = makeHarness();
       h.sdkAdapter.setSessionModel.mockRejectedValue(new Error('sync failed'));
       h.handlers.register();
 
-      const result = await call<{ model: string }>(h, 'config:model-switch', {
-        model: 'claude-haiku-4-5',
-        sessionId: 'sess-xyz',
-      });
-
-      expect(result.model).toBe('claude-haiku-4-5');
-      expect(h.modelSettings.selectedModel.set).toHaveBeenCalledWith(
-        'claude-haiku-4-5',
-        'app',
-      );
+      await expect(
+        call(h, 'config:model-switch', {
+          model: 'claude-haiku-4-5',
+          sessionId: 'sess-xyz',
+        }),
+      ).rejects.toThrow('sync failed');
+      expect(h.modelSettings.selectedModel.set).not.toHaveBeenCalled();
     });
 
     it('threads applyTo:workspace into the workspace-scoped model write', async () => {
@@ -588,7 +582,7 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'sess-1',
-        'acceptEdits',
+        'auto-edit',
       );
     });
 
@@ -608,7 +602,7 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'active-sess',
-        'bypassPermissions',
+        'yolo',
       );
     });
 
@@ -631,7 +625,7 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'active-sess',
-        'bypassPermissions',
+        'yolo',
       );
     });
 
@@ -685,7 +679,7 @@ describe('ConfigRpcHandlers', () => {
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledTimes(1);
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'sess-b',
-        'bypassPermissions',
+        'yolo',
       );
     });
 
@@ -717,7 +711,7 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('resets the SDK session to "default" when autopilot is disabled', async () => {
+    it('delegates ask when autopilot is disabled', async () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -729,7 +723,7 @@ describe('ConfigRpcHandlers', () => {
 
       expect(h.sdkAdapter.setSessionPermissionLevel).toHaveBeenCalledWith(
         'sess-2',
-        'default',
+        'ask',
       );
       // Permission handler collapses to 'ask' when disabled.
       expect(h.permissionHandler.setPermissionLevel).toHaveBeenCalledWith(
@@ -737,28 +731,21 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('swallows session-sync failures so the config write still succeeds', async () => {
+    it('rejects live apply failures before persisting', async () => {
       const h = makeHarness();
       h.sdkAdapter.setSessionPermissionLevel.mockRejectedValue(
         new Error('session not found'),
       );
       h.handlers.register();
 
-      const result = await call<{ enabled: boolean }>(
-        h,
-        'config:autopilot-toggle',
-        {
+      await expect(
+        call(h, 'config:autopilot-toggle', {
           enabled: true,
           permissionLevel: 'auto-edit',
           sessionId: 'sess-bad',
-        },
-      );
-
-      expect(result.enabled).toBe(true);
-      expect(h.configManager.set).toHaveBeenCalledWith(
-        'autopilot.enabled',
-        true,
-      );
+        }),
+      ).rejects.toThrow('session not found');
+      expect(h.configManager.set).not.toHaveBeenCalled();
     });
   });
 
@@ -1166,21 +1153,15 @@ describe('ConfigRpcHandlers', () => {
       expect(h.sdkAdapter.setSessionEffort).not.toHaveBeenCalled();
     });
 
-    it('still persists when the live session sync fails', async () => {
+    it('rejects live apply failures before persisting', async () => {
       const h = makeHarness();
       h.handlers.register();
       h.sdkAdapter.setSessionEffort.mockRejectedValue(new Error('sync failed'));
 
-      const result = await call<{ effort?: string }>(h, 'config:effort-set', {
-        effort: 'xhigh',
-        sessionId: 'sess-1',
-      });
-
-      expect(result.effort).toBe('xhigh');
-      expect(h.reasoningSettings.effort.set).toHaveBeenCalledWith(
-        'xhigh',
-        'app',
-      );
+      await expect(
+        call(h, 'config:effort-set', { effort: 'xhigh', sessionId: 'sess-1' }),
+      ).rejects.toThrow('sync failed');
+      expect(h.reasoningSettings.effort.set).not.toHaveBeenCalled();
     });
 
     it('threads applyTo:workspace into the workspace-scoped effort write', async () => {
