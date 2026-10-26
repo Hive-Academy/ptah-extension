@@ -257,4 +257,24 @@ describe('LegacySessionControls', () => {
     expect(lifecycle.interruptCurrentTurn).toHaveBeenCalledWith(id);
     expect(slash.executeSlashCommand).toHaveBeenCalledWith(id, '/compact');
   });
+  it.each([true, false])('owns scoped persistence exactly once with live=%s', async (live) => {
+    const h = setup();
+    if (!live) h.sessions.find.mockReturnValue(undefined);
+    const options = { applyTo: 'workspace' } as const;
+    await h.controls.setModel(id, 'new', options);
+    await h.controls.setEffort(id, 'low', options);
+    await h.controls.setPermission(id, 'plan', options);
+    expect(h.persistence.saveModel).toHaveBeenCalledTimes(1);
+    expect(h.persistence.saveModel).toHaveBeenCalledWith(id, 'new', options);
+    expect(h.persistence.saveEffort).toHaveBeenCalledTimes(1);
+    expect(h.persistence.saveEffort).toHaveBeenCalledWith(id, 'low', options);
+    expect(h.persistence.savePermission).toHaveBeenCalledTimes(1);
+    expect(h.persistence.savePermission).toHaveBeenCalledWith(id, 'plan', options);
+    if (!live) {
+      expect(h.query.setModel).not.toHaveBeenCalled();
+      expect(h.query.applyFlagSettings).not.toHaveBeenCalled();
+      expect(h.query.setPermissionMode).not.toHaveBeenCalled();
+    }
+  });
+
 });

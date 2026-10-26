@@ -203,13 +203,16 @@ export class ConfigRpcHandlers {
             startsWithClaude: model.startsWith('claude-'),
           },
         );
-        if (sessionId) {
-          await configRuntimeControls(
-            this.runtimeControls,
-            this.sdkAdapter,
-          ).setModel(sessionId, model);
+        if (sessionId && this.runtimeControls) {
+          await this.runtimeControls.setModel(sessionId, model, { applyTo });
+        } else {
+          const previous = sessionId ? this.lifecycle?.find(sessionId)?.currentModel : undefined;
+          await this.saveFallback(
+            () => sessionId ? configRuntimeControls(null, this.sdkAdapter).setModel(sessionId, model) : Promise.resolve(false),
+            () => this.modelSettings.selectedModel.set(model, applyTo),
+            sessionId && previous !== undefined ? () => this.sdkAdapter.setSessionModel(sessionId, previous) : undefined,
+          );
         }
-        await this.modelSettings.selectedModel.set(model, applyTo);
 
         this.logger.info('Model switched successfully', { model });
 
@@ -345,34 +348,35 @@ export class ConfigRpcHandlers {
 
         const effectiveLevel = enabled ? permissionLevel : 'ask';
         const targetSessionId = this.autopilotTargetSession(sessionId);
-        if (targetSessionId) {
-          await configRuntimeControls(
-            this.runtimeControls,
-            this.sdkAdapter,
-          ).setPermission(targetSessionId, effectiveLevel);
-        }
-        const previousEnabled = this.configManager.getWithDefault<boolean>(
-          'autopilot.enabled',
-          false,
-        );
-        const previousLevel = this.configManager.getWithDefault<string>(
-          'autopilot.permissionLevel',
-          'ask',
-        );
-        try {
-          await this.configManager.set('autopilot.enabled', enabled);
-          await this.configManager.set(
-            'autopilot.permissionLevel',
-            permissionLevel,
+        if (targetSessionId && this.runtimeControls) {
+          await this.runtimeControls.setPermission(targetSessionId, effectiveLevel, {
+            applyTo: 'global',
+            autopilot: { enabled, permissionLevel },
+          });
+        } else {
+          const previousLive = targetSessionId ? this.lifecycle?.find(targetSessionId)?.permissionLevel : undefined;
+          const previousEnabled = this.configManager.getWithDefault<boolean>('autopilot.enabled', false);
+          const previousLevel = this.configManager.getWithDefault<string>('autopilot.permissionLevel', 'ask');
+          await this.saveFallback(
+            () => targetSessionId ? configRuntimeControls(null, this.sdkAdapter).setPermission(targetSessionId, effectiveLevel) : Promise.resolve(false),
+            async () => {
+              try {
+                await this.configManager.set('autopilot.enabled', enabled);
+                await this.configManager.set('autopilot.permissionLevel', permissionLevel);
+              } catch (error) {
+                const restores = await Promise.allSettled([
+                  this.configManager.set('autopilot.enabled', previousEnabled),
+                  this.configManager.set('autopilot.permissionLevel', previousLevel),
+                ]);
+                for (const restore of restores) {
+                  if (restore.status === 'rejected')
+                    this.logger.error('Permission settings restore failed', restore.reason instanceof Error ? restore.reason : new Error(String(restore.reason)));
+                }
+                throw error;
+              }
+            },
+            targetSessionId && previousLive !== undefined ? () => this.sdkAdapter.setSessionPermissionLevel(targetSessionId, previousLive) : undefined,
           );
-        } catch (error) {
-          // Restore partial multi-key writes; never report saved success.
-          await this.configManager.set('autopilot.enabled', previousEnabled);
-          await this.configManager.set(
-            'autopilot.permissionLevel',
-            previousLevel,
-          );
-          throw error;
         }
         this.permissionHandler.setPermissionLevel(effectiveLevel);
 
@@ -697,9 +701,31 @@ export class ConfigRpcHandlers {
     });
   }
 
-  /**
-   * config:effort-set - Save reasoning effort level
-   */
+  /** Restore only authoritative live snapshots; persisted defaults may differ. */
+  private async saveFallback(
+    apply: () => Promise<unknown>,
+    save: () => Promise<void>,
+    rollback?: () => Promise<void>,
+  ): Promise<void> {
+    const applied = await apply();
+    try {
+      await save();
+    } catch (error) {
+      if (applied !== false) {
+        if (rollback) {
+          try {
+            await rollback();
+          } catch (restoreError) {
+            this.logger.error('Live setting restore failed', restoreError instanceof Error ? restoreError : new Error(String(restoreError)));
+          }
+        } else {
+          this.logger.warn('Cannot restore live setting: previous session value unavailable');
+        }
+      }
+      throw error;
+    }
+  }
+
   private registerEffortSet(): void {
     this.rpcHandler.registerMethod<
       ConfigEffortSetParams,
@@ -714,13 +740,15 @@ export class ConfigRpcHandlers {
           sessionId: sessionId ?? null,
         });
 
-        if (sessionId) {
-          await configRuntimeControls(
-            this.runtimeControls,
-            this.sdkAdapter,
-          ).setEffort(sessionId, effort);
+        if (sessionId && this.runtimeControls) {
+          await this.runtimeControls.setEffort(sessionId, effort, { applyTo });
+        } else {
+          // SessionControl does not track live effort; config.effort is only the launch value.
+          await this.saveFallback(
+            () => sessionId ? configRuntimeControls(null, this.sdkAdapter).setEffort(sessionId, effort) : Promise.resolve(false),
+            () => this.reasoningSettings.effort.set(effort || '', applyTo),
+          );
         }
-        await this.reasoningSettings.effort.set(effort || '', applyTo);
 
         this.logger.info('Reasoning effort saved', { effort });
         return { effort };

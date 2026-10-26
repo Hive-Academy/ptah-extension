@@ -212,4 +212,16 @@ describe('SessionRuntimeRouter', () => {
     expect(native.releaseSession).toHaveBeenCalledTimes(1);
     expect(router.canSendFollowUp(id)).toBe(true);
   });
+  it.each([legacyIdentity, nativeIdentity])('forwards persistence scope to $runtime', async (identity) => {
+    const { router, legacy, native } = setup({ persisted: identity });
+    const target = identity.runtime === 'claude-sdk' ? legacy : native;
+    const options = { applyTo: 'workspace' } as const;
+    await router.setModel(id, 'new', options);
+    await router.setEffort(id, 'max', options);
+    await router.setPermission(id, 'plan', options);
+    expect(target.setModel).toHaveBeenCalledWith(id, 'new', options);
+    expect(target.setEffort).toHaveBeenCalledWith(id, 'max', options);
+    expect(target.setPermission).toHaveBeenCalledWith(id, 'plan', options);
+  });
+
 });

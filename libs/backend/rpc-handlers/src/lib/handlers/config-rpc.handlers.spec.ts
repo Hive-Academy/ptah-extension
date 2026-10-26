@@ -42,6 +42,7 @@
  */
 
 import 'reflect-metadata';
+import { SdkError } from '@ptah-extension/agent-sdk';
 
 import type {
   ConfigManager,
@@ -731,21 +732,15 @@ describe('ConfigRpcHandlers', () => {
       );
     });
 
-    it('rejects live apply failures before persisting', async () => {
+    it('swallows session-sync failures so the config write still succeeds for missing sessions', async () => {
       const h = makeHarness();
-      h.sdkAdapter.setSessionPermissionLevel.mockRejectedValue(
-        new Error('session not found'),
-      );
+      h.sdkAdapter.setSessionPermissionLevel.mockRejectedValue(new SdkError('session not found'));
       h.handlers.register();
-
-      await expect(
-        call(h, 'config:autopilot-toggle', {
-          enabled: true,
-          permissionLevel: 'auto-edit',
-          sessionId: 'sess-bad',
-        }),
-      ).rejects.toThrow('session not found');
-      expect(h.configManager.set).not.toHaveBeenCalled();
+      await expect(call(h, 'config:autopilot-toggle', {
+        enabled: true, permissionLevel: 'auto-edit', sessionId: 'sess-bad',
+      })).resolves.toEqual({ enabled: true, permissionLevel: 'auto-edit' });
+      expect(h.configManager.set).toHaveBeenCalledWith('autopilot.enabled', true);
+      expect(h.configManager.set).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -1214,4 +1209,51 @@ describe('ConfigRpcHandlers', () => {
       expect(Object.keys(result.pricing).length).toBeGreaterThan(0);
     });
   });
+  it.each(['model', 'effort'] as const)('saves %s once for a session not found', async (setting) => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.sdkAdapter.setSessionModel.mockRejectedValue(new SdkError('Session not found: history'));
+    h.sdkAdapter.setSessionEffort.mockRejectedValue(new SdkError('Session not found: history'));
+    await expect(call(h, setting === 'model' ? 'config:model-switch' : 'config:effort-set', {
+      model: 'new', effort: 'high', sessionId: 'history', applyTo: 'workspace',
+    })).resolves.toEqual(setting === 'model' ? { model: 'new' } : { effort: 'high' });
+    const save = setting === 'model' ? h.modelSettings.selectedModel.set : h.reasoningSettings.effort.set;
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith(setting === 'model' ? 'new' : 'high', 'workspace');
+  });
+
+  it('restores live model after a failed save', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.lifecycle.find.mockReturnValue({ currentModel: 'previous' });
+    h.modelSettings.selectedModel.set.mockRejectedValue(new Error('save failed'));
+    await expect(call(h, 'config:model-switch', { model: 'new', sessionId: 'live' })).rejects.toThrow('save failed');
+    expect(h.sdkAdapter.setSessionModel.mock.calls).toEqual([['live', 'new'], ['live', 'previous']]);
+  });
+
+  it('reports unknown live effort instead of restoring stale launch effort', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.lifecycle.find.mockReturnValue({ config: { effort: 'low' } });
+    h.reasoningSettings.effort.set.mockRejectedValue(new Error('save failed'));
+    await expect(call(h, 'config:effort-set', { effort: 'high', sessionId: 'live' })).rejects.toThrow('save failed');
+    expect(h.sdkAdapter.setSessionEffort).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith('Cannot restore live setting: previous session value unavailable');
+  });
+
+  it('keeps the original save error when permission restore fails and restores live permission', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.lifecycle.levels.set('live', 'plan');
+    h.configManager.set.mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('original save'))
+      .mockRejectedValueOnce(new Error('restore failed'));
+    await expect(call(h, 'config:autopilot-toggle', {
+      enabled: true, permissionLevel: 'yolo', sessionId: 'live',
+    })).rejects.toThrow('original save');
+    expect(h.configManager.set).toHaveBeenCalledTimes(4);
+    expect(h.sdkAdapter.setSessionPermissionLevel.mock.calls).toEqual([['live', 'yolo'], ['live', 'plan']]);
+    expect(h.logger.error).toHaveBeenCalledWith('Permission settings restore failed', expect.objectContaining({ message: 'restore failed' }));
+  });
+
 });

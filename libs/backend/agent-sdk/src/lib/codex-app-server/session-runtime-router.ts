@@ -4,6 +4,7 @@ import {
   type PermissionLevel,
   type SessionId,
   type SessionRuntimeControls,
+  type SessionRuntimeControlOptions,
 } from '@ptah-extension/shared';
 
 import {
@@ -11,7 +12,8 @@ import {
   type SessionRuntimeIdentityLookup,
 } from './session-runtime-identity';
 
-/** Native controls own turn lifecycle and failed-interrupt gating. */
+/** Native controls own persistence/rollback as well as turn lifecycle and failed-interrupt gating.
+ * Composition must bind a persistent control adapter, not raw runtime setters. */
 export interface NativeSessionControls extends SessionRuntimeControls {
   canSendFollowUp(sessionId: SessionId): boolean;
   releaseSession?(sessionId: SessionId): void;
@@ -27,22 +29,34 @@ export class SessionRuntimeRouter implements SessionRuntimeControls {
   async setPermission(
     sessionId: SessionId,
     level: PermissionLevel,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings> {
-    return this.controls(sessionId).setPermission(sessionId, level);
+    const controls = this.controls(sessionId);
+    return options
+      ? controls.setPermission(sessionId, level, options)
+      : controls.setPermission(sessionId, level);
   }
 
   async setModel(
     sessionId: SessionId,
     model: string,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings> {
-    return this.controls(sessionId).setModel(sessionId, model);
+    const controls = this.controls(sessionId);
+    return options
+      ? controls.setModel(sessionId, model, options)
+      : controls.setModel(sessionId, model);
   }
 
   async setEffort(
     sessionId: SessionId,
     effort: EffortLevel | undefined,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings> {
-    return this.controls(sessionId).setEffort(sessionId, effort);
+    const controls = this.controls(sessionId);
+    return options
+      ? controls.setEffort(sessionId, effort, options)
+      : controls.setEffort(sessionId, effort);
   }
 
   async compact(sessionId: SessionId): Promise<void> {

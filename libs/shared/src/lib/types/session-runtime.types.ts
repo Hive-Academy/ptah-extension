@@ -58,15 +58,24 @@ export interface AppliedSettings {
   readonly revision: number;
 }
 
+/** Bound controls own persistence, including save-only changes for inactive sessions. */
+export interface SessionRuntimeControlOptions {
+  readonly applyTo?: 'global' | 'app' | 'workspace';
+  /** Preserve the configured level when autopilot is disabled (live level is ask). */
+  readonly autopilot?: { readonly enabled: boolean; readonly permissionLevel: PermissionLevel };
+}
+
 export interface SessionRuntimeControls {
   setPermission(
     sessionId: SessionId,
     level: PermissionLevel,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings>;
-  setModel(sessionId: SessionId, model: string): Promise<AppliedSettings>;
+  setModel(sessionId: SessionId, model: string, options?: SessionRuntimeControlOptions): Promise<AppliedSettings>;
   setEffort(
     sessionId: SessionId,
     effort: EffortLevel | undefined,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings>;
   interrupt(sessionId: SessionId): Promise<boolean>;
   compact(sessionId: SessionId): Promise<void>;

@@ -4,6 +4,7 @@ import type {
   PermissionLevel,
   SessionId,
   SessionRuntimeControls,
+  SessionRuntimeControlOptions,
 } from '@ptah-extension/shared';
 import type { IModelResolver } from '../auth-env.port';
 import type { Query } from '../helpers/session-lifecycle-manager';
@@ -32,11 +33,12 @@ export interface LegacySessionLookup {
  * Each save must reject without committing, or restore its own partial writes.
  */
 export interface LegacySettingsPersistence {
-  savePermission(sessionId: SessionId, level: PermissionLevel): Promise<void>;
-  saveModel(sessionId: SessionId, model: string): Promise<void>;
+  savePermission(sessionId: SessionId, level: PermissionLevel, options?: SessionRuntimeControlOptions): Promise<void>;
+  saveModel(sessionId: SessionId, model: string, options?: SessionRuntimeControlOptions): Promise<void>;
   saveEffort(
     sessionId: SessionId,
     effort: EffortLevel | undefined,
+    options?: SessionRuntimeControlOptions,
   ): Promise<void>;
 }
 
@@ -78,8 +80,13 @@ export class LegacySessionControls implements SessionRuntimeControls {
   setPermission(
     sessionId: SessionId,
     level: PermissionLevel,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings> {
     return this.serialize(sessionId, async () => {
+      if (options && !this.sessions.find(sessionId)?.query) {
+        await this.persistence.savePermission(sessionId, level, options);
+        return { timing: 'nextTurn', revision: 0 };
+      }
       const { session, query, state } = this.live(sessionId);
       const previous = session.permissionLevel;
       const apply = async (value: PermissionLevel) => {
@@ -90,15 +97,19 @@ export class LegacySessionControls implements SessionRuntimeControls {
       await this.commit(
         sessionId,
         () => apply(level),
-        () => this.persistence.savePermission(sessionId, level),
+        () => options ? this.persistence.savePermission(sessionId, level, options) : this.persistence.savePermission(sessionId, level),
         () => apply(previous),
       );
       return { timing: 'effectiveNow', revision: ++state.revision };
     });
   }
 
-  setModel(sessionId: SessionId, model: string): Promise<AppliedSettings> {
+  setModel(sessionId: SessionId, model: string, options?: SessionRuntimeControlOptions): Promise<AppliedSettings> {
     return this.serialize(sessionId, async () => {
+      if (options && !this.sessions.find(sessionId)?.query) {
+        await this.persistence.saveModel(sessionId, model, options);
+        return { timing: 'nextTurn', revision: 0 };
+      }
       const { session, query, state } = this.live(sessionId);
       const previous = session.currentModel;
       const resolved = model === '' ? '' : this.modelResolver.resolve(model);
@@ -109,7 +120,7 @@ export class LegacySessionControls implements SessionRuntimeControls {
       await this.commit(
         sessionId,
         () => apply(resolved),
-        () => this.persistence.saveModel(sessionId, model),
+        () => options ? this.persistence.saveModel(sessionId, model, options) : this.persistence.saveModel(sessionId, model),
         () => apply(previous),
       );
       return { timing: 'effectiveNow', revision: ++state.revision };
@@ -119,8 +130,13 @@ export class LegacySessionControls implements SessionRuntimeControls {
   setEffort(
     sessionId: SessionId,
     effort: EffortLevel | undefined,
+    options?: SessionRuntimeControlOptions,
   ): Promise<AppliedSettings> {
     return this.serialize(sessionId, async () => {
+      if (options && !this.sessions.find(sessionId)?.query) {
+        await this.persistence.saveEffort(sessionId, effort, options);
+        return { timing: 'nextTurn', revision: 0 };
+      }
       const { query, state } = this.live(sessionId);
       const previous = state.effort;
       // Preserve legacy live max as xhigh; persisted max takes full effect on
@@ -132,7 +148,7 @@ export class LegacySessionControls implements SessionRuntimeControls {
       await this.commit(
         sessionId,
         () => apply(effort),
-        () => this.persistence.saveEffort(sessionId, effort),
+        () => options ? this.persistence.saveEffort(sessionId, effort, options) : this.persistence.saveEffort(sessionId, effort),
         () => apply(previous),
       );
       state.effort = effort;

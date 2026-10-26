@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import {
   SdkAgentAdapter,
+  SdkError,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import type {
@@ -65,6 +66,19 @@ function fixture(native = true) {
     interrupt: jest.fn(),
     compact: jest.fn(),
   };
+  runtime.setModel.mockImplementation(async (_id, value, options) => {
+    await model.selectedModel.set(value, options?.applyTo);
+    return { timing: 'effectiveNow', revision: 1 };
+  });
+  runtime.setEffort.mockImplementation(async (_id, value, options) => {
+    await effort.effort.set(value ?? '', options?.applyTo);
+    return { timing: 'nextTurn', revision: 1 };
+  });
+  runtime.setPermission.mockImplementation(async (_id, value, options) => {
+    await config.set('autopilot.enabled', options?.autopilot?.enabled ?? (value !== 'ask'));
+    await config.set('autopilot.permissionLevel', options?.autopilot?.permissionLevel ?? value);
+    return { timing: 'effectiveNow', revision: 1 };
+  });
   new ConfigRpcHandlers(
     logger,
     rpc,
@@ -123,11 +137,10 @@ describe('config runtime controls', () => {
   );
 
   it('applies before saving and surfaces persistence failure', async () => {
-    const h = fixture();
+    const h = fixture(false);
     const order: string[] = [];
-    h.runtime.setModel.mockImplementation(async () => {
+    jest.mocked(h.legacy.setSessionModel).mockImplementation(async () => {
       order.push('apply');
-      return { timing: 'effectiveNow', revision: 1 };
     });
     h.model.selectedModel.set.mockImplementation(async () => {
       order.push('save');
@@ -156,7 +169,7 @@ describe('config runtime controls', () => {
   });
 
   it('restores partial permission settings writes on persistence failure', async () => {
-    const h = fixture();
+    const h = fixture(false);
     h.config.set
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('disk'));
@@ -197,4 +210,47 @@ describe('config runtime controls', () => {
     ).toEqual({ effort: 'max' });
     expect(h.effort.effort.set).toHaveBeenCalledWith('max', 'app');
   });
+  it.each([true, false])('writes each setting exactly once (bound=%s)', async (bound) => {
+    const h = fixture(bound);
+    await h.call('config:model-switch', { model: 'new', sessionId: 'session', applyTo: 'workspace' });
+    await h.call('config:effort-set', { effort: 'high', sessionId: 'session', applyTo: 'workspace' });
+    await h.call('config:autopilot-toggle', { enabled: true, permissionLevel: 'plan', sessionId: 'session' });
+    expect(h.model.selectedModel.set).toHaveBeenCalledTimes(1);
+    expect(h.model.selectedModel.set).toHaveBeenCalledWith('new', 'workspace');
+    expect(h.effort.effort.set).toHaveBeenCalledTimes(1);
+    expect(h.effort.effort.set).toHaveBeenCalledWith('high', 'workspace');
+    expect(h.config.set.mock.calls).toEqual([['autopilot.enabled', true], ['autopilot.permissionLevel', 'plan']]);
+    if (bound) {
+      expect(h.runtime.setModel).toHaveBeenCalledWith('session', 'new', { applyTo: 'workspace' });
+      expect(h.runtime.setEffort).toHaveBeenCalledWith('session', 'high', { applyTo: 'workspace' });
+      expect(h.runtime.setPermission).toHaveBeenCalledWith('session', 'plan', { applyTo: 'global', autopilot: { enabled: true, permissionLevel: 'plan' } });
+    }
+  });
+
+  it('saves without applying when the SDK session query is not initialized', async () => {
+    const h = fixture(false);
+    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new SdkError('Session query not initialized: idle'));
+    const response = await h.call('config:model-switch', { model: 'new', sessionId: 'idle' });
+    expect(response.success).toBe(true);
+    expect(h.model.selectedModel.set).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not swallow a live failure merely containing similar text', async () => {
+    const h = fixture(false);
+    jest.mocked(h.legacy.setSessionModel).mockRejectedValue(new Error('Session not found: remote dependency'));
+    const response = await h.call('config:model-switch', { model: 'new', sessionId: 'live' });
+    expect(response.success).toBe(false);
+    expect(h.model.selectedModel.set).not.toHaveBeenCalled();
+  });
+
+  it('preserves a disabled autopilot selection through the bound persistence owner', async () => {
+    const h = fixture();
+    const result = await h.call('config:autopilot-toggle', { enabled: false, permissionLevel: 'plan', sessionId: 'session' });
+    expect(result.success).toBe(true);
+    expect(h.runtime.setPermission).toHaveBeenCalledWith('session', 'ask', {
+      applyTo: 'global', autopilot: { enabled: false, permissionLevel: 'plan' },
+    });
+    expect(h.config.set.mock.calls).toEqual([['autopilot.enabled', false], ['autopilot.permissionLevel', 'plan']]);
+  });
+
 });
