@@ -241,7 +241,7 @@ export const SESSION_LIST_ROW_STYLES = `
             <!-- Claude account the session runs under (label only; never an ID) -->
             @if (accountText(); as account) {
               <span
-                class="min-w-0 truncate"
+                class="min-w-0 max-w-[10rem] truncate"
                 [title]="account"
                 data-testid="session-row-account"
                 >{{ account }}</span

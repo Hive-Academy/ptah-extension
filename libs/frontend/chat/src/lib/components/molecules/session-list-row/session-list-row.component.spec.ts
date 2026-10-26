@@ -571,6 +571,17 @@ describe('SessionListRowComponent — session account (U6)', () => {
     },
   );
 
+  it('caps a long account label at 10rem with the full text in its title', () => {
+    const label = 'A very long account label that would push the row meta';
+    ready({ profileId: PROFILE, label });
+    const el = render(summary({ accountProfileId: PROFILE }));
+    const badge = el.querySelector('[data-testid="session-row-account"]');
+    expect(badge?.classList).toContain('max-w-[10rem]');
+    expect(badge?.classList).toContain('truncate');
+    expect(badge?.classList).toContain('min-w-0');
+    expect(badge?.getAttribute('title')).toBe(`Account: ${label}`);
+  });
+
   it.each([true, false])(
     'shows "Default" for an ambient Claude session (isActive=%s) without reading accounts',
     (isActive) => {

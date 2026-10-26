@@ -38,6 +38,29 @@ export function laneGuardStopText(
   return null;
 }
 
+/**
+ * Lane account text, read inside a `computed`: "Account: <label>" for a named
+ * Claude account, "Default" for the ambient one, "Removed account" once the
+ * loaded account list no longer has the profile. Null while the list is not
+ * loaded or the lane has no known account (non-Claude lane, corrupt binding).
+ * The account state is resolved only for a named account. Never returns an ID.
+ */
+export function laneAccountText(
+  profileId: string | null | undefined,
+  injector: Injector,
+): string | null {
+  if (profileId === null) return 'Default';
+  if (profileId === undefined) return null;
+  const accounts = untracked(() => injector.get(ProviderAccountsStateService));
+  const snapshot = accounts.state('claude')().snapshot;
+  if (!snapshot) return null;
+  const match = snapshot.accounts.find(
+    (account) =>
+      account.provider === 'claude' && account.profileId === profileId,
+  );
+  return match ? `Account: ${match.label}` : 'Removed account';
+}
+
 @Component({
   selector: 'ptah-agent-card-header',
   standalone: true,
@@ -207,21 +230,9 @@ export class AgentCardHeaderComponent {
    * profile. Nothing while the list is not loaded or the lane has no known
    * account. The account state is resolved only for a named account.
    */
-  protected readonly accountText = computed<string | null>(() => {
-    const profileId = this.agent().accountProfileId;
-    if (profileId === null) return 'Default';
-    if (profileId === undefined) return null;
-    const accounts = untracked(() =>
-      this.injector.get(ProviderAccountsStateService),
-    );
-    const snapshot = accounts.state('claude')().snapshot;
-    if (!snapshot) return null;
-    const match = snapshot.accounts.find(
-      (account) =>
-        account.provider === 'claude' && account.profileId === profileId,
-    );
-    return match ? `Account: ${match.label}` : 'Removed account';
-  });
+  protected readonly accountText = computed(() =>
+    laneAccountText(this.agent().accountProfileId, this.injector),
+  );
 
   private readonly injector = inject(Injector);
 
