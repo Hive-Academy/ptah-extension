@@ -86,16 +86,20 @@ export class WizardAgentOriginStore {
     try {
       raw = await readFile(path, 'utf8');
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - a missing origins file is the
+      // normal state of a workspace the wizard never wrote into, and an
+      // unreadable one only removes the "unchanged since the wizard wrote it"
+      // label; the latter is warned below, and the wizard run is unaffected.
       if (isErrnoCode(error, 'ENOENT')) {
         return {};
       }
-      // degradation-audit: optional-capability - an unreadable origins file
-      // only removes the "unchanged since the wizard wrote it" label; the
-      // warning records why, and the wizard run itself is unaffected.
-      this.logger.warn(`${SERVICE_TAG} Agent origins unreadable, treating as empty`, {
-        path,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.warn(
+        `${SERVICE_TAG} Agent origins unreadable, treating as empty`,
+        {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
       return {};
     }
 
@@ -105,10 +109,13 @@ export class WizardAgentOriginStore {
       // degradation-audit: optional-capability - a corrupt origins file reads
       // as empty so no row can be labelled unchanged on a damaged record; the
       // warning reports the corruption and the next write replaces the file.
-      this.logger.warn(`${SERVICE_TAG} Agent origins invalid, treating as empty`, {
-        path,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.logger.warn(
+        `${SERVICE_TAG} Agent origins invalid, treating as empty`,
+        {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
       return {};
     }
   }

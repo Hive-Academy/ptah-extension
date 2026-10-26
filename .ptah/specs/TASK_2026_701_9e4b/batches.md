@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 7/27
+Total tasks: 34 | Batches: 27 | Complete: 9/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -420,7 +420,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   this batch in progress and is superseded.
 - Report: reports/batch-6-report.md
 
-## Batch 7: Destination scanner and digest-checked repair (B9 part 2) — COMPLETE
+## Batch 7: Destination scanner and digest-checked repair (B9 part 2) — COMPLETE (commit: 4809d01fe)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -506,7 +506,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Verify: orchestrator combined run (70/70, exit 0).
 - Report: reports/batch-8-report.md
 
-## Batch 8b: D23 degradation-audit fix (agent-generation ratchet) — PENDING
+## Batch 8b: D23 degradation-audit fix (agent-generation ratchet) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -519,7 +519,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 4
 - Phase: P1 | Phase review: covered by the P1 code-logic review
 
-### Task 8b.1: Attach or remove the unattached suppression in `WizardAgentOriginStore.read` — PENDING
+### Task 8b.1: Attach or remove the unattached suppression in `WizardAgentOriginStore.read` — COMPLETE
 
 - File: `libs/backend/agent-generation/src/lib/services/wizard-agent-origin.store.ts` (+ its
   spec only if behaviour changes)
@@ -542,6 +542,21 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   reports `libs/backend/agent-generation` ok and no orphaned marker in agent-generation
 - `npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+
+### Batch 8b outcome
+
+- Verified on disk by team-leader: the first `catch` marker in `WizardAgentOriginStore.read`
+  now opens the catch body (attach zone 2) and covers both returns; behaviour unchanged
+  (ENOENT silent `{}`, other errors warn and `{}`). Batch 7's prettier pass rewrapped the two
+  `logger.warn` calls in this file (formatting only), committed with this batch.
+- Verify: degradation audit `libs/backend/agent-generation: 1 ok (baseline 1)`, no orphaned
+  marker in agent-generation; team-leader host run
+  `npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli`
+  58/58 succeeded (56 cached), exit 0.
+- Out of scope: the orphaned marker at
+  `libs/backend/agent-sdk/src/lib/session-importer.service.ts:993` is identical on `main`
+  (last touched by e3965c65c); not this task's. The audit still passes.
+- Report: reports/batch-8b-report.md
 
 ## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — PENDING
 
