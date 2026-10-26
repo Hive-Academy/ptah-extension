@@ -16,6 +16,8 @@ import {
   untracked,
 } from '@angular/core';
 import {
+  ClaudeAmbientStatusService,
+  ProviderAccountsStateService,
   ProvidersSettingsStateService,
   VSCodeService,
   type ProvidersConnection,
@@ -47,7 +49,8 @@ import {
   type MainAgentFocus,
 } from './main-agent-reassign-popover.component';
 import { ProviderCatalogModalComponent } from './provider-catalog-modal.component';
-import { AccountsSectionComponent } from './accounts/accounts-section.component';
+import { connectedAccountCount } from './accounts/account-presentation';
+import { connectionKind } from './connection-drawer/connection-kind';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type {
@@ -86,7 +89,6 @@ const CONTROL =
     RoutingMapComponent,
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
-    AccountsSectionComponent,
   ],
   template: `
     <div
@@ -323,6 +325,9 @@ const CONTROL =
                     : null
                 "
                 [keyUnreadable]="connection.keyUnreadable === true"
+                [connectedAccounts]="
+                  isClaudeCli(connection) ? connectedAccounts() : null
+                "
                 (keyRetryRequested)="state.refreshConnections()"
                 (detailsRequested)="openDrawer(connection.id)"
                 (setupRequested)="openWizard(connection.id)"
@@ -353,13 +358,6 @@ const CONTROL =
               + Connect another provider
             </button>
           </div>
-          <!-- Accounts (design §2, plan :250): after the Connections grid, before the unchanged catalog hint.
-               Electron only (D34); deferred like the catalog modal, so the eager route keeps its bundle budget. -->
-          @if (accountsAvailable) {
-            @defer (on immediate) {
-              <ptah-accounts-section class="block pt-1" />
-            }
-          }
           <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
                title), "Browse catalog →" right-aligned. -->
           <div
@@ -477,6 +475,7 @@ const CONTROL =
             [externalAuth]="drawerExternalAuth()"
             [verifyDraftConnection]="verifyDraftConnection"
             [cancelDraftVerification]="cancelDraftVerification"
+            [accountsAvailable]="accountsAvailable"
             (closed)="closeDrawer()"
             (checkConnectionRequested)="
               state.checkProviderConnection(connection.id)
@@ -559,8 +558,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
-  /** Accounts is Electron only (D34): elsewhere the section and its state owner are never created. */
+  /** Accounts is Electron only (D34): elsewhere the drawer tab is absent and the account reads never run. */
   protected readonly accountsAvailable = inject(VSCodeService).isElectron;
+  private readonly accounts = this.accountsAvailable
+    ? inject(ProviderAccountsStateService)
+    : null;
+  private readonly ambient = this.accountsAvailable
+    ? inject(ClaudeAmbientStatusService)
+    : null;
+  /** Claude CLI card badge (D41, P5-D13): `null` hides it while either read is loading, failed or not ready. */
+  protected readonly connectedAccounts = computed<number | null>(() =>
+    this.accounts && this.ambient
+      ? connectedAccountCount(
+          this.accounts.state('claude')(),
+          this.ambient.view(),
+        )
+      : null,
+  );
+  protected isClaudeCli(connection: ProvidersConnection): boolean {
+    return connectionKind(connection) === 'claude-cli';
+  }
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   protected readonly control = CONTROL;
@@ -1011,6 +1028,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   }
   ngOnInit(): void {
     void this.state.open();
+    // D41 / P5-D10: one list read and the cached ambient read, so the card badge can show.
+    void this.accounts?.open('claude');
+    void this.ambient?.read(false);
   }
   ngOnDestroy(): void {
     if (this.wizardOpen()) {
@@ -1141,6 +1161,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected closeDrawer(): void {
     this.drawerId.set(null);
     this.resetDrawerSession();
+    // D41: the badge re-reads after the drawer (where accounts change) closes; pushes cover the rest.
+    void this.accounts?.refresh('claude');
+    void this.ambient?.read(false);
   }
   private resetDrawerSession(): void {
     this.drawerSession += 1;
