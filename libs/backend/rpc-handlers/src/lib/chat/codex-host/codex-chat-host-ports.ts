@@ -119,7 +119,12 @@ export function createCodexChatHostPorts(
     string,
     { sessionId: SessionId; request: CodexApprovalRequest; timestamp: number }
   >();
-  const failed = () => deps.logger.error('Codex chat presentation failed.');
+  const failed = (reason: unknown) => {
+    deps.logger.error(
+      'Codex chat presentation failed.',
+      reason instanceof Error ? reason : new Error(String(reason)),
+    );
+  };
   const send = (type: string, payload: unknown) => {
     void deps.webviewManager.broadcastMessage(type, payload).catch(failed);
   };
