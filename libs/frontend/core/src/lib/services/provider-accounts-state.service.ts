@@ -56,7 +56,9 @@ export type ProviderAccountActionKind =
   | 'sign-in'
   | 'cancel-sign-in'
   | 'sign-out'
-  | 'select';
+  | 'select'
+  /** A status re-read; it holds the account's busy state but is never recorded as a write. */
+  | 'check-status';
 
 /**
  * One user action, keyed by its idempotency `requestId`.
@@ -79,6 +81,16 @@ export type ProviderAccountActionOutcome =
   | { readonly status: 'failed'; readonly result: ProviderAccountActionResult }
   | { readonly status: 'unconfirmed' }
   /** Inert host, no active workspace, or a profile/snapshot the caller named is not loaded. */
+  | { readonly status: 'unavailable' };
+
+/**
+ * Result of one status re-read. `read`: the host answered (its handle state is taken only
+ * while the reply is still current). `failed`: the host refused, with a safe sentence.
+ * `unavailable`: inert host, disposed service or a transport failure; nothing changed.
+ */
+export type ProviderAccountStatusReadOutcome =
+  | { readonly status: 'read' }
+  | { readonly status: 'failed'; readonly result: ProviderAccountActionResult }
   | { readonly status: 'unavailable' };
 
 /** What a chooser emits: "Use existing default" or one profile ID. */
@@ -331,8 +343,8 @@ export class ProviderAccountsStateService implements MessageHandler {
   async refreshAccountStatus(
     provider: ProviderAccountProvider,
     profileId: string,
-  ): Promise<void> {
-    if (!this.enabled || this.disposed) return;
+  ): Promise<ProviderAccountStatusReadOutcome> {
+    if (!this.enabled || this.disposed) return { status: 'unavailable' };
     const slot = this.slots[provider];
     const ticket = this.startHandleRequest(slot, profileId);
     const response = await this.rpc.call(
@@ -340,7 +352,10 @@ export class ProviderAccountsStateService implements MessageHandler {
       { provider, profileId },
       { timeout: ACCOUNT_RPC_TIMEOUT_MS },
     );
-    if (this.disposed || !response.isSuccess() || !response.data.ok) return;
+    if (this.disposed || !response.isSuccess()) return { status: 'unavailable' };
+    if (!response.data.ok) {
+      return { status: 'failed', result: safeResult(response.data.result) };
+    }
     const operation = response.data.operation;
     // The reply describes the host at read time. A workspace reset, a terminal or removal
     // snapshot, or a newer accepted write or status read since then supersedes it, for
@@ -353,7 +368,7 @@ export class ProviderAccountsStateService implements MessageHandler {
         operation ? operation.operationId : null,
       )
     ) {
-      return;
+      return { status: 'read' };
     }
     slot.operations.update((current) => {
       const next: Record<string, ProviderAccountOperation> = { ...current };
@@ -363,6 +378,7 @@ export class ProviderAccountsStateService implements MessageHandler {
     });
     // The status read carries no script: a finished sign-in drops it, a running one keeps it.
     if (!operation) this.dropFallback(provider, profileId);
+    return { status: 'read' };
   }
 
   /** Writes one scope only, against that scope's revision in the held snapshot. */

@@ -338,6 +338,47 @@ describe('ProviderAccountsStateService', () => {
     expect(service.fallbacks('claude')()[P1]).toBeUndefined();
   });
 
+  describe('status read outcome (F1)', () => {
+    it('reports read, a safe refusal and a transport failure explicitly, leaving state alone on failure', async () => {
+      const { rpc, service } = setup();
+      rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1, 'signed-in', 1)]) }));
+      await service.open('claude');
+
+      rpc.call.mockResolvedValueOnce(ok({ account: account(P1, 'signed-in', 1) }));
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({ status: 'read' });
+
+      rpc.call.mockResolvedValueOnce(refused('not-found', 'That account is not available.'));
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'failed',
+        result: { code: 'not-found', summary: 'That account is not available.' },
+      });
+
+      rpc.call.mockResolvedValueOnce(rpcError('RPC timeout') as RpcResult<never>);
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'unavailable',
+      });
+      expect(service.state('claude')().snapshot?.revision).toBe(1);
+      expect(service.operations('claude')()).toEqual({});
+    });
+
+    it('replaces an unsafe refusal sentence and is unavailable on an inert host', async () => {
+      const { rpc, service } = setup();
+      rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1)]) }));
+      await service.open('claude');
+      rpc.call.mockResolvedValueOnce(refused('failed', 'Read C:\\Users\\me\\.claude failed'));
+      const outcome = await service.refreshAccountStatus('claude', P1);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.status === 'failed' && outcome.result.summary).not.toContain('Users');
+
+      TestBed.resetTestingModule();
+      const inert = setup(false);
+      await expect(inert.service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'unavailable',
+      });
+      expect(inert.rpc.call).not.toHaveBeenCalled();
+    });
+  });
+
   describe('deferred sign-in replies (response-only handle and script)', () => {
     const OLD_OP = { operationId: 'op-old11111', kind: 'sign-in' } as const;
     const NEW_OP = { operationId: 'op-new22222', kind: 'sign-in' } as const;

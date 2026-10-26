@@ -1064,10 +1064,10 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
   let accounts: AccountsFake;
   let ambient: AmbientFake;
 
-  async function setup(isElectron: boolean) {
+  async function setup(isElectron: boolean, claude: ProvidersConnection = claudeCli) {
     Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
     const state = new StateStub();
-    state.connections.set(ready([connection('first'), claudeCli]));
+    state.connections.set(ready([connection('first'), claude]));
     state.route.set(ready(route));
     accounts = new AccountsFake();
     ambient = new AmbientFake();
@@ -1204,6 +1204,26 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
       await closeDrawerFromFooter();
       expect(accounts.refresh).not.toHaveBeenCalled();
       expect(ambient.read).not.toHaveBeenCalled();
+    });
+  });
+
+  // P5 review F3: Accounts are reachable only through the Claude card, whose `configured` follows the installed CLI.
+  describe('with the Claude CLI not installed and another provider selected', () => {
+    const claudeMissing: ProvidersConnection = { ...claudeCli, configured: false };
+
+    it('keeps the Claude card on the page in Electron, so Manage → Accounts stays reachable', async () => {
+      await setup(true, claudeMissing);
+      expect(card('first')).not.toBeNull();
+      expect(card('claude-cli')).not.toBeNull();
+
+      await openClaudeDrawer();
+      expect(drawerAccountsAvailable()).toBe(true);
+    });
+
+    it('leaves the Claude card off the page when accounts are unavailable', async () => {
+      await setup(false, claudeMissing);
+      expect(card('first')).not.toBeNull();
+      expect(card('claude-cli')).toBeNull();
     });
   });
 });

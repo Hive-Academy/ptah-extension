@@ -330,3 +330,26 @@
   and committed after F4. F6 needs F5 (page imports the old section) and F7 needs F6 (old files use setDefault),
   so F6+F7 run as one mechanical deletion batch after F5, on a CLI lane (Glm, ptah-cli). The frontend phase review
   stays on codex so the review remains independent of the implementers. Reversible.
+
+## D49 — Frontend phase review: one fix round, two parallel developers (2026-10-26, orchestrator)
+
+- Codex `code-logic-review-p5-frontend.md`: REVISE 5/10 — Serious F1 (Check status has no busy/outcome), F2 (Escape
+  in the nested Remove modal closes the drawer), F3 (Accounts unreachable when the Claude CLI is not installed and
+  another provider is selected); Moderate F4 (focus return checks an area, not the exact waiting target), F5 (no
+  completion announcement after sign-in/out/cancel). B-1 and D41 pass.
+- All five fixed in one round: F4/F5 are fixed although Moderate, because they break user-approved binding rule
+  B-2 (D42). Developer A (accounts-tab + state service), developer B (native modal in `libs/frontend/ui` +
+  providers page). F2 is fixed in the modal (stop Escape propagation), not the drawer. F3: the Claude
+  (Subscription) card stays listed whenever accounts are available. Then a short codex re-review. Reversible.
+- Push of F4-F7 failed three times with GitHub "Internal Server Error" (request C0E7:7CC1C:1624E9FD:1D9BFF55:
+  6ADF63B0); a new remote branch was not used (would need a deletion). Retrying.
+
+## D50 — CI webview-e2e on 05f459308: update the providers scene for the Accounts tab (2026-10-26, orchestrator)
+
+- `webview-e2e` failed only on `settings-providers.e2e.spec.ts` "card -> drawer (claude-cli)" for the Electron
+  host: the drawer now shows Accounts second (F4, approved in D41). VS Code passed (no account support there).
+- Fix: the scene expects Accounts second for Electron claude-cli only. Test expectation change, no product
+  change. Verified with the harness lint/typecheck; the e2e itself runs in CI (no local e2e per CLAUDE.md).
+- Electron build for the visual review started in parallel with the verify and the codex re-review (D47 order is
+  kept: the visual review starts only after the fix round is committed). If the re-review needs code changes,
+  rebuild. Reversible.

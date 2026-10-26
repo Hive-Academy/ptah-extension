@@ -769,8 +769,15 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const unique = new Map(
       (this.state.connections().data ?? []).map((entry) => [entry.id, entry]),
     );
+    // TASK_2026_719 P5 F3: Accounts live only in the Claude (Subscription) drawer, so where accounts exist its card
+    // stays on the page even without an installed CLI, keeping Manage → Accounts reachable.
     return [...unique.values()]
-      .filter((entry) => entry.configured || entry.id === selected)
+      .filter(
+        (entry) =>
+          entry.configured ||
+          entry.id === selected ||
+          (this.accountsAvailable && this.isClaudeCli(entry)),
+      )
       .sort(
         (left, right) =>
           Number(right.id === this.activeId()) -

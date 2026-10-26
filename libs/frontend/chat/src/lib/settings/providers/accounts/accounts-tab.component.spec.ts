@@ -16,7 +16,18 @@ import type {
 } from '@ptah-extension/shared';
 import { AccountUseForComponent } from './account-use-for.component';
 import { AccountDetailViewComponent } from './account-detail-view.component';
-import { ACCOUNT_ADDED_TOAST, AccountsTabComponent, SELECTION_REFUSED_FALLBACK } from './accounts-tab.component';
+import { ACCOUNT_STATUS_UNAVAILABLE } from './account-detail-view.component';
+import {
+  ACCOUNT_ADDED_TOAST,
+  AccountsTabComponent,
+  SELECTION_REFUSED_FALLBACK,
+  SIGNED_OUT_FEEDBACK,
+  SIGN_IN_CANCELLED_FEEDBACK,
+  SIGN_IN_STARTED_FEEDBACK,
+  STATUS_CHECKED_FEEDBACK,
+} from './accounts-tab.component';
+
+type StatusReadOutcome = Awaited<ReturnType<ProviderAccountsStateService['refreshAccountStatus']>>;
 
 const account = (profileId: string, label: string, state: ProviderAccountState = 'signed-in'): ProviderAccountSummary => ({
   profileId, label, provider: 'claude', state, owner: 'unknown', revision: 1, activeRunCount: 0,
@@ -54,7 +65,8 @@ class FakeAccounts {
   fallbacks = () => this.fbs;
   open = jest.fn(async () => undefined);
   refresh = jest.fn(async () => undefined);
-  refreshAccountStatus = jest.fn(async () => undefined);
+  readonly statusRead = deferred<StatusReadOutcome>();
+  refreshAccountStatus = jest.fn(() => this.statusRead.promise);
   setSelection = jest.fn(() => this.pending.promise);
   addAccount = jest.fn(() => this.pending.promise);
   renameAccount = jest.fn(() => this.pending.promise);
@@ -267,6 +279,82 @@ describe('AccountsTabComponent', () => {
     });
   });
 
+  describe('Check status (F1: busy rule b, B-2)', () => {
+    const live = () => byTestId('account-detail-live');
+
+    async function startCheck(): Promise<void> {
+      openDetailOf('Work');
+      await settle();
+      // The detail moves focus to its live status, then emits (account-detail-view act()).
+      live()?.focus();
+      detail()?.checkStatus.emit(WORK.profileId);
+    }
+
+    it('sets busy in the same handler, rejects a repeat, and announces a successful read', async () => {
+      await startCheck();
+      expect(busy().get(WORK.profileId)).toBe('check-status');
+      detail()?.checkStatus.emit(WORK.profileId);
+      detail()?.signOut.emit(WORK.profileId);
+      expect(accounts.refreshAccountStatus).toHaveBeenCalledTimes(1);
+      expect(accounts.signOut).not.toHaveBeenCalled();
+      fixture.detectChanges();
+      expect(detail()?.busy()).toBe('check-status');
+      accounts.statusRead.resolve({ status: 'read' });
+      await settle();
+      expect(busy().has(WORK.profileId)).toBe(false);
+      expect(live()?.textContent).toBe(STATUS_CHECKED_FEEDBACK);
+    });
+
+    it('a refused read shows the host refusal and clears busy', async () => {
+      await startCheck();
+      const result = { code: 'conflict', summary: 'The status could not be read.' } as const;
+      accounts.statusRead.resolve({ status: 'failed', result });
+      await settle();
+      expect(busy().has(WORK.profileId)).toBe(false);
+      expect(detail()?.refusal()).toEqual(result);
+    });
+
+    it('a transport failure announces that the status is not available', async () => {
+      await startCheck();
+      accounts.statusRead.resolve({ status: 'unavailable' });
+      await settle();
+      expect(busy().has(WORK.profileId)).toBe(false);
+      expect(live()?.textContent).toBe(ACCOUNT_STATUS_UNAVAILABLE);
+    });
+  });
+
+  describe('completion announcements (F5, B-2)', () => {
+    const live = () => byTestId('account-detail-live');
+
+    it('a saved sign-out announces in the detail while focus stays where the user moved it', async () => {
+      openDetailOf('Work');
+      await settle();
+      detail()?.signOut.emit(WORK.profileId);
+      fixture.detectChanges();
+      selects()[1].focus();
+      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
+      await settle();
+      expect(live()?.textContent).toBe(SIGNED_OUT_FEEDBACK);
+      expect(document.activeElement).toBe(selects()[1]);
+    });
+
+    it('a saved cancel announces the cancellation in the detail', async () => {
+      openDetailOf('Team plan');
+      await settle();
+      detail()?.cancelSignIn.emit(TEAM.profileId);
+      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
+      await settle();
+      expect(live()?.textContent).toBe(SIGN_IN_CANCELLED_FEEDBACK);
+    });
+
+    it('a saved sign-in started from the list row announces in the tab status', async () => {
+      byTestId('accounts-tab-row-sign-in')?.click();
+      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
+      await settle();
+      expect(byTestId('accounts-tab-toast')?.textContent).toBe(SIGN_IN_STARTED_FEEDBACK);
+    });
+  });
+
   describe('removal (B-1, B-2)', () => {
     async function removeWork(hostSnapshot: ProviderAccountsSnapshot, focusInside: boolean): Promise<void> {
       accounts.view.set(ready(snapshot([WORK, TEAM], { kind: 'named', profileId: WORK.profileId })));
@@ -303,6 +391,42 @@ describe('AccountsTabComponent', () => {
       expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
     });
 
+    it('F4: focus on another control of the detail is not the waiting target; it is not moved to the heading', async () => {
+      accounts.view.set(ready(snapshot([WORK, TEAM])));
+      fixture.detectChanges();
+      openDetailOf('Work');
+      await settle();
+      detail()?.remove.emit(WORK.profileId);
+      fixture.detectChanges();
+      const other = Array.from(
+        root().querySelectorAll<HTMLButtonElement>('ptah-account-detail-view button:not([disabled])'),
+      )[0];
+      other.focus();
+      expect(document.activeElement).toBe(other);
+      accounts.view.set(ready(snapshot([TEAM])));
+      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([TEAM]) });
+      await settle();
+      expect(detail()).toBeUndefined();
+      expect(document.activeElement).not.toBe(byTestId('accounts-tab-heading'));
+      expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
+    });
+
+    it('F4: focus lost to the document body during removal stays there', async () => {
+      accounts.view.set(ready(snapshot([WORK, TEAM])));
+      fixture.detectChanges();
+      openDetailOf('Work');
+      await settle();
+      detail()?.remove.emit(WORK.profileId);
+      fixture.detectChanges();
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement).toBe(document.body);
+      accounts.view.set(ready(snapshot([TEAM])));
+      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([TEAM]) });
+      await settle();
+      expect(detail()).toBeUndefined();
+      expect(document.activeElement).toBe(document.body);
+    });
+
     it('a push that removes the open account returns to the list', async () => {
       openDetailOf('Team plan');
       await settle();
@@ -328,6 +452,34 @@ describe('AccountsTabComponent', () => {
       expect(detail()?.initialTab()).toBe('access');
       expect(accounts.setSelection).not.toHaveBeenCalled();
       expect(accounts.startSignIn).not.toHaveBeenCalled();
+    });
+
+    it('F4: focus that left the waiting status for the body stays; the list stays and the toast announces', async () => {
+      const added = account('p-new-0009', 'Side', 'not-signed-in');
+      await submitAdd('Side');
+      const waiting = document.activeElement;
+      expect(root().querySelector('ptah-add-account-form')?.contains(waiting)).toBe(true);
+      (waiting as HTMLElement).blur();
+      expect(document.activeElement).toBe(document.body);
+      const next = snapshot([WORK, TEAM, added]);
+      accounts.view.set(ready(next));
+      accounts.pending.resolve({ status: 'saved', snapshot: next });
+      await settle();
+      expect(byTestId('accounts-tab-toast')?.textContent).toBe(ACCOUNT_ADDED_TOAST);
+      expect(detail()).toBeUndefined();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('F4: focus moved to a control outside the waiting status is left there', async () => {
+      const added = account('p-new-0009', 'Side', 'not-signed-in');
+      await submitAdd('Side');
+      selects()[0].focus();
+      const next = snapshot([WORK, TEAM, added]);
+      accounts.view.set(ready(next));
+      accounts.pending.resolve({ status: 'saved', snapshot: next });
+      await settle();
+      expect(detail()).toBeUndefined();
+      expect(document.activeElement).toBe(selects()[0]);
     });
 
     it('a refusal keeps the form open with the safe host sentence', async () => {

@@ -48,6 +48,7 @@ import {
 } from './account-use-for.component';
 import {
   ACCOUNT_NAME_SAVED,
+  ACCOUNT_STATUS_UNAVAILABLE,
   ACCOUNT_UNCONFIRMED_WARNING,
   AccountDetailViewComponent,
   type AccountDetailTab,
@@ -61,6 +62,15 @@ export const ACCOUNT_ADDED_TOAST = 'Account added. It is not selected for any ne
 export const SELECTION_REFUSED_FALLBACK =
   'Could not change this setting. That account is not available for Claude lanes right now.';
 const ACTION_FALLBACK = 'This action did not complete. Refresh and try again.';
+/** The open account left the host snapshot while focus was elsewhere. */
+const ACCOUNT_GONE_TOAST = 'That account is no longer in the list.';
+/** B-2 completion sentences for the live status; fixed text, never a name, email or path. */
+export const SIGN_IN_STARTED_FEEDBACK = 'Sign-in started.';
+export const SIGN_IN_CANCELLED_FEEDBACK = 'Sign-in cancelled.';
+export const SIGNED_OUT_FEEDBACK = 'Signed out.';
+export const STATUS_CHECKED_FEEDBACK = 'Status checked.';
+/** The detail's live status: the B-2 waiting target of every detail action (account-detail-view). */
+const DETAIL_WAITING_TARGET = '[data-testid="account-detail-live"]';
 const SCOPE_NAME: Readonly<Record<ProviderAccountScope, string>> = {
   main: 'New chats',
   lane: 'Claude lanes',
@@ -94,6 +104,12 @@ interface DetailOutcome {
   readonly profileId: string;
   readonly refusal: ProviderAccountActionResult | null;
   readonly feedback: string | null;
+}
+
+/** B-2: the exact element that held focus when an operation started, and the view it belonged to. */
+interface FocusWait {
+  readonly target: Element;
+  readonly view: TabView;
 }
 
 /**
@@ -406,9 +422,16 @@ export class AccountsTabComponent implements OnInit {
       if (current.kind !== 'detail' || !snapshot) return;
       if (snapshot.accounts.some((account) => account.profileId === current.profileId)) return;
       untracked(() => {
-        const focusWasInDetail = this.focusWithin(this.detailArea()?.nativeElement);
-        this.tabView.set({ kind: 'list' });
-        if (focusWasInDetail) this.focusAfterRender(() => this.accountsHeading()?.nativeElement);
+        const live = this.detailArea()?.nativeElement.querySelector(DETAIL_WAITING_TARGET) ?? null;
+        const wait: FocusWait | null = live ? { target: live, view: current } : null;
+        const focusOnTarget = this.stillWaiting(wait);
+        const list: TabView = { kind: 'list' };
+        this.tabView.set(list);
+        if (focusOnTarget && wait) {
+          this.focusAfterRender(() => this.accountsHeading()?.nativeElement, { target: wait.target, view: list });
+        } else if (this.toast() === null) {
+          this.toast.set(ACCOUNT_GONE_TOAST);
+        }
       });
     });
   }
@@ -474,6 +497,8 @@ export class AccountsTabComponent implements OnInit {
     this.addPending.set(true);
     this.addRefusal.set(null);
     this.clearListFeedback();
+    // The form moved focus to its own status before emitting: that element is the waiting target.
+    const wait = this.captureWait(this.addArea()?.nativeElement);
     const known = new Set(this.snapshot()?.accounts.map((account) => account.profileId) ?? []);
     const outcome = await this.accounts.addAccount(PROVIDER, label);
     this.addPending.set(false);
@@ -485,20 +510,20 @@ export class AccountsTabComponent implements OnInit {
       this.addRefusal.set(ACTION_FALLBACK);
       return;
     }
-    const focusWasInForm = this.focusWithin(this.addArea()?.nativeElement);
+    const focusOnTarget = this.stillWaiting(wait);
     this.addOpen.set(false);
     if (outcome.status === 'unconfirmed') {
       this.toast.set(ACCOUNT_UNCONFIRMED_WARNING);
-      if (focusWasInForm) this.focusAfterRender(() => this.addButton()?.nativeElement);
+      if (focusOnTarget && wait) this.focusAfterRender(() => this.addButton()?.nativeElement, wait);
       return;
     }
     this.toast.set(ACCOUNT_ADDED_TOAST);
     const added = this.addedAccount(outcome.snapshot, known, label);
-    if (added && focusWasInForm && this.tabView().kind === 'list') {
+    if (added && focusOnTarget) {
       // The detail focuses its heading on open (design §3.5).
       this.tabView.set({ kind: 'detail', profileId: added, initialTab: 'access' });
-    } else if (focusWasInForm) {
-      this.focusAfterRender(() => this.addButton()?.nativeElement);
+    } else if (focusOnTarget && wait) {
+      this.focusAfterRender(() => this.addButton()?.nativeElement, wait);
     }
   }
 
@@ -539,15 +564,21 @@ export class AccountsTabComponent implements OnInit {
   }
 
   protected signIn(profileId: string): Promise<void> {
-    return this.run('sign-in', profileId, () => this.accounts.startSignIn(PROVIDER, profileId));
+    return this.run('sign-in', profileId, () => this.accounts.startSignIn(PROVIDER, profileId), {
+      feedback: SIGN_IN_STARTED_FEEDBACK,
+    });
   }
 
   protected cancelSignIn(profileId: string): Promise<void> {
-    return this.run('cancel-sign-in', profileId, () => this.accounts.cancelSignIn(PROVIDER, profileId));
+    return this.run('cancel-sign-in', profileId, () => this.accounts.cancelSignIn(PROVIDER, profileId), {
+      feedback: SIGN_IN_CANCELLED_FEEDBACK,
+    });
   }
 
   protected signOut(profileId: string): Promise<void> {
-    return this.run('sign-out', profileId, () => this.accounts.signOut(PROVIDER, profileId));
+    return this.run('sign-out', profileId, () => this.accounts.signOut(PROVIDER, profileId), {
+      feedback: SIGNED_OUT_FEEDBACK,
+    });
   }
 
   protected rename(request: AccountRenameRequest): Promise<void> {
@@ -567,9 +598,34 @@ export class AccountsTabComponent implements OnInit {
     });
   }
 
-  /** A status re-read; it reports through the snapshot and the operation handle, not through an outcome. */
-  protected checkStatus(profileId: string): void {
-    void this.accounts.refreshAccountStatus(PROVIDER, profileId);
+  /**
+   * A status re-read. It holds the account's busy state like a write (busy rule b) and announces its result;
+   * the rows still change only through host snapshots.
+   */
+  protected async checkStatus(profileId: string): Promise<void> {
+    if (this.busy().has(profileId)) return;
+    this.startBusy(profileId, 'check-status');
+    let outcome: Awaited<ReturnType<ProviderAccountsStateService['refreshAccountStatus']>>;
+    try {
+      outcome = await this.accounts.refreshAccountStatus(PROVIDER, profileId);
+    } finally {
+      this.endBusy(profileId);
+    }
+    const inDetail = this.detailAccount()?.profileId === profileId;
+    switch (outcome.status) {
+      case 'read':
+        this.detailOutcome.set({ profileId, refusal: null, feedback: STATUS_CHECKED_FEEDBACK });
+        if (!inDetail) this.toast.set(STATUS_CHECKED_FEEDBACK);
+        return;
+      case 'failed':
+        this.detailOutcome.set({ profileId, refusal: outcome.result, feedback: null });
+        if (!inDetail) this.alert.set(this.safe(outcome.result, ACCOUNT_STATUS_UNAVAILABLE));
+        return;
+      case 'unavailable':
+        this.detailOutcome.set({ profileId, refusal: null, feedback: ACCOUNT_STATUS_UNAVAILABLE });
+        if (!inDetail) this.alert.set(ACCOUNT_STATUS_UNAVAILABLE);
+        return;
+    }
   }
 
   private async run(
@@ -579,21 +635,20 @@ export class AccountsTabComponent implements OnInit {
     saved: { readonly feedback?: string; readonly toast?: string } = {},
   ): Promise<void> {
     if (this.busy().has(profileId)) return;
-    // Busy rule (b), in the receiving handler before the first await.
-    this.busy.update((all) => new Map(all).set(profileId, kind));
-    this.detailOutcome.update((outcome) => (outcome?.profileId === profileId ? null : outcome));
-    this.clearListFeedback();
-    const outcome = await write();
-    this.busy.update((all) => {
-      const next = new Map(all);
-      next.delete(profileId);
-      return next;
-    });
+    this.startBusy(profileId, kind);
+    let outcome: ProviderAccountActionOutcome;
+    try {
+      outcome = await write();
+    } finally {
+      this.endBusy(profileId);
+    }
     const inDetail = this.detailAccount()?.profileId === profileId;
     switch (outcome.status) {
       case 'saved':
         this.detailOutcome.set({ profileId, refusal: null, feedback: saved.feedback ?? null });
+        // B-2: outside the detail the tab's polite status announces the completion instead.
         if (saved.toast) this.toast.set(saved.toast);
+        else if (!inDetail && saved.feedback) this.toast.set(saved.feedback);
         return;
       case 'failed':
         this.detailOutcome.set({ profileId, refusal: outcome.result, feedback: null });
@@ -608,6 +663,21 @@ export class AccountsTabComponent implements OnInit {
         if (!inDetail) this.alert.set(ACTION_FALLBACK);
         return;
     }
+  }
+
+  /** Busy rule (b), set in the receiving handler before the first await. */
+  private startBusy(profileId: string, kind: ProviderAccountActionKind): void {
+    this.busy.update((all) => new Map(all).set(profileId, kind));
+    this.detailOutcome.update((outcome) => (outcome?.profileId === profileId ? null : outcome));
+    this.clearListFeedback();
+  }
+
+  private endBusy(profileId: string): void {
+    this.busy.update((all) => {
+      const next = new Map(all);
+      next.delete(profileId);
+      return next;
+    });
   }
 
   // ------------------------------------------------------------------------------------
@@ -642,20 +712,44 @@ export class AccountsTabComponent implements OnInit {
     return isSafeProviderAccountSummary(result.summary) ? result.summary : fallback;
   }
 
-  /** B-2: true when focus is inside `area`, or was lost to the document with the view that held it. */
-  private focusWithin(area: HTMLElement | undefined): boolean {
+  /** B-2: the focused element when an operation starts, if it lies inside `area`; never the document body. */
+  private captureWait(area: HTMLElement | undefined): FocusWait | null {
     const active = this.document.activeElement;
-    if (!active || active === this.document.body) return area !== undefined;
-    return area?.contains(active) ?? false;
+    if (!active || active === this.document.body || !area?.contains(active)) return null;
+    return { target: active, view: this.tabView() };
   }
 
-  private focusAfterRender(target: () => HTMLElement | undefined): void {
+  /** B-2: focus is still exactly on the waiting target and the view it was captured in is still shown. */
+  private stillWaiting(wait: FocusWait | null): boolean {
+    return (
+      wait !== null &&
+      !this.destroyed &&
+      this.tabView() === wait.view &&
+      wait.target.isConnected &&
+      this.document.activeElement === wait.target
+    );
+  }
+
+  /**
+   * Moves focus after the next render. With `wait`, only if `wait.view` is still shown and focus has not moved
+   * since: it is still on the waiting target, or that target was removed by this render and focus fell to the body.
+   */
+  private focusAfterRender(target: () => HTMLElement | undefined, wait?: FocusWait): void {
     if (this.destroyed) return;
     afterNextRender(
       () => {
-        if (!this.destroyed) (target() ?? this.toastEl().nativeElement).focus();
+        if (this.destroyed) return;
+        if (wait && !this.untouchedSince(wait)) return;
+        (target() ?? this.toastEl().nativeElement).focus();
       },
       { injector: this.injector },
     );
+  }
+
+  private untouchedSince(wait: FocusWait): boolean {
+    if (this.tabView() !== wait.view) return false;
+    const active = this.document.activeElement;
+    if (active === wait.target) return true;
+    return !wait.target.isConnected && (active === null || active === this.document.body);
   }
 }

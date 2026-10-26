@@ -12,7 +12,8 @@
  *   is not a trap: Chromium moves focus from the last control to the browser's
  *   own UI (TASK_2026_555 Batch 32, found by the Batch 14 finding 3 scene)
  * - Escape fires a native `cancel` event, which the component only forwards
- *   to the parent
+ *   to the parent; the Escape keydown itself does not bubble past the modal,
+ *   so an enclosing drawer stays open
  * - a backdrop click requests closure
  *
  * Visibility is driven entirely by `showModal()`/`close()` — never by the
@@ -171,13 +172,21 @@ export class NativeModalComponent implements OnDestroy {
   }
 
   /**
+   * Escape inside the open dialog belongs to this modal alone: it stops here so an ancestor overlay (for example a
+   * `ptah-native-drawer` that closes on Escape) never sees it. Only propagation stops; the default action stays, so
+   * the browser still fires the native `cancel` that {@link onCancel} forwards.
+   *
    * Tab from the last control goes to the first, Shift+Tab from the first to the last, so keyboard focus never leaves
    * the open dialog. The backdrop's close button is not a stop: it is the pointer path, outside the panel.
    */
   protected onKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Tab') return;
     const dialog = this.dialog()?.nativeElement;
     if (!dialog?.open) return;
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      return;
+    }
+    if (event.key !== 'Tab') return;
     const panel = dialog.querySelector<HTMLElement>('.modal-box');
     const focusables = Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
       .filter((node) => !node.hasAttribute('disabled') && node.tabIndex >= 0 && node.getClientRects().length > 0);
