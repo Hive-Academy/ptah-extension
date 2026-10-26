@@ -169,6 +169,8 @@ describe('ChatSlashCommandRouterService account forwarding', () => {
       } as unknown as Args[5],
       { streamEventsToWebview: jest.fn() } as unknown as Args[6],
       {
+        resolveStoredModel: (_path: string, model: string) =>
+          model || 'default',
         resolveProviderProfileForWorkspace: jest.fn().mockResolvedValue(undefined),
       } as unknown as Args[7],
       undefined,
