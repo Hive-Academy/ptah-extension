@@ -269,6 +269,23 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     await expect(next?.done).resolves.toBe(0);
   });
 
+  it('reports adapter capabilities that match the handle it returns (D39)', async () => {
+    const f = fixture();
+    const handle = await f.adapter.runSdk({ ...f.input, agentId: 'lane-id' });
+    const reported = f.adapter.capabilities();
+    expect(reported).toEqual({
+      continuation: handle.supportsContinuation?.() === true,
+      steer: typeof handle.steer === 'function',
+      interrupt: typeof handle.interrupt === 'function',
+    });
+    // Listing and messaging read these flags: a lane that reports
+    // continuation must accept a follow-up message, and one that reports no
+    // steer or interrupt must not expose either.
+    expect(typeof handle.continue === 'function').toBe(reported.continuation);
+    f.finish(0);
+    await expect(handle.done).resolves.toBe(0);
+  });
+
   it.each([
     ['max', 'high', 'low', 'max'],
     ['unsupported', 'high', 'low', 'high'],
@@ -645,7 +662,7 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.persistence.available = false;
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'unavailable-storage',
     });
     expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
@@ -736,7 +753,7 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.persistence[method].mockRejectedValue(new Error('private failure'));
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -750,7 +767,7 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.callbacks.mockRejectedValue(new Error('private callback failure'));
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -785,7 +802,7 @@ describe('named Claude lane admission', () => {
     await expect(handle.done).resolves.toBe(1);
     await expect(next?.done).resolves.toBe(1);
     await expect(handle.continue?.('late')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     f.finish(0);
     await Promise.resolve();
@@ -827,7 +844,7 @@ describe('named Claude lane admission', () => {
     f.persistence.validateResume.mockResolvedValue({ code: 'not-found' });
     expect(handle.abort.signal.aborted).toBe(false);
     await expect(handle.continue?.('deleted')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(await prompt.next()).toMatchObject({ done: true });
     await expect(handle.done).resolves.toBe(1);
@@ -841,7 +858,7 @@ describe('named Claude lane admission', () => {
     });
     await expect(
       f.adapter.runSdk({ ...f.input, resumeSessionId: 'sdk-session' }),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     const handle = await f.adapter.runSdk({
       ...f.input,
@@ -861,7 +878,7 @@ describe('named Claude failure and isolation regressions', () => {
       Object.assign(new Error('held'), { code: 'release-held' }),
     );
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
@@ -878,7 +895,7 @@ describe('named Claude failure and isolation regressions', () => {
       return query;
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.query).toHaveBeenCalledTimes(1);
     expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
@@ -916,7 +933,7 @@ describe('named Claude failure and isolation regressions', () => {
       throw new Error('private SDK failure');
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
@@ -932,7 +949,7 @@ describe('named Claude failure and isolation regressions', () => {
       });
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     finish();
     expect(
@@ -950,7 +967,7 @@ describe('named Claude failure and isolation regressions', () => {
         accountAdmission: undefined,
         accountBinding: f.binding,
       }),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     const first = await f.adapter.runSdk(f.input);
     first.abort.abort();
     await first.done;
@@ -1205,7 +1222,7 @@ describe('named Claude lane certified launch boundaries', () => {
       return f.binding;
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     land();
     await new Promise((resolve) => setImmediate(resolve));

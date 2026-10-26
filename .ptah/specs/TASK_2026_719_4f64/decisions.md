@@ -188,3 +188,16 @@
 ## D33 — Phase P4 code review closed (2026-10-26, orchestrator)
 
 - Bounded correction (p4-fix-state-2-report.md) reviewed by a fresh codex lane: APPROVED 9/10, both items closed, no new defects (`code-logic-review-p4-correction.md`). Phase P4 code-logic review is closed. Open Minor items for later tasks: P4 Minor 3 (no production teardown caller for the provider account handler's `onStateChanged` subscription) and Minor 4 (duplicate snapshots per action transition).
+
+## D34 — P4 visual review REVISE 6.5/10 (2026-10-26, orchestrator)
+
+- Visual reviewer (Electron, Playwright with faked RPC, dark + light, before = base `396f0135b`, after = `cf398919d`): `visual-review.md`. Passed in both themes: drawer pending copy, fallback block and buttons, held note removed, session row labels.
+- D1 Serious: the lane account badge exists only in `ptah-agent-card-header` (card presentation); Electron lane surfaces use `presentation="flat"` (`ptah-execution-header`), so the badge never shows. Fix: show the same label in the flat header. D3 Moderate: session-row account label has no 10rem cap. Fix with the same cap and title as the lane badge.
+- D2 Moderate (profile id on Accounts cards and drawer Overview): identical in the base build, not introduced by this task; the new surfaces render no profile id. Recorded as a later task, not fixed here.
+- One fix run for D1 and D3, then a scoped visual re-check of those two screens (after only).
+
+## D35 — Senior tester findings; release-held producers removed (2026-10-26, orchestrator, evidence step)
+
+- test-report.md: R1-R7 map to committed specs; tester added 2 tests (R3.9 process env; D39 adapter capabilities). Gaps: R4.9 timeout exit (now added, `session-query-executor.accounts.spec.ts:372`); R1.2 no feature flag (source search only, no automated guard; accepted).
+- Low defect: production code still returned `'release-held'` as an internal catch-all, against implementation-plan.md:135-136 ("No production path returns it"). Fixed (release-held-fix-report.md): unproved or unclassified named-run failures -> `identity-unproved`; registry bind refusal, resume-id mismatch, attach refusal -> `conflict`; missing admission/persistence ports in the adapter -> `unavailable-storage`. Settlement (release/retain) unchanged. Remaining non-spec hits are only the allowed ones (union member, two neutral COPY entries, drawer held fallback).
+- A binding that arrives without an admission request keeps the plan's default `identity-unproved`. Reversible.

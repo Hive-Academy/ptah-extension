@@ -531,7 +531,7 @@ describe('named runner handoff', () => {
     await expect(f.handle.done).resolves.toBe(1);
     await expect(queued?.done).resolves.toBe(1);
     await expect(f.handle.continue?.('late')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     f.finish(0);
     await Promise.resolve();
@@ -774,15 +774,15 @@ describe('named lane certified final options and refusal codes', () => {
     ).toThrow(expect.objectContaining({ code: 'route-changed' }));
   });
 
-  it('keeps the real refusal code and maps foreign errors to release-held', () => {
+  it('keeps the real refusal code and maps foreign errors to identity-unproved', () => {
     expect(claudeLaneRefusal('unsupported-source').code).toBe('unsupported-source');
-    expect(claudeLaneRefusal().code).toBe('release-held');
+    expect(claudeLaneRefusal().code).toBe('identity-unproved');
     expect(claudeLaneRefusalCode(claudeLaneRefusal('route-changed'))).toBe('route-changed');
     expect(claudeLaneRefusalCode(new ClaudeCertifiedLaunchRefusal('identity-unproved'))).toBe(
       'identity-unproved',
     );
     expect(claudeLaneRefusalCode(Object.assign(new Error('x'), { code: 'busy' }))).toBe(
-      'release-held',
+      'identity-unproved',
     );
   });
 });

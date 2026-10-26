@@ -371,7 +371,7 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
         container.resolve(ClaudeCliAdapter).runSdk({
           task: 'do work', workingDirectory: '/workspace', accountAdmission,
         }),
-      ).rejects.toMatchObject({ code: 'release-held' });
+      ).rejects.toMatchObject({ code: 'unavailable-storage' });
       expect(admitClaudeRoute).not.toHaveBeenCalled();
       expect(lookup).not.toHaveBeenCalled();
     });

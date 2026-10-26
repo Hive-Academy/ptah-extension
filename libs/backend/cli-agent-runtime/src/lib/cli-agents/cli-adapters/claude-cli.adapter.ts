@@ -288,14 +288,14 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     const admission = this.deps.admission();
     if (!admission)
       throw claudeLaneRefusal(
-        'release-held',
+        'unavailable-storage',
         'Claude account admission is not available',
       );
     const persistence = this.deps.accountPersistence?.();
-    if (!persistence?.available) throw claudeLaneRefusal();
+    if (!persistence?.available) throw claudeLaneRefusal('unavailable-storage');
     let timer: ReturnType<typeof setTimeout> | undefined;
     // The admission port's own refusal code wins; otherwise the code the
-    // failure carries (`release-held` for any foreign error).
+    // failure carries (`identity-unproved` for any foreign error).
     let refusalCode: ProviderAccountPortRefusal['code'] | undefined;
     const pending = (async () => {
       const lookup = input.resumeSessionId

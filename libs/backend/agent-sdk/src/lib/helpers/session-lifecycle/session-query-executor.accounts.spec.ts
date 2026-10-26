@@ -281,9 +281,9 @@ describe('named SDK bootstrap and final admission', () => {
       expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(terminated ? 0 : 1);
     });
 
-  it('retains when the boundary check itself fails, and maps the foreign error to release-held', async () => {
+  it('retains when the boundary check itself fails, and maps the foreign error to identity-unproved', async () => {
     const f = fixture({ fail: 'boundary' });
-    await expect(f.run()).rejects.toEqual({ code: 'release-held',
+    await expect(f.run()).rejects.toEqual({ code: 'identity-unproved',
       summary: 'Named account admission could not be completed.' });
     expect(f.runner.invokeNamedQuery).not.toHaveBeenCalled();
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
@@ -349,7 +349,8 @@ describe('named SDK bootstrap and final admission', () => {
 
   it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
     const f = fixture({ fail });
-    await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    // A refused registry bind is a real conflict; any other failure is unproved.
+    await expect(f.run()).rejects.toMatchObject({ code: fail === 'registry' ? 'conflict' : 'identity-unproved' });
     expect(f.yielded()).toBe(0);
     expect(f.saved()).toBeUndefined();
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(fail === 'admit' ? 0 : 1);
@@ -357,7 +358,7 @@ describe('named SDK bootstrap and final admission', () => {
 
   it.each(['lookup', 'admit', 'current', 'boundary', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
     const f = fixture({ cancel });
-    await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'release-held' });
+    await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'identity-unproved' });
     await flush();
     await f.flow.dispose();
     expect(f.yielded()).toBe(0);
@@ -368,10 +369,37 @@ describe('named SDK bootstrap and final admission', () => {
     expect(settlements).toBeLessThanOrEqual(1);
   });
 
+  // R4.9 timeout: the admission deadline expires on its own, with no caller abort.
+  it.each([
+    ['before any SDK child', 'current', undefined, true],
+    ['with an unproved bootstrap child', 'bootstrap-identity', 'bootstrap', false],
+  ] as const)('refuses when the bootstrap deadline expires %s, with no final query and one settlement',
+    async (_name, pause, unproved, released) => {
+      jest.useFakeTimers();
+      const f = fixture({ pause, unproved });
+      const rejected = expect(f.run()).rejects.toEqual({ code: 'identity-unproved',
+        summary: 'Named account admission could not be completed.' });
+      await f.entered.promise;
+      expect(f.controller.signal.aborted).toBe(false);
+      await jest.runAllTimersAsync();
+      await rejected;
+      // The deadline itself aborted the run; the caller never did.
+      expect(f.controller.signal.aborted).toBe(true);
+      f.paused.resolve();
+      await flush();
+      await f.flow.dispose();
+      expect(f.options).toHaveLength(pause === 'current' ? 0 : 1);
+      expect(f.yielded()).toBe(0);
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.saved()).toBeUndefined();
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(released ? 1 : 0);
+      expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(released ? 0 : 1);
+    });
+
   it('retains the reservation when bootstrap termination cannot be proved', async () => {
     jest.useFakeTimers();
     const f = fixture({ unproved: 'bootstrap' });
-    const result = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const result = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await jest.runAllTimersAsync();
     await result;
     expect(f.yielded()).toBe(0);
@@ -383,7 +411,7 @@ describe('named SDK bootstrap and final admission', () => {
   it.each(['bootstrap', 'final'])('retains after a %s launch throws with unproved process state', async (fail) => {
     jest.useFakeTimers();
     const f = fixture({ fail });
-    const result = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const result = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await jest.runAllTimersAsync();
     await result;
     expect(f.yielded()).toBe(0);
@@ -438,7 +466,7 @@ describe('named SDK bootstrap and final admission', () => {
 
   it('rejects a late metadata completion after cancellation without releasing a prompt', async () => {
     const f = fixture({ pause: 'metadata' });
-    const result = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const result = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await f.entered.promise;
     f.controller.abort();
     await result;
@@ -493,7 +521,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
     'ignores late %s completion after cancellation and settles once', async pause => {
       const f = fixture({ pause });
       const rejected = expect(f.run(pause === 'lookup' ? 'sdk-session-a' : undefined))
-        .rejects.toMatchObject({ code: 'release-held' });
+        .rejects.toMatchObject({ code: 'identity-unproved' });
       await f.entered.promise;
       f.controller.abort();
       await rejected;
@@ -518,7 +546,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
 
   it('waits for final child close proof before releasing the lease', async () => {
     const f = fixture({ unproved: 'final', pause: 'metadata' });
-    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await f.entered.promise;
     f.controller.abort();
     await flush();
@@ -534,7 +562,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
 
   it('retains an uncertain final child after cancellation without yielding', async () => {
     const f = fixture({ unproved: 'final', pause: 'metadata' });
-    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await f.entered.promise;
     f.controller.abort();
     await jest.runAllTimersAsync();
@@ -548,7 +576,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
 
   it('retains when a boundary check is cancelled before it proves its children closed', async () => {
     const f = fixture({ pause: 'boundary:2' });
-    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await f.entered.promise;
     f.controller.abort();
     await rejected;

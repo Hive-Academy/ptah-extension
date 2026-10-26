@@ -306,9 +306,12 @@ class ClaudeLaneRefusal extends Error {
   }
 }
 
-/** `message` must be a fixed string: never a path, an account value or CLI text. */
+/**
+ * `message` must be a fixed string: never a path, an account value or CLI text.
+ * A refusal with no stated code is an unproved named run, `identity-unproved`.
+ */
 export function claudeLaneRefusal(
-  code: ClaudeLaneRefusalCode = 'release-held',
+  code: ClaudeLaneRefusalCode = 'identity-unproved',
   message = 'Claude account admission prompt gate is not available',
 ): Error & { code: ClaudeLaneRefusalCode } {
   return new ClaudeLaneRefusal(code, message);
@@ -316,8 +319,9 @@ export function claudeLaneRefusal(
 
 /**
  * The refusal code an error carries: a lane refusal's or a certified-launch
- * refusal's own code. Any other error (a store, SDK or callback failure) is
- * `release-held`, so no foreign error field reaches a caller.
+ * refusal's own code. Any other error (a store, SDK or callback failure) is an
+ * unclassified named-run failure, `identity-unproved`, so no foreign error
+ * field reaches a caller.
  */
 export function claudeLaneRefusalCode(error: unknown): ClaudeLaneRefusalCode {
   if (
@@ -325,7 +329,7 @@ export function claudeLaneRefusalCode(error: unknown): ClaudeLaneRefusalCode {
     error instanceof ClaudeCertifiedLaunchRefusal
   )
     return error.code;
-  return 'release-held';
+  return 'identity-unproved';
 }
 
 /** Init `apiKeySource` values a personal claude.ai login may report. */
@@ -653,7 +657,7 @@ export class ClaudeNamedLaneAdmission {
       }
     }
     if (options.resume && options.resume !== sessionId)
-      throw claudeLaneRefusal();
+      throw claudeLaneRefusal('conflict');
     if (!this.identity) throw claudeLaneRefusal();
     const binding =
       this.stored ??
@@ -691,7 +695,7 @@ export class ClaudeNamedLaneAdmission {
         attachedAt: Date.now(),
       }),
     );
-    if (attached.status !== 'attached') throw claudeLaneRefusal();
+    if (attached.status !== 'attached') throw claudeLaneRefusal('conflict');
     await this.wait(
       this.persistence.saveAccountBound(
         { ...metadata, sessionId },

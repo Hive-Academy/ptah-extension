@@ -588,12 +588,13 @@ function isNamedRefusal(error: unknown): error is ProviderAccountPortRefusal {
 
 /**
  * The refusal code an error carries: a named refusal's or a certified-launch
- * refusal's own code. Any other error is `release-held`, so no foreign error
- * field reaches a caller.
+ * refusal's own code. Any other error is an unclassified named-run failure,
+ * `identity-unproved` (the `namedAccountRefusal` default), so no foreign
+ * error field reaches a caller.
  */
 function namedRefusalCode(error: unknown): ProviderAccountPortRefusal['code'] {
   if (isNamedRefusal(error) || error instanceof ClaudeCertifiedLaunchRefusal) return error.code;
-  return 'release-held';
+  return 'identity-unproved';
 }
 
 /** Init key sources a certified named child may report. */
@@ -685,15 +686,15 @@ export class NamedAccountQueryAdmission {
       const value = await Promise.race([
         pending,
         new Promise<never>((_resolve, reject) => {
-          cancel = () => reject(namedAccountRefusal('release-held'));
+          cancel = () => reject(namedAccountRefusal());
           this.abortController.signal.addEventListener('abort', cancel, { once: true });
           if (this.abortController.signal.aborted) cancel();
         }),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal('release-held')); }, this.deadlineMs);
+          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
         }),
       ]);
-      if (this.abortController.signal.aborted) throw namedAccountRefusal('release-held');
+      if (this.abortController.signal.aborted) throw namedAccountRefusal();
       return value;
     } finally {
       clearTimeout(timer);
@@ -796,7 +797,7 @@ export class NamedAccountQueryAdmission {
     let admitted = false;
     const canUseTool = options.canUseTool;
     try {
-      if (this.abortController.signal.aborted) throw namedAccountRefusal('release-held');
+      if (this.abortController.signal.aborted) throw namedAccountRefusal();
       const launch = this.certifiedLaunch;
       if (!launch) throw namedAccountRefusal('identity-unproved');
       await this.checkBoundary(options, 'final');
@@ -813,7 +814,7 @@ export class NamedAccountQueryAdmission {
       let sdkSessionId: string | undefined;
       while (!sdkSessionId) {
         const next = await this.wait(query.next());
-        if (next.done) throw namedAccountRefusal('release-held');
+        if (next.done) throw namedAccountRefusal();
         buffered.push(next.value);
         if (next.value.type === 'system' && next.value.subtype === 'init') {
           // The running CLI must be the certified version on a login key source.
@@ -821,12 +822,12 @@ export class NamedAccountQueryAdmission {
               !CERTIFIED_INIT_KEY_SOURCES.has(next.value.apiKeySource)) throw namedAccountRefusal('identity-unproved');
           sdkSessionId = next.value.session_id;
         }
-        if (buffered.length > 64) throw namedAccountRefusal('release-held');
+        if (buffered.length > 64) throw namedAccountRefusal();
       }
-      if (!this.registry.bindAccountRoute(registerKey, this.route) || !this.reservation || !this.baseline) {
-        throw namedAccountRefusal('release-held');
-      }
-      if (this.resumeSdkSessionId && this.resumeSdkSessionId !== sdkSessionId) throw namedAccountRefusal('release-held');
+      if (!this.reservation || !this.baseline) throw namedAccountRefusal();
+      // No registry record, or the session is bound to another route: a conflict.
+      if (!this.registry.bindAccountRoute(registerKey, this.route)) throw namedAccountRefusal('conflict');
+      if (this.resumeSdkSessionId && this.resumeSdkSessionId !== sdkSessionId) throw namedAccountRefusal('conflict');
       // An ordinary resume keeps the immutable SDK attachment and binding.
       // Forks create a new run/link, while checking the original owner's baseline.
       const binding = this.storedBinding ?? await this.wait(
@@ -838,7 +839,7 @@ export class NamedAccountQueryAdmission {
           !sameNamedIdentity(binding.identity, this.baseline)) throw namedAccountRefusal();
       const attached = await this.wait(this.persistence.attachSdkSession({ provider: 'claude', sdkSessionId,
         runId: binding.runId, attachedAt: Date.now() }));
-      if (attached.status !== 'attached') throw namedAccountRefusal('release-held');
+      if (attached.status !== 'attached') throw namedAccountRefusal('conflict');
       await this.wait(this.persistence.saveAccountBound({ ...metadata, sessionId: sdkSessionId }, binding));
       await this.verifyIdentity();
       admitted = true;
@@ -865,7 +866,7 @@ export class NamedAccountQueryAdmission {
 
   private async verifyIdentity(): Promise<void> {
     const launch = this.certifiedLaunch;
-    if (!this.child || !this.baseline || !launch) throw namedAccountRefusal('release-held');
+    if (!this.child || !this.baseline || !launch) throw namedAccountRefusal();
     await this.wait(this.persistence.assertRouteCurrent(this.route));
     const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
     if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal();
