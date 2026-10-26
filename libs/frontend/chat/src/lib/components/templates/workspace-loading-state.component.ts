@@ -70,18 +70,71 @@ const PENDING_STEPS: readonly StagedStep[] = [
       width: 100%;
       overflow: hidden;
     }
+    /* Frameless local text scrim (glass only: transparent where the token
+       is not defined). The pseudo-element is solid under the whole padding
+       box, so text keeps the full scrim, and fades to fully transparent at
+       every outer edge through two eased ramps intersected by a mask: no box
+       edge or corner is drawn. Same recipe as the welcome stage. The host
+       clips what reaches past the pane. */
+    .ptah-loading__scrim {
+      --scrim-ext-x: 96px;
+      --scrim-ext-y: 48px;
+      --scrim-in-x: 48px;
+      --scrim-in-y: 32px;
+      position: relative;
+      isolation: isolate;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      max-width: 100%;
+      padding: 40px 64px;
+    }
+    .ptah-loading__scrim::before {
+      --rx: calc(var(--scrim-ext-x) + var(--scrim-in-x));
+      --ry: calc(var(--scrim-ext-y) + var(--scrim-in-y));
+      content: '';
+      position: absolute;
+      inset: calc(-1 * var(--scrim-ext-y)) calc(-1 * var(--scrim-ext-x));
+      z-index: -1;
+      pointer-events: none;
+      background: var(--glass-scrim-text, transparent);
+      mask-image:
+        linear-gradient(
+          to right,
+          transparent 0,
+          rgb(0 0 0 / 0.3) calc(var(--rx) * 0.35),
+          rgb(0 0 0 / 0.75) calc(var(--rx) * 0.7),
+          #000 var(--rx),
+          #000 calc(100% - var(--rx)),
+          rgb(0 0 0 / 0.75) calc(100% - var(--rx) * 0.7),
+          rgb(0 0 0 / 0.3) calc(100% - var(--rx) * 0.35),
+          transparent 100%
+        ),
+        linear-gradient(
+          to bottom,
+          transparent 0,
+          rgb(0 0 0 / 0.3) calc(var(--ry) * 0.35),
+          rgb(0 0 0 / 0.75) calc(var(--ry) * 0.7),
+          #000 var(--ry),
+          #000 calc(100% - var(--ry)),
+          rgb(0 0 0 / 0.75) calc(100% - var(--ry) * 0.7),
+          rgb(0 0 0 / 0.3) calc(100% - var(--ry) * 0.35),
+          transparent 100%
+        );
+      mask-composite: intersect;
+    }
     .ptah-loading__stage {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 36px;
-      padding: 40px 64px;
-      background: radial-gradient(
-        ellipse farthest-corner at center,
-        var(--glass-scrim-text, transparent) 0%,
-        var(--glass-scrim-text, transparent) 86%,
-        transparent 100%
-      );
+    }
+    @media (max-width: 1000px) {
+      .ptah-loading__scrim {
+        --scrim-in-x: 16px;
+        padding-inline: 24px;
+      }
     }
     .ptah-loading__title {
       display: flex;
@@ -136,62 +189,70 @@ const PENDING_STEPS: readonly StagedStep[] = [
     <span class="sr-only" data-testid="workspace-loading-label">{{
       announced() ? statusLabel() : ''
     }}</span>
-    <div class="ptah-loading__stage" aria-busy="true">
-      @if (workspaceName(); as name) {
-        <div class="ptah-loading__title" aria-hidden="true">
-          <span
-            class="text-base font-semibold text-base-content"
-            data-testid="workspace-loading-name"
-            >{{ name }}</span
+    <div class="ptah-loading__scrim">
+      <div class="ptah-loading__stage" aria-busy="true">
+        @if (workspaceName(); as name) {
+          <div class="ptah-loading__title" aria-hidden="true">
+            <span
+              class="text-base font-semibold text-base-content"
+              data-testid="workspace-loading-name"
+              >{{ name }}</span
+            >
+            <span class="ptah-loading__bar ptah-loading__bar--name"></span>
+          </div>
+          <div class="ptah-loading__zone" aria-hidden="true">
+            <ptah-activity-grid
+              class="ptah-loading__grid"
+              [days]="[]"
+              [today]="today"
+              ariaLabel="Activity, loading"
+            />
+            <ptah-staged-steps
+              class="ptah-loading__steps"
+              [steps]="steps"
+              ariaLabel="Preparing workspace"
+            />
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary gap-2 rounded-full px-6 cursor-not-allowed"
+            aria-disabled="true"
+            data-testid="workspace-loading-new-session"
           >
-          <span class="ptah-loading__bar ptah-loading__bar--name"></span>
-        </div>
-        <div class="ptah-loading__zone" aria-hidden="true">
-          <ptah-activity-grid
-            class="ptah-loading__grid"
-            [days]="[]"
-            [today]="today"
-            ariaLabel="Activity, loading"
+            <lucide-angular
+              [img]="PlusIcon"
+              class="size-4"
+              aria-hidden="true"
+            />
+            New session
+          </button>
+        } @else {
+          <img
+            [src]="ptahIconUri"
+            alt=""
+            aria-hidden="true"
+            class="size-12"
+            width="48"
+            height="48"
+            data-testid="workspace-loading-medallion"
           />
-          <ptah-staged-steps
-            class="ptah-loading__steps"
-            [steps]="steps"
-            ariaLabel="Preparing workspace"
-          />
-        </div>
-        <button
-          type="button"
-          class="btn btn-primary gap-2 rounded-full px-6 cursor-not-allowed"
-          aria-disabled="true"
-          data-testid="workspace-loading-new-session"
+          <span
+            class="ptah-loading__bar ptah-loading__bar--medallion"
+            aria-hidden="true"
+          ></span>
+        }
+      </div>
+      <!-- Inside the scrim, outside the busy stage, so the host's status
+         region still announces it. -->
+      @if (slow()) {
+        <p
+          class="text-sm text-base-content-muted"
+          data-testid="workspace-loading-slow"
         >
-          <lucide-angular [img]="PlusIcon" class="size-4" aria-hidden="true" />
-          New session
-        </button>
-      } @else {
-        <img
-          [src]="ptahIconUri"
-          alt=""
-          aria-hidden="true"
-          class="size-12"
-          width="48"
-          height="48"
-          data-testid="workspace-loading-medallion"
-        />
-        <span
-          class="ptah-loading__bar ptah-loading__bar--medallion"
-          aria-hidden="true"
-        ></span>
+          Still opening. This can take a moment.
+        </p>
       }
     </div>
-    @if (slow()) {
-      <p
-        class="text-sm text-base-content-muted"
-        data-testid="workspace-loading-slow"
-      >
-        Still opening. This can take a moment.
-      </p>
-    }
   `,
 })
 export class WorkspaceLoadingStateComponent {

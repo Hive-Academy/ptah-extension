@@ -92,6 +92,8 @@ describe('WorkspaceLoadingStateComponent', () => {
     const hint = host().querySelector('[data-testid="workspace-loading-slow"]');
     expect(hint?.textContent).toContain('Still opening');
     expect(hint?.closest('[aria-hidden="true"], [aria-busy="true"]')).toBeNull();
+    // Grouped with the content on the text scrim, not floating below it.
+    expect(hint?.closest('.ptah-loading__scrim')).not.toBeNull();
   });
 
   it('drops the slow-hint timer when it is destroyed', () => {

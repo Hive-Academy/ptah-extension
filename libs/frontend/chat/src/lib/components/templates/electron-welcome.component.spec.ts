@@ -161,6 +161,10 @@ describe('ElectronWelcomeComponent', () => {
     expect(host().querySelector('h1')?.textContent?.trim()).toBe(
       'Open a workspace',
     );
+    // Titles use the app font: no display (small-caps serif) face.
+    expect(
+      Array.from(host().querySelector('h1')?.classList ?? []),
+    ).not.toContain('font-display');
     expect(host().querySelector('img')?.getAttribute('src')).toBe(
       'ptah-icon.png',
     );

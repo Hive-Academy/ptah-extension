@@ -618,6 +618,11 @@ function statefulSettingsFixtures(
       folders: [...workspaceFolders],
       activeFolder: workspaceFolders[0],
     },
+    // The real host answers the switch that follows getInfo. Electron's
+    // first workspace sync settles `ElectronLayoutService.workspaceResolved`
+    // only after it, and until then the shell shows the L1 loading state
+    // instead of the workspace layout (and its Workspaces toggle).
+    'workspace:switch': { success: true },
     'auth:getAuthStatus': () => ({ ...state.authStatus }),
     'auth:getApiKeyStatus': API_KEY_STATUS_FIXTURE,
     // Each provider carries its recorded check (`lastCheck`), as the host's route read does (28c).

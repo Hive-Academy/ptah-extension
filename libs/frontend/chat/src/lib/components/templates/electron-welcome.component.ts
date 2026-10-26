@@ -93,9 +93,7 @@ const LOG_CONTEXT = 'ElectronWelcome';
             width="48"
             height="48"
           />
-          <h1
-            class="font-display text-[29px] font-semibold text-base-content"
-          >
+          <h1 class="text-[28px] leading-tight font-semibold text-base-content">
             Open a workspace
           </h1>
           <button
@@ -159,79 +157,85 @@ const LOG_CONTEXT = 'ElectronWelcome';
           </div>
         }
 
-        <div class="ptah-welcome__zone">
-          @if (recentItems().length > 0) {
-            <ptah-recent-workspace-list
-              class="ptah-welcome__recents"
-              [items]="recentItems()"
-              (open)="openRecent($event)"
-            />
-          }
-          @let view = grid();
-          <div
-            class="ptah-welcome__grid"
-            [attr.aria-busy]="view.busy ? 'true' : null"
-            data-testid="welcome-activity"
-          >
-            <ptah-activity-grid
-              [days]="view.days"
-              [today]="view.today"
-              [mode]="view.mode"
-              [caption]="view.caption"
-              [ariaLabel]="view.label"
-            />
-          </div>
-        </div>
-
-        @if (firstRun() === null) {
-          <div
-            class="ptah-welcome__vitals-slot"
-            aria-hidden="true"
-            data-testid="welcome-vitals-pending"
-          ></div>
-        } @else {
-          <ptah-stat-row density="regular" data-testid="welcome-vitals">
-            <ptah-stat-cell
-              [icon]="PlanIcon"
-              label="Plan"
-              [state]="plan().state"
-              [caption]="plan().caption"
-            >
-              <ptah-plan-ring [ring]="plan().ring" />
-            </ptah-stat-cell>
-            @if (!firstRun()) {
-              <ptah-stat-cell
-                [icon]="SpendIcon"
-                label="Spend 7d"
-                [state]="spend().state"
-                caption="last 7 days"
-              >
-                <ptah-stat-value [text]="spend().text">
-                  <ptah-spend-bars
-                    [values]="spend().bars"
-                    ariaLabel="Spend per day, last 7 days"
-                  />
-                </ptah-stat-value>
-              </ptah-stat-cell>
+        <div class="ptah-welcome__body">
+          <div class="ptah-welcome__zone">
+            @if (recentItems().length > 0) {
+              <ptah-recent-workspace-list
+                class="ptah-welcome__recents"
+                [items]="recentItems()"
+                (open)="openRecent($event)"
+              />
             }
-            <ptah-stat-cell
-              [icon]="AgentsIcon"
-              label="Agents"
-              [state]="agents().state"
-              caption="detected"
+            @let view = grid();
+            <div
+              class="ptah-welcome__grid"
+              [attr.aria-busy]="view.busy ? 'true' : null"
+              data-testid="welcome-activity"
             >
-              <ptah-stat-value [text]="agents().text" />
-            </ptah-stat-cell>
-            <ptah-stat-cell
-              [icon]="SkillsIcon"
-              label="Skills"
-              [state]="skills().state"
-              caption="enabled"
+              <ptah-activity-grid
+                [days]="view.days"
+                [today]="view.today"
+                [mode]="view.mode"
+                [caption]="view.caption"
+                [ariaLabel]="view.label"
+              />
+            </div>
+          </div>
+
+          @if (firstRun() === null) {
+            <div
+              class="ptah-welcome__vitals-slot"
+              aria-hidden="true"
+              data-testid="welcome-vitals-pending"
+            ></div>
+          } @else {
+            <ptah-stat-row
+              class="ptah-welcome__vitals"
+              density="regular"
+              data-testid="welcome-vitals"
             >
-              <ptah-stat-value [text]="skills().text" />
-            </ptah-stat-cell>
-          </ptah-stat-row>
-        }
+              <ptah-stat-cell
+                [icon]="PlanIcon"
+                label="Plan"
+                [state]="plan().state"
+                [caption]="plan().caption"
+              >
+                <ptah-plan-ring [ring]="plan().ring" />
+              </ptah-stat-cell>
+              @if (!firstRun()) {
+                <ptah-stat-cell
+                  [icon]="SpendIcon"
+                  label="Spend 7d"
+                  [state]="spend().state"
+                  caption="last 7 days"
+                >
+                  <ptah-stat-value [text]="spend().text">
+                    <ptah-spend-bars
+                      [values]="spend().bars"
+                      ariaLabel="Spend per day, last 7 days"
+                    />
+                  </ptah-stat-value>
+                </ptah-stat-cell>
+              }
+              <ptah-stat-cell
+                [icon]="AgentsIcon"
+                label="Agents"
+                [state]="agents().state"
+                caption="detected"
+              >
+                <ptah-stat-value [text]="agents().text" />
+              </ptah-stat-cell>
+              <ptah-stat-cell
+                [icon]="SkillsIcon"
+                label="Skills"
+                [state]="skills().state"
+                caption="enabled"
+              >
+                <ptah-stat-value [text]="skills().text" />
+              </ptah-stat-cell>
+            </ptah-stat-row>
+          }
+        </div>
       </div>
     </div>
   `,
