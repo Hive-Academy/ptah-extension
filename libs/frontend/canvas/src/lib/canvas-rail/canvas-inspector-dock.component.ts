@@ -183,16 +183,17 @@ export function injectCanvasInspectorDockState(sources: {
                 />
               </div>
               }
+              <!-- The overlay is absolute inside the board's relative layout box, never fixed to the
+                   window: the app top bar and the Git rail must not cover its title row or edge. -->
               <aside
-                class="flex h-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
+                class="flex h-full max-w-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
                 tabindex="-1"
-                [class.fixed]="overlay()"
+                [class.absolute]="overlay()"
                 [class.right-0]="overlay()"
                 [class.z-50]="overlay()"
                 [attr.role]="overlay() ? 'dialog' : null"
                 aria-label="Session details"
                 [class.inset-y-0]="overlay()"
-                style="max-width: 100vw"
                 (keydown.escape)="closeDock()"
                 (keydown)="overlay() && onSheetKeydown($event)"
                 data-inspector-dock
@@ -238,7 +239,7 @@ export function injectCanvasInspectorDockState(sources: {
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
             <div
-              class="fixed inset-0 z-50 overflow-y-auto bg-base-100"
+              class="absolute inset-0 z-50 overflow-y-auto bg-base-100"
               role="dialog"
               aria-modal="true"
               aria-label="Session details"

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SendToMessagingComponent } from '@ptah-extension/chat';
+import { FloatingUIService } from '@ptah-extension/ui';
 import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 
 @Component({
@@ -71,6 +72,14 @@ describe('CanvasFocusHeaderComponent', () => {
     trigger.click();
     fixture.detectChanges();
     expect(root.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
+    // The menu sizes to its labels instead of the narrow floating group, so none wraps.
+    const menu = root.querySelector<HTMLElement>('[role="menu"]')!;
+    for (const cls of ['w-max', 'min-w-36', 'whitespace-nowrap']) {
+      expect(menu.classList).toContain(cls);
+    }
+    root.querySelectorAll('[role="menuitem"]').forEach((item) => {
+      expect(item.classList).toContain('whitespace-nowrap');
+    });
     const swapped = jest.fn();
     fixture.componentInstance.swapPanesRequested.subscribe(swapped);
     root.querySelector<HTMLButtonElement>('[data-action="swap-panes"]')!.click();
@@ -151,5 +160,31 @@ describe('CanvasFocusHeaderComponent', () => {
     fixture.detectChanges();
     expect(root.querySelector('[role="menu"]')).toBeNull();
     root.remove();
+  });
+
+  it('places the rail menu fully left of the rail edge, not just left of its trigger', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('rail', true);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    const rail = document.createElement('div');
+    rail.setAttribute('data-inspector-rail', '');
+    rail.appendChild(root);
+    document.body.appendChild(rail);
+    const rect = (left: number) => ({ left }) as DOMRect;
+    jest.spyOn(rail, 'getBoundingClientRect').mockReturnValue(rect(1496));
+    const trigger = root.querySelector<HTMLButtonElement>('[data-header-menu]')!;
+    jest.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(rect(1510));
+    const floatingUI = fixture.debugElement.injector.get(FloatingUIService);
+    const position = jest.spyOn(floatingUI, 'position').mockResolvedValue(undefined);
+    trigger.click();
+    fixture.detectChanges();
+    TestBed.tick();
+    // 14px trigger inset in the rail + 6px gap.
+    expect(position).toHaveBeenCalledWith(trigger, expect.any(HTMLElement), {
+      placement: 'left-start',
+      offset: 20,
+    });
+    rail.remove();
   });
 });

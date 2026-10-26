@@ -155,8 +155,10 @@ describe('CanvasInspectorDockComponent', () => {
     expect(fixture.componentInstance.overlay()).toBe(true);
     expect(fixture.componentInstance.occupiedWidth()).toBe(56);
     const aside = dockParts(fixture.nativeElement).aside!;
-    expect(aside.classList.contains('fixed')).toBe(true);
-    expect(aside.style.maxWidth).toBe('100vw');
+    // Absolute inside the board, not fixed to the window: the app top bar must not cover it.
+    expect(aside.classList.contains('absolute')).toBe(true);
+    expect(aside.classList.contains('fixed')).toBe(false);
+    expect(aside.classList.contains('max-w-full')).toBe(true);
     expect(dockParts(fixture.nativeElement).separator).toBeNull();
   });
 

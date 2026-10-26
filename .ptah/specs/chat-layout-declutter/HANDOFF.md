@@ -85,8 +85,15 @@ Local verification on `27ab89ef7` content (worktree root):
   (`focusRailExpand`).
 - Review: Glm `code-logic-review-rev3.md` (1 blocking, 2 minor) → `code-logic-review-rev3-fix.md`
   APPROVED (finding 3 disputed and accepted).
-- Visual review still blocked: Ptah Dev PID 39796 from the lane-report-message-order worktree
-  holds the single-instance lock; asked that session to release it.
+- Visual review rev2 (`visual-review-rev2.md`) REJECTED overlay layouts: overlay/sheet under the
+  top bar (B1), GIT rail clipping (S1), cramped menus (M1, M2). Fixed: overlay and sheet are
+  `absolute` inside the board; menus widened/offset. Glm `code-logic-review-rev4.md` APPROVED.
+  Rev3 (`visual-review-rev3.md`) passes 1600/900/800px. The 400px case is unreachable
+  (`main-window.ts` minWidth 800), so the chat-column floor change was reverted.
+- Follow-ups (exist on main, not this branch): W1 split panes keep `min-w-[360px]` and overflow
+  a 256px board (800px window + Git dock at max); M4 Sessions rail expand does nothing then;
+  M3 disabled Hand off shows its reason only as a tooltip.
+- Screenshots are git-ignored (`.ptah/specs/**/*.png`): `screenshots/rev2/`, `screenshots/rev3/`.
 
 ## Key files
 - canvas: `libs/frontend/canvas/src/lib/canvas-rail/{canvas-inspector-dock,canvas-focus-header,canvas-focus-area,canvas-rail-board}.component.ts`,

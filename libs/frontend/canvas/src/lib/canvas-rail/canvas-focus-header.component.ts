@@ -23,6 +23,9 @@ import {
 } from 'lucide-angular';
 import { FloatingUIService } from '@ptah-extension/ui';
 
+/** Gap between the rail's leading edge and its `⋯` menu (px). */
+const RAIL_MENU_GAP = 6;
+
 @Component({
   selector: 'ptah-canvas-focus-header',
   standalone: true,
@@ -98,7 +101,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
         <div
           role="menu"
           aria-label="Session actions"
-          class="flex flex-col gap-0.5 rounded-lg border border-base-content/10 bg-base-200 p-2 shadow-lg"
+          class="flex w-max min-w-36 flex-col gap-0.5 whitespace-nowrap rounded-lg border border-base-content/10 bg-base-200 p-2 shadow-lg"
           [class.absolute]="!rail()"
           [class.right-10]="!rail()"
           [class.top-10]="!rail()"
@@ -117,7 +120,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
               type="button"
               role="menuitem"
               data-action="swap-panes"
-              class="btn btn-ghost btn-sm justify-start font-normal"
+              class="btn btn-ghost btn-sm flex-nowrap justify-start whitespace-nowrap font-normal"
               (click)="choose(swapPanesRequested)"
             >
               Swap panes
@@ -126,7 +129,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
               type="button"
               role="menuitem"
               data-action="close-pane"
-              class="btn btn-ghost btn-sm justify-start font-normal"
+              class="btn btn-ghost btn-sm flex-nowrap justify-start whitespace-nowrap font-normal"
               (click)="choose(closePaneRequested)"
             >
               Close pane
@@ -135,7 +138,7 @@ import { FloatingUIService } from '@ptah-extension/ui';
               type="button"
               role="menuitem"
               data-action="close-split"
-              class="btn btn-ghost btn-sm justify-start font-normal"
+              class="btn btn-ghost btn-sm flex-nowrap justify-start whitespace-nowrap font-normal"
               (click)="choose(closeSplitRequested)"
             >
               Close split
@@ -223,9 +226,15 @@ export class CanvasFocusHeaderComponent implements DoCheck {
         const trigger = root.querySelector<HTMLElement>('[data-header-menu]');
         const menu = root.querySelector<HTMLElement>('[role="menu"]');
         if (!this.menuOpen() || !trigger || !menu) return;
+        // The offset runs from the trigger's left edge: add the trigger's inset in the
+        // rail so the menu clears the rail's own edge by the gap instead of overlapping it.
+        const rail = trigger.closest<HTMLElement>('[data-inspector-rail]');
+        const inset = rail
+          ? Math.max(0, trigger.getBoundingClientRect().left - rail.getBoundingClientRect().left)
+          : 0;
         void this.floatingUI.position(trigger, menu, {
           placement: 'left-start',
-          offset: 4,
+          offset: Math.round(inset) + RAIL_MENU_GAP,
         });
       },
       { injector: this.injector },

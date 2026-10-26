@@ -1245,7 +1245,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       const separator = dockParts(fixture.nativeElement).separator;
       if (boardWidth < 1000) {
         expect(separator).toBeNull();
-        expect(dockParts(fixture.nativeElement).aside?.classList.contains('fixed')).toBe(true);
+        expect(dockParts(fixture.nativeElement).aside?.classList.contains('absolute')).toBe(true);
         return;
       }
       expect(separator?.getAttribute('aria-valuemax')).toBe(`${max}`);
@@ -2470,7 +2470,14 @@ describe('CanvasRailBoardComponent rendering', () => {
       '[data-compact-sheet]',
     )!;
     expect(document.activeElement).toBe(wrapper);
-    expect(wrapper.classList).toContain('fixed');
+    // Contained by the board's relative layout box, so the app top bar cannot cover it.
+    expect(wrapper.classList).toContain('absolute');
+    expect(wrapper.classList).not.toContain('fixed');
+    // The dock host is display:contents, so the board's relative layout box contains it.
+    expect(wrapper.parentElement?.classList).toContain('contents');
+    const layout = wrapper.parentElement?.parentElement;
+    expect(layout?.classList).toContain('canvas-rail-board-layout');
+    expect(layout?.classList).toContain('relative');
     expect(wrapper.getAttribute('aria-modal')).toBe('true');
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
@@ -2577,7 +2584,7 @@ describe('CanvasRailBoardComponent rendering', () => {
   });
 
   it.each([1440, 1600])(
-    'split sidebar stays a fixed overlay outside the panes at %i and closing split docks it again',
+    'split sidebar stays a board-contained overlay outside the panes at %i and closing split docks it again',
     (pixels) => {
       const { fixture, width } = mount();
       const instance = fixture.componentInstance;
@@ -2589,14 +2596,18 @@ describe('CanvasRailBoardComponent rendering', () => {
       const dock = () =>
         fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
       expect(dock()?.getAttribute('role')).toBe('dialog');
-      expect(dock()?.classList.contains('fixed')).toBe(true);
+      expect(dock()?.classList.contains('absolute')).toBe(true);
+      expect(dock()?.classList.contains('fixed')).toBe(false);
+      expect(dock()?.parentElement?.parentElement?.classList).toContain(
+        'canvas-rail-board-layout',
+      );
       expect(dock()?.closest('[data-pane-side]')).toBeNull();
       instance.closeSplit();
       fixture.detectChanges();
       // Single view at this width opens docked by default.
       expect(instance.dockOpen()).toBe(true);
       expect(dock()?.getAttribute('role')).toBeNull();
-      expect(dock()?.classList.contains('fixed')).toBe(false);
+      expect(dock()?.classList.contains('absolute')).toBe(false);
     },
   );
 
