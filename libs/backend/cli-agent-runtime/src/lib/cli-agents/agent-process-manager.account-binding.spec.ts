@@ -788,4 +788,88 @@ describe('P3 bound lane resume through the real Claude adapter', () => {
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
   });
+
+  // PR #827 review: the gate starts a bound named lane fresh (idle limit).
+  // The gate clock reads 2_000_000 ms, so a 1970 record is idle for 2000 s.
+  describe('fresh handoff of a bound named lane', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => { jest.clearAllTimers(); jest.useRealTimers(); });
+
+    const idle = () => ref({ startedAt: '1970-01-01T00:00:00.000Z' });
+
+    it('admits a new run on the bound profile through the real adapter, without the workspace default', async () => {
+      const stored = { readStoredSelection: jest.fn().mockResolvedValue({ profileId: 'workspace-default' }) };
+      const f = realResume(stored);
+      f.manager.restoreAgents([idle()], ROOT);
+      const spawned = f.manager.spawn({
+        cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0,
+      });
+      // `busy` is the admission port's refusal: the request reached the port.
+      await expect(spawned).rejects.toMatchObject({ code: 'busy' });
+      expect(stored.readStoredSelection).not.toHaveBeenCalled();
+      expect(f.admitClaudeRoute).toHaveBeenCalledTimes(1);
+      const admitted = f.admitClaudeRoute.mock.calls[0][0];
+      expect(admitted).toMatchObject({
+        provider: 'claude', scope: 'lane', workingDirectory: ROOT,
+        selection: { kind: 'named', profileId: binding.profileId },
+      });
+      expect(admitted.runId).toEqual(expect.any(String));
+      expect(admitted.runId).not.toBe(binding.runId);
+      // No session is resumed, so the stored session is not looked up again.
+      expect(f.persistence.lookupBySdkSession).not.toHaveBeenCalled();
+    });
+
+    it('starts the lane without the old reference and persists the new run binding', async () => {
+      const registry = port();
+      const h = harness(registry);
+      h.manager.restoreAgents([idle()], ROOT);
+      const newBinding: ProviderAccountBinding = { ...binding, runId: 'run67890' };
+      const newReference: LaneAccountReference = { accountBinding: newBinding, accountBindingId: newBinding.runId };
+      type RunOptions = Parameters<CliAdapter['runSdk']>[0] & { accountAdmission?: { runId: string; selection: unknown } };
+      const runSdk = jest.fn(async (options: RunOptions) => {
+        await options.onAccountBinding?.(newReference, 'new-session');
+        return lane(newReference).handle;
+      });
+      h.adapter.runSdk = runSdk;
+      await h.manager.spawn({ cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0 });
+      const options = runSdk.mock.calls[0][0];
+      expect(options).not.toHaveProperty('accountBinding');
+      expect(options).not.toHaveProperty('accountBindingId');
+      expect(options.resumeSessionId).toBeUndefined();
+      expect(options.accountAdmission?.selection).toEqual({ kind: 'named', profileId: binding.profileId });
+      expect(options.accountAdmission?.runId).not.toBe(binding.runId);
+      expect(registry.persistReference).toHaveBeenCalledWith(newReference, 'new-session');
+    });
+
+    it.each([
+      ['another named account', { kind: 'named', profileId: 'other-profile' } as const],
+      ['explicit ambient', { kind: 'ambient' } as const],
+    ])('refuses %s with conflict before admission', async (_label, accountSelection) => {
+      const f = realResume();
+      f.manager.restoreAgents([idle()], ROOT);
+      const spawned = f.manager.spawn({
+        cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0,
+        accountSelection,
+      });
+      await expect(spawned).rejects.toBeInstanceOf(LaneAccountResumeError);
+      await expect(spawned).rejects.toMatchObject({ code: 'conflict' });
+      expect(f.admitClaudeRoute).not.toHaveBeenCalled();
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    });
+
+    it('admits an explicit selection of the same bound account as a new run', async () => {
+      const f = realResume();
+      f.manager.restoreAgents([idle()], ROOT);
+      const spawned = f.manager.spawn({
+        cli: CLAUDE, task: 'next', resumeSessionId: 'sdk-session', workingDirectory: ROOT, timeout: 0,
+        accountSelection: { kind: 'named', profileId: binding.profileId },
+      });
+      await expect(spawned).rejects.toMatchObject({ code: 'busy' });
+      expect(f.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({
+        selection: { kind: 'named', profileId: binding.profileId },
+      }));
+      expect(f.admitClaudeRoute.mock.calls[0][0].runId).not.toBe(binding.runId);
+    });
+  });
 });

@@ -475,15 +475,15 @@ export class AgentProcessManager {
       ? await this.gateResume(request.task, request.resumeSessionId, cli)
       : undefined;
     return this.doSpawnSdk({
-      accountReference: gated?.accountReference,
+      // Only a real resume keeps the stored run and its reference. A fresh
+      // handoff is a new run, so the old reference is not forwarded (the
+      // binding checkpoint would refuse the new run as `invalid-bound`).
+      accountReference: gated?.resumeSessionId
+        ? gated.accountReference
+        : undefined,
       accountAdmission:
-        this.boundResumeAdmission(
-          request,
-          cli,
-          // Only a real resume keeps the stored run; a fresh handoff does not.
-          gated?.resumeSessionId ? gated.accountReference : undefined,
-          workingDirectory,
-        ) ?? accountAdmission,
+        this.boundLaneAdmission(request, cli, gated, workingDirectory) ??
+        accountAdmission,
       accountBindings: adapter.accountBindings,
       resumeDecision: gated?.resumeDecision,
       originalTask: gated?.originalTask,
@@ -504,26 +504,51 @@ export class AgentProcessManager {
   }
 
   /**
-   * Admission for a resumed Claude lane whose session is bound to a named
-   * account (D27). It is derived from the authoritative stored binding (its
-   * run, so no second run binding is created) and the requested working
-   * directory, never from the workspace default. The caller's selection is
-   * forwarded unchanged (`omitted` when absent), so the adapter can refuse an
-   * explicit selection of another account or of ambient with `conflict`.
+   * Admission for a Claude lane whose session is bound to a named account
+   * (D27), derived from the authoritative stored binding and the requested
+   * working directory, never from the workspace default.
+   *
+   * - True resume: the stored run is reused, so no second run binding or
+   *   lease is created. The caller's selection is forwarded unchanged
+   *   (`omitted` when absent), so the adapter can refuse an explicit
+   *   selection of another account or of ambient with `conflict`.
+   * - Fresh handoff (context or idle limit): a NEW run on the bound profile.
+   *   No session is resumed, so the adapter has no stored binding to compare
+   *   against; an explicit selection of another account or of ambient is
+   *   refused here with `conflict`.
    */
-  private boundResumeAdmission(
+  private boundLaneAdmission(
     request: SpawnAgentRequest,
     cli: CliType,
-    reference: LaneAccountReference | undefined,
+    gated: GatedResume | undefined,
     workingDirectory: string,
   ): ClaudeAccountAdmissionRequest | undefined {
+    const reference = gated?.accountReference;
     if (cli !== 'claude' || !reference) return undefined;
+    if (gated.resumeSessionId) {
+      return {
+        provider: 'claude',
+        scope: 'lane',
+        selection: request.accountSelection ?? { kind: 'omitted' },
+        operationId: randomUUID(),
+        runId: reference.accountBinding.runId,
+        workingDirectory,
+      };
+    }
+    const profileId = reference.accountBinding.profileId;
+    const selected = request.accountSelection;
+    if (
+      selected?.kind === 'ambient' ||
+      (selected?.kind === 'named' && selected.profileId !== profileId)
+    ) {
+      throw new LaneAccountResumeError('conflict');
+    }
     return {
       provider: 'claude',
       scope: 'lane',
-      selection: request.accountSelection ?? { kind: 'omitted' },
+      selection: { kind: 'named', profileId },
       operationId: randomUUID(),
-      runId: reference.accountBinding.runId,
+      runId: randomUUID(),
       workingDirectory,
     };
   }

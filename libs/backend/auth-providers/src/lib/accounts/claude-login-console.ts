@@ -38,12 +38,18 @@ function envValue(env: Readonly<Record<string, string>>, name: string): string |
   return key === undefined ? undefined : env[key];
 }
 
+/**
+ * The body runs in a child `powershell -NoProfile` process (script-block form,
+ * which pwsh also accepts), so its `Remove-Item Env:` and `Set-Location` never
+ * touch the user's own session. `exit $LASTEXITCODE` hands `claude`'s exit code
+ * back to the user's `$LASTEXITCODE`.
+ */
 function powerShellScript(context: ClaudeAuthContext): string {
   const allow = CLAUDE_CERTIFIED_ENV_KEYS.map(quotePowerShell).join(', ');
   const dir = quotePowerShell(context.canonicalDir);
   const invocation = [context.executable.command, ...context.executable.prefixArgs].map(quotePowerShell).join(' ');
   return [
-    '& {',
+    'powershell -NoProfile -Command {',
     "$ErrorActionPreference = 'Stop';",
     `Set-Location -LiteralPath ${quotePowerShell(context.cwd)};`,
     `$allow = @(${allow});`,
@@ -51,7 +57,8 @@ function powerShellScript(context: ClaudeAuthContext): string {
     `$env:NO_PROXY = if ($env:NO_PROXY) { "$env:NO_PROXY,${LOCAL_NO_PROXY}" } else { '${LOCAL_NO_PROXY}' };`,
     `$env:CLAUDE_CONFIG_DIR = ${dir};`,
     `$env:CLAUDE_SECURESTORAGE_CONFIG_DIR = ${dir};`,
-    `& ${invocation} ${LOGIN_ARGS.join(' ')}`,
+    `& ${invocation} ${LOGIN_ARGS.join(' ')};`,
+    'exit $LASTEXITCODE',
     '}',
   ].join(' ');
 }

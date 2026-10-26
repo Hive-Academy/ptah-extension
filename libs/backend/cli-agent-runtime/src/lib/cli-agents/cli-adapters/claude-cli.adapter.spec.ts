@@ -1103,14 +1103,19 @@ describe('named Claude lane certified launch boundaries', () => {
     },
   );
 
-  it('refuses an executable that drifted from the certified one before any child', async () => {
+  // Without direct execution the certified executable is the installation
+  // path, which differs from the loader's CLI JS path.
+  it('starts both named children on the certified executable, not the loader path', async () => {
     const f = namedFixture();
-    f.loader.getCliJsPath.mockResolvedValue('/other/cli.js');
-    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'route-changed',
-    });
-    expect(f.query).not.toHaveBeenCalled();
-    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+    f.loader.getCliJsPath.mockResolvedValue('/sdk/bundled/cli.js');
+    const handle = await f.adapter.runSdk(f.input);
+    expect(f.query).toHaveBeenCalledTimes(2);
+    for (const [call] of f.query.mock.calls) {
+      expect(call.options?.pathToClaudeCodeExecutable).toBe('/claude/cli.js');
+    }
+    expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+    f.finish(0);
+    await handle.done;
   });
 
   it('refuses a final child of another CLI version before binding or task text', async () => {

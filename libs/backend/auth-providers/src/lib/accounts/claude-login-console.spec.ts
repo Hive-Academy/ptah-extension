@@ -215,13 +215,52 @@ describe('ClaudeLoginConsole.fallbackScript', () => {
   const powershell = new ClaudeLoginConsole(fakeSpawner().spawner, 'win32');
   const posix = new ClaudeLoginConsole(fakeSpawner().spawner, 'linux');
 
-  it('PowerShell: the first statement changes to the context cwd inside a Stop script block', () => {
+  it('PowerShell: the first statement changes to the context cwd inside a Stop script block of a child process', () => {
     const ctx = context();
     const { dialect, script } = powershell.fallbackScript(ctx);
     expect(dialect).toBe('powershell');
-    expect(script.startsWith("& { $ErrorActionPreference = 'Stop'; Set-Location -LiteralPath ")).toBe(true);
+    expect(script.startsWith("powershell -NoProfile -Command { $ErrorActionPreference = 'Stop'; Set-Location -LiteralPath ")).toBe(true);
     expect(readPowerShellLiteral(script, after(script, 'Set-Location -LiteralPath '))).toBe(ctx.cwd);
-    expect(script.endsWith('auth login --claudeai }')).toBe(true);
+    expect(script.endsWith('auth login --claudeai; exit $LASTEXITCODE }')).toBe(true);
+  });
+
+  /** Code outside single-quoted literals, with each literal replaced by `''`. */
+  function powerShellCode(script: string): string {
+    let code = '';
+    for (let index = 0; index < script.length; index += 1) {
+      if ("'\u2018\u2019\u201A\u201B".includes(script[index])) {
+        const value = readPowerShellLiteral(script, index);
+        index += quotePowerShell(value).length - 1;
+        code += "''";
+      } else {
+        code += script[index];
+      }
+    }
+    return code;
+  }
+
+  it.each([
+    ['plain', context()],
+    ['injection', context({ canonicalDir: "C:\\x' }; Remove-Item Env:PATH; & { '", command: "C:\\n'; Set-Location C:\\; '\\node.exe" })],
+  ] as const)('PowerShell (%s): the env clearing and Set-Location run only inside the child block', (_label, ctx) => {
+    const code = powerShellCode(powershell.fallbackScript(ctx).script);
+    const prefix = 'powershell -NoProfile -Command {';
+    expect(code.startsWith(prefix)).toBe(true);
+    expect(code.endsWith(' }')).toBe(true);
+    // The block opened by the prefix closes only at the last character.
+    let depth = 0;
+    for (let index = prefix.length - 1; index < code.length; index += 1) {
+      if (code[index] === '{') depth += 1;
+      if (code[index] === '}') depth -= 1;
+      if (depth === 0) expect(index).toBe(code.length - 1);
+    }
+    expect(depth).toBe(0);
+    const body = code.slice(prefix.length, -1);
+    for (const sideEffect of ['Set-Location', 'Remove-Item', '$env:CLAUDE_CONFIG_DIR', '$env:NO_PROXY', 'exit $LASTEXITCODE']) {
+      expect(body).toContain(sideEffect);
+    }
+    expect(code.match(/Remove-Item/g)).toHaveLength(1);
+    expect(code.match(/Set-Location/g)).toHaveLength(1);
   });
 
   it('posix: the first step is cd inside a subshell, chained with &&', () => {

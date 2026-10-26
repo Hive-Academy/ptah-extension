@@ -1424,11 +1424,14 @@ export class SdkQueryOptionsBuilder {
         // Host-loop entry point for path A (translation proxy): a localhost
         // base URL drops the user tier, so only project/local `.claude/`
         // skills and commands load. See .ptah/specs/TASK_2026_408/ownership.md.
-        settingSources: named
-          ? [...named.launch.settingSources]
-          : includesUserSettingSource(effectiveAuthEnv.ANTHROPIC_BASE_URL)
-            ? ['user', 'project', 'local']
-            : ['project', 'local'],
+        settingSources: includesUserSettingSource(
+          effectiveAuthEnv.ANTHROPIC_BASE_URL,
+        )
+          ? ['user', 'project', 'local']
+          : ['project', 'local'],
+        // A named run replaces the ambient sources with its certified launch
+        // sources. This spread must stay after the ambient key so it wins.
+        ...(named ? { settingSources: [...named.launch.settingSources] } : {}),
         // A named run gets the certified env only, plus run-policy keys.
         env: named
           ? certifiedNamedEnv(

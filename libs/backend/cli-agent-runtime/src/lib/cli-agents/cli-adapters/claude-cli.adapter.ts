@@ -140,7 +140,6 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
             named.certified,
             new AbortController(),
             this.deps.processSpawner,
-            executable,
           ),
         );
       const defaults = this.deps.defaults();

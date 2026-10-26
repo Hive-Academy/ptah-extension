@@ -605,7 +605,7 @@ describe('named lane identity proof', () => {
     const queryFn: QueryFn = queryMock;
     const options: Options = launch
       ? buildClaudeLaneBootstrapOptions(
-          route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/cli/cli.js',
+          route, launch, new AbortController(), { spawn: jest.fn() },
         )
       : { spawnClaudeCodeProcess: () => { throw new Error('never spawned'); } };
     const abort = new AbortController();
@@ -764,14 +764,39 @@ describe('named lane certified final options and refusal codes', () => {
   it('builds a bootstrap that passes the bootstrap check and nothing else', () => {
     const launch = certifiedLaunch();
     const options = buildClaudeLaneBootstrapOptions(
-      route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/cli/cli.js',
+      route, launch, new AbortController(), { spawn: jest.fn() },
     );
     expect(options.settingSources).toEqual([]);
     expect(options).not.toHaveProperty('managedSettings');
+    expect(options.pathToClaudeCodeExecutable).toBe(launch.executable.sdkExecutablePath);
     expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final')).toThrow();
+  });
+
+  // Without direct execution the certified executable is the installation
+  // path, not the loader's CLI JS path; both named builders must follow it.
+  it('uses the certified executable when it differs from the loader path', () => {
+    const base = certifiedLaunch();
+    const launch: ClaudeCertifiedLaunchContext = {
+      ...base,
+      executable: { ...base.executable, sdkExecutablePath: 'D:/install/claude.exe' },
+    };
+    const bootstrap = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), { spawn: jest.fn() },
+    );
+    expect(bootstrap.pathToClaudeCodeExecutable).toBe('D:/install/claude.exe');
     expect(() =>
-      buildClaudeLaneBootstrapOptions(route, launch, new AbortController(), { spawn: jest.fn() }, 'D:/other/cli.js'),
-    ).toThrow(expect.objectContaining({ code: 'route-changed' }));
+      assertCertifiedLaunch(launch, claudeActualLaunch(bootstrap), 'bootstrap'),
+    ).not.toThrow();
+    const input = optionsInput();
+    expect(input.executable).toBe('D:/cli/cli.js');
+    input.accountRoute = route;
+    input.launch = launch;
+    const final = buildClaudeSdkLaneOptions(input);
+    expect(final.pathToClaudeCodeExecutable).toBe('D:/install/claude.exe');
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(final), 'final')).not.toThrow();
+    // The ambient lane keeps the loader path.
+    const ambient = buildClaudeSdkLaneOptions(optionsInput());
+    expect(ambient.pathToClaudeCodeExecutable).toBe('D:/cli/cli.js');
   });
 
   it('keeps the real refusal code and maps foreign errors to identity-unproved', () => {

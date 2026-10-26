@@ -213,3 +213,9 @@
 - `npm run verify -- -t lint,test,typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview` (5 projects, 62 tasks): 61 pass. All host tests and typechecks pass, including the Electron, VS Code and CLI container smokes. `ptah-extension-webview:lint` fails with one error, `app.routes.ts:224` circular dependency webview <-> `@ptah-extension/command-center`; neither project changed since base `396f0135b`, and the main checkout at `871d733e4` reports the same error. Pre-existing on main.
 - Copy audit (`git grep` over non-spec `libs/**/*.ts`, `apps/**/*.ts` for "release authorization", "awaiting release", "not available in this release", "not available yet", "release-held (D7)"): two hits, both exempt. `libs/shared/src/lib/types/agent-process.types.ts:334` (historical comment named in the plan). `libs/frontend/canvas/src/lib/canvas-detail/canvas-detail-transcript.component.ts:92` ("This agent is not available yet."; agent loading, not accounts; unchanged since base). Producer audit: no non-spec code returns `'release-held'` (D35).
 - Screenshots (14 MB, 109 files) stay local in `screenshots/` and are not committed; only the capture script is committed.
+
+## D38 — PR #827 review fixes and CI shard 4 guard (2026-10-26, orchestrator)
+
+- Fix 4 (`pr-fix-4-report.md`): `sdk-query-options-builder.ts` keeps the literal `settingSources: includesUserSettingSource(` for the ambient value that the output-styles source guard requires; a named run overrides it with a later spread. Same runtime result for both routes.
+- Independent review of fixes 1-4: codex lane (reviewer codex, implementer Claude), APPROVED 9/10, no findings (`code-logic-review-pr-fixes.md`). Known limit kept: `prepareSdkHandleSpawn` (Ptah CLI registry path) still forwards the gate reference on `fresh`; not part of the CodeRabbit finding, recorded for a later task.
+- `@ptah-extension/output-styles` is added to the verify project list from now on.

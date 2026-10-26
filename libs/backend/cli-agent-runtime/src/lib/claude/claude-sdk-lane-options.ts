@@ -60,6 +60,8 @@ export function claudeActualLaunch(options: Options): ClaudeActualLaunch {
 
 /**
  * Control-only bootstrap; no workspace, role, resume, hooks or task material.
+ * The executable is the certified one: it is the CLI JS path only on a
+ * direct-execution installation, and the installation path otherwise.
  * Throws `ClaudeCertifiedLaunchRefusal` unless the options match the certified
  * launch in `bootstrap` mode.
  */
@@ -68,13 +70,12 @@ export function buildClaudeLaneBootstrapOptions(
   launch: ClaudeCertifiedLaunchContext | undefined,
   abortController: AbortController,
   processSpawner: ISdkProcessSpawner,
-  executable?: string,
 ): Options {
   if (!launch) throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
   const options: Options = {
     cwd: tmpdir(),
     abortController,
-    pathToClaudeCodeExecutable: executable,
+    pathToClaudeCodeExecutable: launch.executable.sdkExecutablePath,
     env: buildClaudeLaneEnv({}, accountRoute, launch),
     systemPrompt: '',
     settingSources: [],
@@ -116,6 +117,7 @@ export interface ClaudeSdkLaneOptionsInput {
   >;
   logger: Logger;
   processSpawner: ISdkProcessSpawner;
+  /** Ambient executable; a named lane uses the certified one instead. */
   executable?: string;
 }
 
@@ -233,7 +235,9 @@ export function buildClaudeSdkLaneOptions(
         onStderr: handleChildStderr,
       }),
     hooks: assembly.hooks,
-    pathToClaudeCodeExecutable: executable,
+    pathToClaudeCodeExecutable: certified
+      ? certified.executable.sdkExecutablePath
+      : executable,
   };
 }
 
