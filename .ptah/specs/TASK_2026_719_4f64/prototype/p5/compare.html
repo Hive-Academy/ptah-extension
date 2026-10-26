@@ -1,0 +1,5 @@
+<!doctype html><meta charset=utf-8><title>P5 contact sheet</title>
+<style>body{margin:0;background:#777;font:12px system-ui;color:#fff}.r{display:flex;gap:6px;padding:3px 3px 0}iframe{border:0;height:760px;background:#fff}b{display:block;padding:2px 6px}</style><body></body>
+<script>const q=new URLSearchParams(location.search),items=(q.get('s')||'').split(',');
+for(const it of items){const[s,w,z]=it.split(':');const l=document.createElement('b');l.textContent='state '+s+(w?' width '+w:'')+(z?' zoom '+z:'')+' - dark left, light right';document.body.append(l);const r=document.createElement('div');r.className='r';
+for(const th of ['dark','light']){const f=document.createElement('iframe');f.width=w||490;f.title=s+' '+th;f.src='index.html?bare=1&s='+s+'&t='+th+(z?'&z='+z:'');r.append(f)}document.body.append(r)}</script>
