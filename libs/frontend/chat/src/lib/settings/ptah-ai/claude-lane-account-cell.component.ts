@@ -29,8 +29,11 @@ import {
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-/** The matrix's `CELL` classes (`cli-orchestration-matrix.component.ts`), so the cell reads like the Model cell. */
-const CELL = `link link-hover inline-flex max-w-[13rem] items-center gap-1 rounded px-1 text-left font-mono text-xs text-base-content no-underline hover:bg-base-200 disabled:cursor-not-allowed ${FOCUS}`;
+/**
+ * The matrix's `CELL` classes (`cli-orchestration-matrix.component.ts`), so the cell reads like the Model cell, plus
+ * `min-h-6 py-0.5` so the trigger keeps a 24 px target (WCAG 2.5.8).
+ */
+const CELL = `link link-hover inline-flex min-h-6 max-w-[13rem] items-center gap-1 rounded px-1 py-0.5 text-left font-mono text-xs text-base-content no-underline hover:bg-base-200 disabled:cursor-not-allowed ${FOCUS}`;
 const ITEM = `flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-base-300 ${FOCUS}`;
 
 let nextId = 0;

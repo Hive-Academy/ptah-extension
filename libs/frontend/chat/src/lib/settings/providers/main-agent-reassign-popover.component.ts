@@ -97,14 +97,16 @@ interface AccountIntent {
            body and footer share one horizontal padding (px-3), so every row starts on the same left edge. -->
       <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto text-xs"
         [style.max-height.px]="maxHeight()" data-testid="main-agent-popover">
-        <div class="flex shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
-          <h2 id="main-agent-popover-title" class="text-xs font-bold text-base-content">Reassign main agent</h2>
-          <div class="-mr-1 flex items-center gap-1">
-            <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 px-1.5 font-medium text-base-content underline ' + focusRing"
+        <!-- min-w-0 throughout so the header shrinks at narrow widths (245 px): the title and the Check label truncate,
+             and Close (flex-none) always stays in view. -->
+        <div class="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+          <h2 id="main-agent-popover-title" class="min-w-0 flex-1 truncate text-xs font-bold text-base-content" title="Reassign main agent">Reassign main agent</h2>
+          <div class="-mr-1 flex min-w-0 items-center gap-1">
+            <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 min-w-0 flex-nowrap px-1.5 font-medium text-base-content underline ' + focusRing"
               [ptahBusyDisabled]="state.route().status === 'loading'" (click)="state.checkConnection()" data-testid="main-agent-check">
-              {{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}
+              <span class="truncate">{{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}</span>
             </button>
-            <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="cancel()">
+            <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 flex-none ' + focusRing" aria-label="Close" (click)="cancel()">
               <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>

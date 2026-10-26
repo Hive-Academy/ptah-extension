@@ -187,7 +187,7 @@ type FocusFallback = 'detail-heading' | 'accounts-heading';
                 </li>
                 @for (row of rows(); track row.account.profileId) {
                   <li
-                    [class]="'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-box border border-base-300 bg-base-100 px-4 py-3 ' +
+                    [class]="'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-box border border-base-content/15 bg-base-100 px-4 py-3 ' +
                       (row.attention ? 'border-l-4 border-l-state-err' : '')"
                     data-testid="accounts-tab-row"
                   >
@@ -213,12 +213,12 @@ type FocusFallback = 'detail-heading' | 'accounts-heading';
                         <span class="flex min-w-0 flex-wrap items-center gap-1" data-testid="accounts-tab-row-used-by">
                           <span class="text-base-content-muted">Used by</span>
                           @for (chip of row.chips; track chip) {
-                            <span class="badge badge-ghost badge-sm" data-testid="accounts-tab-row-chip">{{ chip }}</span>
+                            <span class="badge badge-ghost badge-sm border-base-content/15 text-xs" data-testid="accounts-tab-row-chip">{{ chip }}</span>
                           }
                         </span>
                       }
                     </span>
-                    <span class="flex shrink-0 items-center gap-2" data-testid="accounts-tab-row-actions">
+                    <span class="ml-auto flex shrink-0 items-center justify-end gap-2" data-testid="accounts-tab-row-actions">
                       @if (row.canSignIn) {
                         <button
                           type="button"
@@ -258,7 +258,7 @@ type FocusFallback = 'detail-heading' | 'accounts-heading';
           } @else {
             <ul role="list" aria-label="Claude accounts" aria-busy="true" class="space-y-3" data-testid="accounts-tab-list">
               <li
-                class="flex items-center gap-2 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-base-content-muted"
+                class="flex items-center gap-2 rounded-box border border-base-content/15 bg-base-100 px-4 py-3 text-base-content-muted"
                 data-testid="accounts-tab-loading"
               >
                 @if (view().status === 'idle') {

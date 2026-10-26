@@ -169,7 +169,7 @@ const LOCK_REASON_ID = 'account-detail-lock-reason';
                 tabindex="0"
                 aria-label="Sign-in script"
                 data-pending-control
-                [class]="'max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-box border border-base-300 bg-base-100 p-2 font-mono text-xs text-base-content ' + focusRing"
+                [class]="'max-h-40 min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-box border border-base-content/15 bg-base-100 p-2 font-mono text-xs text-base-content ' + focusRing"
                 data-testid="account-detail-fallback-script"
               >{{ f.script }}</pre>
               <button

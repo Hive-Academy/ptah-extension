@@ -50,7 +50,7 @@ const SIGNED_IN_WORD = 'Signed in';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-base-content"
+      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-box border border-base-content/15 bg-base-100 px-4 py-3 text-base-content"
       role="group"
       aria-labelledby="ambient-account-name"
       data-testid="ambient-account-row"

@@ -38,7 +38,7 @@ const FOCUS =
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <form
-      class="space-y-3 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-sm text-base-content"
+      class="space-y-3 rounded-box border border-base-content/15 bg-base-100 px-4 py-3 text-sm text-base-content"
       [attr.aria-busy]="pending() ? 'true' : null"
       (submit)="$event.preventDefault(); submit()"
       (keydown.escape)="escape($event)"
