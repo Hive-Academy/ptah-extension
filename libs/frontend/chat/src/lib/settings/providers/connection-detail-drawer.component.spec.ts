@@ -1,6 +1,9 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AppStateManager, ProvidersSettingsStateService, type ProvidersConnection } from '@ptah-extension/core';
+import {
+  AppStateManager, ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService,
+  type ProvidersConnection,
+} from '@ptah-extension/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
@@ -35,6 +38,15 @@ describe('ConnectionDetailDrawerComponent', () => {
             modelsEndpoint: null, helpUrl: '', pricing: null }),
         } },
         SettingsSaveFeedbackService,
+        // Read by the Accounts tab.
+        { provide: ProviderAccountsStateService, useValue: {
+          state: () => signal({ status: 'loading', snapshot: null, stale: false, error: null }),
+          operations: () => signal({}), fallbacks: () => signal({}),
+          open: jest.fn(async () => undefined), refresh: jest.fn(async () => undefined),
+        } },
+        { provide: ClaudeAmbientStatusService, useValue: {
+          view: signal({ status: 'idle', result: null, localFailure: false }), read: jest.fn(async () => undefined),
+        } },
         { provide: PROVIDER_MODELS_LOADER, useValue: { listModels: jest.fn().mockResolvedValue({ models: [], totalCount: 0 }) } },
       ],
     });
@@ -230,6 +242,39 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Advanced');
     render({ connection: KIMI_CODE });
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
+  });
+
+  describe('Accounts tab', () => {
+    it('is absent when the host does not serve named accounts', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: false });
+      expect(tabLabels()).not.toContain('Accounts');
+    });
+
+    it('is second for the Claude subscription when available, and absent for other kinds', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      expect(tabLabels()).toEqual(['Overview & Used By', 'Accounts', 'Credentials', 'Models & Tiers']);
+      render({ connection: KIMI_CODE });
+      expect(tabLabels()).not.toContain('Accounts');
+    });
+
+    it('renders the accounts tab with no setup copy or Edit in setup, and resets to Overview on connection change', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      selectTab('Accounts');
+      expect(query('ptah-accounts-tab')).not.toBeNull();
+      expect(byTestId('connection-setup-copy')).toBeNull();
+      expect(byTestId('connection-edit-in-setup')).toBeNull();
+      render({ connection: KIMI_CODE });
+      render({ connection: CLAUDE_CLI });
+      expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
+      expect(query('ptah-accounts-tab')).toBeNull();
+    });
+
+    it('lets the tab strip wrap instead of keeping every label on one line', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      const strip = byTestId('connection-drawer-tabs');
+      expect(strip?.className).toContain('[&_[role=tablist]]:flex-wrap');
+      expect(strip?.className).not.toContain('whitespace-nowrap');
+    });
   });
 
   it('passes the Used-by state through to the Overview', () => {

@@ -13,6 +13,7 @@ import {
 } from './connection-drawer/credentials-tab.component';
 import { ModelsTiersTabComponent } from './connection-drawer/models-tiers-tab.component';
 import { AdvancedTabComponent } from './connection-drawer/advanced-tab.component';
+import { AccountsTabComponent } from './accounts/accounts-tab.component';
 // The card uses the same avatar, so a connection looks the same on the card and in its drawer.
 import { connectionAvatarTone, connectionInitials, KEY_UNREADABLE_TEXT } from './provider-connection-card.state';
 
@@ -38,7 +39,7 @@ const PROTOCOL_LABELS: Readonly<Record<CustomProtocol, string>> = {
  * - Models & Tiers: a custom gateway's own default models (the entry's `defaultTiers`);
  * - Advanced: a custom gateway's name and protocol.
  */
-const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, string>> = {
+const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview' | 'accounts'>, string>> = {
   credentials: 'Change this connection\'s endpoint address in setup.',
   models: 'Change this gateway\'s own default models in setup.',
   advanced: 'Change this gateway\'s name or protocol in setup.',
@@ -60,7 +61,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent, CredentialsTabComponent,
-    ModelsTiersTabComponent, AdvancedTabComponent],
+    ModelsTiersTabComponent, AdvancedTabComponent, AccountsTabComponent],
   template: `
     <ptah-native-drawer [isOpen]="connection() !== null" widthClass="w-full max-w-lg"
       [ariaLabel]="(connection()?.name ?? 'Connection') + ' connection details'" (closed)="closed.emit()">
@@ -75,12 +76,15 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
         </div>
       }
       @if (connection(); as current) {
-        <!-- Four tabs stay on one line (prototype): the labels inherit nowrap and the strip takes 8px of the
-             body padding on each side; the tab body resets both. -->
-        <ptah-native-tab-group class="-mx-2 block whitespace-nowrap" [tabs]="tabs()" [(activeId)]="activeTab"
-          ariaLabel="Connection details sections">
-          <div class="whitespace-normal px-2 pt-4" [attr.data-tab-body]="activeTabId()">
+        <!-- The strip wraps onto a second line in a narrow drawer instead of truncating a label (P5-D6); it
+             takes 8px of the body padding on each side and the tab body resets both. -->
+        <ptah-native-tab-group class="-mx-2 block [&_[role=tablist]]:flex-wrap" [tabs]="tabs()" [(activeId)]="activeTab"
+          ariaLabel="Connection details sections" data-testid="connection-drawer-tabs">
+          <div class="px-2 pt-4" [attr.data-tab-body]="activeTabId()">
             @switch (activeTabId()) {
+              @case ('accounts') {
+                <ptah-accounts-tab />
+              }
               @case ('overview') {
                 <ptah-connection-overview-tab [status]="status()" [positiveProbeEvidence]="positiveProbeEvidence()"
                   [isActive]="isActive()" [kind]="kind()" [authModeLabel]="authModeRowLabel()" [credentialLabel]="credentialLabel()"
@@ -155,6 +159,8 @@ export class ConnectionDetailDrawerComponent {
   readonly usageError = input(false);
   /** Wire protocol of a custom entry; `null` for a catalog connection or while it is unknown. */
   readonly customProtocol = input<CustomProtocol | null>(null);
+  /** The host serves named Claude accounts (account state not inert); otherwise the Accounts tab is absent. */
+  readonly accountsAvailable = input(false);
   /** Credentials tab: stored endpoint and tiers, its own last write, the host's sign-in message. */
   readonly credentialsSetup = input<CredentialsSetup | null>(null);
   readonly credentialsSetupError = input(false);
@@ -180,7 +186,11 @@ export class ConnectionDetailDrawerComponent {
     const current = this.connection();
     return current ? connectionKind(current) : 'api-key';
   });
-  protected readonly tabs = computed(() => connectionDrawerTabs(this.kind()));
+  /** Accounts only where the host serves named accounts (the parent gates on a non-inert account state). */
+  protected readonly tabs = computed(() => {
+    const tabs = connectionDrawerTabs(this.kind());
+    return this.accountsAvailable() ? tabs : tabs.filter((tab) => tab.id !== 'accounts');
+  });
   /** The bound id when it is one of this connection's tabs, otherwise Overview. */
   protected readonly activeTabId = computed<ConnectionDrawerTabId>(() =>
     this.tabs().find((tab) => tab.id === this.activeTab())?.id ?? 'overview');
@@ -238,7 +248,7 @@ export class ConnectionDetailDrawerComponent {
   });
   protected readonly setupCopy = computed(() => {
     const tab = this.activeTabId();
-    return tab === 'overview' ? '' : SETUP_COPY[tab];
+    return tab === 'overview' || tab === 'accounts' ? '' : SETUP_COPY[tab];
   });
 
   private readonly connectionId = computed(() => this.connection()?.id ?? null);
