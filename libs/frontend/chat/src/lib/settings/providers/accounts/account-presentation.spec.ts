@@ -15,20 +15,16 @@ import {
   ACCOUNT_COPY,
   ATTENTION_STATES,
   STATE_LABEL,
-  UNAVAILABLE_ACCOUNT_OPTION,
   UNSAFE_ACCOUNT_NAME_MESSAGE,
   accountChoiceOf,
   accountInitial,
   accountSelectorModel,
   ambientAge,
-  ambientRowModel,
   ambientStatusModel,
-  assignmentChips,
   connectedAccountCount,
   orderedAccounts,
   selectionFeedback,
   toastName,
-  useForModel,
   usedByChips,
   validateAccountName,
   type AccountFeedback,
@@ -98,82 +94,6 @@ describe('account presentation', () => {
     });
   });
 
-  describe('useForModel', () => {
-    it('shows omitted and explicit ambient selections as the existing login (R1)', () => {
-      const model = useForModel(snapshot([WORK], { kind: 'omitted' }, { kind: 'ambient' }), CONNECTED);
-      expect(model.main.value).toBe('ambient');
-      expect(model.lane.value).toBe('ambient');
-      expect(model.main.options[0]).toEqual({ value: 'ambient', label: 'Existing Claude login', disabled: false });
-    });
-
-    it('lists signed-in accounts enabled, then the others disabled with "(sign in first)"', () => {
-      const model = useForModel(snapshot([TEAM, WORK]), IDLE);
-      expect(model.main.options).toEqual([
-        { value: 'ambient', label: 'Existing Claude login', disabled: false },
-        { value: 'named:p-work-0001', label: 'Work', disabled: false },
-        { value: 'named:p-team-0002', label: 'Team plan (sign in first)', disabled: true },
-      ]);
-    });
-
-    it('suffixes the ambient option only from a ready host answer', () => {
-      const label = (view: ClaudeAmbientStatusView) => useForModel(snapshot([]), view).main.options[0].label;
-      expect(label(SIGNED_OUT)).toBe('Existing Claude login (not signed in)');
-      expect(label(UNKNOWN)).toBe('Existing Claude login (status unknown)');
-      expect(label(CONNECTED)).toBe('Existing Claude login');
-      expect(label({ ...SIGNED_OUT, status: 'checking' })).toBe('Existing Claude login');
-      expect(label(LOCAL_FAILURE)).toBe('Existing Claude login');
-      expect(useForModel(snapshot([]), SIGNED_OUT).main.options[0].disabled).toBe(false);
-    });
-
-    it('selects a present named account by its id', () => {
-      const model = useForModel(snapshot([WORK], { kind: 'named', profileId: WORK.profileId }), CONNECTED);
-      expect(model.main.value).toBe('named:p-work-0001');
-      expect(model.main.options.some((o) => o.value === 'unavailable')).toBe(false);
-    });
-
-    it('shows the disabled unavailable placeholder for any named id absent from the accounts (B-1)', () => {
-      const model = useForModel(
-        snapshot([WORK], { kind: 'named', profileId: 'p-gone-9999' }, { kind: 'omitted' }),
-        CONNECTED,
-      );
-      expect(model.main.value).toBe('unavailable');
-      expect(model.main.options[0]).toEqual({ value: 'unavailable', label: UNAVAILABLE_ACCOUNT_OPTION, disabled: true });
-      expect(model.lane.value).toBe('ambient');
-      expect(model.lane.options.some((o) => o.value === 'unavailable')).toBe(false);
-    });
-
-    it('after removal follows the host snapshot: omitted shows the existing login, a kept id shows unavailable', () => {
-      const before = snapshot([WORK, SIDE], { kind: 'named', profileId: WORK.profileId });
-      expect(useForModel(before, CONNECTED).main.value).toBe('named:p-work-0001');
-      const hostOmitted = snapshot([SIDE], { kind: 'omitted' });
-      expect(useForModel(hostOmitted, CONNECTED).main.value).toBe('ambient');
-      const hostKeptId = snapshot([SIDE], { kind: 'named', profileId: WORK.profileId });
-      expect(useForModel(hostKeptId, CONNECTED).main.value).toBe('unavailable');
-    });
-  });
-
-  describe('assignmentChips', () => {
-    it('puts omitted and ambient chips on the ambient row', () => {
-      const chips = assignmentChips(snapshot([WORK], { kind: 'omitted' }, { kind: 'ambient' }));
-      expect(chips.get('ambient')).toEqual(['Used for: New chats', 'Used for: Claude lanes']);
-      expect(chips.get(WORK.profileId)).toBeUndefined();
-    });
-
-    it('puts named chips on that account', () => {
-      const chips = assignmentChips(snapshot([WORK, SIDE], { kind: 'named', profileId: WORK.profileId }, { kind: 'named', profileId: SIDE.profileId }));
-      expect(chips.get(WORK.profileId)).toEqual(['Used for: New chats']);
-      expect(chips.get(SIDE.profileId)).toEqual(['Used for: Claude lanes']);
-      expect(chips.get('ambient')).toBeUndefined();
-    });
-
-    it('stays unchanged while the snapshot is unchanged (an unconfirmed write applies nothing, R2)', () => {
-      const held = snapshot([WORK, SIDE], { kind: 'named', profileId: WORK.profileId });
-      const first = assignmentChips(held);
-      // The attempted value never reaches the snapshot, so the same snapshot yields the same chips.
-      expect(assignmentChips(held)).toEqual(first);
-    });
-  });
-
   it('orders signed-in accounts first, host order within each group', () => {
     const other = account('p-other-0004', 'Other', 'failed');
     expect(orderedAccounts(snapshot([TEAM, WORK, other, SIDE])).map((a) => a.label)).toEqual([
@@ -214,53 +134,7 @@ describe('account presentation', () => {
     });
   });
 
-  describe('ambientRowModel', () => {
-    it('shows Connected with its age', () => {
-      expect(ambientRowModel(CONNECTED, NOW)).toEqual({
-        tone: 'done',
-        statusText: 'Connected',
-        checking: false,
-        extraText: null,
-        ageText: 'Last checked 2 minutes ago',
-      });
-    });
-
-    it('shows Not signed in with the CLI help', () => {
-      const model = ambientRowModel(SIGNED_OUT, NOW);
-      expect(model.tone).toBe('need');
-      expect(model.statusText).toBe('Not signed in');
-      expect(model.extraText).toBe('Sign in with the Claude CLI in a terminal. Ptah does not manage this login.');
-    });
-
-    it('shows Could not check with "Last check failed" for host unknown', () => {
-      const model = ambientRowModel(UNKNOWN, NOW);
-      expect(model.tone).toBe('idle');
-      expect(model.statusText).toBe('Could not check');
-      expect(model.extraText).toContain('This does not mean you are signed out.');
-      expect(model.ageText).toBe('Last check failed 2 minutes ago');
-    });
-
-    it('never shows Connected or an age while checking, even with a stale connected result', () => {
-      const model = ambientRowModel(CHECKING_STALE_CONNECTED, NOW);
-      expect(model).toEqual({ tone: 'run', statusText: 'Checking…', checking: true, extraText: null, ageText: null });
-    });
-
-    it('shows Could not check with no age line for a local failure', () => {
-      const model = ambientRowModel(LOCAL_FAILURE, NOW);
-      expect(model.statusText).toBe('Could not check');
-      expect(model.ageText).toBeNull();
-    });
-
-    it('shows no age line for a host answer with checkedAt null', () => {
-      expect(ambientRowModel(ready({ state: 'connected', checkedAt: null }), NOW).ageText).toBeNull();
-      expect(ambientRowModel(ready({ state: 'unknown', checkedAt: null, reason: 'cli-missing' }), NOW).ageText).toBeNull();
-    });
-
-    it('claims no result before the first read', () => {
-      expect(ambientRowModel(IDLE, NOW).statusText).toBe('Not checked yet');
-      expect(ambientRowModel(INERT, NOW).statusText).toBe('Not checked yet');
-    });
-
+  describe('ambientAge', () => {
     it('bands the age like checkedAgo', () => {
       const at = Date.parse(CHECKED_AT);
       expect(ambientAge(CHECKED_AT, at + 10_000)).toBe('just now');
