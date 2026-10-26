@@ -1323,6 +1323,36 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
   - register.ts still over the 700-line max-lines warning (down 125 lines; not an error).
   - `review/start` tracked gap (unchanged).
 
+## Batch 6h: P6 cleanup after re-review 2 — COMPLETE (4b6f6f3a3; no new phase review)
+
+- Trigger: code-logic-rereview2-p6.md APPROVED 6g (7/10, 0 blocking, 0 serious); orchestrator
+  asked for N1, N2, N3 (decision P6 fix 22), m-a and the cache-write caveat.
+- Lanes: CORE3 (`CodexReportedUsage.lastRequestTotalTokens` = wire `tokenUsage.last.totalTokens`),
+  ADAPTER3 (N1 publish recheck + overlapping resume of one thread + resume-id alias for
+  endSession/interruptSession/owns; N2 preTokens from the last request frame; m-a Stop before the
+  receipt returns true), WIRING3 (any partial native binding throws CodexRuntimeCompositionError
+  `partial-native-binding` naming the missing tokens; host-bound vs default capabilities
+  distinguished by registration source). Reports batch-6h-{core,adapter,wiring}-report.md.
+- Verify `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/gateway-chat-bridge,
+  @ptah-extension/agent-sdk`: codex-runtime 17 / 834 PASS; gateway-chat-bridge 4 / 132 PASS;
+  agent-sdk 193 suites / 4148 tests PASS (3 skipped), typecheck PASS, lint 2 known-noise errors
+  only. Host typecheck (ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui): "Successfully
+  ran target typecheck for 4 projects".
+- Cache-write caveat (open question, decisions.md "Cache-write caveat"): upstream rust-v0.155.1
+  does not prove that `cacheWriteInputTokens` is inside `inputTokens` (no doc comment;
+  `non_cached_input` does not subtract it). Mapping unchanged (input = inputTokens -
+  cachedInputTokens; cacheCreation = cacheWriteInputTokens). Settle with a spike (S0/S1) before
+  any cost is derived from it.
+- 8a audit list addition: "same session in two tabs" (two tabs resuming one native thread; the
+  adapter rejects/joins the second open, the host must route the second tab to the first).
+
+### P6 gate — CLOSED (2026-10-26)
+
+- Reviews: code-logic-review-p6.md (REVISE 4/10) -> 6f -> code-logic-rereview-p6.md (REVISE
+  6/10) + code-style-rereview-p6.md (APPROVE 7/10) -> 6g -> code-logic-rereview2-p6.md (APPROVE
+  7/10) -> 6h cleanup (team-leader Mode 2 verify). Implementer family Codex, reviewer family
+  Claude. Decisions P6 fix 1..22 in decisions.md.
+
 ---
 
 # Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — PENDING (needs P6)
