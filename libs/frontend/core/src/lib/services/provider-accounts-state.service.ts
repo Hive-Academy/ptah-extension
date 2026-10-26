@@ -33,6 +33,8 @@ const ACCOUNT_RPC_TIMEOUT_MS = 30_000;
 const READ_ERROR = 'Could not load accounts. Retry.' as const;
 /** Fixed copy when the host's result sentence is not safe to show. */
 const FALLBACK_SUMMARY = 'This action did not complete. Refresh and try again.';
+/** Writes whose reply may carry an operation handle (and, for sign-in, a manual script). */
+const HANDLE_KINDS: ReadonlySet<string> = new Set(['sign-in', 'cancel-sign-in', 'sign-out']);
 
 /**
  * One provider's authoritative account state for the active workspace.
@@ -85,6 +87,27 @@ export type ProviderAccountChoice =
   | { readonly kind: 'ambient' }
   | { readonly kind: 'named'; readonly profileId: string };
 
+/**
+ * Orders one profile's handle-bearing requests: sign-in, cancel and sign-out writes, and
+ * status reads. Starting a request only takes a sequence number; a request the host refuses
+ * changes nothing, so it cannot invalidate an earlier reply that is still current.
+ */
+interface HandleClock {
+  /** Sequence of the latest request started for the profile. */
+  started: number;
+  /** Sequence of the newest reply whose handle state was taken. */
+  accepted: number;
+  /** Advances when an applied snapshot shows the profile not pending (terminal or removed). */
+  invalidated: number;
+}
+
+/** What a handle-bearing request captured when it started. */
+interface HandleTicket {
+  readonly generation: number;
+  readonly seq: number;
+  readonly invalidated: number;
+}
+
 interface Slot {
   readonly view: WritableSignal<ProviderAccountsView>;
   readonly operations: WritableSignal<
@@ -94,6 +117,8 @@ interface Slot {
   readonly fallbacks: WritableSignal<
     Readonly<Record<string, ProviderAccountSignInFallback>>
   >;
+  /** Per-profile ordering of the requests whose reply can set the profile's handle. */
+  readonly handleClocks: Map<string, HandleClock>;
   opened: boolean;
   /** Revision of the applied snapshot; `null` = accept the next snapshot unconditionally. */
   revision: number | null;
@@ -309,6 +334,8 @@ export class ProviderAccountsStateService implements MessageHandler {
     profileId: string,
   ): Promise<void> {
     if (!this.enabled || this.disposed) return;
+    const slot = this.slots[provider];
+    const ticket = this.startHandleRequest(slot, profileId);
     const response = await this.rpc.call(
       'provider:getAccountStatus',
       { provider, profileId },
@@ -316,7 +343,20 @@ export class ProviderAccountsStateService implements MessageHandler {
     );
     if (this.disposed || !response.isSuccess() || !response.data.ok) return;
     const operation = response.data.operation;
-    this.slots[provider].operations.update((current) => {
+    // The reply describes the host at read time. A workspace reset, a terminal or removal
+    // snapshot, or a newer accepted write or status read since then supersedes it, for
+    // deletion as much as for insertion.
+    if (
+      !this.acceptHandleReply(
+        slot,
+        profileId,
+        ticket,
+        operation ? operation.operationId : null,
+      )
+    ) {
+      return;
+    }
+    slot.operations.update((current) => {
       const next: Record<string, ProviderAccountOperation> = { ...current };
       if (operation) next[profileId] = operation;
       else delete next[profileId];
@@ -390,6 +430,7 @@ export class ProviderAccountsStateService implements MessageHandler {
       view: signal(this.enabled ? IDLE : INERT),
       operations: signal({}),
       fallbacks: signal({}),
+      handleClocks: new Map(),
       opened: false,
       revision: null,
       readSeq: 0,
@@ -405,6 +446,7 @@ export class ProviderAccountsStateService implements MessageHandler {
       slot.resetSeq = null;
       slot.operations.set({});
       slot.fallbacks.set({});
+      slot.handleClocks.clear();
       slot.view.set(this.enabled ? IDLE : INERT);
       if (slot.opened) void this.refresh(provider);
     }
@@ -468,6 +510,9 @@ export class ProviderAccountsStateService implements MessageHandler {
         .filter((account) => account.state === 'pending')
         .map((account) => account.profileId),
     );
+    for (const [profileId, clock] of slot.handleClocks) {
+      if (!pending.has(profileId)) clock.invalidated += 1;
+    }
     slot.operations.update((current) => {
       const kept: Record<string, ProviderAccountOperation> = {};
       for (const [profileId, operation] of Object.entries(current)) {
@@ -547,6 +592,11 @@ export class ProviderAccountsStateService implements MessageHandler {
       ...all,
       [requestId]: { ...action, requestId, status: 'pending', result: null },
     }));
+    const slot = this.slots[action.provider];
+    const ticket =
+      action.profileId !== null && HANDLE_KINDS.has(action.kind)
+        ? this.startHandleRequest(slot, action.profileId)
+        : null;
     const response = await this.rpc.call(
       method,
       params({ provider: action.provider, workspaceRoot, requestId }),
@@ -569,29 +619,101 @@ export class ProviderAccountsStateService implements MessageHandler {
     this.apply(data.snapshot);
     const operation = operationOf(data);
     const profileId = action.profileId;
-    if (operation && profileId !== null) {
-      const pending = data.snapshot.accounts.some(
-        (entry) => entry.profileId === profileId && entry.state === 'pending',
-      );
-      if (pending) {
-        this.slots[action.provider].operations.update((current) => ({
+    // The handle and script are response-only, so they are taken only while this reply is
+    // still current: the accepted snapshot (applied now or already pushed with the same
+    // revision) still shows the profile pending, and `acceptHandleReply` finds no workspace
+    // reset, terminal/removal snapshot or newer accepted reply since the request started.
+    // `apply()`'s result is not the test: the same snapshot may have arrived first by push.
+    // A refused or failed contender returned above without touching the clock.
+    if (
+      operation &&
+      profileId !== null &&
+      ticket !== null &&
+      this.acceptedPending(slot, data.snapshot, profileId) &&
+      this.acceptHandleReply(slot, profileId, ticket, operation.operationId)
+    ) {
+      slot.operations.update((current) => ({
+        ...current,
+        [profileId]: operation,
+      }));
+      // Each sign-in replaces the profile's script: a console-opened retry clears an old one.
+      const fallback = operation.kind === 'sign-in' ? fallbackOf(data) : null;
+      if (fallback) {
+        slot.fallbacks.update((current) => ({
           ...current,
-          [profileId]: operation,
+          [profileId]: fallback,
         }));
-        // Each sign-in replaces the profile's script: a console-opened retry clears an old one.
-        const fallback = operation.kind === 'sign-in' ? fallbackOf(data) : null;
-        if (fallback) {
-          this.slots[action.provider].fallbacks.update((current) => ({
-            ...current,
-            [profileId]: fallback,
-          }));
-        } else {
-          this.dropFallback(action.provider, profileId);
-        }
+      } else {
+        this.dropFallback(action.provider, profileId);
       }
     }
     this.settle(requestId, 'saved', null);
     return { status: 'saved', snapshot: data.snapshot };
+  }
+
+  /** Takes the next sequence for a handle-bearing request; starting invalidates nothing. */
+  private startHandleRequest(slot: Slot, profileId: string): HandleTicket {
+    let clock = slot.handleClocks.get(profileId);
+    if (!clock) {
+      clock = { started: 0, accepted: 0, invalidated: 0 };
+      slot.handleClocks.set(profileId, clock);
+    }
+    clock.started += 1;
+    return {
+      generation: this.workspace.generation(),
+      seq: clock.started,
+      invalidated: clock.invalidated,
+    };
+  }
+
+  /**
+   * True when a successful reply may set the profile's handle state, which then makes it the
+   * newest accepted reply. It is refused after a workspace reset, after a terminal or removal
+   * snapshot, and when a newer request's reply was already accepted, unless that newer reply
+   * named this same operation (a status read can land before the sign-in reply that carries
+   * the operation's script).
+   */
+  private acceptHandleReply(
+    slot: Slot,
+    profileId: string,
+    ticket: HandleTicket,
+    operationId: string | null,
+  ): boolean {
+    const clock = slot.handleClocks.get(profileId);
+    if (
+      !clock ||
+      ticket.generation !== this.workspace.generation() ||
+      ticket.invalidated !== clock.invalidated
+    ) {
+      return false;
+    }
+    const sameOperation =
+      operationId !== null &&
+      slot.operations()[profileId]?.operationId === operationId;
+    if (ticket.seq <= clock.accepted && !sameOperation) return false;
+    clock.accepted = Math.max(clock.accepted, ticket.seq);
+    return true;
+  }
+
+  /**
+   * True when the accepted snapshot is for this reply's workspace, is not older than the
+   * reply's snapshot, and shows the profile pending.
+   */
+  private acceptedPending(
+    slot: Slot,
+    replied: ProviderAccountsSnapshot,
+    profileId: string,
+  ): boolean {
+    const held = slot.view().snapshot;
+    return (
+      held !== null &&
+      held.workspaceRoot === replied.workspaceRoot &&
+      this.isActiveWorkspace(held) &&
+      held.revision >= replied.revision &&
+      held.accounts.some(
+        (entry) => entry.profileId === profileId && entry.state === 'pending',
+      )
+    );
   }
 
   private dropFallback(provider: ProviderAccountProvider, profileId: string): void {

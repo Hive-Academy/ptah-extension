@@ -174,3 +174,17 @@
 - Decision: commit; report the chat lint debt in the PR and decide if CI blocks it. Reversible.
 - D30 addendum (B21): the main checkout at `871d733e4` reports the same error on the unchanged `accounts-section.component.ts:15`. Cause: `artifact.store.ts:57` and `artifact-message-handler.service.ts:13` dynamically import `@ptah-extension/shared/mcp-apps-contracts`, which makes the rule flag every static `@ptah-extension/shared` import in chat. Pre-existing on main; not fixed in this task.
 - B21 decisions accepted: "Default" only for Claude-route sessions (`providerId` absent or `anthropic`); the row loads the Claude account list once, only for a session bound to a named account; `RoutingCell.named` removed with its only reader (copy removal, D5/D41).
+
+## D31 — Phase P4 code review (2026-10-26, orchestrator)
+
+- Codex lane (reviewer codex, implementer Claude): REVISE 7/10 (`code-logic-review-p4.md`). Moderate 1: a refused sign-out replaces and then deletes the live sign-in operation handle in the provider account handler (Cancel and fallback lost after refresh). Moderate 2: the frontend state service writes operation/fallback from a rejected stale snapshot (old script and old Cancel operation id can return). Minor 3: no production teardown caller for the handler's `onStateChanged` subscription. Minor 4: duplicate snapshots per action transition.
+- Decision: fix Moderate 1 and 2 in one round (both lose or corrupt sign-in state). Minor 3 and 4 become named later tasks (recorded in the PR). Two parallel file-disjoint runs (backend handler, frontend state service), then one scoped codex re-review.
+
+## D32 — P4 re-review REVISE 7/10; one bounded correction (2026-10-26, orchestrator)
+
+- Codex re-review (`code-logic-review-p4-rereview.md`): finding 1 closed; finding 2 partly closed. New Moderate (regression from the fix): a refused overlapping same-profile request advances the epoch, so the valid earlier sign-in reply loses its Cancel handle and fallback. Moderate (pre-existing, assessment requested): `refreshAccountStatus` replies install or delete the operation without generation/epoch checks.
+- Per agent-lanes §6: one bounded correction (state service + spec only), then one independent scoped review. If that review finds defects, report them to the user and stop; the cap is not reset.
+
+## D33 — Phase P4 code review closed (2026-10-26, orchestrator)
+
+- Bounded correction (p4-fix-state-2-report.md) reviewed by a fresh codex lane: APPROVED 9/10, both items closed, no new defects (`code-logic-review-p4-correction.md`). Phase P4 code-logic review is closed. Open Minor items for later tasks: P4 Minor 3 (no production teardown caller for the provider account handler's `onStateChanged` subscription) and Minor 4 (duplicate snapshots per action transition).
