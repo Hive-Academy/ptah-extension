@@ -12,6 +12,7 @@ import type {
 import {
   SessionId,
   MESSAGE_TYPES,
+  attentionRequestKey,
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import {
@@ -57,6 +58,7 @@ describe('Codex chat host ports', () => {
     };
     const resolveExecutionProfile = jest.fn().mockResolvedValue(execution);
     const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const resolveAttention = jest.fn<void, [string, number]>();
     const { Logger } = jest.createMockFromModule<
       typeof import('@ptah-extension/vscode-core')
     >('@ptah-extension/vscode-core');
@@ -92,7 +94,8 @@ describe('Codex chat host ports', () => {
         globalStoragePath: join(tmpdir(), 'ptah-test-storage'),
       },
       hostCapabilities: { nativeCodex: true },
-      webview: { broadcastMessage },
+      webviewManager: { broadcastMessage },
+      hostAttention: { resolve: resolveAttention },
       logger,
       platform: { platform: process.platform, arch: process.arch },
       info: {
@@ -133,6 +136,7 @@ describe('Codex chat host ports', () => {
       ports: createCodexChatHostPorts(deps),
       logger,
       broadcastMessage,
+      resolveAttention,
       resolveExecutionProfile,
       readResumeIdentity,
       respond,
@@ -270,6 +274,79 @@ describe('Codex chat host ports', () => {
     expect(
       h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
     ).toBe(false);
+  });
+  describe('host attention release', () => {
+    function presented() {
+      const h = harness();
+      h.ports.presentation.present(id, request(), [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
+      const [type, payload] = h.broadcastMessage.mock.calls[0];
+      expect(type).toBe(MESSAGE_TYPES.PERMISSION_REQUEST);
+      expect(h.resolveAttention).not.toHaveBeenCalled();
+      const noticeKey = attentionRequestKey('permission', payload.id);
+      return {
+        h,
+        wireId: payload.id as string,
+        noticeKey,
+        timestamp: payload.timestamp as number,
+      };
+    }
+
+    it('releases the observed notice once a decision is returned', () => {
+      const { h, wireId, noticeKey, timestamp } = presented();
+      h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' });
+      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+      expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+    });
+
+    it('releases the observed notice when the request is auto-resolved', () => {
+      const { h, noticeKey, timestamp } = presented();
+      h.ports.presentation.dismiss(id, request());
+      expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+      h.ports.presentation.dismiss(id, request());
+      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the observed notice when the prompt is cancelled', () => {
+      const { h, noticeKey, timestamp } = presented();
+      h.ports.presentation.cancelPrompt({
+        sessionId: id,
+        requestId: '5',
+        reason: 'turn-ended',
+      });
+      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+      expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+    });
+
+    it('releases nothing for an unknown response id', () => {
+      const { h } = presented();
+      expect(
+        h.ports.handlePermissionResponse({ id: 'unknown', decision: 'allow' }),
+      ).toBe(false);
+      expect(h.resolveAttention).not.toHaveBeenCalled();
+    });
+
+    it('works without a host attention coordinator', () => {
+      const h = harness();
+      const ports = createCodexChatHostPorts({
+        ...h.deps,
+        hostAttention: undefined,
+      });
+      ports.presentation.present(id, request(), [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
+      const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
+      expect(
+        ports.handlePermissionResponse({ id: wireId, decision: 'deny' }),
+      ).toBe(true);
+    });
   });
   it('drains follow-up events through the broadcaster', async () => {
     const h = harness();

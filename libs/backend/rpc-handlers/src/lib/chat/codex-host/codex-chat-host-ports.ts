@@ -3,6 +3,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type {
   CodexChatAdapterPorts,
+  HostAttentionCoordinator,
   RuntimeAdmissionPort,
 } from '@ptah-extension/agent-sdk';
 import type { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
@@ -18,6 +19,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import {
   MESSAGE_TYPES,
+  attentionRequestKey,
   type PermissionRequest,
   type PermissionResponse,
   type RuntimeHostCapabilities,
@@ -34,7 +36,7 @@ export interface CodexRuntimeAdmissionDeps {
   workspaceProvider: IWorkspaceProvider;
   platformInfo: Pick<IPlatformInfo, 'extensionPath' | 'globalStoragePath'>;
   hostCapabilities: RuntimeHostCapabilities;
-  webview: Pick<WebviewManager, 'broadcastMessage'>;
+  webviewManager: Pick<WebviewManager, 'broadcastMessage'>;
 }
 
 export interface CodexChatHostPortsDeps
@@ -56,6 +58,8 @@ export interface CodexChatHostPortsDeps
   ): Promise<CodexThreadIdentity | undefined>;
   broadcaster: Pick<ChatStreamBroadcaster, 'streamEventsToWebview'>;
   tabId(sessionId: SessionId): string;
+  /** Releases the host notice the webview attention observer raised for a request. */
+  hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>;
 }
 
 export interface CodexChatHostPorts extends CodexChatAdapterPorts {
@@ -68,7 +72,7 @@ function profiles(deps: CodexRuntimeAdmissionDeps) {
     deps.resolver,
     deps.workspaceProvider,
     deps.platformInfo,
-    deps.webview,
+    deps.webviewManager,
     deps.hostCapabilities,
   );
 }
@@ -113,12 +117,24 @@ export function createCodexChatHostPorts(
   const service = profiles(deps);
   const pending = new Map<
     string,
-    { sessionId: SessionId; request: CodexApprovalRequest }
+    { sessionId: SessionId; request: CodexApprovalRequest; timestamp: number }
   >();
+  const failed = () => deps.logger.error('Codex chat presentation failed.');
   const send = (type: string, payload: unknown) => {
-    void deps.webview.broadcastMessage(type, payload).catch(() => {
-      deps.logger.error('Codex chat presentation failed.');
-    });
+    void deps.webviewManager.broadcastMessage(type, payload).catch(failed);
+  };
+  // Every terminal path of an approval releases its host notice with the kind
+  // and generation (payload timestamp) the attention observer claimed it under.
+  const release = (id: string, timestamp: number) =>
+    deps.hostAttention?.resolve(
+      attentionRequestKey('permission', id),
+      timestamp,
+    );
+  const settle = (id: string) => {
+    const entry = pending.get(id);
+    if (!entry) return;
+    pending.delete(id);
+    release(id, entry.timestamp);
   };
   // The UI wire carries only a string id. Encode the full correlation to avoid
   // collisions between different processes, sessions and reused native ids.
@@ -235,7 +251,10 @@ export function createCodexChatHostPorts(
     presentation: {
       present(sessionId, request) {
         const id = key(sessionId, request);
-        pending.set(id, { sessionId, request });
+        const timestamp = Date.now();
+        // A re-presented request is a new generation; release the previous notice.
+        settle(id);
+        pending.set(id, { sessionId, request, timestamp });
         const payload: PermissionRequest = {
           id,
           sessionId,
@@ -244,15 +263,18 @@ export function createCodexChatHostPorts(
           toolUseId: request.toolId,
           toolInput: request.details,
           description: request.message,
-          timestamp: Date.now(),
+          timestamp,
           timeoutAt: 0,
           allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
         };
-        send(MESSAGE_TYPES.PERMISSION_REQUEST, payload);
+        // Direct manager call: its attention observer raises the host notice.
+        void deps.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, payload)
+          .catch(failed);
       },
       dismiss(sessionId, request) {
         const id = key(sessionId, request);
-        pending.delete(id);
+        settle(id);
         send(MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
           id,
           sessionId,
@@ -260,12 +282,12 @@ export function createCodexChatHostPorts(
         });
       },
       cancelPrompt(payload) {
-        for (const [id, entry] of pending) {
+        for (const [id, entry] of [...pending]) {
           if (
             entry.sessionId === payload.sessionId &&
             String(entry.request.requestId) === payload.requestId
           ) {
-            pending.delete(id);
+            settle(id);
             send(MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED, {
               ...payload,
               requestId: id,
@@ -277,6 +299,8 @@ export function createCodexChatHostPorts(
     handlePermissionResponse(response) {
       const entry = pending.get(response.id);
       if (!entry) return false;
+      // The entry stays correlated as before; only the host notice is answered.
+      release(response.id, entry.timestamp);
       const { sessionId, request } = entry;
       const decision = {
         allow: 'accept',
