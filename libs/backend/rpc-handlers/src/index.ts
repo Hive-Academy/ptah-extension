@@ -155,3 +155,12 @@ export {
   type SessionControlPersistenceDeps,
   type SessionControlSettings,
 } from './lib/chat/codex-host/native-session-controls';
+export {
+  createCodexChatEventCallbacks,
+  type CodexChatEventCallbacksDeps,
+} from './lib/chat/codex-host/codex-chat-event-callbacks';
+export {
+  createCodexSessionSettingsRecord,
+  type CodexSessionSettingsRecordDeps,
+  CodexSessionSettingsError,
+} from './lib/chat/codex-host/codex-session-settings-record';

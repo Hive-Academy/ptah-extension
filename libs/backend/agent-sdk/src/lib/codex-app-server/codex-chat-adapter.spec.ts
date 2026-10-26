@@ -159,7 +159,7 @@ function setup(override = true) {
       cancelPrompt,
     },
     replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
-    callbacks: () => callbacks,
+    callbacks: jest.fn(() => callbacks),
     publish: jest.fn(async (_id, stream) => {
       for await (const event of stream) void event;
     }),
@@ -198,6 +198,16 @@ describe('CodexChatAdapter', () => {
     expect(resolved).toHaveBeenCalledWith(tabId, id);
     expect(output).toHaveLength(2);
     expect(callbacks.result).toHaveBeenCalledTimes(1);
+    // Callbacks are bound to the native turn id from the turn/start receipt.
+    expect(ports.callbacks).toHaveBeenCalledWith(
+      id,
+      expect.objectContaining({
+        contextId: identity.contextId,
+        processGeneration: identity.processGeneration,
+        threadId: identity.threadId,
+        turnId: 'turn',
+      }),
+    );
     expect(stats).not.toHaveBeenCalled();
     await adapter.interruptSession(id);
   });

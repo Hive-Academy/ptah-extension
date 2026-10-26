@@ -27,6 +27,7 @@ import {
   CodexChatEvents,
   tokenUsage,
   type CodexChatEventCallbacks,
+  type CodexChatTurnIdentity,
 } from './codex-chat-events';
 import {
   CodexChatApprovalSink,
@@ -96,7 +97,14 @@ export interface CodexChatAdapterPorts {
     CodexChatApprovalFollowUp,
     'validateReplacement' | 'failed'
   >;
-  callbacks(sessionId: SessionId): CodexChatEventCallbacks;
+  /**
+   * `turn` is the native App Server turn (turn/start receipt) the callbacks belong to.
+   * It is undefined only for session-level errors raised outside a turn.
+   */
+  callbacks(
+    sessionId: SessionId,
+    turn: CodexChatTurnIdentity | undefined,
+  ): CodexChatEventCallbacks;
   /** Drain follow-up streams into the same chat channel as the initial stream. */
   publish(
     sessionId: SessionId,
@@ -482,10 +490,11 @@ export class CodexChatAdapter implements NativeChatAdapter {
         signal: subscription.signal,
       });
       session.turnId = receipt.turnId;
-      const callbacks = this.ports.callbacks(session.id);
+      const turn = { ...session.context.identity, turnId: receipt.turnId };
+      const callbacks = this.ports.callbacks(session.id, turn);
       projection = new CodexChatEvents(
         session.id,
-        { ...session.context.identity, turnId: receipt.turnId },
+        turn,
         {
           ...callbacks,
           result: (result) => {
@@ -651,7 +660,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (session)
       void this.close(session).catch(() =>
         this.ports
-          .callbacks(id)
+          .callbacks(id, undefined)
           .error('[CodexChatAdapter] runtime-failed: cleanup.'),
       );
   }

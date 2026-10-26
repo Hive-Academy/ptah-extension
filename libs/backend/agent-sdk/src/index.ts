@@ -197,7 +197,10 @@ export {
   type CodexChatApprovalPresentation,
   type CodexChatApprovalFollowUp,
 } from './lib/codex-app-server/codex-chat-approval-sink';
-export { type CodexChatEventCallbacks } from './lib/codex-app-server/codex-chat-events';
+export {
+  type CodexChatEventCallbacks,
+  type CodexChatTurnIdentity,
+} from './lib/codex-app-server/codex-chat-events';
 export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
 export type { SdkDIToken } from './lib/di/tokens';
 export {

@@ -159,7 +159,7 @@ export function createCodexChatHostPorts(
     createScope: deps.createScope,
     metadata: deps.metadata,
     approvals: deps.approvals,
-    callbacks: (id) => deps.callbacks(id),
+    callbacks: (id, turn) => deps.callbacks(id, turn),
     async profile(config, sessionId) {
       for (const [name, value] of Object.entries(config)) {
         if (value !== undefined && !supported.has(name))
