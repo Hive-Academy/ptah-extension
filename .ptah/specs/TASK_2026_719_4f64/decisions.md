@@ -363,3 +363,6 @@
   recorded as later guidance (not an AA failure, used elsewhere in the app). Then rebuild Electron and a short
   visual re-check at 245 px, 200% zoom and 520 px. CI on 29ed77782: all green except GitGuardian 39008928 (known
   false positive); test shard 4 first failed in `npm ci` (node-gyp download), passed on rerun. Reversible.
+
+- D51 result: `visual-review-p5-recheck.md` APPROVED (0 Breaking, 0 Serious). Moderate: about 49 px empty gap
+  above the "All accounts" link at 520 px; recorded as later polish, not fixed now.
