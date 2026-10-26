@@ -142,6 +142,7 @@ export {
 } from './lib/errors';
 export {
   registerSdkServices,
+  registerCodexChatServices,
   wireAgentAdapterAliases,
 } from './lib/di/register';
 export {
@@ -162,6 +163,7 @@ export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-cont
 export type { AuthOperationContext } from './lib/auth-env.port';
 export { SDK_TOKENS } from './lib/di/tokens';
 export {
+  CodexChatAdapter,
   CodexChatAdapterError,
   type CodexChatAdapterPorts,
   type CodexChatMetadataPort,

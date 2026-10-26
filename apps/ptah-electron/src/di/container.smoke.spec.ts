@@ -23,7 +23,10 @@ import {
   ProviderAccountService,
 } from '@ptah-extension/auth-providers';
 import { SessionStatsReaderService } from '@ptah-extension/agent-sdk';
-import { registerUsageAnalytics, USAGE_ANALYTICS_TOKENS } from '@ptah-extension/usage-analytics';
+import {
+  registerUsageAnalytics,
+  USAGE_ANALYTICS_TOKENS,
+} from '@ptah-extension/usage-analytics';
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -85,6 +88,8 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_RUNTIME_TOKENS,
+  EXPECTED_NULL_RUNTIME_TOKENS,
   HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -99,11 +104,21 @@ describe('Electron DI — host attention coordinator', () => {
   it('resolves the phase-2 singleton independently of handler classes', () => {
     const c = buildMinimalContainer();
     c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
-      useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+      useValue: {
+        present: jest.fn(),
+        resolve: jest.fn(),
+        isEligible: jest.fn(() => false),
+        open: jest.fn(),
+        dispose: jest.fn(),
+      },
     });
-    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: { getWorkspaceRoot: jest.fn(() => null) } });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: { getWorkspaceRoot: jest.fn(() => null) },
+    });
     registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
-    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: { get: jest.fn(), getAll: jest.fn() } });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, {
+      useValue: { get: jest.fn(), getAll: jest.fn() },
+    });
     const coordinator = c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN);
     expect(coordinator).toBeDefined();
     expect(c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN)).toBe(coordinator);
@@ -130,7 +145,13 @@ function buildMinimalContainer(): DependencyContainer {
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
   c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
-    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+    useValue: {
+      present: jest.fn(),
+      resolve: jest.fn(),
+      isEligible: jest.fn(() => false),
+      open: jest.fn(),
+      dispose: jest.fn(),
+    },
   });
 
   c.register(TOKENS.LOGGER, {
@@ -273,8 +294,14 @@ function buildMinimalContainer(): DependencyContainer {
     },
   );
 
-  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
-  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
+  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(
+    OpenRouterPricingService,
+    { useValue: { getPricing: jest.fn() } },
+  );
+  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(
+    SessionStatsReaderService,
+    { useValue: { scanDatedUsage: jest.fn() } },
+  );
   registerUsageAnalytics(c);
   registerSharedRpcHandlers(c);
   return c;
@@ -288,7 +315,9 @@ describe('Electron DI — shared RPC handler resolution', () => {
   });
 
   it('resolves the usage analytics service token', () => {
-    expect(c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE)).toBeDefined();
+    expect(
+      c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE),
+    ).toBeDefined();
   });
 
   it.each(
@@ -505,7 +534,9 @@ describe('Electron DI — lane outcomes', () => {
     const runtime = source.indexOf(
       'registerCliAgentRuntimeServices(container, logger);',
     );
-    expect(source).toContain('container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });');
+    expect(source).toContain(
+      'container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });',
+    );
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
       'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
@@ -1066,5 +1097,19 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     );
     expect(registered).toEqual([...LanePlanLimitsRpcHandlers.METHODS]);
     expect(registered).toEqual(['agent:getLanePlanLimits']);
+  });
+});
+
+describe('Electron SDK runtime defaults before bootstrap', () => {
+  it('registers every runtime port and keeps native disabled until host binding', () => {
+    const c = buildMinimalContainer();
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    for (const token of EXPECTED_RUNTIME_TOKENS)
+      expect(c.isRegistered(token, true)).toBe(true);
+    for (const token of EXPECTED_NULL_RUNTIME_TOKENS)
+      expect(c.resolve(token)).toBeNull();
+    expect(c.resolve(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES)).toEqual({
+      nativeCodex: false,
+    });
   });
 });

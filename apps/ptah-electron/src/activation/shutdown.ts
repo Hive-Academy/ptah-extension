@@ -1,4 +1,8 @@
 import {
+  disposeElectronCodexBindings,
+  hasElectronCodexBindings,
+} from '../di/codex-binding-registry';
+import {
   killRunningChecks,
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
@@ -283,6 +287,8 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
     await laneOutcomes.dispose();
   }
 
+  if (hasElectronCodexBindings()) await disposeElectronCodexBindings();
+
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
@@ -425,6 +431,7 @@ async function withBudget(
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
+    hasElectronCodexBindings() ||
     refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||

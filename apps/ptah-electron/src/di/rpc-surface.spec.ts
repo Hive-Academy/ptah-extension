@@ -1,3 +1,8 @@
+import 'reflect-metadata';
+import {
+  ELECTRON_CODEX_BOUND_TOKENS,
+  EXPECTED_RUNTIME_TOKENS,
+} from './expected-resolvable';
 /**
  * RPC surface baseline — Electron desktop host (reference implementation).
  *
@@ -5,8 +10,6 @@
  * empty. If this test ever fails, a capability was switched off on the
  * reference host — which is the one thing this refactor must never do.
  */
-
-import 'reflect-metadata';
 
 import {
   deriveRpcSurface,
@@ -31,9 +34,9 @@ describe('Electron RPC surface', () => {
   const surface = deriveRpcSurface(
     createElectronRpcHostProfile(container, logger),
   );
-  const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) =>
-    [...entry.methods],
-  ).sort();
+  const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) => [
+    ...entry.methods,
+  ]).sort();
 
   it('excludes nothing', () => {
     expect([...surface.excluded]).toEqual([]);
@@ -58,6 +61,15 @@ describe('Electron RPC surface', () => {
   });
 
   it('serves artifact listing and external link opening', () => {
-    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
+    );
   });
+});
+
+it('includes the complete Electron runtime binding in the DI census', () => {
+  expect(EXPECTED_RUNTIME_TOKENS).toEqual(
+    expect.arrayContaining([...ELECTRON_CODEX_BOUND_TOKENS]),
+  );
+  expect(new Set(ELECTRON_CODEX_BOUND_TOKENS).size).toBe(6);
 });
