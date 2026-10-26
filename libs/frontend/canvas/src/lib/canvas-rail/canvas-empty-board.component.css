@@ -3,24 +3,27 @@
 }
 /* The hero's scroll box is the size container: the layout follows the board's
    own width, which loses about 400 px when the Sessions tab opens, not the
-   window's. Its block padding is the scrim's vertical overhang, so the scrim
-   never adds scroll height. */
+   window's. `safe center` centres the stage while it fits and starts it at the
+   top once it does not, so nothing above it becomes unreachable. */
 .ptah-empty-board {
-  --scrim-ext-y: 32px;
-  --scrim-in-x: 48px;
-  --scrim-in-y: 32px;
   container-type: inline-size;
-  padding-block: var(--scrim-ext-y);
+  justify-content: safe center;
 }
 /* Frameless local text scrim (glass only: transparent where the token is not
    defined), the same recipe as the welcome stage and the L1 loading state: a
    pseudo-element behind the stage, solid under its whole padding box, fading
    to fully transparent at every outer edge through two eased ramps
-   intersected by a mask, so no box edge or corner is drawn. It reaches out
-   only into the free room beside the stage (--scrim-ext-x), never past the
-   board, so it adds no horizontal scroll. */
+   intersected by a mask, so no box edge or corner is drawn. The ramps are
+   long (about 100 px where the board has room) so the fade reads as light,
+   not as the silhouette of a soft panel. It reaches out only into the free
+   room beside the stage (--scrim-ext-x), never past the board, and the
+   stage's block margin is its vertical reach (--scrim-ext-y), so it adds no
+   scroll width or height. */
 .ptah-empty-board__stage {
   --scrim-ext-x: min(96px, max(0px, (100cqw - 1040px) / 2));
+  --scrim-ext-y: 64px;
+  --scrim-in-x: 96px;
+  --scrim-in-y: 40px;
   position: relative;
   z-index: 10;
   isolation: isolate;
@@ -29,7 +32,7 @@
   align-items: center;
   width: 100%;
   max-width: 1040px;
-  margin: auto;
+  margin: var(--scrim-ext-y) auto;
   padding: 48px 56px 56px;
 }
 .ptah-empty-board__stage::before {
@@ -71,13 +74,20 @@
   max-width: 588px;
   margin-bottom: 24px;
 }
+/* One fixed 24 px line for the name alone and for name, branch and changed
+   files, so the git line arriving after git:info moves nothing below it. */
 .ptah-empty-board__workspace {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 6px 16px;
+  min-height: 24px;
   font-size: 13px;
+  line-height: 24px;
+}
+.ptah-empty-board__workspace > h1 {
+  line-height: inherit;
 }
 /* Grid, numerals and readiness sit side by side and wrap, centred, when the
    board is too narrow for all three, so nothing is ever cut off. Each block
@@ -122,6 +132,9 @@
 .ptah-empty-board__new {
   margin-top: 38px;
 }
+.ptah-empty-board__reason {
+  margin-top: 8px;
+}
 /* Blocked (running cap): still focusable and still described by its reason,
    but visibly not the live primary action: dimmed, no glow, no hover lift.
    Scoped under the stage so it outranks the glass theme's `.btn-primary`
@@ -155,28 +168,15 @@
   outline: 2px solid oklch(var(--p));
   outline-offset: 3px;
 }
-/* A board under 860 px (an 800-900 px window, or the Sessions tab open):
-   tighter sides and gaps, so grid, numerals and ring still share one row at
-   the 800 px minimum window. */
-@container (max-width: 860px) {
-  .ptah-empty-board {
-    --scrim-in-x: 16px;
-  }
-  .ptah-empty-board__stage {
-    padding-inline: 24px;
-  }
-  .ptah-empty-board__zone {
-    gap: 24px 28px;
-  }
-}
-/* Short windows (900 x 640 and the 800 x 600 minimum): the same tighter
-   rhythm as the welcome, so New session is on screen without scrolling. */
+/* Rule order matters: the three blocks below set the same properties, and
+   each later block must win over the earlier ones where both apply. */
+/* Short windows (the 735 px default height, 900 x 640, the 800 x 600
+   minimum): the same tighter rhythm as the welcome, so New session is on
+   screen without scrolling. */
 @media (max-height: 760px) {
-  .ptah-empty-board {
-    --scrim-ext-y: 16px;
-    --scrim-in-y: 12px;
-  }
   .ptah-empty-board__stage {
+    --scrim-ext-y: 48px;
+    --scrim-in-y: 16px;
     padding-block: 16px;
   }
   .ptah-empty-board__notice {
@@ -186,10 +186,58 @@
     margin-top: 20px;
     row-gap: 20px;
   }
+  /* As tall as the ring and its link, centred on the zone's line: no empty
+     band under the ring when it wraps below the grid. */
+  .ptah-empty-board__readiness {
+    height: auto;
+    align-self: center;
+  }
   .ptah-empty-board__new {
     margin-top: 24px;
   }
   .ptah-empty-board__history {
     margin-top: 8px;
+  }
+}
+/* A board under 860 px (a 900 px window, or the Sessions tab open): tighter
+   sides and gaps so the zone keeps one row as long as it can. The stage fills
+   the board, so the horizontal ramp is its 24 px padding, and the vertical
+   reach is shorter (after the short-window rule, so it wins there too) so a
+   wrapped, taller zone still fits the board. */
+@container (max-width: 860px) {
+  .ptah-empty-board__stage {
+    --scrim-ext-y: 32px;
+    --scrim-in-x: 24px;
+    padding-inline: 24px;
+  }
+  .ptah-empty-board__zone {
+    gap: 24px 28px;
+  }
+}
+/* The 800 x 600 minimum window: the ring wraps below the grid there, so every
+   gap is trimmed until New session, the cap reason and the history link all
+   fit in its 536 px board (wrapped cap state: about 523 px). 900 x 640 keeps
+   one row and fits under the rule above. */
+@media (max-height: 620px) {
+  .ptah-empty-board__stage {
+    --scrim-ext-y: 4px;
+    --scrim-in-y: 6px;
+    padding-block: 6px;
+  }
+  .ptah-empty-board__notice {
+    margin-bottom: 12px;
+  }
+  .ptah-empty-board__zone {
+    margin-top: 12px;
+    row-gap: 8px;
+  }
+  .ptah-empty-board__new {
+    margin-top: 12px;
+  }
+  .ptah-empty-board__reason {
+    margin-top: 4px;
+  }
+  .ptah-empty-board__history {
+    margin-top: 4px;
   }
 }

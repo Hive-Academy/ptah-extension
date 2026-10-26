@@ -210,7 +210,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
             </div>
           } @else if (!ready.allReady) {
             <div
-              class="ptah-empty-board__column"
+              class="ptah-empty-board__column ptah-empty-board__readiness"
               data-testid="canvas-empty-board-readiness"
             >
               <ptah-readiness-ring
@@ -240,7 +240,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
         @if (newSessionBlockReason(); as reason) {
           <p
             id="canvas-rail-empty-board-reason"
-            class="mt-2 text-xs text-base-content-muted"
+            class="ptah-empty-board__reason text-xs text-base-content-muted"
           >
             {{ reason }}
           </p>
