@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { resolve } from 'node:path';
+import { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ProjectType: {},
   Framework: {},
@@ -29,7 +32,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 
 import type { SessionId, SessionRuntimeIdentity } from '@ptah-extension/shared';
 import { ChatSessionService } from './chat-session.service';
-import type { ResolvedChatExecution } from './chat-runtime-profile.service';
+import { ChatRuntimeProfileService, type ResolvedChatExecution } from './chat-runtime-profile.service';
 
 const sessionId = 'native-session' as SessionId;
 const identity: SessionRuntimeIdentity = {
@@ -129,7 +132,7 @@ describe('chat native session preparation', () => {
       }),
     );
     expect(h.startChatSession).toHaveBeenCalledWith(
-      expect.objectContaining({ model: 'gpt-5.4' }),
+      expect.objectContaining({ model: 'gpt-5.4', runtime: 'codex-app-server' }),
     );
     expect(h.startChatSession.mock.calls[0][0]).not.toHaveProperty(
       'providerProfile',
@@ -140,6 +143,10 @@ describe('chat native session preparation', () => {
 
   it('resumes with the stored identity after a workspace provider switch', async () => {
     const h = harness();
+    h.resumeSession.mockImplementationOnce(async () => {
+      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+      return [];
+    });
     await expect(
       h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
         sessionId,
@@ -182,4 +189,71 @@ describe('chat native session preparation', () => {
     expect(h.startChatSession).not.toHaveBeenCalled();
     expect(h.publishModelSubstitution).not.toHaveBeenCalled();
   });
+  it('publishes after success and publishes nothing for a second busy launch on the same tab', async () => {
+    const h = harness();
+    const input = {
+      logLabel: 'chat:start', tabId: 'tab', workspaceId: '/original-workspace',
+      projectPath: '/original-workspace', prompt: 'hello', mcpServerRunning: false,
+      mcpServersOverride: undefined, surfaceMode: undefined,
+    };
+    h.startChatSession.mockImplementationOnce(async () => {
+      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+      return [];
+    });
+    await h.service['launchSdkSession'](input);
+    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    h.startChatSession.mockRejectedValueOnce(new Error('busy'));
+    await expect(h.service['launchSdkSession'](input)).rejects.toThrow('busy');
+    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a notice when resume fails', async () => {
+    const h = harness();
+    h.resumeSession.mockRejectedValue(new Error('busy'));
+    await h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', { sessionId, tabId: 'tab' });
+    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
+    const workspace = resolve('/original-workspace');
+    const profile = { providerId: 'anthropic', model: 'claude-sonnet', authEnv: {} };
+    const resolveProviderProfileForWorkspace = jest.fn().mockResolvedValue(profile);
+    const resolver: WorkspaceProviderProfileResolver = Object.assign(
+      Object.create(WorkspaceProviderProfileResolver.prototype),
+      {
+        activeProviderResolver: {
+          resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+        },
+        resolveProviderProfileForWorkspace,
+      },
+    );
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const runtimeProfile = new ChatRuntimeProfileService(
+      resolver,
+      createMockWorkspaceProvider({ folders: [workspace] }),
+      { extensionPath: resolve('/application'), globalStoragePath: resolve('/storage') },
+      { broadcastMessage },
+      { nativeCodex: true },
+    );
+    const prepare = jest.spyOn(runtimeProfile, 'prepare');
+    const h = harness();
+    Object.assign(h.service, {
+      runtimeProfile,
+      modelSettings: { selectedModel: { get: () => 'claude-sonnet' } },
+      sessionMetadataStore: { get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }) },
+      historyRead: { resolveSessionFolder: async () => workspace },
+    });
+    await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', {
+      sessionId, tabId: 'tab',
+    })).resolves.toEqual({ justResumed: true });
+    expect(h.resumeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({
+      model: 'claude-sonnet', providerProfile: profile,
+    }));
+    expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
+      version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
+    });
+    expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
+    expect(broadcastMessage).not.toHaveBeenCalled();
+  });
+
 });

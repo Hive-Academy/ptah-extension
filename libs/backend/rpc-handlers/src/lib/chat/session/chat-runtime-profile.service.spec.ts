@@ -249,4 +249,32 @@ describe('ChatRuntimeProfileService', () => {
     );
     expect(h.broadcastMessage).not.toHaveBeenCalled();
   });
+  it.each(['default', '', '   ', 'gpt-5'])(
+    'does not announce a default, empty, or unchanged request: %s',
+    async (requested) => {
+      const h = harness({
+        ...native,
+        modelSubstitution: { requested, used: 'gpt-5', reason: 'not-in-catalog' },
+      });
+      const result = await h.service.prepare({ workspaceId: workspace, model: requested });
+      await h.service.publishModelSubstitution(result, { tabId: 'tab' });
+      expect(h.broadcastMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it('publishes a prepared substitution only once, including concurrent calls', async () => {
+    const h = harness({
+      ...native,
+      modelSubstitution: { requested: 'claude-opus', used: 'gpt-5', reason: 'not-in-catalog' },
+    });
+    const result = await h.service.prepare({ workspaceId: workspace, model: 'claude-opus' });
+    await Promise.all([
+      h.service.publishModelSubstitution(result, { tabId: 'tab' }),
+      h.service.publishModelSubstitution(result, { tabId: 'tab' }),
+    ]);
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
+    await h.service.publishModelSubstitution(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
+  });
+
 });

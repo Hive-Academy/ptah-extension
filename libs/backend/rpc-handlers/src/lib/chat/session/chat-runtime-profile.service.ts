@@ -20,6 +20,7 @@ import {
   type FlatStreamEventUnion,
   type RuntimeHostCapabilities,
   type SessionRuntimeIdentity,
+  type SessionId,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { isAuthorizedWorkspace } from '../../utils/workspace-authorization';
@@ -37,8 +38,29 @@ export type ResolvedChatExecution =
       readonly config: ChatRuntimeConfig;
     });
 
+/** Existing sessions without native metadata retain their Claude runtime. */
+export function storedChatRuntimeIdentity(
+  sessionId: SessionId,
+  metadata: {
+    codexExecution?: SessionRuntimeIdentity;
+    providerId?: string;
+    workspaceId?: string;
+  } | null | undefined,
+  workspaceId: string,
+): SessionRuntimeIdentity {
+  return metadata?.codexExecution ?? {
+    version: 1,
+    sessionId,
+    runtime: 'claude-sdk',
+    providerId: metadata?.providerId ?? 'claude-cli',
+    workspaceId: metadata?.workspaceId ?? workspaceId,
+  };
+}
+
 @injectable()
 export class ChatRuntimeProfileService {
+  private readonly publishedSubstitutions = new WeakSet<ResolvedChatExecution>();
+
   constructor(
     @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
     private readonly resolver: Pick<
@@ -86,8 +108,8 @@ export class ChatRuntimeProfileService {
   }
 
   /**
-   * 7b calls once after preparation, before attaching the runtime stream. 8a's
-   * profile port must not publish again. A notice is one ordinary chat message,
+   * Call only after a successful launch. Each prepared result can publish once.
+   * A notice is one ordinary chat message,
    * carried by the same CHAT_CHUNK start/text/complete protocol as the broadcaster.
    * It does not mark the turn idle or invent model usage.
    */
@@ -101,6 +123,15 @@ export class ChatRuntimeProfileService {
     )
       return;
     const { requested, used } = execution.modelSubstitution;
+    if (
+      !requested.trim() ||
+      requested.trim().toLowerCase() === 'default' ||
+      requested === used ||
+      this.publishedSubstitutions.has(execution)
+    ) {
+      return;
+    }
+    this.publishedSubstitutions.add(execution);
     const messageId = randomUUID();
     const base = {
       messageId,

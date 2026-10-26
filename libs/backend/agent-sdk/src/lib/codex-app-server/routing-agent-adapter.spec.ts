@@ -344,4 +344,39 @@ describe('RoutingAgentAdapter', () => {
     expect(native.getDefaultModel).not.toHaveBeenCalled();
     expect(native.getApiModels).not.toHaveBeenCalled();
   });
+  it.each(['claude-sdk', 'codex-app-server'] as const)(
+    'uses the prepared %s runtime when admission has no provider',
+    async (runtime) => {
+      const legacy = adapter();
+      const native = adapter();
+      const router = new RoutingAgentAdapter(
+        { lookup: () => undefined }, legacy, native,
+        { servingProviderId: jest.fn().mockResolvedValue(undefined) },
+        { nativeCodex: true },
+      );
+      const config = { tabId: 'tab', runtime };
+      await router.startChatSession(config);
+      expect((runtime === 'claude-sdk' ? legacy : native).startChatSession).toHaveBeenCalledWith(config);
+      expect((runtime === 'claude-sdk' ? native : legacy).startChatSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['claude-sdk', 'openai-codex'],
+    ['codex-app-server', 'anthropic'],
+  ] as const)('rejects prepared %s conflicting with %s admission', async (runtime, provider) => {
+    const legacy = adapter();
+    const native = adapter();
+    const router = new RoutingAgentAdapter(
+      { lookup: () => undefined }, legacy, native,
+      { servingProviderId: jest.fn().mockResolvedValue(provider) },
+      { nativeCodex: true },
+    );
+    await expect(router.startChatSession({ tabId: 'tab', runtime })).rejects.toMatchObject({
+      name: 'ChatRuntimeAdmissionError', code: 'runtime-admission-mismatch',
+    });
+    expect(legacy.startChatSession).not.toHaveBeenCalled();
+    expect(native.startChatSession).not.toHaveBeenCalled();
+  });
+
 });

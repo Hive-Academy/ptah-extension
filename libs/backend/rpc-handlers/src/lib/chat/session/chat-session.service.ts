@@ -86,7 +86,7 @@ import type {
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
-import type { ChatRuntimeProfileService } from './chat-runtime-profile.service';
+import { storedChatRuntimeIdentity, type ChatRuntimeProfileService } from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -940,18 +940,19 @@ export class ChatSessionService {
               currentModel,
             ),
         };
+    const stream = await this.sdkAdapter.startChatSession({
+      ...config,
+      runtime: execution.runtime,
+      ...(execution.runtime === 'claude-sdk'
+        ? { providerProfile: execution.providerProfile }
+        : { model: execution.seed.model }),
+    });
     if (
       execution.runtime === 'codex-app-server' &&
       execution.modelSubstitution
     ) {
       await this.runtimeProfile?.publishModelSubstitution(execution, { tabId });
     }
-    const stream = await this.sdkAdapter.startChatSession({
-      ...config,
-      ...(execution.runtime === 'claude-sdk'
-        ? { providerProfile: execution.providerProfile }
-        : { model: execution.seed.model }),
-    });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
       stream,
@@ -1668,7 +1669,11 @@ export class ChatSessionService {
       const execution = this.runtimeProfile
         ? await this.runtimeProfile.prepare(
             config,
-            (await this.sessionMetadataStore.get(sessionId))?.codexExecution,
+            storedChatRuntimeIdentity(
+              sessionId,
+              await this.sessionMetadataStore.get(sessionId),
+              workspacePath,
+            ),
           )
         : {
             runtime: 'claude-sdk' as const,
@@ -1678,6 +1683,12 @@ export class ChatSessionService {
                 currentModel,
               ),
           };
+      const stream = await this.sdkAdapter.resumeSession(sessionId, {
+        ...config,
+        ...(execution.runtime === 'claude-sdk'
+          ? { providerProfile: execution.providerProfile }
+          : { model: execution.seed.model }),
+      });
       if (
         execution.runtime === 'codex-app-server' &&
         execution.modelSubstitution
@@ -1687,12 +1698,6 @@ export class ChatSessionService {
           sessionId,
         });
       }
-      const stream = await this.sdkAdapter.resumeSession(sessionId, {
-        ...config,
-        ...(execution.runtime === 'claude-sdk'
-          ? { providerProfile: execution.providerProfile }
-          : { model: execution.seed.model }),
-      });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,
         stream,

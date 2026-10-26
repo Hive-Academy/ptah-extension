@@ -9,6 +9,15 @@ import {
   type SessionRuntimeIdentityLookup,
 } from './session-runtime-identity';
 
+export class ChatRuntimeAdmissionError extends Error {
+  readonly code = 'runtime-admission-mismatch';
+
+  constructor() {
+    super('Prepared chat runtime disagrees with runtime admission.');
+    this.name = 'ChatRuntimeAdmissionError';
+  }
+}
+
 export interface RuntimeAdmissionPort {
   servingProviderId(
     config: Parameters<IAgentAdapter['startChatSession']>[0],
@@ -78,6 +87,20 @@ export class RoutingAgentAdapter implements IAgentAdapter {
   async startChatSession(
     ...args: Parameters<IAgentAdapter['startChatSession']>
   ): ReturnType<IAgentAdapter['startChatSession']> {
+    const preparedRuntime = args[0].runtime;
+    if (preparedRuntime) {
+      const provider = await this.admission.servingProviderId(args[0]);
+      const admittedRuntime =
+        this.capabilities.nativeCodex && provider === 'openai-codex'
+          ? 'codex-app-server'
+          : 'claude-sdk';
+      if (provider !== undefined && preparedRuntime !== admittedRuntime) {
+        throw new ChatRuntimeAdmissionError();
+      }
+      return (
+        preparedRuntime === 'codex-app-server' ? this.native : this.legacy
+      ).startChatSession(...args);
+    }
     // Admission lookup failures propagate: a failed workspace lookup is not consent to switch runtimes.
     const useNative =
       this.capabilities.nativeCodex &&

@@ -1,9 +1,12 @@
 import 'reflect-metadata';
+import { resolve } from 'node:path';
+import { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
+import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { SessionId, SessionRuntimeIdentity } from '@ptah-extension/shared';
 import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
-import type {
+import {
   ChatRuntimeProfileService,
-  ResolvedChatExecution,
+  type ResolvedChatExecution,
 } from './chat-runtime-profile.service';
 
 const sessionId = 'native-session' as SessionId;
@@ -107,7 +110,7 @@ function harness(
 }
 
 describe('native slash runtime routing', () => {
-  it('compacts through controls, retaining identity and publishing substitution once', async () => {
+  it('compacts through controls, retaining identity without a model notice', async () => {
     const h = harness();
     await expect(h.route()).resolves.toEqual({
       success: true,
@@ -124,7 +127,7 @@ describe('native slash runtime routing', () => {
     expect(h.compact).toHaveBeenCalledWith(sessionId);
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
     expect(h.releaseManualReservation).toHaveBeenCalledWith(
       sessionId,
       'reservation',
@@ -148,7 +151,7 @@ describe('native slash runtime routing', () => {
     const h = harness(native, 'review');
     h.executeSlashCommand.mockImplementation(async () => {
       expect(h.prepare).toHaveBeenCalledTimes(1);
-      expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
       return [];
     });
     await expect(h.route()).resolves.toEqual({ success: true, sessionId });
@@ -160,6 +163,7 @@ describe('native slash runtime routing', () => {
       }),
     );
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
+    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
   });
 
   it('coalesces a claim acquired while preparation is pending', async () => {
@@ -209,4 +213,63 @@ describe('native slash runtime routing', () => {
     expect(h.compact).not.toHaveBeenCalled();
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
   });
+  it('does not publish when a slash relaunch is rejected as busy', async () => {
+    const h = harness(native, 'review');
+    h.executeSlashCommand.mockRejectedValue(new Error('busy'));
+    await expect(h.route()).resolves.toMatchObject({ success: false, error: 'busy' });
+    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+  });
+
+  it('uses an explicit Claude identity when the metadata service is absent', async () => {
+    const h = harness({ runtime: 'claude-sdk', providerProfile: undefined }, 'review');
+    Object.assign(h.service, { metadata: undefined });
+    await h.route();
+    expect(h.prepare).toHaveBeenCalledWith(expect.any(Object), {
+      version: 1, sessionId, runtime: 'claude-sdk', providerId: 'claude-cli',
+      workspaceId: '/workspace',
+    });
+    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
+    const workspace = resolve('/original-workspace');
+    const profile = { providerId: 'anthropic', model: 'claude-sonnet', authEnv: {} };
+    const resolveProviderProfileForWorkspace = jest.fn().mockResolvedValue(profile);
+    const resolver: WorkspaceProviderProfileResolver = Object.assign(
+      Object.create(WorkspaceProviderProfileResolver.prototype),
+      {
+        activeProviderResolver: {
+          resolveActiveAuthForPath: () => ({ providerId: 'openai-codex' }),
+        },
+        resolveProviderProfileForWorkspace,
+      },
+    );
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    const runtimeProfile = new ChatRuntimeProfileService(
+      resolver,
+      createMockWorkspaceProvider({ folders: [workspace] }),
+      { extensionPath: resolve('/application'), globalStoragePath: resolve('/storage') },
+      { broadcastMessage },
+      { nativeCodex: true },
+    );
+    const prepare = jest.spyOn(runtimeProfile, 'prepare');
+    const h = harness(native, 'review');
+    Object.assign(h.service, {
+      runtimeProfile,
+      modelSettings: { selectedModel: { get: () => 'claude-sonnet' } },
+      metadata: { get: async () => ({ workspaceId: workspace, providerId: 'anthropic' }) },
+    });
+    await expect(h.service.routeFollowUpSlashCommand('/review', sessionId, 'tab', workspace, {
+      prompt: '/review', sessionId, tabId: 'tab',
+    })).resolves.toEqual({ success: true, sessionId });
+    expect(h.executeSlashCommand).toHaveBeenCalledWith(sessionId, '/review', expect.objectContaining({
+      sessionConfig: expect.objectContaining({ model: 'claude-sonnet' }), providerProfile: profile,
+    }));
+    expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
+      version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
+    });
+    expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
+    expect(broadcastMessage).not.toHaveBeenCalled();
+  });
+
 });

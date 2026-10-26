@@ -47,7 +47,7 @@ import {
 import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
-import type { ChatRuntimeProfileService } from './chat-runtime-profile.service';
+import { storedChatRuntimeIdentity, type ChatRuntimeProfileService } from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type {
@@ -312,7 +312,11 @@ export class ChatSlashCommandRouterService {
         const execution = this.runtimeProfile
           ? await this.runtimeProfile.prepare(
               config,
-              (await this.metadata?.get(sessionId))?.codexExecution,
+              storedChatRuntimeIdentity(
+                sessionId,
+                await this.metadata?.get(sessionId),
+                workspacePath ?? '',
+              ),
             )
           : {
               runtime: 'claude-sdk' as const,
@@ -351,12 +355,6 @@ export class ChatSlashCommandRouterService {
           }
         }
         if (execution.runtime === 'codex-app-server') {
-          if (execution.modelSubstitution) {
-            await this.runtimeProfile?.publishModelSubstitution(execution, {
-              tabId,
-              sessionId,
-            });
-          }
           if (interceptResult.commandName === 'compact') {
             if (!this.runtimeControls) {
               throw new Error(
@@ -395,6 +393,14 @@ export class ChatSlashCommandRouterService {
               : {}),
           },
         );
+        if (execution.runtime === 'codex-app-server') {
+          if (execution.modelSubstitution) {
+            await this.runtimeProfile?.publishModelSubstitution(execution, {
+              tabId,
+              sessionId,
+            });
+          }
+        }
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
 
         return { success: true, sessionId };

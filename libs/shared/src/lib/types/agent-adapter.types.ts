@@ -175,6 +175,8 @@ export type AgentPermissionLevel =
  * that SdkAgentAdapter's concrete implementation already accepts.
  */
 export interface AgentSessionStartConfig extends AISessionConfig {
+  /** Runtime selected by chat preparation; admission must agree when present. */
+  runtime?: 'claude-sdk' | 'codex-app-server';
   /** Requested route only; admission supplies the binding in providerProfile. */
   accountSelection?: ProviderAccountSelection;
   tabId: string;
