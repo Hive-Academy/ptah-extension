@@ -243,7 +243,10 @@ describe('AgentFileWriterService', () => {
 
     it.each([
       ['create-only', CREATE_ONLY],
-      ['replace-allowed', replaceFrom('# Backend Developer\n\nAgent content here.')],
+      [
+        'replace-allowed',
+        replaceFrom('# Backend Developer\n\nAgent content here.'),
+      ],
     ] as const)(
       'reports "unchanged" for identical bytes under %s',
       async (_label, guard) => {
@@ -260,15 +263,12 @@ describe('AgentFileWriterService', () => {
     it.each([
       ['create-only', CREATE_ONLY],
       ['replace-allowed from missing', REPLACE_FROM_MISSING],
-    ] as const)(
-      'writes a missing file under %s',
-      async (_label, guard) => {
-        const result = await write({ ...sampleAgent }, guard);
+    ] as const)('writes a missing file under %s', async (_label, guard) => {
+      const result = await write({ ...sampleAgent }, guard);
 
-        expect(result.value).toEqual({ filePath: target, status: 'written' });
-        expect(await fs.readFile(target)).toBe(sampleAgent.content);
-      },
-    );
+      expect(result.value).toEqual({ filePath: target, status: 'written' });
+      expect(await fs.readFile(target)).toBe(sampleAgent.content);
+    });
 
     it('treats the VS Code FileNotFound read error as a missing file', async () => {
       const notFound = errnoError('File not found', 'FileNotFound');
@@ -350,7 +350,10 @@ describe('AgentFileWriterService', () => {
         errnoError('Permission denied', 'EACCES'),
       );
 
-      const result = await write({ ...sampleAgent }, replaceFrom('old content'));
+      const result = await write(
+        { ...sampleAgent },
+        replaceFrom('old content'),
+      );
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
@@ -400,7 +403,11 @@ describe('AgentFileWriterService', () => {
 
     it.each([
       ['create-only', CREATE_ONLY, 'kept'],
-      ['replace-allowed from missing', REPLACE_FROM_MISSING, 'changed-since-preview'],
+      [
+        'replace-allowed from missing',
+        REPLACE_FROM_MISSING,
+        'changed-since-preview',
+      ],
     ] as const)(
       'maps an exclusive-create collision under %s to "%s" and keeps the file',
       async (_label, guard, status) => {
@@ -464,6 +471,41 @@ describe('AgentFileWriterService', () => {
       });
       expect(fs.writeFile).not.toHaveBeenCalled();
       expect(await fs.readFile(target)).toBe('edited');
+    });
+
+    it('two replace writers with the same baseline: exactly one writes, the other is changed-since-preview', async () => {
+      await fs.writeFile(target, 'old content');
+      fs.writeFile.mockClear();
+      // Two instances stand in for two wizard runs; only the shared
+      // destination lock orders their re-check and write.
+      const other = new AgentFileWriterService(mockLogger as never, fs);
+      const gate = holdReads(2);
+
+      const first = service.writeAgent(
+        { ...sampleAgent, content: '# first writer' },
+        replaceFrom('old content'),
+      );
+      const second = other.writeAgent(
+        { ...sampleAgent, content: '# second writer' },
+        replaceFrom('old content'),
+      );
+      // Both initial reads saw the baseline; release them together so both
+      // guards pass before either replace.
+      await gate.allHeld;
+      gate.release[0]?.();
+      gate.release[1]?.();
+
+      const results = await Promise.all([first, second]);
+      expect(results.map((r) => r.value?.status).sort()).toEqual([
+        'changed-since-preview',
+        'written',
+      ]);
+      const winner =
+        results[0]?.value?.status === 'written'
+          ? '# first writer'
+          : '# second writer';
+      expect(fs.writeFile).toHaveBeenCalledTimes(1);
+      expect(await fs.readFile(target)).toBe(winner);
     });
   });
 

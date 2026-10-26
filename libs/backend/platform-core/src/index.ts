@@ -224,6 +224,11 @@ export type {
 export { planGlobWatch } from './utils/glob-watch-plan';
 export { collectBounded } from './utils/bounded-collect';
 export {
+  DestinationWriteLock,
+  destinationLockKey,
+  destinationWriteLock,
+} from './utils/destination-write-lock';
+export {
   IncompleteFileSearchError,
   createFailureTally,
   searchRootError,

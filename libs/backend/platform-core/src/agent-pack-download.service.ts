@@ -13,14 +13,17 @@
  *   the write, so a decision made on an earlier plan never overwrites content
  *   the user did not see.
  *
- * Concurrency (A22): network fetches are deduplicated by URL only. Writes are
- * never shared between callers: installs into one canonical target directory
- * run one after another, each with its own guards and outcomes. That queue
- * is local to this service, so an absent destination is always created
- * no-clobber (hard link / `wx`): a file the wizard writer or another process
- * created meanwhile is never replaced (`kept`, or `changed-since-preview`
- * under `replace`). A replace re-checks the baseline right before its rename;
- * see `replaceIfBaseline` for the window that remains.
+ * Concurrency (A22, A2): network fetches are deduplicated by URL only. Writes
+ * are never shared between callers: installs into one canonical target
+ * directory run one after another, each with its own guards and outcomes.
+ * Each file's final re-read and mutation run inside the process-wide
+ * per-destination lock ({@link destinationWriteLock}) that the wizard
+ * agent writer also takes, so Ptah writers never interleave a baseline
+ * re-check with another Ptah writer's mutation of the same file. An absent
+ * destination is still created no-clobber (hard link / `wx`) because other
+ * processes are not covered by that lock: a file created meanwhile is never
+ * replaced (`kept`, or `changed-since-preview` under `replace`). See
+ * `replaceIfBaseline` for the window that remains against other processes.
  *
  * The guard rules mirror the agent-generation writer (B2). They are restated
  * here because platform-core cannot depend on agent-generation:
@@ -38,6 +41,10 @@ import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import type { FileOutcome, PackFileState } from '@ptah-extension/shared';
+import {
+  destinationLockKey,
+  destinationWriteLock,
+} from './utils/destination-write-lock';
 
 /** Agent pack manifest structure (hosted at repo: agent-pack-manifest.json) */
 interface AgentPackManifest {
@@ -90,8 +97,7 @@ export type AgentPackFilePlan =
  * unavailable, files missing from the manifest).
  */
 export type AgentPackPlanResult =
-  | { ok: true; files: AgentPackFilePlan[] }
-  | { ok: false; error: string };
+  { ok: true; files: AgentPackFilePlan[] } | { ok: false; error: string };
 
 /** The write permission one install item carries. */
 export type PackFileGuard =
@@ -148,15 +154,6 @@ const NO_HARD_LINK_CODES: ReadonlySet<string> = new Set([
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * Key that names one directory however it was spelled: resolved, and
- * case-folded on win32 where `C:\A` and `c:\a` are the same folder.
- */
-function canonicalDirKey(dir: string): string {
-  const resolved = path.resolve(dir);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 /** True when `candidate` is `root` or lies under it. */
@@ -272,7 +269,10 @@ export class AgentPackDownloadService {
       i < files.length;
       i += AgentPackDownloadService.MAX_CONCURRENCY
     ) {
-      const chunk = files.slice(i, i + AgentPackDownloadService.MAX_CONCURRENCY);
+      const chunk = files.slice(
+        i,
+        i + AgentPackDownloadService.MAX_CONCURRENCY,
+      );
       const results = await Promise.all(
         chunk.map((file) => this.planFile(manifest.baseUrl, file, targetDir)),
       );
@@ -291,7 +291,7 @@ export class AgentPackDownloadService {
     targetDir: string,
     items: readonly AgentPackInstallItem[],
   ): Promise<AgentPackInstallOutcome[]> {
-    const key = canonicalDirKey(targetDir);
+    const key = destinationLockKey(targetDir);
     const previous = this.targetChains.get(key) ?? Promise.resolve();
     const run = previous.then(() => this.installSequentially(targetDir, items));
     // `installSequentially` settles every item into an outcome, so `run`
@@ -348,29 +348,46 @@ export class AgentPackDownloadService {
     }
 
     try {
-      if (local.state === 'absent') {
-        // The serial queue covers this service only; the wizard writer or
-        // another process can create the file after the read above, so the
-        // create itself must refuse to replace anything.
-        const created = await this.createExclusively(destPath, item.content);
-        if (created) return { file, outcome: 'written' };
-        return {
-          file,
-          outcome:
-            item.guard.mode === 'replace' ? 'changed-since-preview' : 'kept',
-        };
-      }
-      // `blockedByGuard` lets a present file through only for `replace`.
-      if (item.guard.mode !== 'replace') return { file, outcome: 'kept' };
-      const replaced = await this.replaceIfBaseline(
-        destPath,
-        item.content,
-        item.guard.baselineHash,
+      // The final re-check and mutation hold the destination lock shared
+      // with the wizard agent writer, so no other Ptah writer can mutate the
+      // file between them.
+      return await destinationWriteLock.run(destPath, () =>
+        this.commitItem(destPath, item, local.state),
       );
-      return { file, outcome: replaced ? 'written' : 'changed-since-preview' };
     } catch (error: unknown) {
       return { file, outcome: 'failed', error: errorMessage(error) };
     }
+  }
+
+  /**
+   * Mutate one destination that passed its guard. Runs under the shared
+   * destination lock; throws on a write error.
+   */
+  private async commitItem(
+    destPath: string,
+    item: AgentPackInstallItem,
+    firstRead: 'absent' | 'present',
+  ): Promise<AgentPackInstallOutcome> {
+    const { file } = item;
+    if (firstRead === 'absent') {
+      // Another process (outside the lock) can still create the file after
+      // the read above, so the create itself must refuse to replace anything.
+      const created = await this.createExclusively(destPath, item.content);
+      if (created) return { file, outcome: 'written' };
+      return {
+        file,
+        outcome:
+          item.guard.mode === 'replace' ? 'changed-since-preview' : 'kept',
+      };
+    }
+    // `blockedByGuard` lets a present file through only for `replace`.
+    if (item.guard.mode !== 'replace') return { file, outcome: 'kept' };
+    const replaced = await this.replaceIfBaseline(
+      destPath,
+      item.content,
+      item.guard.baselineHash,
+    );
+    return { file, outcome: replaced ? 'written' : 'changed-since-preview' };
   }
 
   /**
@@ -515,9 +532,13 @@ export class AgentPackDownloadService {
    * new content is staged, immediately before the rename; a file deleted in
    * between is created no-clobber instead.
    *
+   * Called under the shared destination lock, so no other Ptah writer in
+   * this process (wizard writer or another install) can mutate the file
+   * between this re-check and the rename.
+   *
    * Remaining guarantee: there is no lock shared with editors or other
-   * processes, so a write that lands between this re-check and the rename
-   * is still replaced. The window is one read plus one rename.
+   * processes, so their write that lands between this re-check and the
+   * rename is still replaced. The window is one read plus one rename.
    *
    * @returns `false` when the destination changed since the decision
    */
@@ -569,7 +590,9 @@ export class AgentPackDownloadService {
    * Validate agent file names for security.
    * Returns an error message if validation fails, undefined if valid.
    */
-  private validateAgentFiles(agentFiles: readonly string[]): string | undefined {
+  private validateAgentFiles(
+    agentFiles: readonly string[],
+  ): string | undefined {
     if (agentFiles.length === 0) {
       return 'No agent files specified';
     }

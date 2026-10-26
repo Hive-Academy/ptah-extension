@@ -388,7 +388,11 @@ describe('AgentPackDownloadService', () => {
       const svc = new AgentPackDownloadService();
 
       const files = okPlan(
-        await svc.planDownload(MANIFEST_URL, ['css-master.md'], makeTargetDir()),
+        await svc.planDownload(
+          MANIFEST_URL,
+          ['css-master.md'],
+          makeTargetDir(),
+        ),
       );
 
       expect(files.map((f) => f.file)).toEqual(['css-master.md']);
@@ -417,7 +421,10 @@ describe('AgentPackDownloadService', () => {
       expect(fetchedRow(files, 'react-expert.md').state).toBe('new');
       const failed = files.find((f) => f.file === 'css-master.md');
       expect(failed).toEqual(
-        expect.objectContaining({ fetched: false, error: expect.stringMatching(/HTTP 500/) }),
+        expect.objectContaining({
+          fetched: false,
+          error: expect.stringMatching(/HTTP 500/),
+        }),
       );
     });
 
@@ -634,13 +641,19 @@ describe('AgentPackDownloadService', () => {
           { file, content: REACT, guard: { mode: 'create-only' } },
         ]),
         svc.installFiles(root, [
-          { file: 'css-master.md', content: CSS, guard: { mode: 'create-only' } },
+          {
+            file: 'css-master.md',
+            content: CSS,
+            guard: { mode: 'create-only' },
+          },
         ]),
       ]);
 
       expect(blockedOutcome).toHaveLength(1);
       expect(['kept', 'failed']).toContain(blockedOutcome[0]?.outcome);
-      expect(okOutcome).toEqual([{ file: 'css-master.md', outcome: 'written' }]);
+      expect(okOutcome).toEqual([
+        { file: 'css-master.md', outcome: 'written' },
+      ]);
       expect(fs.readFileSync(blocked, 'utf-8')).toBe('not a directory');
     });
   });
@@ -810,10 +823,18 @@ describe('AgentPackDownloadService', () => {
       const gate = holdReads(dest, 2);
 
       const first = a.installFiles(targetDir, [
-        { file: 'react-expert.md', content: REACT, guard: { mode: 'create-only' } },
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'create-only' },
+        },
       ]);
       const second = b.installFiles(targetDir, [
-        { file: 'react-expert.md', content: CSS, guard: { mode: 'create-only' } },
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'create-only' },
+        },
       ]);
       await gate.allHeld;
 
@@ -837,7 +858,11 @@ describe('AgentPackDownloadService', () => {
       const gate = holdReads(dest, 2);
 
       const creator = a.installFiles(targetDir, [
-        { file: 'react-expert.md', content: REACT, guard: { mode: 'create-only' } },
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'create-only' },
+        },
       ]);
       const replacer = b.installFiles(targetDir, [
         {
@@ -881,6 +906,48 @@ describe('AgentPackDownloadService', () => {
         { file: 'react-expert.md', outcome: 'changed-since-preview' },
       ]);
       expect(fs.readFileSync(dest, 'utf-8')).toBe('edited');
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('two replace installers with the same baseline: exactly one writes, the other is changed-since-preview', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      fs.writeFileSync(dest, 'old');
+      // Two instances have separate install queues; only the shared
+      // destination lock orders their re-check and rename.
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+      const baselineHash = hashPackContent('old');
+
+      const first = a.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'replace', baselineHash },
+        },
+      ]);
+      const second = b.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'replace', baselineHash },
+        },
+      ]);
+      // Both initial reads saw the baseline; release them together so both
+      // guards pass before either replace.
+      await gate.allHeld;
+      gate.release[0]?.();
+      gate.release[1]?.();
+
+      const [[firstOutcome], [secondOutcome]] = await Promise.all([
+        first,
+        second,
+      ]);
+      const outcomes = [firstOutcome?.outcome, secondOutcome?.outcome].sort();
+      expect(outcomes).toEqual(['changed-since-preview', 'written']);
+      const winner = firstOutcome?.outcome === 'written' ? REACT : CSS;
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(winner);
       expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
     });
   });

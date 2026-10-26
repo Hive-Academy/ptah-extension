@@ -16,6 +16,7 @@ import { injectable, inject } from 'tsyringe';
 import { dirname, isAbsolute, normalize } from 'path';
 import {
   PLATFORM_TOKENS,
+  destinationWriteLock,
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -87,7 +88,8 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * 5. Create the parent directory and write the new content → `written`:
    *    an absent target is created exclusively (a collision leaves the new
    *    file alone); a present one is re-read and re-checked just before the
-   *    replace (see `replaceContent` for the window that remains)
+   *    replace. Both run under the process-wide destination lock shared with
+   *    the pack installer (see `replaceContent` for the window that remains)
    *
    * The target is read right before the write, so a decision made against an
    * earlier preview never overwrites content the user did not see.
@@ -142,10 +144,14 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       if (dirResult.isErr()) {
         return Result.err(dirResult.error!);
       }
-      if (current.state === 'absent') {
-        return await this.createContent(agent, absolutePath, guard);
-      }
-      return await this.replaceContent(agent, absolutePath, guard);
+      // The final re-check and mutation hold the destination lock shared
+      // with the pack installer (and other wizard writes), so no other Ptah
+      // writer can mutate the file between them.
+      return await destinationWriteLock.run(absolutePath, () =>
+        current.state === 'absent'
+          ? this.createContent(agent, absolutePath, guard)
+          : this.replaceContent(agent, absolutePath, guard),
+      );
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Unexpected error writing agent', err);
@@ -263,10 +269,15 @@ export class AgentFileWriterService implements IAgentFileWriterService {
    * closes the gap across the directory creation and any other await since
    * the first read.
    *
+   * Ptah writers are coordinated: this runs under the process-wide
+   * per-destination lock (`destinationWriteLock`) that the pack
+   * installer also takes, so no other Ptah writer in this process can
+   * mutate the file between this re-check and `writeFile`.
+   *
    * Remaining guarantee: the port has no compare-and-swap for replacement
-   * and there is no lock shared with editors or other processes, so a write
-   * landing between this re-check and `writeFile` is still replaced. The
-   * window is one read; only an absent target is fully race-free.
+   * and there is no lock shared with editors or other processes, so their
+   * write landing between this re-check and `writeFile` is still replaced.
+   * The window is one read; only an absent target is fully race-free.
    */
   private async replaceContent(
     agent: GeneratedAgent,
