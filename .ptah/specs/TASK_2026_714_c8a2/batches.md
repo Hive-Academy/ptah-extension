@@ -912,6 +912,49 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 12 close, 2026-10-26) — P8 in progress
+
+- Commits (team-leader, not pushed): c8eb6ea50 feat(chat-streaming,chat): batch 8c; 93c101ba3
+  feat(electron): batch 8a-0; 956254955 test(cli-engine,cli): batch 8e.
+- Deciding verify (team-leader, started 10:00:24): `npm run verify -- -p
+  @ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode,@ptah-extension/cli-engine,ptah-cli`
+  -> 61 tasks: 59 succeeded, 2 failed. Green: ptah-electron lint/test/typecheck, cli-engine and
+  ptah-cli lint/test/typecheck, rpc-handlers lint/typecheck. Red: rpc-handlers:test
+  (codex-chat-host-ports.spec.ts TS2352/TS2322 casts and an incomplete message_complete event; this
+  run started before fix round 2), ptah-extension-vscode:test (8d defects below). Earlier run
+  `-p ptah-electron,@ptah-extension/chat-streaming,@ptah-extension/chat`: chat-streaming
+  lint/test/typecheck and chat test/typecheck green; chat lint fails only on pre-existing
+  lazy-load static import errors (known noise).
+- Uncommitted on purpose (red or unverified):
+  - 8a-1 (rpc-handlers): libs/backend/rpc-handlers/src/lib/chat/codex-host/ (4 files),
+    src/index.ts, package.json (adds @ptah-extension/codex-runtime), batch-8a-1b-report.md. Fix
+    round 2 (spec casts, message_complete fixture, package dependency, error causes) landed AFTER
+    the deciding run started: needs one rpc-handlers verify, then commit. Open review item: the
+    spec uses ProviderInfo id 'ptah-cli' because shared ProviderId
+    (libs/shared/src/lib/types/ai-provider.types.ts:12) has no Codex member; the factory takes
+    `info` as a dep, so 8a-2 decides what ProviderInfo the native adapter reports (gap, not a
+    label to keep).
+  - 8d (VS Code): apps/ptah-extension-vscode/src/di/{expected-resolvable.ts,
+    container.smoke.spec.ts, rpc-surface.spec.ts, surface-composition.spec.ts}, batch-8d-report.md.
+    Defects: surface-composition.spec.ts:95-99 TS2339/TS2345 (readFileSync result typed
+    string | Buffer; pass 'utf8' or narrow); rpc-surface.spec.ts asserts chat:sendMessage and
+    config:model-switch / effort-set / autopilot-toggle on the VS Code surface, but they are not in
+    the received list (check the real RPC names before asserting). Back to the 8d executor.
+- 8a-1c spec (P8 decision 1, decisions.md, coordinator option A): agent-sdk implements
+  CodexThreadIdentityStore on SessionMetadataStore. Store only the identity mapping (threadId,
+  contextId, processGeneration, normalizedHome, workspaceId, active/inactive); history stays in
+  the App Server thread (resume via thread/resume by threadId). One record feeds
+  SESSION_RUNTIME_IDENTITY_LOOKUP and the store; old codexExecution records stay readable (spec for
+  an old record without the new fields). persist() is awaited before the first turn; a failed write
+  refuses the launch with a typed error. markInactive compares before writing (a stale generation
+  never clears a newer thread). Verify agent-sdk + rpc-handlers + di-lint + four-host typecheck.
+- Next order: (1) rpc-handlers verify -> commit 8a-1; (2) 8d fix -> verify ptah-extension-vscode
+  -> commit; (3) 8a-1c; (4) 8a-2 (bind: settings from profile(), callbacks composed from existing
+  observers, ProviderInfo decision, permission replies via the returned handlePermissionResponse,
+  8a acceptance audits, di-lint, four-host typecheck); (5) 8b (IPC mirrors the 8c wire mapping);
+  (6) P8 phase review (code-logic; visual review for 8c in Electron dark + light after an
+  approved live run; write-path trace of native/legacy persistence vs config RPC handles).
+
 # Run state (session 11 close, 2026-10-26)
 
 - P7 CLOSED. Commits: 7a b7f936961, 7c d9e9956c3, 7b cbbb8a337, 7d 4a2f15579 + 6a1ed5cbe, di-lint
@@ -1504,8 +1547,56 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 Phase review: code-logic; visual review (Electron, dark + light) for 8c. Electron first; VS Code
 and CLI get compatible bindings only (no feature work).
 
-## Batch 8a: Electron DI composition and dev switch wiring — PENDING
+## Batch 8a: Electron DI composition and dev switch wiring — IN_PROGRESS
 
+- Session 12 split (team-leader decision, 6-file cap): no host implementation of
+  CodexChatAdapterPorts, RuntimeAdmissionPort, NativeSessionControls or LegacySessionControlPorts
+  exists yet (grep over libs/apps at d24de2a2c), so the port factories go into a NEW Electron file
+  instead of growing phase-2-libraries.ts.
+  - 8a-0 — COMPLETE (93c101ba3): CREATE W/apps/ptah-electron/src/di/codex-runtime-composition.ts and
+    `codex-runtime-composition.spec.ts` — host-specific infrastructure only (routing/capability
+    from gate + DS1 with `isPackaged`/`env` verbatim, bundled-root-constrained executable, per-session
+    child runtime scope with runtime -> usage -> container close, awaited identity initializer).
+    Report batch-8a-1-report.md (the lane stopped at the rpc-handlers export boundary). Verify
+    `npm run verify -- -p ptah-electron`.
+  - 8a-1 — IN_PROGRESS, uncommitted (red test run before fix round 2; re-scoped after 8a-0; coordinator allowed narrow public exports from
+    rpc-handlers): the host-agnostic ports live in rpc-handlers, which owns ChatStreamBroadcaster,
+    ChatRuntimeProfileService, permission presentation and config persistence (plan: "Electron
+    registers shared ports"). CREATE R+chat/codex-host/ codex-chat-host-ports.ts (+spec: profile,
+    admission, presentation, replacement, callbacks, publish), native-session-controls.ts (+spec:
+    persistence-owning, canSendFollowUp, exactly-once write, effort/permission-scope rollback),
+    legacy-session-control-ports.ts; MODIFY R+index.ts (narrow exports). Verify rpc-handlers,
+    di-lint, four-host typecheck. Report batch-8a-1b-report.md.
+  - 8a-1 result (session 12): factories written and exported, NOT bindable yet. Gaps found
+    (batch-8a-1b-report.md "Needs a lib batch"), decided by the team-leader or sent to the
+    coordinator:
+    - G1 FM-R5 "single physical write": NOT a gap. code-logic-rereview-p7.md:119-122 defines
+      FM-R5 as one logical owner (exactly one save per change, applyTo honoured, autopilot pair,
+      partial-write restore). The factory already restores partial writes. No settings-core
+      transaction API (team-leader decision; reversible).
+    - G2 RESOLVED by P8 decision 1 (coordinator, option A) -> new batch 8a-1c before 8a-2:
+      agent-sdk CodexThreadIdentityStore on SessionMetadataStore (identity mapping only; old
+      codexExecution records stay readable with a spec; awaited persist with a typed failure;
+      compare-before-markInactive). Verify agent-sdk + rpc-handlers + di-lint + host typecheck.
+      Original finding: no persistent CodexThreadIdentityStore implementation exists anywhere
+      (interface codex-runtime-ports.ts:33; grep over libs/apps finds no implementer). runtime.open
+      must persist the identity before the first turn, and resume needs read(contextId); session
+      metadata (session-metadata-store.ts:76) keeps only provider/workspace/home. Owner and storage
+      are a plan decision -> coordinator.
+    - G3: initial per-session control settings (`settings(sessionId)`) have no supported source.
+      Smallest option: profile() records the session's model/effort/permission when it builds the
+      profile, inactive sessions read the persisted binding; no agent-sdk change. Pending G2's owner.
+    - G4: concrete CodexChatEventCallbacks (result/content/live/compaction observers) are injected,
+      not assembled. 8a-2 composes them from existing rpc-handlers observers.
+    - Write-path trace (review item): the factory writes through WorkspaceScopeResolver with the
+      session's provider namespace (providerSelectedModelDef/providerReasoningEffortDef), while the
+      unbound config RPC writes through modelSettings/reasoningSettings handles and configManager
+      (config-rpc.handlers.ts:212,:749,:365). The phase review must confirm both reach the same
+      physical keys and scopes.
+  - 8a-2 — PENDING: MODIFY phase-2-libraries.ts (literal registrations, awaited identity init),
+    `expected-resolvable.ts`, `container.smoke.spec.ts`, `rpc-surface.spec.ts`,
+    `surface-composition.spec.ts`; audits recorded in batch-8a-2-report.md. Verify ptah-electron
+    + di-lint.
 - Recommended executor: CLI lane, Codex family | Review: Claude | Subagent reason: N/A
 - Files: MODIFY W/apps/ptah-electron/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`; CREATE
@@ -1549,7 +1640,10 @@ and CLI get compatible bindings only (no feature work).
   pre-existing lint noise — compare with main before attributing)
 - Executor/review as 8a.
 
-## Batch 8c: Codex approval decisions in the permission prompt — PENDING (needs 5a)
+## Batch 8c: Codex approval decisions in the permission prompt — COMPLETE (code; report batch-8c-report.md; visual review waits for an approved live Electron run)
+
+- Wire mapping 8a-1/8b must mirror: accept->allow, acceptForSession->always_allow,
+  decline->deny_with_message (no reason), cancel->deny. 6 files (dispatcher + spec added).
 
 - Recommended executor: frontend-developer subagent (Claude family)
 - Subagent reason: rendered UI change needs Electron dark/light screenshots (visual work a lane
@@ -1565,7 +1659,7 @@ and CLI get compatible bindings only (no feature work).
 - Verification: `npm run verify -- -p @ptah-extension/chat-streaming,@ptah-extension/chat`
 - File-disjoint from 8a/8b: may run in parallel with 8a.
 
-## Batch 8d: VS Code compatible bindings — PENDING (needs 8a)
+## Batch 8d: VS Code compatible bindings — IN_PROGRESS, uncommitted (vscode test red; see Run state session 12)
 
 - Files: MODIFY W/apps/ptah-extension-vscode/src/di/phase-2-libraries.ts, `expected-resolvable.ts`,
   `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`
@@ -1573,7 +1667,7 @@ and CLI get compatible bindings only (no feature work).
 - Verification: `npm run verify -- -p ptah-extension-vscode`
 - Executor/review as 8a.
 
-## Batch 8e: CLI engine and ptah-cli bindings — PENDING (needs 8a)
+## Batch 8e: CLI engine and ptah-cli bindings — COMPLETE (956254955; report batch-8e-report.md; container.ts unchanged, LEGACY_SESSION_CONTROL_PORTS unbound)
 
 - Files: MODIFY W/libs/backend/cli-engine/src/lib/container.ts,
   W/libs/backend/cli-engine/src/lib/surface-composition.spec.ts,
