@@ -3,18 +3,14 @@ import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { ProviderAccountActionKind } from '@ptah-extension/core';
 import type {
-  ProviderAccountActionResult,
   ProviderAccountOperation,
   ProviderAccountSignInFallback,
   ProviderAccountState,
   ProviderAccountSummary,
 } from '@ptah-extension/shared';
-import {
-  ACCOUNT_NAME_SAVED,
-  AccountDetailViewComponent,
-  type AccountDetailTab,
-  type AccountRenameRequest,
-} from './account-detail-view.component';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { ACCOUNT_COPY } from './account-presentation';
+import { AccountDetailViewComponent, type AccountRenameRequest } from './account-detail-view.component';
 
 const account = (
   state: ProviderAccountState = 'signed-in',
@@ -31,6 +27,8 @@ const account = (
 });
 
 const OTHER = account('signed-in', { profileId: 'p-team', label: 'Team plan' });
+const SIGN_IN_OP = { kind: 'sign-in', operationId: 'op-1' } as unknown as ProviderAccountOperation;
+const SCRIPT = { platform: 'posix', script: 'claude login --profile work' } as ProviderAccountSignInFallback;
 
 @Component({
   standalone: true,
@@ -43,16 +41,13 @@ const OTHER = account('signed-in', { profileId: 'p-team', label: 'Team plan' });
         [operation]="operation()"
         [fallback]="fallback()"
         [busy]="busy()"
-        [refusal]="refusal()"
-        [feedback]="feedback()"
-        [initialTab]="initialTab()"
         (back)="events.push('back')"
-        (signIn)="onAction('sign-in', $event)"
-        (cancelSignIn)="onAction('cancel-sign-in', $event)"
-        (signOut)="onAction('sign-out', $event)"
-        (checkStatus)="onAction('check-status', $event)"
-        (rename)="onRename($event)"
-        (remove)="onAction('remove', $event)"
+        (signIn)="events.push('sign-in:' + $event)"
+        (cancelSignIn)="events.push('cancel-sign-in:' + $event)"
+        (signOut)="events.push('sign-out:' + $event)"
+        (checkStatus)="events.push('check-status:' + $event)"
+        (rename)="renames.push($event)"
+        (remove)="events.push('remove:' + $event)"
       />
     }
     <button type="button" data-testid="elsewhere">Elsewhere</button>
@@ -65,46 +60,37 @@ class Host {
   readonly operation = signal<ProviderAccountOperation | null>(null);
   readonly fallback = signal<ProviderAccountSignInFallback | null>(null);
   readonly busy = signal<ProviderAccountActionKind | null>(null);
-  readonly refusal = signal<ProviderAccountActionResult | null>(null);
-  readonly feedback = signal<string | null>(null);
-  readonly initialTab = signal<AccountDetailTab | null>(null);
   readonly events: string[] = [];
   readonly renames: AccountRenameRequest[] = [];
-  /** Mirrors the parent: each action starts synchronously and marks the account busy. */
-  startOnRequest = true;
-
-  onAction(kind: string, profileId: string): void {
-    this.events.push(`${kind}:${profileId}`);
-    if (!this.startOnRequest) return;
-    const busy: Record<string, ProviderAccountActionKind> = {
-      'sign-in': 'sign-in',
-      'cancel-sign-in': 'cancel-sign-in',
-      'sign-out': 'sign-out',
-      'check-status': 'sign-in',
-      remove: 'remove',
-    };
-    this.busy.set(busy[kind] ?? null);
-  }
-
-  onRename(request: AccountRenameRequest): void {
-    this.renames.push(request);
-    if (this.startOnRequest) this.busy.set('rename');
-  }
 }
 
-describe('AccountDetailViewComponent', () => {
+describe('AccountDetailViewComponent (flat panel)', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
   let copy: jest.Mock<boolean, [string]>;
+  let announce: jest.Mock<void, [string, 'status' | 'alert']>;
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) =>
     el().querySelector(`[data-testid="${id}"]`) as T | null;
   const btn = (id: string) => q<HTMLButtonElement>(id) as HTMLButtonElement;
+  const nameInput = () => q<HTMLInputElement>('account-detail-rename-input') as HTMLInputElement;
   const text = () => el().textContent?.replace(/\s+/g, ' ') ?? '';
-  const live = () => q('account-detail-live') as HTMLElement;
   const render = () => fixture.detectChanges();
-  const openTab = (tab: AccountDetailTab) => {
-    btn(`account-detail-tab-${tab}`).click();
+  const type = (value: string) => {
+    nameInput().value = value;
+    nameInput().dispatchEvent(new Event('input'));
+    render();
+  };
+  const setAccount = (summary: ProviderAccountSummary) => {
+    host.account.set(summary);
+    render();
+  };
+  const openTerminal = () => {
+    host.account.set(account('pending'));
+    host.operation.set(SIGN_IN_OP);
+    host.fallback.set(SCRIPT);
+    render();
+    btn('account-detail-terminal-toggle').click();
     render();
   };
 
@@ -120,9 +106,13 @@ describe('AccountDetailViewComponent', () => {
 
   beforeEach(async () => {
     copy = jest.fn<boolean, [string]>(() => true);
+    announce = jest.fn<void, [string, 'status' | 'alert']>();
     await TestBed.configureTestingModule({
       imports: [Host],
-      providers: [{ provide: Clipboard, useValue: { copy } }],
+      providers: [
+        { provide: Clipboard, useValue: { copy } },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
@@ -134,238 +124,245 @@ describe('AccountDetailViewComponent', () => {
     (fixture.nativeElement as HTMLElement).remove();
   });
 
-  describe('header and tabs', () => {
-    it('focuses the account heading on open and shows dot + state text', () => {
+  describe('header', () => {
+    it('focuses the h3 heading on open and shows avatar, dot and state word', () => {
       render();
       const heading = q('account-detail-heading') as HTMLElement;
       expect(heading.tagName).toBe('H3');
       expect(heading.getAttribute('tabindex')).toBe('-1');
+      expect(heading.getAttribute('title')).toBe('Work');
       expect(document.activeElement).toBe(heading);
-      expect(q('account-detail-state')?.textContent).toContain('Not signed in');
+      expect(q('account-detail-state')?.textContent?.trim()).toBe('Not signed in');
+      expect(q('account-detail-state')?.querySelector('.rounded-full.bg-state-idle')).not.toBeNull();
+      expect(q('account-detail')?.className).toContain('space-y-6');
     });
 
-    it('emits back from All accounts', () => {
+    it('emits back from "← Accounts"', () => {
       render();
+      expect(btn('account-detail-back').textContent?.replace(/\s+/g, ' ').trim()).toBe('← Accounts');
       btn('account-detail-back').click();
       expect(host.events).toEqual(['back']);
     });
 
-    it('opens on Access unless signed in (D39.3)', () => {
-      render();
-      expect(q('account-detail-panel-access')).not.toBeNull();
-      fixture.destroy();
-      fixture = TestBed.createComponent(Host);
-      host = fixture.componentInstance;
-      host.account.set(account('signed-in'));
-      render();
-      expect(q('account-detail-panel-overview')).not.toBeNull();
+    it('shows "Waiting for Claude window" with a spinner while sign-in is pending', () => {
+      setAccount(account('pending'));
+      expect(q('account-detail-state')?.textContent?.trim()).toBe('Waiting for Claude window');
+      expect(q('account-detail-state')?.querySelector('.animate-spin')).not.toBeNull();
     });
 
-    it('honours an explicit initial tab', () => {
-      host.initialTab.set('profile');
-      render();
-      expect(q('account-detail-panel-profile')).not.toBeNull();
+    it('marks failed and disconnected with the attention bar', () => {
+      setAccount(account('failed'));
+      expect(q('account-detail-state')?.textContent?.trim()).toBe('Sign-in failed');
+      expect(el().querySelector('.border-l-state-err')).not.toBeNull();
+      setAccount(account('signed-in'));
+      expect(el().querySelector('.border-l-state-err')).toBeNull();
     });
 
-    it('is a roving tablist "Account sections" with arrows, Home and End', () => {
-      render();
-      const list = el().querySelector('[role="tablist"]') as HTMLElement;
-      expect(list.getAttribute('aria-label')).toBe('Account sections');
-      const tab = (id: AccountDetailTab) => btn(`account-detail-tab-${id}`);
-      expect(tab('access').getAttribute('tabindex')).toBe('0');
-      expect(tab('overview').getAttribute('tabindex')).toBe('-1');
-      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-      render();
-      expect(tab('profile').getAttribute('aria-selected')).toBe('true');
-      expect(document.activeElement).toBe(tab('profile'));
-      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-      render();
-      expect(document.activeElement).toBe(tab('overview'));
-      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-      render();
-      expect(document.activeElement).toBe(tab('profile'));
-      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-      render();
-      expect(document.activeElement).toBe(tab('overview'));
-      const panel = q('account-detail-panel-overview') as HTMLElement;
-      expect(panel.getAttribute('aria-labelledby')).toBe('account-detail-tab-overview');
+    it('shows the running badge only for bound runs', () => {
+      setAccount(account('signed-in'));
+      expect(q('account-detail-runs')).toBeNull();
+      setAccount(account('signed-in', { activeRunCount: 2 }));
+      expect(q('account-detail-runs')?.textContent?.trim()).toBe('2 running');
+      expect(q('account-detail-resume-unavailable')).toBeNull();
     });
 
-    it('lays the tablist out as a wrapping flex row so narrow drawers never scroll sideways', () => {
-      render();
-      const list = el().querySelector('[role="tablist"]') as HTMLElement;
-      // DaisyUI 4 `.tabs` is a single-row grid; `flex` overrides it so `flex-wrap` takes effect.
-      expect(list.classList).toContain('flex');
-      expect(list.classList).toContain('flex-wrap');
+    it('shows "Cannot resume" with the full sentence as title and sr-only text when not signed in with bound runs', () => {
+      setAccount(account('signed-out', { activeRunCount: 1 }));
+      const badge = q('account-detail-resume-unavailable') as HTMLElement;
+      expect(badge.textContent).toContain('Cannot resume');
+      expect(badge.getAttribute('title')).toBe(ACCOUNT_COPY.resumeUnavailable);
+      expect(badge.querySelector('.sr-only')?.textContent).toBe(ACCOUNT_COPY.resumeUnavailable);
     });
 
-    it('shows no profile id, owner, identity or "Set as default" on any tab', () => {
-      host.account.set(account('signed-in', { activeRunCount: 2 }));
-      render();
-      for (const tab of ['overview', 'access', 'profile'] as const) {
-        openTab(tab);
-        expect(text()).not.toContain('p-work-7c2a');
-        expect(text()).not.toMatch(/owner|Verified identity|Set as default|profile ID/i);
+    it('is one flat panel: no tabs, live line, helper sentences, profile id or "Set as default"', () => {
+      for (const state of ['signed-in', 'pending', 'failed', 'not-signed-in'] as const) {
+        setAccount(account(state));
+        for (const id of ['tablist', 'live', 'access-copy', 'no-runs', 'held', 'refusal', 'copy-status', 'overview-state', 'remove-copy', 'pending']) {
+          expect(q(`account-detail-${id}`)).toBeNull();
+        }
+        expect(el().querySelectorAll('[role="tab"], [role="tabpanel"], [aria-live]')).toHaveLength(0);
+        expect(text()).not.toMatch(/p-work-7c2a|verified|Set as default|Credentials|No runs are bound|Only you see|Waiting for you/);
       }
     });
   });
 
-  describe('overview', () => {
-    it('shows the run binding and the resume notice only for bound runs on a non-signed-in account', () => {
-      host.account.set(account('disconnected', { activeRunCount: 1 }));
-      host.initialTab.set('overview');
-      render();
-      expect(q('account-detail-runs')?.textContent).toContain('1 active run uses this account.');
-      expect(q('account-detail-resume-unavailable')).not.toBeNull();
-      host.account.set(account('signed-in', { activeRunCount: 3 }));
-      render();
-      expect(q('account-detail-runs')?.textContent).toContain('3 active runs use this account.');
-      expect(q('account-detail-resume-unavailable')).toBeNull();
-      host.account.set(account('disconnected'));
-      render();
-      expect(q('account-detail-no-runs')?.textContent).toContain('No runs are bound to this account.');
-      expect(q('account-detail-resume-unavailable')).toBeNull();
-    });
-  });
-
-  describe('access', () => {
-    it.each<[ProviderAccountState, string, string]>([
-      ['not-signed-in', 'This account is not signed in yet.', 'Sign in'],
-      ['signed-out', 'This account is not signed in yet.', 'Sign in'],
-      ['cancelled', 'Sign-in was cancelled. The account is still saved but not signed in.', 'Sign in'],
-      ['disconnected', 'This account was disconnected. Sign in again to use it.', 'Sign in'],
-      ['failed', 'Sign-in did not finish', 'Try again'],
-    ])('%s: copy, primary action and Check status', (state, copyText, primary) => {
-      host.account.set(account(state));
-      render();
-      expect(q('account-detail-access-copy')?.textContent).toContain(copyText);
-      expect(btn('account-detail-sign-in').textContent?.trim()).toBe(primary);
-      expect(q('account-detail-check-status')).not.toBeNull();
+  describe('actions', () => {
+    it('offers Sign in, or Try again after a failure, plus Check status', () => {
+      setAccount(account('not-signed-in'));
+      expect(btn('account-detail-sign-in').textContent?.trim()).toBe('Sign in');
       btn('account-detail-sign-in').click();
-      expect(host.events).toEqual(['sign-in:p-work-7c2a']);
+      btn('account-detail-check-status').click();
+      expect(host.events).toEqual(['sign-in:p-work-7c2a', 'check-status:p-work-7c2a']);
+      setAccount(account('failed'));
+      expect(btn('account-detail-sign-in').textContent?.trim()).toBe('Try again');
     });
 
-    it('signed in: Sign out and Check status', () => {
-      host.account.set(account('signed-in'));
-      host.initialTab.set('access');
-      render();
-      expect(text()).toContain('Signed in. Credentials stay on this computer and are never shown here.');
+    it('signed in: Sign out; pending: Cancel sign-in', () => {
+      setAccount(account('signed-in'));
+      expect(q('account-detail-sign-in')).toBeNull();
       btn('account-detail-sign-out').click();
-      expect(host.events).toEqual(['sign-out:p-work-7c2a']);
-    });
-
-    it('pending with a window: Finish sign-in copy, Cancel sign-in and Check status', () => {
-      host.account.set(account('pending'));
-      render();
-      expect(q('account-detail-pending')?.textContent).toContain('Finish sign-in in the Claude window');
-      expect(q('account-detail-fallback')).toBeNull();
+      setAccount(account('pending'));
       btn('account-detail-cancel-sign-in').click();
-      expect(host.events).toEqual(['cancel-sign-in:p-work-7c2a']);
+      expect(host.events).toEqual(['sign-out:p-work-7c2a', 'cancel-sign-in:p-work-7c2a']);
     });
 
-    it('pending with a fallback for the sign-in operation: script as text, Copy script', () => {
-      host.account.set(account('pending'));
-      host.operation.set({ operationId: 'op-1', kind: 'sign-in' });
-      host.fallback.set({ platform: 'posix', script: 'claude login <x>' });
+    it('busy: every action is aria-disabled, stays focusable and emits nothing', () => {
+      setAccount(account('signed-in'));
+      host.busy.set('sign-out');
       render();
-      const script = q('account-detail-fallback-script') as HTMLElement;
-      expect(script.textContent).toBe('claude login <x>');
-      expect(script.getAttribute('tabindex')).toBe('0');
-      expect(script.getAttribute('role')).toBe('region');
-      expect(script.getAttribute('aria-label')).toBe('Sign-in script');
-      expect(script.querySelector('x')).toBeNull();
-      btn('account-detail-copy-script').click();
-      render();
-      expect(copy).toHaveBeenCalledWith('claude login <x>');
-      expect(btn('account-detail-copy-script').textContent?.trim()).toBe('Copied');
-      expect(q('account-detail-copy-status')?.textContent).toBe('Copied');
-    });
-
-    it('hides the fallback without a sign-in operation or once not pending', () => {
-      host.account.set(account('pending'));
-      host.fallback.set({ platform: 'posix', script: 'claude login' });
-      render();
-      expect(q('account-detail-fallback')).toBeNull();
-      host.operation.set({ operationId: 'op-1', kind: 'sign-in' });
-      host.account.set(account('signed-in'));
-      render();
-      expect(q('account-detail-fallback')).toBeNull();
-    });
-
-    it('shows the safe refusal as an alert and a neutral block for release-held', () => {
-      host.refusal.set({ code: 'busy', summary: 'Sign-in could not start.' });
-      render();
-      expect(q('account-detail-refusal')?.getAttribute('role')).toBe('alert');
-      expect(q('account-detail-refusal')?.textContent).toContain('Sign-in could not start.');
-      host.refusal.set({ code: 'release-held', summary: 'Not on this host.' });
-      render();
-      expect(q('account-detail-held')?.textContent).toContain('The status is not available right now.');
-      expect(q('account-detail-check-status')).not.toBeNull();
+      for (const id of ['account-detail-sign-out', 'account-detail-check-status', 'account-detail-remove']) {
+        const control = btn(id);
+        expect(control.getAttribute('aria-disabled')).toBe('true');
+        expect(control.disabled).toBe(false);
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        control.click();
+      }
+      expect(nameInput().readOnly).toBe(true);
+      expect(host.events).toEqual([]);
+      expect(el().querySelector('dialog')?.hasAttribute('open')).toBe(false);
     });
   });
 
-  describe('profile', () => {
-    beforeEach(() => {
-      host.accounts.set([account('signed-in'), OTHER]);
-      host.initialTab.set('profile');
+  describe('Use terminal', () => {
+    it('appears only for a pending sign-in with a script and toggles the script block', () => {
+      setAccount(account('pending'));
+      expect(q('account-detail-terminal-toggle')).toBeNull();
+      host.operation.set(SIGN_IN_OP);
+      host.fallback.set(SCRIPT);
+      render();
+      const toggle = btn('account-detail-terminal-toggle');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(q('account-detail-fallback')).toBeNull();
+      toggle.click();
+      render();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      const pre = q('account-detail-fallback-script') as HTMLElement;
+      expect(pre.tagName).toBe('PRE');
+      expect(pre.getAttribute('tabindex')).toBe('0');
+      expect(pre.getAttribute('aria-label')).toBe('Sign-in script');
+      expect(pre.textContent).toBe(SCRIPT.script);
+      expect(btn('account-detail-copy-script').getAttribute('aria-label')).toBe('Copy script');
+      toggle.click();
+      render();
+      expect(q('account-detail-fallback')).toBeNull();
     });
 
-    const input = () => q<HTMLInputElement>('account-detail-rename-input') as HTMLInputElement;
-    const type = (value: string) => {
-      input().value = value;
-      input().dispatchEvent(new Event('input'));
-      render();
-    };
-
-    it('Save name stays disabled until the name is valid and changed', () => {
-      render();
-      expect(btn('account-detail-rename-submit').disabled).toBe(true);
-      type('team PLAN');
-      expect(btn('account-detail-rename-submit').disabled).toBe(true);
-      expect(q('account-detail-rename-error')?.getAttribute('role')).toBe('alert');
-      expect(input().getAttribute('aria-invalid')).toBe('true');
-      type('  Personal  ');
-      expect(btn('account-detail-rename-submit').disabled).toBe(false);
-      btn('account-detail-rename-submit').click();
-      expect(host.renames).toEqual([{ profileId: 'p-work-7c2a', label: 'Personal' }]);
-    });
-
-    it('allows a case-only change of its own name', () => {
-      render();
-      type('WORK');
-      expect(btn('account-detail-rename-submit').disabled).toBe(false);
-    });
-
-    it('locks name and removal while signing in', () => {
+    it('is hidden without a sign-in operation or once the account is not pending', () => {
       host.account.set(account('pending'));
+      host.operation.set({ kind: 'sign-out', operationId: 'op-2' } as unknown as ProviderAccountOperation);
+      host.fallback.set(SCRIPT);
       render();
-      expect(q('account-detail-locked')?.textContent).toContain('Name and removal are locked');
-      expect(input().disabled).toBe(true);
-      expect(btn('account-detail-remove').disabled).toBe(true);
+      expect(q('account-detail-terminal-toggle')).toBeNull();
+      openTerminal();
+      expect(q('account-detail-fallback')).not.toBeNull();
+      setAccount(account('signed-in'));
+      expect(q('account-detail-terminal-toggle')).toBeNull();
+      expect(q('account-detail-fallback')).toBeNull();
     });
 
-    it('announces Name saved. and resets the field to the committed name', () => {
+    it('announces the copy result as a toast ("Copied" / alert "Could not copy")', () => {
+      openTerminal();
+      btn('account-detail-copy-script').click();
+      expect(copy).toHaveBeenCalledWith(SCRIPT.script);
+      expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.copied, 'status');
+      copy.mockReturnValue(false);
+      btn('account-detail-copy-script').click();
+      expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.copyFailed, 'alert');
+    });
+  });
+
+  describe('rename', () => {
+    beforeEach(() => {
+      host.account.set(account('signed-in'));
+      host.accounts.set([account('signed-in'), OTHER]);
+    });
+
+    it('shows Save only once the name is edited', () => {
+      render();
+      expect(nameInput().value).toBe('Work');
+      expect(el().querySelector('label[for="account-detail-name"]')?.textContent?.trim()).toBe('Name');
+      expect(q('account-detail-rename-submit')).toBeNull();
+      type('  Work  ');
+      expect(q('account-detail-rename-submit')).toBeNull();
+      type('   ');
+      expect(q('account-detail-rename-submit')).toBeNull();
+      type('Personal');
+      expect(btn('account-detail-rename-submit').textContent?.trim()).toBe('Save');
+    });
+
+    it('emits the trimmed name, allowing a case-only change of its own name', () => {
+      render();
+      type(' work ');
+      btn('account-detail-rename-submit').click();
+      expect(host.renames).toEqual([{ profileId: 'p-work-7c2a', label: 'work' }]);
+      expect(announce).not.toHaveBeenCalled();
+    });
+
+    it('announces a duplicate as the alert "That name is already used." and emits nothing', () => {
+      render();
+      type('team PLAN');
+      btn('account-detail-rename-submit').click();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.nameTaken, 'alert');
+      expect(host.renames).toEqual([]);
+      expect(q('account-detail-rename-error')).toBeNull();
+    });
+
+    it('resets the field to the committed name after a rename lands', () => {
       render();
       type('Personal');
-      btn('account-detail-rename-submit').click();
-      render();
-      host.busy.set(null);
-      host.account.set(account('signed-in', { label: 'Personal' }));
-      host.feedback.set(ACCOUNT_NAME_SAVED);
-      render();
-      expect(live().textContent).toBe('Name saved.');
-      expect(input().value).toBe('Personal');
+      setAccount(account('signed-in', { label: 'Personal', revision: 2 }));
+      expect(nameInput().value).toBe('Personal');
+      expect(q('account-detail-rename-submit')).toBeNull();
       expect(q('account-detail-heading')?.textContent).toBe('Personal');
     });
+  });
 
-    it('Remove opens a modal with Cancel focused; Cancel returns focus to Remove account', () => {
+  describe('pending lock', () => {
+    it('makes Name readonly and Remove aria-disabled, both focusable and described by the sr-only lock reason', () => {
+      setAccount(account('pending'));
+      const input = nameInput();
+      const remove = btn('account-detail-remove');
+      expect(input.readOnly).toBe(true);
+      expect(input.disabled).toBe(false);
+      expect(input.getAttribute('aria-disabled')).toBe('true');
+      expect(remove.getAttribute('aria-disabled')).toBe('true');
+      expect(remove.disabled).toBe(false);
+      const reasonId = input.getAttribute('aria-describedby') as string;
+      expect(reasonId).toBeTruthy();
+      expect(remove.getAttribute('aria-describedby')).toBe(reasonId);
+      const reason = el().querySelector(`#${reasonId}`) as HTMLElement;
+      expect(reason.classList.contains('sr-only')).toBe(true);
+      expect(reason.textContent).toBe(ACCOUNT_COPY.signInLocked);
+      expect(q('account-detail-locked')?.getAttribute('title')).toBe(ACCOUNT_COPY.signInLocked);
+      remove.click();
+      render();
+      expect(el().querySelector('dialog')?.hasAttribute('open')).toBe(false);
+    });
+
+    it('drops the lock when the sign-in ends', () => {
+      setAccount(account('pending'));
+      setAccount(account('signed-in'));
+      expect(nameInput().readOnly).toBe(false);
+      expect(nameInput().getAttribute('aria-describedby')).toBeNull();
+      expect(btn('account-detail-remove').getAttribute('aria-disabled')).toBeNull();
+      expect(q('account-detail-locked')).toBeNull();
+    });
+  });
+
+  describe('remove dialog', () => {
+    const openDialog = () => {
       render();
       btn('account-detail-remove').click();
       render();
-      const dialog = el().querySelector('dialog') as HTMLDialogElement;
+      return el().querySelector('dialog') as HTMLDialogElement;
+    };
+
+    it('opens "Remove {name}?" with Cancel focused; Cancel returns focus to Remove account', () => {
+      const dialog = openDialog();
       expect(dialog.hasAttribute('open')).toBe(true);
       expect(dialog.getAttribute('aria-labelledby')).toBe('account-detail-remove-title');
-      expect(el().querySelector('#account-detail-remove-title')?.textContent).toContain('Remove Work?');
+      expect(el().querySelector('#account-detail-remove-title')?.textContent).toBe('Remove Work?');
       expect(document.activeElement).toBe(btn('account-detail-remove-cancel'));
       btn('account-detail-remove-cancel').click();
       render();
@@ -374,89 +371,39 @@ describe('AccountDetailViewComponent', () => {
       expect(host.events).toEqual([]);
     });
 
-    it('Escape closes the modal and returns focus to Remove account', () => {
-      render();
-      btn('account-detail-remove').click();
-      render();
-      const dialog = el().querySelector('dialog') as HTMLDialogElement;
+    it('Escape closes only the dialog and returns focus to Remove account', () => {
+      const dialog = openDialog();
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+      const outer = jest.fn();
+      el().addEventListener('keydown', outer);
+      dialog.dispatchEvent(escape);
       dialog.dispatchEvent(new Event('cancel'));
       render();
+      expect(outer).not.toHaveBeenCalled();
       expect(dialog.hasAttribute('open')).toBe(false);
       expect(document.activeElement).toBe(btn('account-detail-remove'));
       expect(host.events).toEqual([]);
     });
 
-    it('Remove confirms with the profile id and assigns nothing locally (B-1)', () => {
-      render();
-      btn('account-detail-remove').click();
-      render();
+    it('Remove emits the profile id once and assigns nothing locally (B-1)', () => {
+      const dialog = openDialog();
       btn('account-detail-remove-confirm').click();
       render();
+      expect(dialog.hasAttribute('open')).toBe(false);
       expect(host.events).toEqual(['remove:p-work-7c2a']);
-      expect(document.activeElement).toBe(live());
-      expect(live().textContent).toBe('Working…');
+      expect(announce).not.toHaveBeenCalled();
     });
   });
 
-  describe('busy rule and B-2', () => {
-    it('disables every action of the account while busy', () => {
-      host.account.set(account('signed-in'));
-      host.busy.set('sign-out');
-      host.initialTab.set('access');
-      render();
-      expect(btn('account-detail-sign-out').disabled).toBe(true);
-      expect(btn('account-detail-check-status').disabled).toBe(true);
-      openTab('profile');
-      expect(btn('account-detail-rename-submit').disabled).toBe(true);
-      expect(btn('account-detail-remove').disabled).toBe(true);
-      expect(live().textContent).toBe('Working…');
-    });
-
-    it('returns focus to the originating control when focus is still on the live status (B-2)', () => {
-      render();
-      btn('account-detail-check-status').focus();
-      btn('account-detail-check-status').click();
-      render();
-      expect(document.activeElement).toBe(live());
-      host.busy.set(null);
-      render();
-      expect(document.activeElement).toBe(btn('account-detail-check-status'));
-    });
-
-    it('returns focus to the replacement control when the state replaced the origin (B-2)', () => {
-      render();
-      btn('account-detail-sign-in').click();
-      render();
-      host.busy.set(null);
-      host.account.set(account('pending'));
-      render();
-      expect(document.activeElement).toBe(btn('account-detail-cancel-sign-in'));
-    });
-
-    it('keeps focus where the user moved it and announces the result (B-2)', () => {
-      render();
-      btn('account-detail-sign-in').click();
-      render();
-      const elsewhere = q<HTMLButtonElement>('elsewhere') as HTMLButtonElement;
-      elsewhere.focus();
-      host.busy.set(null);
-      host.feedback.set('Signed in.');
-      host.account.set(account('signed-in'));
-      render();
-      expect(document.activeElement).toBe(elsewhere);
-      expect(live().getAttribute('aria-live')).toBe('polite');
-      expect(live().textContent).toBe('Signed in.');
-    });
-
-    it('does not move focus once the view is gone (B-2)', () => {
-      render();
-      btn('account-detail-sign-in').click();
-      render();
-      host.shown.set(false);
-      host.busy.set(null);
-      render();
-      expect(q('account-detail')).toBeNull();
-      expect(document.activeElement).not.toBe(q('account-detail-sign-in'));
-    });
+  it('a different account resets the draft, closes the disclosure and focuses its heading', () => {
+    openTerminal();
+    type('Draft');
+    btn('elsewhere').focus();
+    host.operation.set(null);
+    host.fallback.set(null);
+    setAccount(OTHER);
+    expect(nameInput().value).toBe('Team plan');
+    expect(q('account-detail-fallback')).toBeNull();
+    expect(document.activeElement).toBe(q('account-detail-heading'));
   });
 });
