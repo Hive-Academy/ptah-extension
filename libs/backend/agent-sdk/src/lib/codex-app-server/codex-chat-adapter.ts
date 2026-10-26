@@ -1,3 +1,7 @@
+import {
+  streamCodexChatTurn,
+  type CodexChatSession as Session,
+} from './codex-chat-turn-stream';
 import type { NativeChatAdapter } from './routing-agent-adapter';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
@@ -6,13 +10,11 @@ import {
   resolveGatedCodexRuntime,
   type ApprovalSink,
   type CodexContext,
-  type CodexReportedUsage,
   type CodexExecutionProfile,
   type CodexModelInfo,
   type CodexParityPlatform,
   type CodexThreadIdentity,
   type CodexTurnInput,
-  type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import {
   SessionId,
@@ -23,11 +25,9 @@ import {
   type FlatStreamEventUnion,
   type ProviderInfo,
 } from '@ptah-extension/shared';
-import {
-  CodexChatEvents,
-  tokenUsage,
-  type CodexChatEventCallbacks,
-  type CodexChatTurnIdentity,
+import type {
+  CodexChatEventCallbacks,
+  CodexChatTurnIdentity,
 } from './codex-chat-events';
 import {
   CodexChatApprovalSink,
@@ -49,8 +49,9 @@ export class CodexChatAdapterError extends Error {
       | 'cancelled'
       | 'identity-mismatch',
     readonly operation: string,
+    options?: ErrorOptions,
   ) {
-    super(`Codex chat ${operation}: ${code}`);
+    super(`Codex chat ${operation}: ${code}`, options);
     this.name = 'CodexChatAdapterError';
   }
 }
@@ -106,10 +107,10 @@ export interface CodexChatAdapterPorts {
     turn: CodexChatTurnIdentity | undefined,
   ): CodexChatEventCallbacks;
   /**
-   * Optional host observer of the adapter's session lifecycle. `opened` runs once a native
-   * session is persisted and about to be published (fresh or resumed), with the profile it
-   * was opened from; `closed` runs once when that session leaves the adapter. A failed or
-   * cancelled open never calls either, so hosts stage nothing before `opened`.
+   * Optional host observer. `opened` stages the native session before metadata persistence
+   * (fresh or resumed), using its prepared profile. `closed` releases staged state on a
+   * failed/cancelled open or when the published session leaves the adapter. Failures before
+   * staging call neither hook; a losing open does not close a published winner's state.
    */
   readonly sessions?: CodexChatSessionLifecycle;
   /** Drain follow-up streams into the same chat channel as the initial stream. */
@@ -125,21 +126,6 @@ export interface CodexChatSessionLifecycle {
     prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
   ): void;
   closed(sessionId: SessionId): void;
-}
-
-interface Session {
-  readonly id: SessionId;
-  readonly token: string;
-  readonly context: CodexContext;
-  readonly sink: CodexChatApprovalSink;
-  readonly scope: CodexChatScope;
-  readonly abort: AbortController;
-  usage?: CodexReportedUsage;
-  busy: boolean;
-  turnId?: string;
-  blocked: boolean;
-  pendingInterrupt?: boolean;
-  closing?: Promise<void>;
 }
 
 /** Thin native consumer. No SDK, proxy, transcript storage, or protocol parsing. */
@@ -242,6 +228,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     let sink: CodexChatApprovalSink | undefined;
     let context: CodexContext | undefined;
     let session: Session | undefined;
+    let stagedId: SessionId | undefined;
     try {
       const prepared = await this.prepareProfile(config, resumeId);
       this.checkOpening(opening, generation);
@@ -252,11 +239,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
       sink = this.buildSink(id, context, () => session);
+      stagedId = id;
+      this.ports.sessions?.opened(id, prepared);
+      this.checkOpening(opening, generation);
       await this.persistMetadata(id, context, config);
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      this.ports.sessions?.opened(id, prepared);
       session = this.publishSession(id, context, sink, scope);
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
@@ -264,15 +253,18 @@ export class CodexChatAdapter implements NativeChatAdapter {
         attachments: prepared.profile.attachments,
       });
     } catch (error) {
-      this.ports.logger.error('[CodexChatAdapter] runtime-failed: open.');
-      if (session) {
-        this.sessions.delete(session.id);
-        this.ports.sessions?.closed(session.id);
+      const failure = this.failure(error, 'open');
+      if (session) this.sessions.delete(session.id);
+      if (stagedId && !this.sessions.has(stagedId)) {
+        try {
+          this.ports.sessions?.closed(stagedId);
+        } catch (cleanupError) {
+          this.failure(cleanupError, 'lifecycle cleanup');
+        }
       }
       sink?.dispose();
       await this.cleanupOpen(context, scope);
-      if (error instanceof CodexChatAdapterError) throw error;
-      throw new CodexChatAdapterError('runtime-failed', 'open');
+      throw failure;
     } finally {
       this.opening.delete(key);
       if (resumeId) this.opening.delete(resumeId);
@@ -361,16 +353,18 @@ export class CodexChatAdapter implements NativeChatAdapter {
   ): Promise<void> {
     try {
       await context?.close();
-    } catch {
+    } catch (error) {
       this.ports.logger.error(
         '[CodexChatAdapter] runtime-failed: context cleanup.',
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
     try {
       await scope?.dispose();
-    } catch {
+    } catch (error) {
       this.ports.logger.error(
         '[CodexChatAdapter] runtime-failed: scope cleanup.',
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -481,161 +475,16 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
     if (session.blocked || session.closing)
       throw new CodexChatAdapterError('unavailable', 'turn');
-    return this.stream(session, input);
-  }
-  private async *stream(
-    session: Session,
-    input: CodexTurnInput,
-  ): AsyncGenerator<FlatStreamEventUnion> {
-    if (session.busy) throw new CodexChatAdapterError('busy', 'turn');
-    if (session.blocked || session.closing)
-      throw new CodexChatAdapterError('unavailable', 'turn');
-    session.busy = true;
-    const subscription = new AbortController();
-    const abort = () => subscription.abort();
-    session.abort.signal.addEventListener('abort', abort, { once: true });
-    let terminal = false;
-    let exhausted = false;
-    const started = Date.now();
-    let events: AsyncIterator<CodexRuntimeEvent> | undefined;
-    let projection: CodexChatEvents | undefined;
-    try {
-      if (session.abort.signal.aborted)
-        throw new CodexChatAdapterError('unavailable', 'turn');
-      const eventStream = session.context.events(subscription.signal);
-      events = eventStream[Symbol.asyncIterator]();
-      const receipt = await session.context.startTurn({
-        ...input,
-        signal: subscription.signal,
-      });
-      session.turnId = receipt.turnId;
-      const turn = { ...session.context.identity, turnId: receipt.turnId };
-      const callbacks = this.ports.callbacks(session.id, turn);
-      projection = new CodexChatEvents(
-        session.id,
-        turn,
-        {
-          ...callbacks,
-          result: (result) => {
-            terminal = true;
-            callbacks.result(result);
-            const usage = result.usage;
-            if (
-              usage?.inputTokens !== undefined &&
-              usage.outputTokens !== undefined
-            )
-              this.stats?.({
-                sessionId: session.id,
-                turnCost: null,
-                tokens: tokenUsage(usage),
-                duration: Date.now() - started,
-              });
-          },
-        },
-      );
-      if (session.pendingInterrupt) {
-        session.pendingInterrupt = false;
-        await this.interruptCurrentTurn(session.id);
-      }
-      while (true) {
-        const next = await events.next();
-        if (next.done) {
-          exhausted = true;
-          break;
-        }
-        const event = next.value;
-        if (subscription.signal.aborted) break;
-        const mappedEvents = projection.map(event);
-        if (
-          event.contextId === session.context.identity.contextId &&
-          event.processGeneration ===
-            session.context.identity.processGeneration &&
-          event.threadId === session.id &&
-          event.turnId === receipt.turnId
-        ) {
-          if (event.type === 'usage') session.usage = event.usage;
-          if (event.type === 'terminal' && event.usage)
-            session.usage = event.usage;
-          if (event.type === 'compaction' && event.phase === 'started')
-            this.notifyCompaction(session, 'auto');
-        }
-        for (const mapped of mappedEvents) yield mapped;
-        if (terminal) return;
-      }
-      throw new CodexChatAdapterError('runtime-failed', 'stream');
-    } catch (error) {
-      this.ports.logger.error('[CodexChatAdapter] runtime-failed: turn.');
-      if (error instanceof CodexChatAdapterError) throw error;
-      throw new CodexChatAdapterError('runtime-failed', 'turn');
-    } finally {
-      const release = () => {
-        subscription.abort();
-        session.abort.signal.removeEventListener('abort', abort);
-        session.busy = false;
-        session.turnId = undefined;
-        session.blocked = false;
-        session.pendingInterrupt = false;
-      };
-      if (
-        !terminal &&
-        !exhausted &&
-        session.turnId &&
-        events &&
-        projection &&
-        !session.closing
-      ) {
-        // A detached consumer must not release the latch before the server terminal.
-        void this.drainInterruptedTurn(session, events, projection).finally(
-          release,
-        );
-      } else {
-        release();
-        try {
-          await events?.return?.();
-        } catch {
-          this.ports.logger.error(
-            '[CodexChatAdapter] runtime-failed: event subscription cleanup.',
-          );
-        }
-      }
-    }
-  }
-  private async drainInterruptedTurn(
-    session: Session,
-    events: AsyncIterator<CodexRuntimeEvent>,
-    projection: CodexChatEvents,
-  ): Promise<void> {
-    try {
-      await this.interruptCurrentTurn(session.id);
-      while (!session.abort.signal.aborted) {
-        const next = await events.next();
-        if (next.done) break;
-        const mapped = projection.map(next.value);
-        if (mapped.some((event) => event.eventType === 'message_complete'))
-          return;
-      }
-      // Without a terminal, close the context before permitting another turn.
-      await this.close(session);
-    } catch {
-      this.ports.logger.error(
-        '[CodexChatAdapter] runtime-failed: detached turn cleanup.',
-      );
-      try {
-        await this.close(session);
-      } catch {
-        this.ports.logger.error(
-          '[CodexChatAdapter] runtime-failed: detached context cleanup.',
-        );
-      }
-    } finally {
-      try {
-        await events.return?.();
-      } catch {
-        this.ports.logger.error(
-          '[CodexChatAdapter] runtime-failed: event subscription cleanup.',
-        );
-      }
-    }
+    return streamCodexChatTurn(session, input, {
+      logger: this.ports.logger,
+      callbacks: (id, turn) => this.ports.callbacks(id, turn),
+      stats: (result) => this.stats?.(result),
+      interrupt: (id) => this.interruptCurrentTurn(id),
+      close: (active) => this.close(active),
+      notifyCompaction: (active, trigger) => this.notifyCompaction(active, trigger),
+      error: (code, operation) => new CodexChatAdapterError(code, operation),
+      failure: (error, operation) => this.failure(error, operation),
+    });
   }
   async sendMessageToSession(
     ...[id, text, options]: Parameters<IAgentAdapter['sendMessageToSession']>
@@ -677,11 +526,12 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (opening) opening.cancelled = true;
     const session = this.sessions.get(id);
     if (session)
-      void this.close(session).catch(() =>
+      void this.close(session).catch((error) => {
+        this.failure(error, 'cleanup');
         this.ports
           .callbacks(id, undefined)
-          .error('[CodexChatAdapter] runtime-failed: cleanup.'),
-      );
+          .error('[CodexChatAdapter] runtime-failed: cleanup.');
+      });
   }
   async endSessionIfTokenMatches(
     id: SessionId,
@@ -806,6 +656,15 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private unsupported(operation: string): never {
     throw new CodexChatAdapterError('unsupported', operation);
   }
+  private failure(error: unknown, operation: string): CodexChatAdapterError {
+    this.ports.logger.error(
+      `[CodexChatAdapter] runtime-failed: ${operation}.`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return error instanceof CodexChatAdapterError
+      ? error
+      : new CodexChatAdapterError('runtime-failed', operation, { cause: error });
+  }
   private async safe<T>(
     operation: string,
     action: () => Promise<T>,
@@ -813,11 +672,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     try {
       return await action();
     } catch (error) {
-      this.ports.logger.error(
-        `[CodexChatAdapter] runtime-failed: ${operation}.`,
-      );
-      if (error instanceof CodexChatAdapterError) throw error;
-      throw new CodexChatAdapterError('runtime-failed', operation);
+      throw this.failure(error, operation);
     }
   }
 }

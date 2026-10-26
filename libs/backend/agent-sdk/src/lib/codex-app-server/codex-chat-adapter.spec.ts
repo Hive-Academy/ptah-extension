@@ -198,6 +198,9 @@ describe('CodexChatAdapter', () => {
       context.startTurn.mock.invocationCallOrder[0],
     );
     expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, undefined);
+    expect(lifecycle.opened.mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(ports.metadata.save).mock.invocationCallOrder[0],
+    );
     expect(resolved).toHaveBeenCalledWith(tabId, id);
     expect(output).toHaveLength(2);
     expect(callbacks.result).toHaveBeenCalledTimes(1);
@@ -233,12 +236,99 @@ describe('CodexChatAdapter', () => {
     expect(lifecycle.closed).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
-  it('sanitizes native open and cleanup failures', async () => {
-    const { adapter, open, dispose } = setup();
-    open.mockRejectedValue(new Error('secret token'));
-    dispose.mockRejectedValue(new Error('secret cleanup'));
-    await expect(adapter.startChatSession({ tabId })).rejects.toThrow(
-      'Codex chat open: runtime-failed',
+  it('retains native open and cleanup errors without changing the coded message', async () => {
+    const { adapter, open, dispose, ports } = setup();
+    const error = new Error('secret token');
+    const cleanupError = new Error('secret cleanup');
+    open.mockRejectedValue(error);
+    dispose.mockRejectedValue(cleanupError);
+    await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
+      message: 'Codex chat open: runtime-failed',
+      cause: error,
+    });
+    expect(ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] runtime-failed: open.',
+      error,
+    );
+    expect(jest.mocked(ports.logger.error).mock.calls[0]?.[1]).toBe(error);
+    expect(ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] runtime-failed: scope cleanup.',
+      cleanupError,
+    );
+  });
+  it.each(['start', 'resume'] as const)(
+    'does not persist identity when lifecycle staging throws during %s',
+    async (operation) => {
+      const { adapter, ports, lifecycle, context, dispose } = setup();
+      const error = new Error('record failed');
+      const contextError = new Error('context close failed');
+      const lifecycleError = new Error('lifecycle cleanup failed');
+      lifecycle.opened.mockImplementation(() => {
+        throw error;
+      });
+      lifecycle.closed.mockImplementation(() => {
+        throw lifecycleError;
+      });
+      context.close.mockRejectedValue(contextError);
+      const opening =
+        operation === 'start'
+          ? adapter.startChatSession({ tabId })
+          : adapter.resumeSession(id, { tabId });
+      await expect(opening).rejects.toMatchObject({
+        message: 'Codex chat open: runtime-failed',
+        cause: error,
+      });
+      expect(ports.metadata.save).not.toHaveBeenCalled();
+      expect(context.startTurn).not.toHaveBeenCalled();
+      expect(adapter.owns(id)).toBe(false);
+      expect(lifecycle.closed).toHaveBeenCalledWith(id);
+      expect(context.close).toHaveBeenCalledTimes(1);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(ports.logger.error).toHaveBeenCalledWith(
+        '[CodexChatAdapter] runtime-failed: open.',
+        error,
+      );
+      expect(ports.logger.error).toHaveBeenCalledWith(
+        '[CodexChatAdapter] runtime-failed: lifecycle cleanup.',
+        lifecycleError,
+      );
+      expect(ports.logger.error).toHaveBeenCalledWith(
+        '[CodexChatAdapter] runtime-failed: context cleanup.',
+        contextError,
+      );
+    },
+  );
+  it('stages lifecycle before persistence and releases it when persistence fails', async () => {
+    const { adapter, ports, lifecycle, context, dispose } = setup();
+    const error = new Error('metadata failed');
+    ports.metadata.save = jest.fn(async () => {
+      expect(lifecycle.opened).toHaveBeenCalledWith(
+        id,
+        expect.objectContaining({ profile }),
+      );
+      expect(adapter.owns(id)).toBe(false);
+      throw error;
+    });
+    await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
+      message: 'Codex chat open: runtime-failed',
+      cause: error,
+    });
+    expect(lifecycle.closed).toHaveBeenCalledTimes(1);
+    expect(lifecycle.closed).toHaveBeenCalledWith(id);
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(adapter.owns(id)).toBe(false);
+  });
+  it('normalizes a non-Error failure for logging and retains the original cause', async () => {
+    const { adapter, open, ports } = setup();
+    open.mockRejectedValue('native failure');
+    await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
+      message: 'Codex chat open: runtime-failed',
+      cause: 'native failure',
+    });
+    expect(ports.logger.error).toHaveBeenCalledWith(
+      '[CodexChatAdapter] runtime-failed: open.',
+      new Error('native failure'),
     );
   });
   it('resumes native identity, supports settings and compaction without SDK aliases', async () => {
@@ -531,14 +621,67 @@ it.each(['unconsumed', 'returned', 'publish-failure'] as const)(
   },
 );
 it('retains context and releases busy after a transient start rejection', async () => {
-  const { adapter, context } = setup();
-  context.startTurn.mockRejectedValueOnce(new Error('temporary'));
+  const { adapter, context, ports } = setup();
+  const error = new Error('temporary');
+  context.startTurn.mockRejectedValueOnce(error);
   const stream = await adapter.startChatSession({ tabId });
   await expect(stream[Symbol.asyncIterator]().next()).rejects.toMatchObject({
     code: 'runtime-failed',
+    message: 'Codex chat turn: runtime-failed',
+    cause: error,
   });
+  expect(ports.logger.error).toHaveBeenCalledWith(
+    '[CodexChatAdapter] runtime-failed: turn.',
+    error,
+  );
   await adapter.sendMessageToSession(id, 'retry');
   expect(context.close).not.toHaveBeenCalled();
+  await adapter.interruptSession(id);
+});
+it('retains setting failures as causes and logs the original error', async () => {
+  const { adapter, context, ports } = setup();
+  await adapter.startChatSession({ tabId });
+  const error = new Error('model update failed');
+  context.updateNextTurn.mockRejectedValueOnce(error);
+  await expect(adapter.setSessionModel(id, 'gpt')).rejects.toMatchObject({
+    message: 'Codex chat model: runtime-failed',
+    cause: error,
+  });
+  expect(ports.logger.error).toHaveBeenCalledWith(
+    '[CodexChatAdapter] runtime-failed: model.',
+    error,
+  );
+  expect(jest.mocked(ports.logger.error).mock.calls[0]?.[1]).toBe(error);
+  await adapter.interruptSession(id);
+});
+it('logs the original subscription cleanup error after a terminal result', async () => {
+  const { adapter, context, ports, callbacks } = setup();
+  const error = new Error('subscription cleanup failed');
+  // Same contract as a generator whose `finally` throws: after the terminal
+  // event, both further reads and `return()` reject with the cleanup error.
+  context.events.mockImplementation(() => {
+    let delivered = false;
+    const iterator: AsyncIterableIterator<typeof terminal> = {
+      [Symbol.asyncIterator]: () => iterator,
+      next: async () => {
+        if (delivered) throw error;
+        delivered = true;
+        return { done: false, value: terminal };
+      },
+      return: async () => {
+        throw error;
+      },
+    };
+    return iterator;
+  });
+  const stream = await adapter.startChatSession({ tabId });
+  for await (const event of stream) void event;
+  expect(callbacks.result).toHaveBeenCalledTimes(1);
+  expect(ports.logger.error).toHaveBeenCalledWith(
+    '[CodexChatAdapter] runtime-failed: event subscription cleanup.',
+    error,
+  );
+  expect(jest.mocked(ports.logger.error).mock.calls[0]?.[1]).toBe(error);
   await adapter.interruptSession(id);
 });
 it('clears a rejected interrupt when the turn ends', async () => {
@@ -679,10 +822,33 @@ it('closes the losing context when another open publishes during metadata save',
   expect(first.context.close).toHaveBeenCalledTimes(1);
   expect(first.dispose).toHaveBeenCalledTimes(1);
   expect(second.context.close).not.toHaveBeenCalled();
+  expect(first.lifecycle.closed).not.toHaveBeenCalled();
   expect(first.adapter.owns(id)).toBe(true);
   await first.adapter.interruptSession(id);
   expect(second.context.close).toHaveBeenCalledTimes(1);
   expect(second.dispose).toHaveBeenCalledTimes(1);
+});
+it('releases staged lifecycle state when cancellation arrives during metadata save', async () => {
+  const { adapter, ports, lifecycle, context, dispose } = setup();
+  const entered = deferred<void>();
+  const finishSave = deferred<void>();
+  ports.metadata.save = jest.fn(async () => {
+    entered.resolve();
+    await finishSave.promise;
+  });
+  const opening = adapter.startChatSession({ tabId });
+  const rejected = expect(opening).rejects.toMatchObject({ code: 'cancelled' });
+  await entered.promise;
+  expect(lifecycle.opened).toHaveBeenCalledTimes(1);
+  adapter.endSession(tabId);
+  finishSave.resolve();
+  await rejected;
+  expect(lifecycle.closed).toHaveBeenCalledTimes(1);
+  expect(lifecycle.closed).toHaveBeenCalledWith(id);
+  expect(context.startTurn).not.toHaveBeenCalled();
+  expect(context.close).toHaveBeenCalledTimes(1);
+  expect(dispose).toHaveBeenCalledTimes(1);
+  expect(adapter.owns(id)).toBe(false);
 });
 
 it.each(['end', 'interrupt'] as const)(

@@ -48,7 +48,6 @@ export {
 } from './lib/commit-message/commit-message-generator.service';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
-  CodexSessionMetadataError,
   AgentOutputCursorStaleError,
   SessionMetadataStore,
   flushSessionMetadataStores,
@@ -140,66 +139,30 @@ export {
   AuthRequiredError,
   InternalQueryQueueTimeoutError,
 } from './lib/errors';
+// Electron codex-runtime-composition.spec.ts and di/register.ts consume registration; hosts must override only nullable port tokens.
 export {
   registerSdkServices,
   registerCodexChatServices,
   wireAgentAdapterAliases,
 } from './lib/di/register';
-export {
-  initializeSessionRuntimeIdentityLookup,
-  type InitializedSessionRuntimeIdentityLookup,
-} from './lib/wiring/session-runtime-identity-cache';
-export {
-  CodexRuntimeCompositionError,
-  type CodexRuntimeCompositionErrorCode,
-} from './lib/wiring/codex-runtime-composition-error';
-export {
-  createCodexThreadIdentityStore,
-  CodexThreadIdentityPersistError,
-  type CodexThreadIdentityPersistErrorCode,
-} from './lib/wiring/codex-thread-identity-store';
+export { initializeSessionRuntimeIdentityLookup } from './lib/wiring/session-runtime-identity-cache';
+export { createCodexThreadIdentityStore } from './lib/wiring/codex-thread-identity-store';
 export { SessionUnavailableError } from './lib/helpers/session-lifecycle/session-control.service';
 export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-controls-composition';
 export type { AuthOperationContext } from './lib/auth-env.port';
 export { SDK_TOKENS } from './lib/di/tokens';
+// Electron codex-runtime-composition.spec.ts constructs this adapter; hosts must override only nullable port tokens.
 export {
   CodexChatAdapter,
-  CodexChatAdapterError,
   type CodexChatAdapterPorts,
-  type CodexChatMetadataPort,
   type CodexChatScope,
   type CodexChatSessionLifecycle,
 } from './lib/codex-app-server/codex-chat-adapter';
-export type {
-  RuntimeAdmissionPort,
-  NativeChatAdapter,
-} from './lib/codex-app-server/routing-agent-adapter';
-export {
-  type SessionApprovalRouter,
-  type SessionApprovalAddress,
-  type SessionApprovalReply,
-} from './lib/codex-app-server/session-approval-router';
-export {
-  type SessionRuntimeRouter,
-  type NativeSessionControls,
-} from './lib/codex-app-server/session-runtime-router';
-export {
-  SessionRuntimeRoutingError,
-  type SessionRuntimeIdentityLookup,
-} from './lib/codex-app-server/session-runtime-identity';
-export {
-  type LegacySessionControls,
-  LegacySessionControlError,
-  type LegacyControlledSession,
-  type LegacySessionLookup,
-  type LegacySettingsPersistence,
-  type LegacySlashCommands,
-} from './lib/codex-app-server/legacy-session-controls';
-export {
-  type CodexChatApprovalReply,
-  type CodexChatApprovalPresentation,
-  type CodexChatApprovalFollowUp,
-} from './lib/codex-app-server/codex-chat-approval-sink';
+export type { RuntimeAdmissionPort } from './lib/codex-app-server/routing-agent-adapter';
+export type { SessionApprovalRouter } from './lib/codex-app-server/session-approval-router';
+export type { NativeSessionControls } from './lib/codex-app-server/session-runtime-router';
+export type { SessionRuntimeIdentityLookup } from './lib/codex-app-server/session-runtime-identity';
+export type { LegacySettingsPersistence } from './lib/codex-app-server/legacy-session-controls';
 export {
   type CodexChatEventCallbacks,
   type CodexChatTurnIdentity,

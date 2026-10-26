@@ -113,16 +113,18 @@ export class CodexChatApprovalSink implements ApprovalSink {
               requestId: String(request.requestId),
               reason,
             });
-        } catch {
+        } catch (error) {
           this.logger.error(
             '[CodexChatApprovalSink] runtime-failed: cancellation presentation.',
+            error instanceof Error ? error : new Error(String(error)),
           );
         }
         try {
           this.presentation.dismiss(this.sessionId, request);
-        } catch {
+        } catch (error) {
           this.logger.error(
             '[CodexChatApprovalSink] runtime-failed: dismissal.',
+            error instanceof Error ? error : new Error(String(error)),
           );
         }
         resolve(outcome);
@@ -137,9 +139,10 @@ export class CodexChatApprovalSink implements ApprovalSink {
             request,
             CODEX_CHAT_APPROVAL_CHOICES,
           );
-      } catch {
+      } catch (error) {
         this.logger.error(
           '[CodexChatApprovalSink] runtime-failed: presentation.',
+          error instanceof Error ? error : new Error(String(error)),
         );
         settle('decline');
       }
@@ -168,9 +171,10 @@ export class CodexChatApprovalSink implements ApprovalSink {
                 reply.modifiedInput,
               )
             : reply.editedText;
-      } catch {
+      } catch (error) {
         this.logger.error(
           '[CodexChatApprovalSink] runtime-failed: replacement validation.',
+          error instanceof Error ? error : new Error(String(error)),
         );
         text = undefined;
       }
@@ -186,15 +190,17 @@ export class CodexChatApprovalSink implements ApprovalSink {
               pending.request,
             ),
           )
-          .catch(() => {
+          .catch((error) => {
             this.logger.error(
               '[CodexChatApprovalSink] runtime-failed: follow-up.',
+              error instanceof Error ? error : new Error(String(error)),
             );
             try {
               this.followUp.failed();
-            } catch {
+            } catch (error) {
               this.logger.error(
                 '[CodexChatApprovalSink] runtime-failed: follow-up reporting.',
+                error instanceof Error ? error : new Error(String(error)),
               );
             }
           });

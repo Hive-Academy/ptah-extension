@@ -53,6 +53,7 @@ function setup() {
     failed: jest.fn(),
   };
   return {
+    logger,
     presentation,
     followUp,
     sink: new CodexChatApprovalSink(
@@ -220,19 +221,30 @@ describe('CodexChatApprovalSink', () => {
     await promise;
   });
   it('fails closed if presentation throws', async () => {
-    const { sink, presentation } = setup();
+    const { sink, presentation, logger } = setup();
+    const error = new Error('private');
     presentation.present.mockImplementation(() => {
-      throw new Error('private');
+      throw error;
     });
     await expect(
       sink.request(request, new AbortController().signal),
     ).resolves.toBe('decline');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: presentation.',
+      error,
+    );
+    expect(jest.mocked(logger.error).mock.calls[0]?.[1]).toBe(error);
     expect(jest.getTimerCount()).toBe(0);
   });
 
   it('reports follow-up delivery failure without changing the declined outcome', async () => {
-    const { sink, followUp } = setup();
-    followUp.post.mockRejectedValue(new Error('private'));
+    const { sink, followUp, logger } = setup();
+    const error = new Error('private');
+    const reportingError = new Error('reporting failed');
+    followUp.post.mockRejectedValue(error);
+    followUp.failed.mockImplementation(() => {
+      throw reportingError;
+    });
     const promise = sink.request(request, new AbortController().signal);
     sink.respond({ ...reply, editedText: 'please use another command' });
     await expect(promise).resolves.toEqual({
@@ -242,21 +254,60 @@ describe('CodexChatApprovalSink', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(followUp.failed).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: follow-up.',
+      error,
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: follow-up reporting.',
+      reportingError,
+    );
     expect(sink.respond(reply)).toBe(false);
   });
 
   it('cleans up even when both cancellation and dismissal throw', async () => {
-    const { sink, presentation } = setup();
+    const { sink, presentation, logger } = setup();
+    const cancelError = new Error('cancellation UI gone');
+    const dismissError = new Error('dismissal UI gone');
     presentation.cancelPrompt.mockImplementation(() => {
-      throw new Error('UI gone');
+      throw cancelError;
     });
     presentation.dismiss.mockImplementation(() => {
-      throw new Error('UI gone');
+      throw dismissError;
     });
     const promise = sink.request(request, new AbortController().signal);
     sink.dispose();
     await expect(promise).resolves.toBe('decline');
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: cancellation presentation.',
+      cancelError,
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: dismissal.',
+      dismissError,
+    );
     expect(jest.getTimerCount()).toBe(0);
+  });
+  it('logs the original replacement validation error and declines the edit', async () => {
+    const { sink, followUp, logger } = setup();
+    const error = new Error('invalid replacement');
+    followUp.validateReplacement.mockImplementation(() => {
+      throw error;
+    });
+    const pending = sink.request(request, new AbortController().signal);
+    expect(
+      sink.respond({ ...reply, modifiedInput: { command: 'private' } }),
+    ).toBe(true);
+    await expect(pending).resolves.toEqual({
+      decision: 'decline',
+      editNotSupported: true,
+    });
+    expect(followUp.post).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      '[CodexChatApprovalSink] runtime-failed: replacement validation.',
+      error,
+    );
+    expect(jest.mocked(logger.error).mock.calls[0]?.[1]).toBe(error);
   });
 });
 
