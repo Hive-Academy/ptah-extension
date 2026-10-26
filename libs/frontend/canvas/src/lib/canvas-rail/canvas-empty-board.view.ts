@@ -160,8 +160,13 @@ export function toNumerals(
   }
 }
 
-/** "41 previous sessions"; `null` (hidden) for none or an unconfirmed list. */
+/**
+ * "41 previous sessions"; "Previous sessions" while the list is unconfirmed
+ * (the Rail and its trigger are hidden on an empty board, so this is the way
+ * in); `null` (hidden) only once the list confirms there are none.
+ */
 export function previousSessionsLabel(count: number | null): string | null {
-  if (count === null || count <= 0) return null;
+  if (count === null) return 'Previous sessions';
+  if (count <= 0) return null;
   return `${count} previous ${count === 1 ? 'session' : 'sessions'}`;
 }

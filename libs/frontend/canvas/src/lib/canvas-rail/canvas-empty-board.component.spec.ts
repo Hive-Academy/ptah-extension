@@ -232,10 +232,13 @@ describe('CanvasEmptyBoardComponent', () => {
     expect(vitals.retryReadiness).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the history link only with previous sessions', () => {
+  it('hides the history link only once the list confirms no previous sessions', () => {
     const { fixture, find, previousSessionCount } = mount();
     const opened = jest.fn();
     fixture.componentInstance.previousSessionsRequested.subscribe(opened);
+    expect(find('[data-testid="canvas-empty-board-history"]')?.textContent?.trim()).toBe('Previous sessions');
+    previousSessionCount.set(0);
+    fixture.detectChanges();
     expect(find('[data-testid="canvas-empty-board-history"]')).toBeNull();
     previousSessionCount.set(41);
     fixture.detectChanges();
