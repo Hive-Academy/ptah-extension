@@ -47,6 +47,7 @@ export {
   type LaneVerdictTone,
 } from './lib/utils/lane-result.utils';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
+export * from './lib/molecules/vitals';
 export {
   BackgroundAgentStripComponent,
   formatAgentElapsed,
