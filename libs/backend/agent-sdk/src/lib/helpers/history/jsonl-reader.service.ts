@@ -147,6 +147,15 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise<void>((resolve) => setImmediate(resolve));
 }
 
+/** A record `origin` with a string `kind`, e.g. `{ kind: 'human' }`. */
+function isOriginRecord(value: unknown): value is { kind: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { kind?: unknown }).kind === 'string'
+  );
+}
+
 /**
  * Service for reading JSONL session files.
  *
@@ -926,6 +935,14 @@ export class JsonlReaderService {
       timestamp: line.timestamp,
       isMeta: line.isMeta,
       isSynthetic: line.isSynthetic,
+      // Read by replay to tell a peer turn from a typed prompt.
+      ...(line.isSidechain === true && { isSidechain: true }),
+      ...(typeof line.turnOrigin === 'string' && {
+        turnOrigin: line.turnOrigin,
+      }),
+      ...(isOriginRecord(line.origin) && {
+        origin: { kind: line.origin.kind },
+      }),
       slug: line.slug,
       message: line.message as SessionHistoryMessage['message'],
       model: line.model,
