@@ -15,43 +15,16 @@
  * The production build budget is the real proof; this keeps a refactor from
  * silently undoing the split.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import {
+  sourceFiles,
+  specifiersOf,
+  withoutComments,
+} from '../testing/lazy-boundary.helpers';
 import { basename, join } from 'node:path';
 
 const CHAT_SRC = join(__dirname, '..', '..', '..');
 const CHAT_UI_SRC = join(CHAT_SRC, '..', '..', 'chat-ui', 'src');
-
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path);
-    return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')
-      ? [path]
-      : [];
-  });
-}
-
-/**
- * Module specifiers of the runtime import/export-from declarations in
- * `source`. `import type` / `export type` emit no import, so they are skipped.
- */
-function specifiersOf(source: string): string[] {
-  return [
-    ...source.matchAll(
-      /^\s*(import|export)\s+(type\s+)?[^;]*?\s+from\s+['"]([^'"]+)['"]/gm,
-    ),
-  ]
-    .filter((match) => match[2] === undefined)
-    .map((match) => match[3]);
-}
-
-/** `source` without HTML, block and line comments. */
-function withoutComments(source: string): string {
-  return source
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-}
 
 /** Welcome-only modules of the chat lib (file base names, no extension). */
 const WELCOME_ONLY = [

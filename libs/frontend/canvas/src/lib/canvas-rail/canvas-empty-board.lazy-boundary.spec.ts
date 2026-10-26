@@ -13,10 +13,10 @@
  * The production build budget is the real proof; this keeps a refactor from
  * silently undoing the split.
  *
- * Sibling guard: libs/frontend/chat/src/lib/components/templates/electron-welcome.lazy-boundary.spec.ts
- * carries the same source-scanning helpers (`sourceFiles`, `specifiersOf`,
- * `withoutComments`); a fix to one belongs in both. They are extracted into a
- * shared test helper once the empty chat (B8c1) adds the third such guard.
+ * Source of the local helper copies:
+ * libs/frontend/chat/src/lib/components/testing/lazy-boundary.helpers.ts
+ * (`sourceFiles`, `specifiersOf`, `withoutComments`). Keep fixes in sync.
+ * Nx module boundaries prevent importing that private chat testing file here.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';

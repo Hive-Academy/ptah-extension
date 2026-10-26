@@ -1,0 +1,156 @@
+/* Frameless, locally scrimmed content; scrolling stays inside the transcript. */
+:host {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.empty-chat {
+  container-type: inline-size;
+  overflow: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+  color: oklch(var(--bc));
+}
+.empty-chat__stage {
+  --scrim-ext-x: min(96px, max(0px, (100cqw - 760px) / 2));
+  --scrim-ext-y: 32px;
+  --scrim-in-x: 96px;
+  --scrim-in-y: 40px;
+  position: relative;
+  z-index: 10;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  width: 100%;
+  max-width: 760px;
+  margin: var(--scrim-ext-y) auto;
+  padding: 24px 24px;
+}
+.empty-chat__stage::before {
+  --rx: calc(var(--scrim-ext-x) + var(--scrim-in-x));
+  --ry: calc(var(--scrim-ext-y) + var(--scrim-in-y));
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--scrim-ext-y)) calc(-1 * var(--scrim-ext-x));
+  z-index: -1;
+  pointer-events: none;
+  background: var(--glass-scrim-text, transparent);
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--rx) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--rx) * 0.7),
+      #000 var(--rx),
+      #000 calc(100% - var(--rx)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--rx) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--rx) * 0.35),
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--ry) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--ry) * 0.7),
+      #000 var(--ry),
+      #000 calc(100% - var(--ry)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--ry) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--ry) * 0.35),
+      transparent 100%
+    );
+  mask-composite: intersect;
+}
+h1 {
+  margin: -12px 0 4px;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-align: center;
+}
+ptah-stat-row {
+  width: 100%;
+}
+ptah-stat-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+ptah-stat-value {
+  max-width: 100%;
+  gap: 8px;
+}
+ptah-spend-bars {
+  flex-shrink: 0;
+}
+.empty-chat__meter {
+  display: inline-block;
+  width: 48px;
+  height: 5px;
+  border-radius: 4px;
+  background: oklch(var(--bc) / 0.16);
+  overflow: hidden;
+}
+.empty-chat__meter i {
+  display: block;
+  height: 100%;
+  background: oklch(var(--p));
+}
+.empty-chat__resume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px;
+}
+.empty-chat__resume span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.empty-chat__resume lucide-angular {
+  flex-shrink: 0;
+}
+button:focus-visible {
+  outline: 2px solid var(--ptah-link, oklch(var(--p)));
+  outline-offset: 3px;
+}
+.empty-chat__notice {
+  font-size: 13px;
+  text-align: center;
+}
+.empty-chat__notice button {
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+@container (max-width: 540px) {
+  ptah-stat-row {
+    grid-auto-columns: minmax(0, 1fr);
+    column-gap: 12px;
+  }
+  .empty-chat__stage {
+    padding-inline: 16px;
+  }
+  .empty-chat__meter {
+    display: none;
+  }
+  ptah-stat-value {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+}
+@media (max-height: 700px) {
+  .empty-chat__stage {
+    --scrim-ext-y: 8px;
+    gap: 16px;
+    padding-block: 16px;
+  }
+}

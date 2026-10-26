@@ -1,8 +1,7 @@
-// Main-barrel part of the vitals molecules. The no-workspace welcome's
-// molecules (plan ring, spend bars, stat row/cell/value, recent workspace
-// list) are exported at runtime only from `@ptah-extension/chat-ui/vitals`
-// (`src/vitals.ts`), so the welcome's lazy chunk keeps them out of the
-// initial bundle. Their types stay here: a type-only export emits no import.
+// Eager vitals exports. Welcome, empty-board and empty-chat-only molecules
+// (plan/readiness rings, prompt launchers, spend bars, stat rows/cells/values
+// and recent workspaces) live at runtime only in @ptah-extension/chat-ui/vitals.
+// Keep their types here without creating an eager runtime import.
 export { ProgressRingComponent } from './progress-ring.component';
 export type { PlanRingData } from './plan-ring.component';
 export {
@@ -16,14 +15,9 @@ export {
   StagedStepsComponent,
   type StagedStep,
 } from './staged-steps.component';
-export {
-  ReadinessRingComponent,
-  type ReadinessAction,
-  type ReadinessCheck,
+export type {
+  ReadinessAction,
+  ReadinessCheck,
 } from './readiness-ring.component';
-export {
-  PromptLaunchersComponent,
-  buildLaunchers,
-  type PromptLauncher,
-} from './prompt-launchers.component';
+export type { PromptLauncher } from './prompt-launchers.component';
 export type { RecentWorkspaceItem } from './recent-workspace-list.component';

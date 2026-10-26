@@ -127,7 +127,10 @@ class MessageBubbleStub {
   template: '',
 })
 class EmptyStateStub {
-  @Output() promptSelected = new EventEmitter<string>();
+  readonly tabId = input<string | null>(null);
+  readonly showReadiness = input(false);
+  readonly promptSelected = output<string>();
+  readonly resumeRequested = output<string>();
 }
 
 @Component({

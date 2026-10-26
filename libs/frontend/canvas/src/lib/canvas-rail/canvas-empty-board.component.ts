@@ -40,11 +40,11 @@ import {
 import { WorkspaceVitalsStore, localDayKey } from '@ptah-extension/chat';
 import {
   ActivityGridComponent,
-  ReadinessRingComponent,
   StagedStepsComponent,
 } from '@ptah-extension/chat-ui';
 // Lazy entry point: this component loads only inside the board's `@defer`.
 import {
+  ReadinessRingComponent,
   StatCellComponent,
   StatRowComponent,
   StatValueComponent,

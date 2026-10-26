@@ -1,19 +1,8 @@
 /**
- * Chat UI - Vitals entry point (`@ptah-extension/chat-ui/vitals`)
- *
- * The vitals molecules of the no-workspace welcome
- * (`ptah-electron-welcome`): plan ring, spend bars, the stat row with its
- * cells and values, and the recent workspace list. Electron-shell mounts the
- * welcome inside `@defer`, which the Angular compiler turns into a dynamic
- * `import()`. The main `@ptah-extension/chat-ui` barrel is statically imported
- * by eager code, so a deferred component importing these from there would land
- * them in the initial chunk; from this file, which nothing eager imports
- * statically, esbuild emits them in the welcome's lazy chunk (same pattern as
- * `@ptah-extension/chat-ui/turn-recap`).
- *
- * Their types (`PlanRingData`, `StatCellState`, `RecentWorkspaceItem`) are
- * also exported type-only from the main barrel. Do not re-export the runtime
- * symbols from `index.ts`.
+ * Lazy vitals entry for the deferred welcome, canvas empty board and empty chat.
+ * Runtime molecules stay here so eager main-barrel imports cannot pull them
+ * into the initial webview chunk. Their types are also exported type-only
+ * from the main barrel; never re-export these runtime symbols there.
  */
 export {
   PlanRingComponent,
@@ -31,3 +20,13 @@ export {
   RecentWorkspaceListComponent,
   type RecentWorkspaceItem,
 } from './lib/molecules/vitals/recent-workspace-list.component';
+export {
+  ReadinessRingComponent,
+  type ReadinessAction,
+  type ReadinessCheck,
+} from './lib/molecules/vitals/readiness-ring.component';
+export {
+  PromptLaunchersComponent,
+  buildLaunchers,
+  type PromptLauncher,
+} from './lib/molecules/vitals/prompt-launchers.component';
