@@ -361,6 +361,8 @@ export function createCodexChatHostPorts(
         }
         return accepted;
       } catch {
+        // degradation-audit: reported - coded warning without request content (the
+        // sink error may carry it); false keeps the prompt pending so the user can retry.
         deps.logger.warn('Codex approval response failed.', {
           code: 'approval-response-failed',
         });
