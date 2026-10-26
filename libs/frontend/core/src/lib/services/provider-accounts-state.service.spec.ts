@@ -272,6 +272,72 @@ describe('ProviderAccountsStateService', () => {
     expect(service.operations('claude')()[P1]).toBeUndefined();
   });
 
+  it('keeps a sign-in fallback script only while that sign-in is pending', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1), account(P2)]) }));
+    await service.open('claude');
+    const fallback = { platform: 'win32', script: '& claude /login' };
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        snapshot: snapshot(2, [account(P1, 'pending', 2), account(P2)]),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+        fallback,
+      }),
+    );
+    await service.startSignIn('claude', P1);
+    expect(service.fallbacks('claude')()).toEqual({ [P1]: fallback });
+
+    // Malformed scripts are dropped, like a malformed operation handle.
+    for (const bad of [
+      { platform: 'darwin', script: 'claude /login' },
+      { platform: 'posix', script: '   ' },
+      { platform: 'posix', script: 42 },
+      'claude /login',
+    ]) {
+      rpc.call.mockResolvedValueOnce(
+        ok({
+          snapshot: snapshot(3, [account(P1, 'pending', 2), account(P2, 'pending', 3)]),
+          operation: { operationId: 'op-22223333', kind: 'sign-in' },
+          fallback: bad,
+        }),
+      );
+      await service.startSignIn('claude', P2);
+      expect(service.fallbacks('claude')()[P2]).toBeUndefined();
+    }
+
+    // A status read with no running operation drops the script; one still running keeps it.
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        account: account(P1, 'pending', 2),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+      }),
+    );
+    await service.refreshAccountStatus('claude', P1);
+    expect(service.fallbacks('claude')()[P1]).toEqual(fallback);
+
+    // A snapshot where the profile is no longer pending drops it.
+    push(service, snapshot(4, [account(P1, 'signed-in', 4), account(P2)]));
+    expect(service.fallbacks('claude')()).toEqual({});
+  });
+
+  it('a status read without an operation drops the fallback script', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));
+    await service.open('claude');
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        snapshot: snapshot(2, [account(P1, 'pending', 2)]),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+        fallback: { platform: 'posix', script: 'claude /login' },
+      }),
+    );
+    await service.startSignIn('claude', P1);
+    expect(service.fallbacks('claude')()[P1]?.platform).toBe('posix');
+    rpc.call.mockResolvedValueOnce(ok({ account: account(P1, 'failed', 3) }));
+    await service.refreshAccountStatus('claude', P1);
+    expect(service.fallbacks('claude')()[P1]).toBeUndefined();
+  });
+
   it('covers rename, sign-out and status reads through the RPC boundary', async () => {
     const { rpc, service } = setup();
     rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));

@@ -18,6 +18,7 @@ import {
   type ProviderAccountProvider,
   type ProviderAccountRpcMethodName,
   type ProviderAccountScope,
+  type ProviderAccountSignInFallback,
   type ProviderAccountsSnapshot,
   type RpcMethodParams,
   type RpcMethodResult,
@@ -88,6 +89,10 @@ interface Slot {
   readonly view: WritableSignal<ProviderAccountsView>;
   readonly operations: WritableSignal<
     Readonly<Record<string, ProviderAccountOperation>>
+  >;
+  /** Manual sign-in scripts by profile ID; kept only while that profile's sign-in is pending. */
+  readonly fallbacks: WritableSignal<
+    Readonly<Record<string, ProviderAccountSignInFallback>>
   >;
   opened: boolean;
   /** Revision of the applied snapshot; `null` = accept the next snapshot unconditionally. */
@@ -164,6 +169,16 @@ export class ProviderAccountsStateService implements MessageHandler {
     provider: ProviderAccountProvider,
   ): Signal<Readonly<Record<string, ProviderAccountOperation>>> {
     return this.slots[provider].operations.asReadonly();
+  }
+
+  /**
+   * Manual sign-in scripts by profile ID, issued when the host could not open a login
+   * console. User-facing content only: never logged, never sent back to the host.
+   */
+  fallbacks(
+    provider: ProviderAccountProvider,
+  ): Signal<Readonly<Record<string, ProviderAccountSignInFallback>>> {
+    return this.slots[provider].fallbacks.asReadonly();
   }
 
   async open(provider: ProviderAccountProvider): Promise<void> {
@@ -307,6 +322,8 @@ export class ProviderAccountsStateService implements MessageHandler {
       else delete next[profileId];
       return next;
     });
+    // The status read carries no script: a finished sign-in drops it, a running one keeps it.
+    if (!operation) this.dropFallback(provider, profileId);
   }
 
   /** Writes one scope only, against that scope's revision in the held snapshot. */
@@ -372,6 +389,7 @@ export class ProviderAccountsStateService implements MessageHandler {
     return {
       view: signal(this.enabled ? IDLE : INERT),
       operations: signal({}),
+      fallbacks: signal({}),
       opened: false,
       revision: null,
       readSeq: 0,
@@ -386,6 +404,7 @@ export class ProviderAccountsStateService implements MessageHandler {
       slot.revision = null;
       slot.resetSeq = null;
       slot.operations.set({});
+      slot.fallbacks.set({});
       slot.view.set(this.enabled ? IDLE : INERT);
       if (slot.opened) void this.refresh(provider);
     }
@@ -444,15 +463,22 @@ export class ProviderAccountsStateService implements MessageHandler {
     }
     slot.revision = snapshot.revision;
     slot.view.set({ status: 'ready', snapshot, stale: false, error: null });
+    const pending = new Set(
+      snapshot.accounts
+        .filter((account) => account.state === 'pending')
+        .map((account) => account.profileId),
+    );
     slot.operations.update((current) => {
-      const pending = new Set(
-        snapshot.accounts
-          .filter((account) => account.state === 'pending')
-          .map((account) => account.profileId),
-      );
       const kept: Record<string, ProviderAccountOperation> = {};
       for (const [profileId, operation] of Object.entries(current)) {
         if (pending.has(profileId)) kept[profileId] = operation;
+      }
+      return kept;
+    });
+    slot.fallbacks.update((current) => {
+      const kept: Record<string, ProviderAccountSignInFallback> = {};
+      for (const [profileId, fallback] of Object.entries(current)) {
+        if (pending.has(profileId)) kept[profileId] = fallback;
       }
       return kept;
     });
@@ -552,10 +578,29 @@ export class ProviderAccountsStateService implements MessageHandler {
           ...current,
           [profileId]: operation,
         }));
+        // Each sign-in replaces the profile's script: a console-opened retry clears an old one.
+        const fallback = operation.kind === 'sign-in' ? fallbackOf(data) : null;
+        if (fallback) {
+          this.slots[action.provider].fallbacks.update((current) => ({
+            ...current,
+            [profileId]: fallback,
+          }));
+        } else {
+          this.dropFallback(action.provider, profileId);
+        }
       }
     }
     this.settle(requestId, 'saved', null);
     return { status: 'saved', snapshot: data.snapshot };
+  }
+
+  private dropFallback(provider: ProviderAccountProvider, profileId: string): void {
+    this.slots[provider].fallbacks.update((current) => {
+      if (!(profileId in current)) return current;
+      const next: Record<string, ProviderAccountSignInFallback> = { ...current };
+      delete next[profileId];
+      return next;
+    });
   }
 
   /** First settlement wins: a duplicate push or response for the same request is a no-op. */
@@ -593,6 +638,17 @@ function operationOf(data: object): ProviderAccountOperation | null {
   return typeof operationId === 'string' &&
     (kind === 'sign-in' || kind === 'sign-out')
     ? { operationId, kind }
+    : null;
+}
+
+/** Sign-in results carry a manual script when no login console opened; other writes do not. */
+function fallbackOf(data: object): ProviderAccountSignInFallback | null {
+  if (!('fallback' in data) || !isRecord(data.fallback)) return null;
+  const { platform, script } = data.fallback;
+  return (platform === 'win32' || platform === 'posix') &&
+    typeof script === 'string' &&
+    script.trim().length > 0
+    ? { platform, script }
     : null;
 }
 

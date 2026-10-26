@@ -1,13 +1,19 @@
+import { Clipboard } from '@angular/cdk/clipboard';
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { ProviderAccountActionKind } from '@ptah-extension/core';
 import type {
   ProviderAccountActionResult,
+  ProviderAccountSignInFallback,
   ProviderAccountState,
   ProviderAccountSummary,
 } from '@ptah-extension/shared';
 import {
   ACCOUNT_DEFAULT_TOAST,
+  ACCOUNT_FALLBACK_COPY,
+  ACCOUNT_HELD_FALLBACK,
+  ACCOUNT_NO_WINDOW_COPY,
+  ACCOUNT_PENDING_COPY,
   ACCOUNT_REMOVE_CONFIRMATION,
   ACCOUNT_RENAME_HINT,
   AccountDetailsDrawerComponent,
@@ -40,6 +46,7 @@ function summary(overrides: Partial<ProviderAccountSummary> = {}): ProviderAccou
       [pending]="pending()"
       [result]="result()"
       [saved]="saved()"
+      [fallback]="fallback()"
       (refreshStatus)="events.push('status:' + $event)"
       (signIn)="events.push('sign-in:' + $event)"
       (cancelSignIn)="events.push('cancel:' + $event)"
@@ -57,13 +64,17 @@ class Host {
   readonly pending = signal<ProviderAccountActionKind | null>(null);
   readonly result = signal<ProviderAccountActionResult | null>(null);
   readonly saved = signal<ProviderAccountActionKind | null>(null);
+  readonly fallback = signal<ProviderAccountSignInFallback | null>(null);
   readonly events: string[] = [];
   readonly renames: AccountRenameIntent[] = [];
 }
 
+const SCRIPT = 'Set-Location -LiteralPath $env:TEMP\n& claude /login';
+
 describe('AccountDetailsDrawerComponent', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
+  let clipboard: { copy: jest.Mock<boolean, [string]> };
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) =>
     el().querySelector(`[data-testid="${id}"]`) as T | null;
@@ -95,7 +106,11 @@ describe('AccountDetailsDrawerComponent', () => {
   }
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [Host] });
+    clipboard = { copy: jest.fn<boolean, [string]>(() => true) };
+    TestBed.configureTestingModule({
+      imports: [Host],
+      providers: [{ provide: Clipboard, useValue: clipboard }],
+    });
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;
     fixture.detectChanges();
@@ -227,25 +242,117 @@ describe('AccountDetailsDrawerComponent', () => {
     expect(host.events).toEqual([`status:${PROFILE_ID}`]);
   });
 
-  it('keeps actions visible when release-held and explains the safe held outcome', async () => {
+  it('keeps actions visible when release-held and explains the outcome in neutral copy', async () => {
     set(() =>
       host.result.set({
         code: 'release-held',
-        summary: 'Named account commands are awaiting release authorization.',
+        summary: 'Named accounts are not available on this host.',
       }),
     );
     await openFromOpener();
     tab('access');
     const held = q('account-held');
     expect(held?.getAttribute('role')).toBe('alert');
-    expect(held?.textContent).toContain('Held for release authorization');
-    expect(held?.textContent).toContain('Named account commands are awaiting release authorization.');
+    expect(held?.textContent).toContain('Not available');
+    expect(held?.textContent).toContain('Named accounts are not available on this host.');
     expect(held?.textContent).toContain(
       'Nothing changed on this profile. Existing provider settings stay available.',
     );
+    expect(held?.textContent).not.toMatch(/release/i);
     expect(button('account-sign-in').disabled).toBe(false);
     button('account-sign-in').click();
     expect(host.events).toEqual([`sign-in:${PROFILE_ID}`]);
+  });
+
+  it('a release-held result with an unsafe sentence shows the neutral fallback, never release wording', async () => {
+    set(() => host.result.set({ code: 'release-held', summary: 'C:\\Users\\me token=abc' }));
+    await openFromOpener();
+    const held = q('account-held');
+    expect(held?.textContent).toContain(ACCOUNT_HELD_FALLBACK);
+    expect(ACCOUNT_HELD_FALLBACK).not.toMatch(/release/i);
+    expect(held?.textContent).not.toMatch(/release|token|Users/i);
+  });
+
+  it('pending with a login window shows the U2 copy and no fallback block', async () => {
+    set(() => host.account.set(summary({ state: 'pending' })));
+    await openFromOpener();
+    tab('access');
+    expect(q('account-access-detail')?.textContent?.trim()).toBe(ACCOUNT_PENDING_COPY);
+    expect(ACCOUNT_PENDING_COPY).toBe('Finish sign-in in the Claude window.');
+    expect(q('account-fallback')).toBeNull();
+  });
+
+  it('pending without a login window shows the read-only script, copy and Check status', async () => {
+    set(() => {
+      host.account.set(summary({ state: 'pending' }));
+      host.fallback.set({ platform: 'win32', script: SCRIPT });
+    });
+    await openFromOpener();
+    tab('access');
+    expect(q('account-access-detail')?.textContent?.trim()).toBe(ACCOUNT_NO_WINDOW_COPY);
+    expect(q('account-fallback')?.getAttribute('role')).toBe('group');
+    expect(q('account-fallback-copy')?.textContent?.trim()).toBe(ACCOUNT_FALLBACK_COPY);
+    expect(ACCOUNT_FALLBACK_COPY).toBe('Run it in a new terminal window.');
+    const script = q('account-fallback-script') as HTMLElement;
+    expect(script.tagName).toBe('PRE');
+    expect(script.textContent).toBe(SCRIPT);
+    // Rendered as text: no element is created from the script.
+    expect(script.children).toHaveLength(0);
+    expect(script.getAttribute('tabindex')).toBe('0');
+    expect(accessButtons()).toEqual(['Copy script', 'Check status', 'Cancel sign-in']);
+
+    button('account-fallback-copy-button').click();
+    fixture.detectChanges();
+    expect(clipboard.copy).toHaveBeenCalledWith(SCRIPT);
+    expect(button('account-fallback-copy-button').textContent?.trim()).toBe('Copied');
+    expect(q('account-fallback-copy-status')?.textContent?.trim()).toBe('Script copied.');
+
+    button('account-fallback-check-status').click();
+    expect(host.events).toEqual([`status:${PROFILE_ID}`]);
+  });
+
+  it('a failed copy says so without logging the script, and a new script starts clean', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    clipboard.copy.mockReturnValue(false);
+    set(() => {
+      host.account.set(summary({ state: 'pending' }));
+      host.fallback.set({ platform: 'posix', script: SCRIPT });
+    });
+    await openFromOpener();
+    tab('access');
+    button('account-fallback-copy-button').click();
+    fixture.detectChanges();
+    expect(button('account-fallback-copy-button').textContent?.trim()).toBe('Copy script');
+    expect(q('account-fallback-copy-status')?.textContent?.trim()).toBe(
+      'Couldn’t copy. Select the script and copy it manually.',
+    );
+    for (const spy of [log, warn, error]) {
+      expect(spy.mock.calls.flat().join(' ')).not.toContain('claude /login');
+    }
+    set(() => host.fallback.set({ platform: 'posix', script: 'claude /login --again' }));
+    expect(q('account-fallback-copy-status')?.textContent?.trim()).toBe('');
+    log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it('busy disables Check status; a settled sign-in hides the fallback block', async () => {
+    set(() => {
+      host.account.set(summary({ state: 'pending' }));
+      host.fallback.set({ platform: 'win32', script: SCRIPT });
+      host.pending.set('cancel-sign-in');
+    });
+    await openFromOpener();
+    tab('access');
+    expect(button('account-fallback-check-status').disabled).toBe(true);
+    set(() => {
+      host.pending.set(null);
+      host.account.set(summary({ state: 'signed-in' }));
+    });
+    expect(q('account-fallback')).toBeNull();
+    expect(q('account-access-detail')?.textContent).not.toContain('Claude window');
   });
 
   it('busy: an in-flight action disables every action and announces it', async () => {

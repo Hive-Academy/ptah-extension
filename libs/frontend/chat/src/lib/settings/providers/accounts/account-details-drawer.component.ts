@@ -1,3 +1,4 @@
+import { Clipboard } from '@angular/cdk/clipboard';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -20,6 +21,7 @@ import {
   isSafeProviderAccountLabel,
   isSafeProviderAccountSummary,
   type ProviderAccountActionResult,
+  type ProviderAccountSignInFallback,
   type ProviderAccountState,
   type ProviderAccountSummary,
 } from '@ptah-extension/shared';
@@ -42,6 +44,14 @@ export const ACCOUNT_REMOVE_CONFIRMATION =
 /** Design §3.4, exact. */
 export const ACCOUNT_RENAME_HINT =
   'Changes the local label only. Existing runs keep the profile ID they started with.';
+/** U2: a pending sign-in whose Claude login window opened. */
+export const ACCOUNT_PENDING_COPY = 'Finish sign-in in the Claude window.';
+/** U3: a pending sign-in for which no login window could be opened. */
+export const ACCOUNT_FALLBACK_COPY = 'Run it in a new terminal window.';
+/** U3: replaces the U2 copy when the host reports that no login window opened. */
+export const ACCOUNT_NO_WINDOW_COPY = 'No Claude window could be opened for this sign-in.';
+/** D-D neutral copy for a `release-held` result whose own sentence is not safe to show. */
+export const ACCOUNT_HELD_FALLBACK = 'Named accounts are not available on this host.';
 
 const TABS: readonly { readonly id: AccountDrawerTab; readonly label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -54,7 +64,7 @@ const STATE_COPY: Readonly<
   Record<ProviderAccountState, { readonly heading: string; readonly detail: string }>
 > = {
   'not-signed-in': { heading: 'Not signed in', detail: 'Sign in before using this profile.' },
-  pending: { heading: 'Signing in', detail: 'Waiting for the sign-in outcome.' },
+  pending: { heading: 'Signing in', detail: ACCOUNT_PENDING_COPY },
   cancelled: { heading: 'Sign-in cancelled', detail: 'No changes were made to this profile.' },
   failed: { heading: 'Sign-in failed', detail: 'Couldn’t complete sign-in.' },
   disconnected: { heading: 'Disconnected', detail: 'This profile needs sign-in again.' },
@@ -88,7 +98,6 @@ const PENDING_TEXT: Readonly<Record<ProviderAccountActionKind, string>> = {
   default: 'Setting default…',
 };
 
-const HELD_FALLBACK = 'Named account commands are awaiting release authorization.';
 const FALLBACK_ERROR = 'This action did not complete. Refresh and try again.';
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -102,8 +111,8 @@ const FOCUS =
  * through the account state owner. Closing only emits `closed` — it never cancels a sign-in; Cancel is explicit.
  *
  * Only the active tab panel is rendered, so a hidden panel's controls can never join the drawer's Tab cycle.
- * Actions are not hidden because of the release hold: a `release-held` result is explained in place and the profile
- * is unchanged. Only the safe profile ID, label, state and owner marker are shown — never a path, email,
+ * Actions are not hidden after a `release-held` result: it is explained in place and the profile is unchanged.
+ * A pending sign-in without a login window shows the host's manual script as plain text (never HTML, never logged). Only the safe profile ID, label, state and owner marker are shown — never a path, email,
  * organization or token.
  */
 @Component({
@@ -149,7 +158,7 @@ const FOCUS =
           @if (resultText(); as message) {
             @if (held()) {
               <div class="surface-2 space-y-1 rounded-box border border-base-300 p-3" role="alert" data-testid="account-held">
-                <p class="font-semibold">Held for release authorization</p>
+                <p class="font-semibold">Not available</p>
                 <p>{{ message }}</p>
                 <p class="text-base-content-muted">
                   Nothing changed on this profile. Existing provider settings stay available.
@@ -206,8 +215,30 @@ const FOCUS =
               <section id="account-panel-access" role="tabpanel" aria-labelledby="account-tab-access" class="space-y-3" data-testid="account-panel-access">
                 <div class="space-y-1">
                   <h3 class="text-sm font-semibold" data-testid="account-access-heading">{{ stateCopy().heading }}</h3>
-                  <p class="text-base-content-muted">{{ stateCopy().detail }}</p>
+                  <p class="text-base-content-muted" data-testid="account-access-detail">{{ accessDetail() }}</p>
                 </div>
+                @if (a.state === 'pending' && fallbackShown(); as f) {
+                  <div role="group" aria-labelledby="account-fallback-title" class="surface-2 space-y-2 rounded-box border border-base-300 p-3" data-testid="account-fallback">
+                    <p id="account-fallback-title" class="font-semibold">Sign in from a terminal</p>
+                    <p id="account-fallback-hint" class="text-base-content-muted" data-testid="account-fallback-copy">{{ fallbackCopy }}</p>
+                    <pre
+                      tabindex="0"
+                      aria-label="Sign-in script"
+                      aria-describedby="account-fallback-hint"
+                      [class]="'max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-box border border-base-300 bg-base-100 p-2 font-mono text-xs text-base-content ' + focusRing"
+                      data-testid="account-fallback-script"
+                    >{{ f.script }}</pre>
+                    <div class="flex flex-wrap gap-2">
+                      <button type="button" [class]="'btn btn-outline btn-sm ' + focusRing" (click)="copyScript(f.script)" data-testid="account-fallback-copy-button">
+                        {{ copyLabel() }}
+                      </button>
+                      <button type="button" [class]="'btn btn-ghost btn-sm ' + focusRing" [disabled]="busy()" (click)="refreshStatus.emit(a.profileId)" data-testid="account-fallback-check-status">
+                        Check status
+                      </button>
+                    </div>
+                    <p class="min-h-4 text-base-content-muted" role="status" aria-live="polite" data-testid="account-fallback-copy-status">{{ copyStatus() }}</p>
+                  </div>
+                }
                 <div class="flex flex-wrap gap-2">
                   @switch (a.state) {
                     @case ('pending') {
@@ -294,6 +325,7 @@ const FOCUS =
 })
 export class AccountDetailsDrawerComponent {
   private readonly injector = inject(Injector);
+  private readonly clipboard = inject(Clipboard);
 
   /** Parent-owned visibility. The drawer renders only while this is true and an account is set. */
   readonly open = input.required<boolean>();
@@ -305,6 +337,8 @@ export class AccountDetailsDrawerComponent {
   readonly result = input<ProviderAccountActionResult | null>(null);
   /** This profile's last committed action, for the matching confirmation (default toast, label saved). */
   readonly saved = input<ProviderAccountActionKind | null>(null);
+  /** The host's manual sign-in script for this profile's pending sign-in, when no login window opened. */
+  readonly fallback = input<ProviderAccountSignInFallback | null>(null);
 
   readonly refreshStatus = output<string>();
   readonly signIn = output<string>();
@@ -324,11 +358,14 @@ export class AccountDetailsDrawerComponent {
   protected readonly maxLength = PROVIDER_ACCOUNT_LABEL_MAX_LENGTH;
   protected readonly renameHint = ACCOUNT_RENAME_HINT;
   protected readonly removeConfirmation = ACCOUNT_REMOVE_CONFIRMATION;
+  protected readonly fallbackCopy = ACCOUNT_FALLBACK_COPY;
   protected readonly field = `input input-bordered input-sm w-full text-xs text-base-content ${FOCUS}`;
 
   protected readonly activeTab = signal<AccountDrawerTab>('overview');
   protected readonly draftLabel = signal('');
   protected readonly confirmingRemove = signal(false);
+  /** Outcome of the last copy, tied to the script it copied so a new script starts clean. */
+  private readonly copied = signal<{ readonly script: string; readonly ok: boolean } | null>(null);
 
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabButton');
   private readonly removeButton = viewChild<ElementRef<HTMLButtonElement>>('removeButton');
@@ -350,12 +387,36 @@ export class AccountDetailsDrawerComponent {
   protected readonly signInLabel = computed(
     () => SIGN_IN_LABEL[this.account()?.state ?? 'not-signed-in'],
   );
+  protected readonly fallbackShown = computed(() => {
+    const fallback = this.fallback();
+    return fallback !== null && fallback.script.trim().length > 0 ? fallback : null;
+  });
+  /** U2 while the login window is open; without one, the fallback block below carries the instruction. */
+  protected readonly accessDetail = computed(() =>
+    this.account()?.state === 'pending' && this.fallbackShown() !== null
+      ? ACCOUNT_NO_WINDOW_COPY
+      : this.stateCopy().detail,
+  );
+  private readonly copyOutcome = computed(() => {
+    const copied = this.copied();
+    return copied !== null && copied.script === this.fallbackShown()?.script ? copied : null;
+  });
+  protected readonly copyLabel = computed(() =>
+    this.copyOutcome()?.ok ? 'Copied' : 'Copy script',
+  );
+  protected readonly copyStatus = computed(() => {
+    const outcome = this.copyOutcome();
+    if (outcome === null) return '';
+    return outcome.ok
+      ? 'Script copied.'
+      : 'Couldn’t copy. Select the script and copy it manually.';
+  });
   protected readonly held = computed(() => this.result()?.code === 'release-held');
   protected readonly resultText = computed(() => {
     const result = this.result();
     if (result === null || this.busy()) return null;
     if (isSafeProviderAccountSummary(result.summary)) return result.summary;
-    return result.code === 'release-held' ? HELD_FALLBACK : FALLBACK_ERROR;
+    return result.code === 'release-held' ? ACCOUNT_HELD_FALLBACK : FALLBACK_ERROR;
   });
   protected readonly statusText = computed(() => {
     const pending = this.pending();
@@ -456,6 +517,11 @@ export class AccountDetailsDrawerComponent {
     if (this.locked()) return;
     this.confirmingRemove.set(false);
     this.remove.emit(profileId);
+  }
+
+  /** Copies the script text only; the script is never logged, even when the copy fails. */
+  protected copyScript(script: string): void {
+    this.copied.set({ script, ok: this.clipboard.copy(script) });
   }
 
   protected value(event: Event): string {
