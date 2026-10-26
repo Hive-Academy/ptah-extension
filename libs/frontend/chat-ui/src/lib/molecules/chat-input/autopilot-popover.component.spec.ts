@@ -38,6 +38,15 @@ describe('AutopilotPopoverComponent', () => {
   let fixture: ComponentFixture<AutopilotPopoverComponent>;
   let state: ReturnType<typeof makeAutopilotState>;
 
+  it('paints approval settings as a dense glass overlay', async () => {
+    const popover = await create(false, TAB_SESSION);
+    popover.toggleDropdown();
+    fixture.detectChanges();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector('[role="dialog"]');
+    expect(panel?.getAttribute('data-glass-surface')).toBe('overlay');
+    expect(panel?.hasAttribute('data-composer-overlay')).toBe(true);
+  });
+
   async function create(
     enabled: boolean,
     sessionId?: SessionId | null,

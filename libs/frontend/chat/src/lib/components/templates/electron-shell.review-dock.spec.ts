@@ -182,6 +182,8 @@ describe('ElectronShellComponent review dock', () => {
     await settle();
 
     expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
+    expect(query('.electron-git-dock')?.getAttribute('data-glass-surface')).toBe('chrome');
+    expect(query('ptah-sidebar-tab[label="Git"]')?.getAttribute('data-glass-surface')).toBe('chrome');
     expect(retryButton()).toBeUndefined();
   }, 20_000); // Cold shell compilation resolves execution-node's deferred import wiring even with the ptah-ui stub.
 

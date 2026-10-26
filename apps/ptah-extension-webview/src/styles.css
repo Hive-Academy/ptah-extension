@@ -3406,6 +3406,36 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .bg-base-200 { background-color: var(--glass-fill-tile); }
 :root[data-glass='on'] .bg-base-300 { background-color: var(--glass-hover); }
 
+/* Composer lists sit over text, so their local scrim is denser than menus.
+   Native wrappers keep positioning/top-layer ownership; the projected panel
+   owns the glass fill and rim. No shared native-popover styling changes. */
+:root[data-glass='on'] [data-composer-overlay] {
+  --glass-composer-overlay-alpha: 0.98;
+  --glass-fill-overlay: oklch(var(--b1) / var(--glass-composer-overlay-alpha));
+}
+:root[data-glass='on'] :is(.popover-panel, .dropdown-panel):has(> [data-composer-overlay]) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+/* Full-strength option descriptions stay readable on selected/hover rows too. */
+:root[data-glass='on'] [data-composer-overlay] ptah-suggestion-option .opacity-70 {
+  opacity: 1;
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-glass='on'] [data-composer-overlay] {
+    --glass-composer-overlay-alpha: 1;
+  }
+}
+/* The Electron dock already owns a chrome pane. Its flat header/tab strip
+   must transmit that pane instead of covering it with a second canvas. */
+:root[data-glass='on'] .electron-git-dock ptah-git-dock-header > div,
+:root[data-glass='on'] .electron-git-dock .review-shell-tabs > div:first-child,
+:root[data-glass='on'] .electron-git-dock :is([data-testid='changed-file-tree'], [data-testid='review-canvas-list']) {
+  background: transparent;
+}
+
 /* Glass elevation for hand-framed boxes (glass on, any theme). Neutral
    hairline utilities soften to the separator tone (--surface-border), and a
    rounded box framed by one of them (cards, chips, rail cards) takes elev-1 in

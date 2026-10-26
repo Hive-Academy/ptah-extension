@@ -27,6 +27,30 @@ const darkBlock = block(/:root\[data-theme\]\[data-glass='on'\]\[data-glass-mode
 const hatches = [...css.matchAll(/:root\[data-theme\]\[data-glass='on'\]:is\(\[data-glass-mode='dark'\], \[data-glass-mode='light'\]\)\s*\{([^}]+)\}/g)];
 
 describe('glass local scrim floors', () => {
+  it('clears only Electron dock canvases and composer wrappers under glass', () => {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) =>
+      selector.includes('.electron-git-dock') || selector.includes('[data-composer-overlay]'),
+    );
+    expect(rules.length).toBeGreaterThanOrEqual(5);
+    for (const [, selector] of rules) {
+      expect(selector).toContain(":root[data-glass='on']");
+    }
+    expect(css).toContain(".electron-git-dock :is([data-testid='changed-file-tree'], [data-testid='review-canvas-list'])");
+  });
+
+  it('marks the composer attachment menu as an overlay without changing the shared native popover', () => {
+    const source = readFileSync(join(__dirname, '../../../../libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts'), 'utf8');
+    expect(source).toMatch(/<div content data-glass-surface="overlay" data-composer-overlay[^>]*role="menu"/);
+  });
+
+  it('keeps composer overlays dense and respects opaque accessibility modes', () => {
+    const composer = block(/:root\[data-glass='on'\] \[data-composer-overlay\]/);
+    expect(numberValue(composer, '--glass-composer-overlay-alpha')).toBeGreaterThanOrEqual(0.98);
+    expect(composer).toContain('--glass-fill-overlay: oklch(var(--b1) / var(--glass-composer-overlay-alpha));');
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\), \(prefers-contrast: more\)\s*\{\s*:root\[data-glass='on'\] \[data-composer-overlay\]\s*\{\s*--glass-composer-overlay-alpha: 1;/);
+  });
+
   it('keeps the dark reading surfaces opaque enough', () => {
     for (const [token, floor] of Object.entries({ '--glass-plate': 0.5, '--glass-fill-tile': 0.5, '--glass-fill-input': 0.58, '--glass-code': 0.94, '--glass-under-bar': 0.6, '--glass-scrim-text': 0.62 })) {
       expect(b1Alpha(darkBlock, token)).toBeGreaterThanOrEqual(floor);

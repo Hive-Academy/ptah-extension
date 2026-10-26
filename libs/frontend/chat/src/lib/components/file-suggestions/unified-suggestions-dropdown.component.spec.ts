@@ -112,6 +112,16 @@ describe('UnifiedSuggestionsDropdownComponent', () => {
     fixture.detectChanges();
   });
 
+  it('gives file, command and prompt suggestions a dense overlay surface', () => {
+    for (const suggestion of [fileSuggestion('/a.ts', 'a.ts'), commandSuggestion('help'), promptSuggestion('Plan', 'Planning')]) {
+      host.suggestions.set([suggestion]);
+      fixture.detectChanges();
+      const panel = (fixture.nativeElement as HTMLElement).querySelector('[role="listbox"]');
+      expect(panel?.getAttribute('data-glass-surface')).toBe('overlay');
+      expect(panel?.hasAttribute('data-composer-overlay')).toBe(true);
+    }
+  });
+
   it('resets the active row to the first match when typing narrows the suggestions', () => {
     host.dropdown.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     host.dropdown.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));

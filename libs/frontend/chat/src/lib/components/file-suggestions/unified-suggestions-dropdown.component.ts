@@ -57,6 +57,8 @@ export type { SuggestionItem } from './suggestion-option.component';
     <!-- Panel positioned by Floating UI relative to overlayOrigin -->
     <div
       #floatingPanel
+      data-glass-surface="overlay"
+      data-composer-overlay
       [id]="listboxId"
       class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
       style="visibility: hidden; position: absolute;"

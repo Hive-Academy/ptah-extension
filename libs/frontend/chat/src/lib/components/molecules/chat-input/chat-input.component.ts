@@ -397,7 +397,7 @@ function folderName(root: string): string {
                 />
               </button>
 
-              <div content class="w-44 p-1 flex flex-col" role="menu">
+              <div content data-glass-surface="overlay" data-composer-overlay class="w-44 p-1 flex flex-col" role="menu">
                 <button
                   class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left hover:bg-base-300 focus-visible:bg-base-300 focus-visible:outline-none transition-colors"
                   (click)="selectAttachFiles()"
