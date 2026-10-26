@@ -1,0 +1,95 @@
+:host-context([data-glass='on']) ptah-aurora-effect {
+  display: none;
+}
+/* Frameless local text scrim (as on the welcome): solid behind the content,
+   fading out at the edges, so captions keep 4.5:1 on the glass without a
+   card edge. Transparent outside glass mode, where the token is undefined. */
+.ptah-empty-board__stage {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 1040px;
+  margin: auto;
+  padding: 48px 56px 64px;
+  background: radial-gradient(
+    ellipse farthest-corner at center,
+    var(--glass-scrim-text, transparent) 0%,
+    var(--glass-scrim-text, transparent) 86%,
+    transparent 100%
+  );
+}
+.ptah-empty-board__notice {
+  width: 100%;
+  max-width: 588px;
+  margin-bottom: 24px;
+}
+.ptah-empty-board__workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+/* Grid, numerals and readiness sit side by side; nothing shrinks, so a long
+   figure never runs into its neighbour. Under 1000 px they stack. */
+.ptah-empty-board__zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 56px;
+  margin-top: 30px;
+}
+.ptah-empty-board__zone > * {
+  flex: none;
+}
+/* The grid's height (7 rows x 26 px - 6), so the first numeral sits on the
+   grid's top row and the last on its bottom row (options.md:282). */
+.ptah-empty-board__column {
+  height: 176px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.ptah-empty-board__numerals {
+  min-width: 112px;
+}
+.ptah-empty-board__steps {
+  width: 260px;
+}
+.ptah-empty-board__new {
+  margin-top: 38px;
+}
+.ptah-empty-board__history {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ptah-empty-board__history:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ptah-empty-board__history:focus-visible {
+  outline: 2px solid oklch(var(--p));
+  outline-offset: 3px;
+}
+@media (max-width: 1000px) {
+  .ptah-empty-board__stage {
+    padding: 32px 24px 48px;
+  }
+  .ptah-empty-board__zone {
+    flex-direction: column;
+    gap: 22px;
+  }
+}

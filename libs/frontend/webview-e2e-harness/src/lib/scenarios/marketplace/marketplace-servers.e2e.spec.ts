@@ -204,15 +204,16 @@ test.describe('webview > marketplace > @container catalog grid', () => {
 });
 
 test.describe('webview > marketplace > D2 deep link from chat', () => {
-  test('"Open Library" on the canvas landing screen navigates to skills/ptah-plugins', async ({
+  test('"Open Library" on the canvas readiness ring navigates to skills/ptah-plugins', async ({
     page,
     fixtureServer,
   }) => {
     await installCspStub(page);
     await installPostMessageBridge(page);
     await installHost(page, 'vscode', 'chat');
-    // `!hasConfiguredSkills()` (the warning + deep-link button) renders when
-    // the catalog is loaded and reports zero enabled plugins.
+    // The readiness ring's one link is the first incomplete check. Skills is
+    // the only one: the catalog reports zero enabled plugins, while the project
+    // scan has a saved analysis and the agents are configured.
     await installRpcAutoResponder(page, {
       ...baseMarketplaceFixtures(),
       'plugins:get-config': {
@@ -220,12 +221,22 @@ test.describe('webview > marketplace > D2 deep link from chat', () => {
         disabledSkillIds: [],
         disabledPluginIds: [],
       },
+      'wizard:list-analyses': { analyses: [{ projectType: 'Angular' }] },
+      'setup-status:get-status': {
+        isConfigured: true,
+        agentCount: 3,
+        ruleCount: 0,
+        lastUpdated: null,
+        hasClaudeConfig: true,
+      },
     });
     await page.goto(fixtureServer.url);
 
-    // The warning (`ProjectSetupCardComponent`) mounts on the Orchestra Canvas
-    // landing screen (no tiles), not inside an empty session tile.
-    const openSkills = page.getByRole('button', { name: 'Open Library' });
+    // The ring (`ptah-readiness-ring`) is part of the Orchestra Canvas
+    // zero-sessions hero (no tiles), loaded in its deferred chunk.
+    const openSkills = page
+      .locator('[data-testid="canvas-rail-empty-board"]')
+      .getByRole('button', { name: 'Open Library' });
     await expect(openSkills).toBeVisible();
     await openSkills.click();
 

@@ -7,6 +7,7 @@ import {
   type StatCellState,
 } from '@ptah-extension/chat-ui/vitals';
 import type { RecentWorkspace } from '@ptah-extension/shared';
+import { formatUsd } from './usage-vitals.model';
 import type { ActivityVitals, SpendVitals } from './usage-vitals.view';
 import type { VitalsLoad } from './vitals-load';
 
@@ -21,13 +22,6 @@ const MINUTE_MS = 60_000;
 const SPEND_BAR_COUNT = 7;
 
 export const DAY_ONE_CAPTION = 'Day 1 · your activity will grow here';
-
-const USD = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 /** A numeral cell (Agents, Skills). */
 export interface CountCellView {
@@ -126,12 +120,12 @@ export function toSpendCell(load: VitalsLoad<SpendVitals>): SpendCellView {
     case 'ready': {
       const cost = load.value.totals.costUsd;
       if (cost === null) return { state: 'empty', text: '', bars: [] };
-      return { state: 'ready', text: USD.format(cost), bars: load.value.days };
+      return { state: 'ready', text: formatUsd(cost), bars: load.value.days };
     }
     case 'empty':
       return {
         state: 'ready',
-        text: USD.format(0),
+        text: formatUsd(0),
         bars: new Array<number>(SPEND_BAR_COUNT).fill(0),
       };
     default:

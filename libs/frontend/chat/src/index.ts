@@ -66,6 +66,12 @@ export {
   type WorkspaceVitalsHost,
 } from './lib/services/vitals/workspace-vitals.store';
 export type { ActivityVitals } from './lib/services/vitals/usage-vitals.view';
+// Pure helpers the canvas hero shares with the store, so its `today` and spend
+// format match the store's (`activity.today` is `localDayKey` too).
+export {
+  formatUsd,
+  localDayKey,
+} from './lib/services/vitals/usage-vitals.model';
 export type { VitalsLoad } from './lib/services/vitals/vitals-load';
 export {
   SESSION_EMBED_CHROME,

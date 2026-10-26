@@ -66,6 +66,18 @@ function finite(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) ? value : 0;
 }
 
+const USD = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** A dollar amount with cents, e.g. "$27.10": the one spend format of the empty screens. */
+export function formatUsd(value: number): string {
+  return USD.format(value);
+}
+
 /** Local calendar day of `date` as `YYYY-MM-DD`. */
 export function localDayKey(date: Date): string {
   return `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`;

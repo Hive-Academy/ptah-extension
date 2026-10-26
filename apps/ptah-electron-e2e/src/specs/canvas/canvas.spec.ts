@@ -68,8 +68,18 @@ test.describe('Canvas Rail', () => {
     const page = ui.page;
     const empty = page.locator('[data-testid="canvas-rail-empty-board"]');
     await expect(empty).toBeVisible();
-    await expect(empty.getByRole('heading', { name: 'A fresh space to work' })).toBeVisible();
+    // The hero's heading is the workspace name; it labels the board landmark.
+    const heading = empty.getByRole('heading', { level: 1 });
+    await expect(heading).toBeVisible();
+    await expect(heading).not.toHaveText('');
     await expect(empty.getByRole('button', { name: 'New session' })).toBeVisible();
+    // While empty the Rail sits behind its Sessions tab, which opens it.
+    const sessionsTab = page.locator('ptah-canvas-rail-board:visible [data-sessions-tab] button');
+    await expect(sessionsTab).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('[data-testid="canvas-footer-new-session"]:visible')).toHaveCount(0);
+    await sessionsTab.click();
+    await expect(sessionsTab).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-testid="canvas-footer-new-session"]:visible')).toHaveCount(1);
   });
 
   test('adds and focuses a Rail session across navigation', async ({ ui }) => {

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { visibleNewSessionTrigger } from '../support/new-session-trigger';
 
 /**
  * P6.1 / P1.1 — "Fix / edit code in a single chat" (a single Canvas tile).
@@ -232,9 +233,7 @@ async function openSingleTile(
   const tiles = page.locator('[data-testid="canvas-tile"]');
   const startCount = await tiles.count();
 
-  const hero = page.locator('[data-testid="canvas-hero-new-session"]').first();
-  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').first();
-  await director.click((await visible(hero)) ? hero : footerButton);
+  await director.click(await visibleNewSessionTrigger(page));
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
   await director.type(nameInput, TILE_LABEL);
