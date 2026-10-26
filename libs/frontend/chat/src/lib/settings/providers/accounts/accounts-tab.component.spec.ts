@@ -14,18 +14,12 @@ import type {
   ProviderAccountSummary,
   ProviderAccountsSnapshot,
 } from '@ptah-extension/shared';
-import { AccountUseForComponent } from './account-use-for.component';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { ACCOUNT_COPY } from './account-presentation';
 import { AccountDetailViewComponent } from './account-detail-view.component';
-import { ACCOUNT_STATUS_UNAVAILABLE } from './account-detail-view.component';
-import {
-  ACCOUNT_ADDED_TOAST,
-  AccountsTabComponent,
-  SELECTION_REFUSED_FALLBACK,
-  SIGNED_OUT_FEEDBACK,
-  SIGN_IN_CANCELLED_FEEDBACK,
-  SIGN_IN_STARTED_FEEDBACK,
-  STATUS_CHECKED_FEEDBACK,
-} from './accounts-tab.component';
+import { AddAccountFormComponent } from './add-account-form.component';
+import { AmbientAccountRowComponent } from './ambient-account-row.component';
+import { AccountsTabComponent } from './accounts-tab.component';
 
 type StatusReadOutcome = Awaited<ReturnType<ProviderAccountsStateService['refreshAccountStatus']>>;
 
@@ -60,12 +54,12 @@ class FakeAccounts {
   readonly ops = signal({});
   readonly fbs = signal({});
   readonly pending = deferred<ProviderAccountActionOutcome>();
+  readonly statusRead = deferred<StatusReadOutcome>();
   state = () => this.view;
   operations = () => this.ops;
   fallbacks = () => this.fbs;
   open = jest.fn(async () => undefined);
   refresh = jest.fn(async () => undefined);
-  readonly statusRead = deferred<StatusReadOutcome>();
   refreshAccountStatus = jest.fn(() => this.statusRead.promise);
   setSelection = jest.fn(() => this.pending.promise);
   addAccount = jest.fn(() => this.pending.promise);
@@ -74,6 +68,11 @@ class FakeAccounts {
   startSignIn = jest.fn(() => this.pending.promise);
   signOut = jest.fn(() => this.pending.promise);
   cancelSignIn = jest.fn(() => this.pending.promise);
+  /** The state service applies a write's response snapshot before the write resolves. */
+  commit(next: ProviderAccountsSnapshot): void {
+    this.view.set(ready(next));
+    this.pending.resolve({ status: 'saved', snapshot: next });
+  }
 }
 
 class FakeAmbient {
@@ -92,27 +91,34 @@ describe('AccountsTabComponent', () => {
   let fixture: ComponentFixture<AccountsTabComponent>;
   let accounts: FakeAccounts;
   let ambient: FakeAmbient;
-  /** A control outside the tab (e.g. the drawer's tab strip): "Use for" is not rendered while the detail is open. */
+  let announce: jest.Mock;
   let outside: HTMLButtonElement | null = null;
+  /** A control outside the tab (e.g. the drawer's tab strip). */
   const focusOutside = (): HTMLButtonElement => {
     outside ??= document.body.appendChild(document.createElement('button'));
     outside.focus();
     return outside;
   };
 
+  function create(): void {
+    fixture = TestBed.createComponent(AccountsTabComponent);
+    document.body.appendChild(fixture.nativeElement);
+    fixture.detectChanges();
+  }
+
   beforeEach(() => {
     accounts = new FakeAccounts();
     ambient = new FakeAmbient();
+    announce = jest.fn();
     TestBed.configureTestingModule({
       imports: [AccountsTabComponent],
       providers: [
         { provide: ProviderAccountsStateService, useValue: accounts },
         { provide: ClaudeAmbientStatusService, useValue: ambient },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
       ],
     });
-    fixture = TestBed.createComponent(AccountsTabComponent);
-    document.body.appendChild(fixture.nativeElement);
-    fixture.detectChanges();
+    create();
   });
   afterEach(() => {
     outside?.remove();
@@ -125,12 +131,14 @@ describe('AccountsTabComponent', () => {
   const root = () => fixture.nativeElement as HTMLElement;
   const byTestId = (id: string) => root().querySelector<HTMLElement>(`[data-testid="${id}"]`);
   const all = (id: string) => Array.from(root().querySelectorAll<HTMLElement>(`[data-testid="${id}"]`));
-  const selects = () => Array.from(root().querySelectorAll<HTMLSelectElement>('select'));
-  const useFor = () => fixture.debugElement.query(By.directive(AccountUseForComponent)).componentInstance as AccountUseForComponent;
+  const rowOf = (label: string) =>
+    all('accounts-tab-row').find((row) => row.querySelector('[data-testid="accounts-tab-row-name"]')?.textContent?.trim() === label);
   const detail = () => fixture.debugElement.query(By.directive(AccountDetailViewComponent))?.componentInstance as
     AccountDetailViewComponent | undefined;
-  const pendingScopes = () => fixture.componentInstance['pendingScopes']();
+  const addForm = () => fixture.debugElement.query(By.directive(AddAccountFormComponent))?.componentInstance as
+    AddAccountFormComponent | undefined;
   const busy = () => fixture.componentInstance['busy']();
+  const detailHeading = () => root().querySelector<HTMLElement>('[data-testid="account-detail-heading"]');
   async function settle(): Promise<void> {
     for (let i = 0; i < 3; i++) {
       await Promise.resolve();
@@ -139,22 +147,13 @@ describe('AccountsTabComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
   }
-  /** The real form flow: type, then press "Add account" (the form focuses its own status first). */
-  async function submitAdd(label: string): Promise<void> {
-    byTestId('accounts-tab-add')?.click();
-    await settle();
-    const input = root().querySelector<HTMLInputElement>('ptah-add-account-form input');
-    if (!input) throw new Error('add form not open');
-    input.value = label;
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    Array.from(root().querySelectorAll<HTMLButtonElement>('ptah-add-account-form button'))
-      .find((button) => button.textContent?.trim() === 'Add account')?.click();
+  function setView(view: ProviderAccountsView): void {
+    accounts.view.set(view);
     fixture.detectChanges();
   }
-  function openDetailOf(label: string): void {
+  async function openDetailOf(label: string): Promise<void> {
     root().querySelector<HTMLElement>(`[aria-label="Manage ${label}"]`)?.click();
-    fixture.detectChanges();
+    await settle();
   }
 
   it('starts the account list and a fresh ambient read when the tab opens', () => {
@@ -162,392 +161,408 @@ describe('AccountsTabComponent', () => {
     expect(ambient.read).toHaveBeenCalledWith(true);
   });
 
-  it('is a region labelled by the Use for heading, busy while a read is in flight', () => {
-    const region = byTestId('accounts-tab');
-    expect(region?.getAttribute('role')).toBe('region');
-    expect(region?.getAttribute('aria-labelledby')).toBe('account-use-for-heading');
-    expect(region?.getAttribute('aria-busy')).toBe('false');
-    ambient.state.set({ ...CONNECTED, status: 'checking' });
-    fixture.detectChanges();
-    expect(region?.getAttribute('aria-busy')).toBe('true');
-  });
+  describe('region, header and body states', () => {
+    it('is always labelled "Claude accounts", calm spacing, busy while a read runs, with no inline feedback line', () => {
+      const region = root().querySelector<HTMLElement>('[role="region"]');
+      expect(region?.getAttribute('aria-label')).toBe('Claude accounts');
+      expect(region?.getAttribute('aria-labelledby')).toBeNull();
+      expect(region?.className).toContain('space-y-6');
+      expect(region?.className).toContain('text-sm');
+      expect(region?.getAttribute('aria-busy')).toBe('false');
+      expect(root().querySelector('[aria-live]')).toBeNull();
+      expect(root().querySelectorAll('[role="status"], [role="alert"]')).toHaveLength(0);
+      expect(root().querySelector('select')).toBeNull();
+      setView({ ...ready(snapshot([WORK])), status: 'loading' });
+      expect(region?.getAttribute('aria-busy')).toBe('true');
+    });
 
-  it('S1: with no named account shows the ambient row and Add, and no empty-list copy', () => {
-    accounts.view.set(ready(snapshot([])));
-    fixture.detectChanges();
-    expect(byTestId('accounts-tab-list')?.querySelectorAll('li')).toHaveLength(1);
-    expect(byTestId('accounts-tab-list')?.textContent).toContain('Existing Claude login');
-    expect((byTestId('accounts-tab-add') as HTMLButtonElement).disabled).toBe(false);
-  });
+    it('header: Accounts heading (focusable by script) and Add account', () => {
+      const heading = byTestId('accounts-tab-heading');
+      expect(heading?.tagName).toBe('H3');
+      expect(heading?.getAttribute('tabindex')).toBe('-1');
+      const add = byTestId('accounts-tab-add');
+      expect(add?.textContent?.trim()).toBe('Add account');
+      expect(add?.className).toContain('btn-outline');
+      expect(add?.className).toContain('min-h-8');
+      expect(add?.getAttribute('aria-disabled')).toBeNull();
+    });
 
-  it('disables Add until a snapshot exists, and offers Try again on a first-load failure', () => {
-    accounts.view.set({ status: 'error', snapshot: null, stale: false, error: 'Could not load accounts. Retry.' });
-    fixture.detectChanges();
-    expect((byTestId('accounts-tab-add') as HTMLButtonElement).disabled).toBe(true);
-    expect(byTestId('accounts-tab-error')?.textContent).toContain('Accounts could not be loaded.');
-    byTestId('accounts-tab-error')?.querySelector('button')?.click();
-    expect(accounts.refresh).toHaveBeenCalledWith('claude');
-  });
-
-  it('orders signed-in accounts first, renders names as text, spines failed rows', () => {
-    accounts.view.set(ready(snapshot([account('p-x', '<b>Bold</b>', 'failed'), WORK])));
-    fixture.detectChanges();
-    const rows = all('accounts-tab-row');
-    expect(rows[0].textContent).toContain('Work');
-    expect(rows[1].textContent).toContain('<b>Bold</b>');
-    expect(rows[1].querySelector('b')).toBeNull();
-    expect(rows[1].className).toContain('border-l-state-err');
-    expect(rows[1].querySelector('[data-testid="accounts-tab-row-sign-in"]')).not.toBeNull();
-  });
-
-  it('opens the detail on Overview for a signed-in account and on Access otherwise', () => {
-    openDetailOf('Work');
-    expect(detail()?.initialTab()).toBe('overview');
-    detail()?.back.emit();
-    fixture.detectChanges();
-    all('accounts-tab-row-body')[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
-    fixture.detectChanges();
-    expect(detail()?.account().label).toBe('Team plan');
-    expect(detail()?.initialTab()).toBe('access');
-  });
-
-  it('All accounts returns to the list with focus on that account Manage button', async () => {
-    openDetailOf('Team plan');
-    detail()?.back.emit();
-    await settle();
-    expect(document.activeElement?.getAttribute('aria-label')).toBe('Manage Team plan');
-  });
-
-  it('hides Use for while the detail is open and keeps the region labelled, then shows it again', async () => {
-    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).not.toBeNull();
-    openDetailOf('Work');
-    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).toBeNull();
-    expect(byTestId('accounts-tab-heading')).toBeNull();
-    const region = byTestId('accounts-tab');
-    expect(region?.getAttribute('aria-labelledby')).toBeNull();
-    expect(region?.getAttribute('aria-label')).toBe('Claude accounts');
-    expect(accounts.open).toHaveBeenCalledTimes(1);
-    detail()?.back.emit();
-    await settle();
-    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).not.toBeNull();
-    expect(region?.getAttribute('aria-labelledby')).toBe('account-use-for-heading');
-    expect(document.activeElement?.getAttribute('aria-label')).toBe('Manage Work');
-  });
-
-  it('reflows rows at narrow width: titled name, wrapping chips, actions that can drop below the text', () => {
-    const longLabel = 'Client Acme Corp production research team shared acct 56x';
-    const named = { kind: 'named', profileId: 'p-long' } as const;
-    accounts.view.set(ready(snapshot([account('p-long', longLabel, 'not-signed-in'), WORK], named, named)));
-    fixture.detectChanges();
-    const row = all('accounts-tab-row').find((item) => item.textContent?.includes(longLabel));
-    expect(row?.className).toContain('flex-wrap');
-    const name = row?.querySelector<HTMLElement>('[data-testid="accounts-tab-row-name"]');
-    expect(name?.getAttribute('title')).toBe(longLabel);
-    expect(name?.className).toContain('break-words');
-    const body = row?.querySelector<HTMLElement>('[data-testid="accounts-tab-row-body"]');
-    expect(body?.className).toContain('min-w-0');
-    expect(body?.className).toContain('basis-40');
-    expect(row?.querySelector('[data-testid="accounts-tab-row-actions"]')?.className).toContain('ml-auto');
-    expect(row?.querySelector('[data-testid="accounts-tab-row-chips"]')?.className).toContain('flex-wrap');
-    const chips = Array.from(row?.querySelectorAll<HTMLElement>('[data-testid="accounts-tab-row-chip"]') ?? []);
-    expect(chips.length).toBeGreaterThan(0);
-    for (const chip of chips) expect(chip.className).toContain('whitespace-normal');
-  });
-
-  describe('selection writes', () => {
-    it('marks only that scope busy in the same handler, before anything async', () => {
-      useFor().selectionRequested.emit({ scope: 'main', choice: { kind: 'named', profileId: WORK.profileId } });
-      expect(pendingScopes().has('main')).toBe(true);
-      expect(pendingScopes().has('lane')).toBe(false);
+    it('loading: busy list with a "Loading…" row; Add aria-disabled and inert', () => {
+      setView({ status: 'loading', snapshot: null, stale: false, error: null });
+      expect(byTestId('accounts-tab-loading')?.textContent?.trim()).toBe('Loading…');
+      expect(byTestId('accounts-tab-list')?.getAttribute('aria-busy')).toBe('true');
+      const add = byTestId('accounts-tab-add');
+      expect(add?.getAttribute('aria-disabled')).toBe('true');
+      add?.click();
       fixture.detectChanges();
-      expect(selects()[0].disabled).toBe(true);
-      expect(selects()[1].disabled).toBe(false);
-      expect(accounts.setSelection).toHaveBeenCalledWith('claude', 'main', { kind: 'named', profileId: WORK.profileId });
+      expect(addForm()).toBeUndefined();
     });
 
-    it('saved: the toast names the account from the host snapshot', async () => {
-      useFor().selectionRequested.emit({ scope: 'lane', choice: { kind: 'named', profileId: WORK.profileId } });
-      const saved = snapshot([WORK, TEAM], { kind: 'omitted' }, { kind: 'named', profileId: WORK.profileId });
-      accounts.view.set(ready(saved));
-      accounts.pending.resolve({ status: 'saved', snapshot: saved });
-      await settle();
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe('Claude lanes will use Work for new sessions.');
-      expect(pendingScopes().size).toBe(0);
+    it('no workspace: the same row reads "Open a workspace"', () => {
+      setView({ status: 'idle', snapshot: null, stale: false, error: null });
+      expect(byTestId('accounts-tab-loading')?.textContent?.trim()).toBe('Open a workspace');
     });
 
-    it('refused: the stored value stays and the alert shows the fallback for an unsafe host sentence', async () => {
-      useFor().selectionRequested.emit({ scope: 'main', choice: { kind: 'named', profileId: WORK.profileId } });
-      accounts.pending.resolve({ status: 'failed', result: { code: 'conflict', summary: 'C:\\Users\\x\\.claude\nboom' } });
-      await settle();
-      expect(useFor().alerts().main).toBe(SELECTION_REFUSED_FALLBACK);
-      expect(selects()[0].value).toBe('ambient');
+    it('first-load failure: an alert row with Try again', () => {
+      setView({ status: 'error', snapshot: null, stale: false, error: 'x' });
+      const error = byTestId('accounts-tab-error');
+      expect(error?.getAttribute('role')).toBe('alert');
+      expect(error?.textContent).toContain('Could not load accounts');
+      error?.querySelector('button')?.click();
+      expect(accounts.refresh).toHaveBeenCalledWith('claude');
     });
 
-    it('unconfirmed: select and chips keep the last host snapshot and the warning shows', async () => {
-      useFor().selectionRequested.emit({ scope: 'main', choice: { kind: 'named', profileId: WORK.profileId } });
-      accounts.pending.resolve({ status: 'unconfirmed' });
+    it('stale: an "Out of date" status badge and Try again; the rows stay', () => {
+      setView({ ...ready(snapshot([WORK, TEAM])), stale: true });
+      const badge = byTestId('accounts-tab-stale');
+      expect(badge?.getAttribute('role')).toBe('status');
+      expect(badge?.textContent?.trim()).toBe('Out of date');
+      expect(all('accounts-tab-row')).toHaveLength(2);
+      byTestId('accounts-tab-stale-retry')?.click();
+      expect(accounts.refresh).toHaveBeenCalledWith('claude');
+      expect(root().textContent).not.toContain('latest refresh failed');
+    });
+
+    it('empty: the ambient row and Add only, no paragraph', () => {
+      setView(ready(snapshot([])));
+      expect(fixture.debugElement.query(By.directive(AmbientAccountRowComponent))).not.toBeNull();
+      expect(all('accounts-tab-row')).toHaveLength(0);
+      // The tab's own markup has no helper paragraph (the ambient row's markup belongs to component 8).
+      const ownParagraphs = Array.from(root().querySelectorAll('p')).filter((p) => !p.closest('ptah-ambient-account-row'));
+      expect(ownParagraphs).toHaveLength(0);
+    });
+  });
+
+  describe('rows', () => {
+    it('list spacing has no inline margin; rows px-4 py-3, signed-in first, names as truncated titled text', () => {
+      const list = byTestId('accounts-tab-list');
+      expect(list?.getAttribute('aria-label')).toBe('Claude accounts');
+      expect(list?.className).toContain('space-y-3');
+      expect(list?.className).not.toMatch(/\bm[tby]?-/);
+      const names = all('accounts-tab-row-name');
+      expect(names.map((name) => name.textContent?.trim())).toEqual(['Work', 'Team plan']);
+      expect(names[0].getAttribute('title')).toBe('Work');
+      expect(names[0].className).toContain('truncate');
+      expect(all('accounts-tab-row')[0].className).toContain('px-4 py-3');
+    });
+
+    it('Manage chevron on every named row; Sign in only for not-signed-in, failed and cancelled; no row button', () => {
+      setView(ready(snapshot([
+        WORK, TEAM, account('p-fail-0003', 'Broken', 'failed'), account('p-out-0004', 'Out', 'signed-out'),
+        account('p-can-0005', 'Stopped', 'cancelled'),
+      ])));
+      expect(root().querySelector('[role="button"]')).toBeNull();
+      for (const label of ['Work', 'Team plan', 'Broken', 'Out', 'Stopped']) {
+        const manage = rowOf(label)?.querySelector<HTMLElement>('[data-testid="accounts-tab-row-manage"]');
+        expect(manage?.getAttribute('aria-label')).toBe(`Manage ${label}`);
+        expect(manage?.getAttribute('title')).toBe('Manage');
+      }
+      const signIns = (label: string) => rowOf(label)?.querySelectorAll('[data-testid="accounts-tab-row-sign-in"]').length;
+      expect([signIns('Work'), signIns('Team plan'), signIns('Broken'), signIns('Out'), signIns('Stopped')])
+        .toEqual([0, 1, 1, 0, 1]);
+      expect(rowOf('Broken')?.className).toContain('border-l-state-err');
+    });
+
+    it('pending: spinner and "Signing in…", no Sign in, Manage still there', () => {
+      setView(ready(snapshot([account('p-pend-0006', 'Waiting', 'pending')])));
+      const row = rowOf('Waiting');
+      expect(row?.querySelector('[data-testid="accounts-tab-row-spinner"]')).not.toBeNull();
+      expect(row?.querySelector('[data-testid="accounts-tab-row-state"]')?.textContent?.trim()).toBe('Signing in…');
+      expect(row?.querySelector('[data-testid="accounts-tab-row-sign-in"]')).toBeNull();
+      expect(row?.querySelector('[data-testid="accounts-tab-row-manage"]')).not.toBeNull();
+    });
+
+    it('"Used by" chips come from the host snapshot; unused rows have no label; the ambient row gets its chips', () => {
+      setView(ready(snapshot([WORK, TEAM], { kind: 'named', profileId: WORK.profileId }, { kind: 'omitted' })));
+      const usedBy = rowOf('Work')?.querySelector('[data-testid="accounts-tab-row-used-by"]');
+      expect(usedBy?.textContent).toContain('Used by');
+      expect(Array.from(usedBy?.querySelectorAll('[data-testid="accounts-tab-row-chip"]') ?? []).map((c) => c.textContent?.trim()))
+        .toEqual(['Chat']);
+      expect(rowOf('Team plan')?.querySelector('[data-testid="accounts-tab-row-used-by"]')).toBeNull();
+      const ambientRow = fixture.debugElement.query(By.directive(AmbientAccountRowComponent)).componentInstance as
+        AmbientAccountRowComponent;
+      expect(ambientRow.chips()).toEqual(['Lanes']);
+      expect(root().textContent).not.toContain('Run binding');
+    });
+  });
+
+  describe('list and detail', () => {
+    it('Manage opens the detail (component 7 inputs only) with focus on its heading; the header leaves', async () => {
+      await openDetailOf('Team plan');
+      expect(detail()?.account().profileId).toBe(TEAM.profileId);
+      expect(detail()?.accounts()).toEqual([WORK, TEAM]);
+      expect(byTestId('accounts-tab-heading')).toBeNull();
+      expect(byTestId('accounts-tab-list')).toBeNull();
+      expect(document.activeElement).toBe(detailHeading());
+    });
+
+    it('Back returns to the list with focus on that account Manage chevron', async () => {
+      await openDetailOf('Team plan');
+      detail()?.back.emit();
       await settle();
-      expect(useFor().messages().main).toBe('This action may not have completed. Accounts were reloaded.');
-      expect(selects()[0].value).toBe('ambient');
-      expect(all('accounts-tab-row-chip')).toHaveLength(0);
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe('');
+      expect(document.activeElement).toBe(rowOf('Team plan')?.querySelector('[data-testid="accounts-tab-row-manage"]'));
+    });
+
+    it('a push that removes the open account: back to the list, status toast, heading focus as focus was inside', async () => {
+      await openDetailOf('Team plan');
+      expect(root().querySelector('[data-testid="accounts-tab-detail"]')?.contains(document.activeElement)).toBe(true);
+      setView(ready(snapshot([WORK])));
+      await settle();
+      expect(detail()).toBeUndefined();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.accountGone, 'status');
+      expect(document.activeElement).toBe(byTestId('accounts-tab-heading'));
+    });
+
+    it('a push that removes the open account while focus is outside the tab leaves focus there', async () => {
+      await openDetailOf('Team plan');
+      const away = focusOutside();
+      setView(ready(snapshot([WORK])));
+      await settle();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.accountGone, 'status');
+      expect(document.activeElement).toBe(away);
     });
   });
 
   describe('account actions', () => {
-    it('marks the account busy in the same handler and passes it to the detail', () => {
-      openDetailOf('Team plan');
-      detail()?.signIn.emit(TEAM.profileId);
+    it('row Sign in: busy in the same handler, focusable while busy, a repeat is ignored', () => {
+      const signIn = rowOf('Team plan')?.querySelector<HTMLButtonElement>('[data-testid="accounts-tab-row-sign-in"]');
+      signIn?.click();
       expect(busy().get(TEAM.profileId)).toBe('sign-in');
       fixture.detectChanges();
-      expect(detail()?.busy()).toBe('sign-in');
-      expect(accounts.startSignIn).toHaveBeenCalledWith('claude', TEAM.profileId);
-    });
-
-    it('a row Sign in stays focusable while busy and does not start twice', () => {
-      const signIn = byTestId('accounts-tab-row-sign-in') as HTMLButtonElement;
-      signIn.focus();
-      signIn.click();
-      fixture.detectChanges();
-      expect(signIn.getAttribute('aria-disabled')).toBe('true');
-      expect(document.activeElement).toBe(signIn);
-      signIn.click();
+      expect(signIn?.disabled).toBe(false);
+      expect(signIn?.getAttribute('aria-disabled')).toBe('true');
+      signIn?.click();
       expect(accounts.startSignIn).toHaveBeenCalledTimes(1);
     });
 
-    it('a saved rename gives the detail "Name saved."', async () => {
-      openDetailOf('Work');
-      detail()?.rename.emit({ profileId: WORK.profileId, label: 'Office' });
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
+    it('a started sign-in announces the host state word', async () => {
+      rowOf('Team plan')?.querySelector<HTMLButtonElement>('[data-testid="accounts-tab-row-sign-in"]')?.click();
+      accounts.commit(snapshot([WORK, { ...TEAM, state: 'pending' }]));
       await settle();
-      expect(detail()?.feedback()).toBe('Name saved.');
+      expect(announce).toHaveBeenCalledWith('Signing in…', 'status');
+      expect(busy().size).toBe(0);
+    });
+
+    it.each([
+      ['signOut', 'signOut', ACCOUNT_COPY.signedOut],
+      ['cancelSignIn', 'cancelSignIn', ACCOUNT_COPY.signInCancelled],
+    ] as const)('detail %s saved announces its toast', async (output, method, message) => {
+      await openDetailOf('Work');
+      detail()?.[output].emit(WORK.profileId);
+      expect(accounts[method]).toHaveBeenCalledWith('claude', WORK.profileId);
+      expect(busy().has(WORK.profileId)).toBe(true);
+      accounts.commit(snapshot([WORK, TEAM]));
+      await settle();
+      expect(announce).toHaveBeenCalledWith(message, 'status');
+    });
+
+    it('a saved rename announces "Name saved"', async () => {
+      await openDetailOf('Work');
+      detail()?.rename.emit({ profileId: WORK.profileId, label: 'Job' });
+      expect(accounts.renameAccount).toHaveBeenCalledWith('claude', WORK.profileId, 'Job');
+      accounts.commit(snapshot([{ ...WORK, label: 'Job' }, TEAM]));
+      await settle();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.nameSaved, 'status');
+    });
+
+    it('a refusal announces the safe host sentence as an alert, else the fixed alert', async () => {
+      await openDetailOf('Work');
+      detail()?.signOut.emit(WORK.profileId);
+      accounts.pending.resolve({ status: 'failed', result: { code: 'busy', summary: 'Another sign-in is running.' } });
+      await settle();
+      expect(announce).toHaveBeenLastCalledWith('Another sign-in is running.', 'alert');
+    });
+
+    it('an unsafe host sentence is replaced by the fixed alert', async () => {
+      await openDetailOf('Work');
+      detail()?.signOut.emit(WORK.profileId);
+      accounts.pending.resolve({ status: 'failed', result: { code: 'busy', summary: 'C:\\Users\\me\\.claude failed' } });
+      await settle();
+      expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.actionFailed, 'alert');
+    });
+
+    it('unconfirmed never reads "not saved"', async () => {
+      await openDetailOf('Work');
+      detail()?.signOut.emit(WORK.profileId);
+      accounts.pending.resolve({ status: 'unconfirmed' });
+      await settle();
+      expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.unconfirmed, 'alert');
+    });
+
+    it('B-2: a detail action keeps focus where the user moved it', async () => {
+      await openDetailOf('Work');
+      detailHeading()?.focus();
+      detail()?.signOut.emit(WORK.profileId);
+      const away = focusOutside();
+      accounts.commit(snapshot([{ ...WORK, state: 'signed-out' }, TEAM]));
+      await settle();
+      expect(document.activeElement).toBe(away);
+    });
+
+    it('a write that resolves after the tab closed is still announced but moves no focus', async () => {
+      await openDetailOf('Work');
+      detail()?.signOut.emit(WORK.profileId);
+      const away = focusOutside();
+      fixture.destroy();
+      accounts.commit(snapshot([WORK, TEAM]));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.signedOut, 'status');
+      expect(document.activeElement).toBe(away);
     });
   });
 
-  describe('Check status (F1: busy rule b, B-2)', () => {
-    const live = () => byTestId('account-detail-live');
-
-    async function startCheck(): Promise<void> {
-      openDetailOf('Work');
+  describe('release-held (P6-A8)', () => {
+    it('after a release-held refusal Add is aria-disabled with a title and activating it announces the host sentence', async () => {
+      await openDetailOf('Work');
+      detail()?.signOut.emit(WORK.profileId);
+      accounts.pending.resolve({ status: 'failed', result: { code: 'release-held', summary: 'C:\\unsafe' } });
       await settle();
-      // The detail moves focus to its live status, then emits (account-detail-view act()).
-      live()?.focus();
-      detail()?.checkStatus.emit(WORK.profileId);
-    }
+      expect(announce).toHaveBeenLastCalledWith(ACCOUNT_COPY.hostUnsupported, 'alert');
+      detail()?.back.emit();
+      await settle();
+      const add = byTestId('accounts-tab-add');
+      expect(add?.getAttribute('aria-disabled')).toBe('true');
+      expect(add?.getAttribute('title')).toBe(ACCOUNT_COPY.notAvailableOnHost);
+      announce.mockClear();
+      add?.click();
+      fixture.detectChanges();
+      expect(addForm()).toBeUndefined();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.hostUnsupported, 'alert');
+    });
+  });
 
+  describe('Check status and ambient Check', () => {
     it('sets busy in the same handler, rejects a repeat, and announces a successful read', async () => {
-      await startCheck();
+      await openDetailOf('Work');
+      detail()?.checkStatus.emit(WORK.profileId);
       expect(busy().get(WORK.profileId)).toBe('check-status');
       detail()?.checkStatus.emit(WORK.profileId);
-      detail()?.signOut.emit(WORK.profileId);
       expect(accounts.refreshAccountStatus).toHaveBeenCalledTimes(1);
-      expect(accounts.signOut).not.toHaveBeenCalled();
-      fixture.detectChanges();
-      expect(detail()?.busy()).toBe('check-status');
       accounts.statusRead.resolve({ status: 'read' });
       await settle();
-      expect(busy().has(WORK.profileId)).toBe(false);
-      expect(live()?.textContent).toBe(STATUS_CHECKED_FEEDBACK);
+      expect(busy().size).toBe(0);
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.statusChecked, 'status');
     });
 
-    it('a refused read shows the host refusal and clears busy', async () => {
-      await startCheck();
-      const result = { code: 'conflict', summary: 'The status could not be read.' } as const;
-      accounts.statusRead.resolve({ status: 'failed', result });
-      await settle();
-      expect(busy().has(WORK.profileId)).toBe(false);
-      expect(detail()?.refusal()).toEqual(result);
-    });
-
-    it('a transport failure announces that the status is not available', async () => {
-      await startCheck();
+    it('a transport failure announces the fixed alert', async () => {
+      await openDetailOf('Work');
+      detail()?.checkStatus.emit(WORK.profileId);
       accounts.statusRead.resolve({ status: 'unavailable' });
       await settle();
-      expect(busy().has(WORK.profileId)).toBe(false);
-      expect(live()?.textContent).toBe(ACCOUNT_STATUS_UNAVAILABLE);
-    });
-  });
-
-  describe('completion announcements (F5, B-2)', () => {
-    const live = () => byTestId('account-detail-live');
-
-    it('a saved sign-out announces in the detail while focus stays where the user moved it', async () => {
-      openDetailOf('Work');
-      await settle();
-      detail()?.signOut.emit(WORK.profileId);
-      fixture.detectChanges();
-      const moved = focusOutside();
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
-      await settle();
-      expect(live()?.textContent).toBe(SIGNED_OUT_FEEDBACK);
-      expect(document.activeElement).toBe(moved);
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.actionFailed, 'alert');
     });
 
-    it('a saved cancel announces the cancellation in the detail', async () => {
-      openDetailOf('Team plan');
+    it('the ambient row Check requests a fresh read and announces "Status checked"', async () => {
+      ambient.read.mockClear();
+      const row = fixture.debugElement.query(By.directive(AmbientAccountRowComponent)).componentInstance as
+        AmbientAccountRowComponent;
+      row.checkRequested.emit();
+      expect(ambient.read).toHaveBeenCalledWith(true);
       await settle();
-      detail()?.cancelSignIn.emit(TEAM.profileId);
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
-      await settle();
-      expect(live()?.textContent).toBe(SIGN_IN_CANCELLED_FEEDBACK);
-    });
-
-    it('a saved sign-in started from the list row announces in the tab status', async () => {
-      byTestId('accounts-tab-row-sign-in')?.click();
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
-      await settle();
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe(SIGN_IN_STARTED_FEEDBACK);
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.statusChecked, 'status');
     });
   });
 
   describe('removal (B-1, B-2)', () => {
-    async function removeWork(hostSnapshot: ProviderAccountsSnapshot, focusInside: boolean): Promise<void> {
-      accounts.view.set(ready(snapshot([WORK, TEAM], { kind: 'named', profileId: WORK.profileId })));
-      fixture.detectChanges();
-      openDetailOf('Work');
-      await settle();
+    it('never writes a selection; announces "Account removed" once and not "no longer in the list"', async () => {
+      await openDetailOf('Work');
       detail()?.remove.emit(WORK.profileId);
-      fixture.detectChanges();
-      if (focusInside) byTestId('account-detail-live')?.focus();
-      else focusOutside();
-      accounts.view.set(ready(hostSnapshot));
-      accounts.pending.resolve({ status: 'saved', snapshot: hostSnapshot });
+      accounts.commit(snapshot([TEAM]));
       await settle();
-    }
-
-    it('never writes a selection; the host snapshot with the selection omitted shows Existing Claude login', async () => {
-      await removeWork(snapshot([TEAM]), true);
       expect(accounts.setSelection).not.toHaveBeenCalled();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.accountRemoved, 'status');
+      expect(announce).not.toHaveBeenCalledWith(ACCOUNT_COPY.accountGone, 'status');
       expect(detail()).toBeUndefined();
-      expect(selects()[0].value).toBe('ambient');
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
+    });
+
+    it('focus on the Remove origin moves to the Accounts heading when the detail leaves', async () => {
+      await openDetailOf('Work');
+      detailHeading()?.focus();
+      detail()?.remove.emit(WORK.profileId);
+      accounts.commit(snapshot([TEAM]));
+      await settle();
       expect(document.activeElement).toBe(byTestId('accounts-tab-heading'));
     });
 
-    it('a host snapshot that still names the removed id shows the unavailable placeholder', async () => {
-      await removeWork(snapshot([TEAM], { kind: 'named', profileId: WORK.profileId }), true);
-      expect(accounts.setSelection).not.toHaveBeenCalled();
-      expect(selects()[0].value).toBe('unavailable');
-    });
-
-    it('keeps focus where the user moved it while the removal ran', async () => {
-      await removeWork(snapshot([TEAM]), false);
-      expect(document.activeElement).toBe(outside);
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
-    });
-
-    it('F4: focus on another control of the detail is not the waiting target; it is not moved to the heading', async () => {
-      accounts.view.set(ready(snapshot([WORK, TEAM])));
-      fixture.detectChanges();
-      openDetailOf('Work');
-      await settle();
+    it('focus moved outside the tab during the removal stays there', async () => {
+      await openDetailOf('Work');
       detail()?.remove.emit(WORK.profileId);
-      fixture.detectChanges();
-      const other = Array.from(
-        root().querySelectorAll<HTMLButtonElement>('ptah-account-detail-view button:not([disabled])'),
-      )[0];
-      other.focus();
-      expect(document.activeElement).toBe(other);
-      accounts.view.set(ready(snapshot([TEAM])));
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([TEAM]) });
+      const away = focusOutside();
+      accounts.commit(snapshot([TEAM]));
       await settle();
-      expect(detail()).toBeUndefined();
-      expect(document.activeElement).not.toBe(byTestId('accounts-tab-heading'));
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
+      expect(document.activeElement).toBe(away);
     });
 
-    it('F4: focus lost to the document body during removal stays there', async () => {
-      accounts.view.set(ready(snapshot([WORK, TEAM])));
-      fixture.detectChanges();
-      openDetailOf('Work');
-      await settle();
+    it('a refused removal keeps the detail and announces the alert', async () => {
+      await openDetailOf('Work');
       detail()?.remove.emit(WORK.profileId);
-      fixture.detectChanges();
-      (document.activeElement as HTMLElement | null)?.blur();
-      expect(document.activeElement).toBe(document.body);
-      accounts.view.set(ready(snapshot([TEAM])));
-      accounts.pending.resolve({ status: 'saved', snapshot: snapshot([TEAM]) });
+      accounts.pending.resolve({ status: 'unavailable' });
       await settle();
-      expect(detail()).toBeUndefined();
-      expect(document.activeElement).toBe(document.body);
-    });
-
-    it('a push that removes the open account returns to the list', async () => {
-      openDetailOf('Team plan');
-      await settle();
-      accounts.view.set(ready(snapshot([WORK])));
-      await settle();
-      expect(detail()).toBeUndefined();
-      expect(byTestId('accounts-tab-list')).not.toBeNull();
+      expect(detail()?.account().profileId).toBe(WORK.profileId);
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.actionFailed, 'alert');
     });
   });
 
   describe('add', () => {
-    it('success opens the new account on Access with the toast and selects nothing', async () => {
-      const added = account('p-new-0009', 'Side', 'not-signed-in');
-      await submitAdd('Side');
-      expect(accounts.addAccount).toHaveBeenCalledWith('claude', 'Side');
-      expect(fixture.componentInstance['addPending']()).toBe(true);
-      const next = snapshot([WORK, TEAM, added]);
-      accounts.view.set(ready(next));
-      accounts.pending.resolve({ status: 'saved', snapshot: next });
-      await settle();
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe(ACCOUNT_ADDED_TOAST);
-      expect(detail()?.account().profileId).toBe('p-new-0009');
-      expect(detail()?.initialTab()).toBe('access');
-      expect(accounts.setSelection).not.toHaveBeenCalled();
-      expect(accounts.startSignIn).not.toHaveBeenCalled();
-    });
-
-    it('F4: focus that left the waiting status for the body stays; the list stays and the toast announces', async () => {
-      const added = account('p-new-0009', 'Side', 'not-signed-in');
-      await submitAdd('Side');
-      const waiting = document.activeElement;
-      expect(root().querySelector('ptah-add-account-form')?.contains(waiting)).toBe(true);
-      (waiting as HTMLElement).blur();
-      expect(document.activeElement).toBe(document.body);
-      const next = snapshot([WORK, TEAM, added]);
-      accounts.view.set(ready(next));
-      accounts.pending.resolve({ status: 'saved', snapshot: next });
-      await settle();
-      expect(byTestId('accounts-tab-toast')?.textContent).toBe(ACCOUNT_ADDED_TOAST);
-      expect(detail()).toBeUndefined();
-      expect(document.activeElement).toBe(document.body);
-    });
-
-    it('F4: focus moved to a control outside the waiting status is left there', async () => {
-      const added = account('p-new-0009', 'Side', 'not-signed-in');
-      await submitAdd('Side');
-      selects()[0].focus();
-      const next = snapshot([WORK, TEAM, added]);
-      accounts.view.set(ready(next));
-      accounts.pending.resolve({ status: 'saved', snapshot: next });
-      await settle();
-      expect(detail()).toBeUndefined();
-      expect(document.activeElement).toBe(selects()[0]);
-    });
-
-    it('a refusal keeps the form open with the safe host sentence', async () => {
-      await submitAdd('Work 2');
-      accounts.pending.resolve({ status: 'failed', result: { code: 'conflict', summary: 'That name is already used. Names must be different.' } });
-      await settle();
-      expect(root().querySelector('ptah-add-account-form')).not.toBeNull();
-      expect(root().querySelector('ptah-add-account-form [role="alert"]')?.textContent).toContain('That name is already used.');
-    });
-
-    it('Cancel closes the form and focuses Add another account', async () => {
+    const NEW = account('p-new-0009', 'Side', 'not-signed-in');
+    async function openAdd(): Promise<AddAccountFormComponent> {
       byTestId('accounts-tab-add')?.click();
       await settle();
-      expect(document.activeElement).toBe(root().querySelector('ptah-add-account-form input'));
-      fixture.debugElement.query(By.css('ptah-add-account-form')).componentInstance.cancelled.emit();
+      const form = addForm();
+      if (!form) throw new Error('add form not open');
+      return form;
+    }
+
+    it('the form replaces the list and binds accounts and pending', async () => {
+      const form = await openAdd();
+      expect(byTestId('accounts-tab-list')).toBeNull();
+      expect(form.accounts()).toEqual([WORK, TEAM]);
+      expect(form.pending()).toBe(false);
+    });
+
+    it('success with focus still in the form: "Account added", the new detail opens with its heading focused', async () => {
+      const form = await openAdd();
+      root().querySelector<HTMLElement>('ptah-add-account-form input')?.focus();
+      form.submitted.emit('Side');
+      expect(accounts.addAccount).toHaveBeenCalledWith('claude', 'Side');
+      fixture.detectChanges();
+      expect(form.pending()).toBe(true);
+      accounts.commit(snapshot([WORK, TEAM, NEW]));
       await settle();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.accountAdded, 'status');
+      expect(accounts.setSelection).not.toHaveBeenCalled();
+      expect(detail()?.account().profileId).toBe(NEW.profileId);
+      expect(document.activeElement).toBe(detailHeading());
+    });
+
+    it('success after focus left the form: the list shows, no detail, no focus move', async () => {
+      const form = await openAdd();
+      form.submitted.emit('Side');
+      const away = focusOutside();
+      accounts.commit(snapshot([WORK, TEAM, NEW]));
+      await settle();
+      expect(announce).toHaveBeenCalledWith(ACCOUNT_COPY.accountAdded, 'status');
+      expect(detail()).toBeUndefined();
+      expect(byTestId('accounts-tab-list')).not.toBeNull();
+      expect(document.activeElement).toBe(away);
+    });
+
+    it('a refusal keeps the form open and announces the safe host sentence', async () => {
+      const form = await openAdd();
+      form.submitted.emit('Side');
+      accounts.pending.resolve({ status: 'failed', result: { code: 'busy', summary: 'That name is already used.' } });
+      await settle();
+      expect(addForm()).toBeDefined();
+      expect(announce).toHaveBeenCalledWith('That name is already used.', 'alert');
+    });
+
+    it('Cancel closes the form and focuses Add account', async () => {
+      const form = await openAdd();
+      form.cancelled.emit();
+      await settle();
+      expect(addForm()).toBeUndefined();
       expect(document.activeElement).toBe(byTestId('accounts-tab-add'));
     });
-  });
-
-  it('Check again on the ambient row requests a fresh read', () => {
-    ambient.read.mockClear();
-    root().querySelector<HTMLButtonElement>('[aria-label="Check the existing Claude login again"]')?.click();
-    expect(ambient.read).toHaveBeenCalledWith(true);
   });
 });
