@@ -82,7 +82,8 @@ export interface HarnessSyncRegistrationOptions {
    * Mirror + `reconcileAll` over the user layer. Host-supplied because it needs
    * the plugin loader, the content download service and the workspace provider
    * (see `IUserLayerRefresher`). Omitting it degrades propagation to
-   * "reconcile the layer as it stands", never to a failure.
+   * "reconcile the layer as it stands", never to a failure: the default
+   * `NO_USER_LAYER_REFRESH` reports every refresh as `'skipped'`.
    */
   userLayerRefresher?: IUserLayerRefresher;
   /** Session-start preflight tuning; every field has a working default. */

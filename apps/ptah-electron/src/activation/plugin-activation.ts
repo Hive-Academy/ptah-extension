@@ -1,3 +1,4 @@
+import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
@@ -7,6 +8,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
+  type PluginLoaderInitOptions,
   type PluginLoaderService,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -16,6 +18,8 @@ import {
   type AgentSyncGate,
   type HarnessPropagationService,
   type HarnessReconcilerService,
+  type IUserLayerRefresher,
+  type UserLayerRefreshStatus,
 } from '@ptah-extension/harness-sync';
 import {
   summarizeHarnessHealth,
@@ -25,7 +29,6 @@ import {
   AGENT_GENERATION_TOKENS,
   type MirrorSources,
   type UserLayerMirrorService,
-  type UserLayerRoots,
 } from '@ptah-extension/agent-generation';
 import { initializePluginMarketplace } from '@ptah-extension/plugin-marketplace';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
@@ -45,7 +48,9 @@ import {
   createCoalescedJob,
   type CoalescedJob,
   type CoalescedJobAdmission,
+  type CoalescedOutcome,
 } from './coalesced-job';
+import { broadcastLibraryChanged } from './library-change-broadcaster';
 import { SKILL_REPROPAGATION_USER_LAYER_REASON } from './skill-repropagation';
 import { normalizeWorkspaceRoot } from '@ptah-extension/shared';
 
@@ -91,6 +96,25 @@ interface UserLayerPassPayload {
 }
 
 /**
+ * What one step of the user-layer pass did (TASK_2026_701 B11).
+ *
+ * Every step still swallows its own failure — the pass is non-fatal by
+ * contract — but now says so, so the pass can tell "the Library is current"
+ * from "the Library may be stale". `skipped` is a step that had nothing to do
+ * on this host (no catalog service, SQLite closed).
+ */
+export type UserLayerStepStatus = 'ok' | 'failed' | 'skipped';
+
+/** The pass's aggregate: `failed` when any step failed, `updated` otherwise. */
+export type UserLayerPassStatus = 'updated' | 'failed';
+
+/**
+ * What a {@link refreshUserLayer} request got: the outcome of the coalesced
+ * batch it joined, shared by every request merged into that batch.
+ */
+export type UserLayerPassOutcome = CoalescedOutcome<UserLayerPassStatus>;
+
+/**
  * One coalescer per container.
  *
  * The container is the process-scope handle these free functions already share
@@ -101,21 +125,23 @@ interface UserLayerPassPayload {
  */
 const coalescersByContainer = new WeakMap<
   DependencyContainer,
-  CoalescedJob<UserLayerPassPayload>
+  CoalescedJob<UserLayerPassPayload, UserLayerPassStatus>
 >();
 
 function userLayerJobFor(
   container: DependencyContainer,
-): CoalescedJob<UserLayerPassPayload> {
+): CoalescedJob<UserLayerPassPayload, UserLayerPassStatus> {
   const existing = coalescersByContainer.get(container);
   if (existing !== undefined) return existing;
 
-  const created = createCoalescedJob<UserLayerPassPayload>({
-    windowMs: USER_LAYER_COALESCE_WINDOW_MS,
-    run: async ({ reasons, payload }) =>
-      runUserLayerPass(container, payload.workspaceRoot, reasons),
-    admit: (request) => admitUserLayerPass(container, request),
-  });
+  const created = createCoalescedJob<UserLayerPassPayload, UserLayerPassStatus>(
+    {
+      windowMs: USER_LAYER_COALESCE_WINDOW_MS,
+      run: async ({ reasons, payload }) =>
+        runUserLayerPass(container, payload.workspaceRoot, reasons),
+      admit: (request) => admitUserLayerPass(container, request),
+    },
+  );
   coalescersByContainer.set(container, created);
   return created;
 }
@@ -243,7 +269,18 @@ export function initPluginLoader(
     const workspaceStateStorage = container.resolve<IStateStorage>(
       PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
-    pluginLoader.initialize(pluginsPath, workspaceStateStorage);
+    // The harness-root configuration home (TASK_2026_701 A27, D14). Electron
+    // is the one host that opens several folders, so the plugin config of a
+    // sub-folder and of its harness root must resolve to ONE record, held in
+    // global storage under the harness root. VS Code and the CLI pass no
+    // options: their single storage already answers every root.
+    const configHome: PluginLoaderInitOptions = {
+      harnessRootOf: (folder) => resolveHarnessWorkspaceRoot(folder),
+      homeStorage: container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.STATE_STORAGE,
+      ),
+    };
+    pluginLoader.initialize(pluginsPath, workspaceStateStorage, configHome);
     // Same base path, same moment: PluginLoaderService asks this store whether
     // an external plugin id was consented to, and an unbound store reports an
     // empty allowlist — so the two must never be initialized apart.
@@ -274,12 +311,22 @@ export function initPluginLoader(
  * Four fields, three of them absent before TASK_2026_278 Batch 1b:
  * - `harnessPluginRoots` — the `ptah-harness-*` dirs the harness builder writes.
  *   They come from a different producer than `pluginPaths` and were present in
- *   every junction call while missing from every mirror call (defect 6).
+ *   every junction call while missing from every mirror call (defect 6). The
+ *   `ptah-skillssh-*` roots join them (TASK_2026_701 A9) so community skills
+ *   become Library clones; a skills.sh root the Plugins panel switched off
+ *   (`disabledPluginIds`) is left out, and the reaper keeps its clones because
+ *   the directory is still on disk.
  * - `pluginsBasePath` — lets the reap pass tell a DISABLED plugin (dir present,
  *   clones kept) from an UNINSTALLED one (dir gone, clones reaped).
  * - `synthesizedSkillsRoot` — through `resolveSkillsRoot`, not
  *   `~/.ptah/skills`, so promotion and the mirror cannot be pointed at two
  *   different roots by `skillSynthesis.skillsRoot`.
+ *
+ * TASK_2026_701 adds `libraryScopeRoot` (the harness root whose Library
+ * receives plugin agents; set whenever a folder is open, independent of agent
+ * consent) and `pluginDescriptors` (the durable source identity each clone
+ * records). The plugin config is read for that same harness root, so a
+ * sub-folder pass and a harness-root pass describe one set of sources.
  */
 function buildMirrorSources(
   container: DependencyContainer,
@@ -294,13 +341,28 @@ function buildMirrorSources(
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
-  const config = pluginLoader.getWorkspacePluginConfig();
+  const libraryScopeRoot =
+    workspaceRoot === undefined || workspaceRoot === ''
+      ? undefined
+      : resolveHarnessWorkspaceRoot(workspaceRoot);
+  const config = pluginLoader.getWorkspacePluginConfig(libraryScopeRoot);
+  const disabledPluginIds = new Set(config.disabledPluginIds ?? []);
 
   return {
-    pluginPaths: pluginLoader.resolvePluginPaths(config.enabledPluginIds),
-    harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
+    pluginPaths: pluginLoader.resolvePluginPaths(
+      config.enabledPluginIds,
+      libraryScopeRoot,
+    ),
+    harnessPluginRoots: [
+      ...pluginLoader.discoverHarnessPluginPaths(),
+      ...pluginLoader
+        .discoverSkillsShPluginPaths()
+        .filter((root) => !disabledPluginIds.has(path.basename(root))),
+    ],
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
+    pluginDescriptors: pluginLoader.getPluginSourceDescriptors(),
+    ...(libraryScopeRoot === undefined ? {} : { libraryScopeRoot }),
     // The agent facet is scoped and gated in `harness-sync`, not here: all three
     // hosts share that decision and the two rules behind it fail silently when
     // one of them drifts (TASK_2026_365).
@@ -324,7 +386,7 @@ function resolveAgentSyncGate(
  * backfill log line only; the directory walk runs every activation and must, so
  * newly-added slugs get clones. Refreshing an EXISTING clone is not this
  * function's job and never was: that is reconcileUserLayer below.
- * Non-fatal on failure.
+ * Non-fatal on failure: a failure is logged and returned as `'failed'`.
  *
  * Must run BEFORE reconcileHarness: the reconciler's desired state IS the user
  * layer, so reconciling an unmirrored layer copies nothing.
@@ -332,7 +394,7 @@ function resolveAgentSyncGate(
 export async function mirrorUserLayer(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
-): Promise<UserLayerRoots | null> {
+): Promise<UserLayerStepStatus> {
   try {
     const mirror = container.resolve<UserLayerMirrorService>(
       AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
@@ -353,19 +415,16 @@ export async function mirrorUserLayer(
       );
     }
 
-    // The SAME root the mirror just wrote under, taken from the sources rather
-    // than re-derived: the agent root is keyed by it, so a second derivation
-    // that disagreed would hand the caller a directory nothing was written to.
-    return mirror.getUserLayerRoots(sources.workspaceRoot);
+    return 'ok';
   } catch (error) {
-    // degradation-audit: optional-capability - the user-layer mirror is a
-    // best-effort refresh of ~/.ptah/user; null tells the caller no roots were
-    // resolved, so the harness pass reconciles the previously mirrored layer.
+    // degradation-audit: reported - the user-layer mirror is a best-effort
+    // refresh of ~/.ptah/user; the warning logs it and 'failed' reaches the
+    // pass outcome and the library:changed push.
     console.warn(
       '[Ptah Electron] User-layer mirror failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
-    return null;
+    return 'failed';
   }
 }
 
@@ -373,20 +432,21 @@ export async function mirrorUserLayer(
  * Electron-only enrichment: walk the user layer (the sidecars the mirror
  * already wrote) and upsert each clone into the SQLite skill_registry catalog,
  * updating the skill registry from sidecars. Pure read-of-sidecars +
- * upsert; never mirrors the filesystem itself. Non-fatal on failure. Must run
- * AFTER mirrorUserLayer so the sidecars exist.
+ * upsert; never mirrors the filesystem itself. Non-fatal on failure (returned
+ * as `'failed'`); `'skipped'` when this container has no catalog service.
+ * Must run AFTER mirrorUserLayer so the sidecars exist.
  */
 export async function syncSkillRegistryCatalog(
   container: DependencyContainer,
   workspaceRoot?: string,
-): Promise<void> {
+): Promise<UserLayerStepStatus> {
   try {
     if (
       !container.isRegistered(
         SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
       )
     ) {
-      return;
+      return 'skipped';
     }
     const catalog = container.resolve<SkillRegistryCatalogService>(
       SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_CATALOG_SERVICE,
@@ -402,11 +462,16 @@ export async function syncSkillRegistryCatalog(
     console.log(
       `[Ptah Electron] Skill registry catalog synced (upserted: ${result.upserted}, linked: ${result.linked})`,
     );
+    return 'ok';
   } catch (error) {
+    // degradation-audit: reported - the catalog is an Electron-only index of
+    // the user layer; the warning logs the failure and 'failed' reaches the
+    // pass outcome.
     console.warn(
       '[Ptah Electron] Skill registry catalog sync failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
+    return 'failed';
   }
 }
 
@@ -422,13 +487,13 @@ export async function syncSkillRegistryCatalog(
  * SQLite-free record VS Code also uses), reaps clones with no local work whose
  * upstream vanished, keeps + flags the diverged ones as `orphaned`, and —
  * Electron-only — persists all of that into the skill_registry catalog.
- * Non-fatal on failure.
+ * Non-fatal on failure: a failure is logged and returned as `'failed'`.
  */
 export async function reconcileUserLayer(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
   sqliteOpen: boolean,
-): Promise<void> {
+): Promise<UserLayerStepStatus> {
   try {
     const mirror = container.resolve<UserLayerMirrorService>(
       AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
@@ -465,11 +530,16 @@ export async function reconcileUserLayer(
     // `tmp/logs/log.log:1206-1223` came from. It now runs exactly once per
     // coalesced pass, in `runUserLayerPass` below, which is the only place that
     // knows a pass has finished. Do not add a third call site here.
+    return 'ok';
   } catch (error) {
+    // degradation-audit: reported - the reconcile is a best-effort refresh of
+    // existing clones; the warning logs it and 'failed' reaches the pass
+    // outcome and the library:changed push.
     console.warn(
       '[Ptah Electron] User-layer reconcile failed (non-fatal):',
       error instanceof Error ? error.message : String(error),
     );
+    return 'failed';
   }
 }
 
@@ -488,24 +558,46 @@ export async function reconcileUserLayer(
  * `sqliteOpen` is read HERE rather than passed in, because a pass can start a
  * coalescing window before `bootThothRuntime` has opened the database and run
  * after it has.
+ *
+ * Every step still swallows its own failure; the pass aggregates their
+ * statuses (any `failed` gives `failed`, else `updated`), tells every renderer
+ * through `library:changed` (TASK_2026_701 B11), and returns the status to the
+ * coalescer, which hands it to every request merged into this batch.
  */
 async function runUserLayerPass(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
   reasons: readonly string[],
-): Promise<void> {
+): Promise<UserLayerPassStatus> {
   console.log(`[Ptah Electron] User-layer pass (${reasons.join(' + ')})`);
-  await mirrorUserLayer(container, workspaceRoot);
+  const steps: UserLayerStepStatus[] = [
+    await mirrorUserLayer(container, workspaceRoot),
+  ];
   const sqliteOpen = isSqliteOpen(container);
-  await reconcileUserLayer(container, workspaceRoot, sqliteOpen);
+  steps.push(await reconcileUserLayer(container, workspaceRoot, sqliteOpen));
   // The ONLY catalog sync. It is unconditional rather than gated on
   // "something changed" — the gate used to live inside `reconcileUserLayer`
   // and the heavy boot fired an ungated one right beside it anyway, so this is
   // strictly less work than before (one per pass instead of two), and a pass
   // that changed nothing costs one upsert sweep of already-current rows.
-  if (sqliteOpen) {
-    await syncSkillRegistryCatalog(container, workspaceRoot);
-  }
+  steps.push(
+    sqliteOpen
+      ? await syncSkillRegistryCatalog(container, workspaceRoot)
+      : 'skipped',
+  );
+
+  const status: UserLayerPassStatus = steps.includes('failed')
+    ? 'failed'
+    : 'updated';
+  // Keyed by the harness root, the scope a Library list is filed under, so a
+  // renderer showing that root's Library matches the push. With no folder
+  // open the root is '' (the unscoped Library).
+  broadcastLibraryChanged(container, {
+    workspaceRoot: resolveHarnessWorkspaceRoot(workspaceRoot ?? ''),
+    status,
+    reasons: [...reasons],
+  });
+  return status;
 }
 
 /**
@@ -522,16 +614,37 @@ async function runUserLayerPass(
  *
  * Never throws: the pass is non-fatal by contract, and a failed run is reported
  * by the coalescer rather than propagated to the trigger that happened to be
- * first.
+ * first. Resolves with the outcome of the batch this request joined, never an
+ * earlier batch's, so a caller that reports a Library result reports its own.
  */
 export function refreshUserLayer(
   container: DependencyContainer,
   workspaceRoot: string | undefined,
   reason: string,
-): Promise<void> {
-  return userLayerJobFor(container)
-    .request(normalizeWorkspaceRoot(workspaceRoot), reason, { workspaceRoot })
-    .then(() => undefined);
+): Promise<UserLayerPassOutcome> {
+  return userLayerJobFor(container).request(
+    normalizeWorkspaceRoot(workspaceRoot),
+    reason,
+    { workspaceRoot },
+  );
+}
+
+/**
+ * The port status a pass outcome means: a pass that ran and updated is
+ * `refreshed`; a pass that ran with a failed step, or whose run threw, is
+ * `failed`; a batch the governor skipped (shutdown) is `skipped`.
+ */
+function toRefreshStatus(
+  outcome: UserLayerPassOutcome,
+): UserLayerRefreshStatus {
+  switch (outcome.kind) {
+    case 'ran':
+      return outcome.result === 'updated' ? 'refreshed' : 'failed';
+    case 'skipped':
+      return 'skipped';
+    case 'threw':
+      return 'failed';
+  }
 }
 
 /**
@@ -551,16 +664,20 @@ export function refreshUserLayer(
  * background skill re-propagation — gets that label, and with it the governor
  * rule of {@link GOVERNED_USER_LAYER_REASONS}.
  */
-export function createUserLayerRefresher(container: DependencyContainer): {
-  refresh(workspaceRoot: string | undefined, reason?: string): Promise<void>;
-} {
+export function createUserLayerRefresher(
+  container: DependencyContainer,
+): IUserLayerRefresher {
   return {
-    refresh(workspaceRoot: string | undefined, reason?: string): Promise<void> {
-      return refreshUserLayer(
+    async refresh(
+      workspaceRoot: string | undefined,
+      reason?: string,
+    ): Promise<UserLayerRefreshStatus> {
+      const outcome = await refreshUserLayer(
         container,
         workspaceRoot,
         reason ?? HARNESS_PROPAGATION_USER_LAYER_REASON,
       );
+      return toRefreshStatus(outcome);
     },
   };
 }

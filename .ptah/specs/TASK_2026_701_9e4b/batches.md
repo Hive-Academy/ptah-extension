@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 9/27
+Total tasks: 34 | Batches: 27 | Complete: 10/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -506,7 +506,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Verify: orchestrator combined run (70/70, exit 0).
 - Report: reports/batch-8-report.md
 
-## Batch 8b: D23 degradation-audit fix (agent-generation ratchet) — COMPLETE
+## Batch 8b: D23 degradation-audit fix (agent-generation ratchet) — COMPLETE (commit: 7c87ccd37)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -558,7 +558,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (last touched by e3965c65c); not this task's. The audit still passes.
 - Report: reports/batch-8b-report.md
 
-## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — PENDING
+## Batch 9: Refresher port, propagation report, Electron pass + `library:changed`, host wiring (B9 part 3 + B11 + B10 hosts) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -569,7 +569,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 3 | Depends on: Batches 3, 5, 7, 8, 8b
 - Phase: P1 (last) | Phase review: P1 code-logic + style — due after this batch commits
 
-### Task 9.1: Port status and `propagateWithReport` (harness-sync) — PENDING
+### Task 9.1: Port status and `propagateWithReport` (harness-sync) — COMPLETE
 
 - Files: MODIFY `libs/backend/harness-sync/src/lib/sources/user-layer-refresher.port.ts`, `libs/backend/harness-sync/src/lib/propagation/harness-propagation.service.ts` (+ `harness-propagation.service.spec.ts`), `libs/backend/harness-sync/src/lib/di/register.ts` (`NO_USER_LAYER_REFRESH` → `'skipped'`), `libs/backend/harness-sync/src/index.ts`
 - Plan reference: implementation-plan.md:612-615
@@ -578,7 +578,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: spec covers each report status.
 - Implementation details: `propagateWithReport(cwd, reason, options) → {health, userLayer}`.
 
-### Task 9.2: Electron pass outcome, broadcaster, config-home options, mirror sources — PENDING
+### Task 9.2: Electron pass outcome, broadcaster, config-home options, mirror sources — COMPLETE
 
 - Depends on: Task 9.1
 - Files: MODIFY `apps/ptah-electron/src/activation/plugin-activation.ts` (+ `plugin-activation.spec.ts`); CREATE `apps/ptah-electron/src/activation/library-change-broadcaster.ts` (+ spec); MODIFY `apps/ptah-electron/src/di/phase-2-libraries.ts` (comment/spec case only)
@@ -588,7 +588,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: A-disabled (skills.sh roots filtered by `disabledPluginIds` like harness roots). Spec cases: step failure → refresher `failed` + broadcast `failed`; success → `updated`; no WEBVIEW_MANAGER → no throw; phase-2 reader: sub-folder opened, harness root unregistered → harness-root home config. Electron `container.smoke.spec.ts` unchanged (no new DI token).
 - Implementation details: `refreshUserLayer` returns `Promise<UserLayerPassOutcome>` via the Batch 8 coalescer, replacing Batch 8's interim `.then(() => undefined)` in `refreshUserLayer()` (`plugin-activation.ts:532-534`).
 
-### Task 9.3: VS Code and CLI refresher adapters and mirror sources — PENDING
+### Task 9.3: VS Code and CLI refresher adapters and mirror sources — COMPLETE
 
 - Depends on: Task 9.1
 - Files: MODIFY `apps/ptah-extension-vscode/src/activation/plugin-activation.ts`, `libs/backend/cli-engine/src/lib/bootstrap/harness-boot.ts`
@@ -600,9 +600,43 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 ### Batch 9 verification
 
-- `npm run verify -- -p @ptah-extension/harness-sync,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
+- `npm run verify -- -p @ptah-extension/harness-sync,@ptah-extension/agent-sdk,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - Then phase-end keep-alive: `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`
 - P1 code-logic + style review requested on the combined P1 diff after commit
+- Team-leader carry-over (recorded at the Batch 7/8b commit): `PluginLoaderInitOptions` and
+  `PluginSourceDescriptor` (`libs/backend/agent-sdk/src/lib/helpers/plugin-loader.service.ts:88,96`)
+  are not in the agent-sdk barrel; Task 9.2 adds them as `type` exports to the existing
+  `plugin-loader.service` block at `libs/backend/agent-sdk/src/index.ts:422-425`, hence
+  `@ptah-extension/agent-sdk` in the first verify command. `MirrorPluginDescriptors` is
+  already exported from agent-generation (`index.ts:132`).
+
+### Batch 9 outcome
+
+- Verified on disk by team-leader: port returns `UserLayerRefreshStatus`
+  (`NO_USER_LAYER_REFRESH` → `'skipped'`); `propagateWithReport` returns `{health, userLayer}`
+  and never throws; `refreshUserLayerInBackground` logs failures; Electron
+  `runUserLayerPass` broadcasts `library:changed` through the new lazy, non-throwing
+  `library-change-broadcaster.ts`; all three hosts add `libraryScopeRoot`,
+  `pluginDescriptors` and skills.sh roots (filtered by `disabledPluginIds`) to mirror
+  sources; agent-sdk barrel exports `PluginLoaderInitOptions`, `PluginSourceDescriptor`.
+- D14 config-home deviation accepted: `phase-2-libraries.ts` is unchanged, but the
+  production path is wired — `boot-heavy-services.ts:193` calls `initPluginLoader`, which
+  passes `{harnessRootOf: resolveHarnessWorkspaceRoot, homeStorage: STATE_STORAGE}` to
+  `pluginLoader.initialize` (`plugin-activation.ts:277-283`), pinned by
+  `plugin-activation.spec.ts:749`. The phase-2 reader case lives in the new
+  `phase-2-libraries.config-home.spec.ts`. Reason the file stayed untouched: lint-staged
+  rewraps its line 308, which `container.smoke.spec.ts:508` asserts as exact text.
+- Out-of-list edits accepted: `wizard-generation.preview-fidelity.spec.ts` (one-line stub
+  return, orchestrator-approved), `harness-boot.spec.ts` (mock + status cases).
+- Verify (team-leader re-run): command 1 with rpc-handlers 67 tasks, 66 succeeded, only
+  `@ptah-extension/agent-sdk:lint` failing on the D21 errors
+  (`session-query-executor.accounts.spec.ts:174,183`, confirmed by direct eslint);
+  phase-end keep-alive 55/55 succeeded. Degradation audit at/below baselines (executor).
+- Carried to the P1 review fix round (Minor, doc-only): stale doc of
+  `discoverSkillsShPluginPaths` (`plugin-loader.service.ts:1453-1468`) still says skills.sh
+  roots never reach `buildMirrorSources`. Also noted: `container.smoke.spec.ts:508` exact-text
+  assertion should become a regex in the next batch that edits `phase-2-libraries.ts`.
+- Report: reports/batch-9-report.md
 
 ## Batch 10: Guarded writer and orchestrator decisions (B2 + B3) — PENDING
 

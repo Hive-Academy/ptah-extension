@@ -22,8 +22,9 @@
  * nothing.
  */
 
+import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
-import type { Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type ContentDownloadService,
@@ -41,9 +42,11 @@ import {
 import {
   HARNESS_SYNC_TOKENS,
   resolveAgentMirrorSource,
+  resolveHarnessWorkspaceRoot,
   type AgentSyncGate,
   type HarnessPropagationService,
   type IUserLayerRefresher,
+  type UserLayerRefreshStatus,
 } from '@ptah-extension/harness-sync';
 import { resolveSkillsRoot } from '@ptah-extension/skill-synthesis';
 
@@ -54,6 +57,12 @@ import { resolveSkillsRoot } from '@ptah-extension/skill-synthesis';
  * place: `reconcileAll`'s reap pass reads "not among the supplied roots" as
  * "upstream deleted", so a reconcile walking fewer roots than the mirror
  * would reap live clones.
+ *
+ * Same content as the GUI hosts (TASK_2026_701): the `ptah-skillssh-*` roots
+ * beside the harness roots (minus the ones in `disabledPluginIds`),
+ * `libraryScopeRoot` (the harness root whose Library receives plugin agents)
+ * and `pluginDescriptors` (each clone's source identity). The CLI passes the
+ * loader no config-home options: its one storage answers every root.
  */
 function buildMirrorSources(
   container: DependencyContainer,
@@ -68,13 +77,28 @@ function buildMirrorSources(
   const workspaceProvider = container.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
-  const config = pluginLoader.getWorkspacePluginConfig();
+  const libraryScopeRoot =
+    workspaceRoot === undefined || workspaceRoot === ''
+      ? undefined
+      : resolveHarnessWorkspaceRoot(workspaceRoot);
+  const config = pluginLoader.getWorkspacePluginConfig(libraryScopeRoot);
+  const disabledPluginIds = new Set(config.disabledPluginIds ?? []);
 
   return {
-    pluginPaths: pluginLoader.resolvePluginPaths(config.enabledPluginIds),
-    harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
+    pluginPaths: pluginLoader.resolvePluginPaths(
+      config.enabledPluginIds,
+      libraryScopeRoot,
+    ),
+    harnessPluginRoots: [
+      ...pluginLoader.discoverHarnessPluginPaths(),
+      ...pluginLoader
+        .discoverSkillsShPluginPaths()
+        .filter((root) => !disabledPluginIds.has(path.basename(root))),
+    ],
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
+    pluginDescriptors: pluginLoader.getPluginSourceDescriptors(),
+    ...(libraryScopeRoot === undefined ? {} : { libraryScopeRoot }),
     // The agent facet is scoped and gated in `harness-sync`, not here: all three
     // hosts share that decision and the two rules behind it fail silently when
     // one of them drifts (TASK_2026_365).
@@ -91,27 +115,51 @@ function resolveAgentSyncGate(
     : null;
 }
 
+/**
+ * Reports `refreshed` when both halves completed, `failed` when either threw
+ * (logged here, never rethrown: the port must not reject), and `skipped` in a
+ * container without agent-generation. Never broadcasts `library:changed`: the
+ * Library is desktop-only (D3).
+ */
 export function createCliUserLayerRefresher(
   container: DependencyContainer,
 ): IUserLayerRefresher {
   return {
-    async refresh(workspaceRoot: string | undefined): Promise<void> {
+    async refresh(
+      workspaceRoot: string | undefined,
+    ): Promise<UserLayerRefreshStatus> {
       if (
         !container.isRegistered(
           AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
         )
       ) {
-        return;
+        return 'skipped';
       }
-      const mirror = container.resolve<UserLayerMirrorService>(
-        AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
-      );
-      const sources = buildMirrorSources(container, workspaceRoot);
-      // Create-if-absent first (new slugs), then fast-forward + reap. The CLI
-      // needs both halves as much as the GUI does: a `ptah tui` user who
-      // uninstalls a plugin has no other host to reap its clones for them.
-      await mirror.mirrorAll(sources);
-      await mirror.reconcileAll(sources);
+      try {
+        const mirror = container.resolve<UserLayerMirrorService>(
+          AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
+        );
+        const sources = buildMirrorSources(container, workspaceRoot);
+        // Create-if-absent first (new slugs), then fast-forward + reap. The CLI
+        // needs both halves as much as the GUI does: a `ptah tui` user who
+        // uninstalls a plugin has no other host to reap its clones for them.
+        await mirror.mirrorAll(sources);
+        await mirror.reconcileAll(sources);
+        return 'refreshed';
+      } catch (error: unknown) {
+        // degradation-audit: reported - the warning logs the failure and
+        // 'failed' is the port's status for a refresh that did not complete.
+        // The logger is resolved here, lazily, like the mirror service: this
+        // refresher is built in DI phase 2, before every binding exists.
+        if (container.isRegistered(TOKENS.LOGGER)) {
+          container
+            .resolve<Logger>(TOKENS.LOGGER)
+            .warn('[CLI harness] User-layer refresh failed (non-fatal)', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+        }
+        return 'failed';
+      }
     },
   };
 }

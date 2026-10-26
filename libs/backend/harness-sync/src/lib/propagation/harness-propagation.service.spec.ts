@@ -52,7 +52,7 @@ function buildHarness(
       .mockImplementation(async (_cwd: string, options: { reason: string }) =>
         makeHealth(options.reason),
       );
-  const refresh = overrides.refresh ?? jest.fn().mockResolvedValue(undefined);
+  const refresh = overrides.refresh ?? jest.fn().mockResolvedValue('refreshed');
   const logger = makeLogger();
   const service = new HarnessPropagationService(
     logger,
@@ -168,6 +168,129 @@ describe('HarnessPropagationService', () => {
       mode: 'full',
       reason: 'activation',
       downloadPending: true,
+    });
+  });
+
+  describe('propagateWithReport', () => {
+    it.each(['refreshed', 'failed', 'skipped'] as const)(
+      'reports the refresher status %p beside the health',
+      async (status) => {
+        const refresh = jest.fn().mockResolvedValue(status);
+        const h = buildHarness({ refresh });
+
+        const report = await h.service.propagateWithReport(
+          '/ws',
+          'wizard:submit-selection',
+        );
+
+        expect(report.userLayer).toBe(status);
+        expect(report.health?.reason).toBe('wizard:submit-selection');
+      },
+    );
+
+    it('warns when the refresher reports failed, and still reconciles', async () => {
+      const refresh = jest.fn().mockResolvedValue('failed');
+      const h = buildHarness({ refresh });
+
+      await h.service.propagateWithReport('/ws', 'plugins:install');
+
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+      expect(h.reconcile).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports failed, not a rejection, when the refresher throws', async () => {
+      const refresh = jest.fn().mockRejectedValue(new Error('EPERM'));
+      const h = buildHarness({ refresh });
+
+      const report = await h.service.propagateWithReport('/ws', 'boot');
+
+      expect(report.userLayer).toBe('failed');
+      expect(report.health).not.toBeNull();
+    });
+
+    it('reports skipped when the caller skips the refresh', async () => {
+      const h = buildHarness();
+
+      const report = await h.service.propagateWithReport(
+        '/ws',
+        'plugins:save-config',
+        { skipUserLayerRefresh: true },
+      );
+
+      expect(report.userLayer).toBe('skipped');
+      expect(h.refresh).not.toHaveBeenCalled();
+    });
+
+    it('reports skipped and a null health when there is no workspace', async () => {
+      const h = buildHarness();
+
+      await expect(
+        h.service.propagateWithReport(undefined, 'activation'),
+      ).resolves.toEqual({ health: null, userLayer: 'skipped' });
+      expect(h.reconcile).not.toHaveBeenCalled();
+    });
+
+    it('keeps the refresh status when the reconcile fails', async () => {
+      const reconcile = jest.fn().mockRejectedValue(new Error('EBUSY'));
+      const h = buildHarness({ reconcile });
+
+      await expect(
+        h.service.propagateWithReport('/ws', 'boot'),
+      ).resolves.toEqual({ health: null, userLayer: 'refreshed' });
+    });
+
+    it('propagate returns the same health as the report', async () => {
+      const h = buildHarness();
+
+      const health = await h.service.propagate('/ws', 'harness:create-skill');
+      const report = await h.service.propagateWithReport(
+        '/ws',
+        'harness:create-skill',
+      );
+
+      expect(health).toEqual(report.health);
+    });
+  });
+
+  describe('refreshUserLayerInBackground', () => {
+    it('refreshes with the reason as the label and never reconciles', async () => {
+      const h = buildHarness();
+
+      h.service.refreshUserLayerInBackground('/ws', 'plugins:save-config');
+      await Promise.resolve();
+
+      expect(h.refresh.mock.calls).toEqual([['/ws', 'plugins:save-config']]);
+      expect(h.reconcile).not.toHaveBeenCalled();
+    });
+
+    it('returns before the refresh settles', () => {
+      const refresh = jest.fn().mockReturnValue(new Promise(() => undefined));
+      const h = buildHarness({ refresh });
+
+      expect(
+        h.service.refreshUserLayerInBackground('/ws', 'plugins:save-config'),
+      ).toBeUndefined();
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['a failed status', jest.fn().mockResolvedValue('failed')],
+      ['a rejection', jest.fn().mockRejectedValue(new Error('EPERM'))],
+    ])('logs %s instead of surfacing it', async (_label, refresh) => {
+      const h = buildHarness({ refresh });
+
+      h.service.refreshUserLayerInBackground('/ws', 'plugins:save-config');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(h.logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing when there is no workspace', () => {
+      const h = buildHarness();
+
+      h.service.refreshUserLayerInBackground(undefined, 'plugins:save-config');
+
+      expect(h.refresh).not.toHaveBeenCalled();
     });
   });
 });

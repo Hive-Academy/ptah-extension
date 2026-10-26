@@ -1,12 +1,16 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
   resolveAgentMirrorSource,
+  resolveHarnessWorkspaceRoot,
   type AgentSyncGate,
   type HarnessPropagationService,
   type HarnessReconcilerService,
+  type IUserLayerRefresher,
+  type UserLayerRefreshStatus,
 } from '@ptah-extension/harness-sync';
 import {
   AGENT_GENERATION_TOKENS,
@@ -69,6 +73,12 @@ export function initPluginLoader(pluginsPath: string, logger: Logger): void {
  * - `synthesizedSkillsRoot` — through `resolveSkillsRoot`, not a hard-coded
  *   `~/.ptah/skills`, so promotion and the mirror cannot be pointed at two
  *   different roots by `skillSynthesis.skillsRoot`.
+ *
+ * TASK_2026_701 adds, as in Electron: the `ptah-skillssh-*` roots beside the
+ * harness roots (minus the ones in `disabledPluginIds`), `libraryScopeRoot`
+ * (the harness root whose Library receives plugin agents) and
+ * `pluginDescriptors` (each clone's source identity). This host passes the
+ * loader no config-home options: its one storage answers every root.
  */
 function buildMirrorSources(workspaceRoot: string | undefined): MirrorSources {
   const pluginLoader = DIContainer.resolve<PluginLoaderService>(
@@ -80,13 +90,28 @@ function buildMirrorSources(workspaceRoot: string | undefined): MirrorSources {
   const workspaceProvider = DIContainer.resolve<IWorkspaceProvider>(
     PLATFORM_TOKENS.WORKSPACE_PROVIDER,
   );
-  const config = pluginLoader.getWorkspacePluginConfig();
+  const libraryScopeRoot =
+    workspaceRoot === undefined || workspaceRoot === ''
+      ? undefined
+      : resolveHarnessWorkspaceRoot(workspaceRoot);
+  const config = pluginLoader.getWorkspacePluginConfig(libraryScopeRoot);
+  const disabledPluginIds = new Set(config.disabledPluginIds ?? []);
 
   return {
-    pluginPaths: pluginLoader.resolvePluginPaths(config.enabledPluginIds),
-    harnessPluginRoots: pluginLoader.discoverHarnessPluginPaths(),
+    pluginPaths: pluginLoader.resolvePluginPaths(
+      config.enabledPluginIds,
+      libraryScopeRoot,
+    ),
+    harnessPluginRoots: [
+      ...pluginLoader.discoverHarnessPluginPaths(),
+      ...pluginLoader
+        .discoverSkillsShPluginPaths()
+        .filter((root) => !disabledPluginIds.has(path.basename(root))),
+    ],
     pluginsBasePath: contentDownload.getPluginsPath(),
     synthesizedSkillsRoot: resolveSkillsRoot(workspaceProvider),
+    pluginDescriptors: pluginLoader.getPluginSourceDescriptors(),
+    ...(libraryScopeRoot === undefined ? {} : { libraryScopeRoot }),
     // The agent facet is scoped and gated in `harness-sync`, not here: all three
     // hosts share that decision and the two rules behind it fail silently when
     // one of them drifts (TASK_2026_365).
@@ -162,11 +187,13 @@ export async function mirrorUserLayer(
  * cached activations was never noticed and an upstream deletion was never
  * reaped at all (defect 8). Both halves are a directory walk plus a content
  * hash, so a no-change pass is cheap. Non-fatal on failure.
+ *
+ * @returns `true` when the reconcile completed, `false` when it failed.
  */
 export async function reconcileUserLayer(
   workspaceRoot: string | undefined,
   logger: Logger,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const mirror = DIContainer.resolve<UserLayerMirrorService>(
       AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE,
@@ -183,13 +210,17 @@ export async function reconcileUserLayer(
       missingSidecar: result.missingSidecar,
       errors: result.errors,
     });
+    return true;
   } catch (reconcileError) {
+    // degradation-audit: reported - the warning logs the failure and false
+    // makes the refresher report 'failed' to harness-sync.
     logger.warn('User-layer reconcile failed (non-fatal)', {
       error:
         reconcileError instanceof Error
           ? reconcileError.message
           : String(reconcileError),
     });
+    return false;
   }
 }
 
@@ -207,14 +238,32 @@ export async function reconcileUserLayer(
  * and picks up new slugs; `reconcileUserLayer` fast-forwards existing clones
  * and reaps the ones whose upstream is gone. An uninstall needs the second
  * half specifically — see `deactivateExternalPlugin` in `plugin-rpc.handlers`.
+ *
+ * Reports `refreshed` when both halves completed and `failed` otherwise
+ * (TASK_2026_701). Never broadcasts `library:changed`: the Library is
+ * desktop-only (D3).
  */
-export function createUserLayerRefresher(logger: Logger): {
-  refresh(workspaceRoot: string | undefined): Promise<void>;
-} {
+export function createUserLayerRefresher(logger: Logger): IUserLayerRefresher {
   return {
-    async refresh(workspaceRoot: string | undefined): Promise<void> {
-      await mirrorUserLayer(workspaceRoot, logger);
-      await reconcileUserLayer(workspaceRoot, logger);
+    async refresh(
+      workspaceRoot: string | undefined,
+    ): Promise<UserLayerRefreshStatus> {
+      try {
+        const mirrored = await mirrorUserLayer(workspaceRoot, logger);
+        const reconciled = await reconcileUserLayer(workspaceRoot, logger);
+        return mirrored !== null && reconciled ? 'refreshed' : 'failed';
+      } catch (refreshError) {
+        // degradation-audit: reported - both halves already swallow their own
+        // failures; anything that still escapes is logged here and reported to
+        // harness-sync as 'failed', the port's status for an incomplete pass.
+        logger.warn('User-layer refresh failed (non-fatal)', {
+          error:
+            refreshError instanceof Error
+              ? refreshError.message
+              : String(refreshError),
+        });
+        return 'failed';
+      }
     },
   };
 }

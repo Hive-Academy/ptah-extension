@@ -371,6 +371,7 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
         };
         await mirror.mirrorAll(sources);
         await mirror.reconcileAll(sources);
+        return 'refreshed';
       },
     },
   });

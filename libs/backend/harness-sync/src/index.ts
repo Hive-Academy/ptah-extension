@@ -23,6 +23,7 @@ export {
 export {
   HarnessPropagationService,
   type HarnessPropagateOptions,
+  type HarnessPropagationReport,
 } from './lib/propagation/harness-propagation.service';
 export {
   HarnessPreflightService,
@@ -35,6 +36,7 @@ export {
 export {
   NO_USER_LAYER_REFRESH,
   type IUserLayerRefresher,
+  type UserLayerRefreshStatus,
 } from './lib/sources/user-layer-refresher.port';
 
 // The consent-gated repair of a blocked path, and the quarantine convention it
