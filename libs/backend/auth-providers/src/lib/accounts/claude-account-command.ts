@@ -468,12 +468,24 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       let grace: ReturnType<typeof setTimeout> | undefined;
       // Set only when the child outlived the grace; it then owns the listeners below.
       let receipt: ChildCloseReceipt | undefined;
+      // A late PID must never be killed after close, so close stays observed until the PID is known,
+      // even when receipt disposal detaches the listeners below.
+      let exited = false;
+      let pidKnown = false;
+      const exitSeen = (): void => { exited = true; };
       const detach = (): void => {
         child.stdout?.off('data', data);
         child.stderr?.off('data', discard);
         child.off('close', close);
         child.off('error', failed);
+        if (!pidKnown && !exited) child.once('close', exitSeen);
       };
+      const pidSettled = (): void => {
+        pidKnown = true;
+        child.off('close', exitSeen);
+      };
+      // degradation-audit: optional-capability — a rejected PID only ends the wait for it; stop() reports the kill path.
+      void child.whenSpawned.then(pidSettled, pidSettled);
       const finish = (outcome: ChildOutcome): void => {
         if (settled) return;
         settled = true;
@@ -500,7 +512,9 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
             else finish({ exitCode: null, stdout: '', terminated: true, stopped: reason });
             return undefined;
           }
-          if (settled) return undefined;
+          // A closed child is never killed: its PID may already belong to another process. Settled
+          // with an open child means the grace ran out before the PID came: the kill is still owed.
+          if (exited || (settled && !receipt)) return undefined;
           // Tree kill is best effort. Only close proves termination.
           return killProcessTree(pid, 'SIGKILL');
         }).catch(() => {
@@ -523,6 +537,7 @@ export class ClaudeAccountCommand implements ClaudeCliProbe {
       };
       const failed = (): void => stop('error');
       const close = (code: number | null): void => {
+        exited = true;
         // A close after the grace is the late termination proof the receipt carries.
         if (settled) { receipt?.markClosed(); return; }
         if (stopped) { finish({ exitCode: null, stdout: '', terminated: true, stopped }); return; }

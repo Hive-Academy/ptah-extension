@@ -19,7 +19,7 @@ class Child extends EventEmitter implements SpawnedProcessHandle {
   readonly pid = 4321;
   readonly killed = false;
   readonly exitCode = null;
-  readonly whenSpawned: Promise<number | null> = Promise.resolve(4321);
+  constructor(readonly whenSpawned: Promise<number | null> = Promise.resolve(4321)) { super(); }
   kill(): boolean { return true; }
   finish(code: number | null, data = ''): void {
     if (data) this.stdout.write(data);
@@ -46,19 +46,21 @@ describe('ClaudeAccountCommand.ambientStatus', () => {
   let children: Child[];
   let requests: ProcessSpawnRequest[];
   let command: ClaudeAccountCommand;
+  /** PID promise for the next spawned child; a spec may defer it past the kill grace. */
+  let nextWhenSpawned: Promise<number | null> | undefined;
   const env = Object.freeze({ PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '/home/u/.claude' });
   const child = (): Child => children[children.length - 1];
 
   beforeEach(() => {
     jest.useFakeTimers();
-    children = []; requests = [];
+    children = []; requests = []; nextWhenSpawned = undefined;
     const host: ClaudeAccountCommandHost = {
       platform: 'linux', env: () => ({ PATH: '/usr/bin' }), tempDir: () => TEMP,
       stat: jest.fn().mockResolvedValue({ size: 10, mtimeMs: 1 }),
     };
     command = new ClaudeAccountCommand({ findExecutable: jest.fn() }, { spawnProcess: request => {
       requests.push(request);
-      const spawned = new Child(); children.push(spawned); return spawned;
+      const spawned = new Child(nextWhenSpawned); children.push(spawned); return spawned;
     } }, host);
   });
   afterEach(() => {
@@ -114,6 +116,76 @@ describe('ClaudeAccountCommand.ambientStatus', () => {
     expect(result).toEqual({ status: null, terminated: false, timedOut: true, closeReceipt: expect.anything() });
     child().finish(null); await flush();
     expect(result.closeReceipt?.closed).toBe(true);
+  });
+
+  it('still requests the tree kill when the PID arrives after the kill grace (unclosed receipt)', async () => {
+    let reportPid: (pid: number | null) => void = () => undefined;
+    nextWhenSpawned = new Promise(resolve => { reportPid = resolve; });
+    const pending = probe();
+    await flush(); jest.advanceTimersByTime(10_000); await flush();
+    jest.advanceTimersByTime(2_000); await flush();
+    const result = await pending;
+    expect(result.closeReceipt?.closed).toBe(false);
+    expect(killProcessTree).not.toHaveBeenCalled();
+    reportPid(4321); await flush();
+    expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
+    child().finish(null); await flush();
+    expect(result.closeReceipt?.closed).toBe(true);
+  });
+
+  it('requests no tree kill when the child closed before a late PID arrives', async () => {
+    let reportPid: (pid: number | null) => void = () => undefined;
+    nextWhenSpawned = new Promise(resolve => { reportPid = resolve; });
+    const pending = probe();
+    await flush(); jest.advanceTimersByTime(10_000); await flush();
+    child().finish(null); await flush();
+    const result = await pending;
+    expect(result).toEqual({ status: null, terminated: true, timedOut: true });
+    reportPid(4321); await flush();
+    expect(killProcessTree).not.toHaveBeenCalled();
+  });
+
+  describe('late PID after the kill grace', () => {
+    let reportPid: (pid: number | null) => void;
+    const timedOutWithDeferredPid = async () => {
+      reportPid = () => undefined;
+      nextWhenSpawned = new Promise(resolve => { reportPid = resolve; });
+      const pending = probe();
+      await flush(); jest.advanceTimersByTime(12_000); await flush();
+      return pending;
+    };
+
+    it('requests no tree kill when the receipt was disposed and the child then closed', async () => {
+      const result = await timedOutWithDeferredPid();
+      result.closeReceipt?.dispose();
+      child().finish(null); await flush();
+      reportPid(4321); await flush();
+      expect(killProcessTree).not.toHaveBeenCalled();
+    });
+
+    it('still requests one tree kill when the receipt was disposed and the child is still open', async () => {
+      const result = await timedOutWithDeferredPid();
+      result.closeReceipt?.dispose();
+      reportPid(4321); await flush();
+      expect(killProcessTree).toHaveBeenCalledTimes(1);
+      expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
+      child().finish(null); await flush();
+    });
+
+    it('requests no tree kill when the receipt saw the close before the PID', async () => {
+      const result = await timedOutWithDeferredPid();
+      child().finish(null); await flush();
+      expect(result.closeReceipt?.closed).toBe(true);
+      reportPid(4321); await flush();
+      expect(killProcessTree).not.toHaveBeenCalled();
+    });
+
+    it('closes the receipt without a kill when the child never spawned', async () => {
+      const result = await timedOutWithDeferredPid();
+      reportPid(null); await flush();
+      expect(result.closeReceipt?.closed).toBe(true);
+      expect(killProcessTree).not.toHaveBeenCalled();
+    });
   });
 
   it('never parses after an abort', async () => {

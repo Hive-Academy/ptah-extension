@@ -79,6 +79,8 @@ class Caller {
 
 interface Attempt {
   readonly key: string;
+  /** The env snapshot `key` was derived from; the only env the status child receives. */
+  readonly env: Readonly<Record<string, string>>;
   readonly generation: number;
   readonly controller: AbortController;
   readonly callers: Set<Caller>;
@@ -171,14 +173,16 @@ export class ClaudeAmbientLoginStatusReader {
   }
 
   private start(callers: Set<Caller>): void {
-    const key = this.currentKey();
+    // One snapshot per attempt: the cache key and the child env cannot diverge across an await.
+    const env = ambientProbeEnv(this.host.env());
+    const key = this.keyOf(env);
     if (this.hasUnclosedReceipt()) {
       const blocked = this.blocked(key);
       callers.forEach(caller => caller.answer(blocked));
       return;
     }
     const attempt: Attempt = {
-      key, generation: ++this.generation, controller: new AbortController(), callers, obsolete: false,
+      key, env, generation: ++this.generation, controller: new AbortController(), callers, obsolete: false,
     };
     this.active = attempt;
     void this.probe(attempt).then(status => this.finish(attempt, status));
@@ -189,7 +193,7 @@ export class ClaudeAmbientLoginStatusReader {
     const budget = setTimeout(() => attempt.controller.abort(), AMBIENT_STATUS_BUDGET_MS);
     let outcome: AmbientOutcome;
     try {
-      outcome = await this.attempt(signal);
+      outcome = await this.attempt(attempt.env, signal);
     } catch {
       // degradation-audit: reported - an unexpected failure inside a started attempt is answered as unreadable and logged with fixed text.
       this.logger.warn('[auth-providers] Ambient Claude status attempt failed unexpectedly.');
@@ -204,14 +208,13 @@ export class ClaudeAmbientLoginStatusReader {
       : { state: outcome.state, checkedAt });
   }
 
-  private async attempt(signal: AbortSignal): Promise<AmbientOutcome> {
+  private async attempt(env: Readonly<Record<string, string>>, signal: AbortSignal): Promise<AmbientOutcome> {
     const certified = await this.commands.certifyExecutable(signal);
     if (!certified.ok) {
       this.retain(certified.closeReceipt);
       return certifyFailure(certified.code);
     }
     if (signal.aborted) return { state: 'unknown', reason: 'timeout' };
-    const env = ambientProbeEnv(this.host.env());
     const probe = await this.commands.ambientStatus({ executable: certified.executable, env, signal });
     this.retain(probe.closeReceipt);
     if (probe.timedOut || signal.aborted) return { state: 'unknown', reason: 'timeout' };
@@ -250,7 +253,11 @@ export class ClaudeAmbientLoginStatusReader {
   }
 
   private currentKey(): string {
-    const key = certifiedEnvDigest(ambientProbeEnv(this.host.env()));
+    return this.keyOf(ambientProbeEnv(this.host.env()));
+  }
+
+  private keyOf(env: Readonly<Record<string, string>>): string {
+    const key = certifiedEnvDigest(env);
     if (!this.lastAttempt.has(key)) this.lastAttempt.clear();
     return key;
   }

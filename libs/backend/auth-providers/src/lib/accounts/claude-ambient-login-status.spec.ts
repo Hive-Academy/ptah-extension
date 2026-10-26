@@ -51,12 +51,15 @@ interface PendingProbe {
 class FakeCommands implements ClaudeAmbientStatusCommands {
   certifyResult: ClaudeExecutableProbeResult = { ok: true, executable: EXECUTABLE, terminated: true };
   certifyCalls = 0;
+  /** When set, certification stays pending until the spec resolves it. */
+  certifyGate: Promise<void> | null = null;
   readonly probes: PendingProbe[] = [];
   live = 0;
   maxLive = 0;
 
   async certifyExecutable(): Promise<ClaudeExecutableProbeResult> {
     this.certifyCalls++;
+    if (this.certifyGate) await this.certifyGate;
     return this.certifyResult;
   }
 
@@ -340,6 +343,28 @@ describe('ClaudeAmbientLoginStatusReader', () => {
     reader.dispose();
     expect(receipt.disposed).toBe(true);
     expect(await reader.read({ refresh: true })).toEqual({ state: 'unknown', reason: 'timeout', checkedAt: expect.any(String) });
+    expect(commands.probes).toHaveLength(1);
+  });
+
+  it('probes with the env snapshot its key came from when the env changes A to B to A during certification', async () => {
+    const envA = { ...env };
+    const envB = { ...env, CLAUDE_CONFIG_DIR: '/home/u/.claude-b' };
+    let release: () => void = () => undefined;
+    commands.certifyGate = new Promise(resolve => { release = resolve; });
+    const pending = reader.read();
+    await flush();
+    env = envB;
+    release();
+    await flush();
+    expect(commands.probes).toHaveLength(1);
+    expect(commands.last().request.env).toEqual(ambientProbeEnv(envA));
+    expect(commands.last().request.env).not.toEqual(ambientProbeEnv(envB));
+    env = envA;
+    const at = iso();
+    commands.last().resolve(SIGNED_IN);
+    await flush();
+    expect(await pending).toEqual({ state: 'connected', checkedAt: at });
+    expect(await reader.read()).toEqual({ state: 'connected', checkedAt: at });
     expect(commands.probes).toHaveLength(1);
   });
 });

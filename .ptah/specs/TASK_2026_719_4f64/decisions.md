@@ -302,3 +302,23 @@
   and the child.
 - B3 open point (reader throw → "Account storage is unavailable."): reviewer found no reachable path; no change.
 - Executor: backend-developer subagent; then a short codex re-review scoped to the fix. Reversible.
+
+## D46 — Post-cap correction of the late-PID fix (2026-10-26, orchestrator)
+
+- Re-review r1 (`code-logic-review-p5-backend-r1.md`, codex): REVISE 6/10. Env snapshot fix closed. New Serious:
+  after receipt disposal a close is no longer observed, so a later PID could still be killed (possible PID reuse).
+- The one fix round was used, so the orchestrator made a bounded correction (agent-lanes §6) in
+  `claude-account-command.ts` `run()`: the main close handler sets `exited`; `detach()` adds a `once('close')`
+  observer only while the PID is unknown; `whenSpawned.then(pidSettled, pidSettled)` removes it; the kill guard
+  is `exited || (settled && !receipt)`. A first attempt with a permanent extra listener broke existing
+  listener-count specs and was replaced. Four regression specs added (dispose→close→PID, dispose→live→PID,
+  receipt-closed→PID, null PID). Focused jest 130/130.
+- Independent check: codex re-review r2 scoped to the correction. Reversible.
+
+## D47 — Order kept; F3 and F4 overlap (2026-10-26, user + orchestrator)
+
+- User asked about the waits. Cause: the shared verify lock (4 checks from other sessions in the queue) and
+  starting each frontend batch only after the previous verify. Orchestrator change: F4 started while the F3
+  verify was queued; one verify run may cover F3 and F4. Later verifies use the 2-slot script from main (PR #828).
+- User choice: keep the plan order (F5 → F6 → F7 → frontend review → visual review → Electron build → live
+  test). The early live test after F5 was offered and declined.
