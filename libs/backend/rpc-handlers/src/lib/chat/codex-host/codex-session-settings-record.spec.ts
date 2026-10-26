@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 import type { CodexChatAdapterPorts } from '@ptah-extension/agent-sdk';
-import type { CodexThreadIdentity } from '@ptah-extension/codex-runtime';
 import { SessionId, type SessionRuntimeIdentity } from '@ptah-extension/shared';
 import {
   createCodexSessionSettingsRecord,
@@ -132,28 +131,16 @@ describe('Codex session settings record', () => {
       CodexSessionSettingsError,
     );
   });
-  it('wraps profile preparation and binds a fresh id after successful metadata persistence', async () => {
+  it('records a session when the adapter opens it and releases it when it closes', () => {
     const h = harness();
-    const save = jest.fn().mockResolvedValue(undefined);
-    const ports = h.record.wrapPorts({
-      profile: jest.fn().mockResolvedValue(profileResult),
-      metadata: { save },
-    });
-    const thread: CodexThreadIdentity = {
-      contextId: 'context',
-      threadId: sessionId,
-      processGeneration: 1,
-      normalizedHome: '/home',
-      workspaceId: '/work',
-      providerId: 'openai-codex',
-      profileFingerprint: 'fingerprint',
-    };
-    await ports.profile({});
     expect(() => h.record.settings(sessionId)).toThrow(
       CodexSessionSettingsError,
     );
-    await ports.metadata.save(sessionId, thread);
-    expect(save).toHaveBeenCalledWith(sessionId, thread, undefined);
+    h.record.lifecycle.opened(sessionId, profileResult);
     expect(h.record.settings(sessionId).model).toBe('gpt-5');
+    h.record.lifecycle.closed(sessionId);
+    expect(() => h.record.settings(sessionId)).toThrow(
+      CodexSessionSettingsError,
+    );
   });
 });

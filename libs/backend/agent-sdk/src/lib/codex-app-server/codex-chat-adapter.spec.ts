@@ -102,6 +102,7 @@ function setup(override = true) {
     compaction: jest.fn(),
     error: jest.fn(),
   };
+  const lifecycle = { opened: jest.fn(), closed: jest.fn() };
   const scope = container.createChildContainer();
   const open = jest.fn(async () => context);
   scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
@@ -160,6 +161,7 @@ function setup(override = true) {
     },
     replacement: { validateReplacement: jest.fn(), failed: jest.fn() },
     callbacks: jest.fn(() => callbacks),
+    sessions: lifecycle,
     publish: jest.fn(async (_id, stream) => {
       for await (const event of stream) void event;
     }),
@@ -171,6 +173,7 @@ function setup(override = true) {
     open,
     dispose,
     callbacks,
+    lifecycle,
     sink: () => {
       if (!sink) throw new Error('Expected an approval sink after opening');
       return sink;
@@ -180,7 +183,7 @@ function setup(override = true) {
 
 describe('CodexChatAdapter', () => {
   it('opens through the DS1 gate, persists native identity and emits one terminal result', async () => {
-    const { adapter, context, ports, callbacks } = setup();
+    const { adapter, context, ports, callbacks, lifecycle } = setup();
     const resolved = jest.fn();
     const stats = jest.fn();
     adapter.setSessionIdResolvedCallback(resolved);
@@ -209,14 +212,25 @@ describe('CodexChatAdapter', () => {
       }),
     );
     expect(stats).not.toHaveBeenCalled();
+    expect(lifecycle.opened).toHaveBeenCalledWith(
+      id,
+      expect.objectContaining({ profile }),
+    );
+    expect(lifecycle.closed).not.toHaveBeenCalled();
     await adapter.interruptSession(id);
+    adapter.endSession(id);
+    adapter.endSession(id);
+    expect(lifecycle.closed).toHaveBeenCalledTimes(1);
+    expect(lifecycle.closed).toHaveBeenCalledWith(id);
   });
   it('refuses a closed gate without opening a context', async () => {
-    const { adapter, open, dispose } = setup(false);
+    const { adapter, open, dispose, lifecycle } = setup(false);
     await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
       code: 'runtime-failed',
     });
     expect(open).not.toHaveBeenCalled();
+    expect(lifecycle.opened).not.toHaveBeenCalled();
+    expect(lifecycle.closed).not.toHaveBeenCalled();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
   it('sanitizes native open and cleanup failures', async () => {

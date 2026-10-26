@@ -105,11 +105,26 @@ export interface CodexChatAdapterPorts {
     sessionId: SessionId,
     turn: CodexChatTurnIdentity | undefined,
   ): CodexChatEventCallbacks;
+  /**
+   * Optional host observer of the adapter's session lifecycle. `opened` runs once a native
+   * session is persisted and about to be published (fresh or resumed), with the profile it
+   * was opened from; `closed` runs once when that session leaves the adapter. A failed or
+   * cancelled open never calls either, so hosts stage nothing before `opened`.
+   */
+  readonly sessions?: CodexChatSessionLifecycle;
   /** Drain follow-up streams into the same chat channel as the initial stream. */
   publish(
     sessionId: SessionId,
     stream: AsyncIterable<FlatStreamEventUnion>,
   ): Promise<void>;
+}
+
+export interface CodexChatSessionLifecycle {
+  opened(
+    sessionId: SessionId,
+    prepared: Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
+  ): void;
+  closed(sessionId: SessionId): void;
 }
 
 interface Session {
@@ -241,6 +256,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
+      this.ports.sessions?.opened(id, prepared);
       session = this.publishSession(id, context, sink, scope);
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
@@ -249,7 +265,10 @@ export class CodexChatAdapter implements NativeChatAdapter {
       });
     } catch (error) {
       this.ports.logger.error('[CodexChatAdapter] runtime-failed: open.');
-      if (session) this.sessions.delete(session.id);
+      if (session) {
+        this.sessions.delete(session.id);
+        this.ports.sessions?.closed(session.id);
+      }
       sink?.dispose();
       await this.cleanupOpen(context, scope);
       if (error instanceof CodexChatAdapterError) throw error;
@@ -675,8 +694,10 @@ export class CodexChatAdapter implements NativeChatAdapter {
   }
   private close(session: Session): Promise<void> {
     if (session.closing) return session.closing;
-    if (this.sessions.get(session.id) === session)
+    if (this.sessions.get(session.id) === session) {
       this.sessions.delete(session.id);
+      this.ports.sessions?.closed(session.id);
+    }
     session.busy = false;
     session.blocked = false;
     session.abort.abort();

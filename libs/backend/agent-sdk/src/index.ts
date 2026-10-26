@@ -166,6 +166,7 @@ export {
   type CodexChatAdapterPorts,
   type CodexChatMetadataPort,
   type CodexChatScope,
+  type CodexChatSessionLifecycle,
 } from './lib/codex-app-server/codex-chat-adapter';
 export type {
   RuntimeAdmissionPort,

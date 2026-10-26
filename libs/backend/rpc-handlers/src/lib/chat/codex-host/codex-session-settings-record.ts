@@ -1,5 +1,6 @@
 import type {
   CodexChatAdapterPorts,
+  CodexChatSessionLifecycle,
   SessionRuntimeIdentityLookup,
 } from '@ptah-extension/agent-sdk';
 import { resolveAuthProviderKey } from '@ptah-extension/platform-core';
@@ -52,7 +53,6 @@ export function createCodexSessionSettingsRecord(
   deps: CodexSessionSettingsRecordDeps,
 ) {
   const sessions = new Map<SessionId, SessionControlSettings>();
-  const pending = new Map<string, ProfileResult>();
   // Native Codex is a third-party provider in the legacy auth route, including
   // openai-codex OAuth. Never read the currently focused workspace's authMethod.
   const authKey = (providerId: string) =>
@@ -122,45 +122,19 @@ export function createCodexSessionSettingsRecord(
         permissionLevel,
       };
     },
-    /** Fresh thread ids exist only after open. Bind the prepared profile when metadata is saved. */
-    wrapPorts<T extends Pick<CodexChatAdapterPorts, 'profile' | 'metadata'>>(
-      ports: T,
-    ): T {
-      return {
-        ...ports,
-        async profile(...args: Parameters<CodexChatAdapterPorts['profile']>) {
-          const [config, sessionId] = args;
-          const result = await ports.profile(config, sessionId);
-          if (sessionId) record(sessionId, result);
-          else pending.set(result.profile.contextId, result);
-          return result;
-        },
-        metadata: {
-          async save(
-            ...args: Parameters<CodexChatAdapterPorts['metadata']['save']>
-          ) {
-            const [sessionId, identity, title] = args;
-            const result = pending.get(identity.contextId);
-            try {
-              await ports.metadata.save(sessionId, identity, title);
-              if (result) record(sessionId, result);
-            } finally {
-              pending.delete(identity.contextId);
-            }
-          },
-        },
-      };
-    },
-    /** Host teardown must also release prepared profiles whose runtime open failed. */
+    /**
+     * Bind as `CodexChatAdapterPorts.sessions`: the adapter records a session only once it is
+     * persisted and published, and releases it when the session leaves the adapter.
+     */
+    lifecycle: {
+      opened: (sessionId, prepared) => record(sessionId, prepared),
+      closed: (sessionId) => {
+        sessions.delete(sessionId);
+      },
+    } satisfies CodexChatSessionLifecycle,
+    /** Host teardown. */
     dispose() {
       sessions.clear();
-      pending.clear();
-    },
-    discardProfile(contextId: string) {
-      pending.delete(contextId);
-    },
-    release(sessionId: SessionId) {
-      sessions.delete(sessionId);
     },
   };
 }
