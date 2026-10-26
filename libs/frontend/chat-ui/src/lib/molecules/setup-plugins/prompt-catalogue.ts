@@ -29,7 +29,7 @@ export interface PromptItem {
 }
 
 /**
- * The prompt catalogue shared by `ptah-prompt-suggestions` and the empty-chat
+ * The prompt catalogue shared by the composer `/` menu and the empty-chat
  * launchers (TASK_2026_721 D19: a launcher prefills the first prompt of its
  * category).
  *

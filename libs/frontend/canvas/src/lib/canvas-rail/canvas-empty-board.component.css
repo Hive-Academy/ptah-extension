@@ -74,20 +74,30 @@
   max-width: 588px;
   margin-bottom: 24px;
 }
-/* One fixed 24 px line for the name alone and for name, branch and changed
-   files, so the git line arriving after git:info moves nothing below it. */
+/* Centre the name and branch independently. Keep one branch line reserved
+   during loading and with no repository so content below never jumps. */
 .ptah-empty-board__workspace {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  max-width: 100%;
   align-items: center;
-  justify-content: center;
-  gap: 6px 16px;
-  min-height: 24px;
+  text-align: center;
   font-size: 13px;
   line-height: 24px;
 }
 .ptah-empty-board__workspace > h1 {
   line-height: inherit;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.ptah-empty-board__git {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  max-width: 100%;
+  gap: 16px;
+  min-width: 0;
 }
 /* Grid, numerals and readiness sit side by side and wrap, centred, when the
    board is too narrow for all three, so nothing is ever cut off. Each block
@@ -122,11 +132,10 @@
   justify-content: center;
 }
 .ptah-empty-board__numerals {
-  min-width: 112px;
+  width: 160px;
 }
-/* As wide as its rows, so the loading group is centred by what is drawn. */
+/* Loading labels can grow beyond the numerals column's width. */
 .ptah-empty-board__steps {
-  width: max-content;
   min-width: 160px;
 }
 .ptah-empty-board__new {
@@ -216,8 +225,8 @@
 }
 /* The 800 x 600 minimum window: the ring wraps below the grid there, so every
    gap is trimmed until New session, the cap reason and the history link all
-   fit in its 536 px board (wrapped cap state: about 523 px). 900 x 640 keeps
-   one row and fits under the rule above. */
+   have room in its 536 px board. The workspace name and reserved branch line
+   remain stacked; the zone can keep one row at 900 x 640. */
 @media (max-height: 620px) {
   .ptah-empty-board__stage {
     --scrim-ext-y: 4px;
@@ -239,5 +248,14 @@
   }
   .ptah-empty-board__history {
     margin-top: 4px;
+  }
+  @container (max-width: 860px) {
+    .ptah-empty-board__zone {
+      margin-top: 8px;
+      row-gap: 4px;
+    }
+    .ptah-empty-board__new {
+      margin-top: 8px;
+    }
   }
 }

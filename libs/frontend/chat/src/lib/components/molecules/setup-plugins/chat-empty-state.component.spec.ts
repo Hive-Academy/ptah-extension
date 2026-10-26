@@ -181,7 +181,7 @@ describe('empty chat', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  it('renders unknown context honestly, zero spend, no resume and no legacy tiles', () => {
+  it('renders unknown context honestly, zero spend and no resume', () => {
     const fixture = TestBed.createComponent(ChatEmptyStateViewComponent);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Orchestrator ready');
@@ -191,11 +191,6 @@ describe('empty chat', () => {
     expect(fixture.nativeElement.textContent).not.toContain('null%');
     expect(
       fixture.debugElement.query(By.css('.empty-chat__resume')),
-    ).toBeNull();
-    expect(
-      fixture.debugElement.query(
-        By.css('ptah-project-setup-card, ptah-prompt-suggestions'),
-      ),
     ).toBeNull();
     expect(
       fixture.debugElement.query(By.css('img')).attributes['aria-hidden'],

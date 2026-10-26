@@ -135,18 +135,22 @@ export const LOAD_STEPS_MAX_MS = 12_000;
           >
             {{ name() }}
           </h1>
-          @if (git(); as line) {
-            <span class="inline-flex items-center gap-1.5">
-              <lucide-angular
-                [img]="BranchIcon"
-                class="size-3.5"
-                aria-hidden="true"
-              />
-              <span class="sr-only">Branch</span>
-              {{ line.branch }}
-            </span>
-            <span>{{ line.changed }}</span>
-          }
+          <span class="ptah-empty-board__git">
+            @if (git(); as line) {
+              <span class="inline-flex min-w-0 items-center gap-1.5">
+                <lucide-angular
+                  [img]="BranchIcon"
+                  class="size-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="sr-only">Branch</span>
+                <span class="truncate" [title]="line.branch">{{
+                  line.branch
+                }}</span>
+              </span>
+              <span class="shrink-0">{{ line.changed }}</span>
+            }
+          </span>
         </div>
 
         <div class="ptah-empty-board__zone">

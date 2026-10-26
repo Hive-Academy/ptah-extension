@@ -138,7 +138,6 @@ export {
   type PromptCategory,
   type PromptItem,
 } from './lib/molecules/setup-plugins/prompt-catalogue';
-export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
 export {
   SetupStatusStore,
   type SetupNextAction,

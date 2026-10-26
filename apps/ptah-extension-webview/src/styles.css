@@ -2566,12 +2566,6 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-theme='lofi'] [data-testid='canvas-hero-new-session'].btn-primary:hover {
   background: oklch(var(--p) / 0.88);
 }
-:root[data-theme='lofi'] ptah-project-setup-card > section {
-  background: oklch(var(--b1));
-  border: 1px solid var(--surface-border-strong);
-  border-radius: var(--rounded-box);
-  box-shadow: none;
-}
 :root[data-theme='lofi'] .electron-tabs.tabs-lifted > .tab {
   --tab-bg: oklch(var(--b1));
 }
