@@ -14,6 +14,7 @@ import {
 } from '@ptah-extension/harness-sync';
 import {
   AGENT_GENERATION_TOKENS,
+  userLayerPassFailures,
   type MirrorSources,
   type UserLayerMirrorService,
   type UserLayerRoots,
@@ -133,6 +134,8 @@ function resolveAgentSyncGate(): AgentSyncGate | null {
  * into the user layer (~/.ptah/user/). SQLite-free, so it runs in VS Code.
  * create-if-absent, safe to call every activation; the IStateStorage watermark
  * only skips the backfill log after the first run. Non-fatal on failure.
+ * Returns null when the mirror threw or resolved with per-file errors counted,
+ * so the refresher reports `failed` for a Library that may be incomplete.
  *
  * Must run BEFORE reconcileHarness: the reconciler's desired state IS the user
  * layer, so reconciling an unmirrored layer copies nothing.
@@ -151,6 +154,14 @@ export async function mirrorUserLayer(
 
     const sources = buildMirrorSources(workspaceRoot);
     const result = await mirror.mirrorAll(sources);
+
+    const failures = userLayerPassFailures(result);
+    if (failures > 0) {
+      logger.warn('User-layer mirror finished with failed items (non-fatal)', {
+        failures,
+      });
+      return null;
+    }
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -188,7 +199,8 @@ export async function mirrorUserLayer(
  * reaped at all (defect 8). Both halves are a directory walk plus a content
  * hash, so a no-change pass is cheap. Non-fatal on failure.
  *
- * @returns `true` when the reconcile completed, `false` when it failed.
+ * @returns `true` when the reconcile completed, `false` when it failed or
+ *   resolved with per-file errors counted.
  */
 export async function reconcileUserLayer(
   workspaceRoot: string | undefined,
@@ -210,7 +222,7 @@ export async function reconcileUserLayer(
       missingSidecar: result.missingSidecar,
       errors: result.errors,
     });
-    return true;
+    return userLayerPassFailures(result) === 0;
   } catch (reconcileError) {
     // degradation-audit: reported - the warning logs the failure and false
     // makes the refresher report 'failed' to harness-sync.

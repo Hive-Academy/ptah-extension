@@ -5,11 +5,13 @@
  * (a skill, command or agent slug), what is at the path every detected target
  * would write it to, and what is its CURRENT content digest?
  *
- * The digest is the content on disk now — `hashDir` for a directory, `hashFile`
- * for a file — never the manifest's ownership hash. A replace approved against
+ * The digest is the strict approval fingerprint of what is on disk now
+ * (`approval-fingerprint.ts`: complete traversal, content and object
+ * identity), never the manifest's ownership hash. A replace approved against
  * it is re-checked by `HarnessBlockedRepairService` under the workspace lock
  * (A21), and the two compare equal only through {@link probeDestination},
- * which both of them use.
+ * which both of them use. The permissive sync hash is used only to classify
+ * a path as owned-unmodified or owned-edited.
  *
  * READ-ONLY AND NEVER THROWS. It writes nothing, takes no lock and runs no
  * pass. A target that cannot be detected or probed contributes nothing and is
@@ -23,7 +25,7 @@
  */
 
 import type { Stats } from 'fs';
-import { lstat, readdir } from 'fs/promises';
+import { lstat } from 'fs/promises';
 import { join } from 'path';
 import {
   harnessAgentRelPath,
@@ -38,6 +40,7 @@ import type {
   ManagedManifestStore,
 } from '../manifest-store/managed-manifest';
 import type { IHarnessTarget } from '../targets/harness-target.port';
+import { approvalFingerprint } from './approval-fingerprint';
 
 /** The artifact families a destination can hold. */
 export type HarnessDestinationKind = 'skill' | 'command' | 'agent';
@@ -71,24 +74,43 @@ export interface HarnessDestination {
   /** Workspace-relative POSIX path, as health reports and repair use it. */
   relPath: string;
   state: HarnessDestinationState;
-  /** Current content digest; `null` when absent, a link, or unreadable. */
+  /**
+   * The approval digest to record if the user approves replacing this path —
+   * the strict fingerprint from {@link probeDestination}, NOT a content hash
+   * comparable with any manifest. `null` when absent, a link, or not fully
+   * readable, and such a path cannot be approved.
+   */
   digest: string | null;
 }
 
 /** What {@link probeDestination} saw at one absolute path. */
 export interface DestinationProbe {
   presence: 'absent' | 'link' | 'present';
-  /** Current content digest; `null` unless `presence` is `present` and readable. */
+  /**
+   * The strict approval fingerprint (`approval-fingerprint.ts`): complete
+   * content plus object identity. `null` unless `presence` is `present` and
+   * every entry below the path could be observed.
+   */
   digest: string | null;
+  /**
+   * The synchronization hash (`hashDir` / `hashFile`), compared with a
+   * manifest's ownership hash to classify the path. Never an approval proof.
+   */
+  contentHash: string | null;
 }
 
 /**
- * The current content digest at `absolute`, judged by what is on disk rather
- * than by what was expected there: a directory hashes with `hashDir`, a file
- * with `hashFile`. A link is reported but never followed.
+ * What is at `absolute` now, judged by what is on disk rather than by what was
+ * expected there. A link is reported but never followed.
  *
- * Shared by the scanner and the digest-checked repair so an approval digest
- * and its re-check can only differ when the content does. Never throws.
+ * Two digests, for two different questions (P1 review A3/A4). `contentHash`
+ * answers "is this still what Ptah wrote" and uses the permissive sync hash
+ * the manifests record. `digest` answers "is this still exactly the object
+ * the user approved replacing" and is the strict approval fingerprint: an
+ * incomplete traversal, an unreadable descendant, or a recreated object never
+ * matches. The scanner hands out `digest` and the digest-checked repair
+ * re-computes it under the workspace lock through this same function, so the
+ * two can only differ when the path did. Never throws.
  */
 export async function probeDestination(
   absolute: string,
@@ -101,24 +123,22 @@ export async function probeDestination(
     // cannot be read, which the caller must never mistake for a vacant path.
     const code = errorCode(error);
     return code === 'ENOENT' || code === 'ENOTDIR'
-      ? { presence: 'absent', digest: null }
-      : { presence: 'present', digest: null };
+      ? { presence: 'absent', digest: null, contentHash: null }
+      : { presence: 'present', digest: null, contentHash: null };
   }
-  if (stat.isSymbolicLink()) return { presence: 'link', digest: null };
-  if (stat.isDirectory()) {
-    // `hashDir` folds an unlistable directory into the empty-tree digest, which
-    // would make an unreadable directory look like an empty one. Probe the
-    // listing first so it reads as unreadable instead.
-    try {
-      await readdir(absolute);
-    } catch {
-      // A directory that cannot be listed has no comparable content: reported
-      // as present with no digest, which callers treat as unreadable.
-      return { presence: 'present', digest: null };
-    }
-    return { presence: 'present', digest: await hashDir(absolute) };
+  if (stat.isSymbolicLink()) {
+    return { presence: 'link', digest: null, contentHash: null };
   }
-  return { presence: 'present', digest: await hashFile(absolute) };
+  const digest = await approvalFingerprint(absolute);
+  if (digest === null) {
+    // Something below the path could not be observed (or the filesystem gives
+    // no identity): no approval is possible, and the path reads as unreadable.
+    return { presence: 'present', digest: null, contentHash: null };
+  }
+  const contentHash = stat.isDirectory()
+    ? await hashDir(absolute)
+    : await hashFile(absolute);
+  return { presence: 'present', digest, contentHash };
 }
 
 export class HarnessDestinationScanner {
@@ -221,10 +241,13 @@ function classify(
 ): Pick<HarnessDestination, 'state' | 'digest'> {
   if (probe.presence === 'absent') return { state: 'absent', digest: null };
   if (probe.presence === 'link') return { state: 'unowned', digest: null };
-  if (probe.digest === null) return { state: 'unreadable', digest: null };
+  if (probe.digest === null || probe.contentHash === null) {
+    return { state: 'unreadable', digest: null };
+  }
   if (owned === undefined) return { state: 'unowned', digest: probe.digest };
   return {
-    state: probe.digest === owned.hash ? 'owned-unmodified' : 'owned-edited',
+    state:
+      probe.contentHash === owned.hash ? 'owned-unmodified' : 'owned-edited',
     digest: probe.digest,
   };
 }

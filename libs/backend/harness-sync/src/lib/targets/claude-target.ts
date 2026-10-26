@@ -56,6 +56,10 @@ import type {
   IHarnessTarget,
 } from './harness-target.port';
 import { isQuarantineEntry } from '../quarantine/quarantine';
+import {
+  prepareOwnedOverwrite,
+  publishFailureReason,
+} from './artifact-retirement';
 import { isMigratableLink } from './link-ownership';
 import { createMcpFacet } from './mcp/mcp-facet.registry';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
@@ -372,30 +376,7 @@ export class ClaudeTarget implements IHarnessTarget {
 
     for (const write of plan.writes) {
       if (write.kind === 'mcp') continue;
-      const absolute = toAbsolute(workspaceRoot, write.relPath);
-      try {
-        if (write.isDirectory) {
-          await copyDirectory(write.source, absolute);
-        } else {
-          await copySingleFile(
-            write.source,
-            absolute,
-            join(workspaceRoot, ...COMMANDS_REL.split('/')),
-          );
-        }
-        // Recorded ONLY after the write succeeded: a manifest entry for a file
-        // that is not on disk is exactly the record corruption E21 forbids.
-        result.written[write.relPath] = managedEntry(
-          write.hash,
-          write.source,
-          write.kind,
-        );
-      } catch (error: unknown) {
-        result.writeFailed.push({
-          relPath: write.relPath,
-          reason: describeError(error),
-        });
-      }
+      await this.applyWrite(write, workspaceRoot, plan.baseEntries, result);
     }
 
     await applyMcpFacet(
@@ -420,6 +401,71 @@ export class ClaudeTarget implements IHarnessTarget {
     }
 
     return result;
+  }
+
+  /**
+   * Write one skill or command copy without losing a save the user made after
+   * the plan (TASK_2026_701 P1 review A1; D8).
+   *
+   * The plan only schedules an `update` for an owned copy that still held what
+   * Ptah wrote, but editor saves are not serialized by the workspace lock, so
+   * the plan is not trusted for that. The owned copy is detached into history
+   * and decided on there, exactly as `WorkspaceHarnessTarget.applyWrite` does:
+   * Ptah's own bytes are discarded, an edit saved since the plan is put back
+   * and reported kept (its manifest entry keeps the old hash because nothing
+   * lands in `written`), and the replacement is published with an EXCLUSIVE
+   * create. A `create` is exclusive too, so a file or directory the user put at
+   * a path the plan saw empty is never replaced.
+   */
+  private async applyWrite(
+    write: HarnessPlanWrite,
+    workspaceRoot: string,
+    baseEntries: ManagedEntries,
+    result: HarnessApplyResult,
+  ): Promise<void> {
+    const owned = baseEntries[write.relPath];
+    if (write.reason === 'update' && owned !== undefined) {
+      const gate = await prepareOwnedOverwrite({
+        workspaceRoot,
+        relPath: write.relPath,
+        isDirectory: write.isDirectory,
+        ownedHash: owned.hash,
+      });
+      if (gate.kind === 'failed') {
+        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
+        return;
+      }
+      if (gate.kind === 'kept-local-edit') {
+        result.keptLocalEdit.push(write.relPath);
+        return;
+      }
+    }
+
+    const absolute = toAbsolute(workspaceRoot, write.relPath);
+    try {
+      if (write.isDirectory) {
+        await copyDirectory(write.source, absolute);
+      } else {
+        await copySingleFile(
+          write.source,
+          absolute,
+          join(workspaceRoot, ...COMMANDS_REL.split('/')),
+          true,
+        );
+      }
+      // Recorded ONLY after the write succeeded: a manifest entry for a file
+      // that is not on disk is exactly the record corruption E21 forbids.
+      result.written[write.relPath] = managedEntry(
+        write.hash,
+        write.source,
+        write.kind,
+      );
+    } catch (error: unknown) {
+      result.writeFailed.push({
+        relPath: write.relPath,
+        reason: publishFailureReason(write.relPath, error),
+      });
+    }
   }
 
   /**

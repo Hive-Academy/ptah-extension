@@ -27,6 +27,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   AGENT_GENERATION_TOKENS,
+  userLayerPassFailures,
   type MirrorSources,
   type UserLayerMirrorService,
 } from '@ptah-extension/agent-generation';
@@ -386,7 +387,8 @@ function resolveAgentSyncGate(
  * backfill log line only; the directory walk runs every activation and must, so
  * newly-added slugs get clones. Refreshing an EXISTING clone is not this
  * function's job and never was: that is reconcileUserLayer below.
- * Non-fatal on failure: a failure is logged and returned as `'failed'`.
+ * Non-fatal on failure: a failure is logged and returned as `'failed'`, and so
+ * is a pass that resolved with per-file errors counted.
  *
  * Must run BEFORE reconcileHarness: the reconciler's desired state IS the user
  * layer, so reconciling an unmirrored layer copies nothing.
@@ -405,6 +407,17 @@ export async function mirrorUserLayer(
 
     const sources = buildMirrorSources(container, workspaceRoot);
     const result = await mirror.mirrorAll(sources);
+
+    // The mirror keeps going past a file it cannot copy and only counts it.
+    // That is a failed step: the Library may be missing items, and the first
+    // backfill is not complete until a pass mirrors without one.
+    const failures = userLayerPassFailures(result);
+    if (failures > 0) {
+      console.warn(
+        `[Ptah Electron] User-layer mirror finished with ${failures} failed item(s); the Library may be incomplete`,
+      );
+      return 'failed';
+    }
 
     const firstBackfill =
       stateStorage.get<number>(USER_LAYER_MIRRORED_AT) === undefined;
@@ -487,7 +500,8 @@ export async function syncSkillRegistryCatalog(
  * SQLite-free record VS Code also uses), reaps clones with no local work whose
  * upstream vanished, keeps + flags the diverged ones as `orphaned`, and —
  * Electron-only — persists all of that into the skill_registry catalog.
- * Non-fatal on failure: a failure is logged and returned as `'failed'`.
+ * Non-fatal on failure: a failure is logged and returned as `'failed'`, and so
+ * is a pass that resolved with per-file errors counted.
  */
 export async function reconcileUserLayer(
   container: DependencyContainer,
@@ -530,6 +544,16 @@ export async function reconcileUserLayer(
     // `tmp/logs/log.log:1206-1223` came from. It now runs exactly once per
     // coalesced pass, in `runUserLayerPass` below, which is the only place that
     // knows a pass has finished. Do not add a third call site here.
+
+    // Divergence found by the files that did reconcile is recorded above
+    // either way; the files that failed leave the Library possibly stale.
+    const failures = userLayerPassFailures(result);
+    if (failures > 0) {
+      console.warn(
+        `[Ptah Electron] User-layer reconcile finished with ${failures} failed item(s); the Library may be stale`,
+      );
+      return 'failed';
+    }
     return 'ok';
   } catch (error) {
     // degradation-audit: reported - the reconcile is a best-effort refresh of

@@ -28,6 +28,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   PluginConfigHomeCandidate,
@@ -66,68 +67,97 @@ export function emptyPluginConfig(): PluginConfigState {
   };
 }
 
-/**
- * A persisted config in the shape every reader returns. A missing list reads
- * as empty and `enabledSkillIds` appears only when it was stored, so a config
- * saved before a field existed reads exactly as it always did (AC-3.2).
- */
-export function normalizePluginConfig(
-  stored: PluginConfigState | undefined,
-): PluginConfigState {
-  if (!stored || !Array.isArray(stored.enabledPluginIds)) {
-    return emptyPluginConfig();
-  }
+const PluginIdListSchema = z.array(z.string());
 
+/**
+ * A Zod field that reads as absent when its stored value is invalid, instead
+ * of failing the whole record. This is a schema fallback, not a promise
+ * handler.
+ */
+function absentWhenInvalid<T extends z.ZodTypeAny>(schema: T) {
+  // degradation-audit: optional-capability - Zod schema fallback: an unusable optional field reads as absent; callers treat absent as the documented default
+  return schema.optional().catch(undefined);
+}
+
+/**
+ * `lastUpdated` is display and tie-break metadata, never policy: a stored value
+ * that is not a string is discarded (read as absent) instead of failing a
+ * config whose id lists are sound.
+ */
+const LastUpdatedSchema = absentWhenInvalid(z.string());
+
+/**
+ * A plugin config as it may be PERSISTED: `enabledPluginIds` is required, and
+ * every other list may be absent because it did not exist when an older config
+ * was saved (AC-3.2). A present list must be a list of strings. This is the
+ * strict shape a policy reader and the home record trust.
+ */
+const StoredPluginConfigSchema = z.object({
+  enabledPluginIds: PluginIdListSchema,
+  disabledSkillIds: PluginIdListSchema.optional(),
+  disabledPluginIds: PluginIdListSchema.optional(),
+  disabledAgentIds: PluginIdListSchema.optional(),
+  enabledSkillIds: PluginIdListSchema.optional(),
+  lastUpdated: LastUpdatedSchema,
+});
+
+/**
+ * The lenient shape the display reader accepts: an unusable optional list
+ * reads as absent rather than discarding the whole config.
+ */
+const LenientPluginConfigSchema = StoredPluginConfigSchema.extend({
+  disabledSkillIds: absentWhenInvalid(PluginIdListSchema),
+  disabledPluginIds: absentWhenInvalid(PluginIdListSchema),
+  disabledAgentIds: absentWhenInvalid(PluginIdListSchema),
+  enabledSkillIds: absentWhenInvalid(PluginIdListSchema),
+});
+
+type StoredPluginConfig = z.infer<typeof StoredPluginConfigSchema>;
+
+/**
+ * A validated persisted config in the shape every reader returns. A missing
+ * list reads as empty and `enabledSkillIds` appears only when it was stored, so
+ * a config saved before a field existed reads exactly as it always did.
+ */
+function toPluginConfigState(stored: StoredPluginConfig): PluginConfigState {
   return {
     enabledPluginIds: stored.enabledPluginIds,
-    disabledSkillIds: Array.isArray(stored.disabledSkillIds)
-      ? stored.disabledSkillIds
-      : [],
+    disabledSkillIds: stored.disabledSkillIds ?? [],
     // Absent on every config persisted before harness plugins became
     // toggleable — read as "nothing explicitly disabled", which is exactly
     // the default-enabled behaviour those configs already had. No migration.
-    disabledPluginIds: Array.isArray(stored.disabledPluginIds)
-      ? stored.disabledPluginIds
-      : [],
+    disabledPluginIds: stored.disabledPluginIds ?? [],
     // Same idiom, same reason: absent on every config persisted before agents
     // became individually toggleable. No migration.
-    disabledAgentIds: Array.isArray(stored.disabledAgentIds)
-      ? stored.disabledAgentIds
-      : [],
+    disabledAgentIds: stored.disabledAgentIds ?? [],
     // TASK_2026_560: only an override of a global OFF, so absent means
     // "nothing overridden". Left out rather than defaulted to `[]` so a
     // pre-task config reads back unchanged.
-    ...(Array.isArray(stored.enabledSkillIds)
-      ? { enabledSkillIds: stored.enabledSkillIds }
-      : {}),
+    ...(stored.enabledSkillIds === undefined
+      ? {}
+      : { enabledSkillIds: stored.enabledSkillIds }),
     lastUpdated: stored.lastUpdated,
   };
 }
 
-/** A persisted id list is usable when it is absent or a list of strings. */
-function isAbsentOrStringList(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (Array.isArray(value) && value.every((item) => typeof item === 'string'))
-  );
+/**
+ * The strict read: the persisted value as a normalized config, or null when it
+ * is not one a policy reader may trust (not an object, no `enabledPluginIds`
+ * list, or a present id list that is not a list of strings).
+ */
+export function parsePluginConfig(stored: unknown): PluginConfigState | null {
+  const parsed = StoredPluginConfigSchema.safeParse(stored);
+  return parsed.success ? toPluginConfigState(parsed.data) : null;
 }
 
 /**
- * Whether a stored value is a config a policy reader may trust: an object with
- * an `enabledPluginIds` list and every other id list absent or a string list.
+ * The lenient read every display path uses: anything without a usable
+ * `enabledPluginIds` list reads as the empty default, and an unusable optional
+ * list reads as absent.
  */
-export function isWellFormedPluginConfig(
-  stored: unknown,
-): stored is PluginConfigState {
-  return (
-    typeof stored === 'object' &&
-    stored !== null &&
-    !Array.isArray(stored) &&
-    Array.isArray((stored as PluginConfigState).enabledPluginIds) &&
-    PLUGIN_CONFIG_LIST_FIELDS.every((field) =>
-      isAbsentOrStringList((stored as Record<string, unknown>)[field]),
-    )
-  );
+export function normalizePluginConfig(stored: unknown): PluginConfigState {
+  const parsed = LenientPluginConfigSchema.safeParse(stored);
+  return parsed.success ? toPluginConfigState(parsed.data) : emptyPluginConfig();
 }
 
 /** `realpath` of `root` (the resolved path when it cannot be read), folded on win32. */
@@ -159,8 +189,20 @@ export function pluginConfigsEqual(
   return comparableLists(a) === comparableLists(b);
 }
 
+/** The persisted home record, as stored; its config is the strict shape. */
+const PluginConfigHomeRecordSchema = z.object({
+  version: z.literal(1),
+  harnessRoot: z.string(),
+  config: StoredPluginConfigSchema,
+  origin: z.enum(['saved', 'imported', 'adopted']),
+  sourceFolders: z.array(z.string()),
+  dismissed: z.record(z.string(), z.string()),
+});
+
 /** How the home record came to exist. */
-export type PluginConfigHomeOrigin = 'saved' | 'imported' | 'adopted';
+export type PluginConfigHomeOrigin = z.infer<
+  typeof PluginConfigHomeRecordSchema
+>['origin'];
 
 /** The persisted home record of one harness root. */
 export interface PluginConfigHomeRecord {
@@ -211,43 +253,13 @@ type HomeResolution =
  */
 const MALFORMED_HOME_VALUE = Object.freeze({ malformedPluginConfigHome: true });
 
-const HOME_ORIGINS: readonly PluginConfigHomeOrigin[] = [
-  'saved',
-  'imported',
-  'adopted',
-];
-
 function parseHomeRecord(value: unknown): HomeRecordRead {
   if (value === undefined || value === null) return { kind: 'absent' };
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    return { kind: 'malformed' };
-  }
-  const candidate = value as Partial<PluginConfigHomeRecord>;
-  const dismissed = candidate.dismissed;
-  if (
-    candidate.version !== 1 ||
-    typeof candidate.harnessRoot !== 'string' ||
-    !isWellFormedPluginConfig(candidate.config) ||
-    !HOME_ORIGINS.includes(candidate.origin as PluginConfigHomeOrigin) ||
-    !Array.isArray(candidate.sourceFolders) ||
-    !candidate.sourceFolders.every((folder) => typeof folder === 'string') ||
-    typeof dismissed !== 'object' ||
-    dismissed === null ||
-    Array.isArray(dismissed) ||
-    !Object.values(dismissed).every((stamp) => typeof stamp === 'string')
-  ) {
-    return { kind: 'malformed' };
-  }
+  const parsed = PluginConfigHomeRecordSchema.safeParse(value);
+  if (!parsed.success) return { kind: 'malformed' };
   return {
     kind: 'record',
-    record: {
-      version: 1,
-      harnessRoot: candidate.harnessRoot,
-      config: normalizePluginConfig(candidate.config),
-      origin: candidate.origin as PluginConfigHomeOrigin,
-      sourceFolders: [...candidate.sourceFolders],
-      dismissed: { ...dismissed },
-    },
+    record: { ...parsed.data, config: toPluginConfigState(parsed.data.config) },
   };
 }
 
@@ -342,12 +354,13 @@ export class PluginConfigHome {
       },
       update: async (key: string, value: unknown): Promise<void> => {
         assertKey(key);
-        if (!isWellFormedPluginConfig(value)) {
+        const config = parsePluginConfig(value);
+        if (config === null) {
           throw new SdkError(
             'Refusing to save a malformed plugin configuration',
           );
         }
-        await this.save(root, value);
+        await this.save(root, config);
       },
       keys: (): readonly string[] =>
         this.governingValue(root) === undefined ? [] : [PLUGIN_CONFIG_KEY],
@@ -484,7 +497,7 @@ export class PluginConfigHome {
       await this.writeRecord(recordKey, {
         version: 1,
         harnessRoot,
-        config: normalizePluginConfig(config),
+        config,
         origin: 'saved',
         sourceFolders: base?.sourceFolders ?? [],
         dismissed: base?.dismissed ?? {},
@@ -561,15 +574,13 @@ export class PluginConfigHome {
         .getStorageForWorkspace(folder)
         ?.get<unknown>(PLUGIN_CONFIG_KEY);
       if (raw === undefined || raw === null) continue;
-      const wellFormed = isWellFormedPluginConfig(raw);
-      const config = wellFormed
-        ? normalizePluginConfig(raw)
-        : emptyPluginConfig();
+      const parsed = parsePluginConfig(raw);
+      const config = parsed ?? emptyPluginConfig();
       candidates.push({
         folder,
         key: canonicalRootKey(folder),
         raw,
-        wellFormed,
+        wellFormed: parsed !== null,
         config,
         ...(typeof config.lastUpdated === 'string'
           ? { lastUpdated: config.lastUpdated }

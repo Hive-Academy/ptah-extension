@@ -41,7 +41,8 @@ jest.mock('fs/promises', () => {
 import type { HarnessTargetId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { HarnessStateStore } from '../gitignore/harness-state-store';
-import { hashDir, hashFile } from '../hash/content-hash';
+import { hashDir } from '../hash/content-hash';
+import { approvalFingerprint } from './approval-fingerprint';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
@@ -180,10 +181,10 @@ describe('HarnessDestinationScanner', () => {
       ['cursor', '.cursor/skills/alpha', 'owned-unmodified'],
     ]);
     expect(on(scan, 'claude', 'alpha')?.digest).toBe(
-      await hashDir(abs('.claude/skills/alpha')),
+      await approvalFingerprint(abs('.claude/skills/alpha')),
     );
     expect(on(scan, 'cursor', 'alpha')?.digest).toBe(
-      await hashDir(abs('.cursor/skills/alpha')),
+      await approvalFingerprint(abs('.cursor/skills/alpha')),
     );
   });
 
@@ -201,7 +202,7 @@ describe('HarnessDestinationScanner', () => {
     const cursor = on(scan, 'cursor', 'alpha');
 
     expect(cursor?.state).toBe('owned-edited');
-    expect(cursor?.digest).toBe(await hashDir(abs(rel)));
+    expect(cursor?.digest).toBe(await approvalFingerprint(abs(rel)));
     expect(cursor?.digest).not.toBe(manifestHash);
     expect(on(scan, 'claude', 'alpha')?.state).toBe('owned-unmodified');
   });
@@ -218,7 +219,7 @@ describe('HarnessDestinationScanner', () => {
       target: 'claude',
       relPath: '.claude/skills/mine',
       state: 'unowned',
-      digest: await hashDir(abs('.claude/skills/mine')),
+      digest: await approvalFingerprint(abs('.claude/skills/mine')),
     });
     expect(on(scan, 'cursor', 'mine')).toEqual({
       kind: 'skill',
@@ -241,7 +242,7 @@ describe('HarnessDestinationScanner', () => {
     ]);
     for (const entry of scan) {
       expect(entry.state).toBe('owned-unmodified');
-      expect(entry.digest).toBe(await hashFile(abs(entry.relPath)));
+      expect(entry.digest).toBe(await approvalFingerprint(abs(entry.relPath)));
     }
   });
 
@@ -338,11 +339,35 @@ describe('HarnessDestinationScanner', () => {
       expect(await probeDestination(abs('.claude/skills/nope'))).toEqual({
         presence: 'absent',
         digest: null,
+        contentHash: null,
       });
       const file = abs('.claude/commands/run-it.md');
       unreadable = (path) => path === file;
       expect(await probeDestination(file)).toEqual({
         presence: 'present',
+        digest: null,
+        contentHash: null,
+      });
+    });
+
+    it('has no approval digest when an empty descendant directory cannot be listed, though the sync hash would not notice (P1 review A3)', async () => {
+      const skill = abs('.claude/skills/alpha');
+      const empty = join(skill, 'empty');
+      mkdirSync(empty);
+      const before = await hashDir(skill);
+      unreadable = (path) => path === empty;
+
+      // The permissive sync hash folds the unlistable directory into an empty
+      // one and still matches; the approval digest refuses to exist.
+      expect(await hashDir(skill)).toBe(before);
+      expect(await probeDestination(skill)).toEqual({
+        presence: 'present',
+        digest: null,
+        contentHash: null,
+      });
+      const scan = await scanner().scan(ws, [{ kind: 'skill', slug: 'alpha' }]);
+      expect(on(scan, 'claude', 'alpha')).toMatchObject({
+        state: 'unreadable',
         digest: null,
       });
     });

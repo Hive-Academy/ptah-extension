@@ -19,6 +19,13 @@ import type {
 } from '../targets/harness-target.port';
 
 /**
+ * The `writeFailed` relPath of a failure that took a whole target down (its
+ * detection, plan or apply threw). Not a path: no artifact of that target was
+ * installed by the pass, whatever its `missing` list says.
+ */
+export const TARGET_WIDE_FAILURE = '(target)';
+
+/**
  * Health for a target that does not apply to this workspace (E17).
  *
  * The facet matrix is still reported. "Codex is not installed" and "Codex

@@ -76,20 +76,22 @@ import {
   PluginConfigHome,
   canonicalRootKey,
   emptyPluginConfig,
-  isWellFormedPluginConfig,
   normalizePluginConfig,
+  parsePluginConfig,
 } from './plugin-config-home';
 
 /**
- * Options that give a multi-root host one plugin configuration per harness
- * root (D14). Both are required for the home to be active, and it is active
- * only over workspace-scoped state storage.
+ * The harness-root configuration home a multi-root host gives the loader, so
+ * it keeps one plugin configuration per harness root (D14). Both halves are
+ * required: the options are passed whole or not at all, and a host that
+ * passes none keeps the per-folder configuration. The home is active only over
+ * workspace-scoped state storage.
  */
 export interface PluginLoaderInitOptions {
   /** The harness root a folder belongs to; injected so agent-sdk has no harness-sync edge. */
-  harnessRootOf?: (folder: string) => string;
+  harnessRootOf: (folder: string) => string;
   /** Global state storage that holds one home record per harness root. */
-  homeStorage?: IStateStorage;
+  homeStorage: IStateStorage;
 }
 
 /** Identity and display label of one plugin source directory. */
@@ -539,28 +541,33 @@ export class PluginLoaderService {
    *
    * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
    * @param workspaceState - VS Code Memento for per-workspace state (from context.workspaceState)
-   * @param options - The harness-root configuration home (D14). It is active
-   *   only when `workspaceState` is workspace-scoped AND both options are
-   *   given; otherwise every method behaves exactly as without them.
+   * @param options - The harness-root configuration home (D14). Omitted, every
+   *   method uses the per-folder configuration. Given, it is active only when
+   *   `workspaceState` is workspace-scoped; over any other storage it is
+   *   ignored with a warning, since one storage already answers every root.
    */
   initialize(
     pluginsBasePath: string,
     workspaceState: IStateStorage,
-    options: PluginLoaderInitOptions = {},
+    options?: PluginLoaderInitOptions,
   ): void {
     this.pluginsBasePath = pluginsBasePath;
     this.workspaceState = workspaceState;
-    this.configHome =
-      isWorkspaceScopedStateStorage(workspaceState) &&
-      options.harnessRootOf !== undefined &&
-      options.homeStorage !== undefined
-        ? new PluginConfigHome({
-            folderStorage: workspaceState,
-            homeStorage: options.homeStorage,
-            harnessRootOf: options.harnessRootOf,
-            logger: this.logger,
-          })
-        : null;
+    this.configHome = null;
+    if (options !== undefined) {
+      if (isWorkspaceScopedStateStorage(workspaceState)) {
+        this.configHome = new PluginConfigHome({
+          folderStorage: workspaceState,
+          homeStorage: options.homeStorage,
+          harnessRootOf: options.harnessRootOf,
+          logger: this.logger,
+        });
+      } else {
+        this.logger.warn(
+          '[PluginLoaderService] Configuration home ignored: workspace state is not workspace-scoped',
+        );
+      }
+    }
 
     this.logger.debug('[PluginLoaderService] Initialized', {
       pluginsBasePath,
@@ -1034,9 +1041,7 @@ export class PluginLoaderService {
       return emptyPluginConfig();
     }
 
-    return normalizePluginConfig(
-      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
-    );
+    return normalizePluginConfig(storage.get<unknown>(PLUGIN_CONFIG_KEY));
   }
 
   /**
@@ -1079,14 +1084,15 @@ export class PluginLoaderService {
     if (stored === undefined || stored === null) {
       return { status: 'ok', config: emptyPluginConfig() };
     }
-    if (!isWellFormedPluginConfig(stored)) {
+    const config = parsePluginConfig(stored);
+    if (config === null) {
       return {
         status: 'error',
         reason: { path: reasonPath, error: 'invalid plugin config' },
       };
     }
 
-    return { status: 'ok', config: normalizePluginConfig(stored) };
+    return { status: 'ok', config };
   }
 
   /**
@@ -1186,7 +1192,7 @@ export class PluginLoaderService {
 
     // One read for every preserved list, from the storage captured above.
     const persisted = normalizePluginConfig(
-      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
+      storage.get<unknown>(PLUGIN_CONFIG_KEY),
     );
     const disabledPluginIds =
       config.disabledPluginIds ?? persisted.disabledPluginIds ?? [];
@@ -1455,16 +1461,17 @@ export class PluginLoaderService {
    * path.
    *
    * Separate from {@link discoverHarnessPluginPaths} even though the scan is
-   * identical, because the two feed different places on purpose. BOTH reach
-   * `resolveCurrentPluginPaths` (the harness desired state); only the harness
-   * one reaches `buildMirrorSources` in each host.
+   * identical, because the two are filtered differently. BOTH reach
+   * `resolveCurrentPluginPaths` (the harness desired state) and each host's
+   * `buildMirrorSources` (TASK_2026_701 A9), so community skills become Library
+   * clones. A host leaves a skills.sh root out of the mirror sources while the
+   * Plugins panel has it switched off (`disabledPluginIds`); harness roots are
+   * never filtered that way.
    *
-   * That asymmetry is the load-bearing part of uninstall. The user-layer mirror
-   * CLONES a plugin's skills into `~/.ptah/user/skills` create-if-absent, and
-   * the user layer is the desired state's base — so a cloned skills.sh skill
-   * would survive the deletion of its source root and keep propagating into
-   * every target forever. Overlay-only means `skillsSh:uninstall` deletes the
-   * one copy that exists and the reconciler's removal sweep clears the rest.
+   * Uninstall stays clean through the deleted-upstream sweep: a clone whose
+   * skills.sh root is gone from disk is reaped when it carries no local work
+   * (kept and flagged `orphaned` when it does), while a switched-off root is
+   * still on disk, so its clones are kept.
    */
   discoverSkillsShPluginPaths(): string[] {
     return this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);

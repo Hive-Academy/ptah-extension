@@ -36,6 +36,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import {
   AGENT_GENERATION_TOKENS,
+  userLayerPassFailures,
   type MirrorSources,
   type UserLayerMirrorService,
 } from '@ptah-extension/agent-generation';
@@ -143,25 +144,54 @@ export function createCliUserLayerRefresher(
         // Create-if-absent first (new slugs), then fast-forward + reap. The CLI
         // needs both halves as much as the GUI does: a `ptah tui` user who
         // uninstalls a plugin has no other host to reap its clones for them.
-        await mirror.mirrorAll(sources);
-        await mirror.reconcileAll(sources);
+        const mirrored = await mirror.mirrorAll(sources);
+        const reconciled = await mirror.reconcileAll(sources);
+        // Both passes keep going past a file they cannot handle and only count
+        // it. A counted failure means the Library may be missing or holding
+        // stale items, so the refresh is `failed`, never `refreshed` (B3).
+        const failures =
+          userLayerPassFailures(mirrored) + userLayerPassFailures(reconciled);
+        if (failures > 0) {
+          warnRefresh(
+            container,
+            `[CLI harness] User-layer refresh finished with ${failures} failed item(s); the Library may be incomplete`,
+          );
+          return 'failed';
+        }
         return 'refreshed';
       } catch (error: unknown) {
         // degradation-audit: reported - the warning logs the failure and
         // 'failed' is the port's status for a refresh that did not complete.
         // The logger is resolved here, lazily, like the mirror service: this
         // refresher is built in DI phase 2, before every binding exists.
-        if (container.isRegistered(TOKENS.LOGGER)) {
-          container
-            .resolve<Logger>(TOKENS.LOGGER)
-            .warn('[CLI harness] User-layer refresh failed (non-fatal)', {
-              error: error instanceof Error ? error.message : String(error),
-            });
-        }
+        warnRefresh(
+          container,
+          '[CLI harness] User-layer refresh failed (non-fatal)',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
         return 'failed';
       }
     },
   };
+}
+
+/**
+ * Logs a refresh warning through the container's logger when one is bound.
+ * Resolved lazily: the refresher is built in DI phase 2, before every binding
+ * exists.
+ */
+function warnRefresh(
+  container: DependencyContainer,
+  message: string,
+  details?: Record<string, unknown>,
+): void {
+  if (!container.isRegistered(TOKENS.LOGGER)) return;
+  const logger = container.resolve<Logger>(TOKENS.LOGGER);
+  if (details === undefined) {
+    logger.warn(message);
+  } else {
+    logger.warn(message, details);
+  }
 }
 
 /**

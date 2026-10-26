@@ -86,6 +86,11 @@ jest.mock('@ptah-extension/agent-generation', () => ({
   AGENT_GENERATION_TOKENS: {
     USER_LAYER_MIRROR_SERVICE: Symbol.for('PtahUserLayerMirrorService'),
   },
+  // The library's rule: per-file errors plus managed-skill retirement errors.
+  userLayerPassFailures: (result: {
+    errors: number;
+    retiredSkills: { errors: number };
+  }) => result.errors + result.retiredSkills.errors,
 }));
 
 jest.mock('@ptah-extension/plugin-marketplace', () => ({
@@ -144,6 +149,8 @@ function resetHarnessRootMapping(): void {
 
 interface Harness {
   container: { resolve: <T>(token: symbol) => T; isRegistered: () => boolean };
+  stateGet: jest.Mock;
+  stateUpdate: jest.Mock;
   getWorkspacePluginConfig: jest.Mock;
   resolvePluginPaths: jest.Mock;
   broadcastMessage: jest.Mock;
@@ -155,8 +162,24 @@ interface Harness {
   setPending: jest.Mock;
 }
 
+const NO_RETIREMENT = { removed: [], preserved: [], errors: 0 };
+
+function emptyMirrorResult(over: Record<string, unknown> = {}) {
+  return {
+    retiredSkills: NO_RETIREMENT,
+    skillsMirrored: 0,
+    agentsMirrored: 0,
+    commandsMirrored: 0,
+    skipped: 0,
+    conflicts: 0,
+    errors: 0,
+    ...over,
+  };
+}
+
 function emptyReconcileResult(over: Record<string, unknown> = {}) {
   return {
+    retiredSkills: NO_RETIREMENT,
     noop: 0,
     fastForwarded: 0,
     diverged: 0,
@@ -175,20 +198,15 @@ function makeHarness(
   reconcileResult: Record<string, unknown> = emptyReconcileResult(),
   options: { sqliteOpen?: boolean; governor?: unknown } = {},
 ): Harness {
-  const mirrorAll = jest.fn().mockResolvedValue({
-    skillsMirrored: 0,
-    agentsMirrored: 0,
-    commandsMirrored: 0,
-    skipped: 0,
-    conflicts: 0,
-    errors: 0,
-  });
+  const mirrorAll = jest.fn().mockResolvedValue(emptyMirrorResult());
   const reconcileAll = jest.fn().mockResolvedValue(reconcileResult);
   const reconcile = jest.fn().mockResolvedValue(reconcileResult);
   const catalogSync = jest.fn().mockResolvedValue({ upserted: 0, linked: 0 });
   const setDiverged = jest.fn();
   const setPending = jest.fn();
   const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+  const stateGet = jest.fn((): number | undefined => 1);
+  const stateUpdate = jest.fn().mockResolvedValue(undefined);
   const getWorkspacePluginConfig = jest.fn(() => ({
     enabledPluginIds: ['ptah-core'],
     disabledPluginIds: ['ptah-skillssh-switched-off'],
@@ -213,10 +231,7 @@ function makeHarness(
     [WEBVIEW_MANAGER_TOKEN, { broadcastMessage }],
     [CONTENT_DOWNLOAD_TOKEN, { getPluginsPath: () => PLUGINS_BASE }],
     [WORKSPACE_PROVIDER_TOKEN, { getConfiguration: jest.fn() }],
-    [
-      STATE_STORAGE_TOKEN,
-      { get: jest.fn(() => 1), update: jest.fn().mockResolvedValue(undefined) },
-    ],
+    [STATE_STORAGE_TOKEN, { get: stateGet, update: stateUpdate }],
     [
       USER_LAYER_MIRROR_TOKEN,
       {
@@ -250,6 +265,8 @@ function makeHarness(
       },
       isRegistered: () => true,
     },
+    stateGet,
+    stateUpdate,
     getWorkspacePluginConfig,
     resolvePluginPaths,
     broadcastMessage,
@@ -358,6 +375,33 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
 
     h.mirrorAll.mockRejectedValue(new Error('EPERM'));
     jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('failed');
+  });
+
+  it('a step that resolves with counted per-file errors is failed, not ok (B3)', async () => {
+    const h = makeHarness(emptyReconcileResult({ errors: 1 }));
+    h.stateGet.mockReturnValue(undefined);
+    h.mirrorAll.mockResolvedValue(emptyMirrorResult({ errors: 2 }));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('failed');
+    // A failed first backfill is not stamped complete.
+    expect(h.stateUpdate).not.toHaveBeenCalled();
+    await expect(
+      reconcileUserLayer(h.container as never, WORKSPACE_ROOT, false),
+    ).resolves.toBe('failed');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/mirror finished with 2 failed item/),
+    );
+
+    // Retirement errors count as well.
+    h.mirrorAll.mockResolvedValue(
+      emptyMirrorResult({ retiredSkills: { ...NO_RETIREMENT, errors: 1 } }),
+    );
     await expect(
       mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
     ).resolves.toBe('failed');
@@ -503,14 +547,7 @@ describe('electron plugin-activation — refreshUserLayer coalescing', () => {
     const order: string[] = [];
     h.mirrorAll.mockImplementation(async () => {
       order.push('mirrorAll');
-      return {
-        skillsMirrored: 0,
-        agentsMirrored: 0,
-        commandsMirrored: 0,
-        skipped: 0,
-        conflicts: 0,
-        errors: 0,
-      };
+      return emptyMirrorResult();
     });
     h.reconcileAll.mockImplementation(async () => {
       order.push('reconcileAll');
@@ -665,6 +702,30 @@ describe('electron plugin-activation — refreshUserLayer coalescing', () => {
 
     await expect(refreshed).resolves.toBe('failed');
     // The step failure does not stop the pass: the catalog still syncs.
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.LIBRARY_CHANGED,
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it('counted per-file errors fail the pass: requester, refresher and push agree (B3)', async () => {
+    const h = makeHarness(emptyReconcileResult({ errors: 1 }));
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    const refreshed = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'failed' });
+    await expect(refreshed).resolves.toBe('failed');
+    // Partial results still reach the catalog and the Library.
     expect(h.catalogSync).toHaveBeenCalledTimes(1);
     expect(h.broadcastMessage).toHaveBeenCalledWith(
       MESSAGE_TYPES.LIBRARY_CHANGED,

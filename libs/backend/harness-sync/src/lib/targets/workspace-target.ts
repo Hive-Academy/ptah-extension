@@ -31,16 +31,7 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'fs';
 import type { Stats } from 'fs';
-import {
-  link,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  rmdir,
-  unlink,
-  writeFile,
-} from 'fs/promises';
+import { mkdir, readFile, rm, unlink, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import type {
   HarnessFacetMatrix,
@@ -48,7 +39,6 @@ import type {
   HarnessTargetId,
 } from '@ptah-extension/shared';
 import { throwIfPassAborted } from '../abort/pass-abort';
-import { errorCode } from '../fs/windows-retry';
 import {
   hashContent,
   hashDir,
@@ -80,7 +70,11 @@ import {
   hashTransformedDir,
   withWindowsRetry,
 } from './copy-engine';
-import { detachForOverwrite, retireOwnedArtifact } from './artifact-retirement';
+import {
+  prepareOwnedOverwrite,
+  publishFailureReason,
+  retireOwnedArtifact,
+} from './artifact-retirement';
 import type {
   HarnessApplyResult,
   HarnessMigration,
@@ -942,28 +936,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const adopted = write.reason === 'update' && owned === undefined;
     const absolute = toAbsolute(workspaceRoot, write.relPath);
     if (write.reason === 'update' && owned !== undefined) {
-      const detached = await detachForOverwrite({
+      const gate = await prepareOwnedOverwrite({
         workspaceRoot,
         relPath: write.relPath,
         isDirectory: write.isDirectory,
         ownedHash: owned.hash,
       });
-      if (detached.kind === 'failed') {
-        result.writeFailed.push({
-          relPath: write.relPath,
-          reason: detached.reason,
-        });
+      if (gate.kind === 'failed') {
+        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
         return;
       }
-      if (detached.kind === 'local-edit') {
-        const failure = await restoreDetachedEdit(
-          detached.snapshotPath,
-          absolute,
-          write,
-        );
-        if (failure === null) result.keptLocalEdit.push(write.relPath);
-        else
-          result.writeFailed.push({ relPath: write.relPath, reason: failure });
+      if (gate.kind === 'kept-local-edit') {
+        result.keptLocalEdit.push(write.relPath);
         return;
       }
     }
@@ -1097,78 +1081,6 @@ function basenameWithoutSuffix(
   const prefix = probe.slice(0, marker);
   const suffix = probe.slice(marker + 1);
   return relPath.slice(prefix.length, relPath.length - suffix.length);
-}
-
-/**
- * Why a publish failed. EEXIST is the exclusive create refusing a save that
- * landed after the detach: that copy is kept, not an error to retry blindly.
- * A detached local edit is named either way, because it is no longer at its
- * original path.
- */
-function publishFailureReason(relPath: string, error: unknown): string {
-  return errorCode(error) === 'EEXIST'
-    ? `a new copy appeared at ${relPath} while it was being replaced; kept it`
-    : describeError(error);
-}
-
-/**
- * Put a copy the detach found hand-edited back at its live path, untouched,
- * and drop the history directory it was staged in (D8). Answers `null` once it
- * is back, or the `writeFailed` reason when it has to stay in history.
- *
- * Never replaces anything: a file is hard-linked back, which fails with EEXIST
- * when a newer save already sits at the path, and a directory is renamed back,
- * which fails onto a non-empty directory on every platform. Either way the
- * newer save stays, and the earlier edit is still at `snapshotPath`.
- */
-async function restoreDetachedEdit(
-  snapshotPath: string,
-  absolute: string,
-  write: HarnessPlanWrite,
-): Promise<string | null> {
-  try {
-    if (write.isDirectory) {
-      await withWindowsRetry(() => rename(snapshotPath, absolute));
-    } else {
-      await withWindowsRetry(() => link(snapshotPath, absolute));
-    }
-  } catch (error: unknown) {
-    // Judged on the path rather than the error code: Windows answers EPERM
-    // both for an occupied target and for a locked one.
-    return lstatSyncOrNull(absolute) !== null
-      ? `a new copy appeared at ${write.relPath} while a local edit there was being kept; kept it; the earlier local edit is saved at ${snapshotPath}`
-      : `could not put the local edit back at ${write.relPath}: ${describeError(error)}; it is saved at ${snapshotPath}`;
-  }
-  await discardRestoredSnapshot(snapshotPath, write.relPath);
-  return null;
-}
-
-/**
- * Remove the `<ts>` directory a restored snapshot was staged in, and its slug
- * directory when no other snapshot lives there. After a restore `<ts>` holds
- * only empty parents, or for a file a second hard link to the live copy, so
- * deleting it removes no content.
- */
-async function discardRestoredSnapshot(
-  snapshotPath: string,
-  relPath: string,
-): Promise<void> {
-  const staged = join(...relPath.split('/'));
-  const stampDir = snapshotPath.slice(
-    0,
-    snapshotPath.length - staged.length - 1,
-  );
-  try {
-    await withWindowsRetry(() =>
-      rm(stampDir, { recursive: true, force: true }),
-    );
-    await rmdir(dirname(stampDir));
-  } catch {
-    // degradation-audit: optional-capability - ENOTEMPTY means another
-    // snapshot lives under the slug; any other failure leaves only empty
-    // directories in the history store, which nothing reads as content.
-    return;
-  }
 }
 
 function lstatSyncOrNull(path: string): Stats | null {

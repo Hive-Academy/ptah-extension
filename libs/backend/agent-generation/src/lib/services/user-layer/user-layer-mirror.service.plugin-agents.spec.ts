@@ -20,7 +20,10 @@ import {
   resolveAgentMirrorSource,
   resolveHarnessWorkspaceRoot,
 } from '@ptah-extension/harness-sync';
-import { UserLayerMirrorService } from './user-layer-mirror.service';
+import {
+  UserLayerMirrorService,
+  userLayerPassFailures,
+} from './user-layer-mirror.service';
 import type {
   MirrorPluginDescriptors,
   MirrorSources,
@@ -516,5 +519,128 @@ describe('UserLayerMirrorService — plugin agents (B10)', () => {
     const listing = await service.listQuarantinedAgents(harnessRoot);
     expect(listing.notOwned).not.toContain('reviewer');
     expect(listing.quarantined).toEqual([]);
+  });
+
+  describe('legacy sidecars of two plugins sharing a basename (B2)', () => {
+    const ACME_REF = 'external:acme/repo/toolkit';
+    const OTHER_REF = 'external:other/repo/toolkit';
+
+    async function seedTwoToolkits(): Promise<{
+      acme: string;
+      other: string;
+      pluginDescriptors: MirrorPluginDescriptors;
+    }> {
+      const acme = join(pluginsBase, 'external', 'acme', 'repo', 'toolkit');
+      const other = join(pluginsBase, 'external', 'other', 'repo', 'toolkit');
+      await seedPluginAgent(acme, 'reviewer', '# acme');
+      await seedPluginAgent(other, 'reviewer', '# other');
+      for (const [dir, body] of [
+        [acme, '# acme skill'],
+        [other, '# other skill'],
+      ] as const) {
+        await mkdir(join(dir, 'skills', 'audit'), { recursive: true });
+        await writeFile(join(dir, 'skills', 'audit', 'SKILL.md'), body, 'utf8');
+      }
+      return {
+        acme,
+        other,
+        pluginDescriptors: {
+          [acme]: { sourceRef: ACME_REF, label: 'Acme Toolkit' },
+          [other]: { sourceRef: OTHER_REF, label: 'Other Toolkit' },
+        },
+      };
+    }
+
+    function skillSidecarPath(): string {
+      return join(
+        service.getUserLayerRoots(harnessRoot).skills,
+        'audit',
+        '.ptah-origin.json',
+      );
+    }
+
+    /** Rewrite a sidecar as one written before `sourceRef` existed. */
+    async function makeLegacy(path: string): Promise<void> {
+      const legacy = await readSidecarFile(path);
+      delete legacy.sourceRef;
+      delete legacy.sourceLabel;
+      await writeFile(path, JSON.stringify(legacy, null, 2), 'utf8');
+    }
+
+    it.each([
+      ['acme first', (a: string, o: string) => [a, o]],
+      ['other first', (a: string, o: string) => [o, a]],
+    ])(
+      'neither plugin acquires the clone, whichever the pass meets first (%s)',
+      async (_label, order) => {
+        const { acme, other, pluginDescriptors } = await seedTwoToolkits();
+        // Cloned from acme alone, then aged into a legacy sidecar.
+        await service.mirrorAll(
+          sources({ pluginPaths: [acme], pluginDescriptors }),
+        );
+        await makeLegacy(sidecarPath('reviewer'));
+        await makeLegacy(skillSidecarPath());
+        // Both upstreams move on, so an owner would fast-forward.
+        await writeFile(join(acme, 'agents', 'reviewer.md'), '# acme v2', 'utf8');
+        await writeFile(join(other, 'agents', 'reviewer.md'), '# other v2', 'utf8');
+        await writeFile(
+          join(other, 'skills', 'audit', 'SKILL.md'),
+          '# other skill v2',
+          'utf8',
+        );
+
+        const both = sources({ pluginPaths: order(acme, other), pluginDescriptors });
+        const mirrored = await service.mirrorAll(both);
+        const reconciled = await service.reconcile(both);
+
+        expect(mirrored.agentsMirrored).toBe(0);
+        expect(reconciled.fastForwarded).toBe(0);
+        expect(reconciled.diverged).toBe(0);
+        expect(await readFile(join(agentsRoot(), 'reviewer.md'), 'utf8')).toBe(
+          '# acme',
+        );
+        expect(
+          await readFile(
+            join(service.getUserLayerRoots(harnessRoot).skills, 'audit', 'SKILL.md'),
+            'utf8',
+          ),
+        ).toBe('# acme skill');
+        const agentSidecar = await readSidecarFile(sidecarPath('reviewer'));
+        const skillSidecar = await readSidecarFile(skillSidecarPath());
+        expect(agentSidecar.sourceRef).toBeUndefined();
+        expect(skillSidecar.sourceRef).toBeUndefined();
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringMatching(/more than one plugin with this directory name/),
+          expect.objectContaining({ slug: 'reviewer' }),
+        );
+
+        // With one candidate left the basename decides again, and the ref is
+        // recorded.
+        const alone = await service.reconcile(
+          sources({ pluginPaths: [acme], pluginDescriptors }),
+        );
+        expect(alone.fastForwarded).toBe(1);
+        expect(await readSidecarFile(sidecarPath('reviewer'))).toMatchObject({
+          sourceRef: ACME_REF,
+        });
+      },
+    );
+  });
+});
+
+describe('userLayerPassFailures (B3)', () => {
+  it('adds the per-file errors and the managed-skill retirement errors', () => {
+    expect(
+      userLayerPassFailures({
+        errors: 2,
+        retiredSkills: { removed: [], preserved: [], errors: 1 },
+      }),
+    ).toBe(3);
+    expect(
+      userLayerPassFailures({
+        errors: 0,
+        retiredSkills: { removed: [], preserved: [], errors: 0 },
+      }),
+    ).toBe(0);
   });
 });

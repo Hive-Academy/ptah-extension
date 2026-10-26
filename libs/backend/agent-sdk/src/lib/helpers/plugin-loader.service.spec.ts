@@ -45,7 +45,10 @@ import {
   PLUGIN_CONFIG_HOME_KEY_PREFIX,
   canonicalRootKey,
 } from './plugin-config-home';
-import { PluginLoaderService } from './plugin-loader.service';
+import {
+  PluginLoaderService,
+  type PluginLoaderInitOptions,
+} from './plugin-loader.service';
 
 /**
  * A consent record for an external plugin, shaped as the store persists it.
@@ -1740,7 +1743,7 @@ describe('PluginLoaderService — harness-root configuration home (D14)', () => 
       pluginsBasePath,
       scoped as unknown as IStateStorage,
       options.withHome === false
-        ? {}
+        ? undefined
         : { harnessRootOf, homeStorage: home.storage },
     );
 
@@ -1792,6 +1795,37 @@ describe('PluginLoaderService — harness-root configuration home (D14)', () => 
     lastUpdated: undefined,
   });
 
+  it('options are whole or absent: a half-configured home does not compile, and an unusable one is reported', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-home-half-'));
+    created.push(root);
+    const logger = createMockLogger();
+    const externalStore = new ExternalPluginStateStore();
+    externalStore.initialize(root);
+    const service = new PluginLoaderService(
+      logger as never,
+      externalStore,
+      createWorkspaceProvider(root) as never,
+    );
+    const home = createHomeStorage();
+
+    // S2: the type enforces the pair. Each half alone is rejected.
+    // @ts-expect-error -- `harnessRootOf` is required alongside `homeStorage`.
+    const homeOnly: PluginLoaderInitOptions = { homeStorage: home.storage };
+    // @ts-expect-error -- `homeStorage` is required alongside `harnessRootOf`.
+    const rootOnly: PluginLoaderInitOptions = { harnessRootOf: () => root };
+    expect([homeOnly, rootOnly]).toHaveLength(2);
+
+    // A complete home over a storage that is not workspace-scoped cannot be
+    // used; the loader says so instead of silently ignoring it.
+    service.initialize(root, mapStorage(cfg()), {
+      harnessRootOf: () => root,
+      homeStorage: home.storage,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/configuration home ignored/i),
+    );
+  });
+
   it('home inactive: a single-scope storage with both options reads and saves exactly as without them', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-home-single-'));
     const pluginsBasePath = fs.mkdtempSync(
@@ -1814,7 +1848,7 @@ describe('PluginLoaderService — harness-root configuration home (D14)', () => 
         storage,
         withOptions
           ? { harnessRootOf: () => root, homeStorage: home.storage }
-          : {},
+          : undefined,
       );
       return { service, storage, home };
     };

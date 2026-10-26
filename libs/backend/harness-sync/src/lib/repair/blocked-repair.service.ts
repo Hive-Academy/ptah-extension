@@ -63,6 +63,7 @@
  * runs the other way. The only caller is the `harness:repairBlocked` RPC.
  */
 
+import { lstat } from 'fs/promises';
 import { join } from 'path';
 import {
   blockedTargetPaths,
@@ -73,7 +74,9 @@ import {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { describeError } from '../fs/windows-retry';
+import { hashDir, hashFile } from '../hash/content-hash';
 import { probeDestination } from '../health/harness-destination-scanner';
+import { TARGET_WIDE_FAILURE } from '../health/harness-health';
 import {
   acquireWorkspaceLock,
   serializePerWorkspace,
@@ -82,6 +85,7 @@ import {
   moveToQuarantine,
   restoreFromQuarantine,
 } from '../quarantine/quarantine';
+import type { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import type { HarnessPropagationService } from '../propagation/harness-propagation.service';
 import type { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
 import { isMcpFragmentKey } from '../targets/mcp/mcp-facet.port';
@@ -119,6 +123,11 @@ export class HarnessBlockedRepairService {
     private readonly logger: Logger,
     private readonly reconciler: HarnessReconcilerService,
     private readonly propagation: HarnessPropagationService,
+    /**
+     * Read under the lock after the pass: the manifest entry plus the bytes on
+     * disk are the positive proof a path was repaired (P1 review A2).
+     */
+    private readonly manifestStore: ManagedManifestStore,
     /** Injected so a spec can pin the quarantine name without faking a clock. */
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -279,19 +288,31 @@ export class HarnessBlockedRepairService {
   }
 
   /**
-   * Phase two: decide each moved path from the pass's own report.
+   * Phase two: decide each moved path on POSITIVE evidence that the managed
+   * copy is installed there (P1 review A2), and restore every other one.
    *
-   * `missing` after an apply is the failed writes PLUS the blocked set
-   * (`health/harness-health.ts:112`), so "still missing" is exactly "the
-   * managed copy did not land" and needs no second disk walk to establish.
+   * The absence of a path from `missing` is not that evidence. A target whose
+   * detection or plan threw reports `missing: []` beside a `(target)` write
+   * failure; a target that stopped being detected reports nothing at all; and
+   * an edited occupant that appeared during the pass is kept rather than
+   * missing. Each of those used to read as `repaired` while nothing was
+   * installed. A path is therefore repaired only when BOTH hold:
+   *
+   * 1. the pass's report has the target detected, with no target-wide or
+   *    per-path write failure, and the path neither missing, kept, nor foreign;
+   * 2. a fresh check under the lock finds the target's manifest owning the
+   *    path, with what is on disk now hashing to the recorded entry — Ptah's
+   *    own copy, as written, at that path.
+   *
+   * Anything short of that restores the original through
+   * `restoreFromQuarantine`, which never deletes: an obstruction (this pass's
+   * half-finished copy, or a save that landed meanwhile) is moved aside into
+   * the quarantine and named in the log.
    *
    * **Runs inside the workspace lock, like phase one.** The write pass has
    * completed and released by now, so re-taking it here nests nothing and
-   * deadlocks nothing — and a restore puts a user's directory back onto a path
-   * another writer could otherwise be touching. `restoreFromQuarantine` is
-   * non-destructive regardless (it moves an obstruction aside rather than
-   * deleting it), so the lock narrows the window rather than being the thing
-   * that makes the operation safe.
+   * deadlocks nothing, and both the evidence check and a restore must not race
+   * another Ptah writer on the same path.
    */
   private settle(
     workspaceRoot: string,
@@ -299,34 +320,65 @@ export class HarnessBlockedRepairService {
     health: HarnessHealth | null,
     results: HarnessRepairPathResult[],
   ): Promise<number> {
-    const stillMissing = missingByTarget(health);
-    const written = (path: MovedPath): boolean =>
-      health !== null && !stillMissing.get(path.target)?.has(path.relPath);
-
-    const repairedNow = moved.filter(written);
-    for (const path of repairedNow) {
-      results[path.index] = {
-        target: path.target,
-        relPath: path.relPath,
-        quarantinePath: path.quarantinePath,
-        outcome: 'repaired',
-      };
-    }
-
-    const toRestore = moved.filter((path) => !written(path));
-    if (toRestore.length === 0) return Promise.resolve(repairedNow.length);
-
     return serializePerWorkspace(workspaceRoot, async () => {
       const lock = await acquireWorkspaceLock(workspaceRoot);
       try {
-        for (const path of toRestore) {
+        let repaired = 0;
+        for (const path of moved) {
+          const notInstalled =
+            passDisproves(health, path) ??
+            (await this.managedCopyAbsent(workspaceRoot, path));
+          if (notInstalled === null) {
+            results[path.index] = {
+              target: path.target,
+              relPath: path.relPath,
+              quarantinePath: path.quarantinePath,
+              outcome: 'repaired',
+            };
+            repaired++;
+            continue;
+          }
+          this.logger.warn(
+            '[harness-sync] Repair found no installed managed copy; restoring the original',
+            { target: path.target, relPath: path.relPath, why: notInstalled },
+          );
           await this.restoreOne(path, results);
         }
+        return repaired;
       } finally {
         lock.release();
       }
-      return repairedNow.length;
     });
+  }
+
+  /**
+   * Why the managed copy is NOT proven installed at `path` by a fresh look at
+   * the target's manifest and the disk, or `null` when it is.
+   */
+  private async managedCopyAbsent(
+    workspaceRoot: string,
+    path: MovedPath,
+  ): Promise<string | null> {
+    const entry = this.manifestStore.load(workspaceRoot, path.target).entries[
+      path.relPath
+    ];
+    if (entry === undefined) return 'the target manifest does not own the path';
+    let isDirectory: boolean;
+    try {
+      const stat = await lstat(path.absolute);
+      if (stat.isSymbolicLink()) return 'the path is a symbolic link';
+      isDirectory = stat.isDirectory();
+    } catch (error: unknown) {
+      // Not an error to surface: an absent or unstat-able path is exactly
+      // "not installed", and the caller restores the original.
+      return `the path cannot be observed: ${describeError(error)}`;
+    }
+    const onDisk = isDirectory
+      ? await hashDir(path.absolute)
+      : await hashFile(path.absolute);
+    return onDisk !== null && onDisk === entry.hash
+      ? null
+      : 'what is at the path is not the copy the manifest records';
   }
 
   /** One restore, reported whichever way it goes. Never throws. */
@@ -426,13 +478,36 @@ function pathOf(
   return { target: request.target, relPath: request.relPath };
 }
 
-function missingByTarget(
+/**
+ * Why the pass's own report rules out an installed copy at `path`, or `null`
+ * when it is consistent with one. Consistency is necessary, not sufficient:
+ * `settle` still checks the manifest and the disk.
+ */
+function passDisproves(
   health: HarnessHealth | null,
-): ReadonlyMap<HarnessTargetId, ReadonlySet<string>> {
-  if (health === null) return new Map();
-  return new Map(
-    health.targets.map((target) => [target.target, new Set(target.missing)]),
+  path: Pick<MovedPath, 'target' | 'relPath'>,
+): string | null {
+  if (health === null) return 'the write pass did not run';
+  const target = health.targets.find((t) => t.target === path.target);
+  if (target === undefined || !target.detected) {
+    return 'the target was not part of the pass';
+  }
+  const failure = target.writeFailed.find(
+    (f) => f.relPath === path.relPath || f.relPath === TARGET_WIDE_FAILURE,
   );
+  if (failure !== undefined) {
+    return failure.relPath === TARGET_WIDE_FAILURE
+      ? 'the target failed as a whole during the pass'
+      : 'the write at this path failed';
+  }
+  if (target.missing.includes(path.relPath)) return 'the path is still missing';
+  if (target.keptLocalEdit.includes(path.relPath)) {
+    return 'the pass kept a different edit at this path';
+  }
+  if (target.foreign.includes(path.relPath)) {
+    return 'something unowned occupies the path';
+  }
+  return null;
 }
 
 /**

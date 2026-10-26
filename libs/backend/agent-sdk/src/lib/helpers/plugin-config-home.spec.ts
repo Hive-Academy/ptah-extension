@@ -28,7 +28,8 @@ import {
   PLUGIN_CONFIG_KEY,
   PluginConfigHome,
   canonicalRootKey,
-  isWellFormedPluginConfig,
+  normalizePluginConfig,
+  parsePluginConfig,
   pluginConfigsEqual,
 } from './plugin-config-home';
 
@@ -134,24 +135,80 @@ describe('pluginConfigsEqual', () => {
   });
 });
 
-describe('isWellFormedPluginConfig', () => {
-  it('accepts a config whose optional lists are absent', () => {
+describe('parsePluginConfig (strict persisted shape)', () => {
+  it('accepts a legacy config whose optional lists are absent, and normalizes them', () => {
+    expect(parsePluginConfig({ enabledPluginIds: ['a'] })).toEqual({
+      enabledPluginIds: ['a'],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+      disabledAgentIds: [],
+      lastUpdated: undefined,
+    });
+  });
+
+  it('keeps a stored enabledSkillIds and a string lastUpdated', () => {
     expect(
-      isWellFormedPluginConfig({ enabledPluginIds: [], disabledSkillIds: [] }),
-    ).toBe(true);
+      parsePluginConfig({
+        enabledPluginIds: [],
+        enabledSkillIds: ['s'],
+        lastUpdated: 't1',
+      }),
+    ).toMatchObject({ enabledSkillIds: ['s'], lastUpdated: 't1' });
+  });
+
+  it('discards a lastUpdated that is not a string instead of trusting it', () => {
+    const parsed = parsePluginConfig({ enabledPluginIds: [], lastUpdated: 42 });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.lastUpdated).toBeUndefined();
   });
 
   it.each([
     ['a string', 'garbage'],
     ['an array', []],
+    ['null', null],
     ['a missing enabledPluginIds', { disabledSkillIds: [] }],
     ['a list that holds a number', { enabledPluginIds: [1] }],
     [
       'a list that is a string',
       { enabledPluginIds: [], disabledSkillIds: 'x' },
     ],
+    [
+      'an optional list that holds a number',
+      { enabledPluginIds: [], enabledSkillIds: [1] },
+    ],
   ])('rejects %s', (_label, value) => {
-    expect(isWellFormedPluginConfig(value)).toBe(false);
+    expect(parsePluginConfig(value)).toBeNull();
+  });
+});
+
+describe('normalizePluginConfig (lenient display read)', () => {
+  it('reads an unusable optional list as absent and keeps the rest', () => {
+    expect(
+      normalizePluginConfig({
+        enabledPluginIds: ['a'],
+        disabledSkillIds: 'x',
+        enabledSkillIds: [1],
+        lastUpdated: 7,
+      }),
+    ).toEqual({
+      enabledPluginIds: ['a'],
+      disabledSkillIds: [],
+      disabledPluginIds: [],
+      disabledAgentIds: [],
+      lastUpdated: undefined,
+    });
+  });
+
+  it('reads anything without an enabledPluginIds string list as the empty default', () => {
+    for (const value of [undefined, 'x', { enabledPluginIds: [1] }]) {
+      expect(normalizePluginConfig(value)).toEqual({
+        enabledPluginIds: [],
+        disabledSkillIds: [],
+        disabledPluginIds: [],
+        disabledAgentIds: [],
+        lastUpdated: undefined,
+      });
+    }
   });
 });
 
@@ -174,6 +231,41 @@ describe('PluginConfigHome', () => {
       home.viewFor(repo).update(PLUGIN_CONFIG_KEY, { enabledPluginIds: 'x' }),
     ).rejects.toBeInstanceOf(SdkError);
     expect(homeStorage.raw.size).toBe(0);
+  });
+
+  it('a home record is read through its schema: a bad id list is malformed, a bad timestamp is dropped', () => {
+    const { home, repo, homeStorage } = makeFixture({});
+    const key = `${PLUGIN_CONFIG_HOME_KEY_PREFIX}${canonicalRootKey(repo)}`;
+    const record = {
+      version: 1,
+      harnessRoot: repo,
+      origin: 'saved',
+      sourceFolders: [],
+      dismissed: {},
+    };
+
+    homeStorage.raw.set(key, {
+      ...record,
+      config: { enabledPluginIds: ['p'], lastUpdated: 42 },
+    });
+    expect(home.viewFor(repo).get(PLUGIN_CONFIG_KEY)).toEqual(
+      cfg({ enabledPluginIds: ['p'], lastUpdated: undefined }),
+    );
+
+    homeStorage.raw.set(key, {
+      ...record,
+      config: { enabledPluginIds: ['p'], disabledAgentIds: [3] },
+    });
+    // A malformed home answers with a value that has no enabledPluginIds, so
+    // the strict reader reports an error rather than an empty policy.
+    expect(
+      parsePluginConfig(home.viewFor(repo).get(PLUGIN_CONFIG_KEY)),
+    ).toBeNull();
+
+    homeStorage.raw.set(key, { ...record, origin: 'guessed', config: cfg() });
+    expect(
+      parsePluginConfig(home.viewFor(repo).get(PLUGIN_CONFIG_KEY)),
+    ).toBeNull();
   });
 
   it('a harnessRootOf that throws makes the folder its own harness root', () => {

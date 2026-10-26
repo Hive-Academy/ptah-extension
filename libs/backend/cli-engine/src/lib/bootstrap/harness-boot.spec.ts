@@ -28,6 +28,9 @@ const PLUGIN_DESCRIPTORS = {
 
 const WORKSPACE_ROOT = '/repo';
 
+/** The failure counters of a mirror/reconcile pass that handled every file. */
+const CLEAN_PASS = { errors: 0, retiredSkills: { errors: 0 } };
+
 function makeLogger(): Logger {
   return {
     debug: jest.fn(),
@@ -150,8 +153,8 @@ describe('createCliUserLayerRefresher', () => {
     // slugs; `reconcileAll` fast-forwards and reaps. Reaping first would sweep
     // a clone whose source had only just been mirrored.
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,
@@ -169,8 +172,8 @@ describe('createCliUserLayerRefresher', () => {
     // deleted", so a reconcile walking fewer roots than the mirror would reap
     // live clones.
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,
@@ -197,8 +200,8 @@ describe('createCliUserLayerRefresher', () => {
 
   it('reports refreshed when both halves complete', async () => {
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,
@@ -209,7 +212,7 @@ describe('createCliUserLayerRefresher', () => {
 
   it('reports failed and logs, never rejects, when a half throws', async () => {
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
       reconcileAll: jest.fn().mockRejectedValue(new Error('EACCES')),
     };
     const logger = makeLogger();
@@ -224,10 +227,42 @@ describe('createCliUserLayerRefresher', () => {
     );
   });
 
+  it.each([
+    [
+      'a mirror file error',
+      { errors: 1, retiredSkills: { errors: 0 } },
+      CLEAN_PASS,
+    ],
+    [
+      'a reconcile retirement error',
+      CLEAN_PASS,
+      { errors: 0, retiredSkills: { errors: 2 } },
+    ],
+  ])(
+    'reports failed, not refreshed, after %s counted without throwing (B3)',
+    async (_label, mirrored, reconciled) => {
+      const mirror = {
+        mirrorAll: jest.fn().mockResolvedValue(mirrored),
+        reconcileAll: jest.fn().mockResolvedValue(reconciled),
+      };
+      const logger = makeLogger();
+      const refresher = createCliUserLayerRefresher(
+        mirrorContainer(mirror, logger) as never,
+      );
+
+      await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBe('failed');
+      // Reconcile still runs after a counted mirror failure.
+      expect(mirror.reconcileAll).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('the Library may be incomplete'),
+      );
+    },
+  );
+
   it('omits libraryScopeRoot when no workspace is open', async () => {
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,

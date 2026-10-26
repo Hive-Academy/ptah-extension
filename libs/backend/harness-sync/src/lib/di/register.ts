@@ -213,6 +213,7 @@ export function registerHarnessSyncServices(
       reconcilerLogger,
       reconciler,
       propagation,
+      manifestStore,
     ),
   });
   // Read-only and lock-free: it reports what sits at each destination and

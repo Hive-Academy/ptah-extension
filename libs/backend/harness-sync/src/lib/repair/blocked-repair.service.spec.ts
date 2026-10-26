@@ -45,6 +45,12 @@ let renameLiesFor: ((from: string, to: string) => boolean) | null = null;
  */
 let readFailsFor: ((path: string) => boolean) | null = null;
 
+/**
+ * Makes a chosen directory unlistable, for the "descendant became unreadable"
+ * approval case (P1 review A3). Default off.
+ */
+let readdirFailsFor: ((path: string) => boolean) | null = null;
+
 jest.mock('fs/promises', () => {
   const actual = jest.requireActual('fs/promises');
   return {
@@ -65,6 +71,15 @@ jest.mock('fs/promises', () => {
       }
       return actual.readFile(path, ...rest);
     },
+    readdir: async (path: unknown, ...rest: unknown[]) => {
+      if (typeof path === 'string' && readdirFailsFor?.(path) === true) {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, scandir '${path}'`),
+          { code: 'EACCES' },
+        );
+      }
+      return actual.readdir(path, ...rest);
+    },
   };
 });
 
@@ -75,7 +90,7 @@ import {
   type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { hashDir, hashFile } from '../hash/content-hash';
+import { probeDestination } from '../health/harness-destination-scanner';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { HarnessPropagationService } from '../propagation/harness-propagation.service';
@@ -154,6 +169,7 @@ describe('HarnessBlockedRepairService', () => {
   let logger: FakeLogger;
   let reconciler: HarnessReconcilerService;
   let propagation: HarnessPropagationService;
+  let manifestStore: ManagedManifestStore;
 
   function writeSources(): HarnessSourceState {
     const skillsRoot = join(sourcesRoot, 'skills');
@@ -236,6 +252,7 @@ describe('HarnessBlockedRepairService', () => {
     const store = new ManagedManifestStore((message, detail) =>
       logger.warn(message, detail as Record<string, unknown>),
     );
+    manifestStore = store;
     reconciler = new HarnessReconcilerService(
       logger as unknown as Logger,
       new HarnessManifestBuilder(),
@@ -264,6 +281,7 @@ describe('HarnessBlockedRepairService', () => {
       logger as unknown as Logger,
       reconciler,
       propagationOverride ?? propagation,
+      manifestStore,
       () => FIXED,
     );
   }
@@ -309,6 +327,7 @@ describe('HarnessBlockedRepairService', () => {
     logger = makeFakeLogger();
     renameLiesFor = null;
     readFailsFor = null;
+    readdirFailsFor = null;
     buildReconciler(writeSources());
     writeOccupants();
     // The steady state the repair starts from: one converged activation pass.
@@ -318,6 +337,7 @@ describe('HarnessBlockedRepairService', () => {
   afterEach(() => {
     renameLiesFor = null;
     readFailsFor = null;
+    readdirFailsFor = null;
     for (const dir of [ws, sourcesRoot, home]) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -665,6 +685,122 @@ describe('HarnessBlockedRepairService', () => {
     );
   });
 
+  // ------------------------------- repaired needs positive evidence (P1 review A2)
+
+  describe('reports repaired only on positive evidence of an installed copy (P1 review A2)', () => {
+    type TargetHealth = HarnessHealth['targets'][number];
+
+    /** A pass that writes nothing and reports `claude` through `reshape`. */
+    function passReporting(
+      reshape: (target: TargetHealth) => TargetHealth,
+    ): HarnessPropagationService {
+      return {
+        propagate: async (): Promise<HarnessHealth> => {
+          const health = await reconciler.verify(ws);
+          return {
+            ...health,
+            targets: health.targets.map((target) =>
+              target.target === 'claude' ? reshape(target) : target,
+            ),
+          };
+        },
+      } as unknown as HarnessPropagationService;
+    }
+
+    it('restores when the target failed as a whole and reported missing: []', async () => {
+      const failedTarget = passReporting((target) => ({
+        ...target,
+        missing: [],
+        writeFailed: [{ relPath: '(target)', reason: 'plan threw' }],
+      }));
+
+      const report = await makeService(failedTarget).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(report.repaired).toBe(0);
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+      expect(existsSync(quarantineFor(ALPHA))).toBe(false);
+    });
+
+    it('restores when the target was not detected by the pass', async () => {
+      const undetected = passReporting((target) => ({
+        ...target,
+        detected: false,
+        missing: [],
+      }));
+
+      const report = await makeService(undetected).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+    });
+
+    it('restores when the report looks clean but no managed copy is on disk', async () => {
+      // Every report-level signal says "installed"; only the fresh manifest +
+      // disk check under the lock can tell that nothing was written.
+      const cleanButEmpty = passReporting((target) => ({
+        ...target,
+        missing: target.missing.filter((p) => p !== ALPHA),
+        foreign: target.foreign.filter((p) => p !== ALPHA),
+        writeFailed: [],
+      }));
+
+      const report = await makeService(cleanButEmpty).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+    });
+
+    it('restores when a different edit replaced the managed copy during the pass, keeping that edit too', async () => {
+      const editedDuringPass = {
+        propagate: async (
+          ...args: Parameters<HarnessPropagationService['propagate']>
+        ) => {
+          const health = await propagation.propagate(...args);
+          // A save landing right after the pass wrote the managed copy.
+          writeFileSync(
+            join(abs(ALPHA), 'SKILL.md'),
+            'a save that raced the repair\n',
+            'utf-8',
+          );
+          return health;
+        },
+      } as unknown as HarnessPropagationService;
+
+      const report = await makeService(editedDuringPass).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+      // Nothing deleted: the raced save was moved aside, and the log names it.
+      const superseded = logger.warn.mock.calls
+        .map(([, detail]) => detail as { supersededPath?: unknown })
+        .find((detail) => typeof detail?.supersededPath === 'string');
+      expect(superseded).toBeDefined();
+      expect(
+        readFileSync(
+          join(String(superseded?.supersededPath), 'SKILL.md'),
+          'utf-8',
+        ),
+      ).toBe('a save that raced the repair\n');
+    });
+  });
+
   // ------------------------------------------------- the quarantine is invisible
 
   it('a populated quarantine changes NOTHING about health — not foreign, not missing, not expected', async () => {
@@ -724,10 +860,9 @@ describe('HarnessBlockedRepairService', () => {
     const betaSkill = (): string => join(abs(BETA), 'SKILL.md');
     const editBeta = (text: string): void =>
       writeFileSync(betaSkill(), text, 'utf-8');
+    // The scanner's digest: the strict approval fingerprint (P1 review A3/A4).
     const digestOf = async (relPath: string): Promise<string> => {
-      const digest = relPath.endsWith('.md')
-        ? await hashFile(abs(relPath))
-        : await hashDir(abs(relPath));
+      const { digest } = await probeDestination(abs(relPath));
       if (digest === null) throw new Error(`no digest for ${relPath}`);
       return digest;
     };
@@ -860,6 +995,45 @@ describe('HarnessBlockedRepairService', () => {
       expect(readFileSync(betaSkill(), 'utf-8')).toBe(
         'recreated with different content\n',
       );
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path deleted and recreated with IDENTICAL bytes since approval (P1 review A4)', async () => {
+      const expectedDigest = await digestOf(BETA);
+      // Same bytes, new objects: the content hash alone would still match.
+      rmSync(abs(BETA), { recursive: true, force: true });
+      mkdirSync(abs(BETA), { recursive: true });
+      editBeta(EDIT_A);
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path whose empty descendant directory became unlistable since approval (P1 review A3)', async () => {
+      const notes = join(abs(BETA), 'notes');
+      mkdirSync(notes);
+      const expectedDigest = await digestOf(BETA);
+      // The permissive sync hash folds an unlistable directory into an empty
+      // one, so it would still match here; the approval fingerprint must not.
+      readdirFailsFor = (path) => path === notes;
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      readdirFailsFor = null;
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(notes)).toBe(true);
       expect(existsSync(quarantineFor(BETA))).toBe(false);
     });
 

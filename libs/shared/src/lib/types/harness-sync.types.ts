@@ -524,9 +524,10 @@ export interface HarnessRepairBlockedPath {
    */
   relPath: string;
   /**
-   * The content digest the user approved replacing (`hashFile` for a file,
-   * `hashDir` for a skill directory) — the current content at approval time,
-   * never the manifest ownership hash. **Internal only**: recorded server-side
+   * The strict approval fingerprint (content plus filesystem identity, from
+   * harness-sync's `approval-fingerprint.ts`) of what the user approved
+   * replacing — taken at approval time, never the synchronization hash
+   * (`hashFile`/`hashDir`) nor the manifest ownership hash. **Internal only**: recorded server-side
    * when the item is offered and never accepted from a client
    * (`harness:repairBlocked` strips it at its schema).
    *
