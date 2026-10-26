@@ -28,14 +28,14 @@ export interface CodexChatResult {
   readonly error?: string;
 }
 export interface CodexChatEventCallbacks {
-  result(result: CodexChatResult): void;
+  result(result: CodexChatResult): void | Promise<void>;
   /** Complete content replaces the item; it is never presented as a delta. */
   content(item: {
     itemId: string;
     text: string;
     kind: 'text' | 'reasoning';
     blockIndex: number;
-  }): void;
+  }): void | Promise<void>;
   live(
     event: Extract<
       CodexRuntimeEvent,
@@ -48,6 +48,16 @@ export interface CodexChatEventCallbacks {
 
 /** One projection per turn. Core events are already normalized. */
 export class CodexChatEvents {
+  private pending: Promise<void> = Promise.resolve();
+
+  async settled(): Promise<void> {
+    await this.pending;
+  }
+
+  private track(work: void | Promise<void>): void {
+    this.pending = Promise.all([this.pending, work]).then(() => undefined);
+  }
+
   private started = false;
   private sequence = -1;
   private terminal = false;
@@ -128,12 +138,16 @@ export class CodexChatEvents {
       case 'textFinal': {
         const previous = this.text.get(event.itemId) ?? '';
         this.text.set(event.itemId, event.text);
-        this.callbacks.content({
-          itemId: event.itemId,
-          text: event.text,
-          kind: 'text',
-          blockIndex: this.block('text', event.itemId),
-        });
+        if (event.text && !event.text.startsWith(previous)) {
+          this.track(
+            this.callbacks.content({
+              itemId: event.itemId,
+              text: event.text,
+              kind: 'text',
+              blockIndex: this.block('text', event.itemId),
+            }),
+          );
+        }
         const delta = event.text.startsWith(previous)
           ? event.text.slice(previous.length)
           : '';
@@ -151,12 +165,14 @@ export class CodexChatEvents {
       case 'reasoning': {
         const blockIndex = this.block('reasoning', event.itemId);
         if (event.phase === 'final') {
-          this.callbacks.content({
-            itemId: event.itemId,
-            text: event.text,
-            kind: 'reasoning',
-            blockIndex,
-          });
+          this.track(
+            this.callbacks.content({
+              itemId: event.itemId,
+              text: event.text,
+              kind: 'reasoning',
+              blockIndex,
+            }),
+          );
           return [];
         }
         return [
@@ -232,7 +248,7 @@ export class CodexChatEvents {
         this.text.clear();
         this.blocks.clear();
         this.usage = undefined;
-        this.callbacks.result(result);
+        this.track(this.callbacks.result(result));
         // Message usage is the SDK stream contract; result stats are a separate channel.
         return [
           {

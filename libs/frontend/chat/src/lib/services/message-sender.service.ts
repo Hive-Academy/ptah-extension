@@ -505,6 +505,12 @@ export class MessageSenderService {
         this.tabManager.markTabIdle(activeTabId);
         this.sessionManager.setStatus('loaded');
         this.sessionManager.failSession();
+        if (
+          result.errorCode === 'SESSION_ENDED' ||
+          result.data?.errorCode === 'SESSION_ENDED'
+        ) {
+          this.tabManager.setLastTerminalReason(activeTabId, 'api_error');
+        }
         // Structural failure: transport succeeded but the backend rejected the
         // turn. Signal it so the Start-flow bridge does not treat it as a
         // started session (F-D2). Callers ignoring the return are unaffected.

@@ -182,6 +182,30 @@ function setup(override = true) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('awaits result presentation before emitting message_complete or ending the generator', async () => {
+    const h = setup();
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    h.callbacks.result.mockImplementation(() => { entered?.(); return gate; });
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
+    const output: string[] = [];
+    let ended = false;
+    const drain = (async () => {
+      for await (const event of stream) output.push(event.eventType);
+      ended = true;
+    })();
+    await started;
+    expect(output).not.toContain('message_complete');
+    expect(ended).toBe(false);
+    release?.();
+    await drain;
+    expect(output).toContain('message_complete');
+    expect(ended).toBe(true);
+    await h.adapter.dispose();
+  });
+
   it('opens through the DS1 gate, persists native identity and emits one terminal result', async () => {
     const { adapter, context, ports, callbacks, lifecycle } = setup();
     const resolved = jest.fn();

@@ -77,6 +77,86 @@ describe('persisted runtime identity cache', () => {
     await Promise.resolve();
   };
 
+  const rawRow = (workspacePath = 'C:\\Users\\abdal\\proj'): SessionMetadata => ({
+    ...row(),
+    codexExecution: { ...identity, workspaceId: 'c:/users/abdal/proj' },
+    codexThread: {
+      version: 1,
+      contextId: 'context',
+      processGeneration: 1,
+      workspaceId: workspacePath,
+      profileFingerprint: 'profile',
+      state: 'inactive',
+    },
+  });
+
+  it('preserves the raw Windows path alongside the normalized identity after native release', async () => {
+    const f = fixture([rawRow()]);
+    const lookup = await initializeSessionRuntimeIdentityLookup(
+      f.store,
+      mockLogger(),
+    );
+    expect(lookup.lookup(id)?.persisted?.workspaceId).toBe('c:/users/abdal/proj');
+    expect(lookup.lookup(id)?.workspacePath).toBe('C:\\Users\\abdal\\proj');
+    lookup.releaseSession(id);
+    expect(lookup.lookup(id)?.workspacePath).toBe('C:\\Users\\abdal\\proj');
+    lookup.dispose();
+    expect(lookup.lookup(id)).toBeUndefined();
+  });
+
+  it('refreshes the raw path and removes it when thread metadata disappears', async () => {
+    const f = fixture([rawRow()]);
+    const lookup = await initializeSessionRuntimeIdentityLookup(
+      f.store,
+      mockLogger(),
+    );
+    f.store.get.mockResolvedValue(rawRow('C:\\Users\\Abdal\\proj\\'));
+    f.emit();
+    await drain();
+    expect(lookup.lookup(id)?.workspacePath).toBe('C:\\Users\\Abdal\\proj\\');
+    f.store.get.mockResolvedValue(row());
+    f.emit();
+    await drain();
+    expect(lookup.lookup(id)?.workspacePath).toBeUndefined();
+    lookup.dispose();
+  });
+
+  it.each(['delete', 'release'] as const)(
+    'clears the raw path on %s before the session id is reused',
+    async (action) => {
+      const metadata = rawRow();
+      const f = fixture([
+        action === 'release' ? { ...metadata, codexExecution: undefined } : metadata,
+      ]);
+      const lookup = await initializeSessionRuntimeIdentityLookup(
+        f.store,
+        mockLogger(),
+      );
+      if (action === 'delete') f.emit('deleted');
+      else lookup.releaseSession(id);
+      expect(lookup.lookup(id)).toBeUndefined();
+      f.store.get.mockRejectedValueOnce(new Error('unavailable'));
+      await lookup.updateCodexExecution(id, () => identity);
+      expect(lookup.lookup(id)?.workspacePath).toBeUndefined();
+      lookup.dispose();
+    },
+  );
+
+  it('publishes the raw path from the authoritative metadata re-read after a write', async () => {
+    const f = fixture([]);
+    const lookup = await initializeSessionRuntimeIdentityLookup(
+      f.store,
+      mockLogger(),
+    );
+    f.store.get.mockResolvedValueOnce(rawRow());
+    await lookup.updateCodexExecution(id, () => identity);
+    expect(lookup.lookup(id)).toEqual({
+      persisted: rawRow().codexExecution,
+      workspacePath: 'C:\\Users\\abdal\\proj',
+    });
+    lookup.dispose();
+  });
+
   it('preloads persisted identities and disposes its subscription', async () => {
     const f = fixture();
     const lookup = await initializeSessionRuntimeIdentityLookup(

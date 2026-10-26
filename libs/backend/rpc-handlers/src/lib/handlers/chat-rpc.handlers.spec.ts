@@ -159,6 +159,15 @@ const TAB_UUID = '11111111-2222-4333-8444-555555555555';
 const SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 
 describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
+  it('does not log success when native session startup returns an RPC error', async () => {
+    const h = buildSuite();
+    h.handlers.register();
+    const failure = new RpcUserError('Codex chat could not start.', 'SESSION_ENDED');
+    h.session.startSession.mockRejectedValueOnce(failure);
+    await expect(getHandler(h.rpc, 'chat:start')({ tabId: TAB_UUID, prompt: 'hello' })).rejects.toBe(failure);
+    expect(h.logger.debug).not.toHaveBeenCalledWith('RPC: chat:start success');
+  });
+
   it('METHODS tuple is the owned RPC names, in order', () => {
     expect([...ChatRpcHandlers.METHODS]).toEqual([
       'chat:start',

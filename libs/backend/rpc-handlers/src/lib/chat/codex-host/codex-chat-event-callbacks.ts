@@ -32,8 +32,6 @@ export function createCodexChatEventCallbacks(
   deps: CodexChatEventCallbacksDeps,
 ): CodexChatEventCallbacks {
   let sequence = 0;
-  const text = new Map<number, string>();
-  let highestBlock = -1;
   // Same message id as CodexChatEvents, so complete content replaces streamed content.
   const messageId = deps.turn
     ? JSON.stringify([deps.turn.threadId, deps.turn.turnId])
@@ -44,9 +42,9 @@ export function createCodexChatEventCallbacks(
       reason instanceof Error ? reason : new Error(String(reason)),
     );
   };
-  const safe = (work: () => void | Promise<void>) => {
+  const safe = async (work: () => void | Promise<void>): Promise<void> => {
     try {
-      void Promise.resolve(work()).catch(failed);
+      await work();
     } catch (error) {
       failed(error);
     }
@@ -81,8 +79,6 @@ export function createCodexChatEventCallbacks(
   return {
     content: (item) =>
       safe(() => {
-        highestBlock = Math.max(highestBlock, item.blockIndex);
-        if (item.kind === 'text') text.set(item.blockIndex, item.text);
         return publish({
           ...base(),
           eventType:
@@ -91,17 +87,8 @@ export function createCodexChatEventCallbacks(
           delta: item.text,
         });
       }),
-    result: (result) =>
-      safe(async () => {
-        // The broadcaster owns message_complete / chat:complete, and the adapter
-        // owns result stats. Reconcile final text without a second terminal or cost.
-        if (text.size === 0) text.set(highestBlock + 1, result.text);
-        await Promise.all(
-          [...text].map(([blockIndex, delta]) =>
-            publish({ ...base(), eventType: 'text_delta', blockIndex, delta }),
-          ),
-        );
-      }),
+    // The projection already reconciles each item at its assigned block index.
+    result: () => undefined,
     // A failed compaction only clears the banner. The turn itself is not ended here:
     // if the App Server fails the turn, its own error/terminal reaches `error`.
     compaction: (phase) =>

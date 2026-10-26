@@ -88,6 +88,7 @@ describe('MessageSenderService', () => {
     applyNewConversationStreaming: jest.Mock;
     appendUserMessageAndResetStreaming: jest.Mock;
     markLoaded: jest.Mock;
+    setLastTerminalReason: jest.Mock;
     markStreaming: jest.Mock;
     markResuming: jest.Mock;
     detachSessionAndMarkLoaded: jest.Mock;
@@ -180,6 +181,7 @@ describe('MessageSenderService', () => {
             streamingState: null,
           }),
       ),
+      setLastTerminalReason: jest.fn(),
       markLoaded: jest.fn((tabId: string) =>
         applyPatch(tabId, { status: 'loaded' }),
       ),
@@ -845,6 +847,13 @@ describe('MessageSenderService', () => {
 
       expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
       expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(tabManager.isTabStreaming('tab-1')).toBe(false);
+    });
+
+    it('marks a native start failure as an error for the session card and header', async () => {
+      rpcCall.mockResolvedValue({ success: false, errorCode: 'SESSION_ENDED', error: 'Codex chat could not start.' });
+      await expect(service.send('hello')).resolves.toEqual({ success: false, error: 'Codex chat could not start.' });
+      expect(tabManager.setLastTerminalReason).toHaveBeenCalledWith('tab-1', 'api_error');
       expect(tabManager.isTabStreaming('tab-1')).toBe(false);
     });
 

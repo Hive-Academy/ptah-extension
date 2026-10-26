@@ -30,7 +30,9 @@ export interface CodexSessionSettingsRecordDeps {
 }
 
 export class CodexSessionSettingsError extends Error {
-  constructor(readonly code: 'unknown-session' | 'invalid-settings') {
+  constructor(
+    readonly code: 'unknown-session' | 'invalid-settings' | 'missing-workspace-path',
+  ) {
     super(`Codex session settings: ${code}`);
     this.name = 'CodexSessionSettingsError';
   }
@@ -75,7 +77,8 @@ export function createCodexSessionSettingsRecord(
     settings(sessionId: SessionId): SessionControlSettings {
       const recorded = sessions.get(sessionId);
       if (recorded) return recorded;
-      const identity = deps.identities.lookup(sessionId)?.persisted;
+      const binding = deps.identities.lookup(sessionId);
+      const identity = binding?.persisted;
       if (
         !identity ||
         identity.sessionId !== sessionId ||
@@ -83,13 +86,12 @@ export function createCodexSessionSettingsRecord(
       ) {
         throw new CodexSessionSettingsError('unknown-session');
       }
+      const workspacePath = binding?.workspacePath;
+      if (!workspacePath)
+        throw new CodexSessionSettingsError('missing-workspace-path');
       const key = authKey(identity.providerId);
       const read = (name: string) =>
-        deps.scopeResolver.readForPath(
-          name,
-          identity.workspaceId,
-          true,
-        );
+        deps.scopeResolver.readForPath(name, workspacePath, true);
       const modelDef = providerSelectedModelDef(key);
       const effortDef = providerReasoningEffortDef(key);
       const model = modelDef.schema.safeParse(
@@ -115,7 +117,7 @@ export function createCodexSessionSettingsRecord(
         permissionLevel = level;
       }
       return {
-        workspacePath: identity.workspaceId,
+        workspacePath,
         authKey: key,
         model: model.data,
         effort: effort(parsedEffort.data),

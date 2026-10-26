@@ -253,6 +253,55 @@ describe('Codex chat host ports', () => {
     ).toBe(true);
     expect(h.respond.mock.calls[0][1].response.decision).toBe(decision);
   });
+  it.each(['rejected', 'throws'] as const)('retains approval and attention when the sink %s', (failure) => {
+    const h = harness();
+    h.ports.presentation.present(id, request(), [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ]);
+    const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
+    if (failure === 'throws') h.respond.mockImplementationOnce(() => { throw new Error('private request'); });
+    else h.respond.mockReturnValueOnce(false);
+    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+    expect(h.resolveAttention).not.toHaveBeenCalled();
+    expect(h.deps.logger.warn).toHaveBeenCalledWith(
+      expect.any(String), { code: failure === 'throws' ? 'approval-response-failed' : 'approval-response-rejected' },
+    );
+    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(true);
+    expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+  });
+  it('declines an undeliverable prompt and releases its pending entry', async () => {
+    const h = harness();
+    h.broadcastMessage.mockRejectedValueOnce(new Error('window closed'));
+    h.ports.presentation.present(id, request(), [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ]);
+    const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.respond).toHaveBeenCalledWith(
+      { sessionId: id, threadId: id, requestId: '5' },
+      expect.objectContaining({ kind: 'codex', response: expect.objectContaining({ decision: 'decline' }) }),
+    );
+    expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+    expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+  });
+  it('accepts equivalent resume workspace spelling and preserves the caller path', async () => {
+    const h = harness();
+    const { profile } = await h.ports.profile(config());
+    h.readResumeIdentity.mockResolvedValue({
+      threadId: id, contextId: profile.contextId, processGeneration: 1,
+      normalizedHome: profile.normalizedHome, providerId: profile.providerId,
+      workspaceId: (process.platform === 'win32' ? workspace.toUpperCase() : workspace) + '/',
+      profileFingerprint: profile.profileFingerprint,
+    });
+    expect((await h.ports.profile(config(), id)).profile.workspaceId).toBe(workspace);
+  });
   it('cancels the correlated UI prompt and forgets its wire id', () => {
     const h = harness();
     h.ports.presentation.present(id, request(), [

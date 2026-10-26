@@ -23,6 +23,7 @@ export async function initializeSessionRuntimeIdentityLookup(
   logger: Logger,
 ): Promise<InitializedSessionRuntimeIdentityLookup> {
   const entries = new Map<string, SessionRuntimeIdentity>();
+  const workspacePaths = new Map<string, string>();
   const sequences = new Map<string, number>();
   const writes = new Map<string, object>();
   const refreshing = new Set<Promise<void>>();
@@ -39,6 +40,9 @@ export async function initializeSessionRuntimeIdentityLookup(
   const replace = (id: string, metadata: SessionMetadata | null) => {
     // Only a delete event may remove a known native binding.
     if (!metadata) return;
+    const workspacePath = metadata.codexThread?.workspaceId;
+    if (workspacePath === undefined) workspacePaths.delete(id);
+    else workspacePaths.set(id, workspacePath);
     entries.set(
       id,
       metadata.codexExecution ?? {
@@ -57,6 +61,7 @@ export async function initializeSessionRuntimeIdentityLookup(
       writes.delete(sessionId);
       sequences.delete(sessionId);
       entries.delete(sessionId);
+      workspacePaths.delete(sessionId);
       return;
     }
     const version = advance(sessionId);
@@ -79,6 +84,7 @@ export async function initializeSessionRuntimeIdentityLookup(
     disposed = true;
     unsubscribe();
     entries.clear();
+    workspacePaths.clear();
     sequences.clear();
     writes.clear();
     initialChanges.clear();
@@ -98,7 +104,9 @@ export async function initializeSessionRuntimeIdentityLookup(
   return {
     lookup: (id) => {
       const persisted = entries.get(id);
-      return persisted ? { persisted } : undefined;
+      return persisted
+        ? { persisted, workspacePath: workspacePaths.get(id) }
+        : undefined;
     },
     updateCodexExecution: async (id, updater, thread) => {
       if (disposed)
@@ -148,6 +156,7 @@ export async function initializeSessionRuntimeIdentityLookup(
     releaseSession: (id) => {
       if (entries.get(id)?.runtime === 'codex-app-server') return;
       entries.delete(id);
+      workspacePaths.delete(id);
       sequences.delete(id);
     },
     dispose,

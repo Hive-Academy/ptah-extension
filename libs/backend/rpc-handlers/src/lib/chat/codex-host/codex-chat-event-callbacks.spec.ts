@@ -83,24 +83,11 @@ describe('Codex chat event callbacks', () => {
       );
     },
   );
-  it('reconciles result text without duplicating the broadcaster terminal or adapter stats', async () => {
+  it.each(['', 'answer'])('does not republish result text %p already owned by the projection', async (text) => {
     const h = harness();
-    h.callbacks.result({ status: 'completed', text: 'answer' });
-    await settle();
-    expect(h.delivery.publish).toHaveBeenCalledWith(
-      'tab',
-      sessionId,
-      expect.objectContaining({
-        eventType: 'text_delta',
-        delta: 'answer',
-        source: 'complete',
-        sessionId,
-        messageId,
-      }),
-      undefined,
-    );
+    await h.callbacks.result({ status: 'completed', text });
+    expect(h.delivery.publish).not.toHaveBeenCalled();
     expect(h.delivery.publishTerminal).not.toHaveBeenCalled();
-    expect(h.webviewManager.broadcastMessage).not.toHaveBeenCalled();
   });
   it('preserves final text block indexes instead of concatenating into block zero', async () => {
     const h = harness();
@@ -119,10 +106,7 @@ describe('Codex chat event callbacks', () => {
     h.delivery.publish.mockClear();
     h.callbacks.result({ status: 'completed', text: 'firstsecond' });
     await settle();
-    expect(h.delivery.publish.mock.calls.map((call) => call[2])).toEqual([
-      expect.objectContaining({ blockIndex: 1, delta: 'first' }),
-      expect.objectContaining({ blockIndex: 3, delta: 'second' }),
-    ]);
+    expect(h.delivery.publish).not.toHaveBeenCalled();
   });
   it.each(['started', 'completed', 'failed'] as const)(
     'routes compaction %s',
@@ -270,7 +254,8 @@ describe('Codex chat event callbacks', () => {
       h.callbacks.error('safe error');
     }).not.toThrow();
     await settle();
-    expect(h.logger.error).toHaveBeenCalledTimes(5);
+    // result is a no-op now: the projection reconciles final text itself.
+    expect(h.logger.error).toHaveBeenCalledTimes(4);
     for (const call of h.logger.error.mock.calls)
       expect(call).toEqual([
         'Codex chat event presentation failed.',

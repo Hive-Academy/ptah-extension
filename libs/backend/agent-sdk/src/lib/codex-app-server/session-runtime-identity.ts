@@ -10,6 +10,8 @@ export interface SessionRuntimeIdentityLookup {
     | {
         readonly live?: SessionRuntimeIdentity;
         readonly persisted?: SessionRuntimeIdentity;
+        /** Raw caller-spelled workspace path, never the normalized identity key. */
+        readonly workspacePath?: string;
       }
     | undefined;
 }

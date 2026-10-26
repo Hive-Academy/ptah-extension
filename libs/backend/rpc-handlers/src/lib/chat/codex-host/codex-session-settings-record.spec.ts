@@ -39,14 +39,19 @@ const identity: SessionRuntimeIdentity = {
   codex: { normalizedHome: '/home' },
 };
 
-function harness(persisted?: SessionRuntimeIdentity) {
+function harness(
+  persisted?: SessionRuntimeIdentity,
+  workspacePath: string | undefined = '/work',
+) {
   const values = new Map<string, unknown>();
   const readForPath = jest.fn(
     (key: string, _path: string, _appScopable?: boolean): unknown =>
       values.get(key),
   );
   const record = createCodexSessionSettingsRecord({
-    identities: { lookup: () => (persisted ? { persisted } : undefined) },
+    identities: {
+      lookup: () => (persisted ? { persisted, workspacePath } : undefined),
+    },
     scopeResolver: { readForPath },
   });
   return { record, values, readForPath };
@@ -88,6 +93,33 @@ describe('Codex session settings record', () => {
       '/work',
       true,
     );
+  });
+  it('uses the raw Windows path for every inactive-session read and returned settings', () => {
+    const workspacePath = 'C:\\Users\\abdal\\proj';
+    const h = harness(
+      { ...identity, workspaceId: 'c:/users/abdal/proj' },
+      workspacePath,
+    );
+    h.record.lifecycle.opened(sessionId, profileResult);
+    h.record.lifecycle.closed(sessionId);
+    expect(h.record.settings(sessionId).workspacePath).toBe(workspacePath);
+    expect(h.readForPath.mock.calls).toEqual([
+      ['provider.thirdParty.openai-codex.selectedModel', workspacePath, true],
+      ['provider.thirdParty.openai-codex.reasoningEffort', workspacePath, true],
+      ['autopilot.enabled', workspacePath, true],
+      ['autopilot.permissionLevel', workspacePath, true],
+    ]);
+  });
+  it('rejects an absent raw path without reading a normalized workspace key', () => {
+    const readForPath = jest.fn();
+    const record = createCodexSessionSettingsRecord({
+      identities: { lookup: () => ({ persisted: identity }) },
+      scopeResolver: { readForPath },
+    });
+    expect(() => record.settings(sessionId)).toThrow(
+      new CodexSessionSettingsError('missing-workspace-path'),
+    );
+    expect(readForPath).not.toHaveBeenCalled();
   });
   it('throws a typed unknown-session error instead of choosing defaults', () => {
     const h = harness();

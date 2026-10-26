@@ -654,6 +654,9 @@ export class ChatSessionService {
         error instanceof Error ? error : new Error(String(error)),
       );
       this.captureSentry(error, 'ChatRpcHandlers.registerChatStart');
+      if (error instanceof Error && error.name === 'CodexChatAdapterError') {
+        throw new RpcUserError('Codex chat could not start.', 'SESSION_ENDED');
+      }
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

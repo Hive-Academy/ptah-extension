@@ -77,6 +77,7 @@ describe('createCodexThreadIdentityStore', () => {
         workspaceId: workspaceKey,
         codex: { normalizedHome: '/home/codex' },
       },
+      workspacePath,
     };
     expect(lookup.lookup(threadId)).toEqual(expected);
     await store.markInactive(identity);

@@ -21,6 +21,40 @@ function setup() {
   };
 }
 describe('CodexChatEvents', () => {
+  it('keeps delta-only text at block one after reasoning and does not republish it at terminal', async () => {
+    const { projection, callbacks } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'delta', itemId: 'r', text: 'thinking' });
+    expect(projection.map({ ...identity, sequence: 2, type: 'textDelta', itemId: 'a', delta: 'answer' }))
+      .toEqual([expect.objectContaining({ eventType: 'text_delta', blockIndex: 1, delta: 'answer' })]);
+    expect(projection.map({ ...identity, sequence: 3, type: 'terminal', status: 'completed' }))
+      .toEqual([expect.objectContaining({ eventType: 'message_complete' })]);
+    await projection.settled();
+    expect(callbacks.content).not.toHaveBeenCalled();
+    expect(callbacks.result).toHaveBeenCalledWith({ status: 'completed', text: 'answer' });
+  });
+  it('awaits a corrected final text at the original text block after reasoning', async () => {
+    const { projection, callbacks } = setup();
+    let release: (() => void) | undefined;
+    callbacks.content.mockReturnValue(new Promise<void>(resolve => { release = resolve; }));
+    projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'delta', itemId: 'r', text: 'thinking' });
+    projection.map({ ...identity, sequence: 2, type: 'textDelta', itemId: 'a', delta: 'old' });
+    expect(projection.map({ ...identity, sequence: 3, type: 'textFinal', itemId: 'a', text: 'corrected' })).toEqual([]);
+    expect(callbacks.content).toHaveBeenCalledWith({ itemId: 'a', kind: 'text', blockIndex: 1, text: 'corrected' });
+    let settled = false;
+    const wait = projection.settled().then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release?.();
+    await wait;
+    expect(settled).toBe(true);
+  });
+  it('does not create an empty text block at terminal', () => {
+    const { projection, callbacks } = setup();
+    expect(projection.map({ ...identity, sequence: 1, type: 'terminal', status: 'completed' }).map(event => event.eventType))
+      .toEqual(['message_start', 'message_complete']);
+    expect(callbacks.content).not.toHaveBeenCalled();
+  });
+
   it('streams final-only text after message_start', () => {
     const { projection, callbacks } = setup();
     expect(
@@ -38,12 +72,7 @@ describe('CodexChatEvents', () => {
       }),
       expect.objectContaining({ eventType: 'text_delta', delta: 'final only' }),
     ]);
-    expect(callbacks.content).toHaveBeenCalledWith({
-      itemId: 'a',
-      text: 'final only',
-      kind: 'text',
-      blockIndex: 0,
-    });
+    expect(callbacks.content).not.toHaveBeenCalled();
     projection.map({
       ...identity,
       sequence: 2,

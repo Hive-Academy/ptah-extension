@@ -254,6 +254,15 @@ function startConfig(h: Harness): Record<string, unknown> {
 
 describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
   describe('startSession (chat:start) — unchanged for existing callers', () => {
+    it('rejects native runtime start failures as RPC errors', async () => {
+      const h = makeHarness();
+      const failure = new Error('runtime-failed');
+      failure.name = 'CodexChatAdapterError';
+      h.startChatSession.mockRejectedValueOnce(failure);
+      await expect(h.service.startSession({ tabId: 'tab-1', prompt: 'Hello', workspacePath: ROOT }))
+        .rejects.toMatchObject({ errorCode: 'SESSION_ENDED', message: 'Codex chat could not start.' });
+    });
+
     it('passes workspaceId === projectPath === the workspace path, without a permission level', async () => {
       const h = makeHarness();
 

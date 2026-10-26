@@ -9,6 +9,7 @@ import type {
 import type { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
 import {
   buildCodexExecutionProfile,
+  normalizeCodexWorkspaceKey,
   type CodexExecutionProfileInput,
   type CodexThreadIdentity,
   type CodexApprovalRequest,
@@ -247,7 +248,8 @@ export function createCodexChatHostPorts(
       if (
         resume &&
         (resume.normalizedHome !== profile.normalizedHome ||
-          resume.workspaceId !== profile.workspaceId ||
+          normalizeCodexWorkspaceKey(resume.workspaceId, process.platform) !==
+            normalizeCodexWorkspaceKey(profile.workspaceId, process.platform) ||
           resume.providerId !== profile.providerId)
       )
         throw new Error('Native resume identity mismatch');
@@ -275,7 +277,25 @@ export function createCodexChatHostPorts(
         // Direct manager call: its attention observer raises the host notice.
         void deps.webviewManager
           .broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, payload)
-          .catch(failed);
+          .catch((error: unknown) => {
+            failed(error);
+            if (pending.get(id)?.request !== request) return;
+            try {
+              deps.approvals.respond(
+                { sessionId, threadId: request.threadId, requestId: String(request.requestId) },
+                { kind: 'codex', response: {
+                  sessionId, contextId: request.contextId,
+                  processGeneration: request.processGeneration,
+                  threadId: request.threadId, turnId: request.turnId,
+                  requestId: request.requestId, decision: 'decline',
+                } },
+              );
+            } catch {
+              deps.logger.warn('Codex approval delivery decline failed.', { code: 'approval-delivery-decline-failed' });
+            } finally {
+              settle(id);
+            }
+          });
       },
       dismiss(sessionId, request) {
         const id = key(sessionId, request);
@@ -304,7 +324,6 @@ export function createCodexChatHostPorts(
     handlePermissionResponse(response) {
       const entry = pending.get(response.id);
       if (!entry) return false;
-      settle(response.id);
       const { sessionId, request } = entry;
       const decision = {
         allow: 'accept',
@@ -312,27 +331,41 @@ export function createCodexChatHostPorts(
         deny_with_message: 'decline',
         deny: 'cancel',
       } as const;
-      return deps.approvals.respond(
-        {
-          sessionId,
-          threadId: request.threadId,
-          requestId: String(request.requestId),
-        },
-        {
-          kind: 'codex',
-          response: {
+      try {
+        const accepted = deps.approvals.respond(
+          {
             sessionId,
-            contextId: request.contextId,
-            processGeneration: request.processGeneration,
             threadId: request.threadId,
-            turnId: request.turnId,
-            requestId: request.requestId,
-            decision: decision[response.decision],
-            reason: response.reason,
-            modifiedInput: response.modifiedInput,
+            requestId: String(request.requestId),
           },
-        },
-      );
+          {
+            kind: 'codex',
+            response: {
+              sessionId,
+              contextId: request.contextId,
+              processGeneration: request.processGeneration,
+              threadId: request.threadId,
+              turnId: request.turnId,
+              requestId: request.requestId,
+              decision: decision[response.decision],
+              reason: response.reason,
+              modifiedInput: response.modifiedInput,
+            },
+          },
+        );
+        if (accepted) settle(response.id);
+        else {
+          deps.logger.warn('Codex approval response rejected.', {
+            code: 'approval-response-rejected',
+          });
+        }
+        return accepted;
+      } catch {
+        deps.logger.warn('Codex approval response failed.', {
+          code: 'approval-response-failed',
+        });
+        return false;
+      }
     },
     replacement: {
       validateReplacement(request, input) {

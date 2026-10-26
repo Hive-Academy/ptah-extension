@@ -76,9 +76,9 @@ export async function* streamCodexChatTurn(
     const callbacks = deps.callbacks(session.id, turn);
     projection = new CodexChatEvents(session.id, turn, {
       ...callbacks,
-      result: (result) => {
+      result: async (result) => {
         terminal = true;
-        callbacks.result(result);
+        await callbacks.result(result);
         const usage = result.usage;
         if (
           usage?.inputTokens !== undefined &&
@@ -116,6 +116,7 @@ export async function* streamCodexChatTurn(
         if (event.type === 'compaction' && event.phase === 'started')
           deps.notifyCompaction(session, 'auto');
       }
+      await projection.settled();
       for (const mapped of mappedEvents) yield mapped;
       if (terminal) return;
     }
@@ -168,6 +169,7 @@ async function drainInterruptedTurn(
       const next = await events.next();
       if (next.done) break;
       const mapped = projection.map(next.value);
+      await projection.settled();
       if (mapped.some((event) => event.eventType === 'message_complete')) return;
     }
     // Without a terminal, close the context before permitting another turn.
