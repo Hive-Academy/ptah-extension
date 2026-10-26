@@ -1133,6 +1133,81 @@ describe('ProviderAccountRpcHandlers', () => {
       });
     });
 
+    it.each(['conflict', 'busy'] as const)(
+      'a sign-out refused with %s keeps the live sign-in handle',
+      async (code) => {
+        const { call, actions, service } = setup();
+        seedProfile(service, 2);
+        const script = 'claude auth login';
+        actions.next = { ...OK, fallback: { platform: 'posix', script } };
+        const started = await call('provider:startAccountSignIn', {
+          ...base,
+          expectedRevision: 2,
+        });
+        const operationId = (actions.commands[0].command as ActionCommand)
+          .operationId;
+        expect(started).toMatchObject({
+          ok: true,
+          operation: { operationId, kind: 'sign-in' },
+          fallback: { platform: 'posix', script },
+        });
+
+        actions.next = { code, summary: SECRET_TEXT };
+        await expect(
+          call('provider:signOutAccount', {
+            ...base,
+            requestId: REQ(2),
+            expectedRevision: 2,
+          }),
+        ).resolves.toMatchObject({ ok: false, result: { code } });
+
+        actions.next = OK;
+        await expect(
+          call('provider:getAccountStatus', {
+            provider: 'claude',
+            profileId: PROFILE_A,
+          }),
+        ).resolves.toMatchObject({
+          ok: true,
+          operation: { operationId, kind: 'sign-in' },
+        });
+        // The sign-in reply the caller holds is unchanged by the refusal.
+        await expect(
+          call('provider:startAccountSignIn', { ...base, expectedRevision: 2 }),
+        ).resolves.toEqual(started);
+        expect(actions.commands.map((c) => c.method)).toEqual([
+          'startSignIn',
+          'signOut',
+          'readStatus',
+        ]);
+      },
+    );
+
+    it('an accepted sign-out clears the profile operation', async () => {
+      const { call, service } = setup();
+      seedProfile(service, 2);
+      await call('provider:startAccountSignIn', {
+        ...base,
+        expectedRevision: 2,
+      });
+      await expect(
+        call('provider:signOutAccount', {
+          ...base,
+          requestId: REQ(2),
+          expectedRevision: 2,
+        }),
+      ).resolves.toMatchObject({ ok: true, operation: { kind: 'sign-out' } });
+      await expect(
+        call('provider:getAccountStatus', {
+          provider: 'claude',
+          profileId: PROFILE_A,
+        }),
+      ).resolves.toEqual({
+        ok: true,
+        account: service.profiles.get(PROFILE_A),
+      });
+    });
+
     it('getAccountStatus refuses with the port code and reads no summary', async () => {
       const { call, actions, service } = setup();
       seedProfile(service);

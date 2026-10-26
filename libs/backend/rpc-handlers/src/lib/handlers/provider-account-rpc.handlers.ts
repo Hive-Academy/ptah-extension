@@ -502,22 +502,20 @@ export class ProviderAccountRpcHandlers {
       operationId: randomUUID(),
       kind: 'sign-out',
     };
-    this.operations.set(params.profileId, operation);
-    let result: ProviderAccountActionResult;
-    try {
-      result = await this.actions.signOut({
-        provider: SERVED_PROVIDER,
-        profileId: params.profileId,
-        operationId: operation.operationId,
-        expectedRevision: params.expectedRevision,
-      });
-    } finally {
-      // Sign-out settles before the port returns, success or not.
-      this.settleOperation(params.profileId, operation.operationId);
-    }
+    // Sign-out settles before the port returns, success or not, so its
+    // operation never enters `operations`: a refused sign-out must not
+    // replace or delete the handle of a live sign-in for the same profile.
+    const result = await this.actions.signOut({
+      provider: SERVED_PROVIDER,
+      profileId: params.profileId,
+      operationId: operation.operationId,
+      expectedRevision: params.expectedRevision,
+    });
     if (result.code !== 'ok') {
       return this.actionRefused('provider:signOutAccount', result);
     }
+    // An accepted sign-out leaves the profile with no live operation.
+    this.operations.delete(params.profileId);
     const committed = this.actionCommitted(
       'provider:signOutAccount',
       root,
