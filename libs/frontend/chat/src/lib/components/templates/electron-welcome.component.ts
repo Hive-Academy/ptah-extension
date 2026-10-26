@@ -41,15 +41,18 @@ import {
   LoggingService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { ActivityGridComponent } from '@ptah-extension/chat-ui';
+// The welcome-only molecules come from the lazy `vitals` entry point: this
+// component loads inside electron-shell's `@defer`, and the main barrel is
+// eager (see libs/frontend/chat-ui/src/vitals.ts).
 import {
-  ActivityGridComponent,
   PlanRingComponent,
   RecentWorkspaceListComponent,
   SpendBarsComponent,
   StatCellComponent,
   StatRowComponent,
   StatValueComponent,
-} from '@ptah-extension/chat-ui';
+} from '@ptah-extension/chat-ui/vitals';
 import { RecentWorkspacesStore } from '../../services/vitals/recent-workspaces.store';
 import { localDayKey } from '../../services/vitals/usage-vitals.model';
 import { WelcomeVitalsStore } from '../../services/vitals/welcome-vitals.store';

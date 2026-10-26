@@ -153,7 +153,9 @@ export { LANE_COLUMN_CLASS } from './molecules/execution-header/lane-column';
 export * from './templates/session-embed.component';
 export * from './templates/app-shell.component';
 export * from './templates/electron-shell.component';
-export * from './templates/electron-welcome.component';
+// `ElectronWelcomeComponent` is deliberately not exported: electron-shell
+// loads it inside `@defer`, and a static re-export here would put it (and its
+// vitals stores) back into the initial chunk.
 export * from './file-suggestions/file-tag.component';
 export * from './file-suggestions/unified-suggestions-dropdown.component';
 export * from './atoms/workflow-badge.component';

@@ -1,10 +1,11 @@
+import type { ActivityDay } from '@ptah-extension/chat-ui';
+// Lazy entry: this module is reached only from the deferred welcome.
 import {
   planRingCaption,
-  type ActivityDay,
   type PlanRingData,
   type RecentWorkspaceItem,
   type StatCellState,
-} from '@ptah-extension/chat-ui';
+} from '@ptah-extension/chat-ui/vitals';
 import type { RecentWorkspace } from '@ptah-extension/shared';
 import type { ActivityVitals, SpendVitals } from './usage-vitals.view';
 import type { VitalsLoad } from './vitals-load';
