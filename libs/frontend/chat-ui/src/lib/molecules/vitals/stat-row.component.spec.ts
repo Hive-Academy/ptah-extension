@@ -111,12 +111,27 @@ describe('StatRowComponent', () => {
     ).toMatch(decl('--ptah-stat-value-h', '52px'));
   });
 
-  it('declares the stack layout as a full-height space-between column', () => {
+  it('declares the stack layout as full-height rows spread space-between', () => {
     const stack = block(rowCss, /:host\(\s*\[data-layout='stack'\]\s*\)\s*\{/);
-    expect(stack).toMatch(decl('display', 'flex'));
-    expect(stack).toMatch(decl('flex-direction', 'column'));
-    expect(stack).toMatch(decl('justify-content', 'space-between'));
+    expect(stack).toMatch(decl('grid-auto-flow', 'row'));
+    expect(stack).toMatch(
+      decl('grid-template-columns', String.raw`max-content\s+max-content`),
+    );
+    expect(stack).toMatch(decl('align-content', 'space-between'));
     expect(stack).toMatch(decl('height', '100%'));
+  });
+
+  it('puts each stacked numeral and its label on one baseline in shared columns', () => {
+    const stacked = block(cellCss, /:host\(\s*\[data-stacked\]\s*\)\s*\{/);
+    expect(stacked).toMatch(decl('grid-column', String.raw`1\s*\/\s*-1`));
+    expect(stacked).toMatch(decl('grid-template-columns', 'subgrid'));
+    expect(stacked).toMatch(decl('align-items', 'baseline'));
+    expect(
+      block(cellCss, /:host\(\s*\[data-stacked\]\s*\)\s*\.ptah-stat-cell__value\s*\{/),
+    ).toMatch(decl('justify-content', 'flex-end'));
+    expect(
+      block(source('stat-value.component.ts'), /\.ptah-stat-value__num\s*\{/),
+    ).toMatch(decl('font-variant-numeric', 'tabular-nums'));
   });
 
   it('gives each cell rows of 16px, the value height and auto', () => {

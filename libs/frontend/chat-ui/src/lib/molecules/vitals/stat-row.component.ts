@@ -9,9 +9,10 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
  * `ptah-stat-cell` is one column and lays out its own three fixed rows, so
  * columns line up without subgrid. The column count follows the cells.
  *
- * `layout='stack'`: a full-height column with `space-between`, so the first
+ * `layout='stack'`: full-height rows spread `space-between`, so the first
  * and last numerals meet the top and bottom of whatever the parent sizes it
- * to (the screen-02 activity grid). Cells render label-as-caption there.
+ * to (the screen-02 activity grid). Each cell is one row: the numeral, right-
+ * aligned in a shared column, then its label-as-caption on the same baseline.
  *
  * The row owns `--ptah-stat-value-h` (56 px regular, 52 px compact); cells
  * and `size='value'` rings read it. It also sets `--ptah-stat-num-size`
@@ -44,10 +45,15 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
         --ptah-stat-value-h: 52px;
         --ptah-stat-num-size: 28px;
       }
+      /* Stack: one row per cell, numeral then label on a shared baseline.
+         Two shared columns (the cells are subgrids): numerals right-aligned
+         in tabular figures, labels left, so the figures share one edge
+         however long each is; the rows spread evenly over the full height. */
       :host([data-layout='stack']) {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
+        grid-auto-flow: row;
+        grid-template-columns: max-content max-content;
+        align-content: space-between;
+        column-gap: 10px;
         height: 100%;
       }
       @media (max-width: 1000px) {

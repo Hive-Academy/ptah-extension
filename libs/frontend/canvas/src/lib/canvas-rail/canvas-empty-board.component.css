@@ -1,25 +1,70 @@
 :host-context([data-glass='on']) ptah-aurora-effect {
   display: none;
 }
-/* Frameless local text scrim (as on the welcome): solid behind the content,
-   fading out at the edges, so captions keep 4.5:1 on the glass without a
-   card edge. Transparent outside glass mode, where the token is undefined. */
+/* The hero's scroll box is the size container: the layout follows the board's
+   own width, which loses about 400 px when the Sessions tab opens, not the
+   window's. Its block padding is the scrim's vertical overhang, so the scrim
+   never adds scroll height. */
+.ptah-empty-board {
+  --scrim-ext-y: 32px;
+  --scrim-in-x: 48px;
+  --scrim-in-y: 32px;
+  container-type: inline-size;
+  padding-block: var(--scrim-ext-y);
+}
+/* Frameless local text scrim (glass only: transparent where the token is not
+   defined), the same recipe as the welcome stage and the L1 loading state: a
+   pseudo-element behind the stage, solid under its whole padding box, fading
+   to fully transparent at every outer edge through two eased ramps
+   intersected by a mask, so no box edge or corner is drawn. It reaches out
+   only into the free room beside the stage (--scrim-ext-x), never past the
+   board, so it adds no horizontal scroll. */
 .ptah-empty-board__stage {
+  --scrim-ext-x: min(96px, max(0px, (100cqw - 1040px) / 2));
   position: relative;
   z-index: 10;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
   max-width: 1040px;
   margin: auto;
-  padding: 48px 56px 64px;
-  background: radial-gradient(
-    ellipse farthest-corner at center,
-    var(--glass-scrim-text, transparent) 0%,
-    var(--glass-scrim-text, transparent) 86%,
-    transparent 100%
-  );
+  padding: 48px 56px 56px;
+}
+.ptah-empty-board__stage::before {
+  --rx: calc(var(--scrim-ext-x) + var(--scrim-in-x));
+  --ry: calc(var(--scrim-ext-y) + var(--scrim-in-y));
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--scrim-ext-y)) calc(-1 * var(--scrim-ext-x));
+  z-index: -1;
+  pointer-events: none;
+  background: var(--glass-scrim-text, transparent);
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--rx) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--rx) * 0.7),
+      #000 var(--rx),
+      #000 calc(100% - var(--rx)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--rx) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--rx) * 0.35),
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--ry) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--ry) * 0.7),
+      #000 var(--ry),
+      #000 calc(100% - var(--ry)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--ry) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--ry) * 0.35),
+      transparent 100%
+    );
+  mask-composite: intersect;
 }
 .ptah-empty-board__notice {
   width: 100%;
@@ -34,17 +79,29 @@
   gap: 6px 16px;
   font-size: 13px;
 }
-/* Grid, numerals and readiness sit side by side; nothing shrinks, so a long
-   figure never runs into its neighbour. Under 1000 px they stack. */
+/* Grid, numerals and readiness sit side by side and wrap, centred, when the
+   board is too narrow for all three, so nothing is ever cut off. Each block
+   keeps its own width (a long figure never runs into its neighbour); only the
+   grid may scale down, and only when it alone is wider than the board. */
 .ptah-empty-board__zone {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: center;
-  gap: 56px;
+  gap: 28px 56px;
+  max-width: 100%;
   margin-top: 30px;
 }
 .ptah-empty-board__zone > * {
-  flex: none;
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+/* The grid (332 px drawn) breaks lines at 260 px and grows back to its full
+   size, so a board a little short of the full row scales the grid rather
+   than pushing the ring onto a second row. */
+.ptah-empty-board__zone > .ptah-empty-board__activity {
+  flex: 1 1 260px;
+  max-width: min(100%, 332px);
 }
 /* The grid's height (7 rows x 26 px - 6), so the first numeral sits on the
    grid's top row and the last on its bottom row (options.md:282). */
@@ -57,11 +114,25 @@
 .ptah-empty-board__numerals {
   min-width: 112px;
 }
+/* As wide as its rows, so the loading group is centred by what is drawn. */
 .ptah-empty-board__steps {
-  width: 260px;
+  width: max-content;
+  min-width: 160px;
 }
 .ptah-empty-board__new {
   margin-top: 38px;
+}
+/* Blocked (running cap): still focusable and still described by its reason,
+   but visibly not the live primary action: dimmed, no glow, no hover lift.
+   Scoped under the stage so it outranks the glass theme's `.btn-primary`
+   glow and hover rules in styles.css (up to 0,5,0). */
+.ptah-empty-board__stage .ptah-empty-board__new--blocked[aria-disabled='true'],
+.ptah-empty-board__stage
+  .ptah-empty-board__new--blocked[aria-disabled='true']:hover {
+  opacity: 0.5;
+  box-shadow: none;
+  filter: saturate(0.4);
+  cursor: not-allowed;
 }
 .ptah-empty-board__history {
   margin-top: 14px;
@@ -84,12 +155,41 @@
   outline: 2px solid oklch(var(--p));
   outline-offset: 3px;
 }
-@media (max-width: 1000px) {
+/* A board under 860 px (an 800-900 px window, or the Sessions tab open):
+   tighter sides and gaps, so grid, numerals and ring still share one row at
+   the 800 px minimum window. */
+@container (max-width: 860px) {
+  .ptah-empty-board {
+    --scrim-in-x: 16px;
+  }
   .ptah-empty-board__stage {
-    padding: 32px 24px 48px;
+    padding-inline: 24px;
   }
   .ptah-empty-board__zone {
-    flex-direction: column;
-    gap: 22px;
+    gap: 24px 28px;
+  }
+}
+/* Short windows (900 x 640 and the 800 x 600 minimum): the same tighter
+   rhythm as the welcome, so New session is on screen without scrolling. */
+@media (max-height: 760px) {
+  .ptah-empty-board {
+    --scrim-ext-y: 16px;
+    --scrim-in-y: 12px;
+  }
+  .ptah-empty-board__stage {
+    padding-block: 16px;
+  }
+  .ptah-empty-board__notice {
+    margin-bottom: 16px;
+  }
+  .ptah-empty-board__zone {
+    margin-top: 20px;
+    row-gap: 20px;
+  }
+  .ptah-empty-board__new {
+    margin-top: 24px;
+  }
+  .ptah-empty-board__history {
+    margin-top: 8px;
   }
 }

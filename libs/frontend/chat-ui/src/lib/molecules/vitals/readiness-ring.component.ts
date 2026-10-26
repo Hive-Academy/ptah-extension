@@ -80,7 +80,11 @@ function checkWord(ready: boolean | null): string {
         padding: 2px 0;
         border: 0;
         background: none;
-        color: oklch(var(--p));
+        /* --ptah-link is the measured gold-as-text token (styles.css): brand
+           gold on dark anubis, gold-strong on light, the per-theme accent ink
+           on stock themes and the glass link on glass. The raw primary
+           measured 3.08:1 on anubis at this 13 px size. */
+        color: var(--ptah-link, oklch(var(--p)));
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;

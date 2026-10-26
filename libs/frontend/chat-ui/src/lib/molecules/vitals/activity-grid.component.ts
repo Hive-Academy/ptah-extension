@@ -146,11 +146,18 @@ export function activityLevels(
   `,
   styles: [
     `
+      /* --ptah-activity-empty: the fill of an empty day (and of every Day 1
+         cell). Light themes need a stronger base-content tint: at 8% the
+         empty field measured about 1.2:1 on the light glass scrim. */
       :host {
+        --ptah-activity-empty: oklch(var(--bc) / 0.08);
         display: inline-flex;
         flex-direction: column;
         gap: 10px;
         max-width: 100%;
+      }
+      :host-context([data-theme-mode='light']) {
+        --ptah-activity-empty: oklch(var(--bc) / 0.18);
       }
       .ptah-activity-grid__svg {
         display: block;
@@ -170,7 +177,7 @@ export function activityLevels(
         align-items: center;
       }
       .h0 {
-        fill: oklch(var(--bc) / 0.08);
+        fill: var(--ptah-activity-empty);
       }
       .h1 {
         fill: oklch(var(--p) / 0.28);
@@ -188,7 +195,7 @@ export function activityLevels(
         stroke: oklch(var(--p));
       }
       .ptah-activity-grid--day-one .ptah-activity-grid__today {
-        fill: oklch(var(--bc) / 0.08);
+        fill: var(--ptah-activity-empty);
         filter: drop-shadow(0 0 6px oklch(var(--p) / 0.6));
       }
       @media (prefers-reduced-motion: no-preference) {

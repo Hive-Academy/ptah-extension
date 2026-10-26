@@ -104,12 +104,15 @@ let nextCaptionId = 0;
         min-width: 0;
         text-align: left;
       }
-      /* Stack: value then label-caption, tight (4 px) so each numeral reads
-         with its word; the row's space-between spaces the cells apart. */
+      /* Stack: one row of the parent's two columns (subgrid), the value
+         right-aligned in the first and the label-caption in the second, both
+         on one baseline; the row's space-between spaces the cells apart. */
       :host([data-stacked]) {
-        display: flex;
-        flex-direction: column;
-        row-gap: 4px;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto;
+        align-items: baseline;
+        row-gap: 0;
       }
       .ptah-stat-cell__label {
         display: flex;
@@ -132,6 +135,7 @@ let nextCaptionId = 0;
       }
       :host([data-stacked]) .ptah-stat-cell__value {
         height: auto;
+        justify-content: flex-end;
       }
       .ptah-stat-cell__projected {
         display: contents;

@@ -121,4 +121,15 @@ describe('ReadinessRingComponent', () => {
     );
     expect(source).not.toMatch(/innerHTML/);
   });
+
+  it('colours the link text with the measured link token, not the raw primary', () => {
+    const flat = readFileSync(
+      join(__dirname, 'readiness-ring.component.ts'),
+      'utf8',
+    ).replace(/\s+/g, ' ');
+    const link = /\.ptah-readiness__link \{([^}]*)\}/.exec(flat)?.[1] ?? '';
+
+    expect(link).toMatch(/color: var\(--ptah-link, oklch\(var\(--p\)\)\);/);
+    expect(link).not.toMatch(/(^|[;\s])color: oklch\(var\(--p\)\);/);
+  });
 });

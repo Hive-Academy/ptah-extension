@@ -148,8 +148,11 @@ const PENDING_STEPS: readonly StagedStep[] = [
       justify-content: center;
       gap: 32px 64px;
     }
+    /* As wide as its rows, so the grid-and-steps group is centred by what is
+       drawn, not by an empty column right of the step text. */
     .ptah-loading__steps {
-      width: 340px;
+      width: max-content;
+      min-width: 160px;
       max-width: 100%;
     }
     .ptah-loading__bar {

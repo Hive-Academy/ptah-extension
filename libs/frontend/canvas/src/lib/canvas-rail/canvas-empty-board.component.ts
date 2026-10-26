@@ -88,7 +88,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
   styleUrl: './canvas-empty-board.component.css',
   template: `
     <main
-      class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+      class="ptah-empty-board relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
       [attr.data-glass-surface]="isElectron ? null : 'chrome'"
       data-testid="canvas-rail-empty-board"
       aria-labelledby="canvas-rail-empty-board-title"
@@ -152,6 +152,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
         <div class="ptah-empty-board__zone">
           @let view = grid();
           <div
+            class="ptah-empty-board__activity"
             [attr.aria-busy]="view.busy ? 'true' : null"
             data-testid="canvas-empty-board-activity"
           >
@@ -225,6 +226,7 @@ export const LOAD_STEPS_MAX_MS = 12_000;
           type="button"
           class="ptah-empty-board__new btn btn-primary gap-2 rounded-full px-6"
           data-testid="canvas-hero-new-session"
+          [class.ptah-empty-board__new--blocked]="!!newSessionBlockReason()"
           [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
           [attr.title]="newSessionBlockReason()"
           [attr.aria-describedby]="

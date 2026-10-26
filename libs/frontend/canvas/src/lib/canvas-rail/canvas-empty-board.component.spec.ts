@@ -132,6 +132,7 @@ describe('CanvasEmptyBoardComponent', () => {
     expect(find('[data-testid="canvas-empty-board-activity"]')?.getAttribute('aria-busy')).toBe('true');
     const trigger = find<HTMLButtonElement>('[data-testid="canvas-hero-new-session"]')!;
     expect(trigger.getAttribute('aria-disabled')).toBeNull();
+    expect(trigger.classList).not.toContain('ptah-empty-board__new--blocked');
     trigger.click();
     expect(requested).toHaveBeenCalledWith(trigger);
   });
@@ -257,12 +258,16 @@ describe('CanvasEmptyBoardComponent', () => {
     const trigger = find<HTMLButtonElement>('[data-testid="canvas-hero-new-session"]')!;
     expect(trigger.getAttribute('aria-disabled')).toBe('true');
     expect(trigger.disabled).toBe(false);
+    // Visibly blocked, not only announced as blocked.
+    expect(trigger.classList).toContain('ptah-empty-board__new--blocked');
     expect(trigger.getAttribute('aria-describedby')).toBe('canvas-rail-empty-board-reason');
     expect(find('#canvas-rail-empty-board-reason')?.textContent).toContain('Too many sessions are running.');
     trigger.click();
     expect(requested).not.toHaveBeenCalled();
     fixture.componentRef.setInput('newSessionBlockReason', null);
     fixture.detectChanges();
+    expect(trigger.classList).not.toContain('ptah-empty-board__new--blocked');
+    expect(trigger.getAttribute('aria-disabled')).toBeNull();
     trigger.click();
     expect(requested).toHaveBeenCalledTimes(1);
   });
