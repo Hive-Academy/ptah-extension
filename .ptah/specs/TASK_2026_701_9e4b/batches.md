@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 14/27
+Total tasks: 34 | Batches: 27 | Complete: 17/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -726,7 +726,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (D27, `reports/host-smoke-fix-report.md`); committed with this batch. Temporary rule until
   Batch 12: below the harness root, submit is create-only and preview paths and the run disagree.
 
-## Batch 12: Run manifest decisions and post-run Library outcome (B6 + B7) — COMPLETE (commit: see git log "batch 12")
+## Batch 12: Run manifest decisions and post-run Library outcome (B6 + B7) — COMPLETE (commit: e55e7c962)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -795,7 +795,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   file (Batch 15 owns `agent-selection.component.ts` and `wizard-rpc.service.ts` only), so it goes
   to Batch 17 (see Task 17.1 files).
 
-## Batch 13: Community pack plan and guarded install (B8) — PENDING
+## Batch 13: Community pack plan and guarded install (B8) — COMPLETE (commit: ccb672f6e)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -806,7 +806,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 4, 7, 9
 - Phase: P2 | Phase review: P2 code-logic + style (new RPC)
 
-### Task 13.1: `wizard:plan-pack-install`, guarded `installFiles`, concurrency fix — PENDING
+### Task 13.1: `wizard:plan-pack-install`, guarded `installFiles`, concurrency fix — COMPLETE
 
 - Files: MODIFY `libs/backend/platform-core/src/agent-pack-download.service.ts` (+ spec); CREATE `libs/backend/rpc-handlers/src/lib/handlers/setup/pack-install.service.ts` (+ spec); MODIFY `libs/backend/rpc-handlers/src/lib/handlers/setup-rpc.handlers.ts` (+ spec), `setup-rpc.schema.ts` (+ spec), `libs/shared/src/lib/types/rpc.types.ts` (registry entries only), `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`, `libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts`, `apps/ptah-electron/src/di/rpc-surface.spec.ts`, `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`
 - Plan reference: implementation-plan.md:506-582; A14/D9, A22, A25, A26; decisions.md D13
@@ -819,6 +819,16 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/rpc-handlers,@ptah-extension/shared,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+- Result: own verify 67/67 passed. Combined orchestrator verify for Batches 13/16/18
+  (`-p shared,platform-core,rpc-handlers,cli-engine,setup-wizard,ptah-electron,
+  ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview`): 77 tasks, 76 passed,
+  1 failed = pre-existing D19 ptah-extension-webview:lint (accepted).
+- Deviations (accepted): `platform-core/src/index.ts` (export of deleted type) and
+  `apps/ptah-extension-vscode/src/integration/wizard-seed-noop.spec.ts` (TS2554, 7th ctor arg).
+- Note for Batch 15: `wizard:install-pack-agents` refuses Replace without a plan. The UI must
+  call `wizard:plan-pack-install` first and send `planToken`, `decisions` (with each row's
+  `revision`) and `target`.
+- Report: reports/batch-13-report.md
 
 ## Batch 14: Setup-wizard decision components (F1) — COMPLETE (commit: 493027b0e)
 
@@ -883,7 +893,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 16: Sidebar preview dialog (F3) — PENDING
+## Batch 16: Sidebar preview dialog (F3) — COMPLETE (commit: a0b61b0e6)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -894,7 +904,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 11, 14
 - Phase: P2 | Phase review: P2 code-logic + visual
 
-### Task 16.1: Sidebar dialog decisions — PENDING
+### Task 16.1: Sidebar dialog decisions — COMPLETE
 
 - Files: MODIFY `libs/frontend/setup-wizard/src/lib/components/agent-preview-dialog.component.ts` (+ spec), `agent-selection-list.component.ts` (+ spec), `libs/frontend/setup-wizard/src/lib/services/generation-workflow.store.ts` (+ spec)
 - Plan reference: implementation-plan.md:1215-1230; design-spec R1-4
@@ -907,6 +917,11 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview` passes
 - No per-batch review
+- Result: combined orchestrator verify for Batches 13/16/18: 77 tasks, 76 passed, 1 failed =
+  pre-existing D19 ptah-extension-webview:lint (accepted).
+- Deviation (D29, coordinator-approved): `wizard-rpc.service.ts` (+ spec) gained optional
+  `decisions` on `startBoundAgents`. Batch 15 owns this file next and must build on it.
+- Report: reports/batch-16-report.md
 
 ## Batch 17: Completion surfaces (F5) — PENDING
 
@@ -933,7 +948,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 18: CLI wizard kept-file output (F8) — PENDING
+## Batch 18: CLI wizard kept-file output (F8) — COMPLETE (commit: see git log "batch 18")
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -944,7 +959,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 12
 - Phase: P2 (last) | Phase review: P2 code-logic + style + Electron visual — due after this batch commits
 
-### Task 18.1: Print kept files in `ptah agent`/`ptah wizard` (A20) — PENDING
+### Task 18.1: Print kept files in `ptah agent`/`ptah wizard` (A20) — COMPLETE
 
 - Files: MODIFY `apps/ptah-cli/src/cli/commands/agent.ts` (+ `agent.spec.ts`), `apps/ptah-cli/src/cli/commands/wizard.ts` (+ `wizard.spec.ts`)
 - Plan reference: implementation-plan.md:1388-1399
@@ -958,6 +973,16 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p ptah-cli,ptah-tui` passes
 - Then phase-end keep-alive: `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`
 - P2 review (code-logic + style + Electron visual dark/light/narrow) requested on the combined P2 diff
+- Result: own verify 45/45 passed. Combined orchestrator verify for Batches 13/16/18 (covers the
+  keep-alive hosts ptah-electron, ptah-extension-vscode, ptah-tui, ptah-cli): 77 tasks,
+  76 passed, 1 failed = pre-existing D19 ptah-extension-webview:lint (accepted).
+- P2 review is not due yet: Batches 15 and 17 are still PENDING. Request it after both commit.
+- Outcome, items for the P2 code-logic review:
+  - `ptah agent apply <name>` (`agent.ts` `runApply`) still overwrites
+    `.ptah/agents/<name>.md` whenever the content differs (single-template apply; A20 does
+    not clearly cover it; left unchanged).
+  - `agent.pack.install.complete` can report `changed: true` when every file was kept.
+- Report: reports/batch-18-report.md
 
 ## Batch 19: Marketplace services and Library provenance (B12 services + B13) — PENDING
 

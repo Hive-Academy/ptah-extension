@@ -270,6 +270,113 @@ describe('ptah agent packs install', () => {
     expect(completeParams.changed).toBe(false);
   });
 
+  it('lists kept and changed-since-preview files in agent.pack.install.kept before complete', async () => {
+    const ft = makeFormatter();
+    const engine = makeEngine();
+
+    engine.scripted.set('wizard:list-agent-packs', {
+      success: true,
+      data: {
+        packs: [
+          {
+            name: 'core-pack',
+            source: 'github:org/repo',
+            agents: [
+              { file: 'a.md', name: 'a' },
+              { file: 'b.md', name: 'b' },
+              { file: 'c.md', name: 'c' },
+            ],
+          },
+        ],
+      },
+    });
+    engine.scripted.set('wizard:install-pack-agents', {
+      success: true,
+      data: {
+        success: true,
+        agentsDownloaded: 1,
+        fromCache: false,
+        files: [
+          { file: 'a.md', outcome: 'written' },
+          { file: 'b.md', outcome: 'kept' },
+          { file: 'c.md', outcome: 'changed-since-preview' },
+        ],
+      },
+    });
+
+    const code = await execute(
+      { subcommand: 'packs-install', packId: 'core-pack' },
+      baseGlobals,
+      { formatter: ft.formatter, withEngine: engine.withEngine },
+    );
+
+    expect(code).toBe(ExitCode.Success);
+    expect(ft.notifications.map((n) => n.method)).toEqual([
+      'agent.pack.install.start',
+      'agent.pack.install.progress',
+      'agent.pack.install.kept',
+      'agent.pack.install.complete',
+    ]);
+    expect(ft.notifications[2]?.params).toEqual({
+      packId: 'core-pack',
+      source: 'github:org/repo',
+      keptCount: 1,
+      changedSincePreviewCount: 1,
+      files: [
+        {
+          file: 'b.md',
+          status: 'kept',
+          reason:
+            'existing file kept as yours; CLI pack installs only create new files',
+        },
+        {
+          file: 'c.md',
+          status: 'changed-since-preview',
+          reason: 'file changed after the install plan, so it was kept',
+        },
+      ],
+    });
+    // Create-only: the CLI never sends a plan token or replace decisions.
+    expect(engine.rpcCalls[1]?.params).toEqual({
+      source: 'github:org/repo',
+      agentFiles: ['a.md', 'b.md', 'c.md'],
+    });
+  });
+
+  it('omits agent.pack.install.kept when every file was written or unchanged', async () => {
+    const ft = makeFormatter();
+    const engine = makeEngine();
+
+    engine.scripted.set('wizard:list-agent-packs', {
+      success: true,
+      data: {
+        packs: [
+          { name: 'p', source: 'src', agents: [{ file: 'x.md', name: 'x' }] },
+        ],
+      },
+    });
+    engine.scripted.set('wizard:install-pack-agents', {
+      success: true,
+      data: {
+        success: true,
+        agentsDownloaded: 1,
+        fromCache: false,
+        files: [{ file: 'x.md', outcome: 'unchanged' }],
+      },
+    });
+
+    const code = await execute(
+      { subcommand: 'packs-install', packId: 'p' },
+      baseGlobals,
+      { formatter: ft.formatter, withEngine: engine.withEngine },
+    );
+
+    expect(code).toBe(ExitCode.Success);
+    expect(
+      ft.notifications.find((n) => n.method === 'agent.pack.install.kept'),
+    ).toBeUndefined();
+  });
+
   it('emits task.error and InternalFailure when pack-id is unknown', async () => {
     const ft = makeFormatter();
     const engine = makeEngine();

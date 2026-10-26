@@ -8,7 +8,12 @@
  *   packs install <pack-id>            RPC `wizard:install-pack-agents`
  *                                      emits `agent.pack.install.{start,
  *                                      progress, complete}` (changed:
- *                                      `!fromCache` on second run)
+ *                                      `!fromCache` on second run). No plan
+ *                                      token is sent, so the install is
+ *                                      create-only (A20); files left as the
+ *                                      user's are listed in one
+ *                                      `agent.pack.install.kept` before
+ *                                      `complete`
  *   list                               pure `fs.readdir(.ptah/agents)`,
  *                                      NO DI — emits `agent.list`
  *   apply <name>                       resolve via `ContentDownloadService`
@@ -37,6 +42,8 @@ import type { GlobalOptions } from '../router.js';
 import type { CliMessageTransport } from '@ptah-extension/cli-engine';
 import type {
   AgentPackInfoDto,
+  FileOutcome,
+  PackFileOutcome,
   WizardInstallPackAgentsResult,
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -180,6 +187,19 @@ async function runPacksInstall(
       total: pack.agents.length,
     });
 
+    const keptFiles = collectKeptPackFiles(result?.files);
+    if (keptFiles.length > 0) {
+      await formatter.writeNotification('agent.pack.install.kept', {
+        packId,
+        source: pack.source,
+        keptCount: keptFiles.filter((f) => f.status === 'kept').length,
+        changedSincePreviewCount: keptFiles.filter(
+          (f) => f.status === 'changed-since-preview',
+        ).length,
+        files: keptFiles,
+      });
+    }
+
     await formatter.writeNotification('agent.pack.install.complete', {
       packId,
       source: pack.source,
@@ -189,6 +209,41 @@ async function runPacksInstall(
     });
     return ExitCode.Success;
   });
+}
+
+/** A pack file the install left as the user's, and why it was not written. */
+export interface AgentPackKeptFile {
+  file: string;
+  status: Extract<FileOutcome, 'kept' | 'changed-since-preview'>;
+  reason: string;
+}
+
+/**
+ * List the pack files the install did not write over, in plan order. A
+ * result from an older host without `files` yields none.
+ */
+export function collectKeptPackFiles(
+  files: readonly PackFileOutcome[] | undefined,
+): AgentPackKeptFile[] {
+  if (!Array.isArray(files)) return [];
+  const kept: AgentPackKeptFile[] = [];
+  for (const entry of files) {
+    if (entry.outcome === 'kept') {
+      kept.push({
+        file: entry.file,
+        status: 'kept',
+        reason:
+          'existing file kept as yours; CLI pack installs only create new files',
+      });
+    } else if (entry.outcome === 'changed-since-preview') {
+      kept.push({
+        file: entry.file,
+        status: 'changed-since-preview',
+        reason: 'file changed after the install plan, so it was kept',
+      });
+    }
+  }
+  return kept;
 }
 
 async function runList(
