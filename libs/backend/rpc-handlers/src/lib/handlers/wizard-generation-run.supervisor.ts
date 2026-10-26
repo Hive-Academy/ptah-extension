@@ -109,6 +109,9 @@ export interface SettledGenerationRun {
     | 'tailoredSections'
     | 'propagation'
     | 'finalizationFailed'
+    | 'target'
+    | 'libraryPass'
+    | 'libraryDiverged'
   >;
 }
 
@@ -136,9 +139,11 @@ function describeAbort(
 }
 
 /**
- * Derive the one completion payload from explicit outcomes. Carried-over
- * agents count as `unchanged` — this invocation wrote nothing for them and
- * their file is already current. `success` is true only for a run that
+ * Derive the one completion payload from explicit outcomes, so every count
+ * equals its rows in `agents`. Carried-over agents keep the status their
+ * earlier invocation settled with (`unchanged` for a current file, `kept` or
+ * `changed-since-preview` for a file left alone). A kept agent is settled,
+ * not failed. `success` is true only for a run that
  * completed with no failed agent; a paused or timed-out run is never a success
  * even when every agent it reached was written.
  */
@@ -175,6 +180,8 @@ export function buildCompletePayload(
     writtenCount: count('written'),
     unchangedCount: count('unchanged'),
     failedCount,
+    keptCount: count('kept'),
+    changedSincePreviewCount: count('changed-since-preview'),
     rejectedSections: agents.reduce((sum, a) => sum + a.rejectedSections, 0),
     tailoredSections: agents.reduce((sum, a) => sum + a.tailoredSections, 0),
     agents,

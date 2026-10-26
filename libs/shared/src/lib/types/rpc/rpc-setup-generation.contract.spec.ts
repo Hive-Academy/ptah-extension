@@ -6,6 +6,7 @@ import type {
   EnhancedPromptsRunWizardParams,
   EnhancedPromptsRunWizardResponse,
   GenerationContextSource,
+  ResumableGenerationAgent,
   SetupGenerationAccepted,
   SetupGenerationRunBinding,
   SetupGenerationResultFacts,
@@ -85,12 +86,12 @@ type _FileOutcomeUnion = Assert<
     'written' | 'kept' | 'unchanged' | 'changed-since-preview' | 'failed'
   >
 >;
-/**
- * The generation outcome union is widened to `FileOutcome` together with its
- * consumers (checkpoint store, completion tiles), not in the shared batch.
- */
-type _AgentOutcomeNotYetWidened = Assert<
-  Equal<GenerationAgentOutcome['status'], 'written' | 'unchanged' | 'failed'>
+/** A generated agent ends with the same per-file outcome as a guarded write. */
+type _AgentOutcomeIsFileOutcome = Assert<
+  Equal<GenerationAgentOutcome['status'], FileOutcome>
+>;
+type _ResumableAgentStatus = Assert<
+  Equal<ResumableGenerationAgent['status'], 'pending' | 'running' | FileOutcome>
 >;
 type _GuidanceCancelOutcomeOptional = Assert<
   Equal<

@@ -33,7 +33,6 @@ export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 export type {
   AgentFileGuard,
-  KeptAgentOutcome,
   WrittenAgentFile,
 } from './lib/types/core.types';
 export type {

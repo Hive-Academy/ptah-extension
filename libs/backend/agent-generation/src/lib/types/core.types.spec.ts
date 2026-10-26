@@ -223,6 +223,8 @@ describe('Core Types', () => {
         writtenCount: 3,
         unchangedCount: 1,
         failedCount: 1,
+        keptCount: 0,
+        changedSincePreviewCount: 0,
         rejectedSections: 2,
         tailoredSections: 7,
         lifecycle: 'completed',

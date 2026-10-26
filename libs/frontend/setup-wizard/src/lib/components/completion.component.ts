@@ -5,7 +5,7 @@ import {
   inject,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, type FileOutcome } from '@ptah-extension/shared';
 import {
   Check,
   Folder,
@@ -25,7 +25,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 interface AgentOutcomeTile {
   id: string;
   name: string;
-  status: 'written' | 'unchanged' | 'failed';
+  status: FileOutcome;
   error?: string;
 }
 

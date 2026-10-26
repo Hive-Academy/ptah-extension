@@ -10,6 +10,7 @@ import type { GenerationAgentOutcome } from '../wizard/phase';
 import type {
   AgentModelPreview,
   FileDecisionEntry,
+  FileOutcome,
   GenerationRivalStatus,
   GenerationTargetChoice,
   GenerationTargetInfo,
@@ -348,7 +349,7 @@ export type WizardGetResumableRunParams = Record<string, never>;
 export interface ResumableGenerationAgent {
   agentId: string;
   filePath: string;
-  status: 'pending' | 'running' | 'written' | 'unchanged' | 'failed';
+  status: 'pending' | 'running' | FileOutcome;
   rejectedSections: number;
   tailoredSections: number;
   error?: string;

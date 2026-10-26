@@ -594,24 +594,6 @@ export interface GenerationOptions {
  */
 export type AgentFileGuard = AgentWriteGuard | { mode: 'keep' };
 
-/**
- * Terminal outcome of an agent whose existing file was left alone by its
- * decision. These outcomes are reported apart from `outcomes`, whose shared
- * `GenerationAgentOutcome.status` union has no `kept` or
- * `changed-since-preview` member.
- *
- * - `kept`: the user kept the file, it was create-only and already existed,
- *   or it could not be read.
- * - `changed-since-preview`: replace was chosen, but the file changed after
- *   the preview, so it was kept.
- */
-export interface KeptAgentOutcome {
-  agentId: string;
-  /** Absolute path of the agent file that was left alone. */
-  filePath: string;
-  status: 'kept' | 'changed-since-preview';
-}
-
 /** An agent file the orchestrator has just written with new content. */
 export interface WrittenAgentFile {
   agentId: string;
@@ -715,16 +697,16 @@ export interface GenerationSummary {
   failedCount: number;
 
   /**
-   * Number of agents whose existing file was kept (`kept` outcomes). Set by
-   * every orchestrator run.
+   * Number of agents whose existing file was kept (`kept` outcomes): the user
+   * kept it, it was create-only and already existed, or it was unreadable.
    */
-  keptCount?: number;
+  keptCount: number;
 
   /**
    * Number of agents not replaced because their file changed after the
-   * preview. Set by every orchestrator run.
+   * preview (`changed-since-preview` outcomes).
    */
-  changedSincePreviewCount?: number;
+  changedSincePreviewCount: number;
 
   /** Aggregate count of LLM sections rejected by output validation. */
   rejectedSections: number;
@@ -736,17 +718,11 @@ export interface GenerationSummary {
   lifecycle: 'paused' | 'completed' | 'timed-out' | 'failed';
 
   /**
-   * Terminal outcome for every selected agent that was rendered, failed or
-   * not generated. Agents left alone by their decision are in
-   * `keptOutcomes` instead.
+   * Terminal outcome for every selected agent: written, unchanged, failed or
+   * not generated, and the agents whose existing file was left alone by their
+   * decision (`kept`, `changed-since-preview`).
    */
   outcomes: GenerationAgentOutcome[];
-
-  /**
-   * Agents whose existing file was left alone (`kept` or
-   * `changed-since-preview`). Set by every orchestrator run.
-   */
-  keptOutcomes?: KeptAgentOutcome[];
 
   /**
    * Whether enhanced prompts were used during Phase 3 customization.

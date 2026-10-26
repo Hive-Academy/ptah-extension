@@ -392,13 +392,14 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
   const rpcHandler = createMockRpcHandler();
   const checkpoints = new GenerationCheckpointService(logger, container);
   // The production preview service over the registered origin store.
+  const originStore = container.resolve<WizardAgentOriginStore>(
+    AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE,
+  );
   const previews = new GenerationPreviewService(
     logger,
     container,
     checkpoints,
-    container.resolve<WizardAgentOriginStore>(
-      AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE,
-    ),
+    originStore,
   );
   const handlers = new WizardGenerationRpcHandlers(
     logger,
@@ -415,6 +416,7 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
     checkpoints,
     new GenerationRunSupervisor(logger),
     previews,
+    originStore,
   );
   handlers.register();
 

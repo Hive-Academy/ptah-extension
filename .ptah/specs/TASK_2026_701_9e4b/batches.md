@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 13/27
+Total tasks: 34 | Batches: 27 | Complete: 14/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -113,7 +113,8 @@ Edge cases:
 | `libs/shared/src/lib/types/harness-sync.types.ts` | 2 (D11 rename) → 7 (`expectedDigest?`, `'changed-since-approval'`) |
 | `libs/backend/harness-sync/src/lib/targets/{claude-target,workspace-target,harness-target.port,mcp/mcp-facet-planner}.ts`, `health/harness-health.ts`, `reconciler/harness-reconciler.service.ts` and their specs | 2 (rename) → 6 (keep semantics) |
 | `libs/backend/harness-sync/src/lib/di/register.ts`, `src/index.ts` | 7 (scanner) → 9 (`NO_USER_LAYER_REFRESH` status, propagation exports) |
-| `libs/backend/agent-generation/src/index.ts` | 4 (B4) → 5 (B10) → 10 (B3) |
+| `libs/backend/agent-generation/src/index.ts` | 4 (B4) → 5 (B10) → 10 (B3) → 12 (`KeptAgentOutcome` export removed, reported deviation) |
+| `libs/frontend/setup-wizard/src/lib/services/wizard-analysis-runner.service.ts` | 17 only (added after Batch 12) |
 | `libs/backend/agent-generation/src/lib/di/tokens.ts`, `di/register.ts` | 4 only |
 | `apps/ptah-electron/src/activation/coalesced-job.ts` (+ spec) | 8 only |
 | `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts` | 11 (B5) → 12 (B6, B7) → 26 only if A-dis requires it |
@@ -145,6 +146,15 @@ verify (72/73; only the accepted D21 agent-sdk lint). Minor recorded, not fixed:
 `apps/ptah-electron/src/di/container.smoke.spec.ts:508` exact-text assertion; Claude-target removals
 still delete an owned copy without move-aside. The one re-review scoped to the fix commit is still
 due (codex, different family).
+
+P1 re-review (scoped to 16042c885, codex, different family) — DONE:
+`reviews/p1-code-logic-review-a-rereview.md` APPROVED (A1-A4 fixed);
+`reviews/p1-code-style-review-rereview.md` APPROVED (S1, S2 fixed);
+`reviews/p1-code-logic-review-b-rereview.md` REVISE (B2 partial: ambiguity judged only over enabled
+pass roots). One bounded B2 correction (`reports/p1-b2-correction-report.md`: ambiguity now counts
+every installed plugin from the descriptors, disabled included) — `reviews/p1-b2-correction-review.md`
+APPROVED (commit: eae561cf6). Minor recorded, not fixed: ambiguity is logged only (no
+`ReconcileResult` counter / UI). Recorded as D28. **P1 phase: CLOSED.**
 
 Phase-end host keep-alive (team-leader, before requesting the review):
 `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`.
@@ -686,7 +696,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   one failure is ptah-extension-webview:lint, pre-existing D19 (fails identically on main).
 - Report: reports/batch-10-report.md
 
-## Batch 11: Generation preview service and token-bound decisions (B5) — COMPLETE (commit: recorded on next commit; see git log "batch 11")
+## Batch 11: Generation preview service and token-bound decisions (B5) — COMPLETE (commit: e62d1dfe8)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -716,7 +726,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   (D27, `reports/host-smoke-fix-report.md`); committed with this batch. Temporary rule until
   Batch 12: below the harness root, submit is create-only and preview paths and the run disagree.
 
-## Batch 12: Run manifest decisions and post-run Library outcome (B6 + B7) — PENDING
+## Batch 12: Run manifest decisions and post-run Library outcome (B6 + B7) — COMPLETE (commit: see git log "batch 12")
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -727,7 +737,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 2 | Depends on: Batches 9, 11
 - Phase: P2 | Phase review: P2 code-logic
 
-### Task 12.1: Persist guards and target per run; resume/retry (B6) — PENDING
+### Task 12.1: Persist guards and target per run; resume/retry (B6) — COMPLETE
 
 - Files: MODIFY `libs/backend/agent-generation/src/lib/types/generation-checkpoint.types.ts`, `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-checkpoint.service.ts` (+ spec), `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts`, `wizard-generation-run.supervisor.ts` only if `afterSettled` (`:896`) builds the counts
 - Plan reference: implementation-plan.md:463-486
@@ -745,7 +755,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   fix the checkpoint record at `wizard-generation-checkpoint.service.ts:430`. No rendering work in
   the component (Batch 17 owns it).
 
-### Task 12.2: `generation-library-outcome.ts` (B7) — PENDING
+### Task 12.2: `generation-library-outcome.ts` (B7) — COMPLETE
 
 - Depends on: Task 12.1
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation/generation-library-outcome.ts` (+ spec); MODIFY `wizard-generation-rpc.handlers.ts`
@@ -759,6 +769,31 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/shared,@ptah-extension/agent-generation,@ptah-extension/rpc-handlers,@ptah-extension/setup-wizard,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview` passes (D18 widening touches shared and setup-wizard; webview lint failure is pre-existing, D19)
 - No per-batch review
+- Result: orchestrator combined verify (same 9 projects) `74 tasks: 73 succeeded, 1 failed`; only
+  failure is pre-existing D19 `ptah-extension-webview:lint`. Degradation audit exit 0.
+- Report: reports/batch-12-report.md
+
+### Batch 12 outcome
+
+- Plan deviations (reported, needed to compile): `core.types.ts` (+ spec), `orchestrator.service.ts`
+  (+ spec), agent-generation `index.ts` (`KeptAgentOutcome` export removed — ledger entry for this
+  file extended to Batch 12), `wizard-generation-binding.ts`,
+  `wizard-generation.preview-fidelity.spec.ts`, `guidance-generation-run.supervisor.spec.ts`,
+  `wizard-generation-run.supervisor.spec.ts`.
+- Decisions to review in the P2 code-logic review (all reversible):
+  1. The wizard origin record (B4 `recordWritten`) is hooked to the orchestrator `onAgentWritten`
+     after-write callback, and only for runs whose output root is the harness root.
+  2. File guards are persisted in the orchestrator's `AgentFileGuard` shape (`mode` key), not the
+     plan's `{decision; baseline}`; the Zod schema mirrors it (replace guard must carry a baseline).
+  3. A retry that ends `kept` counts as success; `changed-since-preview` returns `success:false`
+     with a message.
+- Out of scope, assigned to Batch 17:
+  `libs/frontend/setup-wizard/src/lib/services/wizard-analysis-runner.service.ts:38` —
+  `toProgressItem` treats only `written`/`unchanged` as complete, so a `kept` or
+  `changed-since-preview` agent in a resumable run shows as pending although resume will not rerun
+  it. Batch 17 owns rendering of the new `FileOutcome` statuses and no other P2 batch owns this
+  file (Batch 15 owns `agent-selection.component.ts` and `wizard-rpc.service.ts` only), so it goes
+  to Batch 17 (see Task 17.1 files).
 
 ## Batch 13: Community pack plan and guarded install (B8) — PENDING
 
@@ -886,7 +921,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 ### Task 17.1: Outcome summary, stale-Library notice, grade expectation — PENDING
 
-- Files: CREATE `libs/frontend/setup-wizard/src/lib/components/completion/outcome-summary.component.ts`, `library-stale-notice.component.ts`, `grade-expectation.component.ts` (+ a spec each); MODIFY `libs/frontend/setup-wizard/src/lib/components/completion.component.ts` (+ spec), `agent-next-steps.component.ts` (+ spec)
+- Files: CREATE `libs/frontend/setup-wizard/src/lib/components/completion/outcome-summary.component.ts`, `library-stale-notice.component.ts`, `grade-expectation.component.ts` (+ a spec each); MODIFY `libs/frontend/setup-wizard/src/lib/components/completion.component.ts` (+ spec), `agent-next-steps.component.ts` (+ spec); MODIFY `libs/frontend/setup-wizard/src/lib/services/wizard-analysis-runner.service.ts` (+ spec) — added after Batch 12: `toProgressItem` (:38) must treat `kept` and `changed-since-preview` as settled on resume
 - Plan reference: implementation-plan.md:1254-1269; design-spec Review F8; prototype/completion.html
 - Pattern to follow: existing `completion.component.ts`
 - Quality requirements: counts equal per-file rows; a kept file is never listed as newly diverged; sidebar shows five outcomes; C10 notice on `libraryPass: 'failed'`.

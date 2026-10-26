@@ -2358,17 +2358,23 @@ describe('AgentGenerationOrchestratorService — file decisions and output root'
       'agent-b',
     );
     expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
-    expect(summary.keptOutcomes).toEqual([
-      {
-        agentId: 'agent-a',
-        filePath: path.join(WS, '.claude', 'agents', 'agent-a.md'),
-        status: 'kept',
-      },
-    ]);
+    const kept = {
+      agentId: 'agent-a',
+      filePath: path.join(WS, '.claude', 'agents', 'agent-a.md'),
+      status: 'kept' as const,
+      rejectedSections: 0,
+      tailoredSections: 0,
+    };
+    expect(summary.outcomes[0]).toEqual(kept);
     expect(summary.keptCount).toBe(1);
     expect(summary.totalAgents).toBe(2);
-    expect(summary.outcomes.map((o) => o.agentId)).toEqual(['agent-b']);
-    expect(onAgentOutcome).toHaveBeenCalledTimes(1);
+    expect(summary.outcomes.map((o) => o.agentId)).toEqual([
+      'agent-a',
+      'agent-b',
+    ]);
+    // The kept agent is checkpointed like every other terminal outcome.
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
+    expect(onAgentOutcome).toHaveBeenCalledWith(kept);
   });
 
   it('completes a run in which every agent was kept, with no LLM call', async () => {
@@ -2445,12 +2451,17 @@ describe('AgentGenerationOrchestratorService — file decisions and output root'
     expect(summary.keptCount).toBe(1);
     expect(summary.changedSincePreviewCount).toBe(1);
     expect(summary.failedCount).toBe(0);
-    expect(summary.outcomes).toEqual([]);
-    expect(summary.keptOutcomes!.map((o) => o.status)).toEqual([
+    expect(summary.outcomes.map((o) => o.status)).toEqual([
       'kept',
       'changed-since-preview',
     ]);
-    expect(onAgentOutcome).not.toHaveBeenCalled();
+    // A file left alone carries none of the render's sections.
+    expect(
+      summary.outcomes.every(
+        (o) => o.rejectedSections === 0 && o.tailoredSections === 0,
+      ),
+    ).toBe(true);
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
   });
 
   it('still fails a run in which every write failed', async () => {

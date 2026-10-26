@@ -1001,7 +1001,7 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(completion.success).toBe(false);
     expect(completion.terminalStatus).toBe('failed');
     expect(manifestAt(h).lifecycle).toBe('running');
-    expect(h.propagation.propagate).toHaveBeenCalled();
+    expect(h.propagation.propagateWithReport).toHaveBeenCalled();
   });
 
   it('propagates written agents after tabless checkpoint finalization fails', async () => {
@@ -1018,7 +1018,7 @@ describe('wizard generation tab ownership and recovery', () => {
     );
     expect(accepted.success).toBe(true);
     await settle();
-    expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+    expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
     expect(manifestAt(h).lifecycle).toBe('running');
     expect(completeBroadcasts(h)[0].success).toBe(false);
   });
@@ -1099,6 +1099,8 @@ function makeSummary(
     writtenCount: written,
     unchangedCount: unchanged,
     failedCount: failed,
+    keptCount: count('kept'),
+    changedSincePreviewCount: count('changed-since-preview'),
     rejectedSections: outcomes.reduce((s, o) => s + o.rejectedSections, 0),
     tailoredSections: outcomes.reduce((s, o) => s + o.tailoredSections, 0),
     lifecycle: written + unchanged === 0 && failed > 0 ? 'failed' : 'completed',
@@ -1268,6 +1270,7 @@ function createMockContainer(
 interface OriginReaderFake {
   read: jest.Mock;
   hashWrittenFile: jest.Mock;
+  recordWritten: jest.Mock;
 }
 
 interface Harness {
@@ -1285,7 +1288,7 @@ interface Harness {
   webviewManager: WebviewManagerFake;
   storage: StorageFake;
   freshness: { getStatus: jest.Mock };
-  propagation: { propagate: jest.Mock };
+  propagation: { propagateWithReport: jest.Mock };
   sentry: MockSentryService;
 }
 
@@ -1329,7 +1332,9 @@ function makeHarness(
     }),
   };
   const propagation = {
-    propagate: jest.fn().mockResolvedValue({ targets: [] }),
+    propagateWithReport: jest
+      .fn()
+      .mockResolvedValue({ health: { targets: [] }, userLayer: 'refreshed' }),
   };
   const registry = new Map<symbol | string, unknown>();
 
@@ -1365,7 +1370,8 @@ function makeHarness(
   const runs = new GenerationRunSupervisor(hostLogger);
   const origins: OriginReaderFake = {
     read: jest.fn().mockResolvedValue({}),
-    hashWrittenFile: jest.fn(),
+    hashWrittenFile: jest.fn().mockResolvedValue('sha256:written'),
+    recordWritten: jest.fn().mockResolvedValue(true),
   };
   const previews = new GenerationPreviewService(
     hostLogger,
@@ -1384,6 +1390,7 @@ function makeHarness(
     checkpoints,
     runs,
     previews,
+    origins,
   );
 
   return {
@@ -2072,9 +2079,10 @@ describe('WizardGenerationRpcHandlers', () => {
         error: 'template missing',
       });
 
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
-      expect(h.propagation.propagate).toHaveBeenCalledWith(
-        WORKSPACE,
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
+      // The harness root of the workspace, which is the workspace itself.
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledWith(
+        path.resolve(WORKSPACE),
         'wizard:generation-complete',
       );
 
@@ -2113,7 +2121,7 @@ describe('WizardGenerationRpcHandlers', () => {
       await call(h, 'wizard:submit-selection', BASE_SUBMIT_PARAMS);
       await settle();
 
-      expect(h.propagation.propagate).not.toHaveBeenCalled();
+      expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
       expect(completeBroadcasts(h)[0]).toMatchObject({
         success: true,
         unchangedCount: 1,
@@ -2230,7 +2238,7 @@ describe('WizardGenerationRpcHandlers', () => {
         outputDirectory: OUTPUT_DIR,
       });
       expect(broadcasts[0].errors?.join('\n')).toMatch(/10-minute limit/);
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
       expect(manifestAt(h).lifecycle).toBe('timed-out');
     });
 
@@ -2291,7 +2299,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(manifest.lifecycle).toBe('paused');
       expect(manifest.agents['agent-a'].status).toBe('written');
       expect(manifest.agents['agent-b'].status).toBe('failed');
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
       const broadcasts = completeBroadcasts(h);
       expect(broadcasts).toHaveLength(1);
       expect(broadcasts[0]).toMatchObject({
@@ -2374,7 +2382,7 @@ describe('WizardGenerationRpcHandlers', () => {
         'agent-c:written',
         'agent-d:unchanged',
       ]);
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
     });
 
     it('refuses a tab-bound checkpoint on an unbound resume and still resumes an unbound one', async () => {
@@ -2571,7 +2579,7 @@ describe('WizardGenerationRpcHandlers', () => {
         failedCount: 0,
       });
       // Nothing was written by this invocation, so nothing propagates.
-      expect(h.propagation.propagate).not.toHaveBeenCalled();
+      expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
     });
   });
 
@@ -2712,7 +2720,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(options.userOverrides).toEqual(['agent-a']);
       expect(options.workspacePath).toBe(WORKSPACE);
       expect(options.abortSignal).toBeInstanceOf(AbortSignal);
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(1);
       expect(completeBroadcasts(h)).toHaveLength(1);
       expect(completeBroadcasts(h)[0]).toMatchObject({
         success: true,
@@ -2727,7 +2735,7 @@ describe('WizardGenerationRpcHandlers', () => {
 
       await call(h, 'wizard:retry-item', { itemId: 'agent-a' });
 
-      expect(h.propagation.propagate).not.toHaveBeenCalled();
+      expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
     });
 
     it('returns the orchestrator error message when the pipeline returns Err', async () => {
@@ -2817,7 +2825,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(manifest.agents['agent-b'].status).toBe('written');
       expect(manifest.agents['agent-b']).not.toHaveProperty('error');
       expect(manifest.lifecycle).toBe('completed');
-      expect(h.propagation.propagate).toHaveBeenCalledTimes(2);
+      expect(h.propagation.propagateWithReport).toHaveBeenCalledTimes(2);
       expect(completeBroadcasts(h)).toHaveLength(2);
     });
   });
@@ -3208,7 +3216,7 @@ describe('WizardGenerationRpcHandlers', () => {
       });
 
       expect(h.gate.enable).not.toHaveBeenCalled();
-      expect(h.propagation.propagate).not.toHaveBeenCalled();
+      expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
       expect(h.reconciler.reconcile).not.toHaveBeenCalled();
       expect(h.storage.writeGenerationManifest).not.toHaveBeenCalled();
       expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
@@ -3535,6 +3543,439 @@ describe('WizardGenerationRpcHandlers', () => {
         expect(result.error).toMatch(/No resumable generation run/);
         expect(h.logger.warn).toHaveBeenCalledWith(
           expect.stringContaining('ignored preview decisions on a resume'),
+        );
+      });
+    });
+
+    describe('run manifest decisions and Library outcome', () => {
+      const AGENT = 'backend-developer';
+      const OTHER = 'code-reviewer';
+      const USER_LAYER_MIRROR = Symbol.for('PtahUserLayerMirrorService');
+
+      const tabFor = (workspacePath: string) => ({
+        tabId: 'tab-library',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath,
+      });
+
+      const expectSamePath = (actual: string | undefined, expected: string) =>
+        expect(
+          path.relative(path.resolve(actual ?? ''), path.resolve(expected)),
+        ).toBe('');
+
+      function agentOutcome(
+        agentId: string,
+        status: GenerationAgentOutcome['status'],
+      ): GenerationAgentOutcome {
+        return {
+          agentId,
+          filePath: path.join(
+            tempWorkspace,
+            '.claude',
+            'agents',
+            `${agentId}.md`,
+          ),
+          status,
+          rejectedSections: 0,
+          tailoredSections: 0,
+        };
+      }
+
+      function storedRun(
+        h: Harness,
+        runId: string,
+      ): GenerationCheckpointManifest {
+        const found = [...h.storage.manifests.values()].find(
+          (manifest) => manifest.runId === runId,
+        );
+        if (!found) throw new Error(`No manifest stored for run ${runId}`);
+        return found;
+      }
+
+      function nestedHarness(): PreviewHarness {
+        const nested = path.join(tempWorkspace, 'packages', 'app');
+        fs.mkdirSync(nested, { recursive: true });
+        const h = makeHarness({ workspaceRoot: nested });
+        const reconciler = {
+          verify: jest.fn().mockResolvedValue(HEALTH),
+          reconcile: jest.fn(),
+        };
+        const sourceResolver = {
+          resolve: jest.fn().mockResolvedValue({ disabledAgentIds: [] }),
+        };
+        h.registry.set(HARNESS_SYNC_TOKENS.RECONCILER, reconciler);
+        h.registry.set(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER, sourceResolver);
+        const gate = h.registry.get(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE) as {
+          enable: jest.Mock;
+        };
+        h.handlers.register();
+        return { ...h, reconciler, sourceResolver, gate };
+      }
+
+      async function boundRun(
+        h: Harness,
+        workspacePath: string,
+        outcomes: GenerationAgentOutcome[],
+        extra: { target?: 'harness-root' | 'opened-folder' } = {},
+      ): Promise<string> {
+        const agentIds = outcomes.map((o) => o.agentId);
+        recordingOrchestrator(h, outcomes);
+        await call(h, 'wizard:preview-generation', {
+          selectedAgentIds: agentIds,
+          tabBinding: tabFor(workspacePath),
+          ...extra,
+        });
+        const submitted = await call<{
+          success: boolean;
+          accepted?: { runId: string };
+        }>(h, 'wizard:submit-selection', {
+          selectedAgentIds: agentIds,
+          tabBinding: tabFor(workspacePath),
+          ...extra,
+        });
+        expect(submitted.success).toBe(true);
+        await settle();
+        return submitted.accepted!.runId;
+      }
+
+      function seedRun(
+        h: Harness,
+        agents: Record<
+          string,
+          GenerationCheckpointManifest['agents'][string]['status']
+        >,
+        extra: Partial<GenerationCheckpointManifest>,
+      ): GenerationCheckpointManifest {
+        const outputDirectory = path.join(tempWorkspace, '.claude', 'agents');
+        const manifest: GenerationCheckpointManifest = {
+          version: 1,
+          runId: 'run-seeded',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:10:00.000Z',
+          lifecycle: 'paused',
+          outputDirectory,
+          selectedAgentIds: Object.keys(agents),
+          input: {},
+          agents: Object.fromEntries(
+            Object.entries(agents).map(([agentId, status]) => [
+              agentId,
+              {
+                agentId,
+                filePath: path.join(outputDirectory, `${agentId}.md`),
+                status,
+                rejectedSections: 0,
+                tailoredSections: 0,
+              },
+            ]),
+          ),
+          ...extra,
+        };
+        h.storage.manifests.set(manifestKey(tempWorkspace, null), manifest);
+        h.storage.resumable = {
+          slugDir: null,
+          manifest: null,
+          generation: manifest,
+        };
+        return manifest;
+      }
+
+      it('persists the target, the output root and the guards, and launches from them', async () => {
+        const h = makePreviewHarness();
+
+        const runId = await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'written'),
+        ]);
+
+        const manifest = storedRun(h, runId);
+        expect(manifest.target).toMatchObject({
+          chosen: 'harness-root',
+          openedIsHarnessRoot: true,
+        });
+        expectSamePath(manifest.outputRoot, tempWorkspace);
+        expect(manifest.fileGuards).toEqual({
+          [AGENT]: { mode: 'create-only' },
+        });
+        expect(firstOptions(h).fileGuards).toEqual(manifest.fileGuards);
+        expect(firstOptions(h).outputRoot).toBe(manifest.outputRoot);
+        expect(completeBroadcasts(h)[0].result).toMatchObject({
+          target: { chosen: 'harness-root' },
+          libraryPass: 'updated',
+          libraryDiverged: [],
+        });
+      });
+
+      it('a folder below the harness root writes under the harness root and records origins there', async () => {
+        const h = nestedHarness();
+
+        const runId = await boundRun(
+          h,
+          path.join(tempWorkspace, 'packages', 'app'),
+          [agentOutcome(AGENT, 'written')],
+        );
+
+        const harnessRoot = path.resolve(tempWorkspace);
+        const manifest = storedRun(h, runId);
+        expectSamePath(manifest.outputRoot, harnessRoot);
+        expectSamePath(
+          manifest.outputDirectory,
+          path.join(harnessRoot, '.claude', 'agents'),
+        );
+        expectSamePath(firstOptions(h).outputRoot, harnessRoot);
+        expect(h.propagation.propagateWithReport).toHaveBeenCalledWith(
+          harnessRoot,
+          'wizard:generation-complete',
+        );
+
+        const written = path.join(
+          harnessRoot,
+          '.claude',
+          'agents',
+          `${AGENT}.md`,
+        );
+        await firstOptions(h).onAgentWritten?.({
+          agentId: AGENT,
+          filePath: written,
+        });
+        expect(h.origins.hashWrittenFile).toHaveBeenCalledWith(written);
+        expect(h.origins.recordWritten).toHaveBeenCalledWith(
+          harnessRoot,
+          AGENT,
+          'sha256:written',
+        );
+
+        // The checkpoint below the harness root is still trusted for recovery.
+        const lookup = await h.handlers.getGenerationRunState({
+          tabBinding: tabFor(path.join(tempWorkspace, 'packages', 'app')),
+        });
+        expect(lookup.run?.result?.target?.chosen).toBe('harness-root');
+      });
+
+      it('the opened-folder target records no origin, grants no consent and runs no Library pass', async () => {
+        const h = nestedHarness();
+        const nested = path.join(tempWorkspace, 'packages', 'app');
+
+        const runId = await boundRun(
+          h,
+          nested,
+          [agentOutcome(AGENT, 'written')],
+          {
+            target: 'opened-folder',
+          },
+        );
+
+        expectSamePath(storedRun(h, runId).outputRoot, nested);
+        expect(firstOptions(h).onAgentWritten).toBeUndefined();
+        expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
+        expect(h.gate.enable).not.toHaveBeenCalled();
+        expect(completeBroadcasts(h)[0].result).toMatchObject({
+          target: { chosen: 'opened-folder' },
+          libraryPass: 'not-applicable',
+          libraryDiverged: [],
+          propagation: { consent: 'not-granted', status: 'not-attempted' },
+        });
+      });
+
+      it('a failed Library refresh after writes reports failed and keeps every outcome', async () => {
+        const h = makePreviewHarness();
+        h.propagation.propagateWithReport.mockResolvedValue({
+          health: { targets: [] },
+          userLayer: 'failed',
+        });
+
+        const runId = await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'written'),
+        ]);
+
+        const result = completeBroadcasts(h)[0].result;
+        expect(result?.libraryPass).toBe('failed');
+        expect(result?.counts).toMatchObject({ written: 1, failed: 0 });
+        expect(result?.agentOutcomes?.[0].status).toBe('written');
+        expect(storedRun(h, runId).agents[AGENT].status).toBe('written');
+        expect(completeBroadcasts(h)[0].success).toBe(true);
+      });
+
+      it('a skipped refresh is not-applicable even after an earlier pass updated the Library', async () => {
+        const h = makePreviewHarness();
+        const runId = await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'written'),
+        ]);
+        expect(completeBroadcasts(h)[0].result?.libraryPass).toBe('updated');
+
+        h.propagation.propagateWithReport.mockResolvedValue({
+          health: { targets: [] },
+          userLayer: 'skipped',
+        });
+        recordingOrchestrator(h, [agentOutcome(AGENT, 'written')]);
+        const retried = await call<{ success: boolean }>(
+          h,
+          'wizard:retry-item',
+          {
+            itemId: AGENT,
+            tabBinding: { ...tabFor(tempWorkspace), runId },
+          },
+        );
+
+        expect(retried.success).toBe(true);
+        expect(completeBroadcasts(h)[1].result?.libraryPass).toBe(
+          'not-applicable',
+        );
+      });
+
+      it('lists only written agents whose edited Library copy diverged from this write', async () => {
+        const h = makePreviewHarness();
+        const readCloneOrigin = jest.fn(
+          async (_kind: string, slug: string) => ({
+            diverged: true,
+            pendingSourceHash: `sha256:${slug}`,
+          }),
+        );
+        h.registry.set(USER_LAYER_MIRROR, { readCloneOrigin });
+        h.origins.read.mockResolvedValue({
+          [AGENT]: { hash: `sha256:${AGENT}`, writtenAt: 1 },
+          [OTHER]: { hash: `sha256:${OTHER}`, writtenAt: 1 },
+        });
+
+        await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'written'),
+          agentOutcome(OTHER, 'kept'),
+        ]);
+
+        const payload = completeBroadcasts(h)[0];
+        expect(payload.result?.libraryDiverged).toEqual([AGENT]);
+        expect(readCloneOrigin).not.toHaveBeenCalledWith(
+          'agent',
+          OTHER,
+          expect.anything(),
+        );
+        // Counts equal rows: the kept agent is a row and a count.
+        expect(payload.keptCount).toBe(1);
+        expect(payload.agents.map((a) => a.status)).toEqual([
+          'written',
+          'kept',
+        ]);
+        expect(payload.result?.counts).toMatchObject({ written: 1, kept: 1 });
+      });
+
+      it('a resume applies the manifest guards only and carries a kept file forward as kept', async () => {
+        const h = makePreviewHarness();
+        const replace = {
+          mode: 'replace-allowed' as const,
+          baseline: { state: 'present' as const, hash: 'sha256:before' },
+        };
+        const seeded = seedRun(
+          h,
+          { [AGENT]: 'pending', [OTHER]: 'pending', 'docs-writer': 'kept' },
+          {
+            outputRoot: tempWorkspace,
+            fileGuards: {
+              [AGENT]: { mode: 'keep' },
+              [OTHER]: replace,
+              'docs-writer': { mode: 'keep' },
+            },
+          },
+        );
+        recordingOrchestrator(h, [
+          agentOutcome(AGENT, 'kept'),
+          agentOutcome(OTHER, 'changed-since-preview'),
+        ]);
+
+        const resumed = await call<{ success: boolean }>(
+          h,
+          'wizard:submit-selection',
+          {
+            resume: true,
+            fileDecisions: { [OTHER]: { decision: 'replace' } },
+          },
+        );
+        expect(resumed.success).toBe(true);
+        await settle();
+
+        const options = firstOptions(h);
+        expect(options.fileGuards).toEqual(seeded.fileGuards);
+        expect(options.outputRoot).toBe(tempWorkspace);
+        expect(options.userOverrides).toEqual([AGENT, OTHER]);
+        const payload = completeBroadcasts(h)[0];
+        expect(payload.keptCount).toBe(2);
+        expect(payload.changedSincePreviewCount).toBe(1);
+        expect(payload.writtenCount).toBe(0);
+        expect(
+          payload.agents.find((a) => a.agentId === 'docs-writer')?.status,
+        ).toBe('kept');
+        expect(storedRun(h, 'run-seeded').agents[OTHER].status).toBe(
+          'changed-since-preview',
+        );
+        // Nothing was written, so nothing propagates.
+        expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
+      });
+
+      it('a manifest from before runs carried guards resumes create-only', async () => {
+        const h = makePreviewHarness();
+        seedRun(h, { [AGENT]: 'pending' }, {});
+        recordingOrchestrator(h, [agentOutcome(AGENT, 'kept')]);
+
+        const resumed = await call<{ success: boolean }>(
+          h,
+          'wizard:submit-selection',
+          { resume: true },
+        );
+        expect(resumed.success).toBe(true);
+        await settle();
+
+        expect(firstOptions(h).fileGuards).toBeUndefined();
+        expect(firstOptions(h).outputRoot).toBeUndefined();
+      });
+
+      it('a retry applies the item guard its run recorded: a kept file is not generated', async () => {
+        const h = makePreviewHarness();
+        const runId = await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'failed'),
+        ]);
+        const [key, manifest] = [...h.storage.manifests.entries()].find(
+          ([, m]) => m.runId === runId,
+        )!;
+        h.storage.manifests.set(key, {
+          ...manifest,
+          fileGuards: { [AGENT]: { mode: 'keep' } },
+        });
+        h.orchestrator.generateAgents.mockClear();
+        recordingOrchestrator(h, [agentOutcome(AGENT, 'kept')]);
+
+        const retried = await call<{ success: boolean }>(
+          h,
+          'wizard:retry-item',
+          {
+            itemId: AGENT,
+            tabBinding: { ...tabFor(tempWorkspace), runId },
+          },
+        );
+
+        expect(retried.success).toBe(true);
+        expect(firstOptions(h).fileGuards).toEqual({
+          [AGENT]: { mode: 'keep' },
+        });
+        expect(firstOptions(h).userOverrides).toEqual([AGENT]);
+        expect(storedRun(h, runId).agents[AGENT].status).toBe('kept');
+      });
+
+      it('a retry whose file changed after the preview keeps the file and says so', async () => {
+        const h = makePreviewHarness();
+        const runId = await boundRun(h, tempWorkspace, [
+          agentOutcome(AGENT, 'failed'),
+        ]);
+        recordingOrchestrator(h, [
+          agentOutcome(AGENT, 'changed-since-preview'),
+        ]);
+
+        const retried = await call<{ success: boolean; error?: string }>(
+          h,
+          'wizard:retry-item',
+          { itemId: AGENT, tabBinding: { ...tabFor(tempWorkspace), runId } },
+        );
+
+        expect(retried.success).toBe(false);
+        expect(retried.error).toMatch(/changed after the preview/);
+        expect(storedRun(h, runId).agents[AGENT].status).toBe(
+          'changed-since-preview',
         );
       });
     });

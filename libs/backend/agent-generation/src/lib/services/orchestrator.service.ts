@@ -53,7 +53,6 @@ import {
   GenerationSummary,
   ValidationResult,
   type AgentFileGuard,
-  type KeptAgentOutcome,
   type OrchestratorGenerationOptions,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
@@ -462,7 +461,6 @@ export class AgentGenerationOrchestratorService {
           tailoredSections: 0,
           lifecycle: 'completed',
           outcomes: [],
-          keptOutcomes: [],
         });
       }
       this.logger.info(
@@ -476,8 +474,7 @@ export class AgentGenerationOrchestratorService {
         agentsProcessed: 0,
       });
 
-      const { outcomes, keptOutcomes, renderedAgents } =
-        await this.produceAgents(
+      const { outcomes, renderedAgents } = await this.produceAgents(
         selections,
         projectContext,
         outputDirectory,
@@ -494,20 +491,17 @@ export class AgentGenerationOrchestratorService {
         (o) => o.status === 'unchanged',
       ).length;
       const failedCount = outcomes.filter((o) => o.status === 'failed').length;
-      const keptCount = keptOutcomes.filter((o) => o.status === 'kept').length;
-      const changedSincePreviewCount = keptOutcomes.filter(
+      const keptCount = outcomes.filter((o) => o.status === 'kept').length;
+      const changedSincePreviewCount = outcomes.filter(
         (o) => o.status === 'changed-since-preview',
       ).length;
       const successful = writtenCount + unchangedCount;
+      const leftAlone = keptCount + changedSincePreviewCount;
       // A file left alone by its decision is a settled agent, not a failure:
       // a run that kept every file completed.
-      const settled = successful + keptOutcomes.length;
+      const settled = successful + leftAlone;
 
-      if (
-        !aborted &&
-        renderedAgents.length === 0 &&
-        keptOutcomes.length === 0
-      ) {
+      if (!aborted && renderedAgents.length === 0 && leftAlone === 0) {
         return Result.err(new Error('No agents were successfully rendered'));
       }
       if (!aborted && settled === 0) {
@@ -542,7 +536,7 @@ export class AgentGenerationOrchestratorService {
           : 'completed';
 
       const summary: GenerationSummary = {
-        totalAgents: outcomes.length + keptOutcomes.length,
+        totalAgents: outcomes.length,
         successful,
         failed: failedCount,
         durationMs,
@@ -563,7 +557,6 @@ export class AgentGenerationOrchestratorService {
         ),
         lifecycle,
         outcomes,
-        keptOutcomes,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
       };
 
@@ -777,8 +770,9 @@ export class AgentGenerationOrchestratorService {
   /**
    * Phases 3 and 4, one agent at a time: render with LLM-driven content, then
    * write. Every selected agent ends with exactly one terminal outcome
-   * (`written`, `unchanged` or `failed`) and `options.onAgentOutcome` fires
-   * once per outcome so a caller can checkpoint it.
+   * (`written`, `unchanged`, `kept`, `changed-since-preview` or `failed`) and
+   * `options.onAgentOutcome` fires once per outcome so a caller can
+   * checkpoint it.
    *
    * The abort signal is checked before each agent is rendered and again
    * before each write. Once it fires, every remaining selected agent becomes
@@ -794,11 +788,9 @@ export class AgentGenerationOrchestratorService {
     warnings: string[] = [],
   ): Promise<{
     outcomes: GenerationAgentOutcome[];
-    keptOutcomes: KeptAgentOutcome[];
     renderedAgents: GeneratedAgent[];
   }> {
     const outcomes: GenerationAgentOutcome[] = [];
-    const keptOutcomes: KeptAgentOutcome[] = [];
     const renderedAgents: GeneratedAgent[] = [];
     const signal = options.abortSignal;
     const total = selections.length;
@@ -843,7 +835,13 @@ export class AgentGenerationOrchestratorService {
       if (guard.mode === 'keep') {
         // The user keeps this file: no template load, no LLM call, no write.
         this.logger.debug(`Keeping agent file: ${agentId}`);
-        keptOutcomes.push({ agentId, filePath, status: 'kept' });
+        await record({
+          agentId,
+          filePath,
+          status: 'kept',
+          rejectedSections: 0,
+          tailoredSections: 0,
+        });
         continue;
       }
 
@@ -942,30 +940,22 @@ export class AgentGenerationOrchestratorService {
       }
 
       const written = writeResult.value!;
-      if (
-        written.status === 'kept' ||
-        written.status === 'changed-since-preview'
-      ) {
-        keptOutcomes.push({
-          agentId,
-          filePath: written.filePath,
-          status: written.status,
-        });
-        continue;
-      }
       if (written.status === 'written') {
         await this.notifyWritten(options, agentId, written.filePath);
       }
+      // A file left alone carries none of this render's sections.
+      const leftAlone =
+        written.status === 'kept' || written.status === 'changed-since-preview';
       await record({
         agentId,
         filePath: written.filePath,
         status: written.status,
-        rejectedSections: resolved.rejectedSections,
-        tailoredSections: resolved.tailoredSections,
+        rejectedSections: leftAlone ? 0 : resolved.rejectedSections,
+        tailoredSections: leftAlone ? 0 : resolved.tailoredSections,
       });
     }
 
-    return { outcomes, keptOutcomes, renderedAgents };
+    return { outcomes, renderedAgents };
   }
 
   /**
