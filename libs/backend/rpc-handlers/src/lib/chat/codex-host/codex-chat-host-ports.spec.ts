@@ -99,7 +99,7 @@ describe('Codex chat host ports', () => {
       logger,
       platform: { platform: process.platform, arch: process.arch },
       info: {
-        id: 'ptah-cli',
+        id: 'codex-app-server',
         name: 'Codex',
         version: '1.0.0',
         description: 'Native Codex chat test provider',
