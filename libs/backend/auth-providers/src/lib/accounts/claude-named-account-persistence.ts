@@ -1,5 +1,6 @@
 import { inject, injectable } from 'tsyringe';
-import { SDK_TOKENS, type SessionMetadata, type SessionMetadataStore } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, type NamedAccountPersistencePort, type SessionMetadata,
+  type SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type { ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ClaudeCertifiedLaunchContext,
   ClaudeLaunchBoundary, ClaudeLaunchBoundaryOutcome } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding, ProviderAccountIdentityEvidence } from '@ptah-extension/shared';
@@ -41,7 +42,7 @@ function routeFailure(error: unknown): ProviderAccountStoreError {
  * Not registered by this library; the Electron host binds it.
  */
 @injectable()
-export class ClaudeNamedAccountPersistence {
+export class ClaudeNamedAccountPersistence implements NamedAccountPersistencePort {
   readonly available = true;
 
   constructor(

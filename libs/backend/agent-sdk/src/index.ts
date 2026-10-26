@@ -467,3 +467,11 @@ export {
 } from './lib/helpers/claude-certified-launch';
 export { claudeIdentityReference } from './lib/helpers/claude-identity-reference';
 export * from './lib/helpers/named-account-prompt-gate';
+// Named Claude account host bindings (TASK_2026_719 B17): a certifying host
+// replaces the null defaults `registerSdkServices` binds to these tokens.
+export { SDK_NAMED_ACCOUNT_PERSISTENCE } from './lib/helpers/sdk-query-runner.service';
+export type { NamedAccountPersistencePort } from './lib/helpers/session-lifecycle/session-query-executor.service';
+export {
+  SDK_SESSION_IMPORT_BINDING_LOOKUP,
+  type SessionImportBindingLookup,
+} from './lib/session-importer.service';

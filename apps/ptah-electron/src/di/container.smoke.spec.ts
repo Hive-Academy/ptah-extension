@@ -19,11 +19,20 @@
 
 import 'reflect-metadata';
 import {
+  ClaudeNamedAccountPersistence,
   OpenRouterPricingService,
   ProviderAccountService,
+  registerAuthProvidersServices,
 } from '@ptah-extension/auth-providers';
-import { SessionStatsReaderService } from '@ptah-extension/agent-sdk';
-import { registerUsageAnalytics, USAGE_ANALYTICS_TOKENS } from '@ptah-extension/usage-analytics';
+import {
+  SDK_NAMED_ACCOUNT_PERSISTENCE,
+  SDK_SESSION_IMPORT_BINDING_LOOKUP,
+  SessionStatsReaderService,
+} from '@ptah-extension/agent-sdk';
+import {
+  registerUsageAnalytics,
+  USAGE_ANALYTICS_TOKENS,
+} from '@ptah-extension/usage-analytics';
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -55,6 +64,7 @@ import {
 } from '@ptah-extension/lane-outcomes';
 import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
+  CLAUDE_LANE_ACCOUNT_PERSISTENCE,
   CLI_AGENT_RUNTIME_TOKENS,
   ChildWorktreeProvisioner,
   LaneCompletionNotifier,
@@ -92,6 +102,7 @@ import {
 import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
+import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
 
@@ -99,11 +110,21 @@ describe('Electron DI — host attention coordinator', () => {
   it('resolves the phase-2 singleton independently of handler classes', () => {
     const c = buildMinimalContainer();
     c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
-      useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+      useValue: {
+        present: jest.fn(),
+        resolve: jest.fn(),
+        isEligible: jest.fn(() => false),
+        open: jest.fn(),
+        dispose: jest.fn(),
+      },
     });
-    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: { getWorkspaceRoot: jest.fn(() => null) } });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: { getWorkspaceRoot: jest.fn(() => null) },
+    });
     registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
-    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: { get: jest.fn(), getAll: jest.fn() } });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, {
+      useValue: { get: jest.fn(), getAll: jest.fn() },
+    });
     const coordinator = c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN);
     expect(coordinator).toBeDefined();
     expect(c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN)).toBe(coordinator);
@@ -130,7 +151,13 @@ function buildMinimalContainer(): DependencyContainer {
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
   c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
-    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+    useValue: {
+      present: jest.fn(),
+      resolve: jest.fn(),
+      isEligible: jest.fn(() => false),
+      open: jest.fn(),
+      dispose: jest.fn(),
+    },
   });
 
   c.register(TOKENS.LOGGER, {
@@ -273,8 +300,14 @@ function buildMinimalContainer(): DependencyContainer {
     },
   );
 
-  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
-  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
+  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(
+    OpenRouterPricingService,
+    { useValue: { getPricing: jest.fn() } },
+  );
+  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(
+    SessionStatsReaderService,
+    { useValue: { scanDatedUsage: jest.fn() } },
+  );
   registerUsageAnalytics(c);
   registerSharedRpcHandlers(c);
   return c;
@@ -288,7 +321,9 @@ describe('Electron DI — shared RPC handler resolution', () => {
   });
 
   it('resolves the usage analytics service token', () => {
-    expect(c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE)).toBeDefined();
+    expect(
+      c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE),
+    ).toBeDefined();
   });
 
   it.each(
@@ -313,6 +348,18 @@ describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
     c.register<Pick<ProviderAccountService, 'list'>>(ProviderAccountService, {
       useValue: { list: jest.fn(() => []) },
     });
+    // The handler injects the actions port by its token (Batch 17).
+    const unsubscribe = jest.fn();
+    const actions = {
+      readStatus: jest.fn(),
+      startSignIn: jest.fn(),
+      cancelSignIn: jest.fn(),
+      signOut: jest.fn(),
+      onStateChanged: jest.fn(() => unsubscribe),
+    };
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS, {
+      useValue: actions,
+    });
 
     const handlers = c.resolve(ProviderAccountRpcHandlers);
     expect(handlers).toBeInstanceOf(ProviderAccountRpcHandlers);
@@ -323,6 +370,7 @@ describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
     );
     rpcHandler.registerMethod.mockClear();
     handlers.register();
+    expect(actions.onStateChanged).toHaveBeenCalledTimes(1);
     const registered = rpcHandler.registerMethod.mock.calls.map(
       ([method]) => method as string,
     );
@@ -339,6 +387,96 @@ describe('Electron DI — provider accounts (TASK_2026_712 D32)', () => {
       c.resolve<Logger>(TOKENS.LOGGER),
     );
     expect(profile.capabilities.providerAccounts).toBe(true);
+  });
+});
+
+/**
+ * Named Claude account persistence (TASK_2026_719 B17). Runs the REAL
+ * auth-providers and agent-sdk registrations in phase 2 order, then the REAL
+ * Electron binding helper. `phase-2-libraries.ts` cannot load under Jest, so
+ * its call site is pinned by reading the source.
+ */
+describe('Electron DI — named Claude account persistence (TASK_2026_719 B17)', () => {
+  function buildAccountsContainer(withSqlite: boolean): DependencyContainer {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerAuthProvidersServices(c, logger);
+    registerSdkServices(c, logger);
+    // Leaf stubs for collaborators whose own graphs this harness does not
+    // bind. The assertions cover only the account persistence slots.
+    for (const token of [
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+      SDK_TOKENS.SDK_RUNTIME_STATE,
+      SDK_TOKENS.SDK_MODULE_LOADER,
+      SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
+      SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+      SDK_TOKENS.SDK_MODEL_SERVICE,
+    ]) {
+      c.register(token, { useValue: {} });
+    }
+    c.register(PLATFORM_TOKENS.PLATFORM_INFO, {
+      useValue: { platform: process.platform },
+    });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, {
+      useValue: {
+        saveAccountBound: jest.fn(async () => undefined),
+        resolveAccountBinding: jest.fn(async () => null),
+      },
+    });
+    c.register<Pick<ProviderAccountService, 'readStoredSelection'>>(
+      ProviderAccountService,
+      { useValue: { readStoredSelection: jest.fn(async () => ({ profileId: null })) } },
+    );
+    if (withSqlite) {
+      c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    }
+    return c;
+  }
+
+  it('binds the three tokens to one adapter and the query runner holds it', () => {
+    const c = buildAccountsContainer(true);
+    expect(registerClaudeNamedAccountBindings(c)).toBe(true);
+
+    const adapter = c.resolve(ClaudeNamedAccountPersistence);
+    expect(adapter).toBeInstanceOf(ClaudeNamedAccountPersistence);
+    expect(c.resolve(SDK_NAMED_ACCOUNT_PERSISTENCE)).toBe(adapter);
+    expect(c.resolve(SDK_SESSION_IMPORT_BINDING_LOOKUP)).toBe(adapter);
+    expect(c.resolve(CLAUDE_LANE_ACCOUNT_PERSISTENCE)).toBe(adapter);
+    expect(
+      c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER),
+    ).not.toBeNull();
+
+    const runner = c.resolve<{ accountPersistence: unknown }>(
+      SDK_TOKENS.SDK_QUERY_RUNNER,
+    );
+    expect(runner.accountPersistence).not.toBeNull();
+    expect(runner.accountPersistence).toBe(adapter);
+  });
+
+  it('keeps the null defaults when SQLITE_CONNECTION is not registered', () => {
+    const c = buildAccountsContainer(false);
+    expect(registerClaudeNamedAccountBindings(c)).toBe(false);
+    expect(c.resolve(SDK_NAMED_ACCOUNT_PERSISTENCE)).toBeNull();
+    expect(c.resolve(SDK_SESSION_IMPORT_BINDING_LOOKUP)).toBeNull();
+    expect(c.isRegistered(CLAUDE_LANE_ACCOUNT_PERSISTENCE, true)).toBe(false);
+    const runner = c.resolve<{ accountPersistence: unknown }>(
+      SDK_TOKENS.SDK_QUERY_RUNNER,
+    );
+    expect(runner.accountPersistence).toBeNull();
+  });
+
+  it('phase 2 calls the binding helper after the SQLite block', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const sqlite = source.indexOf('registerPersistenceSqliteServices(container, logger);');
+    const bind = source.indexOf('registerClaudeNamedAccountBindings(container)');
+    const sdk = source.indexOf('registerSdkServices(container, logger);');
+    expect(sqlite).toBeGreaterThan(-1);
+    expect(sdk).toBeGreaterThan(-1);
+    expect(bind).toBeGreaterThan(sqlite);
+    expect(bind).toBeGreaterThan(sdk);
   });
 });
 
@@ -505,7 +643,9 @@ describe('Electron DI — lane outcomes', () => {
     const runtime = source.indexOf(
       'registerCliAgentRuntimeServices(container, logger);',
     );
-    expect(source).toContain('container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });');
+    expect(source).toContain(
+      'container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });',
+    );
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
       'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
