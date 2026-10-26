@@ -379,10 +379,12 @@ const isOldTicket = (ticket) => !ticket.unreadable && ticket.format !== FORMAT;
 /**
  * Whether `ticket` at queue index `index` can take one of the `free` slots
  * now. An old client takes only slot 0, and only from the head of the queue.
+ * A new client takes only slots below its own PTAH_VERIFY_SLOTS (`slots`).
  */
 function canTakeNow(ticket, index, free) {
-  if (!free.length) return false;
-  return isOldTicket(ticket) ? index === 0 && free.includes(0) : true;
+  if (isOldTicket(ticket)) return index === 0 && free.includes(0);
+  const limit = typeof ticket.slots === 'number' ? ticket.slots : Infinity;
+  return free.some((slot) => slot < limit);
 }
 
 /**
@@ -474,6 +476,7 @@ export async function acquire({ task, worktree, onWait = () => {} }) {
     token: randomBytes(12).toString('hex'),
     startedAt: Date.now(),
     format: FORMAT,
+    slots: slotCount(),
   };
   const ticketName = `${String(Date.now()).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`;
   const ticketFile = path.join(paths.queue, ticketName);

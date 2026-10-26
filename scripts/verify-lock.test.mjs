@@ -136,6 +136,16 @@ test('a waiter whose ticket is not in the queue read does not take a slot', () =
   assert.match(result.wait, /queue ticket is visible/);
 });
 
+test('a ticket ahead with fewer slots does not block a free higher slot', () => {
+  const result = admission({
+    ...base,
+    ticketName: 'b',
+    queue: [{ ...ticket('one-slot'), slots: 1 }, ticket('b')],
+    holders: [holder(0)],
+  });
+  assert.deepEqual(result, { take: 1 });
+});
+
 test('PTAH_VERIFY_SLOTS=1 keeps the single-holder behavior', () => {
   const result = admission({
     ...base,
