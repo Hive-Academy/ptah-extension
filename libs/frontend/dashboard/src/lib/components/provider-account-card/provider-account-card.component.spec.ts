@@ -109,7 +109,7 @@ describe('ProviderAccountCardComponent', () => {
         { provide: PlanLimitsStore, useValue: store },
         {
           provide: AuthStateService,
-          useValue: { persistedProviderId: providerId },
+          useValue: { activeProviderId: providerId },
         },
         { provide: AppStateManager, useValue: appState },
         ...(locale ? [{ provide: LOCALE_ID, useValue: locale }] : []),
@@ -386,7 +386,7 @@ describe('ProviderAccountCardComponent', () => {
           { provide: AppStateManager, useValue: appState },
           {
             provide: AuthStateService,
-            useValue: { persistedProviderId: signal('anthropic') },
+            useValue: { activeProviderId: signal('anthropic') },
           },
         ],
       });
@@ -441,7 +441,7 @@ describe('ProviderAccountCardComponent', () => {
         { provide: AppStateManager, useValue: appState },
         {
           provide: AuthStateService,
-          useValue: { persistedProviderId: selected },
+          useValue: { activeProviderId: selected },
         },
       ],
     });

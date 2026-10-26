@@ -40,13 +40,13 @@ import {
   ConfigAutopilotGetParams,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  SdkModelInfo,
   ConfigEffortSetParams,
   ConfigEffortSetResult,
   ConfigEffortGetResult,
   ConfigPricingGetResult,
   getModelPricingDescription,
   getPricingMap,
-  type EffortLevel,
   type SessionId,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
@@ -55,6 +55,7 @@ import {
   parseEffortLevel,
   parseApplyTo,
 } from './config-rpc.schema';
+import { isTierAlias, savedModelOption } from './config-saved-model-option';
 
 /**
  * RPC handlers for configuration operations
@@ -283,7 +284,15 @@ export class ConfigRpcHandlers {
   }
 
   /**
-   * config:model-get - Get current model selection
+   * config:model-get - Get current model selection.
+   *
+   * A pure read: returns the stored value verbatim. It used to "migrate" every
+   * value not starting with `claude-` by re-saving it at the default (global)
+   * target, and `ComputedSettingHandle.set` then cleared the more specific
+   * scopes. A model saved for "This workspace" (e.g. `gpt-6-luna`, `haiku`)
+   * was therefore copied to the global key and its workspace override wiped by
+   * the Settings read-back. Tier aliases and third-party ids are valid as
+   * stored; `config:models-list` resolves them for the picker.
    */
   private registerModelGet(): void {
     this.rpcHandler.registerMethod<void, ConfigModelGetResult>(
@@ -291,20 +300,7 @@ export class ConfigRpcHandlers {
       async () => {
         try {
           this.logger.debug('RPC: config:model-get called');
-
           const stored = this.modelSettings.selectedModel.get() || '';
-          if (stored === 'default') {
-            return { model: stored };
-          }
-          if (stored && !stored.startsWith('claude-')) {
-            const resolved = this.modelResolver.resolve(stored);
-            this.logger.info(
-              `RPC: config:model-get migrating legacy value '${stored}' → '${resolved}'`,
-            );
-            await this.modelSettings.selectedModel.set(resolved);
-            return { model: resolved };
-          }
-
           return { model: stored || 'default' };
         } catch (error) {
           this.logger.error(
@@ -518,15 +514,17 @@ export class ConfigRpcHandlers {
             subscriptionCovered: this.modelResolver.isSubscriptionCovered(),
           };
           const sdkModelIds = new Set(sdkModels.map((m) => m.value));
-          const models: Array<{
-            id: string;
-            name: string;
-            description: string;
-            isSelected: boolean;
-            isRecommended: boolean;
-            providerModelId: string | null;
-            tier: 'opus' | 'sonnet' | 'haiku' | undefined;
-          }> = [];
+          // A saved Claude id or bare tier alias selects the entry it
+          // resolves to (Codex `haiku` -> the listed `gpt-6-luna`), so a
+          // workspace saved as `haiku` no longer shows "Default".
+          const resolvesSaved =
+            savedModel.startsWith('claude-') || isTierAlias(savedModel);
+          const matchesSaved = (value: string): boolean =>
+            value === savedModel ||
+            (resolvesSaved &&
+              value.toLowerCase() !== 'default' &&
+              this.modelResolver.resolve(value) === resolvedSavedModel);
+          const models: SdkModelInfo[] = [];
 
           for (const m of sdkModels) {
             let tier = this.modelResolver.detectTier(m.value);
@@ -548,11 +546,7 @@ export class ConfigRpcHandlers {
               description: providerModelId
                 ? getModelPricingDescription(providerModelId, pricingOptions)
                 : m.description,
-              isSelected:
-                m.value === savedModel ||
-                (savedModel.startsWith('claude-') &&
-                  m.value.toLowerCase() !== 'default' &&
-                  this.modelResolver.resolve(m.value) === resolvedSavedModel),
+              isSelected: matchesSaved(m.value),
               isRecommended: m.value.toLowerCase().includes('sonnet'),
               providerModelId,
               tier,
@@ -573,15 +567,14 @@ export class ConfigRpcHandlers {
               description: providerModelId
                 ? getModelPricingDescription(providerModelId, pricingOptions)
                 : getModelPricingDescription(m.value, pricingOptions),
-              isSelected:
-                m.value === savedModel ||
-                (savedModel.startsWith('claude-') &&
-                  m.value.toLowerCase() !== 'default' &&
-                  this.modelResolver.resolve(m.value) === resolvedSavedModel),
+              isSelected: matchesSaved(m.value),
               isRecommended: false,
               providerModelId,
               tier,
             });
+          }
+          if (!models.some((m) => m.isSelected)) {
+            this.appendSavedModel(models, savedModel, pricingOptions);
           }
           const exactMatchIndex = models.findIndex((m) => m.id === savedModel);
           if (exactMatchIndex !== -1) {
@@ -623,6 +616,36 @@ export class ConfigRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * Offer a saved model the list did not carry (D1): a concrete id the active
+   * provider declares but that is not one of its tier mappings. Without this
+   * the picker selected nothing and "Default" ran the turn on the opus tier.
+   */
+  private appendSavedModel(
+    models: SdkModelInfo[],
+    savedModel: string,
+    pricingOptions: { subscriptionCovered: boolean },
+  ): void {
+    const providerId = this.providerModels.resolveActiveProviderId();
+    const option = savedModelOption(
+      providerId,
+      savedModel,
+      this.providerModels.getCachedModelIds(providerId),
+    );
+    if (!option) return;
+    models.push({
+      id: option.id,
+      name: option.name,
+      description:
+        option.description ||
+        getModelPricingDescription(option.id, pricingOptions),
+      isSelected: true,
+      isRecommended: false,
+      providerModelId: null,
+      tier: undefined,
+    });
   }
 
   /**

@@ -8,12 +8,18 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - Verify with `npm run verify`. It runs `nx affected -t lint test typecheck --base=main`.
   - Only some projects or targets: `npm run verify -- -p A,B` / `npm run verify -- -t test -p A`.
   - Extra Nx or Jest flags go after a second `--`: `npm run verify -- -p A -- --testPathPatterns=foo`.
-- `npm run verify` takes a machine-wide FIFO lock first, so only one heavy check runs at a time
-  across all sessions, lanes and worktrees. While it waits it prints `waiting on <holder>`. Do not
-  message other sessions about a "slot". `node scripts/verify.mjs --status` shows the holder and
-  the queue. A lock whose process is dead or older than 120 minutes is taken over automatically.
+- `npm run verify` takes a slot of a machine-wide FIFO counting lock first, so at most 2 heavy
+  checks run at a time across all sessions, lanes and worktrees. A second check starts only while
+  at least 8 GB of memory is free and the first check has run for 30 s. A check on an empty lock
+  always starts. While it waits it prints why (`waiting for a slot` / `waiting for memory`). Do
+  not message other sessions about a "slot". `node scripts/verify.mjs --status` shows the slot
+  holders, the queue and the free memory. A slot whose process is dead or older than 120 minutes
+  is taken over automatically.
+  - Tune per shell: `PTAH_VERIFY_SLOTS` (default 2; 1 restores one check at a time),
+    `PTAH_VERIFY_MIN_FREE_GB` (default 8), `PTAH_VERIFY_SETTLE_SEC` (default 30).
 - The caps are in config: `nx.json` runs one task at a time and `jest.preset.js` gives Jest 2
-  workers. Run any other heavy command under the same lock:
+  workers per check. Do not raise them: Nx tasks, Jest workers and lock slots multiply. Run any
+  other heavy command under the same lock:
   `node scripts/verify.mjs --exec --task <name> -- <command> [args...]`.
 - Test, lint and typecheck results are cached in one Nx cache that the main checkout and every
   worktree share (`~/.nx/<workspace-id>/`). A check that main already passed is a cache hit.

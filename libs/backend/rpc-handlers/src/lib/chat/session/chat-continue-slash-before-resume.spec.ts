@@ -224,6 +224,9 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
     } as never,
     {
+      resolveStoredModel: jest.fn(
+        (_path: string, model: string) => model || 'default',
+      ),
       resolveProviderProfileForWorkspace: jest
         .fn()
         .mockResolvedValue(undefined),
@@ -580,6 +583,9 @@ describe('Apps MCP tool profile threading', () => {
         } as never,
         { streamEventsToWebview: jest.fn() } as never,
         {
+          resolveStoredModel: jest.fn(
+            (_path: string, model: string) => model || 'default',
+          ),
           resolveProviderProfileForWorkspace: jest
             .fn()
             .mockResolvedValue(undefined),

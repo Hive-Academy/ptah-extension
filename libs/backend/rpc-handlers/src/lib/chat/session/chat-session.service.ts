@@ -876,8 +876,6 @@ export class ChatSessionService {
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
     });
 
-    const currentModel =
-      options?.model || this.modelSettings.selectedModel.get() || 'default';
     const files = options?.files ?? [];
     if (files.length > 0) {
       this.logger.debug(`RPC: ${logLabel} received files`, {
@@ -890,6 +888,14 @@ export class ChatSessionService {
     const mcpServersOverride = await this.buildMcpServersOverride(
       input.mcpServersOverride,
     );
+    // Checked after the last await before the profile read, so both see the
+    // same provider.
+    const currentModel =
+      options?.model ||
+      this.workspaceProviderProfileResolver.resolveStoredModel(
+        workspaceId,
+        this.modelSettings.selectedModel.get(),
+      );
     // Resolve an isolated per-workspace provider profile so a session in
     // workspace A runs against A's provider even when a different workspace's
     // provider is currently the process-global active one. `undefined` only
@@ -1618,7 +1624,11 @@ export class ChatSessionService {
     });
 
     const currentModel =
-      params.model || this.modelSettings.selectedModel.get() || 'default';
+      params.model ||
+      this.workspaceProviderProfileResolver.resolveStoredModel(
+        workspacePath,
+        this.modelSettings.selectedModel.get(),
+      );
 
     try {
       // Same per-workspace isolation as chat:start — the resumed turn must run

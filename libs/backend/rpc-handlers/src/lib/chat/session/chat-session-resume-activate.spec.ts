@@ -203,6 +203,9 @@ function makeService(params: {
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
     } as never,
     {
+      resolveStoredModel: jest.fn(
+        (_path: string, model: string) => model || 'default',
+      ),
       resolveProviderProfileForWorkspace: jest
         .fn()
         .mockResolvedValue(undefined),
