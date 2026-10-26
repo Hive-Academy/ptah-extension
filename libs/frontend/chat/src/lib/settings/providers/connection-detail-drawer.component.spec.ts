@@ -269,6 +269,47 @@ describe('ConnectionDetailDrawerComponent', () => {
       expect(query('ptah-accounts-tab')).toBeNull();
     });
 
+    describe('initialTab', () => {
+      const selectedTab = () => query('[role="tab"][aria-selected="true"]')?.textContent?.trim();
+
+      it('opens on Accounts for the Claude subscription when requested and available', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        expect(selectedTab()).toBe('Accounts');
+        expect(query('ptah-accounts-tab')).not.toBeNull();
+      });
+
+      it('opens on Overview without it', () => {
+        render({ connection: CLAUDE_CLI, accountsAvailable: true });
+        expect(selectedTab()).toBe('Overview & Used By');
+        expect(query('ptah-accounts-tab')).toBeNull();
+      });
+
+      it('falls back to Overview when the requested tab is not shown (inert host or another kind)', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: false });
+        expect(selectedTab()).toBe('Overview & Used By');
+        expect(query('ptah-accounts-tab')).toBeNull();
+        render({ connection: KIMI_CODE, accountsAvailable: true });
+        expect(selectedTab()).toBe('Overview & Used By');
+      });
+
+      it('re-applies the requested tab when the connection changes', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        selectTab('Credentials');
+        expect(selectedTab()).toBe('Credentials');
+        render({ connection: KIMI_CODE });
+        expect(selectedTab()).toBe('Overview & Used By');
+        render({ connection: CLAUDE_CLI });
+        expect(selectedTab()).toBe('Accounts');
+      });
+
+      it('opens on Overview again once the request is cleared', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        render({ connection: null, initialTab: null });
+        render({ connection: CLAUDE_CLI });
+        expect(selectedTab()).toBe('Overview & Used By');
+      });
+    });
+
     it('lets the tab strip wrap instead of keeping every label on one line', () => {
       render({ connection: CLAUDE_CLI, accountsAvailable: true });
       const strip = byTestId('connection-drawer-tabs');

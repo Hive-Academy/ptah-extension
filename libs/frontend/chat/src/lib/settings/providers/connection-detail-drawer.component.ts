@@ -161,6 +161,11 @@ export class ConnectionDetailDrawerComponent {
   readonly customProtocol = input<CustomProtocol | null>(null);
   /** The host serves named Claude accounts (account state not inert); otherwise the Accounts tab is absent. */
   readonly accountsAvailable = input(false);
+  /**
+   * The tab the drawer opens on each time the connection changes (e.g. the main agent's "Sign in" opens
+   * Accounts). `null` opens Overview; a tab this connection does not show falls back to Overview.
+   */
+  readonly initialTab = input<ConnectionDrawerTabId | null>(null);
   /** Credentials tab: stored endpoint and tiers, its own last write, the host's sign-in message. */
   readonly credentialsSetup = input<CredentialsSetup | null>(null);
   readonly credentialsSetupError = input(false);
@@ -258,10 +263,11 @@ export class ConnectionDetailDrawerComponent {
   }
 
   constructor() {
-    // Every connection opens on Overview.
+    // Every connection opens on the requested tab, or Overview; `activeTabId` falls back to Overview when
+    // the requested tab is not one of this connection's tabs. Changing only `initialTab` does not move it.
     effect(() => {
       this.connectionId();
-      untracked(() => this.activeTab.set('overview'));
+      untracked(() => this.activeTab.set(this.initialTab() ?? 'overview'));
     });
   }
 }
