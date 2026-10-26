@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { AppStateManager, ATTENTION_LANE_OPENER, LoggingService, NOTIFICATION_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService } from '@ptah-extension/core';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
 import { AgentPermissionResponder } from './agent-permission-responder';
@@ -9,6 +10,7 @@ describe('ChatAttentionActionDispatcherService', () => {
   const respondLane = jest.fn();
   const respondSession = jest.fn(() => true);
   const isSessionPending = jest.fn(() => true);
+  const handleApprovalDecision = jest.fn(() => true);
   const focus = jest.fn();
   const openLane = jest.fn();
   const upsert = jest.fn();
@@ -47,10 +49,17 @@ describe('ChatAttentionActionDispatcherService', () => {
               actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
                 { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' }] },
             target: { kind: 'permission', request: { id: 'closed-tab' }, tabId: undefined },
+          } : key === 'codex' ? {
+            item: { ...live.item, key, kind: 'permission',
+              actions: [{ id: 'allow', label: 'Accept' }, { id: 'always_allow', label: 'Accept for session' },
+                { id: 'deny', label: 'Decline' }, { id: 'cancel', label: 'Cancel' }] },
+            target: { kind: 'permission', request: { id: 'codex-1',
+              allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'] }, tabId: 'tab' },
           } : key === 'lane'
             ? { ...live, item: { ...live.item, workspacePath: itemWorkspacePath, tabId: itemTabId } } : undefined,
       } },
       { provide: AgentPermissionResponder, useValue: { respondLane, respondSession, isSessionPending } },
+      { provide: PermissionHandlerService, useValue: { handleApprovalDecision } },
       { provide: NotificationService, useValue: { upsert } },
       { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
       { provide: ATTENTION_LANE_OPENER, useValue: { open: openLane } },
@@ -71,6 +80,23 @@ describe('ChatAttentionActionDispatcherService', () => {
   it.each(['allow', 'always_allow', 'deny'] as const)('dispatches a closed-tab permission through the session responder: %s', async decision => {
     expect(await service.dispatchOutcome('permission', 1, decision)).toEqual({ kind: 'completed' });
     expect(respondSession).toHaveBeenCalledWith({ id: 'closed-tab' }, decision, undefined);
+  });
+
+  it.each([
+    ['allow', 'accept'], ['always_allow', 'acceptForSession'], ['deny', 'decline'], ['cancel', 'cancel'],
+  ] as const)('answers a native %s action with the %s decision', async (actionId, decision) => {
+    expect(await service.dispatchOutcome('codex', 1, actionId)).toEqual({ kind: 'completed' });
+    expect(handleApprovalDecision).toHaveBeenCalledWith('codex-1', decision, 'tab');
+    expect(respondSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a message action and stale native decisions', async () => {
+    expect(await service.dispatchOutcome('codex', 1, 'deny_with_message', 'edit'))
+      .toEqual({ kind: 'unavailable', reason: 'Action unavailable' });
+    isSessionPending.mockReturnValue(false);
+    expect(await service.dispatchOutcome('codex', 1, 'cancel')).toEqual({ kind: 'stale' });
+    expect(handleApprovalDecision).not.toHaveBeenCalled();
+    expect(respondSession).not.toHaveBeenCalled();
   });
 
   it('carries denial feedback and rejects an empty reason', async () => {

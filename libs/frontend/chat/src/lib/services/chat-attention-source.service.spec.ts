@@ -122,6 +122,28 @@ describe('ChatAttentionSourceService', () => {
     expect(upsert.mock.lastCall?.[0].actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
   });
 
+  it('renders exactly the allowed native decisions and no message control', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'codex-1', toolName: 'Bash', toolInput: { command: 'ls' }, timestamp: 1,
+      timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1',
+      allowedDecisions: ['cancel', 'accept', 'decline'] }]);
+    TestBed.tick();
+    const item = upsert.mock.lastCall?.[0];
+    expect(item?.actions.map(action => [action.id, action.label])).toEqual([
+      ['allow', 'Accept'], ['deny', 'Decline'], ['cancel', 'Cancel'], ['open', 'Show in canvas'],
+    ]);
+    expect(item?.actions.some(action => action.id === 'deny_with_message' || action.id === 'always_allow')).toBe(false);
+  });
+
+  it('labels all four native decisions', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'codex-2', toolName: 'Bash', toolInput: {}, timestamp: 1, timeoutAt: 0,
+      description: '', tabId: 'tab-1', allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'] }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].actions.map(action => action.label)).toEqual(
+      ['Accept', 'Accept for session', 'Decline', 'Cancel', 'Show in canvas']);
+  });
+
   it('keeps session unavailable ahead of unknown tool for a tabless lane', () => {
     TestBed.inject(ChatAttentionSourceService);
     ownerAvailable = false;
