@@ -408,7 +408,7 @@ describe('Electron Codex bootstrap composition', () => {
     ])
       expect(composition).toMatch(
         new RegExp(
-          String.raw`container\.register\(\s*SDK_TOKENS\.${name},\s*\{\s*useValue:`,
+          String.raw`container\.register(?:<[\w.]+>)?\(\s*SDK_TOKENS\.${name},\s*\{\s*useValue:`,
         ),
       );
     expect(ELECTRON_CODEX_BOUND_TOKENS).toHaveLength(6);

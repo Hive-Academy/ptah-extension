@@ -1,5 +1,10 @@
 import 'reflect-metadata';
-import type { IAgentAdapter } from '@ptah-extension/shared';
+import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import {
+  createElectronCodexSessionState,
+  createElectronCodexSessionLifecycle,
+} from './codex-session-binding';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -406,7 +411,7 @@ describe('Electron complete Codex binding', () => {
         expect(legacy.initialize).toHaveBeenCalledTimes(1);
         expect(resolveCodexNativeBinaryPath).not.toHaveBeenCalled();
         const ports = parent.resolve<
-          CodexChatAdapterPorts & { handlePermissionResponse: unknown }
+          CodexChatHostPorts
         >(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS);
         expect(typeof ports.handlePermissionResponse).toBe('function');
       } finally {
@@ -513,5 +518,73 @@ describe('Electron Codex asynchronous binary inspection', () => {
     await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
     await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
     expect(readVersion).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('Electron Codex session lifecycle composition', () => {
+  it('records opening and closing before Electron effects without mutating record hooks', async () => {
+    const parent = container.createChildContainer();
+    const state = createElectronCodexSessionState(parent);
+    const id = 'session-1' as SessionId;
+    const prepared = {
+      profile: buildCodexExecutionProfile({
+        session: {
+          contextId: 'chat', consumer: 'chat', providerId: 'openai-codex',
+          workspaceId: '/work', cwd: '/work', model: 'gpt', permissionLevel: 'ask',
+        },
+        defaultHome: '/home',
+        paths: {
+          platform: 'posix', baseDirectory: '/',
+          entries: {
+            '/work': { kind: 'directory', realpath: '/work' },
+            '/home': { kind: 'directory', realpath: '/home' },
+          },
+        },
+      }),
+    };
+    state.preparedTabs.set(prepared, 'tab-1');
+    const order: string[] = [];
+    const record = {
+      lifecycle: Object.freeze({
+        opened: jest.fn(() => {
+          expect(state.profiles.has(id)).toBe(false);
+          expect(state.tabs.has(id)).toBe(false);
+          order.push('record opened');
+        }),
+        closed: jest.fn(() => {
+          expect(state.profiles.get(id)).toBe(prepared);
+          expect(state.tabs.get(id)).toBe('tab-1');
+          order.push('record closed');
+        }),
+      }),
+    };
+    const lookup = {
+      releaseSession: jest.fn(() => {
+        expect(state.profiles.has(id)).toBe(false);
+        expect(state.tabs.has(id)).toBe(false);
+        order.push('identity released');
+      }),
+    };
+    const controls = {
+      releaseSession: jest.fn(() => { order.push('controls released'); }),
+    };
+    const lifecycle = createElectronCodexSessionLifecycle(record, state, lookup, controls);
+    try {
+      expect(lifecycle).not.toBe(record.lifecycle);
+      lifecycle.opened(id, prepared);
+      expect(state.profiles.get(id)).toBe(prepared);
+      expect(state.tabs.get(id)).toBe('tab-1');
+      lifecycle.closed(id);
+      expect(record.lifecycle.opened).toHaveBeenCalledWith(id, prepared);
+      expect(record.lifecycle.closed).toHaveBeenCalledWith(id);
+      expect(lookup.releaseSession).toHaveBeenCalledWith(id);
+      expect(controls.releaseSession).toHaveBeenCalledWith(id);
+      expect(order).toEqual([
+        'record opened', 'record closed', 'identity released', 'controls released',
+      ]);
+    } finally {
+      await parent.dispose();
+    }
   });
 });

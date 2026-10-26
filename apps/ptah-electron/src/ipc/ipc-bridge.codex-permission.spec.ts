@@ -14,6 +14,7 @@ jest.mock('electron', () => ({
 }));
 
 import { container } from 'tsyringe';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -23,7 +24,9 @@ import { IpcBridge } from './ipc-bridge';
 describe('IpcBridge Codex permission ownership', () => {
   let bridge: IpcBridge;
 
-  function setup(codexPorts: unknown) {
+  function setup(
+    codexPorts?: Pick<CodexChatHostPorts, 'handlePermissionResponse'> | null,
+  ) {
     const child = container.createChildContainer();
     const handleResponse = jest.fn();
     child.registerInstance(TOKENS.RPC_HANDLER, { handleMessage: jest.fn() });
@@ -32,9 +35,11 @@ describe('IpcBridge Codex permission ownership', () => {
       update: jest.fn(),
     });
     // Production default (agent-sdk registerCodexChatServices) is a factory returning null.
-    child.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
-      useFactory: () => codexPorts,
-    });
+    if (codexPorts !== undefined) {
+      child.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
+        useFactory: () => codexPorts,
+      });
+    }
     child.registerInstance(Symbol.for('SdkPermissionHandler'), { handleResponse });
     bridge = new IpcBridge(child, () => null);
     bridge.initialize();
@@ -73,7 +78,7 @@ describe('IpcBridge Codex permission ownership', () => {
     },
   );
 
-  it.each([null, {}, { handlePermissionResponse: 'unsupported' }])(
+  it.each([null, undefined])(
     'falls through to Claude when Codex has no response handler: %j',
     async (ports) => {
       const h = setup(ports);

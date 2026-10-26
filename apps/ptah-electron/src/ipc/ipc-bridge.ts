@@ -20,6 +20,7 @@
 
 import { ipcMain, type IpcMainEvent } from 'electron';
 import type { DependencyContainer } from 'tsyringe';
+import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { RpcHandler } from '@ptah-extension/vscode-core';
 import {
@@ -429,16 +430,14 @@ export class IpcBridge {
             SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
             true,
           )
-            ? this.container.resolve<unknown>(
+            ? this.container.resolve<
+                Pick<CodexChatHostPorts, 'handlePermissionResponse'> | null
+              >(
                 SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
               )
             : null;
           if (
-            codexPorts !== null &&
-            typeof codexPorts === 'object' &&
-            'handlePermissionResponse' in codexPorts &&
-            typeof codexPorts.handlePermissionResponse === 'function' &&
-            codexPorts.handlePermissionResponse({ ...response, decision }) === true
+            codexPorts?.handlePermissionResponse({ ...response, decision }) === true
           ) {
             return;
           }

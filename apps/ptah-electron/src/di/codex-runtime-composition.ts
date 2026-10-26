@@ -1,3 +1,8 @@
+import {
+  createElectronCodexSessionState,
+  createElectronCodexControls,
+  createElectronCodexSessionLifecycle,
+} from './codex-session-binding';
 import { createHash, randomUUID } from 'node:crypto';
 import { trackElectronCodexBinding } from './codex-binding-registry';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
@@ -9,23 +14,18 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   AUTH_PROVIDERS_TOKENS,
-  type AuthManager,
 } from '@ptah-extension/auth-providers';
-import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
 import {
   CHAT_TOKENS,
   createCodexChatHostPorts,
   createCodexRuntimeAdmission,
   createCodexChatEventCallbacks,
   createCodexSessionSettingsRecord,
-  createLegacyCodexSessionSettings,
   type LegacyCodexSessionSettingsDeps,
-  createNativeSessionControls,
-  createLegacySessionControlPorts,
+  type CodexChatHostPorts,
   type CodexChatHostPortsDeps,
   type CodexChatEventCallbacksDeps,
   type NativeSessionControlsDeps,
-  type LegacySessionControlPortsDeps,
 } from '@ptah-extension/rpc-handlers';
 import type { DependencyContainer } from 'tsyringe';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -33,7 +33,6 @@ import {
   SDK_TOKENS,
   createCodexThreadIdentityStore,
   type SessionMetadataStore,
-  type SessionLifecycleManager,
   type CodexChatAdapterPorts,
   initializeSessionRuntimeIdentityLookup,
   resolveCodexNativeBinaryPath,
@@ -274,6 +273,333 @@ export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {
   readonly settingsStore: NativeSessionControlsDeps['store'];
 }
 
+function createElectronCodexBindingContext(
+  container: DependencyContainer,
+  input: ElectronCodexBindingInput,
+  logger: Logger,
+  metadataStore: SessionMetadataStore,
+  lookup: Awaited<ReturnType<typeof createElectronCodexIdentityLookup>>,
+  record: ReturnType<typeof createCodexSessionSettingsRecord>,
+) {
+  return {
+    container,
+    input,
+    logger,
+    metadataStore,
+    lookup,
+    record,
+    routing: createElectronCodexRouting(input),
+    store: createCodexThreadIdentityStore(lookup, metadataStore),
+    scopes: new Set<CodexChatScope>(),
+    disposed: false,
+    state: createElectronCodexSessionState(container),
+  };
+}
+type BindingContext = ReturnType<typeof createElectronCodexBindingContext>;
+
+function createElectronCodexHostDependencies(context: BindingContext) {
+  const { container, routing } = context;
+  const broadcaster: CodexChatHostPortsDeps['broadcaster'] = {
+    streamEventsToWebview: (...args) =>
+      container
+        .resolve<CodexChatHostPortsDeps['broadcaster']>(
+          CHAT_TOKENS.STREAM_BROADCASTER,
+        )
+        .streamEventsToWebview(...args),
+  };
+  const deps = {
+    resolver: container.resolve<CodexChatHostPortsDeps['resolver']>(
+      AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
+    ),
+    workspaceProvider: container.resolve<
+      CodexChatHostPortsDeps['workspaceProvider']
+    >(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+    platformInfo: container.resolve<CodexChatHostPortsDeps['platformInfo']>(
+      PLATFORM_TOKENS.PLATFORM_INFO,
+    ),
+    hostCapabilities: routing.capabilities,
+    webviewManager: container.resolve<
+      CodexChatHostPortsDeps['webviewManager']
+    >(TOKENS.WEBVIEW_MANAGER),
+  };
+  return { deps, broadcaster };
+}
+
+function createElectronCodexScopePorts(context: BindingContext) {
+  const { container, input, logger, routing, store, scopes } = context;
+  const { profiles } = context.state;
+  let verified: {
+    pin: CodexExecutableManifestRow;
+    binary: CodexRuntimeRegistrationPorts['binary'];
+  } | undefined;
+  const verifyBinary = async () => {
+    try {
+      const pin = findCodexExecutablePin(
+        input.platform.platform,
+        input.platform.arch,
+      );
+      if (!pin)
+        throw new Error('No reviewed Codex executable pin for this platform');
+      const executable = createElectronCodexExecutable(pin, input.bundledRoot);
+      const inspected = await inspectElectronCodexBinary(executable.resolvedPath);
+      if (context.disposed) throw new Error('Native Codex chat is disabled');
+      verified = { pin, binary: { ...input.platform, ...inspected } };
+    } catch (error) {
+      verified = undefined;
+      logger.error(
+        'Codex executable verification failed',
+        error instanceof Error ? error : new Error('Codex verification failed'),
+      );
+      throw new Error('Codex executable verification failed');
+    }
+  };
+  const createScope = (sink: ApprovalSink): CodexChatScope => {
+    if (context.disposed || !routing.capabilities.nativeCodex)
+      throw new Error('Native Codex chat is disabled');
+    if (!verified) throw new Error('Codex executable verification unavailable');
+    const { pin, binary } = verified;
+    const scope = createElectronCodexScopeFactory({
+      ...input,
+      parent: container,
+      expectedManifestRow: pin,
+      ports: {
+        binary,
+        store,
+        spawner: container.resolve<CodexRuntimeRegistrationPorts['spawner']>(
+          SDK_TOKENS.SDK_PROCESS_SPAWNER,
+        ),
+        clock: {
+          now: Date.now,
+          setTimeout: (callback, delay) => {
+            const timer = setTimeout(callback, delay);
+            return { dispose: () => clearTimeout(timer) };
+          },
+        },
+        logger: {
+          debug: (message, metadata) => logger.debug(message, metadata),
+          info: (message, metadata) => logger.info(message, metadata),
+          warn: (message, metadata) => logger.warn(message, metadata),
+          error: (message, metadata) => logger.error(message, metadata),
+        },
+        usage: {
+          auth: container.resolve<
+            NonNullable<CodexRuntimeRegistrationPorts['usage']>['auth']
+          >(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_AUTH),
+          profileForHome: (home) => {
+            const prepared = [...profiles.values()].find(
+              (entry) => entry.profile.normalizedHome === home,
+            );
+            if (!prepared)
+              throw new Error('No live Codex session owns this usage home');
+            const canonical = realpathSync(home);
+            const cwd = realpathSync(prepared.profile.cwd);
+            return buildCodexExecutionProfile({
+              session: {
+                contextId: randomUUID(),
+                consumer: 'usage',
+                normalizedHome: canonical,
+                providerId: prepared.profile.providerId,
+                workspaceId: prepared.profile.workspaceId,
+                cwd,
+                model: prepared.profile.model,
+                permissionLevel: 'ask',
+              },
+              paths: {
+                platform: process.platform === 'win32' ? 'win32' : 'posix',
+                baseDirectory: canonical,
+                entries: {
+                  [canonical]: { kind: 'directory', realpath: canonical },
+                  [cwd]: { kind: 'directory', realpath: cwd },
+                },
+              },
+            });
+          },
+        },
+      },
+    })(sink);
+    const owned: CodexChatScope = {
+      container: scope.container,
+      dispose: async () => {
+        try {
+          await scope.dispose();
+        } finally {
+          scopes.delete(owned);
+        }
+      },
+    };
+    scopes.add(owned);
+    return owned;
+  };
+  return { createScope, verifyBinary };
+}
+
+function createElectronCodexAdapterPorts(
+  context: BindingContext,
+  host: ReturnType<typeof createElectronCodexHostDependencies>,
+  scope: ReturnType<typeof createElectronCodexScopePorts>,
+  sessions: NonNullable<CodexChatAdapterPorts['sessions']>,
+): CodexChatHostPorts {
+  const { container, input, logger, metadataStore, store, lookup } = context;
+  const { tabId, preparedTabs } = context.state;
+  const { deps, broadcaster } = host;
+  const { createScope, verifyBinary } = scope;
+  const ports = createCodexChatHostPorts({
+    ...deps,
+    logger,
+    platform: input.platform,
+    createScope,
+    broadcaster,
+    tabId,
+    info: {
+      id: 'codex-app-server',
+      name: 'Codex App Server',
+      vendor: 'OpenAI',
+      version: '1',
+      description: 'Native Codex chat runtime',
+      capabilities: {
+        streaming: true,
+        fileAttachments: true,
+        contextManagement: true,
+        sessionPersistence: true,
+        multiTurn: true,
+        codeGeneration: true,
+        imageAnalysis: true,
+        functionCalling: true,
+      },
+    },
+    metadata: {
+      save: (id, identity) =>
+        lookup.updateCodexExecution(id, () => ({
+          version: 1,
+          runtime: 'codex-app-server',
+          sessionId: id,
+          providerId: identity.providerId,
+          workspaceId: identity.workspaceId,
+          codex: { normalizedHome: identity.normalizedHome },
+        })),
+    },
+    approvals: {
+      register: (...args) =>
+        container
+          .resolve<CodexChatAdapterPorts['approvals']>(
+            SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+          )
+          .register(...args),
+      respond: (...args) =>
+        container
+          .resolve<CodexChatAdapterPorts['approvals']>(
+            SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+          )
+          .respond(...args),
+      cancelPrompt: (...args) =>
+        container
+          .resolve<CodexChatAdapterPorts['approvals']>(
+            SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+          )
+          .cancelPrompt(...args),
+    },
+    hostAttention: container.resolve<CodexChatHostPortsDeps['hostAttention']>(
+      SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+    ),
+    readResumeIdentity: async (id) => {
+      const row = await metadataStore.get(id);
+      return row?.codexThread
+        ? store.read(row.codexThread.contextId)
+        : undefined;
+    },
+    callbacks: (id, turn) =>
+      createCodexChatEventCallbacks({
+        sessionId: id,
+        tabId: tabId(id),
+        turn,
+        logger,
+        webviewManager: deps.webviewManager,
+        delivery: container.resolve<CodexChatEventCallbacksDeps['delivery']>(
+          CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR,
+        ),
+      }),
+  });
+  return {
+    ...ports,
+    profile: async (
+      ...args: Parameters<CodexChatAdapterPorts['profile']>
+    ) => {
+      const prepared = await ports.profile(...args);
+      await verifyBinary();
+      const tab = args[0].tabId;
+      if (tab) preparedTabs.set(prepared, tab);
+      return prepared;
+    },
+    sessions,
+  };
+}
+
+function createElectronCodexBindingHandle(context: BindingContext) {
+  const { routing, scopes, record, lookup } = context;
+  const { tabs, profiles } = context.state;
+  let closing: Promise<void> | undefined;
+  const tracking: { untrack: () => void } = { untrack: () => undefined };
+  const binding = {
+    ...routing,
+    dispose: () =>
+      (closing ??= (async () => {
+        context.disposed = true;
+        try {
+          const results = await Promise.allSettled(
+            [...scopes].map((scope) => Promise.resolve().then(() => scope.dispose())),
+          );
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : [],
+          );
+          if (failures.length)
+            throw new AggregateError(failures, 'Codex scope shutdown failed');
+        } finally {
+          try {
+            record.dispose();
+          } finally {
+            try {
+              lookup.dispose();
+            } finally {
+              tabs.clear();
+              profiles.clear();
+              tracking.untrack();
+            }
+          }
+        }
+      })()),
+  };
+  tracking.untrack = trackElectronCodexBinding(binding);
+  return binding;
+}
+
+function registerElectronCodexBinding(
+  context: BindingContext,
+  adapterPorts: CodexChatHostPorts,
+  admission: ReturnType<typeof createCodexRuntimeAdmission>,
+  sessionControls: ReturnType<typeof createElectronCodexControls>,
+) {
+  const { container, lookup, routing } = context;
+  const { controls, legacyPorts } = sessionControls;
+  container.register(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, {
+    useValue: lookup,
+  });
+  container.register<CodexChatHostPorts>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
+    useValue: adapterPorts,
+  });
+  container.register(SDK_TOKENS.RUNTIME_ADMISSION_PORT, {
+    useValue: admission,
+  });
+  container.register(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
+    useValue: routing.capabilities,
+  });
+  container.register(SDK_TOKENS.NATIVE_SESSION_CONTROLS, {
+    useValue: controls,
+  });
+  container.register(SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS, {
+    useValue: legacyPorts,
+  });
+}
+
 /** Bind the whole guarded surface before resolving either adapter. */
 export async function bindElectronCodexChat(
   container: DependencyContainer,
@@ -284,373 +610,40 @@ export async function bindElectronCodexChat(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
   );
   const lookup = await createElectronCodexIdentityLookup(metadataStore, logger);
-  let releaseRecord: (() => void) | undefined;
-  let untrack: (() => void) | undefined;
+  let record: ReturnType<typeof createCodexSessionSettingsRecord> | undefined;
+  let binding: ReturnType<typeof createElectronCodexBindingHandle> | undefined;
   try {
-    const { scopeResolver, settingsStore } = input;
-    const record = createCodexSessionSettingsRecord({
+    record = createCodexSessionSettingsRecord({
       identities: lookup,
-      scopeResolver,
+      scopeResolver: input.scopeResolver,
     });
-    releaseRecord = () => record.dispose();
-    const routing = createElectronCodexRouting(input);
-    const store = createCodexThreadIdentityStore(lookup, metadataStore);
-    const scopes = new Set<CodexChatScope>();
-    let disposed = false;
-    const lifecycle = () =>
-      container.resolve<SessionLifecycleManager>(
-        SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
-      );
-    const native = () =>
-      container.resolve<NativeSessionControlsDeps['adapter']>(
-        SDK_TOKENS.CODEX_CHAT_ADAPTER,
-      );
-    const legacy = () =>
-      container.resolve<IAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER);
-    const tabs = new Map<SessionId, string>();
-    const profiles = new Map<
-      SessionId,
-      Awaited<ReturnType<CodexChatAdapterPorts['profile']>>
-    >();
-    const preparedTabs = new WeakMap<
-      Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
-      string
-    >();
-    const tabId = (id: SessionId) =>
-      tabs.get(id) ?? lifecycle().find(id)?.tabId ?? id;
-    const broadcaster: CodexChatHostPortsDeps['broadcaster'] = {
-      streamEventsToWebview: (...args) =>
-        container
-          .resolve<CodexChatHostPortsDeps['broadcaster']>(
-            CHAT_TOKENS.STREAM_BROADCASTER,
-          )
-          .streamEventsToWebview(...args),
-    };
-    const deps = {
-      resolver: container.resolve<CodexChatHostPortsDeps['resolver']>(
-        AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
-      ),
-      workspaceProvider: container.resolve<
-        CodexChatHostPortsDeps['workspaceProvider']
-      >(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-      platformInfo: container.resolve<CodexChatHostPortsDeps['platformInfo']>(
-        PLATFORM_TOKENS.PLATFORM_INFO,
-      ),
-      hostCapabilities: routing.capabilities,
-      webviewManager: container.resolve<
-        CodexChatHostPortsDeps['webviewManager']
-      >(TOKENS.WEBVIEW_MANAGER),
-    };
-    let verified: {
-      pin: CodexExecutableManifestRow;
-      binary: CodexRuntimeRegistrationPorts['binary'];
-    } | undefined;
-    const verifyBinary = async () => {
-      try {
-        const pin = findCodexExecutablePin(
-          input.platform.platform,
-          input.platform.arch,
-        );
-        if (!pin)
-          throw new Error('No reviewed Codex executable pin for this platform');
-        const executable = createElectronCodexExecutable(pin, input.bundledRoot);
-        const inspected = await inspectElectronCodexBinary(executable.resolvedPath);
-        if (disposed) throw new Error('Native Codex chat is disabled');
-        verified = { pin, binary: { ...input.platform, ...inspected } };
-      } catch (error) {
-        verified = undefined;
-        logger.error(
-          'Codex executable verification failed',
-          error instanceof Error ? error : new Error('Codex verification failed'),
-        );
-        throw new Error('Codex executable verification failed');
-      }
-    };
-    const createScope = (sink: ApprovalSink): CodexChatScope => {
-      if (disposed || !routing.capabilities.nativeCodex)
-        throw new Error('Native Codex chat is disabled');
-      if (!verified) throw new Error('Codex executable verification unavailable');
-      const { pin, binary } = verified;
-      const scope = createElectronCodexScopeFactory({
-        ...input,
-        parent: container,
-        expectedManifestRow: pin,
-        ports: {
-          binary,
-          store,
-          spawner: container.resolve<CodexRuntimeRegistrationPorts['spawner']>(
-            SDK_TOKENS.SDK_PROCESS_SPAWNER,
-          ),
-          clock: {
-            now: Date.now,
-            setTimeout: (callback, delay) => {
-              const timer = setTimeout(callback, delay);
-              return { dispose: () => clearTimeout(timer) };
-            },
-          },
-          logger: {
-            debug: (message, metadata) => logger.debug(message, metadata),
-            info: (message, metadata) => logger.info(message, metadata),
-            warn: (message, metadata) => logger.warn(message, metadata),
-            error: (message, metadata) => logger.error(message, metadata),
-          },
-          usage: {
-            auth: container.resolve<
-              NonNullable<CodexRuntimeRegistrationPorts['usage']>['auth']
-            >(AUTH_PROVIDERS_TOKENS.SDK_CODEX_HOME_AUTH),
-            profileForHome: (home) => {
-              const prepared = [...profiles.values()].find(
-                (entry) => entry.profile.normalizedHome === home,
-              );
-              if (!prepared)
-                throw new Error('No live Codex session owns this usage home');
-              const canonical = realpathSync(home);
-              const cwd = realpathSync(prepared.profile.cwd);
-              return buildCodexExecutionProfile({
-                session: {
-                  contextId: randomUUID(),
-                  consumer: 'usage',
-                  normalizedHome: canonical,
-                  providerId: prepared.profile.providerId,
-                  workspaceId: prepared.profile.workspaceId,
-                  cwd,
-                  model: prepared.profile.model,
-                  permissionLevel: 'ask',
-                },
-                paths: {
-                  platform: process.platform === 'win32' ? 'win32' : 'posix',
-                  baseDirectory: canonical,
-                  entries: {
-                    [canonical]: { kind: 'directory', realpath: canonical },
-                    [cwd]: { kind: 'directory', realpath: cwd },
-                  },
-                },
-              });
-            },
-          },
-        },
-      })(sink);
-      const owned: CodexChatScope = {
-        container: scope.container,
-        dispose: async () => {
-          try {
-            await scope.dispose();
-          } finally {
-            scopes.delete(owned);
-          }
-        },
-      };
-      scopes.add(owned);
-      return owned;
-    };
-    const ports = createCodexChatHostPorts({
-      ...deps,
-      logger,
-      platform: input.platform,
-      createScope,
-      broadcaster,
-      tabId,
-      info: {
-        id: 'codex-app-server',
-        name: 'Codex App Server',
-        vendor: 'OpenAI',
-        version: '1',
-        description: 'Native Codex chat runtime',
-        capabilities: {
-          streaming: true,
-          fileAttachments: true,
-          contextManagement: true,
-          sessionPersistence: true,
-          multiTurn: true,
-          codeGeneration: true,
-          imageAnalysis: true,
-          functionCalling: true,
-        },
-      },
-      metadata: {
-        save: (id, identity) =>
-          lookup.updateCodexExecution(id, () => ({
-            version: 1,
-            runtime: 'codex-app-server',
-            sessionId: id,
-            providerId: identity.providerId,
-            workspaceId: identity.workspaceId,
-            codex: { normalizedHome: identity.normalizedHome },
-          })),
-      },
-      approvals: {
-        register: (...args) =>
-          container
-            .resolve<CodexChatAdapterPorts['approvals']>(
-              SDK_TOKENS.SESSION_APPROVAL_ROUTER,
-            )
-            .register(...args),
-        respond: (...args) =>
-          container
-            .resolve<CodexChatAdapterPorts['approvals']>(
-              SDK_TOKENS.SESSION_APPROVAL_ROUTER,
-            )
-            .respond(...args),
-        cancelPrompt: (...args) =>
-          container
-            .resolve<CodexChatAdapterPorts['approvals']>(
-              SDK_TOKENS.SESSION_APPROVAL_ROUTER,
-            )
-            .cancelPrompt(...args),
-      },
-      hostAttention: container.resolve<CodexChatHostPortsDeps['hostAttention']>(
-        SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
-      ),
-      readResumeIdentity: async (id) => {
-        const row = await metadataStore.get(id);
-        return row?.codexThread
-          ? store.read(row.codexThread.contextId)
-          : undefined;
-      },
-      callbacks: (id, turn) =>
-        createCodexChatEventCallbacks({
-          sessionId: id,
-          tabId: tabId(id),
-          turn,
-          logger,
-          webviewManager: deps.webviewManager,
-          delivery: container.resolve<CodexChatEventCallbacksDeps['delivery']>(
-            CHAT_TOKENS.STREAM_DELIVERY_COORDINATOR,
-          ),
-        }),
-    });
-    const adapterPorts = {
-      ...ports,
-      profile: async (
-        ...args: Parameters<CodexChatAdapterPorts['profile']>
-      ) => {
-        const prepared = await ports.profile(...args);
-        await verifyBinary();
-        const tab = args[0].tabId;
-        if (tab) preparedTabs.set(prepared, tab);
-        return prepared;
-      },
-      sessions: record.lifecycle,
-    };
-    const opened = record.lifecycle.opened;
-    const closed = record.lifecycle.closed;
-    record.lifecycle.opened = (id, prepared) => {
-      opened(id, prepared);
-      profiles.set(id, prepared);
-      const tab = preparedTabs.get(prepared);
-      if (tab) tabs.set(id, tab);
-    };
-    record.lifecycle.closed = (id) => {
-      closed(id);
-      profiles.delete(id);
-      tabs.delete(id);
-      lookup.releaseSession(id);
-      controls.releaseSession?.(id);
-    };
-    const controls = createNativeSessionControls({
-      store: settingsStore,
-      settings: (id) => record.settings(id),
-      broadcaster,
-      tabId,
-      adapter: {
-        setSessionModel: (...args) => native().setSessionModel(...args),
-        setSessionEffort: (...args) => native().setSessionEffort(...args),
-        setSessionPermissionLevel: (...args) =>
-          native().setSessionPermissionLevel(...args),
-        interruptCurrentTurn: (...args) =>
-          native().interruptCurrentTurn(...args),
-        executeSlashCommand: (...args) => native().executeSlashCommand(...args),
-        getSessionToken: (...args) => native().getSessionToken(...args),
-        canSendFollowUp: (id) => native().canSendFollowUp(id),
-      },
-    });
-    const legacyPorts = createLegacySessionControlPorts({
-      store: settingsStore,
-      broadcaster,
-      tabId,
-      adapter: {
-        executeSlashCommand: (...args) => legacy().executeSlashCommand(...args),
-      },
-      sessions: { find: (id) => lifecycle().find(id) },
-      lifecycle: {
-        interruptCurrentTurn: (id) => lifecycle().interruptCurrentTurn(id),
-      },
-      modelResolver: {
-        resolve: (...args) =>
-          container
-            .resolve<LegacySessionControlPortsDeps['modelResolver']>(
-              AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
-            )
-            .resolve(...args),
-      },
-      settings: createLegacyCodexSessionSettings({
-        sessions: { find: (id) => lifecycle().find(id) },
-        identities: lookup,
-        scopeResolver,
-        auth: {
-          resolveActiveAuthForPath: (path) => container
-            .resolve<AuthManager>(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
-            .resolveActiveAuthForPath(path),
-        },
-      }),
-    });
-    const admission = createCodexRuntimeAdmission(deps);
-    let closing: Promise<void> | undefined;
-    const binding = {
-      ...routing,
-      dispose: () =>
-        (closing ??= (async () => {
-          disposed = true;
-          try {
-            const results = await Promise.allSettled(
-              [...scopes].map((scope) => Promise.resolve().then(() => scope.dispose())),
-            );
-            const failures = results.flatMap((result) =>
-              result.status === 'rejected' ? [result.reason] : [],
-            );
-            if (failures.length)
-              throw new AggregateError(failures, 'Codex scope shutdown failed');
-          } finally {
-            try {
-              record.dispose();
-            } finally {
-              try {
-                lookup.dispose();
-              } finally {
-                tabs.clear();
-                profiles.clear();
-                untrack?.();
-              }
-            }
-          }
-        })()),
-    };
-    untrack = trackElectronCodexBinding(binding);
-    container.register(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, {
-      useValue: lookup,
-    });
-    container.register(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS, {
-      useValue: adapterPorts,
-    });
-    container.register(SDK_TOKENS.RUNTIME_ADMISSION_PORT, {
-      useValue: admission,
-    });
-    container.register(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
-      useValue: routing.capabilities,
-    });
-    container.register(SDK_TOKENS.NATIVE_SESSION_CONTROLS, {
-      useValue: controls,
-    });
-    container.register(SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS, {
-      useValue: legacyPorts,
-    });
+    const context = createElectronCodexBindingContext(
+      container, input, logger, metadataStore, lookup, record,
+    );
+    const host = createElectronCodexHostDependencies(context);
+    const scope = createElectronCodexScopePorts(context);
+    const sessionControls = createElectronCodexControls(
+      container, input, context.state, record, lookup, host.broadcaster,
+    );
+    const lifecycle = createElectronCodexSessionLifecycle(
+      record, context.state, lookup, sessionControls.controls,
+    );
+    const adapterPorts = createElectronCodexAdapterPorts(
+      context, host, scope, lifecycle,
+    );
+    const admission = createCodexRuntimeAdmission(host.deps);
+    binding = createElectronCodexBindingHandle(context);
+    registerElectronCodexBinding(context, adapterPorts, admission, sessionControls);
     return binding;
   } catch (error) {
-    try {
-      releaseRecord?.();
-    } finally {
-      lookup.dispose();
-      untrack?.();
+    if (binding) {
+      await binding.dispose();
+    } else {
+      try {
+        record?.dispose();
+      } finally {
+        lookup.dispose();
+      }
     }
     throw error;
   }
