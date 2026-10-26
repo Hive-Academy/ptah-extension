@@ -7,6 +7,7 @@ import type {
   PermissionResponse,
 } from '../permission.types';
 import type { FlatStreamEventUnion } from '../execution';
+import type { PermissionPromptCancelledPayload } from '../session-runtime.types';
 import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
 
 import type {
@@ -359,6 +360,7 @@ export interface MessagePayloadMap {
   'chat:cliError': ChatCliErrorPayload;
   'permission:request': PermissionRequest;
   'permission:response': PermissionResponse;
+  'permission:prompt-cancelled': PermissionPromptCancelledPayload;
   'providers:getAvailable': ProvidersGetAvailablePayload;
   'providers:getCurrent': ProvidersGetCurrentPayload;
   'providers:switch': ProvidersSwitchPayload;

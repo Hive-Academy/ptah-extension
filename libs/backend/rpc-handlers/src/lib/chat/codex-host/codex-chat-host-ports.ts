@@ -304,8 +304,7 @@ export function createCodexChatHostPorts(
     handlePermissionResponse(response) {
       const entry = pending.get(response.id);
       if (!entry) return false;
-      // The entry stays correlated as before; only the host notice is answered.
-      release(response.id, entry.timestamp);
+      settle(response.id);
       const { sessionId, request } = entry;
       const decision = {
         allow: 'accept',

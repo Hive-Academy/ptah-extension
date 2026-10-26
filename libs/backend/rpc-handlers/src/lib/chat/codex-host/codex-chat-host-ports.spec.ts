@@ -271,6 +271,7 @@ describe('Codex chat host ports', () => {
       MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
       { sessionId: id, requestId: wireId, reason: 'turn-ended' },
     );
+    expect(h.respond).not.toHaveBeenCalled();
     expect(
       h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' }),
     ).toBe(false);
@@ -301,6 +302,22 @@ describe('Codex chat host ports', () => {
       h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' });
       expect(h.resolveAttention).toHaveBeenCalledTimes(1);
       expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+      expect(
+        h.ports.handlePermissionResponse({ id: wireId, decision: 'deny' }),
+      ).toBe(false);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+      h.ports.presentation.cancelPrompt({
+        sessionId: id,
+        requestId: '5',
+        reason: 'turn-ended',
+      });
+      expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
+      h.ports.presentation.dismiss(id, request());
+      expect(h.broadcastMessage).toHaveBeenLastCalledWith(
+        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+        { id: wireId, sessionId: id, toolName: 'command' },
+      );
+      expect(h.resolveAttention).toHaveBeenCalledTimes(1);
     });
 
     it('releases the observed notice when the request is auto-resolved', () => {
