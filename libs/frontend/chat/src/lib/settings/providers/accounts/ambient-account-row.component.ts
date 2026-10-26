@@ -60,7 +60,7 @@ const DOT: Readonly<Record<AmbientTone, string>> = {
         </p>
         <p
           #status
-          class="mt-1 flex items-center text-xs outline-none"
+          class="mt-1 flex items-center text-xs outline-none focus:!outline-none focus:!shadow-none"
           role="status"
           aria-live="polite"
           tabindex="-1"

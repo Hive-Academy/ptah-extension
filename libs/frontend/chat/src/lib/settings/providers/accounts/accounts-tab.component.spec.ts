@@ -92,6 +92,13 @@ describe('AccountsTabComponent', () => {
   let fixture: ComponentFixture<AccountsTabComponent>;
   let accounts: FakeAccounts;
   let ambient: FakeAmbient;
+  /** A control outside the tab (e.g. the drawer's tab strip): "Use for" is not rendered while the detail is open. */
+  let outside: HTMLButtonElement | null = null;
+  const focusOutside = (): HTMLButtonElement => {
+    outside ??= document.body.appendChild(document.createElement('button'));
+    outside.focus();
+    return outside;
+  };
 
   beforeEach(() => {
     accounts = new FakeAccounts();
@@ -108,6 +115,8 @@ describe('AccountsTabComponent', () => {
     fixture.detectChanges();
   });
   afterEach(() => {
+    outside?.remove();
+    outside = null;
     fixture.destroy();
     (fixture.nativeElement as HTMLElement).remove();
     TestBed.resetTestingModule();
@@ -207,6 +216,42 @@ describe('AccountsTabComponent', () => {
     detail()?.back.emit();
     await settle();
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Manage Team plan');
+  });
+
+  it('hides Use for while the detail is open and keeps the region labelled, then shows it again', async () => {
+    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).not.toBeNull();
+    openDetailOf('Work');
+    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).toBeNull();
+    expect(byTestId('accounts-tab-heading')).toBeNull();
+    const region = byTestId('accounts-tab');
+    expect(region?.getAttribute('aria-labelledby')).toBeNull();
+    expect(region?.getAttribute('aria-label')).toBe('Claude accounts');
+    expect(accounts.open).toHaveBeenCalledTimes(1);
+    detail()?.back.emit();
+    await settle();
+    expect(fixture.debugElement.query(By.directive(AccountUseForComponent))).not.toBeNull();
+    expect(region?.getAttribute('aria-labelledby')).toBe('account-use-for-heading');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Manage Work');
+  });
+
+  it('reflows rows at narrow width: titled name, wrapping chips, actions that can drop below the text', () => {
+    const longLabel = 'Client Acme Corp production research team shared acct 56x';
+    const named = { kind: 'named', profileId: 'p-long' } as const;
+    accounts.view.set(ready(snapshot([account('p-long', longLabel, 'not-signed-in'), WORK], named, named)));
+    fixture.detectChanges();
+    const row = all('accounts-tab-row').find((item) => item.textContent?.includes(longLabel));
+    expect(row?.className).toContain('flex-wrap');
+    const name = row?.querySelector<HTMLElement>('[data-testid="accounts-tab-row-name"]');
+    expect(name?.getAttribute('title')).toBe(longLabel);
+    expect(name?.className).toContain('break-words');
+    const body = row?.querySelector<HTMLElement>('[data-testid="accounts-tab-row-body"]');
+    expect(body?.className).toContain('min-w-0');
+    expect(body?.className).toContain('basis-40');
+    expect(row?.querySelector('[data-testid="accounts-tab-row-actions"]')?.className).toContain('ml-auto');
+    expect(row?.querySelector('[data-testid="accounts-tab-row-chips"]')?.className).toContain('flex-wrap');
+    const chips = Array.from(row?.querySelectorAll<HTMLElement>('[data-testid="accounts-tab-row-chip"]') ?? []);
+    expect(chips.length).toBeGreaterThan(0);
+    for (const chip of chips) expect(chip.className).toContain('whitespace-normal');
   });
 
   describe('selection writes', () => {
@@ -331,11 +376,11 @@ describe('AccountsTabComponent', () => {
       await settle();
       detail()?.signOut.emit(WORK.profileId);
       fixture.detectChanges();
-      selects()[1].focus();
+      const moved = focusOutside();
       accounts.pending.resolve({ status: 'saved', snapshot: snapshot([WORK, TEAM]) });
       await settle();
       expect(live()?.textContent).toBe(SIGNED_OUT_FEEDBACK);
-      expect(document.activeElement).toBe(selects()[1]);
+      expect(document.activeElement).toBe(moved);
     });
 
     it('a saved cancel announces the cancellation in the detail', async () => {
@@ -364,7 +409,7 @@ describe('AccountsTabComponent', () => {
       detail()?.remove.emit(WORK.profileId);
       fixture.detectChanges();
       if (focusInside) byTestId('account-detail-live')?.focus();
-      else selects()[1].focus();
+      else focusOutside();
       accounts.view.set(ready(hostSnapshot));
       accounts.pending.resolve({ status: 'saved', snapshot: hostSnapshot });
       await settle();
@@ -387,7 +432,7 @@ describe('AccountsTabComponent', () => {
 
     it('keeps focus where the user moved it while the removal ran', async () => {
       await removeWork(snapshot([TEAM]), false);
-      expect(document.activeElement).toBe(selects()[1]);
+      expect(document.activeElement).toBe(outside);
       expect(byTestId('accounts-tab-toast')?.textContent).toBe('Work was removed.');
     });
 

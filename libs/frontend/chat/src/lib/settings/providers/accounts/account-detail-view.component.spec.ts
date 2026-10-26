@@ -191,6 +191,14 @@ describe('AccountDetailViewComponent', () => {
       expect(panel.getAttribute('aria-labelledby')).toBe('account-detail-tab-overview');
     });
 
+    it('lays the tablist out as a wrapping flex row so narrow drawers never scroll sideways', () => {
+      render();
+      const list = el().querySelector('[role="tablist"]') as HTMLElement;
+      // DaisyUI 4 `.tabs` is a single-row grid; `flex` overrides it so `flex-wrap` takes effect.
+      expect(list.classList).toContain('flex');
+      expect(list.classList).toContain('flex-wrap');
+    });
+
     it('shows no profile id, owner, identity or "Set as default" on any tab', () => {
       host.account.set(account('signed-in', { activeRunCount: 2 }));
       render();

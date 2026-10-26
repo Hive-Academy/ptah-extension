@@ -111,7 +111,8 @@ const FOCUS =
       <div
         role="tablist"
         aria-label="Account sections"
-        class="tabs tabs-bordered flex-wrap"
+        class="tabs tabs-bordered flex flex-wrap"
+        data-testid="account-detail-tablist"
         (keydown)="onTabKeydown($event)"
       >
         @for (tab of tabs; track tab.id) {

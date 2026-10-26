@@ -137,8 +137,8 @@ interface FocusWait {
         role="region"
         class="space-y-4 text-xs text-base-content"
         data-testid="accounts-tab"
-        [attr.aria-labelledby]="model() ? useForHeadingId : null"
-        [attr.aria-label]="model() ? null : 'Claude accounts'"
+        [attr.aria-labelledby]="useForShown() ? useForHeadingId : null"
+        [attr.aria-label]="useForShown() ? null : 'Claude accounts'"
         [attr.aria-busy]="regionBusy()"
       >
         @if (view().status === 'error' && !snapshot()) {
@@ -176,7 +176,8 @@ interface FocusWait {
           </div>
         }
 
-        @if (model(); as useFor) {
+        <!-- Design §3.1 / §3.6: the detail view replaces the tab body, so "Use for" is not rendered while it is open. -->
+        @if (useForShown() && model(); as useFor) {
           <ptah-account-use-for
             [model]="useFor"
             [pendingScopes]="pendingScopes()"
@@ -243,7 +244,7 @@ interface FocusWait {
                   <div
                     role="button"
                     tabindex="0"
-                    [class]="'flex min-h-[34px] min-w-0 flex-1 cursor-pointer items-center gap-2 rounded ' + focusRing"
+                    [class]="'flex min-h-[34px] min-w-0 flex-1 basis-40 cursor-pointer items-center gap-2 rounded ' + focusRing"
                     [attr.aria-label]="'Account details for ' + row.account.label"
                     (click)="openDetail(row.account.profileId)"
                     (keydown)="rowKey($event, row.account.profileId)"
@@ -254,8 +255,12 @@ interface FocusWait {
                       aria-hidden="true"
                     >{{ row.initial }}</span>
                     <span class="min-w-0 flex-1 space-y-0.5">
-                      <span class="block break-words font-semibold">{{ row.account.label }}</span>
-                      <span class="flex items-center text-base-content-muted">
+                      <span
+                        class="block break-words font-semibold"
+                        [title]="row.account.label"
+                        data-testid="accounts-tab-row-name"
+                      >{{ row.account.label }}</span>
+                      <span class="flex min-w-0 items-center text-base-content-muted">
                         <span [class]="'mr-1.5 inline-block h-2 w-2 shrink-0 rounded-full ' + row.dot" aria-hidden="true"></span>
                         <span data-testid="accounts-tab-row-state">{{ row.status }}</span>
                       </span>
@@ -263,15 +268,18 @@ interface FocusWait {
                         <span class="block text-base-content-muted">{{ row.runs }}</span>
                       }
                       @if (row.chips.length > 0) {
-                        <span class="flex flex-wrap gap-1">
+                        <span class="flex min-w-0 flex-wrap gap-1" data-testid="accounts-tab-row-chips">
                           @for (chip of row.chips; track chip) {
-                            <span class="badge badge-ghost badge-sm" data-testid="accounts-tab-row-chip">{{ chip }}</span>
+                            <span
+                              class="badge badge-ghost badge-sm h-auto max-w-full whitespace-normal break-words text-left"
+                              data-testid="accounts-tab-row-chip"
+                            >{{ chip }}</span>
                           }
                         </span>
                       }
                     </span>
                   </div>
-                  <div class="flex shrink-0 items-center gap-1">
+                  <div class="ml-auto flex shrink-0 items-center gap-1" data-testid="accounts-tab-row-actions">
                     @if (row.canSignIn) {
                       <button
                         type="button"
@@ -393,6 +401,8 @@ export class AccountsTabComponent implements OnInit {
     if (current.kind !== 'detail') return null;
     return this.snapshot()?.accounts.find((account) => account.profileId === current.profileId) ?? null;
   });
+  /** "Use for" renders only in the list view; the snapshot and its subscription stay live either way. */
+  protected readonly useForShown = computed(() => this.model() !== null && this.detailAccount() === null);
   protected readonly detailInitialTab = computed(() => {
     const current = this.tabView();
     return current.kind === 'detail' ? current.initialTab : null;

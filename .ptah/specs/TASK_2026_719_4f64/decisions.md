@@ -353,3 +353,13 @@
 - Electron build for the visual review started in parallel with the verify and the codex re-review (D47 order is
   kept: the visual review starts only after the fix round is committed). If the re-review needs code changes,
   rebuild. Reversible.
+
+## D51 — P5 visual review: one fix round (2026-10-26, orchestrator)
+
+- `visual-review-p5.md`: REVISE (Breaking 2: rows collapse and the detail view scrolls sideways at 245 px /
+  200% zoom; Serious 1: the Use-for block stays above the detail view; Moderate 3).
+- Fixed in one round: both Breaking, the Serious, and two Moderate items that are small and in the same files
+  (focus box on the programmatic-only status target; `title` on long labels). The 10 px chip and badge text is
+  recorded as later guidance (not an AA failure, used elsewhere in the app). Then rebuild Electron and a short
+  visual re-check at 245 px, 200% zoom and 520 px. CI on 29ed77782: all green except GitGuardian 39008928 (known
+  false positive); test shard 4 first failed in `npm ci` (node-gyp download), passed on rerun. Reversible.

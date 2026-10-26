@@ -130,6 +130,9 @@ describe('AmbientAccountRowComponent', () => {
     checkButton().click();
     await render();
     expect(document.activeElement).toBe(status());
+    // Programmatic-only focus target: no focus box, even under the glass theme's global :focus-visible ring.
+    expect(status().className).toContain('focus:!outline-none');
+    expect(status().className).toContain('focus:!shadow-none');
     host.ambient.set(connected('2026-10-26T10:02:00.000Z'));
     await render();
     expect(document.activeElement).toBe(checkButton());
