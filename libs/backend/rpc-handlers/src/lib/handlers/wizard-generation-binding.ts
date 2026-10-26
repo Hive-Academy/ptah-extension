@@ -342,17 +342,17 @@ export function acceptedSubmit(
     : { success: true };
 }
 
-export function consumeConfirmedPreview(
-  confirmedPreviews: Map<string, string>,
-  tabBinding: SetupGenerationTabBinding,
-  workspaceRoot: string,
-  currentPreview: string,
-  consume = true,
-): boolean {
-  const previewKey = `${tabBinding.tabId}\0${workspaceRoot}`;
-  const confirmed = confirmedPreviews.get(previewKey) === currentPreview;
-  if (consume && confirmed) confirmedPreviews.delete(previewKey);
-  return confirmed;
+/**
+ * A fresh submit whose decisions are not bound to a current preview: the tab
+ * has none, the token is stale, a replace no longer matches its baseline, or
+ * the files a preview would list changed. The client re-previews and confirms.
+ */
+export function previewRequiredSubmit(): WizardSubmitSelectionResponse {
+  return {
+    success: false,
+    rejection: { reason: 'preview-required' },
+    error: 'Generation targets changed. Review the preview and confirm again.',
+  };
 }
 
 export interface GenerationProviderModels {

@@ -35,6 +35,7 @@ import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorde
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 import { GuidanceGenerationRunSupervisor } from './handlers/guidance-generation-run.supervisor';
 import { GenerationRunSupervisor } from './handlers/wizard-generation-run.supervisor';
+import { GenerationPreviewService } from './handlers/wizard-generation/generation-preview.service';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 
 /**
@@ -67,6 +68,9 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(CliModelListService);
   container.registerSingleton(GuidanceGenerationRunSupervisor);
   container.registerSingleton(GenerationRunSupervisor);
+  // A singleton: it holds the preview token records and the per-process
+  // revision secret that `wizard:submit-selection` checks decisions against.
+  container.registerSingleton(GenerationPreviewService);
   container.registerSingleton(
     LANE_ROUTING_TOKENS.LANE_MODEL_LISTING,
     LaneModelListingAdapter,

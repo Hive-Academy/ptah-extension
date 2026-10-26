@@ -156,6 +156,7 @@ import {
   type WizardSubmitSelectionParams,
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { hashContent } from '@ptah-extension/harness-sync';
 import {
   createMockLogger,
   type MockLogger,
@@ -190,6 +191,7 @@ const HARNESS_SYNC_TOKENS = {
 
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
 import { sameWorkspacePath } from './wizard-generation-binding';
+import { GenerationPreviewService } from './wizard-generation/generation-preview.service';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import {
   GENERATION_TIMEOUT_MS,
@@ -1263,9 +1265,15 @@ function createMockContainer(
 // Harness
 // ---------------------------------------------------------------------------
 
+interface OriginReaderFake {
+  read: jest.Mock;
+  hashWrittenFile: jest.Mock;
+}
+
 interface Harness {
   handlers: WizardGenerationRpcHandlers;
   runs: GenerationRunSupervisor;
+  origins: OriginReaderFake;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   pluginLoader: MockPluginLoader;
@@ -1347,26 +1355,41 @@ function makeHarness(
   // the default registry: the handler must proceed without them.
 
   const container = createMockContainer(registry);
+  // The mocks implement only the members these classes call.
+  const hostLogger = logger as unknown as Logger;
+  const hostContainer = container as unknown as DependencyContainer;
   const checkpoints = new GenerationCheckpointService(
-    logger as unknown as Logger,
-    container as unknown as DependencyContainer,
+    hostLogger,
+    hostContainer,
   );
-  const runs = new GenerationRunSupervisor(logger as unknown as Logger);
+  const runs = new GenerationRunSupervisor(hostLogger);
+  const origins: OriginReaderFake = {
+    read: jest.fn().mockResolvedValue({}),
+    hashWrittenFile: jest.fn(),
+  };
+  const previews = new GenerationPreviewService(
+    hostLogger,
+    hostContainer,
+    checkpoints,
+    origins,
+  );
 
   const handlers = new WizardGenerationRpcHandlers(
-    logger as unknown as Logger,
+    hostLogger,
     rpcHandler as unknown as RpcHandler,
     pluginLoader as unknown as PluginLoaderService,
     workspace as unknown as IWorkspaceProvider,
-    container as unknown as DependencyContainer,
+    hostContainer,
     sentry as unknown as SentryService,
     checkpoints,
     runs,
+    previews,
   );
 
   return {
     handlers,
     runs,
+    origins,
     logger,
     rpcHandler,
     pluginLoader,
@@ -3048,6 +3071,8 @@ describe('WizardGenerationRpcHandlers', () => {
           target: 'claude',
           certainty: 'definite',
           willOverwrite: false,
+          localState: 'new',
+          revision: expect.any(String),
         });
         expect(agentFiles.slice(1)).toEqual([
           {
@@ -3117,6 +3142,8 @@ describe('WizardGenerationRpcHandlers', () => {
           target: 'claude',
           certainty: 'definite',
           willOverwrite: false,
+          localState: 'new',
+          revision: expect.any(String),
         },
         {
           relPath: '.codex/agents/tester.toml',
@@ -3218,7 +3245,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(response.errorCode).toBe('INVALID_PARAMS');
     });
 
-    it('a folder nested under another harness root lists Claude paths with a safe warning', async () => {
+    it('the opened-folder target under another harness root lists Claude paths with a safe warning', async () => {
       const nested = path.join(tempWorkspace, 'packages', 'app');
       fs.mkdirSync(nested, { recursive: true });
       const h = makeHarness({ workspaceRoot: nested });
@@ -3232,15 +3259,284 @@ describe('WizardGenerationRpcHandlers', () => {
       const response = await call<WizardPreviewGenerationResponse>(
         h,
         'wizard:preview-generation',
-        { selectedAgentIds: ['backend-developer'] },
+        { selectedAgentIds: ['backend-developer'], target: 'opened-folder' },
       );
 
+      expect(response.rivalStatus).toBe('opened-folder-elsewhere');
       expect(response.warning).toContain('different folder');
       expect(response.warning).not.toContain(path.resolve(tempWorkspace));
+      expect(response.target).toEqual({
+        harnessRoot: path.resolve(tempWorkspace),
+        openedFolder: path.resolve(nested),
+        chosen: 'opened-folder',
+        openedIsHarnessRoot: false,
+      });
       expect(files(response, 'backend-developer')).toEqual([
         ['claude', '.claude/agents/backend-developer.md', 'definite', false],
       ]);
       expect(reconciler.verify).not.toHaveBeenCalled();
+    });
+
+    it('a folder nested under a harness root targets the harness root by default and lists its rival rows', async () => {
+      const nested = path.join(tempWorkspace, 'packages', 'app');
+      fs.mkdirSync(nested, { recursive: true });
+      const h = makeHarness({ workspaceRoot: nested });
+      const reconciler = {
+        verify: jest.fn().mockResolvedValue(HEALTH),
+        reconcile: jest.fn(),
+      };
+      h.registry.set(HARNESS_SYNC_TOKENS.RECONCILER, reconciler);
+      h.registry.set(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER, {
+        resolve: jest.fn().mockResolvedValue({ disabledAgentIds: [] }),
+      });
+      h.handlers.register();
+
+      const response = await call<WizardPreviewGenerationResponse>(
+        h,
+        'wizard:preview-generation',
+        { selectedAgentIds: ['backend-developer'] },
+      );
+
+      expect(response.rivalStatus).toBe('listed');
+      expect(response.warning).toBeUndefined();
+      expect(response.target?.chosen).toBe('harness-root');
+      expect(reconciler.verify).toHaveBeenCalledWith(
+        path.resolve(tempWorkspace),
+        'wizard:preview-generation',
+      );
+      // Paths stay relative to the opened folder; the harness root is above it.
+      expect(files(response, 'backend-developer')).toEqual([
+        [
+          'claude',
+          '../../.claude/agents/backend-developer.md',
+          'definite',
+          false,
+        ],
+        [
+          'codex',
+          '../../.codex/agents/backend-developer.toml',
+          'definite',
+          false,
+        ],
+        [
+          'opencode',
+          '../../.opencode/agent/backend-developer.md',
+          'definite',
+          false,
+        ],
+      ]);
+    });
+
+    describe('token-bound decisions on submit', () => {
+      const AGENT = 'backend-developer';
+      const agentPath = () =>
+        path.join(tempWorkspace, '.claude', 'agents', `${AGENT}.md`);
+
+      function writeAgent(content: string): void {
+        fs.mkdirSync(path.dirname(agentPath()), { recursive: true });
+        fs.writeFileSync(agentPath(), content);
+      }
+
+      function claudeRow(response: WizardPreviewGenerationResponse) {
+        const row = response.agents[0].files.find((f) => f.target === 'claude');
+        if (!row) throw new Error('no claude row');
+        return row;
+      }
+
+      async function preview(
+        h: PreviewHarness,
+      ): Promise<WizardPreviewGenerationResponse> {
+        return call<WizardPreviewGenerationResponse>(
+          h,
+          'wizard:preview-generation',
+          { selectedAgentIds: [AGENT] },
+        );
+      }
+
+      async function submit(
+        h: PreviewHarness,
+        extra: Partial<WizardSubmitSelectionParams>,
+      ) {
+        return call<{ success: boolean; rejection?: { reason: string } }>(
+          h,
+          'wizard:submit-selection',
+          { selectedAgentIds: [AGENT], ...extra },
+        );
+      }
+
+      it('reports an existing file with its state, a revision and a token', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+
+        const response = await preview(h);
+
+        expect(response.previewToken).toMatch(/^[0-9a-f-]{36}$/);
+        expect(response.rivalStatus).toBe('listed');
+        expect(response.target).toMatchObject({
+          chosen: 'harness-root',
+          openedIsHarnessRoot: true,
+        });
+        expect(claudeRow(response)).toMatchObject({
+          localState: 'exists',
+          willOverwrite: true,
+          revision: expect.any(String),
+        });
+      });
+
+      it('no token → every agent is create-only', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+        await preview(h);
+
+        expect((await submit(h, {})).success).toBe(true);
+        await settle();
+
+        expect(firstOptions(h).fileGuards).toEqual({
+          [AGENT]: { mode: 'create-only' },
+        });
+      });
+
+      it('a valid token keeps an existing file by default and replaces it on request', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+        const response = await preview(h);
+
+        const accepted = await submit(h, {
+          previewToken: response.previewToken,
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(response).revision,
+            },
+          },
+        });
+        expect(accepted.success).toBe(true);
+        await settle();
+
+        expect(firstOptions(h).fileGuards).toEqual({
+          [AGENT]: {
+            mode: 'replace-allowed',
+            baseline: { state: 'present', hash: hashContent('mine') },
+          },
+        });
+      });
+
+      it('a stale token with a replace → preview-required', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+        const first = await preview(h);
+        await preview(h);
+
+        const result = await submit(h, {
+          previewToken: first.previewToken,
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(first).revision,
+            },
+          },
+        });
+
+        expect(result.rejection?.reason).toBe('preview-required');
+        expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
+      });
+
+      it('a replace without any token → preview-required', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+        const response = await preview(h);
+
+        const result = await submit(h, {
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(response).revision,
+            },
+          },
+        });
+
+        expect(result.rejection?.reason).toBe('preview-required');
+      });
+
+      it('a replace on an unreadable file is rejected', async () => {
+        // A directory where the agent file belongs cannot be read as a file.
+        fs.mkdirSync(agentPath(), { recursive: true });
+        const h = makePreviewHarness();
+        const response = await preview(h);
+        expect(claudeRow(response).localState).toBe('unreadable');
+
+        const result = await submit(h, {
+          previewToken: response.previewToken,
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(response).revision,
+            },
+          },
+        });
+
+        expect(result.rejection?.reason).toBe('preview-required');
+      });
+
+      it('exists(A) → exists(B): the re-preview has a new revision and the old one is refused', async () => {
+        writeAgent('version A');
+        const h = makePreviewHarness();
+        const before = await preview(h);
+        writeAgent('version B');
+        const after = await preview(h);
+
+        expect(claudeRow(after).revision).not.toBe(claudeRow(before).revision);
+        const stale = await submit(h, {
+          previewToken: after.previewToken,
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(before).revision,
+            },
+          },
+        });
+        expect(stale.rejection?.reason).toBe('preview-required');
+
+        const fresh = await submit(h, {
+          previewToken: after.previewToken,
+          fileDecisions: {
+            [AGENT]: {
+              decision: 'replace',
+              revision: claudeRow(after).revision,
+            },
+          },
+        });
+        expect(fresh.success).toBe(true);
+        await settle();
+        expect(firstOptions(h).fileGuards?.[AGENT]).toEqual({
+          mode: 'replace-allowed',
+          baseline: { state: 'present', hash: hashContent('version B') },
+        });
+      });
+
+      it('a resume ignores request decisions and runs with the guards it has', async () => {
+        writeAgent('mine');
+        const h = makePreviewHarness();
+        const response = await preview(h);
+
+        const result = await call<{ success: boolean; error?: string }>(
+          h,
+          'wizard:submit-selection',
+          {
+            resume: true,
+            previewToken: response.previewToken,
+            fileDecisions: { [AGENT]: { decision: 'replace' } },
+          },
+        );
+
+        // No checkpoint exists: the resume is refused for that reason, not
+        // because of the decisions it carried.
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/No resumable generation run/);
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('ignored preview decisions on a resume'),
+        );
+      });
     });
   });
 });

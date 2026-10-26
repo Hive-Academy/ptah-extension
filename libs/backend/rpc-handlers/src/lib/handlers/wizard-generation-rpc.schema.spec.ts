@@ -40,6 +40,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 import {
   WizardAgentIdSchema,
   WizardCancelParamsSchema,
+  WizardPreviewGenerationParamsSchema,
   WizardRetryItemParamsSchema,
   WizardSubmitSelectionParamsSchema,
   formatIssue,
@@ -168,6 +169,96 @@ describe('wizard-generation-rpc.schema', () => {
       });
       expect(result.success).toBe(true);
       expect(result.data?.analysisData?.projectType).toBe('monorepo');
+    });
+  });
+
+  describe('preview decisions (TASK_2026_701 B5)', () => {
+    const TOKEN = '3f2a9c1e-8b7d-4e6f-9a0b-1c2d3e4f5a6b';
+
+    it('accepts a token, per-agent decisions and a target', () => {
+      const result = WizardSubmitSelectionParamsSchema.safeParse({
+        selectedAgentIds: ['agent-a', 'agent-b'],
+        previewToken: TOKEN,
+        fileDecisions: {
+          'agent-a': { decision: 'replace', revision: 'rev-1' },
+          'agent-b': { decision: 'keep' },
+        },
+        target: 'opened-folder',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data?.fileDecisions?.['agent-a']).toEqual({
+        decision: 'replace',
+        revision: 'rev-1',
+      });
+    });
+
+    it.each([
+      ['a token that is not a UUID', { previewToken: 'token' }],
+      ['an unknown target', { target: 'home' }],
+      [
+        'an unknown decision',
+        { fileDecisions: { 'agent-a': { decision: 'overwrite' } } },
+      ],
+      [
+        'a traversal decision key',
+        { fileDecisions: { '../x': { decision: 'keep' } } },
+      ],
+      [
+        'a prototype decision key',
+        { fileDecisions: { __proto__x: { decision: 'keep' } } },
+      ],
+      [
+        'an oversized revision',
+        {
+          fileDecisions: {
+            'agent-a': { decision: 'replace', revision: 'r'.repeat(129) },
+          },
+        },
+      ],
+    ])('rejects %s', (_label, extra) => {
+      expect(
+        WizardSubmitSelectionParamsSchema.safeParse({
+          selectedAgentIds: ['agent-a'],
+          ...extra,
+        }).success,
+      ).toBe(false);
+    });
+
+    it('caps decisions at 200 entries', () => {
+      const decisions = (count: number) =>
+        Object.fromEntries(
+          Array.from({ length: count }, (_, i) => [
+            `agent-${i}`,
+            { decision: 'keep' },
+          ]),
+        );
+      expect(
+        WizardSubmitSelectionParamsSchema.safeParse({
+          selectedAgentIds: ['agent-0'],
+          fileDecisions: decisions(200),
+        }).success,
+      ).toBe(true);
+      expect(
+        WizardSubmitSelectionParamsSchema.safeParse({
+          selectedAgentIds: ['agent-0'],
+          fileDecisions: decisions(201),
+        }).success,
+      ).toBe(false);
+    });
+
+    it('accepts an optional target on the preview and rejects an unknown one', () => {
+      expect(
+        WizardPreviewGenerationParamsSchema.safeParse({
+          selectedAgentIds: ['agent-a'],
+          target: 'harness-root',
+        }).success,
+      ).toBe(true);
+      expect(
+        WizardPreviewGenerationParamsSchema.safeParse({
+          selectedAgentIds: ['agent-a'],
+          target: 'elsewhere',
+        }).success,
+      ).toBe(false);
     });
   });
 

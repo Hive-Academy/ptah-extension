@@ -139,6 +139,7 @@ import {
   registerAgentGenerationServices,
   type AgentTemplate,
   type UserLayerMirrorService,
+  type WizardAgentOriginStore,
 } from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
@@ -162,6 +163,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import { GenerationRunSupervisor } from './wizard-generation-run.supervisor';
+import { GenerationPreviewService } from './wizard-generation/generation-preview.service';
 
 // ---------------------------------------------------------------------------
 // Fixture
@@ -388,6 +390,16 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
     },
   });
   const rpcHandler = createMockRpcHandler();
+  const checkpoints = new GenerationCheckpointService(logger, container);
+  // The production preview service over the registered origin store.
+  const previews = new GenerationPreviewService(
+    logger,
+    container,
+    checkpoints,
+    container.resolve<WizardAgentOriginStore>(
+      AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE,
+    ),
+  );
   const handlers = new WizardGenerationRpcHandlers(
     logger,
     rpcHandler as unknown as RpcHandler,
@@ -400,8 +412,9 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
     }) as unknown as IWorkspaceProvider,
     container,
     createMockSentryService() as unknown as SentryService,
-    new GenerationCheckpointService(logger, container),
+    checkpoints,
     new GenerationRunSupervisor(logger),
+    previews,
   );
   handlers.register();
 

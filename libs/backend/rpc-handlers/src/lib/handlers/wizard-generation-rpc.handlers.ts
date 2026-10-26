@@ -19,12 +19,13 @@
  * - `GenerationCheckpointService` persists a generation manifest BEFORE work
  *   starts and after every terminal agent outcome, so a run survives a host
  *   restart and `resume: true` re-runs only what is not yet current.
+ * - A fresh submit's keep/replace decisions are bound to a server-held
+ *   preview token (`GenerationPreviewService`); without one it only creates
+ *   missing files.
  * - Harness propagation runs whenever the settled summary wrote at least one
  *   file — a timed-out or paused run included — and stays warning-only.
  */
 
-import { promises as fsPromises } from 'fs';
-import * as path from 'path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
 import type { z } from 'zod';
 import {
@@ -36,27 +37,19 @@ import {
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type {
+  AgentFileGuard,
   AnalysisFreshnessService,
   AnalysisStorageService,
   OrchestratorGenerationOptions,
 } from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
-  isAgentSelectedForSync,
-  isReservedSlug,
-  resolveHarnessWorkspaceRoot,
   type AgentSyncGate,
   type HarnessPropagationService,
-  type HarnessReconcilerService,
-  type IHarnessSourceResolver,
 } from '@ptah-extension/harness-sync';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
-import { harnessAgentRelPath } from '@ptah-extension/shared';
 import type {
-  GenerationPreviewAgent,
-  GenerationPreviewFile,
-  HarnessTargetId,
   WizardPreviewGenerationParams,
   WizardPreviewGenerationResponse,
   WizardSubmitSelectionParams,
@@ -104,9 +97,9 @@ import {
 } from './wizard-generation-rpc.schema';
 import {
   acceptedSubmit,
-  consumeConfirmedPreview,
   authorizeTabWorkspace,
   blockedSubmit,
+  previewRequiredSubmit,
   resolveGenerationContext,
   generationRunState,
   rejectSubmit,
@@ -115,6 +108,11 @@ import {
   resultDetailsFromManifest,
   type GenerationProviderModels,
 } from './wizard-generation-binding';
+import {
+  GenerationPreviewService,
+  previewKeyFor,
+  type DecisionValidation,
+} from './wizard-generation/generation-preview.service';
 
 /**
  * Interface for the SetupWizardService methods we need.
@@ -146,33 +144,6 @@ interface GenerationRuntime {
   pluginPaths?: string[];
 }
 
-/**
- * The rival-CLI half of a generation preview, decided once per request.
- * `unavailable` promises no rival path at all; `available` lists the targets a
- * fresh verify found, each with the agent paths that verify reported in sync.
- * `condition` is non-null when every rival copy depends on something the
- * preview cannot guarantee; when it is null a copy is still only `definite`
- * if its path is in its target's `inSync` set.
- */
-type RivalPreview =
-  | { kind: 'unavailable'; warning: string }
-  | {
-      kind: 'available';
-      harnessRoot: string;
-      targets: { target: HarnessTargetId; inSync: ReadonlySet<string> }[];
-      disabledAgentIds: readonly string[];
-      condition: string | null;
-    };
-
-const PREVIEW_NO_HARNESS_WARNING =
-  'Agent sync to other CLIs is not available on this host, so only the Claude agent files are listed.';
-const PREVIEW_VERIFY_FAILED_WARNING =
-  'Could not check which other CLIs are installed, so only the Claude agent files are listed.';
-const PREVIEW_NO_AGENT_SYNC_CONDITION = 'agent sync not available on this host';
-const PREVIEW_POLICY_UNKNOWN_CONDITION =
-  'plugin and skill settings become readable again; agent sync is paused while they cannot be read';
-const PREVIEW_WRITE_DEPENDENT_CONDITION =
-  'generation changes at least one selected agent file; other CLIs are only synced when a file is written';
 /** Exact DI identity from auth-providers-tokens, without pulling its package into this project. */
 const SDK_PROVIDER_MODELS_TOKEN = Symbol.for('SdkProviderModels');
 
@@ -204,7 +175,6 @@ export class WizardGenerationRpcHandlers {
 
   /** Reserves the submit slot while its checkpoint and runtime are prepared. */
   private submitReserved = false;
-  private readonly confirmedPreviews = new Map<string, string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -221,6 +191,8 @@ export class WizardGenerationRpcHandlers {
     private readonly checkpoints: GenerationCheckpointService,
     @inject(GenerationRunSupervisor)
     private readonly runs: GenerationRunSupervisor,
+    @inject(GenerationPreviewService)
+    private readonly previews: GenerationPreviewService,
   ) {}
 
   register(): void {
@@ -477,27 +449,31 @@ export class WizardGenerationRpcHandlers {
         };
       }
     }
-    if (tabBinding && !resume) {
-      const currentPreview = await this.previewSignature(
-        effectiveWorkspace,
-        selectedAgentIds,
+    // A fresh submit binds its keep/replace decisions to the preview token; a
+    // resume never takes decisions from the request (A1).
+    const previewKey = previewKeyFor(tabBinding?.tabId);
+    let fileGuards: Readonly<Record<string, AgentFileGuard>> | undefined;
+    let usedPreview = false;
+    if (!resume) {
+      const decided = await this.previews.validateDecisions({
+        key: previewKey,
+        workspace: effectiveWorkspace,
+        agentIds: selectedAgentIds,
+        target: parsed.target,
+        previewToken: parsed.previewToken,
+        decisions: parsed.fileDecisions,
+        requirePreview: !!tabBinding,
+      });
+      if (!decided.ok) return previewRequiredSubmit();
+      usedPreview = !!tabBinding || decided.tokenBound;
+      fileGuards = this.guardsForRunRoot(decided);
+    } else if (
+      parsed.previewToken !== undefined ||
+      parsed.fileDecisions !== undefined
+    ) {
+      this.logger.warn(
+        'RPC: wizard:submit-selection ignored preview decisions on a resume; the run keeps its own',
       );
-      if (
-        !consumeConfirmedPreview(
-          this.confirmedPreviews,
-          tabBinding,
-          effectiveWorkspace,
-          currentPreview,
-          false,
-        )
-      ) {
-        return {
-          success: false,
-          rejection: { reason: 'preview-required' },
-          error:
-            'Generation targets changed. Review the preview and confirm again.',
-        };
-      }
     }
     const prepared = await this.prepareSubmittedRun({
       resume,
@@ -519,10 +495,7 @@ export class WizardGenerationRpcHandlers {
     }
     if (prepared.agentIds.length === 0) {
       await this.completeWithoutWork(prepared, runtime.webviewManager);
-      if (tabBinding && !resume)
-        this.confirmedPreviews.delete(
-          `${tabBinding.tabId}\0${effectiveWorkspace}`,
-        );
+      if (usedPreview) this.previews.release(previewKey);
       return acceptedSubmit(tabBinding, prepared, source, route);
     }
 
@@ -539,12 +512,31 @@ export class WizardGenerationRpcHandlers {
       prepared,
       tabBinding,
       resume,
+      fileGuards,
     });
-    if (accepted.success && tabBinding && !resume)
-      this.confirmedPreviews.delete(
-        `${tabBinding.tabId}\0${effectiveWorkspace}`,
-      );
+    if (accepted.success && usedPreview) this.previews.release(previewKey);
     return accepted;
+  }
+
+  /**
+   * Until the run manifest carries its own output root (B6, Batch 12), every
+   * run writes under the opened folder. Guards recorded against the harness
+   * root describe a different file when the two differ, so the run is then
+   * create-only (the orchestrator's default), which can only keep files.
+   */
+  private guardsForRunRoot(
+    decided: Extract<DecisionValidation, { ok: true }>,
+  ): Readonly<Record<string, AgentFileGuard>> | undefined {
+    if (
+      decided.target.chosen === 'opened-folder' ||
+      decided.target.openedIsHarnessRoot
+    )
+      return decided.guards;
+    if (decided.tokenBound)
+      this.logger.warn(
+        'RPC: wizard:submit-selection runs create-only: the preview target is the harness root, but this run writes under the opened folder',
+      );
+    return undefined;
   }
 
   private async prepareSubmittedRun(args: {
@@ -625,6 +617,8 @@ export class WizardGenerationRpcHandlers {
     prepared: PreparedGenerationRun;
     tabBinding: SetupGenerationTabBinding | undefined;
     resume: boolean;
+    /** Per-agent write guards of a fresh submit; absent = create-only. */
+    fileGuards?: Readonly<Record<string, AgentFileGuard>>;
   }): Promise<WizardSubmitSelectionResponse> {
     const {
       workspaceRoot,
@@ -639,6 +633,7 @@ export class WizardGenerationRpcHandlers {
       prepared,
       tabBinding,
       resume,
+      fileGuards,
     } = args;
     const resumeRequestedDir = analysisDir ?? prepared.location.analysisDir;
     const selectedTrustedDir =
@@ -662,6 +657,7 @@ export class WizardGenerationRpcHandlers {
           ? trustedDir
           : null
         : selectedTrustedDir,
+      fileGuards,
     );
     if (this.runs.isActive) {
       await this.checkpoints.finalize(prepared.location, 'failed');
@@ -1035,6 +1031,10 @@ export class WizardGenerationRpcHandlers {
    *   rival copy is `conditional` on generation writing a file.
    * - Without a reconciler, or when its verify throws, only the Claude paths
    *   are listed and `warning` says why.
+   *
+   * {@link GenerationPreviewService} builds the response (target, file
+   * states, revisions, model lines) and records the token a submit's
+   * keep/replace decisions are later checked against.
    */
   private registerPreviewGeneration(): void {
     this.rpcHandler.registerMethod<
@@ -1074,174 +1074,14 @@ export class WizardGenerationRpcHandlers {
         parsed.tabBinding && canonicalWorkspace
           ? { ...parsed.tabBinding, workspacePath: canonicalWorkspace }
           : undefined;
-      const rivals = await this.previewRivals(workspaceRoot);
-      const agents = await Promise.all(
-        [...new Set(parsed.selectedAgentIds)].map((agentId) =>
-          this.previewAgent(workspaceRoot, agentId, rivals),
-        ),
-      );
-      if (binding) {
-        const canonical = binding.workspacePath;
-        if (this.confirmedPreviews.size >= 64) {
-          const oldest = this.confirmedPreviews.keys().next().value;
-          if (oldest) this.confirmedPreviews.delete(oldest);
-        }
-        this.confirmedPreviews.set(
-          `${binding.tabId}\0${canonical}`,
-          JSON.stringify(
-            agents.flatMap((agent) =>
-              agent.files
-                .filter((file) => file.certainty === 'definite')
-                .map((file) => [file.target, file.relPath, file.willOverwrite]),
-            ),
-          ),
-        );
-      }
-      this.logger.debug('RPC: wizard:preview-generation', {
-        agents: agents.length,
-        rivalTargets:
-          rivals.kind === 'available'
-            ? rivals.targets.map(({ target }) => target)
-            : [],
-        allRivalsConditional:
-          rivals.kind === 'available' && rivals.condition !== null,
+      return this.previews.preview({
+        key: previewKeyFor(binding?.tabId),
+        openedFolder: workspaceRoot,
+        canonicalWorkspace: binding?.workspacePath ?? workspaceRoot,
+        agentIds: parsed.selectedAgentIds,
+        target: parsed.target,
       });
-      return rivals.kind === 'available'
-        ? { agents }
-        : { agents, warning: rivals.warning };
     });
-  }
-
-  /** Same registration-check pattern as {@link propagateGeneratedAgents}. */
-  private async previewRivals(workspaceRoot: string): Promise<RivalPreview> {
-    if (
-      !this.container.isRegistered(HARNESS_SYNC_TOKENS.RECONCILER) ||
-      !this.container.isRegistered(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER)
-    ) {
-      return { kind: 'unavailable', warning: PREVIEW_NO_HARNESS_WARNING };
-    }
-    const harnessRoot = resolveHarnessWorkspaceRoot(workspaceRoot);
-    if (harnessRoot !== path.resolve(workspaceRoot)) {
-      // Generation writes this folder's `.claude/agents`; the mirror syncs the
-      // harness root's, so nothing generated here reaches another CLI.
-      return {
-        kind: 'unavailable',
-        warning:
-          'Other CLIs sync agents from a different folder, so only the Claude agent files are listed.',
-      };
-    }
-    try {
-      const reconciler = this.resolveService<HarnessReconcilerService>(
-        HARNESS_SYNC_TOKENS.RECONCILER,
-        'HarnessReconcilerService',
-      );
-      const sourceResolver = this.resolveService<IHarnessSourceResolver>(
-        HARNESS_SYNC_TOKENS.SOURCE_RESOLVER,
-        'HarnessSourceResolver',
-      );
-      // Fresh, not `getLastHealth()`: a CLI installed since the last pass must
-      // be listed, and one uninstalled since must not be promised.
-      const health = await reconciler.verify(
-        harnessRoot,
-        'wizard:preview-generation',
-      );
-      const source = await sourceResolver.resolve(harnessRoot);
-      const syncAvailable =
-        this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE) &&
-        this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION);
-      return {
-        kind: 'available',
-        harnessRoot,
-        targets: health.targets
-          .filter(
-            (target) => target.detected && target.facets.agents === 'supported',
-          )
-          .map((target) => ({
-            target: target.target,
-            inSync: new Set(target.agentsInSync ?? []),
-          })),
-        disabledAgentIds: source.disabledAgentIds ?? [],
-        // A frozen policy makes the reconciler write no agent at all this pass.
-        condition: !syncAvailable
-          ? PREVIEW_NO_AGENT_SYNC_CONDITION
-          : source.policyUnknown === true
-            ? PREVIEW_POLICY_UNKNOWN_CONDITION
-            : null,
-      };
-    } catch (error: unknown) {
-      this.logger.warn(
-        'RPC: wizard:preview-generation could not verify harness targets',
-        { error: error instanceof Error ? error.message : String(error) },
-      );
-      return { kind: 'unavailable', warning: PREVIEW_VERIFY_FAILED_WARNING };
-    }
-  }
-
-  private async previewAgent(
-    workspaceRoot: string,
-    agentId: string,
-    rivals: RivalPreview,
-  ): Promise<GenerationPreviewAgent> {
-    const claudePath = path.join(
-      this.checkpoints.outputDirectoryFor(workspaceRoot),
-      `${agentId}.md`,
-    );
-    const rivalPaths =
-      rivals.kind === 'available' &&
-      // The builder rejects a reserved slug before it claims it.
-      !isReservedSlug(agentId) &&
-      isAgentSelectedForSync(
-        { agentSyncEnabled: true, disabledAgentIds: rivals.disabledAgentIds },
-        agentId,
-      )
-        ? rivals.targets.flatMap(({ target, inSync }) => {
-            const relPath = harnessAgentRelPath(target, agentId);
-            return relPath === null
-              ? []
-              : [
-                  {
-                    target,
-                    absPath: path.join(rivals.harnessRoot, relPath),
-                    condition:
-                      rivals.condition ??
-                      (inSync.has(relPath)
-                        ? null
-                        : PREVIEW_WRITE_DEPENDENT_CONDITION),
-                  },
-                ];
-          })
-        : [];
-    const files = await Promise.all([
-      this.previewFile(workspaceRoot, 'claude', claudePath, null),
-      ...rivalPaths.map(({ target, absPath, condition }) =>
-        this.previewFile(workspaceRoot, target, absPath, condition),
-      ),
-    ]);
-    return { agentId, files };
-  }
-
-  private async previewFile(
-    workspaceRoot: string,
-    target: HarnessTargetId,
-    absPath: string,
-    condition: string | null,
-  ): Promise<GenerationPreviewFile> {
-    let willOverwrite: boolean;
-    try {
-      await fsPromises.lstat(absPath);
-      willOverwrite = true;
-    } catch {
-      // Nothing there to replace (ENOENT), or nothing this host can see.
-      willOverwrite = false;
-    }
-    return {
-      relPath: path.relative(workspaceRoot, absPath).split(path.sep).join('/'),
-      target,
-      ...(condition === null
-        ? { certainty: 'definite' as const }
-        : { certainty: 'conditional' as const, condition }),
-      willOverwrite,
-    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1643,9 +1483,11 @@ export class WizardGenerationRpcHandlers {
     prepared: PreparedGenerationRun,
     runtime: GenerationRuntime,
     trustedDir: string | null,
+    fileGuards?: Readonly<Record<string, AgentFileGuard>>,
   ): OrchestratorGenerationOptions {
     const { input } = prepared.manifest;
     return {
+      ...(fileGuards ? { fileGuards } : {}),
       workspacePath: workspaceRoot,
       userOverrides: prepared.agentIds,
       threshold: input.threshold,
@@ -1886,25 +1728,6 @@ export class WizardGenerationRpcHandlers {
   /**
    * Resolve a service from the DI container with a descriptive failure.
    */
-  private async previewSignature(
-    workspaceRoot: string,
-    agentIds: string[],
-  ): Promise<string> {
-    const rivals = await this.previewRivals(workspaceRoot);
-    const agents = await Promise.all(
-      [...new Set(agentIds)].map((id) =>
-        this.previewAgent(workspaceRoot, id, rivals),
-      ),
-    );
-    return JSON.stringify(
-      agents.flatMap((agent) =>
-        agent.files
-          .filter((file) => file.certainty === 'definite')
-          .map((file) => [file.target, file.relPath, file.willOverwrite]),
-      ),
-    );
-  }
-
   private resolveService<T>(token: symbol | string, serviceName: string): T {
     try {
       const service = this.container.resolve(token);

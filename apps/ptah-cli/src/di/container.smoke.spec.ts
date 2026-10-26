@@ -200,6 +200,16 @@ function buildMinimalContainer(): DependencyContainer {
       getAnalysisDir: jest.fn(),
     },
   });
+  // Batch 11 `GenerationPreviewService` (injected into
+  // `WizardGenerationRpcHandlers`) reads wizard agent origins through this.
+  // The real CLI container registers it with the rest of the
+  // agent-generation services.
+  c.register(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE, {
+    useValue: {
+      read: jest.fn(),
+      hashWrittenFile: jest.fn(),
+    },
+  });
 
   const fakeModelSettings = {
     selectedModel: { get: jest.fn(() => 'sonnet'), set: jest.fn() },

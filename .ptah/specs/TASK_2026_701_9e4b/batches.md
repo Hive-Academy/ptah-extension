@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 12/27
+Total tasks: 34 | Batches: 27 | Complete: 13/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -137,6 +137,14 @@ family; no exception needed).
 | P2 wizard and packs | 10-18 | code-logic (codex) + style (new RPC `wizard:plan-pack-install`) + Electron visual review (dark + light, narrow ~400px) of the wizard preview, sidebar dialog, pack prompt and completion against `prototype/` |
 | P3 Library and Marketplace | 19-25 | code-logic (codex) + style (new RPCs `plugins:replace-kept-items`, `plugins:resolve-config-home`) + Electron visual review (dark + light, narrow) incl. the F7i notice states and the F6 pointer (D15) against `prototype/` |
 | P4 rubric | 26 | code-logic (codex) |
+
+P1 review result: `reviews/p1-code-logic-review-a.md` (4/10 REVISE), `reviews/p1-code-logic-review-b.md`
+(5/10 REVISE), `reviews/p1-code-style-review.md` (6/10 REVISE). P1 fix round (S1, S2, A1-A4, B1-B3,
+CLI B3 D25, follow-ups D24) — COMPLETE (commit: 16042c885). Verified by the combined session-5
+verify (72/73; only the accepted D21 agent-sdk lint). Minor recorded, not fixed:
+`apps/ptah-electron/src/di/container.smoke.spec.ts:508` exact-text assertion; Claude-target removals
+still delete an owned copy without move-aside. The one re-review scoped to the fix commit is still
+due (codex, different family).
 
 Phase-end host keep-alive (team-leader, before requesting the review):
 `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`.
@@ -678,7 +686,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   one failure is ptah-extension-webview:lint, pre-existing D19 (fails identically on main).
 - Report: reports/batch-10-report.md
 
-## Batch 11: Generation preview service and token-bound decisions (B5) — PENDING
+## Batch 11: Generation preview service and token-bound decisions (B5) — COMPLETE (commit: recorded on next commit; see git log "batch 11")
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -689,7 +697,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 4, 5, 10
 - Phase: P2 | Phase review: P2 code-logic
 
-### Task 11.1: `GenerationPreviewService` — PENDING
+### Task 11.1: `GenerationPreviewService` — COMPLETE
 
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation/generation-preview.service.ts` (+ spec); MODIFY `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts` (+ spec), `wizard-generation-rpc.schema.ts` (+ spec), `wizard-generation-binding.ts`, `wizard-generation.preview-fidelity.spec.ts`, `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`
 - Plan reference: implementation-plan.md:411-462; A1, A26, R1-5
@@ -703,6 +711,10 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
+- Result: covered by the combined session-5 verify (72/73; only the accepted D21 agent-sdk lint).
+  Host smoke specs needed an `AGENT_ORIGIN_STORE` stub in all three `container.smoke.spec.ts`
+  (D27, `reports/host-smoke-fix-report.md`); committed with this batch. Temporary rule until
+  Batch 12: below the harness root, submit is create-only and preview paths and the run disagree.
 
 ## Batch 12: Run manifest decisions and post-run Library outcome (B6 + B7) — PENDING
 
@@ -773,7 +785,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/rpc-handlers,@ptah-extension/shared,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
 
-## Batch 14: Setup-wizard decision components (F1) — COMPLETE
+## Batch 14: Setup-wizard decision components (F1) — COMPLETE (commit: 493027b0e)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
