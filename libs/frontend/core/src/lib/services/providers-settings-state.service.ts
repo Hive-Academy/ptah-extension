@@ -92,6 +92,10 @@ export {
   type ProviderAccountChoice,
   type ProviderAccountsView,
 } from './provider-accounts-state.service';
+export {
+  ClaudeAmbientStatusService,
+  type ClaudeAmbientStatusView,
+} from './claude-ambient-status.service';
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set([

@@ -289,3 +289,16 @@
 - Fix (one-line type edit, trivial-edit exception): exclude `provider:getAmbientClaudeStatus` from
   `AccountWriteMethod`. B3 commit becomes 9 files. The codex backend phase review covers the edit.
   Evidence: the compiler errors; the method is a read (plan §5). Reversible.
+
+## D45 — Backend phase review: one fix round (2026-10-26, orchestrator)
+
+- Codex code-logic review `code-logic-review-p5-backend.md`: REVISE 6/10, 1 Serious, 1 Moderate.
+- Serious 1 (late PID after kill grace is never killed, `claude-account-command.ts` `run()`): the code is from an
+  earlier commit of this branch, but the ambient probe path makes it reachable (worker-backed spawner) and a
+  retained receipt then blocks later probes. Fix in this round.
+- Moderate 2 (A→B→A environment change around certification caches B's status under key A,
+  `claude-ambient-login-status.ts`): fixed in this round, because it can report `connected` for the wrong login
+  (rule 4: wrong state shown to the user is treated like data loss). One environment snapshot feeds both the key
+  and the child.
+- B3 open point (reader throw → "Account storage is unavailable."): reviewer found no reachable path; no change.
+- Executor: backend-developer subagent; then a short codex re-review scoped to the fix. Reversible.
