@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 17/22 (B1-B16, B19)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 20/22 (B1-B17, B19-B21)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -387,13 +387,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: running and finished lane cards show the label, "Default" for ambient, "Removed account" for a missing profile; existing card layout reused (no new surface).
 
-## Batch 17: Provider account RPC and Electron wiring — PENDING
+## Batch 17: Provider account RPC and Electron wiring — COMPLETE
 
 - Recommended executor: subagent backend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B8, B9 (hard) | Phase: P4
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/rpc-handlers,ptah-electron,ptah-extension-vscode` (N = 3)
 
-### Task 17.1: Actions port in the handler; Electron persistence bindings — PENDING
+### Task 17.1: Actions port in the handler; Electron persistence bindings — COMPLETE
 
 - Files: M `libs/backend/rpc-handlers/src/lib/handlers/provider-account-rpc.handlers.ts`; M `libs/backend/rpc-handlers/src/lib/handlers/provider-account-rpc.handlers.spec.ts`; M `apps/ptah-electron/src/di/phase-2-libraries.ts`; M `apps/ptah-electron/src/di/container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:757-767 (Component 8 Electron), 851-855 (Component 11 B17), 1038
@@ -431,18 +431,18 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: copy at `:690` changed; D7 comments at `:146,671` updated; behaviour unchanged (refused).
 
-## Batch 20: Drawer pending and fallback — PENDING
+## Batch 20: Drawer pending and fallback — COMPLETE
 
 - Recommended executor: subagent frontend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 2 | Depends on: B1 (hard) | Phase: P4
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/core,@ptah-extension/chat` (N = 2)
 
-### Task 20.0: Pre-existing core lint baseline (team-leader, before the executor) — PENDING
+### Task 20.0: Pre-existing core lint baseline (team-leader, before the executor) — COMPLETE
 
 - File: `libs/frontend/core/src/lib/components/attention-permission-actions.component.ts:15,28` (not a task file)
 - Action: confirm whether main still fails `@ptah-extension/core` lint there. If it does, report to the orchestrator with the recommendation of one separate minimal `fix(core)` commit before B20. B20 is not committed on a red lint.
 
-### Task 20.1: U2 pending copy, U3 fallback block — PENDING
+### Task 20.1: U2 pending copy, U3 fallback block — COMPLETE
 
 - Files: M `libs/frontend/core/src/lib/services/provider-accounts-state.service.ts`; M `libs/frontend/core/src/lib/services/provider-accounts-state.service.spec.ts`; M `libs/frontend/chat/src/lib/settings/providers/accounts/account-details-drawer.component.ts`; M `libs/frontend/chat/src/lib/settings/providers/accounts/account-details-drawer.component.spec.ts`
 - Plan reference: implementation-plan.md:861-874 (U2, U3), 1041
@@ -450,13 +450,13 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: pending copy "Finish sign-in in the Claude window"; fallback block inside the existing drawer: read-only script, copy button, "Run it in a new terminal window", "Check status"; state service extracts `fallback` like `operationOf` (`:589-597`); `HELD_FALLBACK` neutral; no new surface.
 
-## Batch 21: Accounts section and session row — PENDING
+## Batch 21: Accounts section and session row — COMPLETE
 
 - Recommended executor: subagent frontend-developer | Mode: sequential | Fallback/Subagent reason/Review family: as B1
 - Tasks: 1 | Depends on: B2 (`accountProfileId`), B16 | Phase: P4 (last; request P4 code-logic + visual review after commit)
 - Verify: `npm run verify -- -t lint,test,typecheck -p @ptah-extension/chat` (N = 1)
 
-### Task 21.1: U4 held note removed; U6 session "Account: <label>" / "Default" — PENDING
+### Task 21.1: U4 held note removed; U6 session "Account: <label>" / "Default" — COMPLETE
 
 - Files: M `libs/frontend/chat/src/lib/settings/providers/accounts/accounts-section.component.ts`; M `libs/frontend/chat/src/lib/settings/providers/accounts/accounts-section.component.spec.ts`; M `libs/frontend/chat/src/lib/components/molecules/session-list-row/session-list-row.component.ts`; M `libs/frontend/chat/src/lib/components/molecules/session-list-row/session-list-row.component.spec.ts`
 - Plan reference: implementation-plan.md:861-874 (U4, U6), 1042

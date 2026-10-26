@@ -11,6 +11,7 @@ import type {
   ProviderAccountActionResult,
   ProviderAccountScope,
   ProviderAccountSelection,
+  ProviderAccountSignInFallback,
   ProviderAccountSummary,
   ProviderAccountsSnapshot,
 } from '@ptah-extension/shared';
@@ -24,10 +25,7 @@ import {
   type AccountRenameIntent,
 } from './account-details-drawer.component';
 import { AddAccountDialogComponent } from './add-account-dialog.component';
-import {
-  ACCOUNT_HELD_NOTE,
-  AccountsSectionComponent,
-} from './accounts-section.component';
+import { AccountsSectionComponent } from './accounts-section.component';
 
 // Child stubs with the real contracts: the section is tested as a composition over the state seam.
 @Component({ selector: 'ptah-add-account-dialog', standalone: true, template: '' })
@@ -56,6 +54,7 @@ class DrawerStub {
   readonly pending = input<ProviderAccountActionKind | null>(null);
   readonly result = input<ProviderAccountActionResult | null>(null);
   readonly saved = input<ProviderAccountActionKind | null>(null);
+  readonly fallback = input<ProviderAccountSignInFallback | null>(null);
   readonly refreshStatus = output<string>();
   readonly signIn = output<string>();
   readonly cancelSignIn = output<string>();
@@ -111,12 +110,16 @@ const ready = (snap: ProviderAccountsSnapshot | null, extra: Partial<ProviderAcc
   ...extra,
 });
 const SAVED: ProviderAccountActionOutcome = { status: 'saved', snapshot: snapshot([WORK]) };
-const HELD: ProviderAccountActionResult = { code: 'release-held', summary: 'Named Claude accounts are not available in this release.' };
+// The host no longer sends `release-held` (U4); kept as an unreachable code with a neutral summary.
+const HELD: ProviderAccountActionResult = { code: 'release-held', summary: 'This account change did not complete.' };
 
 class AccountsStub {
   readonly view = signal<ProviderAccountsView>(ready(snapshot([WORK, PERSONAL])));
   readonly state = jest.fn(() => this.view.asReadonly());
   readonly operations = jest.fn(() => signal({}).asReadonly());
+  // Mirrors the state service: a pending sign-in result stores its fallback script by profile ID.
+  readonly scripts = signal<Readonly<Record<string, ProviderAccountSignInFallback>>>({});
+  readonly fallbacks = jest.fn(() => this.scripts.asReadonly());
   readonly open = jest.fn(async () => undefined);
   readonly refresh = jest.fn(async () => undefined);
   readonly refreshAccountStatus = jest.fn(async () => undefined);
@@ -232,7 +235,12 @@ describe('AccountsSectionComponent', () => {
       expect(card(WORK.profileId).textContent).toContain('Next main');
       expect(card(WORK.profileId).textContent).not.toContain('Next lane');
       expect(q('routing-main')?.textContent).toContain('Work Claude');
-      expect(q('routing-main')?.textContent).toContain(ACCOUNT_HELD_NOTE);
+      // U4: no held note; the section never says the named route is held.
+      expect(q('routing-held')).toBeNull();
+      const sectionText = element.textContent?.toLowerCase() ?? '';
+      for (const held of ['release authorization', 'awaiting release', 'not available in this release']) {
+        expect(sectionText).not.toContain(held);
+      }
       expect(q('routing-main')?.textContent?.toLowerCase()).not.toContain('admitted');
       expect(q('routing-lane')?.textContent).toContain('Use existing default');
     });
@@ -365,6 +373,42 @@ describe('AccountsSectionComponent', () => {
       drawer.remove.emit(id);
       await render();
       expect(accounts.removeAccount).toHaveBeenCalledWith('claude', id);
+    });
+
+    it('a sign-in result with a fallback script reaches the drawer for the open account only', async () => {
+      const script: ProviderAccountSignInFallback = { platform: 'posix', script: 'claude /login' };
+      accounts.startSignIn.mockImplementationOnce(async () => {
+        accounts.scripts.set({ [PERSONAL.profileId]: script });
+        return SAVED;
+      });
+      await render();
+      card(PERSONAL.profileId).click();
+      await render();
+      const drawer = stub(DrawerStub);
+      expect(accounts.fallbacks).toHaveBeenCalledWith('claude');
+      expect(drawer.fallback()).toBeNull();
+
+      drawer.signIn.emit(PERSONAL.profileId);
+      await render();
+      expect(drawer.fallback()).toEqual(script);
+
+      // Another account's drawer never shows this script.
+      drawer.closed.emit();
+      await render();
+      card(WORK.profileId).click();
+      await render();
+      expect(stub(DrawerStub).fallback()).toBeNull();
+    });
+
+    it('a sign-in result without a fallback passes nothing to the drawer', async () => {
+      await render();
+      card(PERSONAL.profileId).click();
+      await render();
+      stub(DrawerStub).signIn.emit(PERSONAL.profileId);
+      await render();
+      expect(accounts.startSignIn).toHaveBeenCalledWith('claude', PERSONAL.profileId);
+      expect(stub(DrawerStub).fallback()).toBeNull();
+      expect(q('account-fallback')).toBeNull();
     });
 
     it('an unconfirmed write is reported as such, never as saved or rolled back', async () => {

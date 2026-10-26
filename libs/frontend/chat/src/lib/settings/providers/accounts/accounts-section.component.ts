@@ -67,9 +67,6 @@ const SCOPE_COPY: Readonly<
     badge: 'Next lane',
   },
 };
-/** D7: a named route is never admitted in this release; say so instead of implying it is in use. */
-export const ACCOUNT_HELD_NOTE =
-  'Named account starts are awaiting release authorization.';
 export const ACCOUNT_API_NOTE =
   'Used only when Claude sign-in is the main route. A provider you chose stays in effect, and running sessions keep their account.';
 const FALLBACK_ERROR = 'This action did not complete. Refresh and try again.';
@@ -84,7 +81,6 @@ interface RoutingCell {
   readonly status: string;
   readonly suffix: string;
   readonly initials: string;
-  readonly named: boolean;
 }
 
 interface AccountCard {
@@ -125,8 +121,7 @@ function suffix(profileId: string): string {
  *
  * Composition only: every read and write goes through `ProviderAccountsStateService`; rows come from the host
  * snapshot, never from an optimistic copy. The two routing cells write their own scope (`setSelection`) and
- * nothing else; Set as default writes both in one host transaction. A named selection is never presented as
- * admitted (D7). The host decides at start time whether a selection applies, so a chosen API provider and an
+ * nothing else; Set as default writes both in one host transaction. The host decides at start time whether a selection applies, so a chosen API provider and an
  * in-flight run are untouched by anything here.
  */
 @Component({
@@ -248,14 +243,6 @@ function suffix(profileId: string): string {
                   <p class="text-xs text-base-content-muted">
                     {{ cell.sentence }}
                   </p>
-                  @if (cell.named) {
-                    <p
-                      class="text-xs text-base-content-muted"
-                      data-testid="routing-held"
-                    >
-                      {{ heldNote }}
-                    </p>
-                  }
                   @if (cell.scope === 'main') {
                     <p class="text-xs text-base-content-muted">
                       {{ apiNote }}
@@ -401,6 +388,7 @@ function suffix(profileId: string): string {
         [pending]="drawerPending()"
         [result]="drawerResult()"
         [saved]="drawerSaved()"
+        [fallback]="drawerFallback()"
         (refreshStatus)="refreshStatus($event)"
         (signIn)="signIn($event)"
         (cancelSignIn)="cancelSignIn($event)"
@@ -471,7 +459,6 @@ export class AccountsSectionComponent implements OnInit {
   protected readonly accountList = computed(
     () => this.snapshot()?.accounts ?? [],
   );
-  protected readonly heldNote = ACCOUNT_HELD_NOTE;
   protected readonly apiNote = ACCOUNT_API_NOTE;
 
   protected readonly addOpen = signal(false);
@@ -529,6 +516,12 @@ export class AccountsSectionComponent implements OnInit {
       ? null
       : (this.accountList().find((account) => account.profileId === id) ??
           null);
+  });
+  private readonly fallbacks = this.accounts.fallbacks(PROVIDER);
+  /** Manual sign-in script for the open account; the drawer renders it as text only. */
+  protected readonly drawerFallback = computed(() => {
+    const id = this.drawerProfileId();
+    return id === null ? null : (this.fallbacks()[id] ?? null);
   });
   private readonly shownAction = computed(() => {
     const action = this.drawerAction();
@@ -731,7 +724,6 @@ export class AccountsSectionComponent implements OnInit {
         status: 'Existing Claude login',
         suffix: '',
         initials: 'CL',
-        named: false,
       };
     }
     const account = this.accountList().find(
@@ -745,7 +737,6 @@ export class AccountsSectionComponent implements OnInit {
         : 'This profile is no longer available.',
       suffix: suffix(selection.profileId),
       initials: account ? initials(account.label) : '?',
-      named: true,
     };
   }
 
