@@ -13,6 +13,7 @@ import type {
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
+import { MainAgentReassignPopoverComponent } from './main-agent-reassign-popover.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
@@ -1048,6 +1049,9 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
     readonly state = jest.fn((_provider: 'claude') => this.view.asReadonly());
     readonly open = jest.fn(async (_provider: 'claude') => undefined);
     readonly refresh = jest.fn(async (_provider: 'claude') => undefined);
+    // Read by the drawer's Accounts tab when the Sign-in route opens it (P6-A10).
+    readonly operations = jest.fn((_provider: 'claude') => signal({}).asReadonly());
+    readonly fallbacks = jest.fn((_provider: 'claude') => signal({}).asReadonly());
   }
   class AmbientFake {
     readonly view = signal<ClaudeAmbientStatusView>(CONNECTED);
@@ -1108,6 +1112,26 @@ describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => 
 
   describe('in Electron', () => {
     beforeEach(() => setup(true));
+
+    it('P6-A10: the popover "Sign in" closes it and opens the Claude drawer on Accounts; a card open is on Overview again', async () => {
+      const reassign = element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]');
+      reassign?.focus();
+      reassign?.click();
+      await render();
+      const popover = fixture.debugElement.query(By.directive(MainAgentReassignPopoverComponent))
+        .injector.get(MainAgentReassignPopoverComponent);
+      expect(popover.open()).toBe(true);
+      popover.accountSignInRequested.emit();
+      await render();
+      expect(popover.open()).toBe(false);
+      const drawer = () => fixture.debugElement.query(By.directive(ConnectionDetailDrawerComponent)).injector.get(ConnectionDetailDrawerComponent);
+      expect(drawer().connection()?.id).toBe('claude-cli');
+      expect(drawer().initialTab()).toBe('accounts');
+      await closeDrawerFromFooter();
+      await openClaudeDrawer();
+      expect(drawer().connection()?.id).toBe('claude-cli');
+      expect(drawer().initialTab()).toBe('overview');
+    });
 
     it('no longer mounts the old Accounts section on the page', () => {
       expect(element.querySelector('ptah-accounts-section')).toBeNull();

@@ -50,7 +50,7 @@ import {
 } from './main-agent-reassign-popover.component';
 import { ProviderCatalogModalComponent } from './provider-catalog-modal.component';
 import { connectedAccountCount } from './accounts/account-presentation';
-import { connectionKind } from './connection-drawer/connection-kind';
+import { connectionKind, type ConnectionDrawerTabId } from './connection-drawer/connection-kind';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type {
@@ -116,6 +116,7 @@ const CONTROL =
                 [open]="mainPopover() !== null"
                 [initialFocus]="mainPopover()?.focus ?? null"
                 (closed)="mainPopover.set(null)"
+                (accountSignInRequested)="openAccountSignIn()"
               />
               <div
                 main-agent-badges
@@ -476,6 +477,7 @@ const CONTROL =
             [verifyDraftConnection]="verifyDraftConnection"
             [cancelDraftVerification]="cancelDraftVerification"
             [accountsAvailable]="accountsAvailable"
+            [initialTab]="drawerTab()"
             (closed)="closeDrawer()"
             (checkConnectionRequested)="
               state.checkProviderConnection(connection.id)
@@ -822,6 +824,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private readonly drawerId = signal<string | null>(null);
   /** The card button that opened the drawer; setup opened from the drawer returns focus here. */
   private drawerOpener: HTMLElement | null = null;
+  /** The tab the drawer opens on (P6-A10: the main popover's "Sign in" opens the Claude drawer on Accounts). */
+  protected readonly drawerTab = signal<ConnectionDrawerTabId>('overview');
   protected readonly drawerConnection = computed(() => {
     const id = this.drawerId();
     return id
@@ -1158,12 +1162,29 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       !this.state.route().data?.ready
     );
   }
-  protected openDrawer(providerId: string): void {
+  protected openDrawer(providerId: string, tab: ConnectionDrawerTabId = 'overview'): void {
     const active = this.element.nativeElement.ownerDocument.activeElement;
     this.drawerOpener = active instanceof HTMLElement ? active : null;
+    // Set with the connection, in one pass: the drawer applies it only when its connection changes.
+    this.drawerTab.set(tab);
     this.drawerId.set(providerId);
     this.resetDrawerSession();
     void this.state.refreshConnectionSetup(providerId);
+  }
+  /**
+   * P6-A10 Sign-in route: the main popover's "Sign in" (signed-out stored account) closes the popover and opens the
+   * Claude (Subscription) drawer on Accounts. The popover's button leaves the DOM, so the drawer returns focus to the
+   * Main Agent node's Reassign button (A-3), else to whatever held focus.
+   */
+  protected openAccountSignIn(): void {
+    const claude = (this.state.connections().data ?? []).find((connection) => this.isClaudeCli(connection));
+    this.mainPopover.set(null);
+    if (!claude) return;
+    this.openDrawer(claude.id, 'accounts');
+    const node = this.element.nativeElement.querySelector<HTMLElement>(
+      '[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]',
+    );
+    if (node) this.drawerOpener = node;
   }
   protected closeDrawer(): void {
     this.drawerId.set(null);
