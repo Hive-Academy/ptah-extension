@@ -229,9 +229,9 @@
    remain stacked; the zone can keep one row at 900 x 640. */
 @media (max-height: 620px) {
   .ptah-empty-board__stage {
-    --scrim-ext-y: 4px;
+    --scrim-ext-y: 0px;
     --scrim-in-y: 6px;
-    padding-block: 6px;
+    padding-block: 2px;
   }
   .ptah-empty-board__notice {
     margin-bottom: 12px;

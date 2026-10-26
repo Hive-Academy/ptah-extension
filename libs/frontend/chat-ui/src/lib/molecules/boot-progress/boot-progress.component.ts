@@ -134,7 +134,7 @@ const ELAPSED_TICK_MS = 1000;
             [class]="
               'flex items-center gap-2 text-sm ' +
               (step.state === 'pending'
-                ? 'text-base-content-muted opacity-70'
+                ? 'text-base-content-muted'
                 : 'text-base-content')
             "
             [attr.data-phase]="step.phase"

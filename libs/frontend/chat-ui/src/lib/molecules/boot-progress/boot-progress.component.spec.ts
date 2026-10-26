@@ -77,6 +77,19 @@ describe('BootProgressComponent', () => {
     });
   });
 
+  it('keeps pending labels on caption ink without fading their contrast', () => {
+    render({ phase: 'sessions' });
+
+    const pending: HTMLElement = fixture.nativeElement.querySelector(
+      'li[data-state="pending"]',
+    );
+    expect(pending.classList).toContain('text-base-content-muted');
+    expect(
+      Array.from(pending.classList).some((name) => name.startsWith('opacity-')),
+    ).toBe(false);
+    expect(pending.querySelector('.rounded-full')).toBeTruthy();
+  });
+
   it('renders the current phase label as the headline', () => {
     render({ phase: 'database' });
 

@@ -7,9 +7,12 @@
   min-height: 0;
 }
 .empty-chat {
-  container-type: inline-size;
-  overflow: auto;
+  container-type: size;
+  overflow-x: hidden;
+  overflow-y: auto;
   width: 100%;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: safe center;
@@ -26,6 +29,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
   gap: 22px;
   width: 100%;
   max-width: 760px;
@@ -73,8 +78,15 @@ h1 {
   font-weight: 600;
   text-align: center;
 }
-ptah-stat-row {
+.empty-chat ptah-stat-row[data-layout='row'] {
   width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 192px));
+  column-gap: 24px;
+}
+.empty-chat ptah-prompt-launchers {
+  flex-shrink: 0;
+  max-width: 100%;
+  gap: 12px 28px;
 }
 ptah-stat-cell {
   min-width: 0;
@@ -132,8 +144,8 @@ button:focus-visible {
   padding: 4px 8px;
 }
 @container (max-width: 540px) {
-  ptah-stat-row {
-    grid-auto-columns: minmax(0, 1fr);
+  .empty-chat ptah-stat-row[data-layout='row'] {
+    grid-template-columns: repeat(3, minmax(0, 150px));
     column-gap: 12px;
   }
   .empty-chat__stage {
@@ -147,10 +159,39 @@ button:focus-visible {
     gap: 2px;
   }
 }
-@media (max-height: 700px) {
+/* Follow the transcript tile's height, not the surrounding window. */
+@container (max-height: 480px) {
   .empty-chat__stage {
-    --scrim-ext-y: 8px;
-    gap: 16px;
-    padding-block: 16px;
+    --scrim-ext-y: 0px;
+    --scrim-in-y: 16px;
+    gap: 8px;
+    padding-block: 8px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+  }
+  .empty-chat ptah-stat-row[data-density='compact'] {
+    --ptah-stat-value-h: 40px;
+  }
+}
+@container (max-height: 420px) {
+  .empty-chat__stage > img {
+    display: none;
+  }
+}
+@container (max-height: 300px) {
+  .empty-chat__stage {
+    gap: 4px;
+    padding-block: 4px;
+  }
+  h1 {
+    font-size: 20px;
+  }
+  .empty-chat ptah-stat-row[data-density='compact'] {
+    --ptah-stat-value-h: 32px;
+  }
+  .empty-chat__resume {
+    padding-block: 2px;
   }
 }
