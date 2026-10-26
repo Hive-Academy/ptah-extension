@@ -310,4 +310,8 @@ describe('app.html top-level branch exclusivity (F-2)', () => {
     expect(template).toContain('bootStatus.isBlockingBoot()');
     expect(template).toContain('<ptah-boot-progress');
   });
+
+  it('carries the host boot steps onto the in-app boot screen', () => {
+    expect(template).toContain('[hostSteps]="bootStatus.hostSteps()"');
+  });
 });
