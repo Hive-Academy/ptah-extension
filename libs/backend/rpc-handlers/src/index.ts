@@ -164,3 +164,7 @@ export {
   type CodexSessionSettingsRecordDeps,
   CodexSessionSettingsError,
 } from './lib/chat/codex-host/codex-session-settings-record';
+export {
+  createLegacyCodexSessionSettings,
+  type LegacyCodexSessionSettingsDeps,
+} from './lib/chat/codex-host/codex-legacy-session-settings';

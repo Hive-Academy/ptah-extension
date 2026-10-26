@@ -29,13 +29,19 @@ import {
   type CustomProviderStore,
   type MigrationRunner,
   type IActiveWorkspaceSource,
+  type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
 import { fixPath } from '@ptah-extension/cli-agent-runtime';
 import {
   activateSessionLifecycleNotifier,
   runCursorApiKeyMigration,
+  type NativeSessionControlsDeps,
 } from '@ptah-extension/rpc-handlers';
-import { bindElectronCodexChat } from '../di/codex-runtime-composition';
+import {
+  bindElectronCodexChat,
+  createElectronCodexRouting,
+  resolveElectronCodexBundledRoot,
+} from '../di/codex-runtime-composition';
 import { ElectronDIContainer } from '../di/container';
 import { restoreWorkspaces } from './workspace-restore';
 import { resolveInitialWorkspaceArg } from './initial-workspace-arg';
@@ -532,14 +538,34 @@ export async function bootstrapElectron(
     );
     throw error;
   }
-  await bindElectronCodexChat(container, {
+  const codexRoutingInput = {
     isPackaged: app.isPackaged,
     env: process.env,
     platform: { platform: process.platform, arch: process.arch },
-    bundledRoot: app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules')
-      : path.join(app.getAppPath(), 'node_modules'),
-  });
+  };
+  if (createElectronCodexRouting(codexRoutingInput).capabilities.nativeCodex) {
+    try {
+      await bindElectronCodexChat(container, {
+        ...codexRoutingInput,
+        bundledRoot: resolveElectronCodexBundledRoot({
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appPath: app.getAppPath(),
+        }),
+        scopeResolver: container.resolve<WorkspaceScopeResolver>(
+          SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER,
+        ),
+        settingsStore: container.resolve<NativeSessionControlsDeps['store']>(
+          SETTINGS_TOKENS.SETTINGS_STORE,
+        ),
+      });
+    } catch (error) {
+      container.resolve<Logger>(TOKENS.LOGGER).error(
+        '[Ptah Electron] Codex chat binding failed; continuing startup',
+        error instanceof Error ? error : new Error('Codex chat binding failed'),
+      );
+    }
+  }
   attachElectronHostAttention(
     () =>
       container.resolve<IHostAttentionIngress>(

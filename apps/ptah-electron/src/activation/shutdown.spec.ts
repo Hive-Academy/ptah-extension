@@ -16,9 +16,17 @@ import { createEmptyBootRefs } from './boot-coordinator';
 import type { BootRefs } from './boot-coordinator';
 import {
   RUN_CHECK_KILL_BUDGET_MS,
+  CODEX_DISPOSE_BUDGET_MS,
   handleWillQuit,
   requiresDeferredDisposal,
 } from './shutdown';
+
+import { disposeElectronCodexBindings, hasElectronCodexBindings } from '../di/codex-binding-registry';
+
+jest.mock('../di/codex-binding-registry', () => ({
+  disposeElectronCodexBindings: jest.fn(async () => undefined),
+  hasElectronCodexBindings: jest.fn(() => false),
+}));
 
 jest.mock('@ptah-extension/vscode-lm-tools', () => ({
   killRunningChecks: jest.fn(async () => undefined),
@@ -167,5 +175,66 @@ describe('will-quit — the run-check kill', () => {
       'diagnostics',
     ]);
     expect(deps.quit).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('will-quit ? Codex bindings', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pids.mockReturnValue([]);
+    jest.mocked(hasElectronCodexBindings).mockReturnValue(true);
+    jest.mocked(disposeElectronCodexBindings).mockReset();
+  });
+
+  afterEach(() => {
+    jest.mocked(hasElectronCodexBindings).mockReturnValue(false);
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it('continues teardown and the final flush after a rejected Codex close', async () => {
+    const failure = new Error('scope close failed');
+    jest.mocked(disposeElectronCodexBindings).mockRejectedValue(failure);
+    const order: string[] = [];
+    const deps = quitDeps(minimalRefs(order));
+    deps.disposeVoiceWorker.mockImplementation(() => { order.push('voice'); });
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    expect(handleWillQuit(deps)).toBe(false);
+    await flushMicrotasks();
+    expect(order).toEqual(['flush', 'sqliteConnection', 'voice', 'diagnostics', 'flush']);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Codex bindings dispose failed'), failure,
+    );
+  });
+
+  it('continues teardown after the Codex close budget expires', async () => {
+    jest.mocked(disposeElectronCodexBindings).mockImplementation(
+      () => new Promise<void>(() => undefined),
+    );
+    const order: string[] = [];
+    const deps = quitDeps(minimalRefs(order));
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toEqual([]);
+    expect(deps.quit).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(CODEX_DISPOSE_BUDGET_MS);
+    await flushMicrotasks();
+    expect(order).toEqual(['sqliteConnection', 'diagnostics']);
+    expect(deps.flushSessionMetadataStores).toHaveBeenCalledTimes(2);
+    expect(deps.quit).toHaveBeenCalledTimes(1);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Codex bindings dispose exceeded'));
+  });
+
+  it('drains Codex writes before closing storage and performing the final flush', async () => {
+    const order: string[] = [];
+    jest.mocked(disposeElectronCodexBindings).mockImplementation(async () => { order.push('markInactive'); });
+    const deps = quitDeps(minimalRefs(order));
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    handleWillQuit(deps);
+    await flushMicrotasks();
+    expect(order).toEqual(['flush', 'markInactive', 'sqliteConnection', 'diagnostics', 'flush']);
   });
 });

@@ -1,22 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { trackElectronCodexBinding } from './codex-binding-registry';
-import { readFileSync, realpathSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { createReadStream, realpathSync, statSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
+import { promisify } from 'node:util';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import {
-  PLATFORM_TOKENS,
-  resolveAuthProviderKey,
-} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   AUTH_PROVIDERS_TOKENS,
   type AuthManager,
 } from '@ptah-extension/auth-providers';
-import {
-  SETTINGS_TOKENS,
-  providerSelectedModelDef,
-  providerReasoningEffortDef,
-  type WorkspaceScopeResolver,
-} from '@ptah-extension/settings-core';
 import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
 import {
   CHAT_TOKENS,
@@ -24,6 +18,8 @@ import {
   createCodexRuntimeAdmission,
   createCodexChatEventCallbacks,
   createCodexSessionSettingsRecord,
+  createLegacyCodexSessionSettings,
+  type LegacyCodexSessionSettingsDeps,
   createNativeSessionControls,
   createLegacySessionControlPorts,
   type CodexChatHostPortsDeps,
@@ -32,7 +28,7 @@ import {
   type LegacySessionControlPortsDeps,
 } from '@ptah-extension/rpc-handlers';
 import type { DependencyContainer } from 'tsyringe';
-import { isAbsolute, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   SDK_TOKENS,
   createCodexThreadIdentityStore,
@@ -78,18 +74,50 @@ export function createElectronCodexRouting(input: ElectronCodexRoutingInput) {
   return Object.freeze({ devRoute, capabilities });
 }
 
+export interface ElectronCodexBundledRootInput {
+  readonly isPackaged: boolean;
+  readonly resourcesPath: string;
+  readonly appPath: string;
+}
+
+/** Walk ancestors so both source launches and dist/apps/ptah-electron work. */
+export function resolveElectronCodexBundledRoot(
+  input: ElectronCodexBundledRootInput,
+  isDirectory: (path: string) => boolean = (path) => {
+    try {
+      return statSync(path).isDirectory();
+    } catch {
+      return false;
+    }
+  },
+): string {
+  if (input.isPackaged)
+    return join(input.resourcesPath, 'app.asar.unpacked', 'node_modules');
+  let directory = resolve(input.appPath);
+  while (true) {
+    const candidate = join(directory, 'node_modules');
+    if (isDirectory(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory)
+      throw new Error('Bundled Codex package root unavailable');
+    directory = parent;
+  }
+}
+
 /** No detected CLI fallback: Electron must spawn the bundled native executable. */
 export function createElectronCodexExecutable(
   expectedManifestRow: CodexExecutableManifestRow,
   bundledRoot: string,
 ) {
-  const resolvedPath = resolveCodexNativeBinaryPath();
-  if (!resolvedPath) throw new Error('Bundled Codex executable unavailable');
-  const local = relative(bundledRoot, resolvedPath);
+  const detectedPath = resolveCodexNativeBinaryPath();
+  if (!detectedPath) throw new Error('Bundled Codex executable unavailable');
+  if (!isAbsolute(bundledRoot))
+    throw new Error('Codex executable is outside the host bundle');
+  const resolvedPath = realpathSync(detectedPath);
+  const local = relative(realpathSync(bundledRoot), resolvedPath);
   // The shared resolver also probes global installations. They must not become
   // an Electron runtime fallback if the host's bundled package is absent.
   if (
-    !isAbsolute(bundledRoot) ||
     !local ||
     isAbsolute(local) ||
     local === '..' ||
@@ -98,6 +126,51 @@ export function createElectronCodexExecutable(
     throw new Error('Codex executable is outside the host bundle');
   }
   return Object.freeze({ resolvedPath, expectedManifestRow });
+}
+
+const executeFile = promisify(execFile);
+type VerifiedCodexBinary = Pick<
+  CodexRuntimeRegistrationPorts['binary'],
+  'executablePath' | 'sha256' | 'versionOutput'
+>;
+const binaryInspections = new Map<string, Promise<VerifiedCodexBinary>>();
+
+/** Share concurrent opens and retain failures until the executable changes. */
+export async function inspectElectronCodexBinary(
+  executablePath: string,
+  readVersion: (path: string) => Promise<string> = readCodexVersion,
+): Promise<VerifiedCodexBinary> {
+  const { size, mtimeMs } = await stat(executablePath);
+  const key = JSON.stringify([executablePath, size, mtimeMs]);
+  let pending = binaryInspections.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const hash = createHash('sha256');
+      hash.setEncoding('hex');
+      let sha256 = '';
+      await pipeline(createReadStream(executablePath), hash, async (chunks) => {
+        for await (const chunk of chunks) {
+          const value: unknown = chunk;
+          if (typeof value !== 'string')
+            throw new Error('Codex executable digest unavailable');
+          sha256 += value;
+        }
+      });
+      const versionOutput = await readVersion(executablePath);
+      return { executablePath, sha256, versionOutput };
+    })();
+    binaryInspections.set(key, pending);
+  }
+  return pending;
+}
+
+async function readCodexVersion(executablePath: string): Promise<string> {
+  const { stdout } = await executeFile(executablePath, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10000,
+    windowsHide: true,
+  });
+  return stdout.trim();
 }
 
 export interface ElectronCodexScopeInput extends ElectronCodexRoutingInput {
@@ -140,33 +213,51 @@ export function createElectronCodexScopeFactory(
       throw new Error('Codex runtime must be owned by a session scope');
     }
     const container = input.parent.createChildContainer();
-    registerCodexRuntime(container, {
-      ...input.ports,
-      executable,
-      sink,
-      devRoute: routing.devRoute,
-    });
-    // Lifecycle ownership is the only allowed use of the raw token. Resolving
-    // here starts no process and ensures failed opens retain a closeable owner.
-    const runtime = container.resolve<CodexRuntime>(
-      CODEX_RUNTIME_TOKENS.Runtime,
-    );
-    const usage = container.resolve<CodexAccountUsageClient | null>(
-      CodexAccountUsageClient,
-    );
-    let closing: Promise<void> | undefined;
-    const close = async () => {
-      try {
-        await runtime.close();
-      } finally {
+    try {
+      registerCodexRuntime(container, {
+        ...input.ports,
+        executable,
+        sink,
+        devRoute: routing.devRoute,
+      });
+      // Lifecycle ownership is the only allowed use of the raw token. Resolving
+      // here starts no process and ensures failed opens retain a closeable owner.
+      const runtime = container.resolve<CodexRuntime>(
+        CODEX_RUNTIME_TOKENS.Runtime,
+      );
+      const usage = container.resolve<CodexAccountUsageClient | null>(
+        CodexAccountUsageClient,
+      );
+      let closing: Promise<void> | undefined;
+      const close = async () => {
         try {
-          await usage?.close();
+          await runtime.close();
         } finally {
-          await container.dispose();
+          try {
+            await usage?.close();
+          } finally {
+            await container.dispose();
+          }
         }
-      }
-    };
-    return { container, dispose: () => (closing ??= close()) };
+      };
+      return { container, dispose: () => (closing ??= close()) };
+    } catch (error) {
+      // The scope contract is synchronous; observe asynchronous cleanup failures.
+      void Promise.resolve()
+        .then(() => container.dispose())
+        .catch((disposeError: unknown) => {
+          // The runtime logger port takes flat metadata, not an Error object.
+          input.ports.logger.error('Failed to dispose Codex child container', {
+            errorName:
+              disposeError instanceof Error ? disposeError.name : 'Error',
+            errorMessage:
+              disposeError instanceof Error
+                ? disposeError.message
+                : 'Codex cleanup failed',
+          });
+        });
+      throw error;
+    }
   };
 }
 
@@ -179,6 +270,8 @@ export async function createElectronCodexIdentityLookup(
 
 export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {
   readonly bundledRoot: string;
+  readonly scopeResolver: LegacyCodexSessionSettingsDeps['scopeResolver'];
+  readonly settingsStore: NativeSessionControlsDeps['store'];
 }
 
 /** Bind the whole guarded surface before resolving either adapter. */
@@ -191,14 +284,15 @@ export async function bindElectronCodexChat(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
   );
   const lookup = await createElectronCodexIdentityLookup(metadataStore, logger);
+  let releaseRecord: (() => void) | undefined;
+  let untrack: (() => void) | undefined;
   try {
-    const scopeResolver = container.resolve<WorkspaceScopeResolver>(
-      SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER,
-    );
+    const { scopeResolver, settingsStore } = input;
     const record = createCodexSessionSettingsRecord({
       identities: lookup,
       scopeResolver,
     });
+    releaseRecord = () => record.dispose();
     const routing = createElectronCodexRouting(input);
     const store = createCodexThreadIdentityStore(lookup, metadataStore);
     const scopes = new Set<CodexChatScope>();
@@ -247,29 +341,36 @@ export async function bindElectronCodexChat(
         CodexChatHostPortsDeps['webviewManager']
       >(TOKENS.WEBVIEW_MANAGER),
     };
-    // The synchronous scope contract means inspection happens at first open, never boot.
+    let verified: {
+      pin: CodexExecutableManifestRow;
+      binary: CodexRuntimeRegistrationPorts['binary'];
+    } | undefined;
+    const verifyBinary = async () => {
+      try {
+        const pin = findCodexExecutablePin(
+          input.platform.platform,
+          input.platform.arch,
+        );
+        if (!pin)
+          throw new Error('No reviewed Codex executable pin for this platform');
+        const executable = createElectronCodexExecutable(pin, input.bundledRoot);
+        const inspected = await inspectElectronCodexBinary(executable.resolvedPath);
+        if (disposed) throw new Error('Native Codex chat is disabled');
+        verified = { pin, binary: { ...input.platform, ...inspected } };
+      } catch (error) {
+        verified = undefined;
+        logger.error(
+          'Codex executable verification failed',
+          error instanceof Error ? error : new Error('Codex verification failed'),
+        );
+        throw new Error('Codex executable verification failed');
+      }
+    };
     const createScope = (sink: ApprovalSink): CodexChatScope => {
       if (disposed || !routing.capabilities.nativeCodex)
         throw new Error('Native Codex chat is disabled');
-      const pin = findCodexExecutablePin(
-        input.platform.platform,
-        input.platform.arch,
-      );
-      if (!pin)
-        throw new Error('No reviewed Codex executable pin for this platform');
-      const executable = createElectronCodexExecutable(pin, input.bundledRoot);
-      const binary = {
-        ...input.platform,
-        executablePath: executable.resolvedPath,
-        sha256: createHash('sha256')
-          .update(readFileSync(executable.resolvedPath))
-          .digest('hex'),
-        versionOutput: execFileSync(executable.resolvedPath, ['--version'], {
-          encoding: 'utf8',
-          timeout: 10000,
-          windowsHide: true,
-        }).trim(),
-      };
+      if (!verified) throw new Error('Codex executable verification unavailable');
+      const { pin, binary } = verified;
       const scope = createElectronCodexScopeFactory({
         ...input,
         parent: container,
@@ -424,6 +525,7 @@ export async function bindElectronCodexChat(
         ...args: Parameters<CodexChatAdapterPorts['profile']>
       ) => {
         const prepared = await ports.profile(...args);
+        await verifyBinary();
         const tab = args[0].tabId;
         if (tab) preparedTabs.set(prepared, tab);
         return prepared;
@@ -445,9 +547,6 @@ export async function bindElectronCodexChat(
       lookup.releaseSession(id);
       controls.releaseSession?.(id);
     };
-    const settingsStore = container.resolve<NativeSessionControlsDeps['store']>(
-      SETTINGS_TOKENS.SETTINGS_STORE,
-    );
     const controls = createNativeSessionControls({
       store: settingsStore,
       settings: (id) => record.settings(id),
@@ -484,66 +583,49 @@ export async function bindElectronCodexChat(
             )
             .resolve(...args),
       },
-      settings: (id) => {
-        const session = lifecycle().find(id);
-        const workspacePath =
-          session?.config.projectPath ??
-          session?.config.workspaceId ??
-          lookup.lookup(id)?.persisted?.workspaceId;
-        if (!workspacePath)
-          throw new Error('Legacy session settings unavailable');
-        const auth = container
-          .resolve<AuthManager>(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
-          .resolveActiveAuthForPath(workspacePath);
-        const authKey = resolveAuthProviderKey(
-          auth.authMethod,
-          auth.providerId,
-        );
-        const read = (key: string) =>
-          scopeResolver.readForPath(key, workspacePath, true);
-        const modelDef = providerSelectedModelDef(authKey);
-        const effortDef = providerReasoningEffortDef(authKey);
-        const savedEffort = effortDef.schema.parse(
-          read(effortDef.key) ?? effortDef.default,
-        );
-        if (
-          savedEffort !== '' &&
-          savedEffort !== undefined &&
-          savedEffort !== 'low' &&
-          savedEffort !== 'medium' &&
-          savedEffort !== 'high' &&
-          savedEffort !== 'xhigh' &&
-          savedEffort !== 'max'
-        ) {
-          throw new Error('Legacy session effort unavailable');
-        }
-        const permission =
-          read('autopilot.enabled') === true
-            ? read('autopilot.permissionLevel')
-            : 'ask';
-        if (
-          permission !== 'ask' &&
-          permission !== 'plan' &&
-          permission !== 'auto-edit' &&
-          permission !== 'yolo'
-        ) {
-          throw new Error('Legacy session permission unavailable');
-        }
-        return {
-          workspacePath,
-          authKey,
-          model:
-            session?.currentModel ??
-            modelDef.schema.parse(read(modelDef.key) ?? modelDef.default),
-          effort: session
-            ? session.config.effort
-            : savedEffort === ''
-              ? undefined
-              : savedEffort,
-          permissionLevel: session?.permissionLevel ?? permission,
-        };
-      },
+      settings: createLegacyCodexSessionSettings({
+        sessions: { find: (id) => lifecycle().find(id) },
+        identities: lookup,
+        scopeResolver,
+        auth: {
+          resolveActiveAuthForPath: (path) => container
+            .resolve<AuthManager>(AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER)
+            .resolveActiveAuthForPath(path),
+        },
+      }),
     });
+    const admission = createCodexRuntimeAdmission(deps);
+    let closing: Promise<void> | undefined;
+    const binding = {
+      ...routing,
+      dispose: () =>
+        (closing ??= (async () => {
+          disposed = true;
+          try {
+            const results = await Promise.allSettled(
+              [...scopes].map((scope) => Promise.resolve().then(() => scope.dispose())),
+            );
+            const failures = results.flatMap((result) =>
+              result.status === 'rejected' ? [result.reason] : [],
+            );
+            if (failures.length)
+              throw new AggregateError(failures, 'Codex scope shutdown failed');
+          } finally {
+            try {
+              record.dispose();
+            } finally {
+              try {
+                lookup.dispose();
+              } finally {
+                tabs.clear();
+                profiles.clear();
+                untrack?.();
+              }
+            }
+          }
+        })()),
+    };
+    untrack = trackElectronCodexBinding(binding);
     container.register(SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP, {
       useValue: lookup,
     });
@@ -551,7 +633,7 @@ export async function bindElectronCodexChat(
       useValue: adapterPorts,
     });
     container.register(SDK_TOKENS.RUNTIME_ADMISSION_PORT, {
-      useValue: createCodexRuntimeAdmission(deps),
+      useValue: admission,
     });
     container.register(SDK_TOKENS.RUNTIME_HOST_CAPABILITIES, {
       useValue: routing.capabilities,
@@ -562,34 +644,14 @@ export async function bindElectronCodexChat(
     container.register(SDK_TOKENS.LEGACY_SESSION_CONTROL_PORTS, {
       useValue: legacyPorts,
     });
-    let closing: Promise<void> | undefined;
-    const binding = {
-      ...routing,
-      dispose: () =>
-        (closing ??= (async () => {
-          disposed = true;
-          lookup.dispose();
-          record.dispose();
-          tabs.clear();
-          profiles.clear();
-          try {
-            const results = await Promise.allSettled(
-              [...scopes].map((scope) => scope.dispose()),
-            );
-            const failures = results.flatMap((result) =>
-              result.status === 'rejected' ? [result.reason] : [],
-            );
-            if (failures.length)
-              throw new AggregateError(failures, 'Codex scope shutdown failed');
-          } finally {
-            untrack();
-          }
-        })()),
-    };
-    const untrack = trackElectronCodexBinding(binding);
     return binding;
   } catch (error) {
-    lookup.dispose();
+    try {
+      releaseRecord?.();
+    } finally {
+      lookup.dispose();
+      untrack?.();
+    }
     throw error;
   }
 }

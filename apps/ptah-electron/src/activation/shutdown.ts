@@ -91,6 +91,9 @@ export const GATEWAY_STOP_BUDGET_MS = 2000;
  */
 export const AGENT_REAP_BUDGET_MS = 2000;
 
+/** Bound native session close before SQLite and the final metadata flush. */
+export const CODEX_DISPOSE_BUDGET_MS = 2000;
+
 /**
  * How long the chain may wait for the FINAL metadata flush.
  *
@@ -287,7 +290,15 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
     await laneOutcomes.dispose();
   }
 
-  if (hasElectronCodexBindings()) await disposeElectronCodexBindings();
+  if (hasElectronCodexBindings()) {
+    // markInactive stages metadata writes; the final flush runs after this drain.
+    await withBudget(
+      'Codex bindings dispose',
+      disposeElectronCodexBindings,
+      CODEX_DISPOSE_BUDGET_MS,
+      'continuing shutdown.',
+    );
+  }
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
@@ -396,7 +407,7 @@ async function withBudget(
   } catch (error: unknown) {
     console.warn(
       `[Ptah Electron] ${label} failed (non-fatal):`,
-      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error : new Error('Shutdown step failed'),
     );
   } finally {
     if (timer !== null) clearTimeout(timer);

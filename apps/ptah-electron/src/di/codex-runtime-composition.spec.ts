@@ -4,7 +4,11 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers';
-import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import {
+  mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 import { container } from 'tsyringe';
 import {
@@ -24,8 +28,11 @@ import {
 import {
   bindElectronCodexChat,
   createElectronCodexExecutable,
+  inspectElectronCodexBinary,
+  resolveElectronCodexBundledRoot,
   createElectronCodexRouting,
   createElectronCodexScopeFactory,
+  type ElectronCodexBindingInput,
   type ElectronCodexScopeInput,
 } from './codex-runtime-composition';
 
@@ -33,8 +40,21 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>(
     '@ptah-extension/agent-sdk',
   ),
-  resolveCodexNativeBinaryPath: jest.fn(() => '/bundled/codex'),
+  resolveCodexNativeBinaryPath: jest.fn(),
 }));
+
+let temporaryRoot: string;
+let bundledRoot: string;
+let executablePath: string;
+beforeEach(() => {
+  temporaryRoot = mkdtempSync(join(tmpdir(), 'ptah-codex-'));
+  bundledRoot = join(temporaryRoot, 'node_modules');
+  mkdirSync(bundledRoot);
+  executablePath = join(bundledRoot, 'codex');
+  writeFileSync(executablePath, 'fixture');
+  jest.mocked(resolveCodexNativeBinaryPath).mockReset().mockReturnValue(executablePath);
+});
+afterEach(() => rmSync(temporaryRoot, { recursive: true, force: true }));
 
 const platform = { platform: 'win32', arch: 'x64' };
 const manifest = {
@@ -53,11 +73,11 @@ function setup(isPackaged = false, env: Record<string, string> = {}) {
     env,
     platform,
     expectedManifestRow: manifest,
-    bundledRoot: '/bundled',
+    bundledRoot,
     ports: {
       binary: {
         ...platform,
-        executablePath: '/bundled/codex',
+        executablePath: realpathSync(executablePath),
         versionOutput: 'codex-cli 0.155.1',
         sha256: 'a'.repeat(64),
       },
@@ -226,19 +246,80 @@ describe('Electron Codex runtime infrastructure', () => {
 
   it('uses only the bundled resolver and refuses an absent executable', () => {
     expect(
-      createElectronCodexExecutable(manifest, '/bundled').resolvedPath,
-    ).toBe('/bundled/codex');
+      createElectronCodexExecutable(manifest, bundledRoot).resolvedPath,
+    ).toBe(realpathSync(executablePath));
     expect(resolveCodexNativeBinaryPath).toHaveBeenLastCalledWith();
     jest.mocked(resolveCodexNativeBinaryPath).mockReturnValueOnce(undefined);
-    expect(() => createElectronCodexExecutable(manifest, '/bundled')).toThrow(
+    expect(() => createElectronCodexExecutable(manifest, bundledRoot)).toThrow(
       'Bundled Codex executable unavailable',
     );
-    jest
-      .mocked(resolveCodexNativeBinaryPath)
-      .mockReturnValueOnce('/global/codex');
-    expect(() => createElectronCodexExecutable(manifest, '/bundled')).toThrow(
+    const globalExecutable = join(temporaryRoot, 'global-codex');
+    writeFileSync(globalExecutable, 'global');
+    jest.mocked(resolveCodexNativeBinaryPath).mockReturnValueOnce(globalExecutable);
+    expect(() => createElectronCodexExecutable(manifest, bundledRoot)).toThrow(
       'outside the host bundle',
     );
+  });
+  it('finds the nearest workspace node_modules from the dist app', () => {
+    expect(resolveElectronCodexBundledRoot({
+      isPackaged: false, resourcesPath: join(temporaryRoot, 'resources'),
+      appPath: join(temporaryRoot, 'dist', 'apps', 'ptah-electron'),
+    })).toBe(bundledRoot);
+  });
+
+  it('keeps the packaged root strict even when it does not exist', () => {
+    const resourcesPath = join(temporaryRoot, 'resources');
+    const root = resolveElectronCodexBundledRoot({
+      isPackaged: true, resourcesPath, appPath: temporaryRoot,
+    });
+    expect(root).toBe(join(resourcesPath, 'app.asar.unpacked', 'node_modules'));
+    expect(() => createElectronCodexExecutable(manifest, root)).toThrow();
+  });
+
+  it('rejects a packaged build whose executable resolves outside the bundle', () => {
+    const resourcesPath = join(temporaryRoot, 'resources');
+    const root = resolveElectronCodexBundledRoot({
+      isPackaged: true, resourcesPath, appPath: temporaryRoot,
+    });
+    mkdirSync(root, { recursive: true });
+    const globalExecutable = join(temporaryRoot, 'packaged-global-codex');
+    writeFileSync(globalExecutable, 'global');
+    jest.mocked(resolveCodexNativeBinaryPath).mockReturnValueOnce(globalExecutable);
+    expect(() => createElectronCodexExecutable(manifest, root)).toThrow(
+      'Codex executable is outside the host bundle',
+    );
+  });
+
+  it('accepts a worktree junction and reports the canonical executable identity', () => {
+    const junction = join(temporaryRoot, 'worktree-modules');
+    symlinkSync(bundledRoot, junction, process.platform === 'win32' ? 'junction' : 'dir');
+    jest.mocked(resolveCodexNativeBinaryPath).mockReturnValue(join(junction, 'codex'));
+    expect(createElectronCodexExecutable(manifest, junction).resolvedPath)
+      .toBe(realpathSync(executablePath));
+  });
+
+  it('rejects a package symlink escaping the bundle', () => {
+    const outside = join(temporaryRoot, 'global');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'codex'), 'global');
+    const link = join(bundledRoot, 'linked-package');
+    symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    jest.mocked(resolveCodexNativeBinaryPath).mockReturnValue(join(link, 'codex'));
+    expect(() => createElectronCodexExecutable(manifest, bundledRoot))
+      .toThrow('Codex executable is outside the host bundle');
+  });
+
+  it('disposes an allocated child when runtime resolution fails', async () => {
+    const { input, parent } = setup(false, { PTAH_CODEX_RUNTIME_DEV: '1' });
+    const child = parent.createChildContainer();
+    jest.spyOn(parent, 'createChildContainer').mockReturnValue(child);
+    jest.spyOn(child, 'resolve').mockImplementation(() => { throw new Error('resolve failed'); });
+    const dispose = jest.spyOn(child, 'dispose');
+    expect(() => createElectronCodexScopeFactory(input)({ request: async () => 'decline' }))
+      .toThrow('resolve failed');
+    await Promise.resolve();
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await parent.dispose();
   });
 });
 
@@ -254,12 +335,17 @@ function bindingFixture() {
       updateCodexExecution: jest.fn(async () => undefined),
     },
   });
-  parent.register(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {
-    useValue: { readForPath: jest.fn() },
-  });
-  parent.register(SETTINGS_TOKENS.SETTINGS_STORE, {
-    useValue: { set: jest.fn() },
-  });
+  const scopeResolver = { readForPath: jest.fn() };
+  const settingsStore: ElectronCodexBindingInput['settingsStore'] = {
+    readGlobal: jest.fn(),
+    writeGlobal: jest.fn(async () => undefined),
+    readSecret: jest.fn(async () => undefined),
+    writeSecret: jest.fn(async () => undefined),
+    deleteSecret: jest.fn(async () => undefined),
+    watchGlobal: jest.fn(() => ({ dispose: jest.fn() })),
+    watchSecret: jest.fn(() => ({ dispose: jest.fn() })),
+    flushSync: jest.fn(),
+  };
   parent.register(
     AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER,
     {
@@ -285,7 +371,7 @@ function bindingFixture() {
   });
   registerCodexChatServices(parent);
   wireAgentAdapterAliases(parent);
-  return { parent, unsubscribe, legacy };
+  return { parent, unsubscribe, legacy, scopeResolver, settingsStore };
 }
 
 describe('Electron complete Codex binding', () => {
@@ -296,13 +382,15 @@ describe('Electron complete Codex binding', () => {
   ])(
     'binds six stable ports without binary I/O: %j',
     async ({ isPackaged, env, enabled }) => {
-      const { parent, unsubscribe, legacy } = bindingFixture();
+      const { parent, unsubscribe, legacy, scopeResolver, settingsStore } = bindingFixture();
       jest.mocked(resolveCodexNativeBinaryPath).mockClear();
       const binding = await bindElectronCodexChat(parent, {
         isPackaged,
         env,
         platform,
-        bundledRoot: '/bundled',
+        bundledRoot,
+        scopeResolver,
+        settingsStore,
       });
       try {
         for (const token of ELECTRON_CODEX_BOUND_TOKENS) {
@@ -329,13 +417,15 @@ describe('Electron complete Codex binding', () => {
     },
   );
 
-  it('reports a missing executable as runtime-failed on first open, after successful bind', async () => {
-    const { parent } = bindingFixture();
+  it('rejects scope creation when the profile port bypasses verification', async () => {
+    const { parent, scopeResolver, settingsStore } = bindingFixture();
     const binding = await bindElectronCodexChat(parent, {
       isPackaged: false,
       env: { PTAH_CODEX_RUNTIME_DEV: '1' },
       platform,
-      bundledRoot: '/bundled',
+      bundledRoot,
+      scopeResolver,
+      settingsStore,
     });
     const ports = parent.resolve<CodexChatAdapterPorts>(
       SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS,
@@ -364,7 +454,6 @@ describe('Electron complete Codex binding', () => {
       ...ports,
       profile: async () => ({ profile }),
     });
-    jest.mocked(resolveCodexNativeBinaryPath).mockReturnValueOnce(undefined);
     try {
       await expect(
         adapter.startChatSession({ tabId: 'tab', prompt: 'hello' }),
@@ -374,5 +463,55 @@ describe('Electron complete Codex binding', () => {
       await binding.dispose();
       await parent.dispose();
     }
+  });
+});
+
+describe('Electron Codex binding failure', () => {
+  it('retains default ports and disposes the identity lookup if a dependency fails', async () => {
+    const { parent, unsubscribe, scopeResolver, settingsStore } = bindingFixture();
+    const defaults = new Map(ELECTRON_CODEX_BOUND_TOKENS.map((token) => [token, parent.resolve(token)]));
+    parent.register(PLATFORM_TOKENS.PLATFORM_INFO, {
+      useFactory: () => { throw new Error('platform unavailable'); },
+    });
+    try {
+      await expect(bindElectronCodexChat(parent, {
+        isPackaged: false, env: { PTAH_CODEX_RUNTIME_DEV: '1' }, platform,
+        bundledRoot, scopeResolver, settingsStore,
+      })).rejects.toThrow('platform unavailable');
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      for (const token of ELECTRON_CODEX_BOUND_TOKENS) {
+        expect(parent.resolve(token)).toBe(defaults.get(token));
+      }
+    } finally {
+      await parent.dispose();
+    }
+  });
+});
+
+describe('Electron Codex asynchronous binary inspection', () => {
+  it('shares one inspection across concurrent opens and repeats only after a file change', async () => {
+    const readVersion = jest.fn(async () => 'codex-cli 0.155.1');
+    const [first, second] = await Promise.all([
+      inspectElectronCodexBinary(executablePath, readVersion),
+      inspectElectronCodexBinary(executablePath, readVersion),
+    ]);
+    expect(first).toBe(second);
+    expect(first.sha256).toHaveLength(64);
+    expect(first.versionOutput).toBe('codex-cli 0.155.1');
+    expect(readVersion).toHaveBeenCalledTimes(1);
+    await inspectElectronCodexBinary(executablePath, readVersion);
+    expect(readVersion).toHaveBeenCalledTimes(1);
+    writeFileSync(executablePath, 'updated fixture with a different size');
+    const changed = await inspectElectronCodexBinary(executablePath, readVersion);
+    expect(changed.sha256).not.toBe(first.sha256);
+    expect(readVersion).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares a failed inspection until the executable changes', async () => {
+    const failure = new Error('version process failed');
+    const readVersion = jest.fn(async () => { throw failure; });
+    await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
+    await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
+    expect(readVersion).toHaveBeenCalledTimes(1);
   });
 });

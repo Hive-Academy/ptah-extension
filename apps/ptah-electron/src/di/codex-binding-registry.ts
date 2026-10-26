@@ -23,7 +23,7 @@ export function hasElectronCodexBindings(): boolean {
 
 export async function disposeElectronCodexBindings(): Promise<void> {
   const results = await Promise.allSettled(
-    [...bindings].map((binding) => binding.dispose()),
+    [...bindings].map((binding) => Promise.resolve().then(() => binding.dispose())),
   );
   const failures = results.flatMap((result) =>
     result.status === 'rejected' ? [result.reason] : [],
