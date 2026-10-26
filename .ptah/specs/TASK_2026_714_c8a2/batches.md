@@ -912,6 +912,21 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 11, 2026-10-26)
+
+- P7 implemented: 7a b7f936961, 7c d9e9956c3, 7b cbbb8a337. 7c ran after the fence lifted (#824
+  is an ancestor of HEAD). Committed 7c before 7b; the files are disjoint.
+- 7b merge hygiene for PR #826 (same two service files): every format-only hunk that the 7b lane's
+  Prettier run added was reverted (chat-session.service.ts 16, chat-slash-command-router 18).
+  The unformatted lines from main stay unformatted. The pre-commit hook left both files unchanged.
+  Expected #826 conflicts: only the semantic hunks that move the resolveProviderProfileForWorkspace
+  call into the prepare() fallback at start, resume and slash relaunch.
+- Verify: npm run verify -- -p @ptah-extension/rpc-handlers -> lint, test, typecheck 3/3 passed
+  (no cache hits). Host typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui -> 4/4
+  passed.
+- Next: P7 code-logic phase review (Claude reviewer, Codex implementer) on b7f936961^..HEAD of
+  the rpc-handlers code. Then P8.
+
 # Run state (session 9, 2026-10-25)
 
 - Base: HEAD ef4e34932 (origin/main merged in; #824 merged into main as b5c9c8047). The fix-PR
@@ -1355,12 +1370,12 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 
 ---
 
-# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — PENDING (needs P6)
+# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — IMPLEMENTED (7a-7c COMPLETE; code-logic phase review PENDING)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 `npm run verify -- -p @ptah-extension/rpc-handlers`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
 
-## Batch 7a: ChatRuntimeProfileService — PENDING (needs 6e)
+## Batch 7a: ChatRuntimeProfileService — COMPLETE (b7f936961; report batch-7a-report.md)
 
 - Files: CREATE R+chat/session/chat-runtime-profile.service.ts and same-stem spec
 - Plan reference: implementation-plan.md:95 (G1)
@@ -1368,7 +1383,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
   naming the requested and the used model (carried P5 item).
 - Executor: CLI lane, Codex family | Review: Claude | standard fallback | Subagent reason: N/A
 
-## Batch 7b: Chat start/resume and slash routing — PENDING (needs 7a)
+## Batch 7b: Chat start/resume and slash routing — COMPLETE (cbbb8a337; report batch-7b-report.md)
 
 - Files: MODIFY R+chat/session/chat-session.service.ts,
   R+chat/session/chat-slash-command-router.service.ts; CREATE
@@ -1379,7 +1394,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
   keeps the stored identity (recorded behavior, P5 gate).
 - Executor/review/fallback as 7a.
 
-## Batch 7c: Config RPC through SessionRuntimeControls — PENDING (BLOCKED on fix-PR merge)
+## Batch 7c: Config RPC through SessionRuntimeControls — COMPLETE (d9e9956c3; report batch-7c-report.md; P7 phase review PENDING)
 
 - Files: MODIFY R+handlers/config-rpc.handlers.ts; CREATE R+handlers/config-runtime-controls.spec.ts
 - Fence: config-rpc.handlers.ts is changed by fix/provider-switch-model-sync. Start only after
