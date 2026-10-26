@@ -86,6 +86,7 @@ describe('ChatRuntimeProfileService', () => {
   it('preserves the legacy result and exact resolver inputs', async () => {
     const legacy: ResolvedExecutionProfile = {
       runtime: 'claude-sdk',
+      model: 'sonnet',
       providerProfile: undefined,
     };
     const h = harness(legacy, false);
@@ -101,6 +102,7 @@ describe('ChatRuntimeProfileService', () => {
         {
           workspacePath: workspace,
           requestedModel: 'sonnet',
+          requestedModelIsStored: false,
           existingIdentity: undefined,
           consumer: 'chat',
           hostCapabilities: { nativeCodex: false },
@@ -174,6 +176,7 @@ describe('ChatRuntimeProfileService', () => {
     expect(h.resolveExecutionProfile).toHaveBeenCalledWith({
       workspacePath: workspace,
       requestedModel: 'gpt-5',
+      requestedModelIsStored: false,
       existingIdentity: identity,
       consumer: 'chat',
       hostCapabilities: { nativeCodex: true },
@@ -182,6 +185,17 @@ describe('ChatRuntimeProfileService', () => {
       identity,
     );
     expect(h.workspaceProvider.getWorkspaceRoot).not.toHaveBeenCalled();
+  });
+
+  it('marks a stored model so only the Claude branch checks it', async () => {
+    const h = harness();
+    await h.service.prepare({ model: 'gpt-5' }, identity, true);
+    expect(h.resolveExecutionProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedModel: 'gpt-5',
+        requestedModelIsStored: true,
+      }),
+    );
   });
 
   it('propagates failed resolution without falling back to global credentials', async () => {

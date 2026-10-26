@@ -75,6 +75,7 @@ import {
 import type { AuthManager } from './auth-manager';
 import type { ModelResolver } from './model-resolver';
 import type { ProviderProxyPool } from './provider-proxy-pool';
+import { isStoredModelOffered } from './stored-model-offer';
 import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
 
 /**
@@ -105,13 +106,25 @@ function createIsolatedSnapshot(): AuthEnv {
 export interface ExecutionProfileRequest {
   workspacePath: string;
   requestedModel: string;
+  /**
+   * `requestedModel` is the stored model setting, not the caller's choice.
+   * Only the Claude branch checks it with {@link
+   * WorkspaceProviderProfileResolver.resolveStoredModel}; the native branch
+   * maps every model to the Codex catalog.
+   */
+  requestedModelIsStored?: boolean;
   existingIdentity?: SessionRuntimeIdentity;
   hostCapabilities: RuntimeHostCapabilities;
   consumer: RuntimeConsumer;
 }
 
 export type ResolvedExecutionProfile =
-  | { runtime: 'claude-sdk'; providerProfile: ProviderProfile | undefined }
+  | {
+      runtime: 'claude-sdk';
+      /** The model the Claude session runs on. */
+      model: string;
+      providerProfile: ProviderProfile | undefined;
+    }
   | {
       runtime: 'codex-app-server';
       seed: CodexProfileSeed;
@@ -231,11 +244,15 @@ export class WorkspaceProviderProfileResolver {
         },
       };
     }
+    const model = input.requestedModelIsStored
+      ? this.resolveStoredModel(workspacePath, requestedModel)
+      : requestedModel;
     return {
       runtime: 'claude-sdk',
+      model,
       providerProfile: await this.resolveProviderProfileForWorkspace(
         workspacePath,
-        requestedModel,
+        model,
       ),
     };
   }
@@ -357,6 +374,32 @@ export class WorkspaceProviderProfileResolver {
       workspacePath,
       requestedModel,
     );
+  }
+
+  /**
+   * The model a send without its own `model` runs on: the stored model,
+   * unless it belongs to another provider than the one `workspacePath`
+   * resolves to — then `'default'` (the provider's default, as for an empty
+   * stored value). Reads cached model
+   * lists only — no network. Stored settings are not changed, so switching
+   * back to the previous provider keeps its choice.
+   */
+  resolveStoredModel(workspacePath: string, storedModel: string): string {
+    const model = storedModel || 'default';
+    const { providerId } =
+      this.activeProviderResolver.resolveActiveAuthForPath(workspacePath);
+    if (
+      isStoredModelOffered(model, providerId, (id) =>
+        this.providerModels.getCachedModelIds(id),
+      )
+    ) {
+      return model;
+    }
+    this.logger.info(
+      '[WorkspaceProviderProfileResolver] Stored model belongs to another provider — using the workspace provider default',
+      { storedModel: model, providerId, workspacePath },
+    );
+    return 'default';
   }
 
   /** User-facing name of a resolved provider for error messages. */

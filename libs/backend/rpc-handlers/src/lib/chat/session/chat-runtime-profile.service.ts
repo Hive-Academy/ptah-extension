@@ -38,6 +38,33 @@ export type ResolvedChatExecution =
       readonly config: ChatRuntimeConfig;
     });
 
+/**
+ * The Claude execution for a host with no bound runtime profile service. A
+ * stored model that belongs to another provider falls back to that provider's
+ * default (`resolveStoredModel`).
+ */
+export async function resolveClaudeExecution(
+  resolver: Pick<
+    WorkspaceProviderProfileResolver,
+    'resolveStoredModel' | 'resolveProviderProfileForWorkspace'
+  >,
+  workspacePath: string,
+  requestedModel: string,
+  modelIsStored: boolean,
+): Promise<Extract<ResolvedChatExecution, { runtime: 'claude-sdk' }>> {
+  const model = modelIsStored
+    ? resolver.resolveStoredModel(workspacePath, requestedModel)
+    : requestedModel;
+  return {
+    runtime: 'claude-sdk',
+    model,
+    providerProfile: await resolver.resolveProviderProfileForWorkspace(
+      workspacePath,
+      model,
+    ),
+  };
+}
+
 /** Existing sessions without native metadata retain their Claude runtime. */
 export function storedChatRuntimeIdentity(
   sessionId: SessionId,
@@ -86,10 +113,13 @@ export class ChatRuntimeProfileService {
    * Call with the session's resolved workspace/cwd, including the existing resume
    * cwd helper's result. Never consult the focused workspace or global auth.
    * Native profile validation and process creation remain the adapter port's job.
+   * Pass `modelIsStored` when `config.model` is the stored setting, not the
+   * caller's choice: the Claude branch then checks it against the provider.
    */
   async prepare(
     config: ChatRuntimeConfig,
     identity?: SessionRuntimeIdentity,
+    modelIsStored = false,
   ): Promise<ResolvedChatExecution> {
     const workspacePath =
       config.workspaceId ?? identity?.workspaceId ?? config.projectPath;
@@ -99,6 +129,7 @@ export class ChatRuntimeProfileService {
     const resolved = await this.resolver.resolveExecutionProfile({
       workspacePath,
       requestedModel: config.model ?? 'default',
+      requestedModelIsStored: modelIsStored,
       existingIdentity: identity,
       consumer: 'chat',
       hostCapabilities: this.hostCapabilities,

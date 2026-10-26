@@ -86,7 +86,11 @@ import type {
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
-import { storedChatRuntimeIdentity, type ChatRuntimeProfileService } from './chat-runtime-profile.service';
+import {
+  resolveClaudeExecution,
+  storedChatRuntimeIdentity,
+  type ChatRuntimeProfileService,
+} from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -881,8 +885,6 @@ export class ChatSessionService {
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
     });
 
-    const currentModel =
-      options?.model || this.modelSettings.selectedModel.get() || 'default';
     const files = options?.files ?? [];
     if (files.length > 0) {
       this.logger.debug(`RPC: ${logLabel} received files`, {
@@ -902,6 +904,11 @@ export class ChatSessionService {
     const outputStyle = await this.outputStyleActivation.resolveSessionFields({
       workspaceRoot: workspaceId,
     });
+    // Read after the last await before prepare(), so the model and the
+    // provider profile see the same provider.
+    const modelIsStored = !options?.model;
+    const currentModel =
+      options?.model || this.modelSettings.selectedModel.get() || 'default';
     const config: AgentSessionStartConfig = {
       tabId,
       workspaceId,
@@ -931,20 +938,21 @@ export class ChatSessionService {
         : {}),
     };
     const execution = this.runtimeProfile
-      ? await this.runtimeProfile.prepare(config)
-      : {
-          runtime: 'claude-sdk' as const,
-          providerProfile:
-            await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-              workspaceId,
-              currentModel,
-            ),
-        };
+      ? await this.runtimeProfile.prepare(config, undefined, modelIsStored)
+      : await resolveClaudeExecution(
+          this.workspaceProviderProfileResolver,
+          workspaceId,
+          currentModel,
+          modelIsStored,
+        );
     const stream = await this.sdkAdapter.startChatSession({
       ...config,
       runtime: execution.runtime,
       ...(execution.runtime === 'claude-sdk'
-        ? { providerProfile: execution.providerProfile }
+        ? {
+            model: execution.model,
+            providerProfile: execution.providerProfile,
+          }
         : { model: execution.seed.model }),
     });
     if (
@@ -1638,9 +1646,6 @@ export class ChatSessionService {
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
     });
 
-    const currentModel =
-      params.model || this.modelSettings.selectedModel.get() || 'default';
-
     try {
       // Re-resolved for the resumed turn rather than carried over from the
       // original start: the provider or the style may have changed since, and
@@ -1650,6 +1655,18 @@ export class ChatSessionService {
           workspaceRoot: workspacePath,
         },
       );
+      const identity = this.runtimeProfile
+        ? storedChatRuntimeIdentity(
+            sessionId,
+            await this.sessionMetadataStore.get(sessionId),
+            workspacePath,
+          )
+        : undefined;
+      // Read after the last await before prepare(), so the model and the
+      // provider profile see the same provider.
+      const modelIsStored = !params.model;
+      const currentModel =
+        params.model || this.modelSettings.selectedModel.get() || 'default';
 
       const config: AgentSessionResumeConfig = {
         projectPath: workspacePath,
@@ -1671,26 +1688,20 @@ export class ChatSessionService {
           : {}),
       };
       const execution = this.runtimeProfile
-        ? await this.runtimeProfile.prepare(
-            config,
-            storedChatRuntimeIdentity(
-              sessionId,
-              await this.sessionMetadataStore.get(sessionId),
-              workspacePath,
-            ),
-          )
-        : {
-            runtime: 'claude-sdk' as const,
-            providerProfile:
-              await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-                workspacePath,
-                currentModel,
-              ),
-          };
+        ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
+        : await resolveClaudeExecution(
+            this.workspaceProviderProfileResolver,
+            workspacePath,
+            currentModel,
+            modelIsStored,
+          );
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         ...config,
         ...(execution.runtime === 'claude-sdk'
-          ? { providerProfile: execution.providerProfile }
+          ? {
+              model: execution.model,
+              providerProfile: execution.providerProfile,
+            }
           : { model: execution.seed.model }),
       });
       if (

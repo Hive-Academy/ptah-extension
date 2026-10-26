@@ -47,7 +47,11 @@ import {
 import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
-import { storedChatRuntimeIdentity, type ChatRuntimeProfileService } from './chat-runtime-profile.service';
+import {
+  resolveClaudeExecution,
+  storedChatRuntimeIdentity,
+  type ChatRuntimeProfileService,
+} from './chat-runtime-profile.service';
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type {
@@ -291,12 +295,22 @@ export class ChatSlashCommandRouterService {
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
       const command = interceptResult.rawCommand ?? prompt;
-      const model =
-        params.model || this.modelSettings.selectedModel.get() || 'default';
       let reservationId: string | undefined;
       try {
+        const identity = this.runtimeProfile
+          ? storedChatRuntimeIdentity(
+              sessionId,
+              await this.metadata?.get(sessionId),
+              workspacePath ?? '',
+            )
+          : undefined;
+        // Read after the last await before prepare(), so the model and the
+        // provider profile see the same provider.
+        const modelIsStored = !params.model;
+        const requestedModel =
+          params.model || this.modelSettings.selectedModel.get() || 'default';
         const config: AgentSessionResumeConfig = {
-          model,
+          model: requestedModel,
           projectPath: workspacePath,
           mcpServerRunning,
           enhancedPromptsContent,
@@ -310,22 +324,13 @@ export class ChatSlashCommandRouterService {
           ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
         };
         const execution = this.runtimeProfile
-          ? await this.runtimeProfile.prepare(
-              config,
-              storedChatRuntimeIdentity(
-                sessionId,
-                await this.metadata?.get(sessionId),
-                workspacePath ?? '',
-              ),
-            )
-          : {
-              runtime: 'claude-sdk' as const,
-              providerProfile:
-                await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-                  workspacePath ?? '',
-                  model,
-                ),
-            };
+          ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
+          : await resolveClaudeExecution(
+              this.workspaceProviderProfileResolver,
+              workspacePath ?? '',
+              requestedModel,
+              modelIsStored,
+            );
         if (
           interceptResult.commandName === 'compact' &&
           this.manualCompactAdmission
@@ -373,7 +378,7 @@ export class ChatSlashCommandRouterService {
               model:
                 execution.runtime === 'codex-app-server'
                   ? execution.seed.model
-                  : model,
+                  : execution.model,
               projectPath: workspacePath,
               ...(params.mcpToolProfile
                 ? { mcpToolProfile: params.mcpToolProfile }

@@ -130,6 +130,8 @@ describe('chat native session preparation', () => {
         enhancedPromptsContent: 'instructions',
         outputStyleBody: 'style',
       }),
+      undefined,
+      false,
     );
     expect(h.startChatSession).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'gpt-5.4', runtime: 'codex-app-server' }),
@@ -159,6 +161,7 @@ describe('chat native session preparation', () => {
         prompt: 'continue',
       }),
       identity,
+      true,
     );
     expect(h.resumeSession).toHaveBeenCalledWith(
       sessionId,
@@ -281,7 +284,7 @@ describe('chat native session preparation', () => {
     }));
     expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
-    });
+    }, true);
     expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
     expect(broadcastMessage).not.toHaveBeenCalled();
   });

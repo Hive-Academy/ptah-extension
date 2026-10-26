@@ -123,6 +123,7 @@ describe('native slash runtime routing', () => {
         enhancedPromptsContent: 'instructions',
       }),
       identity,
+      true,
     );
     expect(h.compact).toHaveBeenCalledWith(sessionId);
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
@@ -136,7 +137,11 @@ describe('native slash runtime routing', () => {
 
   it('keeps legacy compact on executeSlashCommand with the exact profile', async () => {
     const profile = { providerId: 'anthropic', model: 'sonnet', authEnv: {} };
-    const h = harness({ runtime: 'claude-sdk', providerProfile: profile });
+    const h = harness({
+      runtime: 'claude-sdk',
+      model: 'sonnet',
+      providerProfile: profile,
+    });
     await expect(h.route()).resolves.toEqual({ success: true, sessionId });
     expect(h.executeSlashCommand).toHaveBeenCalledWith(
       sessionId,
@@ -233,13 +238,16 @@ describe('native slash runtime routing', () => {
   });
 
   it('uses an explicit Claude identity when the metadata service is absent', async () => {
-    const h = harness({ runtime: 'claude-sdk', providerProfile: undefined }, 'review');
+    const h = harness(
+      { runtime: 'claude-sdk', model: 'sonnet', providerProfile: undefined },
+      'review',
+    );
     Object.assign(h.service, { metadata: undefined });
     await h.route();
     expect(h.prepare).toHaveBeenCalledWith(expect.any(Object), {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'claude-cli',
       workspaceId: '/workspace',
-    });
+    }, true);
     expect(h.publishModelSubstitution).not.toHaveBeenCalled();
   });
 
@@ -279,7 +287,7 @@ describe('native slash runtime routing', () => {
     }));
     expect(prepare).toHaveBeenCalledWith(expect.any(Object), {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'anthropic', workspaceId: workspace,
-    });
+    }, true);
     expect(resolveProviderProfileForWorkspace).toHaveBeenCalledWith(workspace, 'claude-sonnet');
     expect(broadcastMessage).not.toHaveBeenCalled();
   });

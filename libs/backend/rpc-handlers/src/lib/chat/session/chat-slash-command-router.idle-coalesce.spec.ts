@@ -77,7 +77,10 @@ function makeHarness(
       resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
     } as never,
     { streamEventsToWebview } as never,
-    { resolveProviderProfileForWorkspace: resolveProvider } as never,
+    {
+      resolveStoredModel: (_path: string, model: string) => model || 'default',
+      resolveProviderProfileForWorkspace: resolveProvider,
+    } as never,
     admission,
   );
   const route = (routeParams: ChatContinueParams = params) =>
@@ -228,8 +231,8 @@ describe('manual /compact router admission', () => {
       .mockReturnValueOnce(second.promise);
     const one = h.route();
     const two = h.route();
-    await Promise.resolve();
-    await Promise.resolve();
+    // Both sends wait on their deferred streams; flush every microtask.
+    await new Promise((resolve) => setImmediate(resolve));
     expect(h.executeSlashCommand).toHaveBeenCalledTimes(2);
     expect(coordinator.claimIdle(sessionId, 'idle-1')).toBe('manual-reserved');
     first.resolve(emptyStream());
