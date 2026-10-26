@@ -1,6 +1,6 @@
-# Session handoff — TASK_2026_719_4f64 (2026-10-26, session 7)
+# Session handoff — TASK_2026_719_4f64 (2026-10-26, session 8)
 
-Earlier handoffs: `HANDOFF-session1.md` … `HANDOFF-session6.md` (same folder).
+Earlier handoffs: `HANDOFF-session1.md` … `HANDOFF-session7.md` (same folder).
 
 ## Goal
 
@@ -9,113 +9,122 @@ CLI lane on Account 2. **Acceptance (Requirement 8):** live Electron test with t
 (`test-report.md` "## Live test plan (Requirement 8)"). The user signs in personally; the agent never sees, types or
 stores credentials and never reads console text. No paid calls beyond the Haiku live-test messages. Never merge.
 
-User decisions this phase: D41 (P5 before the live test; "N connected" badge on the Claude (Subscription) card),
-D42 (binding rules B-1 / B-2), **D47 (keep the plan order: frontend review fixes → visual review → Electron build →
-live test; an early live test after F5 was offered and declined)**, D48 (run batches in parallel, CLI lanes allowed).
-The user is impatient with waiting: start the next step as soon as its inputs exist; run independent work in parallel.
+**Current phase: P6 redesign (D52-D54).** The user rejected the P5 Accounts tab as noisy. Account choice moves to
+where work starts: an Account select in the main chat provider popover (when Claude is chosen) and an Account cell
+in the Claude CLI lane row; the Accounts tab becomes a calm list with "Used by" chips. **The live test runs after P6**
+(user decision, D52).
 
 ## Workspace, branch, PR
 
 | Item | Value |
 |---|---|
 | Worktree | `D:/projects/ptah-extension/.claude-worktrees/claude-named-accounts` |
-| Branch | `feat/claude-named-accounts`; remote head `05f459308` (pushed, verified with `git ls-remote`) |
-| PR | https://github.com/Hive-Academy/ptah-extension/pull/827 (open, MERGEABLE, never merge) |
-| "Before" worktree | `.claude-worktrees/claude-named-accounts-before` (detached at `396f0135b`). Keep until user authorizes cleanup. |
+| Branch | `feat/claude-named-accounts`; remote head `8e71fb124` (pushed, `git ls-remote` verified) |
+| PR | https://github.com/Hive-Academy/ptah-extension/pull/827 (open, never merge) |
+| CI on `8e71fb124` | all pass except "GitGuardian Security Checks" (incident 39008928, known false positive) |
+| "Before" worktree | `.claude-worktrees/claude-named-accounts-before` (detached at `396f0135b`). Keep. |
 | node_modules | Junctions to the main checkout. Never `npm ci` / `npm install` in a worktree. |
-| Verify script | Use the 2-slot script from main: `node D:/projects/ptah-extension/scripts/verify.mjs -t lint,test,typecheck -p <projects>` (the worktree's own script is older; PR #828 merged to main). At a safe point (all committed), merge `origin/main` into the branch (merge, not rebase; no history rewrite). |
-| Electron | Old instance PID 7572 (OLD UI) may still run; stop only the instance whose command line contains `claude-named-accounts\dist\apps\ptah-electron\main.mjs`. |
+| Verify script | `node D:/projects/ptah-extension/scripts/verify.mjs -t lint,test,typecheck -p <projects>` (2-slot lock). Run in background with a log, 2 h timeout. The Nx header line does not print in the log; check `NX  N tasks:` and each `full log:` path (strip ANSI). |
+| Electron | A P5 build instance runs (PID 11172, started 19:22, OLD P5 UI). Before the live test: rebuild, stop only processes whose command line contains `claude-named-accounts\dist\apps\ptah-electron\main.mjs`, then start (command below). |
 
-## Done (session 7) — all committed and pushed to `05f459308`
+## Done this session (session 8)
 
 | Commit | Subject | Verification |
 |---|---|---|
-| `110b6e198` | feat(shared,rpc-handlers,electron,core): ambient Claude status RPC (B3) | 10-project verify; one new core typecheck error fixed (D44); only pre-existing failures |
-| `95d307c83` | feat(core): webview service for the ambient Claude login status (F1) | 5 projects; only pre-existing lint |
-| `673553c37` | feat(chat): account presentation, ambient row and add form (F2) | 4 projects; only pre-existing lint |
-| `4ce4d8151` | fix(auth-providers): late PID kill and one env snapshot per probe | backend review fixes (D45, D46); codex r2 APPROVED 8/10; 7 projects |
-| `05ed81f31` | feat(chat): account use-for selects and account detail view (F3) | F3 specs pass |
-| `778267087` | fix(core,auth-providers): satisfy the degradation-audit ratchet | CI audit had failed on `05ed81f31`; local audit exit 0 |
-| `b8d126410` | feat(chat): Accounts tab in the Claude (Subscription) drawer (F4) | F4-F7 verify, 5 projects; only pre-existing lint |
-| `4548df6c3` | feat(chat): move accounts off the Providers page and add a badge (F5) | same run |
-| `05f459308` | refactor(chat,core): delete the old accounts section and setDefault (F6+F7, Glm lane) | same run |
+| `29ed77782` | fix(chat,core,ui,webview-e2e-harness): accounts tab review fixes | 6-project verify: only pre-existing lint; e2e harness lint+typecheck pass; degradation audit exit 0; codex re-review APPROVED 8/10 (`code-logic-review-p5-frontend-r1.md`) |
+| `b30022713` | fix(chat): reflow the accounts tab at narrow widths | chat+webview+electron verify: only pre-existing lint; visual re-check APPROVED (`visual-review-p5-recheck.md`) |
+| `8e71fb124` | docs(chat): record the P5 visual re-check | — |
 
-Backend phase review: `code-logic-review-p5-backend.md` (REVISE) → `-r1.md` (REVISE, new Serious) → orchestrator
-correction (D46) → `-r2.md` APPROVED 8/10. Closed.
+- CI `webview-e2e` failure on `05f459308` fixed (Electron claude-cli drawer now expects the Accounts tab, D50).
+- CI test shard 4 on `29ed77782` failed in `npm ci` (node-gyp download), passed on rerun.
+- P5 visual review: `visual-review-p5.md` REVISE → fix (D51) → re-check APPROVED.
 
-Pushes: GitHub returned "Internal Server Error" three times (request C0E7:7CC1C:1624E9FD:1D9BFF55:6ADF63B0), then
-the 4th push succeeded. If it recurs, retry; do not push to a new remote branch.
+## In progress — P6 (all uncommitted, docs only; no code changed yet)
 
-## In progress — frontend review fix round (uncommitted, NOT verified)
+Committed at the end of session 8 (see the last commit on the branch, docs only, not pushed): `decisions.md` (D50-D54 appended… D50/D51 already committed; D52-D54 new),
+`parity-inventory-p6.md`, `design-spec-p6.md` (with D53 orchestrator correction of State contract 4),
+`design-spec-p6-review.md` (REVISE 6/10), `design-spec-p6-review-r1.md` (REVISE 7/10), `prototype/p6/`
+(index.html, README, capture/contrast/smoke scripts, shots), `implementation-plan-p6.md`, `HANDOFF-session7.md`,
+this file. Untracked `screenshots/*` text/json files from earlier sessions were never committed; leave them.
 
-Codex `code-logic-review-p5-frontend.md`: REVISE 5/10 (Serious F1 Check-status busy/outcome, F2 Escape in the
-nested Remove modal closes the drawer, F3 Accounts unreachable without the Claude CLI; Moderate F4 exact focus target,
-F5 completion announcements; all fixed per D49). Both fix developers finished; focused jest passes:
-
-- Fix A (report `p5-frontend-fixA-report.md`): `libs/frontend/chat/src/lib/settings/providers/accounts/accounts-tab.component.ts`
-  + `.spec.ts` (32/32), `libs/frontend/core/src/lib/services/provider-accounts-state.service.ts` + `.spec.ts` (38/38).
-  `refreshAccountStatus` now returns `read | failed | unavailable`; new action kind `'check-status'`. Open points:
-  new copy "That account is no longer in the list."; the outcome type is not exported from the core barrel.
-- Fix B (report `p5-frontend-fixB-report.md`): `libs/frontend/ui/src/lib/native/modal/native-modal.component.ts` + `.spec.ts`
-  (19/19; Escape stops at the modal), `libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts` + `.spec.ts`
-  (84/84; Claude card always listed on Electron). Not checked: real Escape on Remove in Electron (jsdom has no cancel event).
-- Also uncommitted: `decisions.md` (D47-D49 appended), the two fix reports and the frontend review file.
+- **Gate 1.7 passed by the user (D54):** design approved; all 13 copy removals approved EXCEPT the two flagged
+  existing-login cues (signed-out cue, status-unknown cue) → keep them as a short tooltip on the status word
+  (also screen-reader reachable).
+- **Gate 2:** `implementation-plan-p6.md` (Claude architect): 9 batches, 3 waves, file-disjoint, no backend change,
+  only `@ptah-extension/chat`. A codex lane reviews it now / reviewed it → deliverable
+  `implementation-plan-p6-review.md` (see "Background work"). Gate 2 is in `lane-review` mode: APPROVED → continue
+  without waiting; REVISE → one architect revision round, then a short re-review; still REVISE → ask the user.
+- Plan decisions to confirm in the review / tell the user: P6-A4 ambient "Last checked" moves into the status
+  tooltip + sr-only text (not an approved removal, it is kept); P6-A5 run count only in the detail view;
+  P6-A6 rows no longer clickable (Manage chevron opens detail).
 
 ## Open problems
 
-1. GitGuardian incident 39008928 (false positive on `test-report.md`, commit `7bd38efa8`) still fails the
-   "GitGuardian Security Checks" check. **Remind the user to mark it as a false positive** in the dashboard
-   (not yet done this session). Do not rewrite history.
-2. CI for `05f459308` was pending at handoff (typecheck, test shards, e2e). Check it; the `checks` job previously
-   failed only on degradation-audit, fixed in `778267087`.
-3. Known pre-existing failures (not ours; confirm with `git diff --quiet 396f0135b -- <file>`): auth-providers test
-   `translation-proxy.sdk.integration.spec.ts` EPERM; auth-providers lint `@nx/dependency-checks`; webview lint circular
-   dependency with command-center; chat lint D30 "Static imports of lazy-loaded libraries are forbidden" (every
-   `@ptah-extension/shared` import in chat, incl. our new files) plus `attention-context.util.ts` and
-   `chat-attention-source.service.ts`. Verify output hides details: read each Nx `full log:` path, strip ANSI.
-4. Later-task items: D24 route type, D33 handler teardown, D29 untyped binding, D38, D40 (unchanged).
+1. GitGuardian incident 39008928 (false positive on `test-report.md`, commit `7bd38efa8`): **remind the user to
+   mark it as a false positive** in the dashboard. Do not rewrite history.
+2. Known pre-existing failures (not ours; confirm with `git diff --quiet 396f0135b -- <file>`): chat lint
+   "Static imports of lazy-loaded libraries" (141 chat errors total incl. the next two), `attention-context.util.ts`
+   no-useless-escape, `chat-attention-source.service.ts` no-control-regex; webview lint circular dependency with
+   command-center; auth-providers `translation-proxy.sdk.integration.spec.ts` EPERM and `@nx/dependency-checks`.
+3. Separate follow-up (not this task, D52): the "Claude API" card shows whenever any non-empty legacy Claude API key
+   is stored (`libs/frontend/core/src/lib/services/providers-settings-state.service.ts:498-509` `configured:
+   auth.hasApiKey`; backend `auth-status-probes.ts:66-82`). Pre-existing since #317. The user asked about it.
+4. Later polish: ~49 px gap above "All accounts" at 520 px (P5 re-check; P6 rewrites that view anyway).
+5. Later-task items: D24, D29, D33, D38, D40 (unchanged).
 
-## Background work
+## Background work at handoff
 
-None of this session's agents is still running. CI watch on `05f459308` was stopped by the session end
-(`gh pr checks 827` to read the state).
-
-## Key files
-
-- `D:/projects/ptah-extension/.claude-worktrees/claude-named-accounts/.ptah/specs/TASK_2026_719_4f64/implementation-plan-p5.md` — P5 plan, batches, B-1/B-2.
-- `.../TASK_2026_719_4f64/decisions.md` — D41-D49 (all decisions of this phase).
-- `.../TASK_2026_719_4f64/code-logic-review-p5-frontend.md` — the findings the uncommitted fix round addresses.
-- `.../TASK_2026_719_4f64/test-report.md` — live test plan E1-E6, R8 steps 1-8.
-- `.../TASK_2026_719_4f64/prototype/p5/index.html`, `design-spec-p5.md` — visual reference for the visual review.
+None. The Gate 2 codex lane `f12cbae2` finished: **REVISE 7/10** (`implementation-plan-p6-review.md`, D55):
+Serious 1 Save-click revision lost across the awaited provider write; Moderate 2 partial-save lock vs Save
+predicate; Minor 3 acceptance 20 forbids required live regions. Contracts, batches, parity and no-backend all pass.
 
 ## Next steps (in order)
 
-1. Verify the fix round (background, log, 2 h timeout; `ui` is now changed, so 6 projects):
-   `cd D:/projects/ptah-extension/.claude-worktrees/claude-named-accounts && node D:/projects/ptah-extension/scripts/verify.mjs -t lint,test,typecheck -p @ptah-extension/core,@ptah-extension/chat,@ptah-extension/ui,ptah-extension-webview,ptah-electron,ptah-extension-vscode > .ptah/tmp/verify-p5-ffix.log 2>&1`
-   (if `ui` has more dependents, `nx show projects --affected` scoped is not allowed workspace-wide; check
-   `ptah_get_dependents` on `native-modal.component.ts` and add only host apps). Also run
-   `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` (must exit 0).
-   In parallel: a short codex re-review (`cli: codex`, role code-logic-reviewer, full self-contained brief, deliverable
-   `code-logic-review-p5-frontend-r1.md`) of `git diff` for the 8 files against findings F1-F5, B-2 and D41.
-2. Commit in the foreground with explicit paths (scopes `chat,core,ui`), including `decisions.md`, the two fix
-   reports, the review file(s). Push in the background (`git push origin feat/claude-named-accounts`), watch CI with
-   `gh pr checks 827 --watch` in the background.
-3. Visual review in Electron (visual-reviewer subagent; dark + light; 520/360/320/245 px; 200% zoom; compare with
-   `prototype/p5/index.html`; include real Escape on Profile → Remove account; native select; screen-reader order).
-   It needs a fresh Electron build of this worktree: the user agreed to the plan order including the build (D47);
-   build only the Electron app for this worktree.
-4. Live test with the user: stop the old instance, start with PowerShell (never a Bash background shell):
+1. Gate 2 is at REVISE 7/10 (D55). Run ONE architect revision round (software-architect subagent; give it
+   `implementation-plan-p6-review.md` and the plan; fix findings 1-3 in place, add a "## Revision 1" section), then a
+   short fresh codex re-review (`implementation-plan-p6-review-r1.md`). APPROVED → continue; still REVISE → ask the user.
+2. Commit the P6 docs in the foreground with explicit paths (scope `chat`, type `docs`), e.g.
+   `docs(chat): P6 design, inventory and plan for account selectors`. Do not commit `screenshots/*` leftovers.
+3. Implement (plan "## Batches", lines ~398-472). Wave 1 in parallel: P1 (toast announcer, frontend-developer),
+   P2 (presentation additions), P3 (drawer initial tab). Wave 2 in parallel after P2 (+P3 for P4): P4 main popover
+   Account field, P5 lane account cell, P6 accounts tab + delete Use-for, P7 flat detail, P8 ambient row + add form
+   (P6 committed before P7/P8). Wave 3: P9 presentation cleanup. Developer rules: ≤ 6 files, ≤ 45 tool calls,
+   never commit, only the batch's focused jest command, e.g.
+   `node D:/projects/ptah-extension/scripts/verify.mjs -t test -p @ptah-extension/chat -- --testPathPatterns=accounts-tab`.
+   Orchestrator commits each batch (foreground, explicit paths).
+4. Final verify (background, log, 2 h timeout), 4 projects:
+   `cd D:/projects/ptah-extension/.claude-worktrees/claude-named-accounts && node D:/projects/ptah-extension/scripts/verify.mjs -t lint,test,typecheck -p @ptah-extension/chat,ptah-extension-webview,ptah-electron,ptah-extension-vscode > .ptah/tmp/verify-p6.log 2>&1`
+   plus `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` (exit 0). Add
+   `@ptah-extension/webview-e2e-harness` if any harness file changes.
+5. Codex code-logic review of the P6 diff (full self-contained brief; give it a saved diff file because its role
+   forbids git: `git diff <base> -- <files> > .ptah/tmp/p6.diff`). One fix round.
+6. Push in the background (retry on GitHub 500), watch CI (`gh pr checks 827 --watch`); rerun infra-only failures.
+7. Rebuild Electron (user approved builds for this plan, D47):
+   `NX_DAEMON=false node D:/projects/ptah-extension/scripts/verify.mjs --exec --task p6-build -- npx nx build ptah-electron` then `node apps/ptah-electron/scripts/copy-renderer.js`.
+   Electron visual review (visual-reviewer; faked RPC harness `screenshots/p5-capture3.mjs`; dark + light; 520/360/320/245;
+   REAL 200% zoom; compare with `prototype/p6/index.html`; acceptance criteria 9, 13, 22 of the plan).
+8. Live test with the user: stop the old instance, start with PowerShell (never a Bash background shell):
    `$env:NODE_ENV='development'; Start-Process -FilePath 'D:\projects\ptah-extension\node_modules\electron\dist\electron.exe' -ArgumentList '"D:\projects\ptah-extension\.claude-worktrees\claude-named-accounts\dist\apps\ptah-electron\main.mjs"' -WorkingDirectory 'D:\projects\ptah-extension\.claude-worktrees\claude-named-accounts'`
-   The user clicks Sign in; then E1-E6 and R8 steps 1-8 from `test-report.md`. DB reads only via
-   `node .ptah/tmp/live-q.cjs` (allowed columns).
-5. After the live test: update `test-report.md`, set `task.md` `status:` (edit that line only), commit, push, watch CI,
+   The user adds Account 1/2 and signs in; then E1-E6 and R8 steps 1-8 from `test-report.md` (now selecting the
+   account in the main chat popover and in the Claude lane row). DB reads only via `node .ptah/tmp/live-q.cjs`
+   (allowed columns only).
+9. After the live test: update `test-report.md`, set `task.md` `status:` (edit that line only), commit, push, watch CI,
    update the PR body (## Summary + ## Test plan with real results). Remind the user about GitGuardian 39008928.
-6. Never merge. Keep the branch and both worktrees until the user authorizes cleanup.
+10. Never merge. Keep the branch and both worktrees until the user authorizes cleanup.
+
+## Key files (task folder `.ptah/specs/TASK_2026_719_4f64/`)
+
+- `decisions.md` — D41-D54 (this phase: D50-D54).
+- `design-spec-p6.md`, `prototype/p6/index.html` — approved P6 design (Gate 1.7, D54).
+- `parity-inventory-p6.md` — capabilities, approved removals.
+- `implementation-plan-p6.md` — P6 plan and batches; `implementation-plan-p6-review.md` — Gate 2 review.
+- `test-report.md` — live test plan E1-E6, R8 steps 1-8.
 
 ## Rules (repeat to every subagent and lane)
 
-Verify under the machine-wide lock, in the background with a log; confirm the "for N projects" header. Electron first.
-Worktree only. Developers: ≤6 files, ≤45 tool calls, never commit. No `process.cwd()` and no `jest.spyOn` on module
-namespaces in specs. New `catch` blocks need `// degradation-audit: reported - …` or `optional-capability - …` as their
-first line (core baseline 0), and no marker on a line the audit does not flag (orphaned). The orchestrator commits in
-the foreground with explicit paths and pushes in the background. Codex lanes need full self-contained briefs.
+Work only in the worktree. Follow CLAUDE.md (verify lock, Electron first, no build/serve/e2e unless planned).
+Never npm ci/install in a worktree. No `process.cwd()` and no `jest.spyOn` on module namespaces in specs. New catch
+blocks need a degradation-audit marker. Developers: ≤ 6 files, ≤ 45 tool calls, never commit. The orchestrator commits
+in the foreground with explicit paths and pushes in the background. Codex lanes get full self-contained briefs (their
+reviewer role forbids git: hand them a saved diff file). Credentials: never see/type/store; never read console text.
+The user wants minimal idle waiting: run independent work in parallel.

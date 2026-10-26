@@ -366,3 +366,49 @@
 
 - D51 result: `visual-review-p5-recheck.md` APPROVED (0 Breaking, 0 Serious). Moderate: about 49 px empty gap
   above the "All accounts" link at 520 px; recorded as later polish, not fixed now.
+
+## D52 — P6: account selectors move to the chat and lane forms (2026-10-26, user)
+
+- User feedback on the running P5 build: the Accounts tab is noisy (too much text, tight spacing). Account choice
+  belongs where the work starts: the main chat provider form shows an account select when Claude is chosen; the
+  Claude CLI lane setup shows an account select. The Accounts tab keeps the list with "Used by" chips, Sign in /
+  Manage and Add account; no Use-for block, no helper sentences, short toasts instead of inline status lines.
+- User decisions: live Haiku test after the redesign; Accounts tab = list + "Used by" chips.
+- Evidence (Explore): main chat provider select `main-agent-reassign-popover.component.ts:97-104`; Claude CLI lane
+  entry `cli-orchestration-matrix.component.ts:113-117`; both scopes persist through one RPC
+  `provider:setAccountSelection` (scope `main` | `lane`), so no backend change is expected.
+- Flow: architect parity inventory (inventory-only) and designer prototype in parallel (the capability set is small
+  and known), codex cross-side review, then Gate 1.7 shown to the user (the user criticized the last design).
+- Separate follow-up (not this phase): the "Claude API" card shows whenever any non-empty legacy API key is stored
+  (`providers-settings-state.service.ts:498-509` `configured: auth.hasApiKey`; `auth-status-probes.ts:66-82`);
+  pre-existing since #317, no validity check.
+
+## D53 — P6 Gate 1.7 escalated to the user (2026-10-26, orchestrator)
+
+- Design `design-spec-p6.md` + `prototype/p6/` (designer subagent, Claude) reviewed by codex lane: REVISE 6/10 →
+  revision 1 → REVISE 7/10 (`design-spec-p6-review-r1.md`). Cap reached, so the gate goes to the user.
+- The two new Serious items were spec wording contradictions; the orchestrator corrected State contract 4: an
+  ambient selection is a valid write, and an `unconfirmed` account write shows only the uncertainty toast (never
+  "Account not saved"). Remaining PARTIAL items (prototype-only async focus, live-region persistence, real 200%
+  zoom) are carried into the implementation plan as acceptance criteria and checked by the Electron visual review.
+- Proposed removals (copy only, `parity-inventory-p6.md`): 10 helper sentences and 3 inline status lines; two
+  flagged (existing-login signed-out cue, status-unknown cue). Removals need the user's approval.
+
+## D54 — Gate 1.7 for P6 passed by the user (2026-10-26, user)
+
+- Approved: `design-spec-p6.md` (with the D53 correction) and `prototype/p6/`. Approved removals: all 13 copy items in
+  `parity-inventory-p6.md`, except the two flagged existing-login cues (signed-out cue, status-unknown cue), which stay
+  as a short tooltip on the status word (no visible sentence; also reachable by screen readers).
+- Next: architect plan P6 (`implementation-plan-p6.md`, batches ≤ 6 files) → codex cross-side review (Gate 2,
+  lane-review mode) → developers in parallel → verify → codex code review → Electron visual review → live test.
+
+## D55 — P6 Gate 2 review: REVISE 7/10 (2026-10-26, orchestrator)
+
+- Codex lane `f12cbae2` reviewed `implementation-plan-p6.md`: REVISE 7/10 (`implementation-plan-p6-review.md`).
+  Serious 1: the Save-click account revision is not preserved across the awaited provider write (the service
+  captures the snapshot at `setSelection` call time). Moderate 2: partial-save lock contradicts the Save predicate
+  (model/effort dirty branch keeps Save enabled). Minor 3: acceptance 20 forbids live regions that the design
+  requires (stale badge, load-error row). Passed: contracts exist, no backend change, batches file-disjoint and
+  compile in order, parity complete, no unapproved removal (P6-A4/A5/A6 accepted).
+- Next (session 9): one architect revision round on these three items, short codex re-review (resume session
+  `019a…` not kept; spawn fresh with a full brief), then wave 1.
