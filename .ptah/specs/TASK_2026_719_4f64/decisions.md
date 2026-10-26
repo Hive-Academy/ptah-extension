@@ -201,3 +201,15 @@
 - test-report.md: R1-R7 map to committed specs; tester added 2 tests (R3.9 process env; D39 adapter capabilities). Gaps: R4.9 timeout exit (now added, `session-query-executor.accounts.spec.ts:372`); R1.2 no feature flag (source search only, no automated guard; accepted).
 - Low defect: production code still returned `'release-held'` as an internal catch-all, against implementation-plan.md:135-136 ("No production path returns it"). Fixed (release-held-fix-report.md): unproved or unclassified named-run failures -> `identity-unproved`; registry bind refusal, resume-id mismatch, attach refusal -> `conflict`; missing admission/persistence ports in the adapter -> `unavailable-storage`. Settlement (release/retain) unchanged. Remaining non-spec hits are only the allowed ones (union member, two neutral COPY entries, drawer held fallback).
 - A binding that arrives without an admission request keeps the plan's default `identity-unproved`. Reversible.
+
+## D36 — Visual re-check and late-fix review (2026-10-26, orchestrator)
+
+- Visual re-check (`visual-review-recheck.md`): APPROVED. D1 fixed (flat lane header badge "Account: <label>" / "Default" / "Removed account", 160px cap with title, nothing for non-Claude lanes, contrast 11.6-15:1, dark and light). D3 fixed (session row label 160px cap). Screens 1-3 unchanged. Card presentation not reachable in Electron (unit tests only).
+- N1 Moderate (new): the flat lane header row wraps to two lines (35px -> 63px) for a long label or "Removed account"; nothing clipped, stable. Not a config or data risk: recorded as a later task (lean rule 4).
+- Late fixes `7bd38efa8` (release-held producers) and `b8031e3fd` (flat header badge) reviewed by a fresh codex lane: APPROVED 9/10, no defects (`code-logic-review-final-fixes.md`).
+
+## D37 — B22 host check and copy audit (2026-10-26, orchestrator, evidence step)
+
+- `npm run verify -- -t lint,test,typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview` (5 projects, 62 tasks): 61 pass. All host tests and typechecks pass, including the Electron, VS Code and CLI container smokes. `ptah-extension-webview:lint` fails with one error, `app.routes.ts:224` circular dependency webview <-> `@ptah-extension/command-center`; neither project changed since base `396f0135b`, and the main checkout at `871d733e4` reports the same error. Pre-existing on main.
+- Copy audit (`git grep` over non-spec `libs/**/*.ts`, `apps/**/*.ts` for "release authorization", "awaiting release", "not available in this release", "not available yet", "release-held (D7)"): two hits, both exempt. `libs/shared/src/lib/types/agent-process.types.ts:334` (historical comment named in the plan). `libs/frontend/canvas/src/lib/canvas-detail/canvas-detail-transcript.component.ts:92` ("This agent is not available yet."; agent loading, not accounts; unchanged since base). Producer audit: no non-spec code returns `'release-held'` (D35).
+- Screenshots (14 MB, 109 files) stay local in `screenshots/` and are not committed; only the capture script is committed.

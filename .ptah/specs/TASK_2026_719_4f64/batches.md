@@ -1,6 +1,6 @@
 # Batches - TASK_2026_719_4f64
 
-Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 21/22 (B1-B21)
+Total tasks: 22 | Batches: 22 (B1-B22; B7, B8, B12 run as work packages) | Complete: 22/22 (B1-B22)
 
 Source: `implementation-plan.md` revision 4 (Gate 2 APPROVED, D14), "Team-leader handoff" manifest
 (plan lines 1001-1082). The manifest is authoritative: each file appears in exactly one batch; no
@@ -464,14 +464,14 @@ Migrations dir: `libs/backend/persistence-sqlite/src/lib/migrations/`.
 - DI guard: none
 - Acceptance: `ACCOUNT_HELD_NOTE` (`:70-72`), the `routing-held` paragraph (`:251-258`) and `heldNote` (`:474`) deleted (copy removal, not a capability removal, D5/D41); session row shows label or "Default" for active and finished sessions.
 
-## Batch 22: Host check and production-copy audit — PENDING
+## Batch 22: Host check and production-copy audit — COMPLETE (D37)
 
 - Recommended executor: team-leader (no source files) | Mode: sequential
 - Tasks: 1 | Depends on: all of B1-B21 | Phase: P5 | Phase review: none
 - Verify: `npm run verify -- -t lint,test,typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui,ptah-extension-webview` (N = 5)
 - Commit: the audit record in this file (task-folder docs commit), so the batch carries a SHA.
 
-### Task 22.1: Host suites and copy grep — PENDING
+### Task 22.1: Host suites and copy grep — COMPLETE
 
 - Files: none (records results here)
 - Plan reference: implementation-plan.md:1065-1082
