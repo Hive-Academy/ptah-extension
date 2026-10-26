@@ -912,6 +912,20 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 11 close, 2026-10-26)
+
+- P7 CLOSED. Commits: 7a b7f936961, 7c d9e9956c3, 7b cbbb8a337, 7d 4a2f15579 + 6a1ed5cbe, di-lint
+  fix f57e381f9, 7e e8586f4ba. Reviews: code-logic-review-p7.md REVISE 4/10, then
+  code-logic-rereview-p7.md APPROVED 7/10 (Claude reviewer, Codex implementer).
+- 7e verify: rpc-handlers lint/test/typecheck 3/3 (after aligning 3 config-rpc spec fixtures to
+  SessionUnavailableError). agent-sdk tests and typecheck passed; agent-sdk lint fails only on
+  session-query-executor.accounts.spec.ts:174,:183 (no-unexpected-multiline), identical to
+  origin/main. di-lint passed. Host typecheck (electron, vscode, cli, tui) 4/4.
+- PR #826 merged into main (b72dd7a54). The coordinator merges origin/main into this branch next,
+  applying the #826 merge rules recorded under Batch 7d (currentModel after the last await before
+  prepare(); resolveStoredModel only on the Claude branch). P8 restarts after that merge; the 8a
+  acceptance list is under Batch 8a.
+
 # Run state (session 11, 2026-10-26)
 
 - P7 implemented: 7a b7f936961, 7c d9e9956c3, 7b cbbb8a337. 7c ran after the fence lifted (#824
@@ -1370,7 +1384,7 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 
 ---
 
-# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — IMPLEMENTED (review REVISE 4/10 code-logic-review-p7.md; fix batch 7d COMPLETE; narrow re-review PENDING)
+# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — COMPLETE (P7 CLOSED: review REVISE 4/10 code-logic-review-p7.md; fix 7d; re-review APPROVED 7/10 code-logic-rereview-p7.md; cleanup 7e)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 `npm run verify -- -p @ptah-extension/rpc-handlers`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
@@ -1405,7 +1419,7 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
   calls; audit auth/provider/config-scope callers.
 - Executor/review/fallback as 7a. Last P7 batch -> phase review.
 
-## Batch 7d: P7 review fix round — COMPLETE (4a2f15579, 6a1ed5cbe; di-lint fix f57e381f9; narrow re-review PENDING)
+## Batch 7d: P7 review fix round — COMPLETE (4a2f15579, 6a1ed5cbe; di-lint fix f57e381f9; re-review APPROVED 7/10 code-logic-rereview-p7.md)
 
 - Review: code-logic-review-p7.md, REVISE 4/10 (B1, B2, S1, S2, M1-M6, minors). Decisions: P7 fix
   1-8 in decisions.md. One fix round; then a narrow re-review on the 7d commits.
@@ -1470,6 +1484,19 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 - npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk,@ptah-extension/shared
   (team-leader's deciding run), then the four-host typecheck.
 
+## Batch 7e: P7 re-review cleanup — COMPLETE (e8586f4ba; report batch-7e-report.md; no new phase review)
+
+- Re-review: code-logic-rereview-p7.md APPROVED 7/10 (0 blocking, 0 serious, 5 moderate).
+  Decisions P7 fix 9-11.
+- Executor: one Codex CLI lane, sequential. Report batch-7e-report.md. Fallback order as 7a.
+- Files: R+chat/session/chat-session.service.ts, chat-slash-command-router.service.ts,
+  chat-session.native.spec.ts, chat-slash-command-router.native.spec.ts, R+handlers/config-runtime-controls.ts
+  (+spec); W/libs/backend/agent-sdk/src/lib/codex-app-server/routing-agent-adapter.ts (+spec); at most
+  one agent-sdk file for a typed session-unavailable signal if that is the smaller change.
+- Verify: rpc-handlers + agent-sdk, di-lint, host typecheck.
+
+---
+
 ---
 
 # Phase P8 — Host composition and approval presentation — PENDING (needs P6, P7 except 7c)
@@ -1491,6 +1518,24 @@ and CLI get compatible bindings only (no feature work).
 - Acceptance check from P5b review M2 (code-logic-review-p5b.md): Electron passes the real
   `app.isPackaged` verbatim (no coercion, no default) to `readCodexDevRouteOverride`; no other
   host (VS Code, CLI, TUI, gateway) passes a non-null `devRoute`. The 8a review must confirm both.
+- 8a acceptance list from P6/P7 (code-logic-review-p7.md, code-logic-rereview-p7.md, batch 7d
+  carried rules above). Each needs code or a recorded reason:
+  - `await initializeSessionRuntimeIdentityLookup(store, logger)` before the first resolution;
+    bind stable instances before the first adapter resolution.
+  - Register literally (`container.register(TOKEN, ...)` in a register*.ts) every token a class
+    injects (di-lint).
+  - Native session controls with `canSendFollowUp` and their own persistence: exactly one settings
+    write per change on the native route (FM-R5), the same single-owner rule as legacy.
+  - Build the validated CodexExecutionProfile; do NOT publish the model notice again (7b does).
+  - Live effort may diverge from the saved value after a failed save on the Claude fallback
+    (FM-R2, config-rpc.handlers.ts:746-750): bound controls must own effort rollback.
+  - Permission restore scope drift (FM-R6/M2); overlapping model switches restore the wrong
+    predecessor on the fallback (minor); `runtime-admission-mismatch` is not in
+    rpc-error-codes.types.ts (minor).
+  - Audit: direct SDK_AGENT_ADAPTER users in chat-session.service.ts; broadcaster cleanup
+    chat-stream-broadcaster.service.ts:351-359; the same session open in two tabs; pending-resume
+    thread-id cleanup; cancel during `prepare()`; the notice's `message_complete` versus queued
+    content.
 - Verification: `npm run verify -- -p ptah-electron`
 
 ## Batch 8b: Electron IPC approval ownership — PENDING (needs 8a)
