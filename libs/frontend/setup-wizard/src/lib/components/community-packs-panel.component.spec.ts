@@ -6,6 +6,7 @@ import type {
   WizardInstallPackAgentsResult,
   WizardPlanPackInstallResult,
 } from '@ptah-extension/shared';
+import { PackInstallStore } from '../services/pack-install.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { CommunityPacksPanelComponent } from './community-packs-panel.component';
@@ -201,7 +202,7 @@ describe('CommunityPacksPanelComponent', () => {
       'Your file was not changed. Origin stays Workspace file.',
     );
     expect(byTestId('pack-agent-failure')?.textContent).toContain(
-      '1 file(s) failed to install',
+      'Some files could not be installed. Retry the failed files.',
     );
     expect(byTestId('pack-result')?.textContent).toContain(
       '0 Installed · 1 Kept (your file) · 1 Failed',
@@ -252,4 +253,142 @@ describe('CommunityPacksPanelComponent', () => {
       );
     },
   );
+
+  describe('install outlives the panel (B2, B4)', () => {
+    function pendingInstall(): (result: WizardInstallPackAgentsResult) => void {
+      let resolve!: (result: WizardInstallPackAgentsResult) => void;
+      installPackAgents.mockReturnValueOnce(
+        new Promise<WizardInstallPackAgentsResult>((r) => {
+          resolve = r;
+        }),
+      );
+      return (result) => resolve(result);
+    }
+
+    async function recreate(): Promise<void> {
+      fixture.destroy();
+      fixture = TestBed.createComponent(CommunityPacksPanelComponent);
+      fixture.detectChanges();
+      await browseAndExpand();
+    }
+
+    it('restores a success that settled while the panel was destroyed', async () => {
+      setUp();
+      const finish = pendingInstall();
+      await browseAndExpand();
+      byText('Install')[0].click();
+      await settle();
+      byTestId('pack-confirm').click();
+      await settle();
+      expect(fixture.nativeElement.textContent).toContain('Installing');
+
+      fixture.destroy();
+      finish({
+        success: true,
+        agentsDownloaded: 1,
+        fromCache: false,
+        files: [{ file: 'a.md', outcome: 'written' }],
+      });
+      const store = TestBed.inject(PackInstallStore);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(store.fileState('sidebar', 'community', 'a.md')).toBe('installed');
+      expect(store.isInstalling('sidebar')).toBe(false);
+
+      fixture = TestBed.createComponent(CommunityPacksPanelComponent);
+      fixture.detectChanges();
+      await browseAndExpand();
+      expect(fixture.nativeElement.textContent).toContain('Installed');
+      expect(byTestId('pack-result')?.textContent).toContain('1 Installed');
+      // Nothing is stranded disabled: b.md and Install All stay usable.
+      expect(byText('Install')[0].disabled).toBe(false);
+      expect(byTestId('pack-install-all').disabled).toBe(false);
+    });
+
+    it('restores Kept and a safe failure after re-creation, and a new prompt starts on Keep', async () => {
+      setUp();
+      const finish = pendingInstall();
+      await browseAndExpand();
+      byTestId('pack-install-all').click();
+      await settle();
+      byTestId('pack-confirm').click();
+      await settle();
+
+      await recreate();
+      expect(byTestId('pack-install-all').disabled).toBe(true);
+      finish({
+        success: false,
+        agentsDownloaded: 0,
+        fromCache: false,
+        error: 'EACCES: permission denied, open /home/me/.secret/token',
+        files: [
+          { file: 'a.md', outcome: 'kept' },
+          { file: 'b.md', outcome: 'failed' },
+        ],
+      });
+      await settle();
+
+      expect(byTestId('pack-agent-kept')?.textContent?.trim()).toBe('Kept');
+      const failure = byTestId('pack-agent-failure')?.textContent ?? '';
+      expect(failure).toContain('permission denied');
+      expect(failure).not.toContain('.secret');
+      expect(byText('Retry')[0].disabled).toBe(false);
+      expect(byTestId('pack-install-all').disabled).toBe(false);
+
+      await recreate();
+      expect(byTestId('pack-agent-kept')?.textContent?.trim()).toBe('Kept');
+      planPackInstall.mockResolvedValueOnce({
+        planToken: 'plan-again',
+        target,
+        files: [
+          {
+            file: 'a.md',
+            state: 'differs',
+            revision: 'a-r2',
+            localText: 'mine',
+            incomingText: 'theirs',
+          },
+          { file: 'b.md', state: 'new', revision: 'b-r2' },
+        ],
+      });
+      byTestId('pack-install-all').click();
+      await settle();
+      const keep = fixture.nativeElement.querySelector(
+        '[data-testid="keep-segment"]',
+      ) as HTMLElement | null;
+      expect(keep?.getAttribute('aria-checked')).toBe('true');
+    });
+
+    it.each([
+      'token=sk-live-SECRET123 at https://internal.example/api?key=abc',
+      '<img src=x onerror="alert(1)"><b>boom</b>',
+    ])('never renders the raw install error %#', async (raw) => {
+      setUp();
+      installPackAgents.mockResolvedValueOnce({
+        success: false,
+        agentsDownloaded: 0,
+        fromCache: false,
+        error: raw,
+      });
+      await browseAndExpand();
+      byText('Install')[0].click();
+      await settle();
+      byTestId('pack-confirm').click();
+      await settle();
+
+      const html: string = fixture.nativeElement.innerHTML;
+      const text: string = fixture.nativeElement.textContent;
+      expect(text).toContain('The install could not be completed. Try again.');
+      for (const leak of [
+        'sk-live',
+        'internal.example',
+        'key=abc',
+        'onerror',
+        'boom',
+      ]) {
+        expect(text).not.toContain(leak);
+        expect(html).not.toContain(leak);
+      }
+      expect(fixture.nativeElement.querySelector('img')).toBeNull();
+    });
+  });
 });

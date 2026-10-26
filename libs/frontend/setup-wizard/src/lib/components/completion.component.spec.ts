@@ -316,7 +316,7 @@ describe('CompletionComponent', () => {
       expect(unchangedTile.textContent).toContain('Already current');
     });
 
-    it('shows a failed outcome with its error message', () => {
+    it('shows a failed outcome with safe copy instead of the raw error', () => {
       completionData.set(mixed);
       fixture.detectChanges();
 
@@ -328,7 +328,8 @@ describe('CompletionComponent', () => {
         '[data-testid="outcome-failure"]',
       );
       expect(callout.textContent).toContain('senior-tester.md');
-      expect(callout.textContent).toContain('SDK timeout');
+      expect(callout.textContent).toContain('The request timed out. Try again.');
+      expect(callout.textContent).not.toContain('SDK timeout');
     });
 
     it('shows five counters that equal the per-file rows', () => {

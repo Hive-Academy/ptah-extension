@@ -6,16 +6,13 @@ import type {
   PackFilePlan,
   WizardPlanPackInstallResult,
 } from '@ptah-extension/shared';
+import { PackInstallStore } from '../services/pack-install.store';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { PackInstallPromptComponent } from './pack-install-prompt.component';
 import {
-  PackInstallPromptComponent,
-  openedFolderNotice,
-  packFileStatuses,
-  packResultCounts,
-  type PackInstallFinished,
+  INSTALL_FAILED_FALLBACK,
   type PackInstallRequest,
-  type PackInstallStart,
-} from './pack-install-prompt.component';
+} from './pack-install/pack-install-result';
 
 const target: GenerationTargetInfo = {
   harnessRoot: 'D:/work/acme',
@@ -80,9 +77,10 @@ describe('PackInstallPromptComponent', () => {
   let fixture: ComponentFixture<PackInstallPromptComponent>;
   let planPackInstall: jest.Mock;
   let installPackAgents: jest.Mock;
-  let started: PackInstallStart[];
-  let finished: PackInstallFinished[];
+  let store: PackInstallStore;
   let dismissals: number;
+  const SOURCE = 'https://example.com/acme.json';
+  const finished = () => store.result('wizard', SOURCE);
 
   beforeEach(() => {
     planPackInstall = jest.fn();
@@ -101,15 +99,9 @@ describe('PackInstallPromptComponent', () => {
       ],
     });
     fixture = TestBed.createComponent(PackInstallPromptComponent);
-    started = [];
-    finished = [];
+    fixture.componentRef.setInput('scope', 'wizard');
+    store = TestBed.inject(PackInstallStore);
     dismissals = 0;
-    fixture.componentInstance.installStarted.subscribe((value) =>
-      started.push(value),
-    );
-    fixture.componentInstance.installFinished.subscribe((value) =>
-      finished.push(value),
-    );
     fixture.componentInstance.dismissed.subscribe(() => dismissals++);
     fixture.detectChanges();
   });
@@ -226,11 +218,13 @@ describe('PackInstallPromptComponent', () => {
       '1 kept, 1 to replace',
     );
     confirm().click();
+    // The store marks the files installing at once; the prompt closes.
+    expect(dismissals).toBe(1);
+    for (const file of files) {
+      expect(store.fileState('wizard', SOURCE, file)).toBe('installing');
+    }
     await settle();
 
-    expect(started).toEqual([
-      { source: 'https://example.com/acme.json', files },
-    ]);
     expect(installPackAgents).toHaveBeenCalledWith(
       'https://example.com/acme.json',
       files,
@@ -242,8 +236,8 @@ describe('PackInstallPromptComponent', () => {
         target: 'harness-root',
       },
     );
-    expect(dialog()).toBeNull();
-    expect(finished[0].target).toEqual(target);
+    expect(finished()?.target).toEqual(target);
+    expect(store.lastTarget('wizard')).toBe('harness-root');
   });
 
   it('applies Replace all and Keep all across many rows and skips every unreadable row (D13)', async () => {
@@ -402,14 +396,18 @@ describe('PackInstallPromptComponent', () => {
     confirm().click();
     await settle();
 
-    expect(finished[0].statuses).toEqual({
+    expect(finished()?.statuses).toEqual({
       'a.md': 'installed',
       'b.md': 'kept',
       'c.md': 'kept',
       'd.md': 'failed',
     });
-    expect(finished[0].error).toBe('1 file(s) failed to install');
-    expect(finished[0].primaryFailure).toBe(false);
+    expect(finished()?.outcomes['c.md']).toBe('changed-since-preview');
+    expect(finished()?.failure).toBe(
+      'Some files could not be installed. Retry the failed files.',
+    );
+    expect(finished()?.primaryFailure).toBe(false);
+    expect(store.fileState('wizard', SOURCE, 'b.md')).toBe('kept');
   });
 
   it('reports a primary failure when the install has no per-file outcome', async () => {
@@ -419,49 +417,12 @@ describe('PackInstallPromptComponent', () => {
     confirm().click();
     await settle();
 
-    expect(finished[0].primaryFailure).toBe(true);
-    expect(finished[0].statuses).toEqual({ 'a.md': 'failed' });
-    expect(finished[0].error).toBe('transport down');
-  });
-});
-
-describe('pack install helpers', () => {
-  it('maps an older host result without per-file outcomes by overall success', () => {
-    expect(
-      packFileStatuses(['a.md'], {
-        success: true,
-        agentsDownloaded: 1,
-        fromCache: true,
-      }),
-    ).toEqual({ 'a.md': 'installed' });
-    expect(
-      packFileStatuses(['a.md'], {
-        success: false,
-        agentsDownloaded: 0,
-        fromCache: false,
-      }),
-    ).toEqual({ 'a.md': 'failed' });
-  });
-
-  it('counts installed, kept and failed files', () => {
-    expect(
-      packResultCounts({
-        a: 'installed',
-        b: 'kept',
-        c: 'failed',
-        d: 'installed',
-      }),
-    ).toEqual({ installed: 2, kept: 1, failed: 1 });
-  });
-
-  it('words the opened-folder notice per host and omits it for the project root', () => {
-    const opened = { ...target, chosen: 'opened-folder' as const };
-    expect(openedFolderNotice(opened, true)).toBe(
-      'These agents are in packages/api/.claude/agents. They will not reach other CLIs and will not appear in the Library.',
+    expect(finished()?.primaryFailure).toBe(true);
+    expect(finished()?.statuses).toEqual({ 'a.md': 'failed' });
+    // The raw transport text is never surfaced (B5).
+    expect(finished()?.failure).toBe(INSTALL_FAILED_FALLBACK);
+    expect(store.failure('wizard', SOURCE, 'a.md')).toBe(
+      INSTALL_FAILED_FALLBACK,
     );
-    expect(openedFolderNotice(opened, false)).toBe(
-      'These agents are in packages/api/.claude/agents. They will not reach other CLIs.',
-    );
-    expect(openedFolderNotice(target, true)).toBeNull();
   });
 });

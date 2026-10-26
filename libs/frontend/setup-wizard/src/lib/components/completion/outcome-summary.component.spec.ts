@@ -131,6 +131,22 @@ describe('OutcomeSummaryComponent', () => {
     expect(callout?.textContent).toContain('not counted as kept or written');
   });
 
+  it.each([
+    'write failed: token=sk-live-SECRET at https://internal.example/x?key=abc',
+    '<img src=x onerror="alert(1)"><b>boom</b>',
+  ])('never renders a raw failure detail %#', (error) => {
+    const { root } = render({
+      rows: [{ id: 'tester', fileName: 'tester.md', status: 'failed', error }],
+    });
+    const callout = root.querySelector('[data-testid="outcome-failure"]');
+    expect(callout?.textContent).toContain('The write failed.');
+    for (const leak of ['sk-live', 'internal.example', 'onerror', 'boom']) {
+      expect(callout?.textContent).not.toContain(leak);
+      expect(callout?.innerHTML).not.toContain(leak);
+    }
+    expect(callout?.querySelector('img')).toBeNull();
+  });
+
   it('names only written agents as diverged and never a kept one', () => {
     const { root } = render({
       rows: FIXTURE,
@@ -195,7 +211,9 @@ describe('OutcomeSummaryComponent', () => {
       isElectron: false,
       outputDirectory: '/ws/packages/api/.claude/agents',
     });
-    expect(vscode.root.textContent).toContain('They will not reach other CLIs.');
+    expect(vscode.root.textContent).toContain(
+      'They will not reach other CLIs.',
+    );
     expect(vscode.root.textContent).not.toContain('Library');
   });
 });

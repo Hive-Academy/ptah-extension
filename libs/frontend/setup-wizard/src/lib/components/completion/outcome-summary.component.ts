@@ -5,10 +5,8 @@ import {
   input,
   output,
 } from '@angular/core';
-import type {
-  FileOutcome,
-  GenerationTargetInfo,
-} from '@ptah-extension/shared';
+import type { FileOutcome, GenerationTargetInfo } from '@ptah-extension/shared';
+import { safeFailureCopy } from '../../utils/safe-failure-copy';
 
 /** One processed agent file on a completion surface. */
 export interface OutcomeFileRow {
@@ -16,8 +14,11 @@ export interface OutcomeFileRow {
   /** File name shown under `.claude/agents/`, e.g. `tester.md`. */
   readonly fileName: string;
   readonly status: FileOutcome;
+  /** Raw failure detail; never rendered, only classified (B5). */
   readonly error?: string;
 }
+
+const WRITE_FAILED_FALLBACK = 'The write failed.';
 
 /** Counter order and labels (design-spec section 5, "outcomes"). */
 const OUTCOME_LABELS: ReadonlyArray<readonly [FileOutcome, string]> = [
@@ -56,7 +57,9 @@ export function libraryReachable(
   template: `
     <div
       [class]="
-        compact() ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-5'
+        compact()
+          ? 'grid grid-cols-2 gap-2'
+          : 'grid grid-cols-2 gap-2 sm:grid-cols-5'
       "
       role="list"
       aria-label="Outcome counts"
@@ -121,8 +124,8 @@ export function libraryReachable(
         data-testid="outcome-failure"
       >
         <strong>Failed.</strong> .claude/agents/{{ row.fileName }}:
-        {{ row.error ?? 'the write failed' }}. This file was not changed. It is
-        not counted as kept or written.
+        {{ failureText(row) }} This file was not changed. It is not counted as
+        kept or written.
       </div>
     }
 
@@ -134,7 +137,11 @@ export function libraryReachable(
       >
         <strong
           >{{ divergedNames().length }} Library
-          {{ divergedNames().length === 1 ? 'copy now differs' : 'copies now differ' }}
+          {{
+            divergedNames().length === 1
+              ? 'copy now differs'
+              : 'copies now differ'
+          }}
           from {{ divergedNames().length === 1 ? 'its' : 'their' }} new
           source:</strong
         >
@@ -211,6 +218,11 @@ export class OutcomeSummaryComponent {
       ? 'They will not reach other CLIs and will not appear in the Library.'
       : 'They will not reach other CLIs.';
   });
+
+  /** Safe copy for a failed row; the raw error is never shown. */
+  protected failureText(row: OutcomeFileRow): string {
+    return safeFailureCopy(row.error, WRITE_FAILED_FALLBACK);
+  }
 
   protected label(status: FileOutcome): string {
     return OUTCOME_LABEL.get(status) ?? status;

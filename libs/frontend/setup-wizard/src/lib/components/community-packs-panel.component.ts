@@ -6,34 +6,32 @@ import {
   signal,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import type {
-  AgentPackInfoDto,
-  GenerationTargetChoice,
-  GenerationTargetInfo,
-} from '@ptah-extension/shared';
+import type { AgentPackInfoDto } from '@ptah-extension/shared';
+import {
+  PackInstallStore,
+  type PackFileState,
+} from '../services/pack-install.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { PackInstallPromptComponent } from './pack-install-prompt.component';
 import {
   KEPT_PACK_NOTE,
-  PackInstallPromptComponent,
+  installToLabel,
   openedFolderNotice,
   packResultCounts,
   type PackFileStatus,
   type PackInstallFinished,
   type PackInstallRequest,
-  type PackInstallStart,
-} from './pack-install-prompt.component';
-import { targetFolder } from './preview-decisions/preview-decisions.state';
-
-/** Per-file state in the panel: in flight, or the last install outcome. */
-type PanelFileStatus = 'installing' | PackFileStatus;
+} from './pack-install/pack-install-result';
 
 /**
  * Community packs in the generation sidebar (TASK_2026_701_9e4b F4).
  *
  * Change, Install All, per-file Install and Retry all open the shared
  * {@link PackInstallPromptComponent}, scoped to the pack or to one file; the
- * prompt carries the target choice and the keep/replace decisions.
+ * prompt carries the target choice and the keep/replace decisions. Installs
+ * and their outcomes live in {@link PackInstallStore} (scope `sidebar`), so a
+ * re-created panel shows the same Installing, Kept and Failed state.
  */
 @Component({
   selector: 'ptah-community-packs-panel',
@@ -90,10 +88,10 @@ type PanelFileStatus = 'installing' | PackFileStatus;
             >
               <span class="text-base-content-muted">Install to:</span>
               <code class="font-mono [overflow-wrap:anywhere]">{{
-                installToPath()
+                installTo().path
               }}</code>
               <span class="text-base-content-muted">{{
-                installToSuffix()
+                installTo().suffix
               }}</span>
               <button
                 type="button"
@@ -114,11 +112,11 @@ type PanelFileStatus = 'installing' | PackFileStatus;
             >
               Install All
             </button>
-            @if (results()[pack.source]; as finished) {
+            @if (packStore.result('sidebar', pack.source); as finished) {
               <div role="status" class="mt-1 text-xs" data-testid="pack-result">
                 @if (finished.primaryFailure) {
                   <p class="text-error">
-                    Could not install the pack. {{ finished.error }}
+                    Could not install the pack. {{ finished.failure }}
                   </p>
                 } @else {
                   <p>
@@ -196,9 +194,8 @@ type PanelFileStatus = 'installing' | PackFileStatus;
     <ptah-pack-install-prompt
       [request]="request()"
       [isElectron]="isElectron"
+      scope="sidebar"
       (dismissed)="request.set(null)"
-      (installStarted)="started($event)"
-      (installFinished)="finished($event)"
     />
   `,
 })
@@ -215,37 +212,15 @@ export class CommunityPacksPanelComponent {
   protected readonly expanded = signal<string | null>(null);
   /** The install the prompt is open for, or null. */
   protected readonly request = signal<PackInstallRequest | null>(null);
-  private readonly statuses = signal<Readonly<Record<string, PanelFileStatus>>>(
-    {},
-  );
-  private readonly failures = signal<ReadonlyMap<string, string>>(new Map());
-  protected readonly results = signal<
-    Readonly<Record<string, PackInstallFinished>>
-  >({});
-  /** Root of the last confirmed install; the next prompt starts there. */
-  private readonly target = signal<GenerationTargetChoice | null>(null);
-  private readonly targetInfo = signal<GenerationTargetInfo | null>(null);
+  /** Pack installs and their outcomes; outlives this panel (B2). */
+  protected readonly packStore = inject(PackInstallStore);
 
   /** A prompt is open or an install is running. */
   protected readonly busy = computed(
-    () =>
-      this.request() !== null ||
-      Object.values(this.statuses()).includes('installing'),
+    () => this.request() !== null || this.packStore.isInstalling('sidebar'),
   );
-  protected readonly installToPath = computed(() => {
-    const info = this.targetInfo();
-    const choice = this.target();
-    if (!info || !choice) return '.claude/agents';
-    return targetFolder(
-      info,
-      info.openedIsHarnessRoot ? 'harness-root' : choice,
-    );
-  });
-  protected readonly installToSuffix = computed(() =>
-    this.target() === 'opened-folder' &&
-    this.targetInfo()?.openedIsHarnessRoot !== true
-      ? '(opened folder only)'
-      : '(project root)',
+  protected readonly installTo = computed(() =>
+    installToLabel(this.packStore.targetInfo('sidebar')),
   );
 
   protected async browse(): Promise<void> {
@@ -261,12 +236,12 @@ export class CommunityPacksPanelComponent {
     }
   }
 
-  protected fileStatus(source: string, file: string): PanelFileStatus | null {
-    return this.statuses()[key(source, file)] ?? null;
+  protected fileStatus(source: string, file: string): PackFileState | null {
+    return this.packStore.fileState('sidebar', source, file);
   }
 
   protected failureReason(source: string, file: string): string {
-    return this.failures().get(key(source, file)) ?? '';
+    return this.packStore.failure('sidebar', source, file);
   }
 
   /** Files Install All and Change cover: every file not installed yet. */
@@ -284,7 +259,7 @@ export class CommunityPacksPanelComponent {
       packName: pack.name,
       files: [file],
       scope: 'file',
-      target: this.target(),
+      target: this.packStore.lastTarget('sidebar'),
     });
   }
 
@@ -297,40 +272,8 @@ export class CommunityPacksPanelComponent {
       packName: pack.name,
       files,
       scope: 'pack',
-      target: this.target(),
+      target: this.packStore.lastTarget('sidebar'),
     });
-  }
-
-  protected started(start: PackInstallStart): void {
-    this.request.set(null);
-    this.statuses.update((current) => {
-      const next = { ...current };
-      for (const file of start.files)
-        next[key(start.source, file)] = 'installing';
-      return next;
-    });
-  }
-
-  protected finished(result: PackInstallFinished): void {
-    this.target.set(result.target.chosen);
-    this.targetInfo.set(result.target);
-    this.results.update((current) => ({
-      ...current,
-      [result.source]: result,
-    }));
-    const failures = new Map(this.failures());
-    this.statuses.update((current) => {
-      const next = { ...current };
-      for (const file of result.files) {
-        const fileKey = key(result.source, file);
-        const status = result.statuses[file] ?? 'failed';
-        next[fileKey] = status;
-        if (status === 'failed') failures.set(fileKey, result.error ?? '');
-        else failures.delete(fileKey);
-      }
-      return next;
-    });
-    this.failures.set(failures);
   }
 
   protected counts(
@@ -342,8 +285,4 @@ export class CommunityPacksPanelComponent {
   protected notice(finished: PackInstallFinished): string | null {
     return openedFolderNotice(finished.target, this.isElectron);
   }
-}
-
-function key(source: string, file: string): string {
-  return `${source}::${file}`;
 }

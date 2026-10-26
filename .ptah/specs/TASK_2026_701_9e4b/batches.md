@@ -923,7 +923,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   `decisions` on `startBoundAgents`. Batch 15 owns this file next and must build on it.
 - Report: reports/batch-16-report.md
 
-## Batch 17: Completion surfaces (F5) — COMPLETE
+## Batch 17: Completion surfaces (F5) — COMPLETE (commit: ac227e30f)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential

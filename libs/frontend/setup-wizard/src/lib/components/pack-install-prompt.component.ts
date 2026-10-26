@@ -12,16 +12,18 @@ import {
 import type {
   FileDecision,
   GenerationTargetChoice,
-  GenerationTargetInfo,
-  WizardInstallPackAgentsResult,
   WizardPlanPackInstallResult,
 } from '@ptah-extension/shared';
 import { NativeModalComponent } from '@ptah-extension/ui';
+import {
+  PackInstallStore,
+  type PackHostScope,
+} from '../services/pack-install.store';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import type { PackInstallRequest } from './pack-install/pack-install-result';
 import { BulkDecisionBarComponent } from './preview-decisions/bulk-decision-bar.component';
 import { FileDecisionRowComponent } from './preview-decisions/file-decision-row.component';
 import {
-  agentsFolder,
   confirmLabel,
   decisionCounts,
   decisionEntries,
@@ -34,112 +36,6 @@ import {
   type DecisionSnapshot,
 } from './preview-decisions/preview-decisions.state';
 import { TargetRootChoiceComponent } from './preview-decisions/target-root-choice.component';
-
-/** One pack install the user asked for, from any entry point. */
-export interface PackInstallRequest {
-  readonly source: string;
-  readonly packName: string;
-  /** Pack file names in scope: the whole pack or one file. */
-  readonly files: readonly string[];
-  readonly scope: 'pack' | 'file';
-  /** Root to compare against first; null = the server default. */
-  readonly target: GenerationTargetChoice | null;
-}
-
-/** Terminal per-file status a host shows after an install. */
-export type PackFileStatus = 'installed' | 'kept' | 'failed';
-
-/** Emitted when the user confirms and the install starts. */
-export interface PackInstallStart {
-  readonly source: string;
-  readonly files: readonly string[];
-}
-
-/** Emitted when the install RPC settles. */
-export interface PackInstallFinished {
-  readonly source: string;
-  readonly packName: string;
-  readonly files: readonly string[];
-  /** Roots of the plan; `chosen` is the root the install wrote to. */
-  readonly target: GenerationTargetInfo;
-  readonly statuses: Readonly<Record<string, PackFileStatus>>;
-  /** Failure reason for failed files, or null. */
-  readonly error: string | null;
-  /** The install failed before any per-file outcome (download, validation). */
-  readonly primaryFailure: boolean;
-}
-
-export const KEPT_PACK_NOTE =
-  'Your file was not changed. Origin stays Workspace file.';
-export const INSTALL_FAILED_FALLBACK = 'The install could not be completed.';
-
-/**
- * Per-file status from an install result. `written`/`unchanged` are
- * installed; `kept` and `changed-since-preview` keep the user's file; a host
- * without per-file outcomes reports every file by the overall success.
- */
-export function packFileStatuses(
-  files: readonly string[],
-  result: WizardInstallPackAgentsResult,
-): Record<string, PackFileStatus> {
-  const statuses: Record<string, PackFileStatus> = {};
-  const outcomes = new Map(
-    (result.files ?? []).map((entry) => [entry.file, entry.outcome] as const),
-  );
-  for (const file of files) {
-    const outcome = outcomes.get(file);
-    if (outcome === undefined) {
-      statuses[file] = result.success && !result.files ? 'installed' : 'failed';
-    } else if (outcome === 'written' || outcome === 'unchanged') {
-      statuses[file] = 'installed';
-    } else if (outcome === 'kept' || outcome === 'changed-since-preview') {
-      statuses[file] = 'kept';
-    } else {
-      statuses[file] = 'failed';
-    }
-  }
-  return statuses;
-}
-
-/** Installed / kept / failed counters for a results line. */
-export function packResultCounts(
-  statuses: Readonly<Record<string, PackFileStatus>>,
-): Record<PackFileStatus, number> {
-  const counts: Record<PackFileStatus, number> = {
-    installed: 0,
-    kept: 0,
-    failed: 0,
-  };
-  for (const status of Object.values(statuses)) counts[status]++;
-  return counts;
-}
-
-/** `<opened>/.claude/agents` relative to the project root when inside it. */
-function openedAgentsRelative(info: GenerationTargetInfo): string {
-  const root = info.harnessRoot.replace(/[\\/]+$/, '');
-  const opened = info.openedFolder.replace(/[\\/]+$/, '');
-  const folder = agentsFolder(opened);
-  const inside =
-    opened.length > root.length &&
-    opened.toLowerCase().startsWith(root.toLowerCase()) &&
-    /[\\/]/.test(opened.charAt(root.length));
-  return inside ? folder.slice(root.length + 1).replace(/\\/g, '/') : folder;
-}
-
-/**
- * Opened-folder completion notice per host (design section 5), or null when
- * the install went to the project root.
- */
-export function openedFolderNotice(
-  info: GenerationTargetInfo,
-  isElectron: boolean,
-): string | null {
-  if (info.chosen !== 'opened-folder' || info.openedIsHarnessRoot) return null;
-  const where = `These agents are in ${openedAgentsRelative(info)}.`;
-  return isElectron
-    ? `${where} They will not reach other CLIs and will not appear in the Library.`
-    : `${where} They will not reach other CLIs.`;
-}
 
 function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many;
@@ -155,9 +51,11 @@ let nextPromptId = 0;
  * `request` plans the install (`wizard:plan-pack-install`, read-only) and
  * opens the prompt with the target choice, which shows even when no file
  * differs. A target change re-plans and resets every choice to Keep. Confirm
- * closes the prompt, emits `installStarted`, installs with the plan token,
- * the Replace decisions and the target, and emits `installFinished`. Nothing
- * is written before Confirm; an unreadable file is forced Keep.
+ * hands the install (plan token, Replace decisions, target) to
+ * {@link PackInstallStore}, which owns the operation and its outcomes, and
+ * emits `dismissed` so the host closes the prompt; closing never cancels the
+ * install. Nothing is written before Confirm; an unreadable file is forced
+ * Keep.
  */
 @Component({
   selector: 'ptah-pack-install-prompt',
@@ -170,8 +68,7 @@ let nextPromptId = 0;
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Rendered only while open: hosts keep the prompt mounted so an
-         install that outlives the closed prompt still reports its result. -->
+    <!-- Rendered only while open; a running install lives in PackInstallStore. -->
     @if (open()) {
       <ptah-native-modal
         [isOpen]="open()"
@@ -298,16 +195,17 @@ let nextPromptId = 0;
 })
 export class PackInstallPromptComponent {
   private readonly rpc = inject(WizardRpcService);
+  private readonly store = inject(PackInstallStore);
 
   /** The install to prompt for; null closes the prompt. */
   readonly request = input<PackInstallRequest | null>(null);
   /** Electron shows Library copy; VS Code has no Library (D3). */
   readonly isElectron = input(true);
+  /** Host surface whose install history the confirmed install joins. */
+  readonly scope = input.required<PackHostScope>();
 
-  /** Cancel, Escape or backdrop: the host clears `request`. */
+  /** Cancel, Escape, backdrop or Confirm: the host clears `request`. */
   readonly dismissed = output<void>();
-  readonly installStarted = output<PackInstallStart>();
-  readonly installFinished = output<PackInstallFinished>();
 
   protected readonly titleId = `ptah-pack-prompt-title-${++nextPromptId}`;
   protected readonly hasControl = hasControl;
@@ -438,7 +336,7 @@ export class PackInstallPromptComponent {
     await this.load(request, this.snapshot()?.target ?? request.target);
   }
 
-  protected async confirmInstall(): Promise<void> {
+  protected confirmInstall(): void {
     const request = this.request();
     const plan = this.plan();
     const snapshot = this.snapshot();
@@ -452,35 +350,13 @@ export class PackInstallPromptComponent {
     )
       return;
     this.submitted.set(true);
-    const files = [...request.files];
-    const target = plan.target;
-    this.installStarted.emit({ source: request.source, files });
-    let result: WizardInstallPackAgentsResult;
-    try {
-      result = await this.rpc.installPackAgents(request.source, files, {
-        planToken: plan.planToken,
-        decisions: decisionEntries(snapshot.rows),
-        target: target.chosen,
-      });
-    } catch (error: unknown) {
-      // degradation-audit: reported - a transport failure becomes a failed
-      // result that every host shows per file with Retry.
-      result = {
-        success: false,
-        agentsDownloaded: 0,
-        fromCache: false,
-        error: error instanceof Error ? error.message : INSTALL_FAILED_FALLBACK,
-      };
-    }
-    this.installFinished.emit({
-      source: request.source,
-      packName: request.packName,
-      files,
-      target,
-      statuses: packFileStatuses(files, result),
-      error: result.success ? null : (result.error ?? INSTALL_FAILED_FALLBACK),
-      primaryFailure: !result.success && !result.files?.length,
+    // The store owns the operation; it outlives this prompt and its host.
+    void this.store.install(this.scope(), {
+      request,
+      plan,
+      decisions: decisionEntries(snapshot.rows),
     });
+    this.dismissed.emit();
   }
 
   private reset(request: PackInstallRequest | null): void {
