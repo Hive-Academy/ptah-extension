@@ -1,28 +1,11 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, input, output, NO_ERRORS_SCHEMA } from '@angular/core';
+import { Component, input, output, NO_ERRORS_SCHEMA } from '@angular/core';
 import { type ComponentFixture, DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import {
-  ChatStore, INSPECTOR_TAB_WIDTH, SendToMessagingComponent, TabManagerService,
-} from '@ptah-extension/chat';
-import { LoggingService } from '@ptah-extension/core';
+import { INSPECTOR_TAB_WIDTH, TabManagerService } from '@ptah-extension/chat';
 import { SplitHandleComponent } from '@ptah-extension/chat-ui';
-import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasInspectorDockComponent } from './canvas-inspector-dock.component';
-import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
-
-@Component({
-  selector: 'ptah-send-to-messaging',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '<button type="button">Send to messaging</button>',
-  host: { '[attr.data-trigger]': 'trigger()' },
-})
-class MessagingStub {
-  readonly tabId = input.required<string>();
-  readonly trigger = input<'text' | 'icon'>('text');
-}
 
 @Component({
   selector: 'ptah-session-inspector',
@@ -35,7 +18,6 @@ class MessagingStub {
       >
         Expand
       </button>
-      <ng-content select="[inspectorRailControls]" />
     } @else {
       <div [attr.role]="presentation() === 'sheet' ? 'dialog' : null">
         <button
@@ -45,7 +27,6 @@ class MessagingStub {
         >
           Close
         </button>
-        <ng-content select="[inspectorControls]" />
         <ng-content select="[inspectorSection]" />
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
@@ -78,29 +59,14 @@ const DOCK_WIDTH_KEY = 'ptah.inspector-dock-width.v1';
 describe('CanvasInspectorDockComponent', () => {
   beforeEach(() => localStorage.removeItem(DOCK_WIDTH_KEY));
 
-  const abort = jest.fn();
-  const toggleTabViewMode = jest.fn();
-  const logError = jest.fn();
-  beforeEach(() => {
-    abort.mockReset().mockResolvedValue(undefined);
-    toggleTabViewMode.mockReset();
-    logError.mockReset();
-  });
-
-  function mount(options: { running?: boolean; withControls?: boolean } = {}) {
+  function mount() {
     TestBed.configureTestingModule({
       imports: [CanvasInspectorDockComponent],
       deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
-        { provide: ChatStore, useValue: { abortWithConfirmation: abort } },
-        { provide: LoggingService, useValue: { error: logError } },
-        { provide: CanvasStore, useValue: {
-          isSessionRunning: () => options.running ?? false, focusTile: jest.fn(),
-        } },
         { provide: TabManagerService, useValue: {
           onTabClosed: () => () => undefined,
           activeTabId: () => 'a',
-          toggleTabViewMode,
           findTabByIdAcrossWorkspaces: () => ({ tab: { title: 'Alpha', viewMode: 'full' } }),
         } },
         { provide: CanvasDetailService, useValue: {
@@ -112,14 +78,9 @@ describe('CanvasInspectorDockComponent', () => {
       set: {
         imports: [
           InspectorStub, NgTemplateOutlet, SplitHandleComponent,
-          ...(options.withControls ? [CanvasFocusHeaderComponent] : []),
         ],
         schemas: [NO_ERRORS_SCHEMA],
       },
-    });
-    TestBed.overrideComponent(CanvasFocusHeaderComponent, {
-      remove: { imports: [SendToMessagingComponent] },
-      add: { imports: [MessagingStub] },
     });
     const fixture = TestBed.createComponent(CanvasInspectorDockComponent);
     fixture.componentRef.setInput('root', fixture.nativeElement);
@@ -318,51 +279,21 @@ describe('CanvasInspectorDockComponent', () => {
     expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBeNull();
   });
 
-  it('wires the projected rail controls: Stop aborts, the view toggle switches, Close emits the id', async () => {
-    const { fixture } = mount({ running: true, withControls: true });
-    fixture.componentInstance.closeDock();
-    fixture.detectChanges();
-    await completeDeferBlocks(fixture);
-    const rail: HTMLElement = fixture.nativeElement.querySelector('[data-inspector-rail]');
-    const closed: string[] = [];
-    fixture.componentInstance.closeRequested.subscribe((id) => closed.push(id));
-    rail.querySelector<HTMLButtonElement>('[data-stop]')!.click();
-    await fixture.whenStable();
-    expect(abort).toHaveBeenCalledTimes(1);
-    rail.querySelector<HTMLButtonElement>('[data-compact]')!.click();
-    expect(toggleTabViewMode).toHaveBeenCalledWith('a');
-    rail.querySelector<HTMLButtonElement>('[aria-label="Close session"]')!.click();
-    expect(closed).toEqual(['a']);
-  });
-
-  it('logs a failed stop instead of leaving the rejection unhandled', async () => {
+  it('carries no session controls in the rail, the dock or the compact sheet', async () => {
     const { fixture } = mount();
-    const failure = new Error('abort failed');
-    abort.mockRejectedValueOnce(failure);
-    await expect(fixture.componentInstance.stopSession('a')).resolves.toBeUndefined();
-    expect(logError).toHaveBeenCalledWith('CanvasInspectorDock', 'Could not stop session', failure);
-  });
-
-  it('shows Hand off once in the expanded sidebar and keeps it in the rail menu, which escapes the scrolling rail', async () => {
-    const { fixture } = mount({ withControls: true });
     const host: HTMLElement = fixture.nativeElement;
+    const sessionControls = () =>
+      host.querySelectorAll(
+        '[role="group"], [data-stop], [data-compact], [data-header-menu], ptah-send-to-messaging, ptah-canvas-focus-header',
+      );
     await completeDeferBlocks(fixture);
-    // Expanded: Hand off is one icon button among the title-row controls; no menu there.
-    expect(host.querySelectorAll('ptah-send-to-messaging')).toHaveLength(1);
-    expect(
-      host.querySelector('[data-inspector-dock] [role="group"] ptah-send-to-messaging')?.getAttribute('data-trigger'),
-    ).toBe('icon');
-    expect(host.querySelector('[data-inspector-dock] [data-header-menu]')).toBeNull();
+    expect(host.querySelector('[data-inspector-dock] [data-inspector-close]')).not.toBeNull();
+    expect(sessionControls()).toHaveLength(0);
     fixture.componentInstance.closeDock();
     fixture.detectChanges();
     await completeDeferBlocks(fixture);
-    host.querySelector<HTMLButtonElement>('[data-inspector-rail] [data-header-menu]')!.click();
-    fixture.detectChanges();
-    const menu = host.querySelector<HTMLElement>('[data-inspector-rail] [role="menu"]')!;
-    expect(menu.querySelector('ptah-send-to-messaging')).not.toBeNull();
-    // Fixed, not absolute: the rail's overflow cannot clip it.
-    expect(menu.classList.contains('fixed')).toBe(true);
-    expect(menu.classList.contains('absolute')).toBe(false);
+    expect(host.querySelector('[data-inspector-rail] [data-inspector-expand]')).not.toBeNull();
+    expect(sessionControls()).toHaveLength(0);
   });
 
   it('caps the grip so a drag keeps 560 px of chat and never flips to the overlay mid-drag', () => {

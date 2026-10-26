@@ -15,7 +15,9 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
+  ChatStore,
   CompactSessionCardComponent,
+  SendToMessagingComponent,
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
   TabManagerService,
@@ -31,7 +33,7 @@ import {
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import type { AttentionItem } from '@ptah-extension/core';
+import { LoggingService, type AttentionItem } from '@ptah-extension/core';
 import { CircleAlert, LucideAngularModule } from 'lucide-angular';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
@@ -55,6 +57,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     CompactSessionCardComponent,
     NgTemplateOutlet,
     NativePopoverComponent,
+    SendToMessagingComponent,
     WorkflowBadgeComponent,
     LucideAngularModule,
   ],
@@ -340,6 +343,41 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             >
               Move down
             </button>
+            <div role="separator" class="my-1 border-t border-base-content/10"></div>
+            <button
+              type="button"
+              role="menuitem"
+              data-action="toggle-view"
+              class="btn btn-ghost btn-sm justify-start font-normal"
+              (click)="toggleView()"
+            >
+              {{ tab()?.viewMode === 'compact' ? 'Switch to full view' : 'Switch to compact view' }}
+            </button>
+            <!-- Projected content exists while closed: build Hand off only in an open menu. -->
+            @if (menuOpen()) {
+              <ptah-send-to-messaging [tabId]="tabId()" />
+            }
+            @if (running()) {
+              <button
+                type="button"
+                role="menuitem"
+                data-action="stop"
+                class="btn btn-ghost btn-sm justify-start font-normal"
+                (click)="stop()"
+              >
+                Stop session
+              </button>
+            }
+            <div role="separator" class="my-1 border-t border-base-content/10"></div>
+            <button
+              type="button"
+              role="menuitem"
+              data-action="close-session"
+              class="btn btn-ghost btn-sm justify-start font-normal"
+              (click)="closeSession()"
+            >
+              Close session
+            </button>
           </div>
         </ptah-native-popover>
           </div>
@@ -367,6 +405,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   private readonly detail = inject(CanvasDetailService);
   readonly organizer = inject(SessionOrganizerService);
   private readonly rowActions = inject(SessionRowActionsService);
+  private readonly chatStore = inject(ChatStore);
+  private readonly logger = inject(LoggingService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -401,6 +441,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly openBesideRequested = output<string>();
   readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
+  /** Close session for this card's tab; the board owns the close path. */
+  readonly closeRequested = output<string>();
   readonly announcement = signal('');
   private announcementTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
@@ -431,6 +473,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab ?? null,
   );
   readonly sessionId = computed(() => this.tab()?.claudeSessionId ?? null);
+  /** This card's session is running: the menu offers Stop session. */
+  readonly running = computed(() => this.canvasStore.isSessionRunning(this.tabId()));
   /**
    * The expanded actions cell is absolute with a z-index, so it is a stacking
    * context that traps its popovers' z-50 (and their backdrop). While the
@@ -506,6 +550,24 @@ export class CanvasRailCardComponent implements SessionCardActions {
     if (this.splitDisabledReason()) return;
     this.closeMenu();
     this.openBesideRequested.emit(this.tabId());
+  }
+  toggleView(): void {
+    this.closeMenu();
+    this.tabs.toggleTabViewMode(this.tabId());
+  }
+  /** Stop acts on the active chat tab, so this card's tile is focused first. */
+  async stop(): Promise<void> {
+    this.closeMenu();
+    if (this.tabs.activeTabId() !== this.tabId()) this.canvasStore.focusTile(this.tabId());
+    try {
+      await this.chatStore.abortWithConfirmation();
+    } catch (error) {
+      this.logger.error('CanvasRailCard', 'Could not stop session', error);
+    }
+  }
+  closeSession(): void {
+    this.closeMenu();
+    this.closeRequested.emit(this.tabId());
   }
   moveUp(): void {
     if (!this.canMoveUp()) return;
@@ -635,6 +697,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
     items[(index + items.length) % items.length]?.focus();
   }
   onMenuKeydown(event: KeyboardEvent): void {
+    // The Hand off picker nests inside the menu: its listbox keeps its own arrow keys.
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
     const items = this.menuItems();
     const current = items.findIndex(
       (item) => item === item.ownerDocument.activeElement,

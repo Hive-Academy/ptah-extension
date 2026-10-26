@@ -43,7 +43,7 @@ import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-st
 import { CanvasInspectorDockComponent, injectCanvasInspectorDockState, isCanvasInspectorTabbable } from './canvas-inspector-dock.component';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
-import { restoreBoardFocus } from './canvas-board-focus';
+import { focusNeighbourCard, restoreBoardFocus } from './canvas-board-focus';
 import { LucideAngularModule, Sparkles, TriangleAlert, X } from 'lucide-angular';
 import { AuroraEffectComponent } from '@ptah-extension/ui';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
@@ -150,6 +150,7 @@ export interface CanvasBoardNotice {
           "
           (lanesRequested)="onLanesRequested($event)" (openBesideRequested)="openBeside($event)"
           (moveUpRequested)="move($event, -1)" (moveDownRequested)="move($event, 1)"
+          (closeRequested)="close($event)"
         />
         @if (orderedTiles().length === 0) {
           <main
@@ -310,7 +311,7 @@ export interface CanvasBoardNotice {
                       class="block h-full min-h-0 min-w-0"
                       [focusedTabId]="id" [paneId]="side"
                       [paneFocused]="activeSide() === side" [splitDisplayed]="splitDisplayed()"
-                      (closeRequested)="close($event)" (closeSplitRequested)="closeSplit()"
+                      (closeSplitRequested)="closeSplit()"
                       (closePaneRequested)="closePane($event)" (swapPanesRequested)="swapPanes()"
                     />
                   </section>
@@ -350,7 +351,7 @@ export interface CanvasBoardNotice {
           [availableWidth]="dockAvailableWidth()" [panelId]="inspectorPanelId(focusedId() ?? '')"
           [stats]="stats.inputs()" [state]="railStates().get(focusedId() ?? '') ?? 'idle'"
           [(dockOpen)]="dockOpen" [(detailsOpen)]="detailsOpen"
-          (layoutChanged)="anchor()" (closeRequested)="close($event)"
+          (layoutChanged)="anchor()"
         />
       </div>
       <div class="sr-only" aria-live="polite">{{ announcement() }}</div>
@@ -1070,6 +1071,7 @@ export class CanvasRailBoardComponent {
       this.store.focusTile(neighbour);
     }
     this.anchor();
+    focusNeighbourCard(this.host.nativeElement, neighbour, this.injector);
   }
   jumpTo(state: CompactRailState): void {
     const tiles = this.orderedTiles();
@@ -1108,7 +1110,7 @@ export class CanvasRailBoardComponent {
   }
   /** Focus lost with a pane's controls goes to the surviving session's control. */
   private restoreHeaderFocus(): void {
-    restoreBoardFocus(this.host.nativeElement, this.activeSide, this.injector);
+    restoreBoardFocus(this.host.nativeElement, this.activeSide, () => this.activeId(), this.injector);
   }
   /**
    * B3: stacked panes with a swapped `visualOrder` would Tab bottom-first in

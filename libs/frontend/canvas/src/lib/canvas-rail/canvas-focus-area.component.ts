@@ -1,18 +1,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
-  Injector,
-  afterNextRender,
   computed,
   effect,
   inject,
   input,
   output,
 } from '@angular/core';
-import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import { LoggingService } from '@ptah-extension/core';
-import { CanvasStore } from '../canvas.store';
+import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasLaneViewComponent } from '../canvas-detail/canvas-lane-view.component';
@@ -45,14 +40,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
         @if (splitDisplayed()) {
         <ptah-canvas-focus-header
           class="absolute right-2 top-2 z-20 rounded bg-base-100 opacity-0 hover:opacity-100 group-hover/pane:opacity-100 focus-within:opacity-100"
-          [floating]="true"
-          [tabId]="id"
-          [running]="canvasStore.isSessionRunning(id)"
-          [viewMode]="tab()?.viewMode ?? 'full'"
-          [splitDisplayed]="splitDisplayed()"
-          (stop)="stop(id)"
-          (toggleViewMode)="toggleViewMode(id)"
-          (closeRequested)="closeRequested.emit(id)"
           (closeSplitRequested)="closeSplitRequested.emit(paneId())"
           (closePaneRequested)="closePaneRequested.emit(paneId())"
           (swapPanesRequested)="swapPanesRequested.emit(paneId())"
@@ -84,18 +71,12 @@ export class CanvasFocusAreaComponent {
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
   readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
-  readonly closeRequested = output<string>();
-  /** Header split actions, forwarded with this pane's stable id. */
+  /** Pane actions, forwarded with this pane's stable id. */
   readonly closeSplitRequested = output<'left' | 'right'>();
   readonly closePaneRequested = output<'left' | 'right'>();
   readonly swapPanesRequested = output<'left' | 'right'>();
-  readonly canvasStore = inject(CanvasStore);
   readonly tabs = inject(TabManagerService);
   readonly detail = inject(CanvasDetailService);
-  private readonly chatStore = inject(ChatStore);
-  private readonly logger = inject(LoggingService);
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly injector = inject(Injector);
   private readonly metrics = inject(CanvasRenderMetricsService);
   readonly tab = computed(
     () =>
@@ -114,27 +95,5 @@ export class CanvasFocusAreaComponent {
       }
       this.previousId = id;
     });
-  }
-
-  toggleViewMode(id: string): void {
-    this.tabs.toggleTabViewMode(id);
-    afterNextRender(
-      () => {
-        const document = this.host.nativeElement.ownerDocument;
-        document
-          .getElementById(`${this.panelId()}-tab-${this.detail.laneKeyFor(id)}`)
-          ?.focus();
-      },
-      { injector: this.injector },
-    );
-  }
-
-  async stop(id: string): Promise<void> {
-    if (this.tabs.activeTabId() !== id) this.canvasStore.focusTile(id);
-    try {
-      await this.chatStore.abortWithConfirmation();
-    } catch (error) {
-      this.logger.error('CanvasFocusArea', 'Could not stop session', error);
-    }
   }
 }

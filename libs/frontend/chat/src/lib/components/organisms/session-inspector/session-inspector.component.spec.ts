@@ -57,9 +57,7 @@ const emptyModel: SessionInspectorModel = {
     presentation="embedded"
     [sessionTitle]="title"
     sessionStatus="running"
-  >
-    <button type="button" inspectorControls>Stop session</button>
-  </ptah-session-inspector>`,
+  />`,
 })
 class ControlsHost {
   title = '';
@@ -248,7 +246,7 @@ describe('SessionInspectorComponent presentation', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('puts the controls at the right of the title row, with no separate bar, and the status under the title', () => {
+  it('keeps only the collapse control at the right of the title row, with no separate bar, and the status under the title', () => {
     const fixture = TestBed.createComponent(ControlsHost);
     fixture.componentInstance.title = 'A very long session title';
     fixture.detectChanges();
@@ -264,12 +262,12 @@ describe('SessionInspectorComponent presentation', () => {
     const labels = Array.from(controls.querySelectorAll('button')).map(
       (b) => b.getAttribute('aria-label') ?? b.textContent?.trim(),
     );
-    // Projected session controls first, then the collapse-to-rail button last.
-    expect(labels).toEqual(['Stop session', 'Compact session details']);
+    // Session actions live in the session card menu: the title row has only the collapse.
+    expect(labels).toEqual(['Compact session details']);
     expect(controls.lastElementChild?.hasAttribute('data-inspector-close')).toBe(true);
   });
 
-  it('keeps projected controls without an identity and names the collapse by presentation', () => {
+  it('names the collapse by presentation and never shows a close-session X in the sheet', () => {
     const fixture = create();
     fixture.componentRef.setInput('presentation', 'sheet');
     fixture.detectChanges();
@@ -278,9 +276,11 @@ describe('SessionInspectorComponent presentation', () => {
     expect(
       element.querySelector('[data-inspector-close]')?.getAttribute('aria-label'),
     ).toBe('Close session details');
+    // The sheet's collapse uses the same panel icon as the dock, not an X that reads as Close session.
+    expect(element.querySelector('[data-inspector-close] lucide-angular')).not.toBeNull();
+    expect('XIcon' in fixture.componentInstance).toBe(false);
     const host = TestBed.createComponent(ControlsHost);
     host.detectChanges();
     expect(host.nativeElement.querySelector('h2')).toBeNull();
-    expect(host.nativeElement.querySelector('[inspectorControls]')?.textContent).toContain('Stop session');
   });
 });

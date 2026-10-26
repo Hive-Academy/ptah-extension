@@ -94,22 +94,35 @@ async function closeStale(page: Page, director: Director): Promise<void> {
       .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^lane-review$/ }) })
       .first();
     if (!(await staleCard.count())) return;
-    await staleCard.click({ position: { x: 10, y: 40 } });
-    // Wait for the stale session to take the pane, then close it from the
-    // sidebar's controls for the focused pane.
-    await reviewTile(page).waitFor({ state: 'visible' });
+    // Close session lives in the stale card's own Session actions menu.
+    await director.click(staleCard.getByRole('button', { name: 'Session actions' }));
     await director.click(
-      page.locator('ptah-canvas-rail-board:visible')
-        .locator('[data-inspector-rail], [data-inspector-dock]')
-        .getByRole('group', { name: 'Session controls' })
-        .getByRole('button', { name: 'Close session' })
-        .first(),
+      page.getByRole('menu', { name: 'Session actions' })
+        .getByRole('menuitem', { name: 'Close session' }),
     );
     await director.hold(400);
   }
   if (await page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')
     .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^lane-review$/ }) }).count())
     throw new Error('Stale lane-review tiles remain');
+}
+
+/**
+ * Switch the focused session's view from its card's Session actions menu.
+ * Does nothing (menu closed again) when the session already shows that view.
+ */
+async function switchView(
+  page: Page,
+  director: Director,
+  view: 'compact' | 'full',
+): Promise<void> {
+  const trigger = page.locator('li[ptah-canvas-rail-card]:has(ptah-compact-rail-card.rc-focused)')
+    .getByRole('button', { name: 'Session actions' }).first();
+  await director.click(trigger);
+  const item = page.getByRole('menu', { name: 'Session actions' })
+    .getByRole('menuitem', { name: `Switch to ${view} view` });
+  if (await visible(item)) await director.click(item);
+  else await page.keyboard.press('Escape');
 }
 
 async function setWidth(
@@ -231,10 +244,9 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
     await createTile(page, director);
     await tile.waitFor({ state: 'visible', timeout: 30_000 });
     ready = true;
-    await attempt('Initial full view for prompt input', async () => {
-      const toggle = tile.locator('button[title="Switch to full view"]');
-      if (await visible(toggle)) await director.click(toggle);
-    });
+    await attempt('Initial full view for prompt input', () =>
+      switchView(page, director, 'full'),
+    );
     await attempt('Initial full width', () =>
       setWidth(page, director, tile, 'full'),
     );
@@ -259,7 +271,7 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
         });
       });
       await attempt('Switch to compact', () =>
-        director.click(tile.locator('button[title="Switch to compact view"]')),
+        switchView(page, director, 'compact'),
       );
       await warnIfNotLive(tile, 'Compact streaming hold');
       await director.hold(20_000);
@@ -396,10 +408,9 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
     if (!ready) throw new Error('Review tile unavailable');
     // Compact unmounts chat-input, so its missing stop button is NOT turn completion.
     // Restore full view BEFORE using the Director's stop-button-based wait.
-    await attempt('Restore full view', async () => {
-      const toggle = tile.locator('button[title="Switch to full view"]');
-      if (await visible(toggle)) await director.click(toggle);
-    });
+    await attempt('Restore full view', () =>
+      switchView(page, director, 'full'),
+    );
     await attempt(
       'Wait for session turn (Director cap: 20s + 6min)',
       async () => {

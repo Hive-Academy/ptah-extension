@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   effect,
+  Injector,
   input,
   NO_ERRORS_SCHEMA,
   type OnDestroy,
@@ -102,6 +103,7 @@ class RailStub {
   readonly openBesideRequested = output<string>();
   readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
+  readonly closeRequested = output<string>();
   readonly focusRequested = output<string>();
   readonly collapseToggled = output<void>();
   readonly densityToggled = output<void>();
@@ -196,7 +198,7 @@ class StatefulLaneStub implements OnDestroy {
   // Like the real focus area, per-pane controls exist only while two panes are shown.
   template: `@if (splitDisplayed()) {
       <header>
-        <button type="button" data-header-menu aria-label="More session actions">
+        <button type="button" data-header-menu aria-label="Pane actions">
           ⋯
         </button>
       </header>
@@ -211,28 +213,9 @@ class FocusStub {
   readonly paneId = input<'left' | 'right'>('left');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
-  readonly closeRequested = output<string>();
   readonly closeSplitRequested = output<'left' | 'right'>();
   readonly closePaneRequested = output<'left' | 'right'>();
   readonly swapPanesRequested = output<'left' | 'right'>();
-}
-@Component({
-  selector: 'ptah-canvas-focus-header',
-  standalone: true,
-  template: `<div role="group" aria-label="Session controls">
-    <button type="button" data-compact aria-label="Switch to compact view"></button>
-    <button type="button" aria-label="Close session"></button>
-  </div>`,
-})
-class SessionControlsStub {
-  readonly tabId = input.required<string>();
-  readonly rail = input(false);
-  readonly embedded = input(false);
-  readonly running = input(false);
-  readonly viewMode = input('full');
-  readonly stop = output<void>();
-  readonly toggleViewMode = output<void>();
-  readonly closeRequested = output<void>();
 }
 @Component({
   selector: 'ptah-session-inspector',
@@ -245,7 +228,6 @@ class SessionControlsStub {
       >
         Expand
       </button>
-      <ng-content select="[inspectorRailControls]" />
       <ng-content select="[inspectorRailAgents]" />
     } @else {
       <div [attr.role]="presentation() === 'sheet' ? 'dialog' : null">
@@ -256,7 +238,6 @@ class SessionControlsStub {
         >
           Close
         </button>
-        <ng-content select="[inspectorControls]" />
         <ng-content select="[inspectorSection]" />
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
@@ -351,6 +332,8 @@ describe('CanvasRailBoardComponent actions', () => {
       splitDisplayed: () => false,
       anchor: jest.fn(),
       newSessionRequested: { emit: jest.fn() },
+      host: { nativeElement: document.createElement('div') },
+      injector: TestBed.inject(Injector),
     });
     return { instance, focusTile, addTile, removeTile };
   };
@@ -426,7 +409,6 @@ describe('CanvasRailBoardComponent rendering', () => {
     surface?: WritableSignal<boolean>,
     realCard = false,
     realFocus = false,
-    sidebarControls = false,
   ) {
     sourceState.set('idle');
     jest
@@ -586,7 +568,6 @@ describe('CanvasRailBoardComponent rendering', () => {
       set: {
         imports: [
           InspectorStub, NgTemplateOutlet, SplitHandleComponent,
-          ...(sidebarControls ? [SessionControlsStub] : []),
         ],
         schemas: [NO_ERRORS_SCHEMA],
       },
@@ -2750,6 +2731,22 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).toHaveLength(2);
   });
 
+  it('closes the session a card menu names and moves lost focus to the neighbouring card', async () => {
+    const { fixture, store } = mount(true, 3);
+    const rail = fixture.debugElement.query(By.directive(RailStub))
+      .componentInstance as RailStub;
+    const card = (id: string) =>
+      fixture.nativeElement.querySelector(`[data-rail-card][data-tab-id="${id}"] .rc-select`) as HTMLElement | null;
+    card('b')?.focus();
+    rail.closeRequested.emit('b');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(store.removeTile).toHaveBeenCalledWith('b');
+    expect(card('b')).toBeNull();
+    expect(document.activeElement).toBe(card('c'));
+  });
+
   // ---- R9x: header split actions, swap, stacked Tab order; R9w C1-C3, NEW-3, NEW-6 ----
 
   type Fixture = ReturnType<typeof mount>['fixture'];
@@ -2882,10 +2879,11 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(focused()).toBe('a');
   });
 
-  const SESSION_CONTROLS = '[role="group"][aria-label="Session controls"]';
+  const cardControl = (fixture: Fixture, id: string) =>
+    fixture.nativeElement.querySelector(`[data-rail-card][data-tab-id="${id}"] .rc-select`);
 
-  it('close active pane releases that host, focuses the survivor in its own host and the rail session controls', async () => {
-    const { fixture, focused, store } = mount(true, 3, 'a', undefined, false, false, true);
+  it('close active pane releases that host, focuses the survivor in its own host and its Sessions rail card', async () => {
+    const { fixture, focused, store } = mount(true, 3);
     const instance = fixture.componentInstance;
     instance.closeDock();
     fixture.detectChanges();
@@ -2917,12 +2915,9 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
-    // Single view renders no per-pane controls: focus goes to the sidebar's session controls.
+    // Single view renders no per-pane controls: focus goes to the survivor's card in the Sessions rail.
     expect(paneOf(fixture, 'left')?.querySelector('[data-header-menu]')).toBeNull();
-    const controls = fixture.nativeElement.querySelector<HTMLElement>(
-      `[data-inspector-rail] ${SESSION_CONTROLS}`,
-    );
-    expect(document.activeElement).toBe(controls?.querySelector('[data-compact]'));
+    expect(document.activeElement).toBe(cardControl(fixture, 'a'));
     expect(instance.announcement()).toBe('Pane closed. a stays open.');
     expect(store.removeTile).not.toHaveBeenCalled();
   });
@@ -2948,11 +2943,9 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(
       paneOf(fixture, 'right')?.querySelector('ptah-canvas-focus-area'),
     ).toBe(activeHost);
-    // The survivor's sidebar opens expanded; without session controls there, its collapse button takes focus.
+    // The survivor's sidebar opens expanded; focus goes to the survivor's card in the Sessions rail.
     expect(instance.dockOpen()).toBe(true);
-    expect(document.activeElement).toBe(
-      fixture.nativeElement.querySelector('[data-inspector-dock] [data-inspector-close]'),
-    );
+    expect(document.activeElement).toBe(cardControl(fixture, 'b'));
     const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
     expect(panes).toHaveLength(1);
     expect(panes[0].getAttribute('data-pane-side')).toBe('right');
@@ -2996,8 +2989,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     }
   });
 
-  it('close split from the active pane keeps the active tab and moves focus to the expanded sidebar controls', async () => {
-    const { fixture, focused } = mount(true, 3, 'a', undefined, false, false, true);
+  it('close split from the active pane keeps the active tab and moves focus to its Sessions rail card', async () => {
+    const { fixture, focused } = mount(true, 3);
     const instance = fixture.componentInstance;
     instance.openBeside('b');
     fixture.detectChanges();
@@ -3020,10 +3013,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).toBe(host);
     expect(trigger?.isConnected).toBe(false);
     expect(instance.dockOpen()).toBe(true);
-    const controls = fixture.nativeElement.querySelector<HTMLElement>(
-      `[data-inspector-dock] ${SESSION_CONTROLS}`,
-    );
-    expect(document.activeElement).toBe(controls?.querySelector('[data-compact]'));
+    expect(document.activeElement).toBe(cardControl(fixture, 'b'));
     expect(instance.announcement()).toBe('Split closed.');
   });
 

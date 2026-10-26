@@ -2,16 +2,13 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, Injector,
   afterNextRender, computed, effect, inject, input, linkedSignal, model, output, signal, untracked,
 } from '@angular/core';
-import { LoggingService } from '@ptah-extension/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorOpenStateService,
-  ChatStore, TabManagerService, injectSessionStatsSource,
+  TabManagerService, injectSessionStatsSource,
 } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SplitHandleComponent, type CompactRailState } from '@ptah-extension/chat-ui';
-import { CanvasStore } from '../canvas.store';
-import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasLaneTabsComponent } from '../canvas-detail/canvas-lane-tabs.component';
 
@@ -104,20 +101,10 @@ export function injectCanvasInspectorDockState(sources: {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgTemplateOutlet, SessionInspectorComponent,
-    SplitHandleComponent, CanvasLaneTabsComponent, CanvasFocusHeaderComponent],
+    SplitHandleComponent, CanvasLaneTabsComponent],
   providers: [InspectorDockController],
   host: { class: 'contents', '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
-    <ng-template #controls let-rail="rail">
-      @if (focusedId(); as id) {
-        <ptah-canvas-focus-header [tabId]="id" [rail]="rail ?? false"
-          [embedded]="!(rail ?? false)"
-          [running]="canvasStore.isSessionRunning(id)"
-          [viewMode]="sessionTab(id)?.viewMode ?? 'full'"
-          (stop)="stopSession(id)" (toggleViewMode)="toggleView(id)"
-          (closeRequested)="closeRequested.emit(id)" />
-      }
-    </ng-template>
     <ng-template #laneStrip>
       @if (focusedId(); as id) {
         <ptah-canvas-lane-tabs
@@ -148,7 +135,6 @@ export function injectCanvasInspectorDockState(sources: {
                   [sessionTitle]="sessionTab(id)?.title ?? ''"
                   (expandRequested)="expandInspector($event)"
                 >
-                  <ng-container inspectorRailControls [ngTemplateOutlet]="controls" [ngTemplateOutletContext]="{ rail: true }" />
                   <ptah-canvas-lane-tabs inspectorRailAgents
                     [panelId]="panelId()" [tabId]="id" [rail]="true"
                     [laneKey]="detail.laneKeyFor(id)"
@@ -216,7 +202,6 @@ export function injectCanvasInspectorDockState(sources: {
                     [selectedAgentKey]="detail.laneKeyFor(id)"
                     [focusSection]="inspectorSection()"
                   >
-                    <ng-container inspectorControls [ngTemplateOutlet]="controls" />
                     <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                   </ptah-session-inspector>
                 } @loading {
@@ -262,7 +247,6 @@ export function injectCanvasInspectorDockState(sources: {
                   [selectedAgentKey]="detail.laneKeyFor(id)"
                   [focusSection]="inspectorSection()"
                 >
-                  <ng-container inspectorControls [ngTemplateOutlet]="controls" />
                   <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
                 </ptah-session-inspector>
               } @loading {
@@ -298,10 +282,6 @@ export class CanvasInspectorDockComponent {
   readonly dockOpen = model(false);
   readonly detailsOpen = model(false);
   readonly layoutChanged = output<void>();
-  readonly closeRequested = output<string>();
-  readonly canvasStore = inject(CanvasStore);
-  private readonly chatStore = inject(ChatStore);
-  private readonly logger = inject(LoggingService);
   readonly overlay = computed(() =>
     this.splitDisplayed() || this.availableWidth() - this.dock.width() < CHAT_MIN_BESIDE_DOCK,
   );
@@ -342,17 +322,6 @@ export class CanvasInspectorDockComponent {
   selectRailAgent(id: string, key: string): void {
     this.detail.selectLaneFor(id, key);
     this.expandInspector('agents');
-  }
-  toggleView(id: string): void {
-    this.tabs.toggleTabViewMode(id);
-  }
-  async stopSession(id: string): Promise<void> {
-    if (this.tabs.activeTabId() !== id) this.canvasStore.focusTile(id);
-    try {
-      await this.chatStore.abortWithConfirmation();
-    } catch (error) {
-      this.logger.error('CanvasInspectorDock', 'Could not stop session', error);
-    }
   }
   sessionTab(id: string) {
     return this.tabs.findTabByIdAcrossWorkspaces(id)?.tab;

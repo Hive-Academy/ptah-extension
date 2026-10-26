@@ -24,7 +24,6 @@
       }
     </button>
     @if (sessionTitle()) { <span class="sr-only">{{ sessionTitle() }}</span> }
-    <ng-content select="[inspectorRailControls]" />
     <ng-content select="[inspectorRailAgents]" />
     @if (stats()) {
       @for (metric of railMetrics(); track metric.id) {
@@ -94,7 +93,7 @@
     presentation() === 'sheet'
       ? 'Close session details'
       : 'Compact session details';
-  <!-- Title row: identity on the left, session controls and the collapse button on the right. -->
+  <!-- Title row: identity on the left, the collapse button on the right. Session actions live in the session card menu. -->
   <header
     class="flex shrink-0 items-start gap-2 border-b border-surface-border py-2 pl-3 pr-2"
   >
@@ -122,7 +121,6 @@
       }
     </div>
     <div class="flex shrink-0 items-center gap-1">
-      <ng-content select="[inspectorControls]" />
       <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
       <button
         #closeButton
@@ -134,7 +132,7 @@
         (click)="closeRequested.emit()"
       >
         <lucide-angular
-          [img]="presentation() === 'sheet' ? XIcon : PanelRightCloseIcon"
+          [img]="PanelRightCloseIcon"
           class="size-4"
           aria-hidden="true"
         />

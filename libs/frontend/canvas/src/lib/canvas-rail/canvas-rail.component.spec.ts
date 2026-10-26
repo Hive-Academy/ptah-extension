@@ -40,6 +40,7 @@ class CardStub {
   readonly splitDisabledReason = input<string | null>(null);
   readonly openBesideRequested = output<string>(); readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
+  readonly closeRequested = output<string>();
 }
 
 const tile = (tabId: string, order: number): CanvasTile => ({ tabId, order, width: DEFAULT_TILE_WIDTH, rowBreakBefore: false });
@@ -360,16 +361,19 @@ describe('CanvasRailComponent', () => {
   });
   const stubs = (fixture: ReturnType<typeof mount>) =>
     fixture.debugElement.queryAll(By.directive(CardStub)).map((debug) => debug.componentInstance as CardStub);
-  it('forwards openBeside, moveUp and moveDown payloads from the card unchanged (payload forwarding, Rail side)', () => {
+  it('forwards openBeside, moveUp, moveDown and close payloads from the card unchanged (payload forwarding, Rail side)', () => {
     const fixture = mount([tile('a', 0), tile('b', 1), tile('c', 2)]);
     const rail = fixture.componentInstance;
-    const beside = jest.fn(); const up = jest.fn(); const down = jest.fn();
+    const beside = jest.fn(); const up = jest.fn(); const down = jest.fn(); const close = jest.fn();
     rail.openBesideRequested.subscribe(beside); rail.moveUpRequested.subscribe(up); rail.moveDownRequested.subscribe(down);
+    rail.closeRequested.subscribe(close);
     const [, middle] = stubs(fixture);
     middle.openBesideRequested.emit('b'); middle.moveUpRequested.emit('b'); middle.moveDownRequested.emit('b');
+    middle.closeRequested.emit('b');
     expect(beside.mock.calls).toEqual([['b']]);
     expect(up.mock.calls).toEqual([['b']]);
     expect(down.mock.calls).toEqual([['b']]);
+    expect(close.mock.calls).toEqual([['b']]);
   });
   it('computes Move up/down from the sorted ids: first card no Move up, last no Move down', () => {
     const fixture = mount([tile('c', 2), tile('a', 0), tile('b', 1)]);

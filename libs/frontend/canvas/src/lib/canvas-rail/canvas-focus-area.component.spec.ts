@@ -15,12 +15,10 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
   TabManagerService,
-  ChatStore,
   StreamPresentationStore,
 } from '@ptah-extension/chat';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
-import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
@@ -33,18 +31,10 @@ const buildTree = jest.fn(() => []);
   selector: 'ptah-canvas-focus-header',
   standalone: true,
   template:
-    '<div role="group" aria-label="Session controls"></div>',
+    '<div role="group" aria-label="Pane controls"></div>',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class HeaderStub {
-  readonly floating = input(false);
-  readonly tabId = input.required<string>();
-  readonly running = input(false);
-  readonly viewMode = input('full');
-  readonly splitDisplayed = input(false);
-  readonly stop = output<void>();
-  readonly toggleViewMode = output<void>();
-  readonly closeRequested = output<void>();
   readonly closeSplitRequested = output<void>();
   readonly closePaneRequested = output<void>();
   readonly swapPanesRequested = output<void>();
@@ -130,7 +120,6 @@ describe('CanvasFocusAreaComponent', () => {
       imports: [CanvasFocusAreaComponent],
       providers: [
         CanvasRenderMetricsService,
-        { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
         {
           provide: TabManagerService,
           useValue: {
@@ -138,10 +127,8 @@ describe('CanvasFocusAreaComponent', () => {
             findTabByIdAcrossWorkspaces: (id: string) => ({
               tab: tabs().get(id),
             }),
-            toggleTabViewMode: jest.fn(),
           },
         },
-        { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
         {
           provide: CanvasDetailService,
           useValue: {
@@ -187,23 +174,6 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('paneFocused', false);
     fixture.detectChanges();
     expect(header()).toBe(first);
-    expect(first.splitDisplayed()).toBe(true);
-  });
-
-  it('activates an inactive tab before stopping its session', async () => {
-    const focus = jest.fn();
-    const abort = jest.fn().mockResolvedValue(undefined);
-    const area = Object.create(
-      CanvasFocusAreaComponent.prototype,
-    ) as CanvasFocusAreaComponent;
-    Object.assign(area, {
-      tabs: { activeTabId: () => 'other' },
-      canvasStore: { focusTile: focus },
-      chatStore: { abortWithConfirmation: abort },
-    });
-    await area.stop('selected');
-    expect(focus).toHaveBeenCalledWith('selected');
-    expect(abort).toHaveBeenCalledTimes(1);
   });
 
   it('keeps one transcript host and header instance across focus swaps', () => {
@@ -216,7 +186,6 @@ describe('CanvasFocusAreaComponent', () => {
       imports: [CanvasFocusAreaComponent],
       providers: [
         CanvasRenderMetricsService,
-        { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
         {
           provide: TabManagerService,
           useValue: {
@@ -225,7 +194,6 @@ describe('CanvasFocusAreaComponent', () => {
             }),
           },
         },
-        { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
         {
           provide: CanvasDetailService,
           useValue: {
@@ -292,7 +260,7 @@ describe('CanvasFocusAreaComponent', () => {
   });
 
   it.each(['left', 'right'] as const)(
-    'forwards every header split action with the stable %s pane id and passes split state to the header',
+    'forwards every pane action with the stable %s pane id',
     (paneId) => {
       const { fixture } = mountWithLanes();
       fixture.componentRef.setInput('paneId', paneId);
@@ -301,7 +269,6 @@ describe('CanvasFocusAreaComponent', () => {
       const area = fixture.componentInstance;
       const header = fixture.debugElement.query(By.directive(HeaderStub))
         .componentInstance as HeaderStub;
-      expect(header.splitDisplayed()).toBe(true);
       expect(area.panelId()).toBe(`rail-${paneId}-lane-panel`);
       const received: Array<[string, string]> = [];
       area.closeSplitRequested.subscribe((id) =>
@@ -312,9 +279,6 @@ describe('CanvasFocusAreaComponent', () => {
       );
       area.swapPanesRequested.subscribe((id) =>
         received.push(['swapPanes', id]),
-      );
-      area.closeRequested.subscribe((id) =>
-        received.push(['closeSession', id]),
       );
       header.closeSplitRequested.emit();
       header.closePaneRequested.emit();

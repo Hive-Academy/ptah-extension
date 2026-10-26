@@ -212,17 +212,12 @@ async function closeStaleTiles(page: Page, director: Director): Promise<void> {
       .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^code-edit$/ }) })
       .first();
     if (!(await staleCard.count())) return;
-    await staleCard.click({ position: { x: 10, y: 40 } });
-    // Panes have no header: the pane label names the session, and Close
-    // session lives in the sidebar's controls for the focused pane.
-    const stale = page.locator('[data-testid="canvas-tile"]')
-      .and(page.getByLabel(/^\w+ session: code-edit(, active)?$/)).first();
-    // The card click hands the pane to the stale session on the next render.
-    if (!(await stale.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false))) return;
-    const close = page.locator('ptah-canvas-rail-board:visible')
-        .locator('[data-inspector-rail], [data-inspector-dock]')
-      .getByRole('group', { name: 'Session controls' })
-      .getByRole('button', { name: 'Close session' }).first();
+    // Close session lives in the stale card's own Session actions menu.
+    const menuTrigger = staleCard.getByRole('button', { name: 'Session actions' });
+    if (!(await visible(menuTrigger))) return;
+    await menuTrigger.click({ timeout: 5_000 }).catch(() => undefined);
+    const close = page.getByRole('menu', { name: 'Session actions' })
+      .getByRole('menuitem', { name: 'Close session' });
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);
