@@ -1370,7 +1370,7 @@ Prefix D = W/libs/backend/agent-sdk/src/lib/codex-app-server/ (directory absent 
 
 ---
 
-# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — IMPLEMENTED (7a-7c COMPLETE; code-logic phase review PENDING)
+# Phase P7 — Chat RPC (@ptah-extension/rpc-handlers) — IMPLEMENTED (review REVISE 4/10 code-logic-review-p7.md; fix batch 7d COMPLETE; narrow re-review PENDING)
 
 Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 `npm run verify -- -p @ptah-extension/rpc-handlers`. Prefix R = W/libs/backend/rpc-handlers/src/lib/.
@@ -1404,6 +1404,71 @@ Phase review: code-logic. Implementer: Codex; reviewer: Claude. Verification:
 - Plan reference: implementation-plan.md:181-185 (G2); remove `mapPermissionToSdkMode` direct SDK
   calls; audit auth/provider/config-scope callers.
 - Executor/review/fallback as 7a. Last P7 batch -> phase review.
+
+## Batch 7d: P7 review fix round — COMPLETE (4a2f15579, 6a1ed5cbe; di-lint fix f57e381f9; narrow re-review PENDING)
+
+- Review: code-logic-review-p7.md, REVISE 4/10 (B1, B2, S1, S2, M1-M6, minors). Decisions: P7 fix
+  1-8 in decisions.md. One fix round; then a narrow re-review on the 7d commits.
+- Execution mode: parallel, two Codex CLI lanes, file-disjoint. Fallback order: other family same
+  capability -> same family other provider/model -> subagent. Subagent reason: N/A. Review family:
+  Claude (implementer Codex).
+- Batch-cap exception: each lane owns up to 8 files across rpc-handlers, agent-sdk and shared,
+  because each fix spans the RPC caller and its port contract. One deciding verify covers both.
+
+### Task 7d.1: chat side (B1, S1, R7-4 notice, slash metadata minor) — COMPLETE (4a2f15579)
+
+- Lane A files: R+chat/session/chat-session.service.ts, chat-slash-command-router.service.ts,
+  chat-runtime-profile.service.ts (+spec), chat-session.native.spec.ts,
+  chat-slash-command-router.native.spec.ts; W/libs/shared/src/lib/types/agent-adapter.types.ts;
+  W/libs/backend/agent-sdk/src/lib/codex-app-server/routing-agent-adapter.ts (+spec).
+- Report: batch-7d-a-report.md.
+
+### Task 7d.2: config side (B2, S2, permission rollback, M1/M2) — COMPLETE (6a1ed5cbe)
+
+- Lane B files: R+handlers/config-rpc.handlers.ts (+spec), config-runtime-controls.ts (+spec);
+  W/libs/shared/src/lib/types/session-runtime.types.ts;
+  W/libs/backend/agent-sdk/src/lib/codex-app-server/legacy-session-controls.ts (+spec),
+  session-runtime-router.ts (+spec).
+- Report: batch-7d-b-report.md.
+
+### Batch 7d carried rules (for 8a and the #826 merge)
+
+- 8a persistence contract (P7 fix 4): when SESSION_RUNTIME_ROUTER is bound, the session controls own
+  the settings write and its rollback; the config RPC passes `applyTo` to them and does not
+  write. Without bound controls the RPC writes. 8a binds the router and the legacy persistence
+  port so that exactly one write happens. Final wording and the native-route rule:
+  batch-7d-b-report.md.
+- 8a: cancel during `prepare()` is not observed (pre-existing on the Claude path, FM10); 8a
+  decides whether the native launch checks the abort before opening the thread.
+- 8a: the notice's top-level `message_complete` may trigger queued-content dispatch in
+  streaming-handler.service.ts:508-519 (FM8, M4, not reproduced); verify in 8a or give the notice
+  its own event type.
+- 8a: `prepare()` refusals are plain Errors without an RPC code (minor).
+  `ResolvedChatExecution.config` carries `mcpServersOverride` (may hold MCP auth headers): never
+  log or fingerprint it.
+- 8a: `chat:start` with no caller path now requires the host-default root to be inside
+  `getWorkspaceFolders()` (minor, low risk on Electron/CLI: `activeFolder ?? folders[0]`).
+- #826 merge rules (P7 fix 8): compute `currentModel` after the last await before `prepare()` in
+  start, resume and slash relaunch; apply `resolveStoredModel` only on the Claude (legacy) branch.
+
+- Batch 7d result (session 11): deciding verify -p shared, agent-sdk, rpc-handlers: 8/9 passed
+  (tests and typecheck for all three; lint for shared and rpc-handlers). agent-sdk lint fails only on
+  2 no-unexpected-multiline errors in helpers/session-lifecycle/session-query-executor.accounts.spec.ts
+  :174,:183, a file identical to origin/main (accounts feature), not touched by this task. di-lint
+  passes after f57e381f9. Host typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui,
+  ptah-extension-webview: 5/5 passed.
+- 7d open items for 8a (beyond the carried rules above): native session controls need their own
+  persistence port, since the router only dispatches (batch-7d-b-report.md decision 3). The fallback
+  cannot restore a live effort after a failed save, because SessionControl does not track live
+  effort: it logs a warning and rejects. The fallback detects a non-live session from the
+  SdkError message ('session not found' / 'session query not initialized'), which is fragile;
+  8a's bound controls replace it. Permission restore writes resolved values as explicit values,
+  so the scope can drift (pre-existing M2 limit).
+
+### Batch 7d verification
+
+- npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk,@ptah-extension/shared
+  (team-leader's deciding run), then the four-host typecheck.
 
 ---
 
