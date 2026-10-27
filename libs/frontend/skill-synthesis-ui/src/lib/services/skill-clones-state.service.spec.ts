@@ -1,11 +1,21 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import {
+  LibraryChangeFeed,
+  type LibraryChange,
+} from '@ptah-extension/marketplace/services';
 import type {
   AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
+  SkillSynthesisListClonesResult,
 } from '@ptah-extension/shared';
 
-import { SkillClonesStateService } from './skill-clones-state.service';
+import {
+  LIBRARY_REFRESH_FAILED_COPY,
+  SkillClonesStateService,
+  libraryUpdatedCopy,
+} from './skill-clones-state.service';
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
 
 function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
@@ -23,6 +33,14 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
     enhanceCooldownUntil: null,
     ...overrides,
   };
+}
+
+/** A `skillSynthesis:listClones` reply scoped to `scopeRoot`. */
+function listed(
+  clones: CloneSummary[],
+  scopeRoot = '/repo',
+): SkillSynthesisListClonesResult {
+  return { clones, scopeRoot };
 }
 
 function scorecard(overrides: Partial<AgentScorecard> = {}): AgentScorecard {
@@ -73,10 +91,9 @@ type RpcSlice = Pick<
 
 function makeRpc(): jest.Mocked<RpcSlice> {
   return {
-    listClones: jest.fn(async () => [
-      clone(),
-      clone({ slug: 'x', diverged: true }),
-    ]),
+    listClones: jest.fn(async () =>
+      listed([clone(), clone({ slug: 'x', diverged: true })]),
+    ),
     getClone: jest.fn(async () => ({
       clone: clone(),
       body: '# body',
@@ -109,12 +126,18 @@ function makeRpc(): jest.Mocked<RpcSlice> {
 }
 
 describe('SkillClonesStateService', () => {
-  function setup(rpc = makeRpc()) {
+  function setup(rpc = makeRpc(), held: LibraryChange | null = null) {
+    const latest = signal<LibraryChange | null>(held);
     TestBed.configureTestingModule({
-      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+      providers: [
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+        { provide: LibraryChangeFeed, useValue: { latest } },
+      ],
     });
     const svc = TestBed.inject(SkillClonesStateService);
-    return { svc, rpc };
+    // The feed effect's first run (the value held at construction).
+    TestBed.tick();
+    return { svc, rpc, latest };
   }
 
   it('refreshes clones and computes diverged count', async () => {
@@ -335,11 +358,13 @@ describe('SkillClonesStateService', () => {
 
   it('populates scorecards from ONE getScorecards call for agent slugs only', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'deep-research', kind: 'skill' }),
-      clone({ slug: 'planner', kind: 'agent' }),
-      clone({ slug: 'ship', kind: 'command' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([
+        clone({ slug: 'deep-research', kind: 'skill' }),
+        clone({ slug: 'planner', kind: 'agent' }),
+        clone({ slug: 'ship', kind: 'command' }),
+      ]),
+    );
     const { svc } = setup(rpc);
     await svc.refreshClones();
     expect(rpc.getScorecards).toHaveBeenCalledTimes(1);
@@ -349,7 +374,7 @@ describe('SkillClonesStateService', () => {
 
   it('skips the scorecard RPC entirely when no agent clones exist', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([clone({ kind: 'skill' })]);
+    rpc.listClones.mockResolvedValueOnce(listed([clone({ kind: 'skill' })]));
     const { svc } = setup(rpc);
     await svc.refreshClones();
     expect(rpc.getScorecards).not.toHaveBeenCalled();
@@ -361,9 +386,9 @@ describe('SkillClonesStateService', () => {
 
   it('degrades to empty scorecards (not a blanked list) when getScorecards fails', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     rpc.getScorecards.mockRejectedValueOnce(new Error('scorecard boom'));
     const { svc } = setup(rpc);
     await svc.refreshClones();
@@ -374,9 +399,9 @@ describe('SkillClonesStateService', () => {
 
   it('handles a no-data agent slug missing from the scorecard map', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     rpc.getScorecards.mockResolvedValueOnce({});
     const { svc } = setup(rpc);
     await svc.refreshClones();
@@ -385,12 +410,14 @@ describe('SkillClonesStateService', () => {
 
   it('loads outcome signals once for every agent slug and keeps the window', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'deep-research', kind: 'skill' }),
-      clone({ slug: 'planner', kind: 'agent' }),
-      clone({ slug: 'reviewer', kind: 'agent' }),
-      clone({ slug: 'ship', kind: 'command' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([
+        clone({ slug: 'deep-research', kind: 'skill' }),
+        clone({ slug: 'planner', kind: 'agent' }),
+        clone({ slug: 'reviewer', kind: 'agent' }),
+        clone({ slug: 'ship', kind: 'command' }),
+      ]),
+    );
     rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
       signals: { planner: agentSignals({ slug: 'planner', runCount: 5 }) },
       windowDays: 30,
@@ -412,9 +439,9 @@ describe('SkillClonesStateService', () => {
 
   it('records unavailable outcome data without exposing the read error', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     rpc.getAgentOutcomeSignals.mockRejectedValueOnce(new Error('signals boom'));
     const { svc } = setup(rpc);
     await svc.refreshClones();
@@ -429,9 +456,9 @@ describe('SkillClonesStateService', () => {
 
   it('keeps displayed outcome figures after a failed refresh', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValue([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValue(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
       signals: { planner: agentSignals() },
       windowDays: 30,
@@ -451,9 +478,9 @@ describe('SkillClonesStateService', () => {
 
   it('marks outcome data as not persistent when the host has no durable store', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
       signals: {},
       windowDays: 30,
@@ -466,9 +493,9 @@ describe('SkillClonesStateService', () => {
 
   it('marks the first outcome read as loading until it finishes', async () => {
     const rpc = makeRpc();
-    rpc.listClones.mockResolvedValueOnce([
-      clone({ slug: 'planner', kind: 'agent' }),
-    ]);
+    rpc.listClones.mockResolvedValueOnce(
+      listed([clone({ slug: 'planner', kind: 'agent' })]),
+    );
     let finish!: (
       value: Awaited<
         ReturnType<SkillSynthesisRpcService['getAgentOutcomeSignals']>
@@ -502,5 +529,248 @@ describe('SkillClonesStateService', () => {
     // Second call is a cached no-op — no extra RPC.
     await svc.loadScorecardDetail('planner');
     expect(rpc.getScorecardDetail).toHaveBeenCalledTimes(1);
+  });
+
+  describe('library:changed feed (8.2b, B13)', () => {
+    const agent = (
+      slug: string,
+      provenance?: CloneSummary['provenance'],
+    ): CloneSummary =>
+      clone({ slug, kind: 'agent', ...(provenance ? { provenance } : {}) });
+    let at = 0;
+    const change = (overrides: Partial<LibraryChange> = {}): LibraryChange => ({
+      workspaceRoot: '/repo',
+      status: 'updated',
+      reasons: ['setup-wizard'],
+      at: ++at,
+      ...overrides,
+    });
+    type Latest = ReturnType<typeof setup>['latest'];
+
+    /** Run the root effect, then drain the refresh it started. */
+    async function push(latest: Latest, value: LibraryChange): Promise<void> {
+      latest.set(value);
+      TestBed.tick();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+
+    /** A `listClones` mock whose replies the test releases by hand. */
+    function deferredLists(rpc: ReturnType<typeof makeRpc>) {
+      const settle: Array<{
+        resolve: (r: SkillSynthesisListClonesResult) => void;
+        reject: (e: Error) => void;
+      }> = [];
+      rpc.listClones.mockImplementation(
+        () =>
+          new Promise<SkillSynthesisListClonesResult>((resolve, reject) =>
+            settle.push({ resolve, reject }),
+          ),
+      );
+      return settle;
+    }
+
+    it('ignores a push before the Library was ever opened', async () => {
+      const { rpc, latest } = setup();
+      await push(latest, change());
+      expect(rpc.listClones).not.toHaveBeenCalled();
+    });
+
+    it('does not act on a push the feed held before the service existed', async () => {
+      const rpc = makeRpc();
+      rpc.listClones.mockResolvedValue(listed([agent('planner')]));
+      const { svc } = setup(rpc, change());
+      await svc.refreshClones();
+      TestBed.tick();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(rpc.listClones).toHaveBeenCalledTimes(1);
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('claims no added agents across a harness-root change', async () => {
+      const rpc = makeRpc();
+      rpc.listClones
+        .mockResolvedValueOnce(listed([agent('planner')], '/a'))
+        .mockResolvedValueOnce(listed([agent('planner'), agent('x')], '/b'));
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+      await push(latest, change({ workspaceRoot: '/b' }));
+      expect(svc.clones()).toHaveLength(2);
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('refreshes on every push, including two identical ones', async () => {
+      const { svc, rpc, latest } = setup();
+      await svc.refreshClones();
+      await push(latest, change());
+      await push(latest, change());
+      expect(rpc.listClones).toHaveBeenCalledTimes(3);
+    });
+
+    it('says what the CURRENT list gained, with its recorded origin', async () => {
+      const rpc = makeRpc();
+      rpc.listClones
+        .mockResolvedValueOnce(listed([agent('planner')]))
+        .mockResolvedValueOnce(
+          listed([
+            agent('planner'),
+            agent('backend-developer', { kind: 'setup-wizard' }),
+            agent('tester', { kind: 'setup-wizard' }),
+            clone({ slug: 'new-skill', kind: 'skill' }),
+          ]),
+        );
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+      await push(latest, change());
+      expect(svc.libraryNotice()).toEqual({
+        kind: 'updated',
+        message: 'Library updated: 2 agents added by the setup wizard.',
+      });
+
+      svc.clearLibraryNotice();
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('says nothing when the current list gained no agents (a push for another root)', async () => {
+      const rpc = makeRpc();
+      rpc.listClones.mockResolvedValue(listed([agent('planner')]));
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+      await push(latest, change({ workspaceRoot: '/other' }));
+      expect(rpc.listClones).toHaveBeenCalledTimes(2);
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('shows the C10 failure notice only for the root the list is scoped to', async () => {
+      const rpc = makeRpc();
+      rpc.listClones.mockResolvedValue(listed([agent('planner')], '/repo'));
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+
+      await push(latest, change({ status: 'failed', workspaceRoot: '/other' }));
+      expect(svc.libraryNotice()).toBeNull();
+
+      await push(latest, change({ status: 'failed', workspaceRoot: '/repo' }));
+      expect(svc.libraryNotice()).toEqual({
+        kind: 'failed',
+        message: LIBRARY_REFRESH_FAILED_COPY,
+      });
+
+      // The next push replaces the line.
+      await push(latest, change());
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('shows no failure notice when the host sent no scopeRoot', async () => {
+      const rpc = makeRpc();
+      rpc.listClones.mockResolvedValue({ clones: [agent('planner')] });
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+      await push(latest, change({ status: 'failed' }));
+      expect(svc.libraryNotice()).toBeNull();
+    });
+
+    it('drops an out-of-order list reply: the newer request wins', async () => {
+      const rpc = makeRpc();
+      const lists = deferredLists(rpc);
+      const { svc } = setup(rpc);
+      const older = svc.refreshClones();
+      const newer = svc.refreshClones();
+
+      lists[1].resolve(listed([agent('current')], '/b'));
+      await newer;
+      expect(svc.clones().map((c) => c.slug)).toEqual(['current']);
+      expect(svc.loading()).toBe(false);
+
+      lists[0].resolve(listed([agent('stale')], '/a'));
+      await older;
+      expect(svc.clones().map((c) => c.slug)).toEqual(['current']);
+      expect(svc.loading()).toBe(false);
+    });
+
+    it('keeps loading on while a newer request is still in flight', async () => {
+      const rpc = makeRpc();
+      const lists = deferredLists(rpc);
+      const { svc } = setup(rpc);
+      const older = svc.refreshClones();
+      void svc.refreshClones();
+      lists[0].resolve(listed([agent('stale')]));
+      await older;
+      expect(svc.loading()).toBe(true);
+      expect(svc.clones()).toEqual([]);
+    });
+
+    it('drops the failure of a superseded request', async () => {
+      const rpc = makeRpc();
+      const lists = deferredLists(rpc);
+      const { svc } = setup(rpc);
+      const older = svc.refreshClones();
+      const newer = svc.refreshClones();
+      lists[1].resolve(listed([agent('planner')]));
+      await newer;
+      lists[0].reject(new Error('stale boom'));
+      await older;
+      expect(svc.error()).toBeNull();
+    });
+
+    it('drops a scorecard reply from a superseded list request', async () => {
+      const rpc = makeRpc();
+      rpc.listClones.mockResolvedValue(listed([agent('planner')]));
+      let finishOld: (map: Record<string, AgentScorecard>) => void = () =>
+        undefined;
+      rpc.getScorecards
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishOld = resolve;
+            }),
+        )
+        .mockResolvedValueOnce({
+          planner: scorecard({ totalInvocations: 9 }),
+        });
+      const { svc } = setup(rpc);
+      const older = svc.refreshClones();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await svc.refreshClones();
+      finishOld({ planner: scorecard({ totalInvocations: 1 }) });
+      await older;
+      expect(svc.scorecards()['planner']?.totalInvocations).toBe(9);
+    });
+
+    it('a different scopeRoot clears the previous root line', async () => {
+      const rpc = makeRpc();
+      rpc.listClones
+        .mockResolvedValueOnce(listed([agent('planner')], '/repo'))
+        .mockResolvedValueOnce(listed([agent('planner')], '/repo'))
+        .mockResolvedValueOnce(listed([agent('planner')], '/other'));
+      const { svc, latest } = setup(rpc);
+      await svc.refreshClones();
+      await push(latest, change({ status: 'failed' }));
+      expect(svc.libraryNotice()?.kind).toBe('failed');
+      await svc.refreshClones();
+      expect(svc.libraryNotice()).toBeNull();
+    });
+  });
+
+  describe('libraryUpdatedCopy', () => {
+    it('names one plugin, the setup wizard, or no origin', () => {
+      const plugin = {
+        kind: 'plugin' as const,
+        pluginId: 'acme',
+        name: 'Acme Toolkit',
+        state: 'active' as const,
+      };
+      expect(
+        libraryUpdatedCopy([clone({ kind: 'agent', provenance: plugin })]),
+      ).toBe('Library updated: 1 agent added by plugin Acme Toolkit.');
+      expect(
+        libraryUpdatedCopy([
+          clone({ kind: 'agent', provenance: { kind: 'setup-wizard' } }),
+          clone({ slug: 'b', kind: 'agent', provenance: plugin }),
+        ]),
+      ).toBe('Library updated: 2 agents added.');
+      expect(libraryUpdatedCopy([clone({ kind: 'agent' })])).toBe(
+        'Library updated: 1 agent added.',
+      );
+    });
   });
 });

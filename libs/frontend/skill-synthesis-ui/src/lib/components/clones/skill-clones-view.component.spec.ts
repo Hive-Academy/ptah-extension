@@ -1,6 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
-import { ThemeService, VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  PluginCatalogService,
+  ThemeService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import type {
   AgentOutcomeSignals,
@@ -8,6 +13,7 @@ import type {
   CloneSummary,
   HarnessHealth,
   HarnessTargetHealth,
+  PluginConfigHomeStatus,
   SkillSynthesisGetScorecardDetailResult,
   SkillSynthesisListQuarantinedAgentsResult,
   SkillSynthesisPreviewEnhancementResult,
@@ -23,6 +29,7 @@ import {
 import {
   SkillClonesStateService,
   SkillCloneDetail,
+  type LibraryChangeNotice,
 } from '../../services/skill-clones-state.service';
 
 function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
@@ -30,6 +37,26 @@ function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
     config: signal({ isElectron }),
   } as unknown as Partial<VSCodeService>;
 }
+
+/** `PluginCatalogService` stand-in: only `configHome` and its read. */
+function makeCatalogStub(home: PluginConfigHomeStatus | null = null) {
+  return {
+    configHome: signal<PluginConfigHomeStatus | null>(home),
+    ensureLoaded: jest.fn(async () => undefined),
+  };
+}
+
+type CatalogStub = ReturnType<typeof makeCatalogStub>;
+
+/** `AppStateManager` stand-in: the two A-nav entry points. */
+function makeAppStateStub() {
+  return {
+    setCurrentView: jest.fn(),
+    openMarketplace: jest.fn(),
+  };
+}
+
+type AppStateStub = ReturnType<typeof makeAppStateStub>;
 
 /** The diff surface (ptah-lazy-diff-view) follows the app theme. */
 const themeServiceProvider = {
@@ -94,6 +121,8 @@ interface StateStub {
     typeof signal<Record<string, SkillSynthesisGetScorecardDetailResult>>
   >;
   readonly scorecardDetailLoading: ReturnType<typeof signal<string | null>>;
+  readonly libraryNotice: ReturnType<typeof signal<LibraryChangeNotice | null>>;
+  readonly clearLibraryNotice: jest.Mock;
   readonly refreshClones: jest.Mock;
   readonly loadDetail: jest.Mock;
   readonly clearDetail: jest.Mock;
@@ -119,6 +148,8 @@ function makeStateStub(initial: CloneSummary[] = []): StateStub {
       Record<string, SkillSynthesisGetScorecardDetailResult>
     >({}),
     scorecardDetailLoading: signal<string | null>(null),
+    libraryNotice: signal<LibraryChangeNotice | null>(null),
+    clearLibraryNotice: jest.fn(() => undefined),
     refreshClones: jest.fn(async () => undefined),
     loadDetail: jest.fn(async () => undefined),
     clearDetail: jest.fn(() => undefined),
@@ -145,23 +176,25 @@ function saveResult(
 
 function makeRpcStub() {
   return {
-    previewEnhancement: jest.fn(async (): Promise<SkillSynthesisPreviewEnhancementResult> => ({
-      proposed: true,
-      skipReason: null,
-      currentBody: '# before',
-      proposedBody: '# after',
-      judgeScore: 8,
-      judgeReason: 'Tighter trigger phrasing.',
-      proposalId: 'prop-1',
-      draft: {
-        before: '# before',
-        after: '# after',
-        diff: 'diff',
-        evidence: { trajectory: '', findings: '', scorecard: '' },
-        model: 'test',
-        sourceHash: `sha256:${'a'.repeat(64)}`,
-      },
-    })),
+    previewEnhancement: jest.fn(
+      async (): Promise<SkillSynthesisPreviewEnhancementResult> => ({
+        proposed: true,
+        skipReason: null,
+        currentBody: '# before',
+        proposedBody: '# after',
+        judgeScore: 8,
+        judgeReason: 'Tighter trigger phrasing.',
+        proposalId: 'prop-1',
+        draft: {
+          before: '# before',
+          after: '# after',
+          diff: 'diff',
+          evidence: { trajectory: '', findings: '', scorecard: '' },
+          model: 'test',
+          sourceHash: `sha256:${'a'.repeat(64)}`,
+        },
+      }),
+    ),
     applyProposal: jest.fn(async () => ({
       applied: true,
       historyTs: '20260101T000000',
@@ -176,14 +209,19 @@ function makeRpcStub() {
       revertedFrom: '20260101T000000',
       newHistoryTs: '20260102T000000',
     })),
-    rebaseClone: jest.fn(async (_kind: string, _slug: string): Promise<SkillSynthesisRebaseCloneResult> => ({
-      kind: 'skill' as const,
-      slug: 'deep-research',
-      sourceHash: 'sha256:abc',
-      snapshotPath: null,
-      failed: false,
-      reason: null,
-    })),
+    rebaseClone: jest.fn(
+      async (
+        _kind: string,
+        _slug: string,
+      ): Promise<SkillSynthesisRebaseCloneResult> => ({
+        kind: 'skill' as const,
+        slug: 'deep-research',
+        sourceHash: 'sha256:abc',
+        snapshotPath: null,
+        failed: false,
+        reason: null,
+      }),
+    ),
     keepClone: jest.fn(async () => ({
       kind: 'skill' as const,
       slug: 'deep-research',
@@ -292,16 +330,21 @@ function setup(opts: {
   harness?: HarnessStub;
   divergedFilterRequest?: number;
   skillsPaused?: boolean;
+  catalog?: CatalogStub;
 }) {
   const state = opts.state ?? makeStateStub();
   const rpc = opts.rpc ?? makeRpcStub();
   const harness = opts.harness ?? makeHarnessStub();
+  const catalog = opts.catalog ?? makeCatalogStub();
+  const appState: AppStateStub = makeAppStateStub();
   TestBed.configureTestingModule({
     imports: [SkillClonesViewComponent],
     providers: [
       { provide: SkillClonesStateService, useValue: state },
       { provide: SkillSynthesisRpcService, useValue: rpc },
       { provide: HarnessHealthStore, useValue: harness },
+      { provide: PluginCatalogService, useValue: catalog },
+      { provide: AppStateManager, useValue: appState },
       themeServiceProvider,
       {
         provide: VSCodeService,
@@ -360,6 +403,8 @@ function setup(opts: {
     state,
     rpc,
     harness,
+    catalog,
+    appState,
     el,
     q,
     all,
@@ -437,21 +482,45 @@ describe('SkillClonesViewComponent — detail drawer', () => {
     ['skill', 0],
     ['agent', 1],
     ['command', 2],
-  ] as const)('keeps %s card and drawer use and grade in sync', (kind, tabIndex) => {
-    const entry = clone({ kind, slug: `${kind}-entry`, invocationCount: 3, successRate: null });
-    const state = makeStateStub([entry]);
-    const { el, selectTab, openFirstCard } = setup({ state });
-    selectTab(tabIndex);
+  ] as const)(
+    'keeps %s card and drawer use and grade in sync',
+    (kind, tabIndex) => {
+      const entry = clone({
+        kind,
+        slug: `${kind}-entry`,
+        invocationCount: 3,
+        successRate: null,
+      });
+      const state = makeStateStub([entry]);
+      const { el, selectTab, openFirstCard } = setup({ state });
+      selectTab(tabIndex);
 
-    const card = el().querySelector('ptah-clone-card');
-    expect(card?.querySelector('[data-testid="clone-metric-invocations"]')?.textContent?.trim()).toBe('3');
-    expect(card?.querySelector('[data-testid="clone-metric-success"]')?.textContent?.trim()).toBe('No grade');
+      const card = el().querySelector('ptah-clone-card');
+      expect(
+        card
+          ?.querySelector('[data-testid="clone-metric-invocations"]')
+          ?.textContent?.trim(),
+      ).toBe('3');
+      expect(
+        card
+          ?.querySelector('[data-testid="clone-metric-success"]')
+          ?.textContent?.trim(),
+      ).toBe('No grade');
 
-    openFirstCard();
-    const drawer = el().querySelector('ptah-clone-detail-drawer');
-    expect(drawer?.querySelector('[data-testid="clone-metric-invocations"]')?.textContent?.trim()).toBe('3');
-    expect(drawer?.querySelector('[data-testid="clone-metric-success"]')?.textContent?.trim()).toBe('No grade');
-  });
+      openFirstCard();
+      const drawer = el().querySelector('ptah-clone-detail-drawer');
+      expect(
+        drawer
+          ?.querySelector('[data-testid="clone-metric-invocations"]')
+          ?.textContent?.trim(),
+      ).toBe('3');
+      expect(
+        drawer
+          ?.querySelector('[data-testid="clone-metric-success"]')
+          ?.textContent?.trim(),
+      ).toBe('No grade');
+    },
+  );
 
   it('opens the drawer and lazily loads detail when a card is activated', () => {
     const state = makeStateStub([clone()]);
@@ -620,7 +689,9 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
     const state = makeStateStub([clone()]);
     const rpc = makeRpcStub();
     rpc.saveCloneBody.mockRejectedValueOnce(
-      new Error('This clone changed since the draft was created. Preview it again before saving.'),
+      new Error(
+        'This clone changed since the draft was created. Preview it again before saving.',
+      ),
     );
     const { click, q } = setup({ state, rpc });
 
@@ -1462,10 +1533,12 @@ describe('SkillClonesViewComponent — body save', () => {
     function realStateSetup() {
       const resolvers = new Map<string, (d: Detail) => void>();
       const rpc = {
-        listClones: jest.fn(async () => [
-          clone({ slug: 'alpha', kind: 'skill' }),
-          clone({ slug: 'beta', kind: 'skill' }),
-        ]),
+        listClones: jest.fn(async () => ({
+          clones: [
+            clone({ slug: 'alpha', kind: 'skill' }),
+            clone({ slug: 'beta', kind: 'skill' }),
+          ],
+        })),
         getScorecards: jest.fn(async () => ({})),
         getClone: jest.fn(
           (slug: string) =>
@@ -1481,6 +1554,8 @@ describe('SkillClonesViewComponent — body save', () => {
           // The view now injects the harness store (Agents tab); this test
           // stays on the Skills tab, so the stub is never called.
           { provide: HarnessHealthStore, useValue: makeHarnessStub() },
+          { provide: PluginCatalogService, useValue: makeCatalogStub() },
+          { provide: AppStateManager, useValue: makeAppStateStub() },
           themeServiceProvider,
           { provide: VSCodeService, useValue: vscodeServiceStub(true) },
         ],
@@ -1575,5 +1650,128 @@ describe('SkillClonesViewComponent — body save', () => {
     expect(state.refreshClones).toHaveBeenCalledTimes(1);
     // The draft survives a failure: edit mode is still up (R3.3 failure path).
     expect(q('clone-body-editor')).toBeTruthy();
+  });
+});
+
+describe('SkillClonesViewComponent — Library alignment (F6)', () => {
+  const home = (
+    state: PluginConfigHomeStatus['state'],
+  ): PluginConfigHomeStatus => ({
+    harnessRoot: '/repo',
+    state,
+    candidates: [],
+  });
+
+  it('empty Agents tab: new copy and "Open setup wizard" through setCurrentView (A-nav)', async () => {
+    const { selectTab, q, appState, fixture } = setup({});
+    selectTab(1);
+    fixture.detectChanges();
+
+    expect(q('clones-empty')?.textContent).toContain(
+      'No agents in your Library yet. Agents arrive from the setup wizard, from files in .claude/agents, or from plugins that ship agents.',
+    );
+    const open = q<HTMLButtonElement>('clones-open-wizard');
+    expect(open?.textContent).toContain('Open setup wizard');
+    open?.click();
+    expect(appState.setCurrentView).toHaveBeenCalledWith('setup-wizard');
+  });
+
+  it('offers the wizard only on the empty Agents tab, not while loading or filtered', () => {
+    const state = makeStateStub();
+    const { selectTab, q, fixture } = setup({ state });
+    expect(q('clones-open-wizard')).toBeNull(); // Skills tab
+
+    selectTab(1);
+    state.loading.set(true);
+    fixture.detectChanges();
+    expect(q('clones-open-wizard')).toBeNull();
+
+    state.loading.set(false);
+    fixture.componentInstance.divergedOnly.set(true);
+    fixture.detectChanges();
+    expect(q('clones-open-wizard')).toBeNull();
+  });
+
+  it.each(['conflict', 'differs'] as const)(
+    'shows the plugin-settings pointer (role=status) for %s and links to Skills & Plugins',
+    (state) => {
+      const { q, appState } = setup({ catalog: makeCatalogStub(home(state)) });
+      const pointer = q('clones-plugin-settings-pointer');
+      expect(pointer?.getAttribute('role')).toBe('status');
+      expect(pointer?.textContent).toContain(
+        'This repository has plugin settings that need a choice.',
+      );
+      const link = q<HTMLButtonElement>('clones-plugin-settings-open');
+      expect(link?.textContent).toContain('Open Skills & Plugins');
+      link?.click();
+      expect(appState.openMarketplace).toHaveBeenCalledWith({ page: 'skills' });
+    },
+  );
+
+  it.each([null, 'home', 'imported'] as const)(
+    'hides the plugin-settings pointer for %s',
+    (state) => {
+      const { q } = setup({
+        catalog: makeCatalogStub(state === null ? null : home(state)),
+      });
+      expect(q('clones-plugin-settings-pointer')).toBeNull();
+    },
+  );
+
+  it('the pointer is Electron only, and VS Code reads no catalog', () => {
+    const catalog = makeCatalogStub(home('conflict'));
+    const { q } = setup({ isElectron: false, catalog });
+    expect(q('clones-plugin-settings-pointer')).toBeNull();
+    expect(catalog.ensureLoaded).not.toHaveBeenCalled();
+  });
+
+  it('reads the plugin catalog on mount in Electron', () => {
+    const { catalog } = setup({});
+    expect(catalog.ensureLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('a workspace switch re-reads the list and the catalog once each', () => {
+    const { state, catalog, fixture } = setup({});
+    expect(state.refreshClones).toHaveBeenCalledTimes(1);
+    const config = TestBed.inject(VSCodeService).config as unknown as {
+      set(value: { isElectron: boolean; workspaceRoot?: string }): void;
+    };
+
+    config.set({ isElectron: true, workspaceRoot: '/ws-b' });
+    fixture.detectChanges();
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+    expect(catalog.ensureLoaded).toHaveBeenCalledTimes(2);
+
+    // Same root again: nothing.
+    config.set({ isElectron: true, workspaceRoot: '/ws-b' });
+    fixture.detectChanges();
+    expect(state.refreshClones).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders the "Library updated" line as role=status and the failure as role=alert', () => {
+    const state = makeStateStub();
+    const { q, fixture } = setup({ state });
+
+    state.libraryNotice.set({
+      kind: 'updated',
+      message: 'Library updated: 2 agents added by the setup wizard.',
+    });
+    fixture.detectChanges();
+    expect(q('clones-library-updated')?.getAttribute('role')).toBe('status');
+    expect(q('clones-library-updated')?.textContent).toContain(
+      'Library updated: 2 agents added by the setup wizard.',
+    );
+
+    state.libraryNotice.set({ kind: 'failed', message: 'Could not refresh' });
+    fixture.detectChanges();
+    expect(q('clones-library-updated')).toBeNull();
+    expect(q('clones-library-failed')?.getAttribute('role')).toBe('alert');
+  });
+
+  it('opening a card clears the feed line', () => {
+    const state = makeStateStub([clone()]);
+    const { openFirstCard } = setup({ state });
+    openFirstCard();
+    expect(state.clearLibraryNotice).toHaveBeenCalledTimes(1);
   });
 });

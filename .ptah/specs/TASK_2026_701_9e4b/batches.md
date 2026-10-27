@@ -1094,7 +1094,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/skill-synthesis-ui,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 23: Library view, state refresh and settings pointer (F6 part 2) — PENDING
+## Batch 23: Library view, state refresh and settings pointer (F6 part 2) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1105,7 +1105,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 21, 22
 - Phase: P3 | Phase review: P3 code-logic + visual (F6 pointer is a D14 addition, D15)
 
-### Task 23.1: Feed-driven refresh, empty Agents copy, model-editor help, plugin-settings pointer — PENDING
+### Task 23.1: Feed-driven refresh, empty Agents copy, model-editor help, plugin-settings pointer — COMPLETE
 
 - Files: MODIFY `libs/frontend/skill-synthesis-ui/src/lib/components/clones/skill-clones-view.component.ts` (+ spec), `agent-model-editor.component.ts` (+ spec), `libs/frontend/skill-synthesis-ui/src/lib/services/skill-clones-state.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1270-1297

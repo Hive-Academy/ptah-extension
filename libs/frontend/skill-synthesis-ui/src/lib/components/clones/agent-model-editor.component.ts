@@ -95,6 +95,13 @@ export const GUARD_FAILED_COPY =
 const NO_FOLDER_COPY = 'Open a workspace folder to set per-agent models.';
 const WORKSPACE_CHANGED_COPY =
   'The workspace changed, so nothing was saved. Models were reloaded.';
+/**
+ * Task 5.4 / design 3.8: the Claude model here is the setting the wizard
+ * reads, so the editor says so. Shown for the Claude row only, because only
+ * the Claude model is written into the generated agent file.
+ */
+export const CLAUDE_MODEL_HELP_COPY =
+  'The setup wizard writes this model into the agent file the next time it generates this agent. This is the same setting the wizard preview shows.';
 /** The save landed but its reconcile was skipped: a pass was already active. */
 export const SYNC_SKIPPED_COPY =
   'Saved; provider copies not updated: a sync was already running.';
@@ -302,6 +309,7 @@ let nextEditorId = 0;
                           class="input input-xs input-bordered min-w-0 flex-1 font-mono"
                           [id]="fieldId + '-input'"
                           [attr.list]="fieldId + '-list'"
+                          [attr.aria-describedby]="describedBy(row.provider)"
                           [placeholder]="placeholder(row.provider)"
                           autocomplete="off"
                           spellcheck="false"
@@ -337,9 +345,19 @@ let nextEditorId = 0;
                         </button>
                       </div>
 
+                      @if (row.provider === 'claude') {
+                        <p
+                          class="text-base-content-muted"
+                          [id]="fieldId + '-help'"
+                          data-testid="agent-model-claude-help"
+                        >
+                          {{ claudeModelHelpCopy }}
+                        </p>
+                      }
                       <p
                         class="text-base-content-muted"
                         [class.text-error]="draftClass() === 'malformed'"
+                        [id]="fieldId + '-hint'"
                         data-testid="agent-model-draft-class"
                       >
                         {{ draftHint() }}
@@ -454,6 +472,7 @@ export class AgentModelEditorComponent {
   protected readonly guardFailedCopy = GUARD_FAILED_COPY;
   protected readonly noFolderCopy = NO_FOLDER_COPY;
   protected readonly wholeWorkspaceNotice = RECONCILE_WHOLE_WORKSPACE_NOTICE;
+  protected readonly claudeModelHelpCopy = CLAUDE_MODEL_HELP_COPY;
 
   protected readonly edit = signal<EditState | null>(null);
   protected readonly draft = signal('');
@@ -484,6 +503,12 @@ export class AgentModelEditorComponent {
         this.notice.set(null);
       });
     });
+  }
+
+  /** The input's descriptions: the Claude help (Claude only), then the draft hint. */
+  protected describedBy(provider: AgentModelProvider): string {
+    const hint = `${this.fieldId}-hint`;
+    return provider === 'claude' ? `${this.fieldId}-help ${hint}` : hint;
   }
 
   protected readonly rows = computed<ModelRow[]>(() => {
