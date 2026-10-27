@@ -2474,6 +2474,47 @@ export class AgentMonitorStore implements OnDestroy {
   }
 
   /**
+   * Terminalise a subagent from the `session:subagentEnded` push (the
+   * backend `SubagentStop` hook), keyed by its Task tool_use id.
+   *
+   * Backstop for a subagent that has no other completion signal in the
+   * stream: a Task the SDK backgrounded by default gets the "launched in the
+   * background" placeholder tool_result (which must not terminalise it, see
+   * {@link onTaskToolResult}), and its `agent_completed` can be missing. The
+   * SubagentStop hook fires once the agent has actually finished, so a record
+   * still `pending`/`running` moves to `completed`.
+   *
+   * Same invariant as {@link onTaskToolResult}: a terminal status already set
+   * by `agent_completed` / `agent_status` / a stop is never overridden, and an
+   * unknown `toolCallId` is a no-op. `summary` (the agent's last assistant
+   * message) fills `latestSummary` only when present.
+   */
+  onSubagentEnded(
+    toolCallId: string,
+    summary?: string,
+    timestamp?: number,
+  ): void {
+    this._subagents.update((map) => {
+      const existing = map.get(toolCallId);
+      if (!existing) return map;
+      if (existing.status !== 'pending' && existing.status !== 'running') {
+        return map;
+      }
+      const next = new Map(map);
+      next.set(toolCallId, {
+        ...existing,
+        status: 'completed',
+        latestSummary: summary || existing.latestSummary,
+        completedAt:
+          timestamp !== undefined && Number.isFinite(timestamp)
+            ? timestamp
+            : Date.now(),
+      });
+      return next;
+    });
+  }
+
+  /**
    * Send a follow-up ("steer") message into a running subagent.
    *
    * `sessionId` is the session that OWNS the subagent. Callers that know it

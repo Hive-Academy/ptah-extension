@@ -24,6 +24,7 @@ import {
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
+  AgentMonitorStore,
   BackgroundAgentStore,
   type BackgroundAgentEntry,
 } from '@ptah-extension/chat-streaming';
@@ -123,6 +124,7 @@ describe('TurnEndHandlerService — background fallback', () => {
   let handleChatErrorMock: jest.Mock;
   let onStoppedMock: jest.Mock;
   let findByAgentIdMock: jest.Mock;
+  let onSubagentEndedMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   const knownEntry: BackgroundAgentEntry = {
@@ -148,6 +150,7 @@ describe('TurnEndHandlerService — background fallback', () => {
     handleChatErrorMock = jest.fn();
     onStoppedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
+    onSubagentEndedMock = jest.fn();
 
     // Snapshot setters only — see turn-end-handler.service.spec.ts.
     const tabManagerMock = {
@@ -166,6 +169,7 @@ describe('TurnEndHandlerService — background fallback', () => {
     const backgroundAgentStoreMock = {
       onStopped: onStoppedMock,
       findByAgentId: findByAgentIdMock,
+      adoptRealAgentId: jest.fn().mockReturnValue(null),
     } as unknown as BackgroundAgentStore;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
@@ -176,6 +180,12 @@ describe('TurnEndHandlerService — background fallback', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatLifecycleService, useValue: lifecycleMock },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStoreMock },
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            onSubagentEnded: onSubagentEndedMock,
+          } as unknown as AgentMonitorStore,
+        },
       ],
     });
     service = TestBed.inject(TurnEndHandlerService);
@@ -353,6 +363,46 @@ describe('TurnEndHandlerService — background fallback', () => {
 
       expect(updateBackgroundTabMock).not.toHaveBeenCalled();
       expect(setPendingBackgroundTasksMock).toHaveBeenCalledWith('bg-tab', []);
+    });
+  });
+
+  describe('handleSubagentEnded AgentMonitorStore backstop', () => {
+    it('finishes the monitor record for the payload toolCallId', () => {
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({
+          toolCallId: 'toolu_task',
+          lastAssistantMessage: 'sub done',
+          timestamp: 1_700_000_000_500,
+        }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledTimes(1);
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        'sub done',
+        1_700_000_000_500,
+      );
+    });
+
+    it('passes no summary when the hook carried no last message', () => {
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({
+          toolCallId: 'toolu_task',
+          lastAssistantMessage: null,
+        }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        undefined,
+        1_700_000_000_000,
+      );
+    });
+
+    it('does not touch the monitor store without a toolCallId', () => {
+      service.handleSubagentEnded(makeSubagentEndedPayload());
+
+      expect(onSubagentEndedMock).not.toHaveBeenCalled();
     });
   });
 

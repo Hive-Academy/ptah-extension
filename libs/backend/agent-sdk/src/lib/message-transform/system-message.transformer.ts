@@ -225,11 +225,6 @@ export class SystemMessageTransformer {
       return [];
     }
 
-    if (state.isTaskStartedEmitted(toolUseId)) {
-      return [];
-    }
-    state.markTaskStartedEmitted(toolUseId);
-
     // `sessionId` already IS `callerSessionId || msg.session_id || undefined` —
     // `SdkMessageTransformer.transform` resolves it off this same object before
     // dispatching here. The old `?? (msg.session_id as SessionId)` was not just
@@ -238,6 +233,38 @@ export class SystemMessageTransformer {
     // straight back in as a fake id.
     const resolvedSession = sessionId;
     const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+
+    // A task registered in the background from the start never gets a
+    // task_updated is_backgrounded patch, so announce it here or the
+    // background tray never learns about it. That covers a subagent resumed
+    // via SendMessage (always backgrounded) and a Task tool spawn the SDK
+    // backgrounds by default — the latter OMITS `run_in_background` from the
+    // tool input, so the assistant transformer neither classified it as
+    // background nor held back its agent_start.
+    const announceIfBackgrounded = (): BackgroundAgentStartedEvent | null =>
+      msg.is_backgrounded === true
+        ? this.announceBackgrounded({
+            state,
+            toolUseId,
+            taskId: msg.task_id,
+            description: msg.description,
+            fallbackAgentType: msg.subagent_type,
+            sessionId: resolvedSession,
+            messageId,
+            helpers,
+            origin: 'task_started',
+          })
+        : null;
+
+    // The assistant transformer already emitted agent_start from the Task
+    // tool_use. Only the background announcement can still be new here, and
+    // `announceBackgrounded` dedups that on its own.
+    if (state.isTaskStartedEmitted(toolUseId)) {
+      const bgEvent = announceIfBackgrounded();
+      return bgEvent ? [bgEvent] : [];
+    }
+    state.markTaskStartedEmitted(toolUseId);
+
     const workflowRun = state.getWorkflowRun(toolUseId);
     const record = helpers.subagentRegistry.get(toolUseId);
 
@@ -269,28 +296,8 @@ export class SystemMessageTransformer {
       toolUseId,
     });
 
-    // A task registered in the background from the start — notably a subagent
-    // resumed via SendMessage, which the SDK always backgrounds — never gets a
-    // task_updated is_backgrounded patch, so announce it here or the
-    // background tray never learns about it.
-    if (msg.is_backgrounded === true) {
-      const bgEvent = this.announceBackgrounded({
-        state,
-        toolUseId,
-        taskId: msg.task_id,
-        description: msg.description,
-        fallbackAgentType: msg.subagent_type,
-        sessionId: resolvedSession,
-        messageId,
-        helpers,
-        origin: 'task_started',
-      });
-      if (bgEvent) {
-        return [event, bgEvent];
-      }
-    }
-
-    return [event];
+    const bgEvent = announceIfBackgrounded();
+    return bgEvent ? [event, bgEvent] : [event];
   }
 
   transformTaskProgress(

@@ -686,6 +686,156 @@ describe('SystemMessageTransformer', () => {
         );
       });
     });
+
+    describe('is_backgrounded after the Task tool_use already emitted agent_start', () => {
+      // The SDK backgrounds Task-tool subagents by default and OMITS
+      // `run_in_background` from the tool input, so the assistant transformer
+      // emits agent_start (and marks it emitted) without classifying the
+      // spawn as background. task_started is then the only signal.
+      const defaultBgMsg = (isBackgrounded?: boolean) =>
+        ({
+          task_id: 'task-default-bg',
+          tool_use_id: 'toolu_task',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          subagent_type: 'Explore',
+          description: 'Survey the repo',
+          is_backgrounded: isBackgrounded,
+        }) as never;
+
+      function makeRegistryBackedHelpers() {
+        const helpers = makeHelpers();
+        const records = new Map<string, Record<string, unknown>>([
+          [
+            'toolu_task',
+            {
+              toolCallId: 'toolu_task',
+              status: 'running',
+              isBackground: false,
+              agentType: 'Explore',
+            },
+          ],
+        ]);
+        (helpers.subagentRegistry.get as jest.Mock).mockImplementation(
+          (id: string) => records.get(id) ?? null,
+        );
+        (helpers.subagentRegistry.update as jest.Mock).mockImplementation(
+          (id: string, patch: Record<string, unknown>) => {
+            records.set(id, { ...records.get(id), ...patch });
+          },
+        );
+        return { helpers, records };
+      }
+
+      it('announces the background agent exactly once and no second agent_start', () => {
+        const { helpers, records } = makeRegistryBackedHelpers();
+        state.isTaskStartedEmitted.mockReturnValue(true);
+
+        const first = transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+        expect(first.map((e) => e.eventType)).toEqual([
+          'background_agent_started',
+        ]);
+        expect(first[0]).toMatchObject({
+          toolCallId: 'toolu_task',
+          agentType: 'Explore',
+          agentDescription: 'Survey the repo',
+          sessionId: 'sess',
+        });
+        expect(state.markTaskStartedEmitted).not.toHaveBeenCalled();
+        expect(records.get('toolu_task')).toMatchObject({
+          status: 'background',
+          isBackground: true,
+        });
+
+        // A repeated task_started (or a later task_updated) never re-announces.
+        const again = transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+        expect(again).toEqual([]);
+        expect(state.markBackgroundAnnounced).toHaveBeenCalledTimes(1);
+        expect(state.markBackgroundAnnounced).toHaveBeenCalledWith(
+          'toolu_task',
+          'task_started',
+        );
+      });
+
+      it('settles the tray entry with a background terminal event on task_notification', () => {
+        const { helpers } = makeRegistryBackedHelpers();
+        state.isTaskStartedEmitted.mockReturnValue(true);
+        transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        state.getTaskParentToolUseId.mockReturnValue('toolu_task');
+        const settled = transformer.transformTaskNotification(
+          {
+            task_id: 'task-default-bg',
+            tool_use_id: 'toolu_task',
+            status: 'completed',
+            summary: 'done',
+          } as never,
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(
+          settled.filter((e) => e.eventType === 'background_agent_completed'),
+        ).toEqual([
+          expect.objectContaining({ toolCallId: 'toolu_task', result: 'done' }),
+        ]);
+      });
+
+      it.each([false, undefined])(
+        'stays silent when is_backgrounded is %s',
+        (flag) => {
+          const { helpers } = makeRegistryBackedHelpers();
+          state.isTaskStartedEmitted.mockReturnValue(true);
+
+          const events = transformer.transformTaskStarted(
+            defaultBgMsg(flag),
+            state,
+            helpers,
+            'sess' as never,
+          );
+
+          expect(events).toEqual([]);
+          expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
+          expect(state.markBackgroundAnnounced).not.toHaveBeenCalled();
+        },
+      );
+
+      it('stays silent when the spawn was already classified as background', () => {
+        const { helpers, records } = makeRegistryBackedHelpers();
+        records.set('toolu_task', {
+          toolCallId: 'toolu_task',
+          status: 'background',
+          isBackground: true,
+        });
+        state.isTaskStartedEmitted.mockReturnValue(true);
+
+        const events = transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(events).toEqual([]);
+        expect(state.markBackgroundAnnounced).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('task_progress', () => {

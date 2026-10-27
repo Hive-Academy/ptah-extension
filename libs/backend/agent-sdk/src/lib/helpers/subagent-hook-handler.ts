@@ -400,9 +400,11 @@ export class SubagentHookHandler {
    * (for UI routing), stops file watching, and marks the subagent
    * as 'completed' in the registry.
    *
-   * For background agents: marks as 'background_completed' and emits
-   * a BackgroundAgentCompletedEvent through the agent watcher so the
-   * webview is notified even after the main turn has completed.
+   * For background agents: marks the registry record as
+   * 'background_completed'. This handler emits no stream event; the webview
+   * learns of the completion from the SDK `task_notification` (see
+   * `SystemMessageTransformer.transformTaskNotification`) and from the
+   * `session:subagentEnded` broadcast fed by the stop-callback fan-out below.
    *
    * @param input - SubagentStop hook input containing agentId, transcriptPath, etc.
    * @param toolUseId - Task tool_use ID (usually available at stop)
