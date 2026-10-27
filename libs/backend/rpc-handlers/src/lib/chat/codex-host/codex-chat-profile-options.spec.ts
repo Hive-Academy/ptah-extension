@@ -28,7 +28,7 @@ describe('classifyCodexChatOptions', () => {
     expect(classifyCodexChatOptions(config)).toEqual({
       supported: config,
       stripped: [],
-      rejected: [],
+      rejected: [], mcpServerNames: [],
     });
     expect(classifyCodexChatOptions(config).supported).not.toBe(config);
   });
@@ -36,7 +36,7 @@ describe('classifyCodexChatOptions', () => {
   it('accepts the coding tool profile for the UI hint gate', () => {
     const mcpToolProfile = 'coding';
     expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
-      supported: { ptahUiFence: true, mcpToolProfile }, stripped: [], rejected: [],
+      supported: { ptahUiFence: true, mcpToolProfile }, stripped: [], rejected: [], mcpServerNames: [],
     });
   });
 
@@ -46,14 +46,14 @@ describe('classifyCodexChatOptions', () => {
       expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
         supported: { ptahUiFence: true },
         stripped: [],
-        rejected: ['mcpToolProfile'],
+        rejected: ['mcpToolProfile'], mcpServerNames: [],
       });
     },
   );
 
   it.each([true, false])('accepts the UI fence when %s', (ptahUiFence) => {
     expect(classifyCodexChatOptions({ ptahUiFence })).toEqual({
-      supported: { ptahUiFence }, stripped: [], rejected: [],
+      supported: { ptahUiFence }, stripped: [], rejected: [], mcpServerNames: [],
     });
   });
 
@@ -73,15 +73,13 @@ describe('classifyCodexChatOptions', () => {
         'includePartialMessages',
         'mcpServersOverride',
       ],
-      rejected: [],
+      rejected: [], mcpServerNames: [],
     });
     expect(config.mcpServerRunning).toBe(value);
   });
 
   it.each([
-    ['mcpServersOverride', { private: { url: 'secret' } }],
-    ['thinking', { enabled: true }],
-    ['outputStyleName', 'concise'],
+    ['temperature', 0.5],
 
     ['futureOption', null],
     ['futureOption', false],
@@ -91,7 +89,26 @@ describe('classifyCodexChatOptions', () => {
     expect(classifyCodexChatOptions({ [key]: value })).toEqual({
       supported: {},
       stripped: [],
-      rejected: [key],
+      rejected: [key], mcpServerNames: [],
+    });
+  });
+
+  it('strips ambient options and exposes only sorted MCP server names', () => {
+    const config = Object.freeze({
+      mcpServersOverride: {
+        smithery: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+        oauth: { url: 'https://example.invalid/oauth' },
+      },
+      thinking: { type: 'adaptive' },
+      outputStyleName: 'Explanatory',
+      effort: 'high',
+      outputStyleBody: 'style',
+    });
+    expect(classifyCodexChatOptions(config)).toEqual({
+      supported: { effort: 'high', outputStyleBody: 'style' },
+      stripped: ['mcpServersOverride', 'thinking', 'outputStyleName'],
+      rejected: [],
+      mcpServerNames: ['oauth', 'smithery'],
     });
   });
 
@@ -105,17 +122,17 @@ describe('classifyCodexChatOptions', () => {
       outputStyleName: undefined,
       mcpServersOverride: undefined,
       futureOption: undefined,
-    })).toEqual({ supported: {}, stripped: [], rejected: [] });
+    })).toEqual({ supported: {}, stripped: [], rejected: [], mcpServerNames: [] });
   });
 
   it('exports a coded error naming only the rejected key', () => {
-    const error = new CodexChatOptionError('thinking');
+    const error = new CodexChatOptionError('temperature');
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({
       name: 'CodexChatOptionError',
       code: 'unsupported-option',
-      key: 'thinking',
-      message: 'Codex chat does not support the "thinking" option.',
+      key: 'temperature',
+      message: 'Codex chat does not support the "temperature" option.',
     });
   });
 });

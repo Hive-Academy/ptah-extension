@@ -24,6 +24,9 @@ const stripped = new Set([
   'mcpServerRunning',
   'workflowsDisabled',
   'includePartialMessages',
+  'mcpServersOverride',
+  'thinking',
+  'outputStyleName',
 ]);
 
 type SupportedOptions<T> = T extends object
@@ -44,18 +47,16 @@ export function classifyCodexChatOptions<T extends object>(config: T) {
   const entries: [string, unknown][] = [];
   const strippedKeys: string[] = [];
   const rejected: string[] = [];
+  let mcpServerNames: string[] = [];
   for (const [key, value] of Object.entries(config)) {
     if (value === undefined) continue;
     if (supported.has(key) || (key === 'mcpToolProfile' && value === 'coding')) {
       entries.push([key, value]);
-    } else if (
-      stripped.has(key) ||
-      (key === 'mcpServersOverride' &&
-        value !== null &&
-        typeof value === 'object' &&
-        Object.keys(value).length === 0)
-    ) {
+    } else if (stripped.has(key)) {
       strippedKeys.push(key);
+      if (key === 'mcpServersOverride' && value !== null && typeof value === 'object') {
+        mcpServerNames = Object.keys(value).sort();
+      }
     } else {
       rejected.push(key);
     }
@@ -64,5 +65,6 @@ export function classifyCodexChatOptions<T extends object>(config: T) {
     supported: Object.fromEntries(entries) as SupportedOptions<T>,
     stripped: strippedKeys,
     rejected,
+    mcpServerNames,
   };
 }

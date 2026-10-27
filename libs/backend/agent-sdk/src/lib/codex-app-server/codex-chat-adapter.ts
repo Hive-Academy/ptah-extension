@@ -84,6 +84,8 @@ export interface CodexChatAdapterPorts {
   readonly logger: Logger;
   readonly platform: CodexParityPlatform;
   readonly info: ProviderInfo;
+  /** Throws the host's coded option error for unreviewed keys; strips ambient keys. */
+  checkOptions(config: AgentSessionResumeConfig): void;
   /** Build a validated profile from this session (never focused provider state).
    * Load native resume identity, enforce immutable home/workspace/provider, and
    * reject unsupported caller options rather than dropping them. */
@@ -137,8 +139,12 @@ export interface CodexChatSessionLifecycle {
 }
 
 /** Thin native consumer. No SDK, proxy, transcript storage, or protocol parsing. */
+type TrackedSession = Session & {
+  settings: Pick<CodexExecutionProfile, 'model' | 'effort' | 'permissionLevel'>;
+};
+
 export class CodexChatAdapter implements NativeChatAdapter {
-  private readonly sessions = new Map<SessionId, Session>();
+  private readonly sessions = new Map<SessionId, TrackedSession>();
   private readonly opening = new Map<string, { cancelled: boolean }>();
   private disposed = false;
   private generation = 0;
@@ -208,14 +214,21 @@ export class CodexChatAdapter implements NativeChatAdapter {
     config: AgentSessionResumeConfig = {},
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (this.sessions.has(id)) {
-      if (
-        Object.entries(config).some(
-          ([key, value]) =>
-            value !== undefined && !['prompt', 'tabId'].includes(key),
-        )
-      )
-        this.unsupported('activeResumeConfig');
-      return this.turn(this.session(id), { text: config.prompt ?? '' });
+      this.ports.checkOptions(config);
+      const session = this.session(id);
+      const keys = (['model', 'effort', 'permissionLevel'] as const).filter(
+        key => config[key] !== undefined && config[key] !== session.settings[key],
+      );
+      if (keys.length > 0) {
+        this.ports.logger.info(
+          'Codex chat: changed session options are not applied to the open thread.',
+          { code: 'codex-active-resume-options-not-applied', keys },
+        );
+      }
+      // Session-level options are not reapplied to an open thread. Differences
+      // from its retained model/effort/permissionLevel are reported by name only;
+      // other supported inputs (such as systemPrompt) remain unapplied.
+      return this.turn(session, { text: config.prompt ?? '' });
     }
     return this.open(config, id);
   }
@@ -254,7 +267,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       this.checkOpening(opening, generation);
       if (this.sessions.has(id))
         throw new CodexChatAdapterError('busy', 'open');
-      session = this.publishSession(id, context, sink, scope);
+      session = this.publishSession(id, context, sink, scope, prepared.profile);
       this.resolved?.(config.tabId, id);
       return this.turn(session, {
         text: config.prompt ?? '',
@@ -340,8 +353,14 @@ export class CodexChatAdapter implements NativeChatAdapter {
     context: CodexContext,
     sink: CodexChatApprovalSink,
     scope: CodexChatScope,
-  ): Session {
-    const session: Session = {
+    profile: CodexExecutionProfile,
+  ): TrackedSession {
+    const session: TrackedSession = {
+      settings: {
+        model: profile.model,
+        effort: profile.effort,
+        permissionLevel: profile.permissionLevel,
+      },
       id,
       token: randomUUID(),
       context,
@@ -647,23 +666,29 @@ export class CodexChatAdapter implements NativeChatAdapter {
       level === 'bypassPermissions'
     )
       this.unsupported('permissionAlias');
+    const session = this.session(id);
     await this.safe('permission', () =>
-      this.session(id).context.updateNextTurn({ permissionLevel: level }),
+      session.context.updateNextTurn({ permissionLevel: level }),
     );
+    session.settings = { ...session.settings, permissionLevel: level };
   }
   async setSessionModel(
     ...[id, model]: Parameters<IAgentAdapter['setSessionModel']>
   ): Promise<void> {
+    const session = this.session(id);
     await this.safe('model', () =>
-      this.session(id).context.updateNextTurn({ model }),
+      session.context.updateNextTurn({ model }),
     );
+    session.settings = { ...session.settings, model };
   }
   async setSessionEffort(
     ...[id, effort]: Parameters<IAgentAdapter['setSessionEffort']>
   ): Promise<void> {
+    const session = this.session(id);
     await this.safe('effort', () =>
-      this.session(id).context.updateNextTurn({ effort }),
+      session.context.updateNextTurn({ effort }),
     );
+    session.settings = { ...session.settings, effort };
   }
   setSessionIdResolvedCallback(
     cb: Parameters<IAgentAdapter['setSessionIdResolvedCallback']>[0],
@@ -690,7 +715,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
   setWorktreeRemovedCallback(): void {
     this.unsupported('worktreeRemoved');
   }
-  private session(id: SessionId): Session {
+  private session(id: SessionId): TrackedSession {
     const session = this.sessions.get(id);
     if (!session || session.closing)
       throw new CodexChatAdapterError('unavailable', 'session');

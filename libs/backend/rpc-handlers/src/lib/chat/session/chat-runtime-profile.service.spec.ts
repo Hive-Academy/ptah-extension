@@ -220,7 +220,7 @@ describe('ChatRuntimeProfileService', () => {
       },
     });
     const result = await h.service.prepare({ workspaceId: workspace });
-    await h.service.publishModelSubstitution(result, {
+    await h.service.publishRuntimeNotices(result, {
       tabId: 'tab',
       sessionId,
     });
@@ -255,10 +255,69 @@ describe('ChatRuntimeProfileService', () => {
     ]);
   });
 
-  it('does not publish notices without a substitution', async () => {
+  it.each([
+    { mcp: true, style: false, text: 'Codex chat: MCP servers not attached: oauth, smithery' },
+    { mcp: false, style: true, text: "Codex chat: output style 'Explanatory' is not applied" },
+    { mcp: true, style: true, text: "Codex chat: MCP servers not attached: oauth, smithery\nCodex chat: output style 'Explanatory' is not applied" },
+  ])('publishes ambient notices once: $text', async ({ mcp, style, text }) => {
     const h = harness();
-    await h.service.publishModelSubstitution(
-      await h.service.prepare({ workspaceId: workspace }),
+    const result = await h.service.prepare({
+      workspaceId: workspace,
+      ...(mcp ? { mcpServersOverride: {
+        smithery: { type: 'http' as const, url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+        oauth: { type: 'http' as const, url: 'https://example.invalid/oauth' },
+      } } : {}),
+      ...(style ? { outputStyleName: 'Explanatory' } : {}),
+    });
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
+    expect(h.broadcastMessage).toHaveBeenNthCalledWith(2, 'chat:chunk',
+      expect.objectContaining({ event: expect.objectContaining({ eventType: 'text_delta', delta: text }) }),
+    );
+    for (const [type] of h.broadcastMessage.mock.calls) expect(type).toBe('chat:chunk');
+    const serialized = JSON.stringify(h.broadcastMessage.mock.calls);
+    for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x']) {
+      expect(serialized).not.toContain(value);
+    }
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not publish notices for Claude even with ambient options', async () => {
+    const h = harness({ runtime: 'claude-sdk', model: 'sonnet', providerProfile: undefined });
+    const result = await h.service.prepare({
+      workspaceId: workspace,
+      outputStyleName: 'Explanatory',
+      mcpServersOverride: { smithery: { type: 'http', url: 'https://example.invalid/mcp' } },
+    });
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+  });
+
+  it('combines model substitution and ambient lines in one notice', async () => {
+    const h = harness({
+      ...native,
+      modelSubstitution: { requested: 'unknown-model', used: 'gpt-5', reason: 'not-in-catalog' },
+    });
+    const result = await h.service.prepare({
+      workspaceId: workspace,
+      outputStyleName: 'Explanatory',
+      mcpServersOverride: { smithery: { type: 'http', url: 'https://example.invalid/mcp' } },
+    });
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
+    expect(h.broadcastMessage).toHaveBeenNthCalledWith(2, 'chat:chunk',
+      expect.objectContaining({ event: expect.objectContaining({
+        eventType: 'text_delta',
+        delta: 'Model notice: requested "unknown-model"; using "gpt-5".\nCodex chat: MCP servers not attached: smithery\nCodex chat: output style \'Explanatory\' is not applied',
+      }) }),
+    );
+  });
+
+  it('does not publish notices without applicable lines', async () => {
+    const h = harness();
+    await h.service.publishRuntimeNotices(
+      await h.service.prepare({ workspaceId: workspace, mcpServersOverride: {}, outputStyleName: '' }),
       { tabId: 'tab' },
     );
     expect(h.broadcastMessage).not.toHaveBeenCalled();
@@ -271,7 +330,7 @@ describe('ChatRuntimeProfileService', () => {
         modelSubstitution: { requested, used: 'gpt-5', reason: 'not-in-catalog' },
       });
       const result = await h.service.prepare({ workspaceId: workspace, model: requested });
-      await h.service.publishModelSubstitution(result, { tabId: 'tab' });
+      await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
       expect(h.broadcastMessage).not.toHaveBeenCalled();
     },
   );
@@ -283,11 +342,11 @@ describe('ChatRuntimeProfileService', () => {
     });
     const result = await h.service.prepare({ workspaceId: workspace, model: 'claude-opus' });
     await Promise.all([
-      h.service.publishModelSubstitution(result, { tabId: 'tab' }),
-      h.service.publishModelSubstitution(result, { tabId: 'tab' }),
+      h.service.publishRuntimeNotices(result, { tabId: 'tab' }),
+      h.service.publishRuntimeNotices(result, { tabId: 'tab' }),
     ]);
     expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
-    await h.service.publishModelSubstitution(result, { tabId: 'tab' });
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
     expect(h.broadcastMessage).toHaveBeenCalledTimes(3);
   });
 

@@ -48,7 +48,7 @@ function harness(
       Parameters<ChatRuntimeProfileService['prepare']>
     >()
     .mockResolvedValue(execution);
-  const publishModelSubstitution = jest.fn().mockResolvedValue(undefined);
+  const publishRuntimeNotices = jest.fn().mockResolvedValue(undefined);
   const compact = jest.fn().mockResolvedValue(undefined);
   const executeSlashCommand = jest.fn().mockResolvedValue([]);
   const resolveProviderProfileForWorkspace = jest.fn(() => {
@@ -79,7 +79,7 @@ function harness(
       streamBroadcaster: { streamEventsToWebview: jest.fn() },
       workspaceProviderProfileResolver: { resolveProviderProfileForWorkspace },
       metadata: { get: async () => ({ codexExecution: identity }) },
-      runtimeProfile: { prepare, publishModelSubstitution },
+      runtimeProfile: { prepare, publishRuntimeNotices },
       runtimeControls: { compact },
       manualCompactAdmission: {
         requestManualCompact: () => ({ action: 'send' }),
@@ -100,7 +100,7 @@ function harness(
     service,
     route,
     prepare,
-    publishModelSubstitution,
+    publishRuntimeNotices,
     compact,
     executeSlashCommand,
     resolveProviderProfileForWorkspace,
@@ -128,7 +128,7 @@ describe('native slash runtime routing', () => {
     expect(h.compact).toHaveBeenCalledWith(sessionId);
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
     expect(h.releaseManualReservation).toHaveBeenCalledWith(
       sessionId,
       'reservation',
@@ -149,14 +149,14 @@ describe('native slash runtime routing', () => {
       expect.objectContaining({ providerProfile: profile }),
     );
     expect(h.compact).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
   it('prepares slash relaunch before calling the routing adapter', async () => {
     const h = harness(native, 'review');
     h.executeSlashCommand.mockImplementation(async () => {
       expect(h.prepare).toHaveBeenCalledTimes(1);
-      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+      expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
       return [];
     });
     await expect(h.route()).resolves.toEqual({ success: true, sessionId });
@@ -168,12 +168,12 @@ describe('native slash runtime routing', () => {
       }),
     );
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
   });
 
   it('attaches the slash stream and succeeds when the model notice rejects', async () => {
     const h = harness(native, 'review');
-    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.route()).resolves.toEqual({ success: true, sessionId });
     expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
       sessionId, await h.executeSlashCommand.mock.results[0].value, 'tab',
@@ -193,7 +193,7 @@ describe('native slash runtime routing', () => {
     });
     expect(h.compact).not.toHaveBeenCalled();
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
   it('releases admission and returns a failure when native compact fails', async () => {
@@ -234,7 +234,7 @@ describe('native slash runtime routing', () => {
     const h = harness(native, 'review');
     h.executeSlashCommand.mockRejectedValue(new Error('busy'));
     await expect(h.route()).resolves.toMatchObject({ success: false, error: 'busy' });
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
   it('uses an explicit Claude identity when the metadata service is absent', async () => {
@@ -248,7 +248,7 @@ describe('native slash runtime routing', () => {
       version: 1, sessionId, runtime: 'claude-sdk', providerId: 'claude-cli',
       workspaceId: '/workspace',
     }, true);
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
   it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {

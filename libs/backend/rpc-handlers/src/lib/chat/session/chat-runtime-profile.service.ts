@@ -86,7 +86,7 @@ export function storedChatRuntimeIdentity(
 
 @injectable()
 export class ChatRuntimeProfileService {
-  private readonly publishedSubstitutions = new WeakSet<ResolvedChatExecution>();
+  private readonly publishedNotices = new WeakSet<ResolvedChatExecution>();
 
   constructor(
     @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
@@ -144,25 +144,34 @@ export class ChatRuntimeProfileService {
    * carried by the same CHAT_CHUNK start/text/complete protocol as the broadcaster.
    * It does not mark the turn idle or invent model usage.
    */
-  async publishModelSubstitution(
+  async publishRuntimeNotices(
     execution: ResolvedChatExecution,
     target: { readonly tabId: string; readonly sessionId?: string },
   ): Promise<void> {
     if (
       execution.runtime !== 'codex-app-server' ||
-      !execution.modelSubstitution
+      this.publishedNotices.has(execution)
     )
       return;
-    const { requested, used } = execution.modelSubstitution;
-    if (
-      !requested.trim() ||
-      requested.trim().toLowerCase() === 'default' ||
-      requested === used ||
-      this.publishedSubstitutions.has(execution)
-    ) {
-      return;
+    const lines: string[] = [];
+    if (execution.modelSubstitution) {
+      const { requested, used } = execution.modelSubstitution;
+      if (requested.trim() && requested.trim().toLowerCase() !== 'default' && requested !== used) {
+        lines.push(`Model notice: requested "${requested}"; using "${used}".`);
+      }
     }
-    this.publishedSubstitutions.add(execution);
+    const { config } = execution;
+    if ('mcpServersOverride' in config && config.mcpServersOverride) {
+      const names = Object.keys(config.mcpServersOverride).sort();
+      if (names.length > 0) {
+        lines.push(`Codex chat: MCP servers not attached: ${names.join(', ')}`);
+      }
+    }
+    if (typeof config.outputStyleName === 'string' && config.outputStyleName.length > 0) {
+      lines.push(`Codex chat: output style '${config.outputStyleName}' is not applied`);
+    }
+    if (lines.length === 0) return;
+    this.publishedNotices.add(execution);
     const messageId = randomUUID();
     const base = {
       messageId,
@@ -182,7 +191,7 @@ export class ChatRuntimeProfileService {
         id: randomUUID(),
         eventType: 'text_delta',
         blockIndex: 0,
-        delta: `Model notice: requested "${requested}"; using "${used}".`,
+        delta: lines.join('\n'),
       },
       { ...base, id: randomUUID(), eventType: 'message_complete' },
     ];

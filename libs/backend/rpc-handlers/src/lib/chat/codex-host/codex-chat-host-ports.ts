@@ -146,11 +146,33 @@ export function createCodexChatHostPorts(
     metadata: deps.metadata,
     approvals: deps.approvals,
     callbacks: (id, turn) => deps.callbacks(id, turn),
+    checkOptions(config) {
+      const { rejected } = classifyCodexChatOptions(config);
+      if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);
+      // Classification strips ambient inputs; active turns consume only the prompt.
+      // Profile notices belong to session preparation and must not repeat per turn.
+    },
     async profile(input, sessionId) {
-      const { supported: config, rejected } = classifyCodexChatOptions(input);
+      const { supported: config, rejected, stripped, mcpServerNames } = classifyCodexChatOptions(input);
       if (input.mcpServerRunning === true) {
         deps.logger.info('Ptah MCP is not attached to Codex chat.', {
           code: 'ptah-mcp-not-attached',
+        });
+      }
+      if (mcpServerNames.length > 0) {
+        deps.logger.info('User MCP servers are not attached to Codex chat.', {
+          code: 'codex-user-mcp-not-attached',
+          serverNames: mcpServerNames,
+        });
+      }
+      if (stripped.includes('thinking')) {
+        deps.logger.info('Thinking is not applied to Codex chat; Codex uses native effort.', {
+          code: 'codex-thinking-not-applied',
+        });
+      }
+      if (stripped.includes('outputStyleName')) {
+        deps.logger.info('Output style by name is not applied to Codex chat.', {
+          code: 'codex-output-style-not-applied',
         });
       }
       if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);

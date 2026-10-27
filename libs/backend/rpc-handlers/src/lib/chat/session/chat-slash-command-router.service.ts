@@ -400,15 +400,13 @@ export class ChatSlashCommandRouterService {
           },
         );
         if (execution.runtime === 'codex-app-server') {
-          if (execution.modelSubstitution) {
-            try {
-              await this.runtimeProfile?.publishModelSubstitution(execution, {
-                tabId,
-                sessionId,
-              });
-            } catch {
-              this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
-            }
+          try {
+            await this.runtimeProfile?.publishRuntimeNotices(execution, {
+              tabId,
+              sessionId,
+            });
+          } catch {
+            this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
           }
         }
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);

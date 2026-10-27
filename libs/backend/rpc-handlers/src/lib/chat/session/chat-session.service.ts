@@ -1001,12 +1001,9 @@ export class ChatSessionService {
           }
         : { model: execution.seed.model }),
     });
-    if (
-      execution.runtime === 'codex-app-server' &&
-      execution.modelSubstitution
-    ) {
+    if (execution.runtime === 'codex-app-server') {
       try {
-        await this.runtimeProfile?.publishModelSubstitution(execution, { tabId });
+        await this.runtimeProfile?.publishRuntimeNotices(execution, { tabId });
       } catch {
         this.logger.warn('[RPC] Model substitution notice failed; continuing session stream');
       }
@@ -1756,12 +1753,9 @@ export class ChatSessionService {
             }
           : { model: execution.seed.model }),
       });
-      if (
-        execution.runtime === 'codex-app-server' &&
-        execution.modelSubstitution
-      ) {
+      if (execution.runtime === 'codex-app-server') {
         try {
-          await this.runtimeProfile?.publishModelSubstitution(execution, {
+          await this.runtimeProfile?.publishRuntimeNotices(execution, {
             tabId,
             sessionId,
           });

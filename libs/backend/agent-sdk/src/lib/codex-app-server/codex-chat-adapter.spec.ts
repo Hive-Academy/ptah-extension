@@ -127,6 +127,7 @@ function setup(override = true) {
     cancelPrompt,
   );
   const ports: CodexChatAdapterPorts = {
+    checkOptions: jest.fn(),
     logger,
     platform: { platform: 'win32', arch: 'x64' },
     info: {
@@ -547,16 +548,73 @@ describe('CodexChatAdapter', () => {
     expect(ports.metadata.save).not.toHaveBeenCalled();
     expect(context.close).toHaveBeenCalledTimes(1);
   });
-  it('rejects live resume configuration rather than silently ignoring it', async () => {
-    const { adapter } = setup();
+  it('accepts renderer-shaped live resume options and sends the prompt without reapplying settings', async () => {
+    const { adapter, ports, context } = setup();
     const stream = await adapter.startChatSession({ tabId });
     for await (const event of stream) void event;
-    await expect(
-      adapter.resumeSession(id, { model: 'other' }),
-    ).rejects.toMatchObject({
-      code: 'unsupported',
-      operation: 'activeResumeConfig',
+    const config = {
+      projectPath: '/workspace', model: 'other', mcpServerRunning: true,
+      enhancedPromptsContent: 'instructions', tabId, effort: 'high' as const,
+      workflowsDisabled: false, prompt: 'second send', ptahUiFence: true,
+      thinking: { type: 'enabled' as const, budgetTokens: 1024 },
+      outputStyleName: 'concise', systemPrompt: 'session instructions',
+      permissionLevel: 'yolo' as const,
+    };
+    const resumed = await adapter.resumeSession(id, config);
+    for await (const event of resumed) void event;
+    expect(ports.checkOptions).toHaveBeenCalledWith(config);
+    expect(context.startTurn).toHaveBeenCalledTimes(2);
+    expect(context.startTurn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: 'second send' }),
+    );
+    expect(ports.profile).toHaveBeenCalledTimes(1);
+    expect(context.updateNextTurn).not.toHaveBeenCalled();
+    expect(ports.logger.info).toHaveBeenCalledTimes(1);
+    expect(ports.logger.info).toHaveBeenCalledWith(
+      'Codex chat: changed session options are not applied to the open thread.',
+      {
+        code: 'codex-active-resume-options-not-applied',
+        keys: ['model', 'effort', 'permissionLevel'],
+      },
+    );
+    await adapter.interruptSession(id);
+  });
+  it.each([false, true])('does not log unchanged or omitted active resume settings (updated=%s)', async (updated) => {
+    const { adapter, ports, context } = setup();
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    if (updated) {
+      await adapter.setSessionModel(id, 'next-model');
+      await adapter.setSessionEffort(id, 'high');
+      await adapter.setSessionPermissionLevel(id, 'yolo');
+    }
+    const config = updated
+      ? { model: 'next-model', effort: 'high' as const, permissionLevel: 'yolo' as const }
+      : { model: profile.model, permissionLevel: profile.permissionLevel };
+    for (const options of [config, {}]) {
+      const resumed = await adapter.resumeSession(id, { ...options, prompt: 'continue' });
+      for await (const event of resumed) void event;
+    }
+    expect(ports.logger.info).not.toHaveBeenCalled();
+    expect(context.startTurn).toHaveBeenCalledTimes(3);
+    await adapter.interruptSession(id);
+  });
+  it.each([
+    { key: 'temperature', options: { temperature: 0.5 } },
+    { key: 'mcpToolProfile', options: { mcpToolProfile: 'apps' as const } },
+  ])('propagates the host coded option error for $key before a live turn starts', async ({ key, options }) => {
+    const { adapter, ports, context } = setup();
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    // The host owns the concrete error class; this port fake checks identity preservation.
+    const error = Object.assign(new Error(`Unsupported option: ${key}`), {
+      code: 'unsupported-option', key,
     });
+    jest.mocked(ports.checkOptions).mockImplementation(() => { throw error; });
+    const config = { prompt: 'rejected', ...options };
+    await expect(adapter.resumeSession(id, config)).rejects.toBe(error);
+    expect(ports.checkOptions).toHaveBeenCalledWith(config);
+    expect(context.startTurn).toHaveBeenCalledTimes(1);
     await adapter.interruptSession(id);
   });
   it('emits only reported usage, with unknown cost, once per turn', async () => {

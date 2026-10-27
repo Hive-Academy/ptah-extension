@@ -156,6 +156,36 @@ describe('Codex chat host ports', () => {
     model: 'sonnet',
   });
 
+  it('checks live resume options without logging values or repeating notices', () => {
+    const h = harness();
+    expect(() => h.ports.checkOptions({
+      ...config(), prompt: 'private prompt', effort: 'high',
+      systemPrompt: 'private system prompt', enhancedPromptsContent: 'private instructions',
+      ptahUiFence: true, mcpToolProfile: 'coding', mcpServerRunning: true,
+      workflowsDisabled: false, includePartialMessages: true,
+      thinking: { type: 'adaptive' }, outputStyleName: 'private style',
+    })).not.toThrow();
+    expect(h.logger.info).not.toHaveBeenCalled();
+    expect(h.logger.debug).not.toHaveBeenCalled();
+    expect(h.logger.warn).not.toHaveBeenCalled();
+    expect(h.logger.error).not.toHaveBeenCalled();
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+    expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
+  });
+  it.each([
+    { key: 'temperature', options: { temperature: 0.5 } },
+    { key: 'mcpToolProfile', options: { mcpToolProfile: 'apps' as const } },
+  ])('throws the host coded option error for live resume $key', ({ key, options }) => {
+    const h = harness();
+    const input = { ...config(), ...options };
+    expect(() => h.ports.checkOptions(input)).toThrow(new CodexChatOptionError(key));
+    expect(() => h.ports.checkOptions(input)).toThrow(CodexChatOptionError);
+    expect(h.logger.info).not.toHaveBeenCalled();
+    expect(h.logger.debug).not.toHaveBeenCalled();
+    expect(h.logger.warn).not.toHaveBeenCalled();
+    expect(h.logger.error).not.toHaveBeenCalled();
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+  });
   it('builds a frozen validated profile without publishing a substitution notice', async () => {
     const h = harness();
     const { profile } = await h.ports.profile(config());
@@ -196,17 +226,44 @@ describe('Codex chat host ports', () => {
     await expect(
       h.ports.profile({ ...config(), temperature: 0.5 }),
     ).rejects.toThrow(new CodexChatOptionError('temperature'));
-    await expect(
-      h.ports.profile({
-        ...config(),
-        mcpServersOverride: {
-          private: { type: 'http', url: 'http://localhost/?secret=never-log' },
-        },
-      }),
-    ).rejects.toThrow(new CodexChatOptionError('mcpServersOverride'));
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
     expect(h.logger.error).not.toHaveBeenCalled();
     expect(h.logger.info).not.toHaveBeenCalled();
+  });
+  it('strips ambient options before preparation and logs names without secret values', async () => {
+    const h = harness();
+    const prepare = jest.spyOn(ChatRuntimeProfileService.prototype, 'prepare');
+    try {
+      await expect(h.ports.profile({
+        ...config(),
+        mcpServersOverride: {
+          smithery: { type: 'http', url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+          oauth: { type: 'http', url: 'https://example.invalid/oauth' },
+        },
+        thinking: { type: 'adaptive' },
+        outputStyleName: 'Explanatory',
+      })).resolves.toHaveProperty('profile');
+      expect(prepare.mock.calls[0][0]).toEqual(config());
+      expect(h.logger.info).toHaveBeenCalledTimes(3);
+      expect(h.logger.info).toHaveBeenCalledWith(
+        'User MCP servers are not attached to Codex chat.',
+        { code: 'codex-user-mcp-not-attached', serverNames: ['oauth', 'smithery'] },
+      );
+      expect(h.logger.info).toHaveBeenCalledWith(
+        'Thinking is not applied to Codex chat; Codex uses native effort.',
+        { code: 'codex-thinking-not-applied' },
+      );
+      expect(h.logger.info).toHaveBeenCalledWith(
+        'Output style by name is not applied to Codex chat.',
+        { code: 'codex-output-style-not-applied' },
+      );
+      const logs = JSON.stringify(jest.mocked(h.logger.info).mock.calls);
+      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'adaptive', 'Explanatory']) {
+        expect(logs).not.toContain(value);
+      }
+    } finally {
+      prepare.mockRestore();
+    }
   });
   it.each([undefined, 'coding'] as const)('maps the UI fence for tool profile %s', async (mcpToolProfile) => {
     const h = harness();

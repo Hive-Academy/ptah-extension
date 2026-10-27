@@ -41,6 +41,7 @@ import type {
   SessionId,
   SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { classifyCodexChatOptions, CodexChatOptionError } from '../codex-host/codex-chat-profile-options';
 import { ChatSessionService } from './chat-session.service';
 import { ChatRuntimeProfileService, type ResolvedChatExecution } from './chat-runtime-profile.service';
@@ -92,7 +93,7 @@ const execution: ResolvedChatExecution = {
 
 function harness() {
   const prepare = jest.fn().mockResolvedValue(execution);
-  const publishModelSubstitution = jest.fn().mockResolvedValue(undefined);
+  const publishRuntimeNotices = jest.fn().mockResolvedValue(undefined);
   const startChatSession = jest.fn().mockResolvedValue([]);
   const resumeSession = jest.fn().mockResolvedValue([]);
   const resolveProviderProfileForWorkspace = jest.fn(() => {
@@ -108,7 +109,7 @@ function harness() {
         resolveEnhancedPromptsContent: async () => 'instructions',
         isMcpServerRunning: () => false,
       },
-      runtimeProfile: { prepare, publishModelSubstitution },
+      runtimeProfile: { prepare, publishRuntimeNotices },
       sdkAdapter: {
         startChatSession,
         resumeSession,
@@ -129,7 +130,7 @@ function harness() {
   return {
     service,
     prepare,
-    publishModelSubstitution,
+    publishRuntimeNotices,
     startChatSession,
     resumeSession,
     resolveProviderProfileForWorkspace,
@@ -145,14 +146,8 @@ describe('chat native session preparation', () => {
     await rm(workspace, { recursive: true, force: true });
   });
 
-  it('accepts the real default start and resume configs with host MCP running', async () => {
+  it.each([false, true])('accepts real start and resume configs with ambient user options %s', async (ambient) => {
     const h = harness();
-    h.prepare.mockResolvedValue({
-      ...execution,
-      seed: { ...execution.seed, workspacePath: workspace },
-      workspacePath: workspace,
-      cwd: workspace,
-    });
     Object.assign(h.service, {
       sdkContext: {
         resolveEnhancedPromptsContent: async () => undefined,
@@ -211,6 +206,53 @@ describe('chat native session preparation', () => {
       tabId: () => 'tab',
     };
     const ports = createCodexChatHostPorts(deps);
+    const broadcastMessage = jest.mocked(deps.webviewManager.broadcastMessage);
+    Object.assign(h.service, {
+      runtimeProfile: new ChatRuntimeProfileService(
+        deps.resolver, deps.workspaceProvider, deps.platformInfo,
+        deps.webviewManager, deps.hostCapabilities,
+      ),
+    });
+    const expectNotice = (text: string) => {
+      expect(broadcastMessage).toHaveBeenCalledTimes(ambient ? 3 : 0);
+      if (ambient) {
+        expect(broadcastMessage).toHaveBeenNthCalledWith(2, MESSAGE_TYPES.CHAT_CHUNK,
+          expect.objectContaining({ event: expect.objectContaining({ eventType: 'text_delta', delta: text }) }),
+        );
+        for (const [type] of broadcastMessage.mock.calls) {
+          expect(type).toBe(MESSAGE_TYPES.CHAT_CHUNK);
+        }
+      }
+      const serialized = JSON.stringify([
+        broadcastMessage.mock.calls,
+        ...[deps.logger, h.service['logger']].flatMap((logger) => [
+          jest.mocked(logger.info).mock.calls, jest.mocked(logger.warn).mock.calls,
+          jest.mocked(logger.debug).mock.calls, jest.mocked(logger.error).mock.calls,
+        ]),
+      ]);
+      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y']) {
+        expect(serialized).not.toContain(value);
+      }
+    };
+    const thinking = ambient ? { type: 'adaptive' as const } : undefined;
+    const smitheryOverrides = {
+      smithery: { type: 'http' as const, url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+    };
+    const oauthOverrides = {
+      oauth: { type: 'http' as const, url: 'https://example.invalid/oauth', headers: { Authorization: 'Bearer secret-token-y' } },
+    };
+    const buildSmitheryOverrides = jest.fn().mockResolvedValue(smitheryOverrides);
+    const buildOAuthOverrides = jest.fn().mockResolvedValue(oauthOverrides);
+    if (ambient) {
+      Object.assign(h.service, {
+        buildMcpServersOverride: ChatSessionService.prototype['buildMcpServersOverride'],
+        getSmitheryOverrideResolver: () => ({ buildOverrides: buildSmitheryOverrides }),
+        getOAuthOverrideResolver: () => ({ buildOverrides: buildOAuthOverrides }),
+        outputStyleActivation: {
+          resolveSessionFields: jest.fn().mockResolvedValue({ outputStyleName: 'Explanatory' }),
+        },
+      });
+    }
 
     // Mirrors message-sender.service.ts: Electron start request with no attachments,
     // effort override or persona. The session layer supplies MCP/workflow defaults.
@@ -218,7 +260,7 @@ describe('chat native session preparation', () => {
       h.service.startSession({
         prompt: 'hello', tabId: 'tab', name: 'hello',
         workspacePath: workspace, ptahCliId: undefined,
-        ptahUiFence: true, options: { model: 'default' },
+        ptahUiFence: true, options: { model: 'default', ...(ambient ? { thinking } : {}) },
       }),
     ).resolves.toEqual({ success: true });
     expect(h.startChatSession).toHaveBeenCalledTimes(1);
@@ -231,9 +273,18 @@ describe('chat native session preparation', () => {
       name: 'hello',
       prompt: 'hello',
     });
-    expect(started.mcpServersOverride).toBeUndefined();
-    expect(started.thinking).toBeUndefined();
-    expect(started.outputStyleName).toBeUndefined();
+    if (ambient) {
+      expect(buildSmitheryOverrides).toHaveBeenCalledTimes(1);
+      expect(buildOAuthOverrides).toHaveBeenCalledTimes(1);
+      expect(started.mcpServersOverride).toEqual({ ...smitheryOverrides, ...oauthOverrides });
+      expect(classifyCodexChatOptions(started).stripped).toEqual(
+        expect.arrayContaining(['mcpServersOverride', 'thinking', 'outputStyleName']),
+      );
+    } else {
+      expect(started.mcpServersOverride).toBeUndefined();
+    }
+    expect(started.thinking).toEqual(thinking);
+    expect(started.outputStyleName).toBe(ambient ? 'Explanatory' : undefined);
     expect(started.includePartialMessages).toBeUndefined();
     expect(started.files).toEqual([]);
     expect(started.images).toEqual([]);
@@ -241,12 +292,15 @@ describe('chat native session preparation', () => {
     expect(started.systemPrompt).toBeUndefined();
     expect(classifyCodexChatOptions(started).rejected).toEqual([]);
     expect((await ports.profile(started)).profile.developerPrompt).toContain(PTAH_UI_HINT);
+    expectNotice("Codex chat: MCP servers not attached: oauth, smithery\nCodex chat: output style 'Explanatory' is not applied");
+    broadcastMessage.mockClear();
 
     await expect(
       h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
         sessionId,
         tabId: 'tab',
         ptahUiFence: true,
+        ...(ambient ? { thinking } : {}),
       }),
     ).resolves.toEqual({ justResumed: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
@@ -256,10 +310,27 @@ describe('chat native session preparation', () => {
       mcpServerRunning: true,
       workflowsDisabled: false,
     });
-    expect(resumed.thinking).toBeUndefined();
-    expect(resumed.outputStyleName).toBeUndefined();
+    expect(resumed.thinking).toEqual(thinking);
+    expect(resumed.outputStyleName).toBe(ambient ? 'Explanatory' : undefined);
+    if (ambient) {
+      expect(classifyCodexChatOptions(resumed).stripped).toEqual(
+        expect.arrayContaining(['thinking', 'outputStyleName']),
+      );
+    }
     expect(classifyCodexChatOptions(resumed).rejected).toEqual([]);
     expect((await ports.profile(resumed)).profile.developerPrompt).toContain(PTAH_UI_HINT);
+    // Resume config carries the style but does not assemble MCP overrides.
+    expectNotice("Codex chat: output style 'Explanatory' is not applied");
+    if (ambient) {
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        'User MCP servers are not attached to Codex chat.',
+        { code: 'codex-user-mcp-not-attached', serverNames: ['oauth', 'smithery'] },
+      );
+      const logs = JSON.stringify(jest.mocked(deps.logger.info).mock.calls);
+      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y', 'adaptive', 'Explanatory']) {
+        expect(logs).not.toContain(value);
+      }
+    }
   });
 
   it('prepares complete start inputs and launches through the injected adapter without legacy auth', async () => {
@@ -293,13 +364,13 @@ describe('chat native session preparation', () => {
       'providerProfile',
     );
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
   });
 
   it('resumes with the stored identity after a workspace provider switch', async () => {
     const h = harness();
     h.resumeSession.mockImplementationOnce(async () => {
-      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+      expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
       return [];
     });
     await expect(
@@ -324,12 +395,12 @@ describe('chat native session preparation', () => {
       'providerProfile',
     );
     expect(h.resolveProviderProfileForWorkspace).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
   });
 
   it('attaches the start stream when the model notice rejects', async () => {
     const h = harness();
-    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.service['launchSdkSession']({
       logLabel: 'chat:start', tabId: 'tab', workspaceId: '/original-workspace',
       projectPath: '/original-workspace', prompt: 'hello', mcpServerRunning: false,
@@ -345,7 +416,7 @@ describe('chat native session preparation', () => {
 
   it('attaches the resumed stream when the model notice rejects', async () => {
     const h = harness();
-    h.publishModelSubstitution.mockRejectedValue(new Error('private broadcast detail'));
+    h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
       sessionId, tabId: 'tab',
     })).resolves.toEqual({ justResumed: true });
@@ -373,7 +444,7 @@ describe('chat native session preparation', () => {
       }),
     ).rejects.toThrow('Workspace refused');
     expect(h.startChatSession).not.toHaveBeenCalled();
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
   it('publishes after success and publishes nothing for a second busy launch on the same tab', async () => {
     const h = harness();
@@ -383,21 +454,21 @@ describe('chat native session preparation', () => {
       mcpServersOverride: undefined, surfaceMode: undefined,
     };
     h.startChatSession.mockImplementationOnce(async () => {
-      expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+      expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
       return [];
     });
     await h.service['launchSdkSession'](input);
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
     h.startChatSession.mockRejectedValueOnce(new Error('busy'));
     await expect(h.service['launchSdkSession'](input)).rejects.toThrow('busy');
-    expect(h.publishModelSubstitution).toHaveBeenCalledTimes(1);
+    expect(h.publishRuntimeNotices).toHaveBeenCalledTimes(1);
   });
 
   it('does not publish a notice when resume fails', async () => {
     const h = harness();
     h.resumeSession.mockRejectedValue(new Error('busy'));
     await h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', { sessionId, tabId: 'tab' });
-    expect(h.publishModelSubstitution).not.toHaveBeenCalled();
+    expect(h.publishRuntimeNotices).not.toHaveBeenCalled();
   });
 
   it('keeps a Claude session model and provider profile after switching the workspace to Codex', async () => {
@@ -478,8 +549,8 @@ describe('typed Codex RPC failures', () => {
 
   const failures = [
     { error: new mockCodexChatAdapterError('busy', 'open'), code: 'CODEX_BUSY' },
-    { error: new CodexChatOptionError('thinking'), code: 'CODEX_UNSUPPORTED_OPTION', key: 'thinking' },
-    { error: new mockCodexChatAdapterError('runtime-failed', 'open', { cause: new CodexChatOptionError('mcpServersOverride') }), code: 'CODEX_UNSUPPORTED_OPTION', key: 'mcpServersOverride' },
+    { error: new CodexChatOptionError('temperature'), code: 'CODEX_UNSUPPORTED_OPTION', key: 'temperature' },
+    { error: new mockCodexChatAdapterError('runtime-failed', 'open', { cause: new CodexChatOptionError('temperature') }), code: 'CODEX_UNSUPPORTED_OPTION', key: 'temperature' },
     { error: new mockCodexChatAdapterError('runtime-failed', 'open', { cause: new Error('SECRET-runtime-value') }), code: 'CODEX_RUNTIME_FAILED' },
     { error: new mockCodexChatAdapterError('unavailable', 'open'), code: 'CODEX_UNAVAILABLE' },
   ];
