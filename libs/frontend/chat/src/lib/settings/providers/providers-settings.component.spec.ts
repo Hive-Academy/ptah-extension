@@ -628,6 +628,14 @@ describe('ProvidersSettingsComponent', () => {
     await render();
     expect(element.querySelector('[data-testid="providers-kimi-login"]')).toBeNull();
   });
+  it.each([
+    ['starting', true],
+    ['succeeded', false],
+  ] as const)('shows a Kimi Code sign-in on the page only while it runs or failed (%s)', async (status, shown) => {
+    state.kimiCodeLogin.set({ status });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]') !== null).toBe(shown);
+  });
   it('keeps a failed Kimi Code sign-in on the page without Cancel', async () => {
     state.kimiCodeLogin.set({ status: 'failed' });
     await render();

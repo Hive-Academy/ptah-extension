@@ -716,16 +716,15 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       : null,
   );
   /**
-   * A Kimi Code sign-in started from a card is still running: the page shows its link and code,
-   * unless the Kimi Code drawer or the wizard already shows them.
+   * A Kimi Code sign-in started from a card still runs or failed: the page shows its link and code
+   * or its error, unless the Kimi Code drawer or the wizard already shows them.
    */
   protected readonly pageKimiLogin = computed(() => {
     const login = this.state.kimiCodeLogin();
-    const shown =
-      login?.status === 'starting' ||
-      login?.status === 'awaiting-browser' ||
-      login?.status === 'failed';
-    return shown &&
+    // `starting`, `awaiting-browser` or `failed`, written as the two other statuses for a smaller main bundle.
+    return login &&
+      login.status !== 'succeeded' &&
+      login.status !== 'cancelled' &&
       this.drawerId() !== this.kimiCodeId &&
       !this.wizardOpen()
       ? login
