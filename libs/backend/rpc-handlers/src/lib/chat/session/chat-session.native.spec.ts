@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -40,9 +41,25 @@ import type {
   SessionId,
   SessionRuntimeIdentity,
 } from '@ptah-extension/shared';
-import { classifyCodexChatOptions } from '../codex-host/codex-chat-profile-options';
+import { classifyCodexChatOptions, CodexChatOptionError } from '../codex-host/codex-chat-profile-options';
 import { ChatSessionService } from './chat-session.service';
 import { ChatRuntimeProfileService, type ResolvedChatExecution } from './chat-runtime-profile.service';
+
+const mockCodexChatAdapterError = class LocalCodexChatAdapterError extends Error {
+  constructor(
+    readonly code: import('@ptah-extension/agent-sdk').CodexChatAdapterErrorCode,
+    readonly operation: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Codex chat ${operation}: ${code}`, options);
+    this.name = 'CodexChatAdapterError';
+  }
+};
+
+jest.mock('@ptah-extension/agent-sdk', () => ({
+  ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>('@ptah-extension/agent-sdk'),
+  isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
+}));
 
 const sessionId = 'native-session' as SessionId;
 const identity: SessionRuntimeIdentity = {
@@ -84,7 +101,8 @@ function harness() {
   const service: ChatSessionService = Object.assign(
     Object.create(ChatSessionService.prototype),
     {
-      logger: { info: jest.fn(), warn: jest.fn(), debug: jest.fn() },
+      logger: { info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: jest.fn() },
+      sentryService: { captureException: jest.fn() },
       modelSettings: { selectedModel: { get: () => 'default' } },
       sdkContext: {
         resolveEnhancedPromptsContent: async () => 'instructions',
@@ -424,4 +442,118 @@ describe('chat native session preparation', () => {
     expect(broadcastMessage).not.toHaveBeenCalled();
   });
 
+});
+
+
+describe('typed Codex RPC failures', () => {
+  let workspace: string;
+  beforeAll(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'ptah-codex-errors-'));
+  });
+  afterAll(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  function errorHarness(error: Error) {
+    const h = harness();
+    h.startChatSession.mockRejectedValue(error);
+    h.resumeSession.mockRejectedValue(error);
+    Object.assign(h.service, {
+      workspaceProvider: createMockWorkspaceProvider({ folders: [workspace] }),
+      platformInfo: { extensionPath: resolve('/codex-app'), globalStoragePath: resolve('/codex-storage') },
+      slashCommandInterceptor: { intercept: () => ({ action: 'passthrough' }) },
+      historyRead: {
+        resolveSessionFolder: async () => workspace,
+        readForResume: async () => ({ resolvedWorkspacePath: workspace, events: [], stats: null }),
+      },
+      subagentRegistry: {
+        restoreResumableBySession: () => 0,
+        registerFromHistoryEvents: () => 0,
+        getResumableBySession: () => [],
+      },
+      ptahCli: { handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }) },
+    });
+    return h;
+  }
+
+  const failures = [
+    { error: new mockCodexChatAdapterError('busy', 'open'), code: 'CODEX_BUSY' },
+    { error: new CodexChatOptionError('thinking'), code: 'CODEX_UNSUPPORTED_OPTION', key: 'thinking' },
+    { error: new mockCodexChatAdapterError('runtime-failed', 'open', { cause: new CodexChatOptionError('mcpServersOverride') }), code: 'CODEX_UNSUPPORTED_OPTION', key: 'mcpServersOverride' },
+    { error: new mockCodexChatAdapterError('runtime-failed', 'open', { cause: new Error('SECRET-runtime-value') }), code: 'CODEX_RUNTIME_FAILED' },
+    { error: new mockCodexChatAdapterError('unavailable', 'open'), code: 'CODEX_UNAVAILABLE' },
+  ];
+
+  it.each(failures)('classifies chat:start $code ($key)', async ({ error, code, key }) => {
+    const h = errorHarness(error);
+    const result = await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace });
+    expect(h.startChatSession).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: false, errorCode: code });
+    if (key) expect(result.error).toContain(`"${key}"`);
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it.each(failures)('classifies activated chat:resume $code ($key)', async ({ error, code, key }) => {
+    const h = errorHarness(error);
+    const result = await h.service.resumeSession({ sessionId, tabId: 'tab', activate: true });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    // History remains usable when runtime activation fails.
+    expect(result).toMatchObject({ success: true, activated: false, activationErrorCode: code });
+    if (key) expect(result.activationError).toContain(`"${key}"`);
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it.each(failures)('classifies chat:continue auto-resume $code ($key)', async ({ error, code, key }) => {
+    const h = errorHarness(error);
+    const result = await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: false, errorCode: code });
+    if (key) expect(result.error).toContain(`"${key}"`);
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it.each(['start', 'resume', 'continue'] as const)('returns quiet cancellation from chat:%s', async (method) => {
+    const h = errorHarness(new mockCodexChatAdapterError('cancelled', 'open'));
+    const result = method === 'start'
+      ? await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace })
+      : method === 'resume'
+        ? await h.service.resumeSession({ sessionId, tabId: 'tab', activate: true })
+        : await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
+    expect(result).toEqual({ success: false, cancelled: true });
+    expect(h.service['logger'].error).not.toHaveBeenCalled();
+    expect(h.service['logger'].warn).not.toHaveBeenCalled();
+    expect(h.service['sentryService'].captureException).not.toHaveBeenCalled();
+  });
+
+  function compactRouter(error: Error) {
+    const compact = jest.fn().mockRejectedValue(error);
+    const router: ChatSlashCommandRouterService = Object.assign(
+      Object.create(ChatSlashCommandRouterService.prototype),
+      {
+        logger: { info: jest.fn(), warn: jest.fn() },
+        slashCommandInterceptor: { intercept: () => ({ action: 'new-query', commandName: 'compact', rawCommand: '/compact' }) },
+        sdkContext: { isMcpServerRunning: () => false, resolveEnhancedPromptsContent: async () => undefined },
+        modelSettings: { selectedModel: { get: () => 'default' } },
+        runtimeProfile: { prepare: async () => execution },
+        runtimeControls: { compact },
+      },
+    );
+    return { router, compact };
+  }
+
+  it('marks a broadcast compact failure settled instead of returning a duplicate message', async () => {
+    const { router, compact } = compactRouter(new mockCodexChatAdapterError('runtime-failed', 'compact'));
+    await expect(router.routeFollowUpSlashCommand('/compact', sessionId, 'tab', workspace, {
+      sessionId, tabId: 'tab', prompt: '/compact',
+    })).resolves.toEqual({ success: false, sessionId, settled: true, errorCode: 'CODEX_RUNTIME_FAILED' });
+    expect(compact).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves compact busy admission visible to the outer typed RPC handler', async () => {
+    const error = new mockCodexChatAdapterError('busy', 'compact');
+    const { router } = compactRouter(error);
+    await expect(router.routeFollowUpSlashCommand('/compact', sessionId, 'tab', workspace, {
+      sessionId, tabId: 'tab', prompt: '/compact',
+    })).rejects.toBe(error);
+  });
 });

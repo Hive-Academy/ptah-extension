@@ -700,13 +700,15 @@ export class CodexChatAdapter implements NativeChatAdapter {
     throw new CodexChatAdapterError('unsupported', operation);
   }
   private failure(error: unknown, operation: string): CodexChatAdapterError {
+    const failure = error instanceof CodexChatAdapterError
+      ? error
+      : new CodexChatAdapterError('runtime-failed', operation, { cause: error });
+    if (failure.code === 'cancelled') return failure;
     this.ports.logger.error(
       `[CodexChatAdapter] runtime-failed: ${operation}.`,
       error instanceof Error ? error : new Error(String(error)),
     );
-    return error instanceof CodexChatAdapterError
-      ? error
-      : new CodexChatAdapterError('runtime-failed', operation, { cause: error });
+    return failure;
   }
   private async safe<T>(
     operation: string,

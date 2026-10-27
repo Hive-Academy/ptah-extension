@@ -116,6 +116,8 @@ export interface ChatStartParams {
 /** Response from chat:start RPC method */
 export interface ChatStartResult {
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
@@ -168,8 +170,10 @@ export interface ChatContinueParams {
 /** Response from chat:continue RPC method */
 export interface ChatContinueResult {
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
-  /** The command completed without starting a stream. */
+  /** The command completed without starting a stream; a failed settled command already broadcast its error. */
   settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
@@ -282,6 +286,8 @@ export interface ChatResumeParams {
 /** Response from chat:resume RPC method */
 export interface ChatResumeResult {
   success: boolean;
+  /** The user cancelled opening the runtime; no error should be displayed. */
+  cancelled?: true;
   sessionId?: SessionId;
   /**
    * Full streaming events for session history replay — the ONE transcript

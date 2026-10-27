@@ -18,6 +18,7 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   AuthRequiredError,
+  isCodexChatAdapterError,
   SDK_TOKENS,
   SlashCommandInterceptor,
   type ManualCompactAdmission,
@@ -414,6 +415,16 @@ export class ChatSlashCommandRouterService {
 
         return { success: true, sessionId };
       } catch (slashError) {
+        if (isCodexChatAdapterError(slashError)) {
+          if (command === '/compact' && slashError.operation === 'compact' &&
+              slashError.code === 'runtime-failed') {
+            // The adapter already broadcast CHAT_ERROR. Let the client settle
+            // without rendering the same failure from the RPC response again.
+            return { success: false, sessionId, settled: true, errorCode: 'CODEX_RUNTIME_FAILED' };
+          }
+          // Busy/unavailable admission failures have not broadcast an error.
+          throw slashError;
+        }
         const message =
           slashError instanceof Error ? slashError.message : String(slashError);
         this.logger.warn(

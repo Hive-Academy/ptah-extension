@@ -270,6 +270,7 @@ describe('CodexChatAdapter', () => {
     dispose.mockRejectedValue(cleanupError);
     await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({
       message: 'Codex chat open: runtime-failed',
+      code: 'runtime-failed',
       cause: error,
     });
     expect(ports.logger.error).toHaveBeenCalledWith(
@@ -540,7 +541,9 @@ describe('CodexChatAdapter', () => {
     await Promise.resolve();
     adapter.endSession(tabId);
     release(context);
+    await expect(pending).rejects.toBeInstanceOf(CodexChatAdapterError);
     await expect(pending).rejects.toMatchObject({ code: 'cancelled' });
+    expect(ports.logger.error).not.toHaveBeenCalled();
     expect(ports.metadata.save).not.toHaveBeenCalled();
     expect(context.close).toHaveBeenCalledTimes(1);
   });
@@ -1056,6 +1059,8 @@ it.each(['end', 'interrupt'] as const)(
     expect(adapter.isSessionActive(tabId)).toBe(false);
     pending.resolve(context);
     await rejected;
+    await expect(opening).rejects.toBeInstanceOf(CodexChatAdapterError);
+    expect(ports.logger.error).not.toHaveBeenCalled();
     expect(ports.metadata.save).not.toHaveBeenCalled();
     expect(context.startTurn).not.toHaveBeenCalled();
     expect(context.close).toHaveBeenCalledTimes(1);

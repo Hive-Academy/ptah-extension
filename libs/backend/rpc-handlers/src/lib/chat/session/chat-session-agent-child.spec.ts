@@ -75,6 +75,22 @@ import {
 } from './chat-session.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
+const mockCodexChatAdapterError = class LocalCodexChatAdapterError extends Error {
+  constructor(
+    readonly code: import('@ptah-extension/agent-sdk').CodexChatAdapterErrorCode,
+    readonly operation: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Codex chat ${operation}: ${code}`, options);
+    this.name = 'CodexChatAdapterError';
+  }
+};
+
+jest.mock('@ptah-extension/agent-sdk', () => ({
+  ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>('@ptah-extension/agent-sdk'),
+  isCodexChatAdapterError: (error: unknown) => error instanceof mockCodexChatAdapterError,
+}));
+
 const ROOT = '/c/projects/my-repo';
 const WORKTREE = '/c/projects/my-repo/.ptah/worktrees/child-1';
 const APP_PATH = '/c/projects/ptah-app';
@@ -254,13 +270,16 @@ function startConfig(h: Harness): Record<string, unknown> {
 
 describe('ChatSessionService — SDK launch identity (TASK_2026_584)', () => {
   describe('startSession (chat:start) — unchanged for existing callers', () => {
-    it('rejects native runtime start failures as RPC errors', async () => {
+    it('returns classified native runtime start failures as RPC result data', async () => {
       const h = makeHarness();
-      const failure = new Error('runtime-failed');
-      failure.name = 'CodexChatAdapterError';
+      const failure = new mockCodexChatAdapterError('runtime-failed', 'open');
       h.startChatSession.mockRejectedValueOnce(failure);
       await expect(h.service.startSession({ tabId: 'tab-1', prompt: 'Hello', workspacePath: ROOT }))
-        .rejects.toMatchObject({ errorCode: 'SESSION_ENDED', message: 'Codex chat could not start.' });
+        .resolves.toEqual({
+          success: false,
+          errorCode: 'CODEX_RUNTIME_FAILED',
+          error: 'Codex chat could not complete the operation.',
+        });
     });
 
     it('passes workspaceId === projectPath === the workspace path, without a permission level', async () => {

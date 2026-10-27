@@ -17,6 +17,7 @@
  * callback-setter wiring from the handler.
  */
 
+import { CodexChatOptionError } from '../codex-host/codex-chat-profile-options';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -55,6 +56,7 @@ import {
   SDK_TOKENS,
   SlashCommandInterceptor,
   AuthRequiredError,
+  isCodexChatAdapterError,
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
   type SessionBudgetService,
@@ -526,6 +528,44 @@ export class ChatSessionService {
     };
   }
 
+  /** Classify native failures before logging; never expose runtime causes or option values. */
+  private codexFailure(error: unknown): ChatStartResult | undefined {
+    const adapterError = isCodexChatAdapterError(error) ? error : undefined;
+    if (adapterError?.code === 'cancelled') {
+      return { success: false, cancelled: true };
+    }
+    const optionError = error instanceof CodexChatOptionError
+      ? error
+      : adapterError?.cause instanceof CodexChatOptionError
+        ? adapterError.cause
+        : undefined;
+    let failure: RpcUserError;
+    if (optionError) {
+      failure = new RpcUserError(
+        `Codex chat does not support the "${optionError.key}" option.`,
+        'CODEX_UNSUPPORTED_OPTION',
+      );
+    } else if (adapterError?.code === 'busy') {
+      failure = new RpcUserError(
+        'Codex chat is busy. Try again when the current operation finishes.',
+        'CODEX_BUSY',
+      );
+    } else if (adapterError?.code === 'unavailable') {
+      failure = new RpcUserError(
+        'Codex chat is unavailable. Reconnect and try again.',
+        'CODEX_UNAVAILABLE',
+      );
+    } else if (adapterError) {
+      failure = new RpcUserError(
+        'Codex chat could not complete the operation.',
+        'CODEX_RUNTIME_FAILED',
+      );
+    } else {
+      return undefined;
+    }
+    return { success: false, error: failure.message, errorCode: failure.errorCode };
+  }
+
   async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
@@ -647,6 +687,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       this.logger.error(
@@ -654,9 +696,6 @@ export class ChatSessionService {
         error instanceof Error ? error : new Error(String(error)),
       );
       this.captureSentry(error, 'ChatRpcHandlers.registerChatStart');
-      if (error instanceof Error && error.name === 'CodexChatAdapterError') {
-        throw new RpcUserError('Codex chat could not start.', 'SESSION_ENDED');
-      }
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -723,6 +762,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       this.logger.error(
@@ -816,6 +857,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       const kind = safeErrorKind(error);
@@ -1118,6 +1161,8 @@ export class ChatSessionService {
 
       return { success: true, sessionId };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       if (error instanceof RpcUserError) {
@@ -1267,6 +1312,8 @@ export class ChatSessionService {
             activated =
               activateResult.justResumed ||
               this.sdkAdapter.isSessionActive(sessionId);
+          } else if (activateResult.error.cancelled) {
+            return { success: false, cancelled: true };
           } else {
             activationError =
               activateResult.error.error ?? 'Auto-resume failed';
@@ -1320,6 +1367,8 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      const codexFailure = this.codexFailure(error);
+      if (codexFailure) return codexFailure;
       const refusal = mainSessionAccountFailure(error);
       if (refusal) return refusal;
       if (error instanceof RpcUserError) {
@@ -1729,6 +1778,8 @@ export class ChatSessionService {
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
       return { justResumed: true };
     } catch (resumeError) {
+      const codexFailure = this.codexFailure(resumeError);
+      if (codexFailure) return { error: codexFailure };
       const message =
         resumeError instanceof Error
           ? resumeError.message

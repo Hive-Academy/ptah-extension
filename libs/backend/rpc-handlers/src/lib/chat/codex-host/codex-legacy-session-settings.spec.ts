@@ -1,5 +1,5 @@
 import { SessionId } from '@ptah-extension/shared';
-import { createLegacyCodexSessionSettings } from './codex-legacy-session-settings';
+import { createLegacyCodexSessionSettings, LegacyCodexSessionSettingsError } from './codex-legacy-session-settings';
 
 jest.mock('@ptah-extension/platform-core', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/platform-core')>(
@@ -23,7 +23,7 @@ function fixture() {
     scopeResolver: { readForPath },
     auth: { resolveActiveAuthForPath },
   });
-  return { find, readForPath, settings, resolveActiveAuthForPath };
+  return { find, lookup, readForPath, settings, resolveActiveAuthForPath };
 }
 
 describe('legacy Codex session settings', () => {
@@ -49,10 +49,10 @@ describe('legacy Codex session settings', () => {
   });
 
   it.each([
-    { values: ['gpt-5', 'SECRET-effort'], message: 'Legacy session effort unavailable' },
-    { values: ['gpt-5', 'low', true, 'SECRET-permission'], message: 'Legacy session permission unavailable' },
-    { values: [{ secret: 'SECRET-model' }], message: 'Legacy session model unavailable' },
-  ])('redacts invalid stored values: $message', ({ values, message }) => {
+    { values: ['gpt-5', 'SECRET-effort'], code: 'invalid-effort' },
+    { values: ['gpt-5', 'low', true, 'SECRET-permission'], code: 'invalid-permission' },
+    { values: [{ secret: 'SECRET-model' }], code: 'invalid-model' },
+  ])('redacts invalid stored values: $code', ({ values, code }) => {
     const { readForPath, settings } = fixture();
     for (const value of values) readForPath.mockReturnValueOnce(value);
     let caught: unknown;
@@ -61,8 +61,8 @@ describe('legacy Codex session settings', () => {
     } catch (error) {
       caught = error;
     }
-    expect(caught).toBeInstanceOf(Error);
-    expect(caught).toEqual(new Error(message));
+    expect(caught).toBeInstanceOf(LegacyCodexSessionSettingsError);
+    expect(caught).toMatchObject({ code, message: `Legacy Codex session settings: ${code}` });
     expect(String(caught)).not.toContain('SECRET');
     expect(caught).not.toHaveProperty('issues');
   });
@@ -89,5 +89,23 @@ describe('legacy Codex session settings', () => {
     readForPath.mockReturnValue('high');
     expect(settings(sessionId).effort).toBeUndefined();
     expect(readForPath).not.toHaveBeenCalled();
+  });
+
+  it('reports a typed missing workspace without exposing settings', () => {
+    const { lookup, settings } = fixture();
+    lookup.mockReturnValue(undefined);
+    expect(() => settings(sessionId)).toThrow(new LegacyCodexSessionSettingsError('missing-workspace-path'));
+  });
+
+  it.each(['low', 'medium', 'high', 'xhigh', 'max'])('accepts shared effort %s', (effort) => {
+    const { readForPath, settings } = fixture();
+    readForPath.mockReturnValueOnce('gpt-5').mockReturnValueOnce(effort).mockReturnValueOnce(false);
+    expect(settings(sessionId).effort).toBe(effort);
+  });
+
+  it('redacts invalid live effort through the same typed boundary', () => {
+    const { find, settings } = fixture();
+    find.mockReturnValue({ config: { projectPath: '/live', effort: 'SECRET-effort' }, currentModel: 'gpt-live' });
+    expect(() => settings(sessionId)).toThrow(new LegacyCodexSessionSettingsError('invalid-effort'));
   });
 });
