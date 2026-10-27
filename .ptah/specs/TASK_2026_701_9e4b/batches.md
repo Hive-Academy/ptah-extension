@@ -984,7 +984,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   - `agent.pack.install.complete` can report `changed: true` when every file was kept.
 - Report: reports/batch-18-report.md
 
-## Batch 19: Marketplace services and Library provenance (B12 services + B13) — PENDING
+## Batch 19: Marketplace services and Library provenance (B12 services + B13) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -995,7 +995,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 2 | Depends on: Batches 3, 4, 5, 7, 10
 - Phase: P3 | Phase review: P3 code-logic
 
-### Task 19.1: `LocalItemApprovals`, `CloneRebaseService`, `InstallLocalItemsService` — PENDING
+### Task 19.1: `LocalItemApprovals`, `CloneRebaseService`, `InstallLocalItemsService` — COMPLETE
 
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/handlers/marketplace/local-item-approvals.ts` (+ spec), `libs/backend/rpc-handlers/src/lib/handlers/marketplace/install-local-items.service.ts` (+ spec), `libs/backend/rpc-handlers/src/lib/handlers/skill-synthesis/clone-rebase.service.ts` (+ spec); MODIFY `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts` (+ spec; `rebaseClone` delegates), `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`, `apps/ptah-electron/src/di/container.smoke.spec.ts`, `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`, `apps/ptah-cli/src/di/container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:761-890 (approvals, confirm routes, registration); A21
@@ -1004,7 +1004,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: A-rebase-lock; A-smoke (add resolution assertions for `PluginRpcHandlers` and `SkillsSynthesisRpcHandlers` only in hosts that register them). Spec cases: A → B before confirm, delete/recreate, unreadable-after-plan, edit during install.
 - Implementation details: services registered with `container.registerSingleton`.
 
-### Task 19.2: `CloneProvenanceResolver` and harness-root agent scope (B13) — PENDING
+### Task 19.2: `CloneProvenanceResolver` and harness-root agent scope (B13) — COMPLETE
 
 - Depends on: Task 19.1
 - Files: CREATE `libs/backend/rpc-handlers/src/lib/handlers/skill-synthesis/clone-provenance.resolver.ts` (+ spec); MODIFY `skills-synthesis-rpc.handlers.ts` (+ spec), `register-shared-rpc-handlers.ts`

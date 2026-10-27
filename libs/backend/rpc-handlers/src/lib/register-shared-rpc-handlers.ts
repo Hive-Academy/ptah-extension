@@ -40,6 +40,10 @@ import { GenerationLibraryPassService } from './handlers/wizard-generation/gener
 import { PackInstallService } from './handlers/setup/pack-install.service';
 import { AgentPackDownloadService } from '@ptah-extension/platform-core';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
+import { LocalItemApprovals } from './handlers/marketplace/local-item-approvals';
+import { InstallLocalItemsService } from './handlers/marketplace/install-local-items.service';
+import { CloneRebaseService } from './handlers/skill-synthesis/clone-rebase.service';
+import { CloneProvenanceResolver } from './handlers/skill-synthesis/clone-provenance.resolver';
 
 /**
  * Register the shared RPC handler classes that every app wires the same way,
@@ -83,6 +87,17 @@ export function registerSharedRpcHandlers(
   // break both.
   container.registerSingleton(AgentPackDownloadService);
   container.registerSingleton(PackInstallService);
+  // Marketplace local items (TASK_2026_701 B12, A21). The approval registry
+  // MUST be one instance: it holds the server-side digests behind every
+  // approvalId the client was given, so a second instance would forget them
+  // and every replace decision would read as unknown. The apply service and
+  // the clone rebase (shared with `skillSynthesis:rebaseClone`) are
+  // stateless; singletons so every caller shares one graph.
+  container.registerSingleton(LocalItemApprovals);
+  container.registerSingleton(CloneRebaseService);
+  container.registerSingleton(InstallLocalItemsService);
+  // Library provenance (B13); stateless, reads the live sources per listing.
+  container.registerSingleton(CloneProvenanceResolver);
   container.registerSingleton(
     LANE_ROUTING_TOKENS.LANE_MODEL_LISTING,
     LaneModelListingAdapter,

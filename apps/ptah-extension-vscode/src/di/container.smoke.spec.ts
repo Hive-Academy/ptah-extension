@@ -46,12 +46,15 @@ import {
 } from '@ptah-extension/lane-outcomes';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import { HARNESS_SYNC_TOKENS } from '@ptah-extension/harness-sync';
+import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { OUTPUT_STYLE_TOKENS } from '@ptah-extension/output-styles';
 import {
   AgentRpcHandlers,
   AuthRpcHandlers,
   DecisionModelCatalogRpcHandlers,
+  PluginRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
   resolveRpcHandlerPlan,
@@ -285,6 +288,40 @@ function registerLaneModelListingFixtures(c: DependencyContainer): void {
     c.register(persistence, { useValue: {} });
   }
 }
+
+/**
+ * TASK_2026_701 B12/B13 (A-smoke). VS Code registers `PluginRpcHandlers`
+ * (phase 3) only; `SkillsSynthesisRpcHandlers` is in its expected-absent list.
+ * Handlers are registered in the host's handler phase, not by
+ * `registerSharedRpcHandlers`, so they are not in the handler-only `EXPECTED_RESOLVABLE`. Resolving them over the
+ * shared registrations proves the marketplace and Library services they
+ * depend on (`CloneRebaseService`, `CloneProvenanceResolver`, and in Batch 20
+ * the local-item approval and apply services) resolve. The host-phase
+ * collaborators of `PluginRpcHandlers` are stubbed; their own wiring is
+ * covered by the host's phase specs.
+ */
+describe('VS Code DI — plugin and Library handler resolution (TASK_2026_701)', () => {
+  let c: DependencyContainer;
+
+  beforeAll(() => {
+    c = buildMinimalContainer();
+    c.register(HARNESS_SYNC_TOKENS.PROPAGATION, { useValue: {} });
+    c.register(TOKENS.COMMAND_DISCOVERY_SERVICE, { useValue: {} });
+    c.register(PLUGIN_MARKETPLACE_TOKENS.REGISTRY, { useValue: {} });
+    c.register(PLUGIN_MARKETPLACE_TOKENS.INSTALLER, { useValue: {} });
+    c.register(PLUGIN_MARKETPLACE_TOKENS.STATE_STORE, { useValue: {} });
+  });
+
+  it.each([
+    ['PluginRpcHandlers', PluginRpcHandlers],
+  ] as const)('resolves %s', (_name, token) => {
+    let instance: unknown;
+    expect(() => {
+      instance = c.resolve<unknown>(token);
+    }).not.toThrow();
+    expect(instance).toBeDefined();
+  });
+});
 
 describe('VS Code DI — lane model listing', () => {
   it('resolves LANE_MODEL_LISTING as one singleton', () => {

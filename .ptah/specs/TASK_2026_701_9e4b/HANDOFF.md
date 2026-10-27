@@ -1,7 +1,7 @@
-# HANDOFF - TASK_2026_701_9e4b (session 7)
+# HANDOFF - TASK_2026_701_9e4b (session 8)
 
-Session 7 ended 2026-10-26 (token budget). No CLI lane of this task is running. The backend
-fix-round subagent was STOPPED mid-work when the session ended (no report). Nothing is pushed.
+Session 8 ended 2026-10-26 (token budget). Nothing is pushed. One Batch 19 subagent may still be
+running (see Background work).
 
 ## Goal
 
@@ -22,106 +22,99 @@ flow. Electron first; visual reviews in Electron only, dark + light.
 ## Workflow state (orchestration skill, FEATURE, Full, approval mode `lane-review`)
 
 Gates 1, 1.7, 2: APPROVED. User decisions D3, D6-D11 are final; do not ask again.
-Executors: Claude subagents. Reviewers: codex lanes (implementer family Claude, review family codex).
+Executors: Claude subagents. Reviewers: codex lanes (review family codex, implementer family Claude).
 Accepted pre-existing failures: `ptah-extension-webview:lint` (D19), `@ptah-extension/agent-sdk:lint`
 (D21), degradation-audit flag `apps/ptah-electron/src/ipc/ipc-bridge.ts:324`.
 
-### Done in session 7 (verified)
+## Done in session 8 (verified)
 
-- `npm run verify -- -p @ptah-extension/setup-wizard,ptah-extension-webview,ptah-electron` ->
-  `15 tasks: 14 succeeded, 1 failed` (D19 only).
-- Commits: `baf2abd1f feat(setup-wizard): batch 15 - preview modal and pack prompt`,
-  `ac227e30f feat(setup-wizard): batch 17 - completion surfaces` (incl. lint fixes, D30 files).
-  batches.md: Batch 15 heading has its SHA, Batch 18 has `11c5df630`; **Batch 17 heading says
-  `COMPLETE` without SHA -> add `(commit: ac227e30f)`.**
-- P2 host check: `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`
-  -> `55 tasks: 55 succeeded`.
-- P2 = Batches 10-18 (commits 4795f0b44 493027b0e e62d1dfe8 e55e7c962 ccb672f6e a0b61b0e6
-  11c5df630 baf2abd1f ac227e30f; 16042c885 and eae561cf6 are P1 fixes). Diffs for reviewers:
-  `T/reviews/p2-diff-backend.patch`, `T/reviews/p2-diff-frontend.patch` (source only, untracked).
-- Codex P2 reviews (untracked, in `T/reviews/`):
-  - `p2-code-logic-review-a.md` REJECTED 4/10: A1 (CLI `agent apply` overwrites), A2 (create-only
-    write not atomic, TOCTOU), A4 (untabbed runs lose Library `result` facts) Blocking; A3 Moderate
-    (CLI pack `changed` from `fromCache`). Lane session `01a178ae-a1ef-7613-bd0e-5140dc648a98`.
-  - `p2-code-logic-review-b.md` REJECTED 4/10: B1, B2 Serious; B3-B7 Moderate; B8 Minor.
-    Lane session `01a178ae-c7d9-72c3-a6eb-0c58ca115263`.
-  - `p2-code-style-review.md` 6/10: S1, S2 Serious; M1 Minor. Lane session `01a178ae-ea96-7f30-aad2-22f88afe0016`.
-- decisions.md: D31 (Electron visual review for P2+P3 combined after P3; user must start the app
-  or allow `dev`), D32 (fix-round scope; deferred items -> named later task TASK-P2-FOLLOWUP).
+Commits (on top of `ac227e30f` Batch 17):
+- `74501c8d2 fix(cli,platform-core,rpc-handlers,agent-generation): p2 backend fixes` (A1-A4, S1, S2;
+  report `T/reports/p2-fix-round-backend-report.md`).
+- `be9f73ef8 fix(setup-wizard): p2 frontend fixes` (B1, B2/B4, B5, S1, M1; plus a stale
+  `completion.component.spec.ts` expectation fixed for B5 safe copy; Batch 17 SHA added in batches.md).
+- `dcbfee9ac` merge of `origin/main` (no file overlap; brings the 2-slot memory-gated verify lock,
+  CLAUDE.md verify rules updated).
+- `6bba1367a fix(platform-core,agent-generation): serialize Ptah destination writes` (A2 closure:
+  `libs/backend/platform-core/src/utils/destination-write-lock.ts`, used by
+  `file-writer.service.ts` and `agent-pack-download.service.ts`; report `T/reports/p2-a2-completion-report.md`).
+
+Verification:
+- Combined verify before the commits (15 projects incl. all hosts): `92 tasks: 90 succeeded, 2 failed`
+  = D19 webview lint + setup-wizard completion spec (then fixed; setup-wizard test re-run passed).
+- After A2: `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/agent-generation,@ptah-extension/rpc-handlers,ptah-cli,ptah-electron,ptah-extension-vscode,ptah-tui`
+  -> `68 tasks: 68 succeeded`. NOTE: an earlier run of the same command showed 10 false failures
+  because the Bash background limit (600 s) killed it; run long verifies in the background with
+  `timeout: 3600000`.
+
+Reviews (codex):
+- `T/reviews/p2-fix-rereview.md`: REVISE 6/10, 10 of 11 FIXED, A2 PARTIAL -> closed by 6bba1367a.
+- `T/reviews/p2-a2-rereview.md`: A2 FIXED, `Verdict: APPROVED — 8/10`, no new defects. **P2 is closed.**
+- decisions.md: D33 added (uncommitted) for this round.
 
 ## In progress (uncommitted, do not lose)
 
-1. **Frontend fix round: DONE, not committed.** Report `T/reports/p2-fix-round-frontend-report.md`.
-   Fixed B1, B2+B4 (new root `services/pack-install.store.ts`), S1 (new
-   `services/generation-preview.store.ts`; agent-selection 1121 -> 952 lines), M1
-   (`components/pack-install/pack-install-result.ts`), B5 (`utils/safe-failure-copy.ts`).
-   Own checks: tests 118/118 in 8 suites, typecheck+lint 2/2. Notes for the re-review: raw error
-   goes to `console.warn` (project rule says no console.* in libs; WizardRpcService already does
-   it); proposed removal `SetupWizardStateService.agentInstallStatus`/`setAgentInstallStatus`
-   (no prod reader; needs user approval, follow-up); `completion.component.ts:159-160` still renders
-   raw `completion().errors` (follow-up B5 item).
-2. **Backend fix round: PARTIAL, executor stopped, no report.** Scope (D32): A1, A2, A3, A4,
-   S1-backend, S2. Uncommitted backend edits: 29 files, +1319/-471, including
-   `apps/ptah-cli/src/cli/commands/agent.ts` (+spec), `file-writer.service.ts` (+spec),
-   `agent-pack-download.service.ts` (+spec), a new exclusive-create method on
-   `platform-core/src/interfaces/file-system-provider.interface.ts:46` with implementations in
-   platform-cli / platform-electron / platform-vscode, the platform-core mock and contract, and
-   one-line mock additions in specs of lane-routing, vscode-lm-tools, workspace-intelligence,
-   agent-generation (generated-section-validator.spec.ts); `pack-install.service.ts`,
-   `generation-preview.service.ts`, `wizard-generation-rpc.handlers.ts`,
-   `wizard-generation-run.supervisor.ts`, `register-shared-rpc-handlers.ts` (+specs); NEW
-   `wizard-generation/generation-library-pass.service.ts` (279 lines) + spec (193 lines).
-   Which findings are complete and whether it compiles is UNKNOWN.
+**Batch 19 (P3, backend-developer subagent)**: Tasks 19.1 + 19.2 per `T/batches.md` "## Batch 19".
+Uncommitted files at session end:
+- M `apps/ptah-cli/src/di/container.smoke.spec.ts`, `apps/ptah-electron/src/di/container.smoke.spec.ts`,
+  `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`
+- M `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts` (+ spec),
+  `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`
+- NEW `libs/backend/rpc-handlers/src/lib/handlers/marketplace/`, `.../handlers/skill-synthesis/`
+The subagent was waiting on its own verify run; its report `T/reports/batch-19-report.md` did NOT
+exist yet. Completeness and compile state are UNKNOWN until that report exists.
+
+Other uncommitted task files: `T/decisions.md` (D33), `T/reviews/p2-a2-rereview.md`. Patch files
+`T/reviews/*.patch` are reviewer inputs; do not commit them.
 
 ## Open items
 
-- Deferred to TASK-P2-FOLLOWUP (D32): B3, B6 (completion Retry, design-spec.md:135), B7 (sidebar
-  duplicate results, generation-agent-sidebar.component.ts:110-150), B8 (kept reason enum),
-  completion rows in parity-inventory.md, the frontend notes in item 1 above.
+- Deferred to TASK-P2-FOLLOWUP (D32): B3, B6, B7, B8, completion rows in parity-inventory.md, and the
+  frontend notes: raw error `console.warn` in setup-wizard; proposed removal of
+  `SetupWizardStateService.agentInstallStatus`/`setAgentInstallStatus` (needs user approval);
+  `completion.component.ts:159-160` still renders raw `completion().errors`.
 - D22 still open for the user: `~/.ptah/harness/state.json` `agentSyncEnabled: false`.
-- D31: the visual review needs the user to start Electron.
+- D31: the Electron visual review needs the user to start the app (or allow `dev`).
+
+## Background work
+
+- Batch 19 backend-developer subagent (Agent tool, background, started ~17:35 UTC). It belongs to the
+  previous session and cannot be resumed from a new session. Check: does `T/reports/batch-19-report.md`
+  exist? If not, treat Batch 19 as partial (see Next step 1).
+- No codex lane is running. Last codex session ids: `01a1791e-abff-7bd1-97a0-ee18de8b839a` (P2
+  re-review), `01a17947-c8d2-7a21-9f0c-d728d9ae1125` (A2 re-check). Resume often starts fresh when the
+  history is over 60k tokens; give full instructions.
 
 ## Lanes
 
-codex: room (weekly 30% at 2026-10-26, resets 2026-11-02). opencode: AT LIMIT until 2026-11-04.
-`ptah_agent_spawn` rejects `taskKind`/`routingSource` keys: omit them. Codex reviewers cannot run
-git: give them patch files and file lists. Lane signals from the `chat-layout-declutter`
-worktree are NOT this task. Ignore them.
-
-## Verify lock note
-
-The worktree's `scripts/verify.mjs` is the old single-slot lock (main has the 2-slot memory-gated
-lock from PR #828). After everything is committed, merge `origin/main` into the branch, then read
-the updated CLAUDE.md "STRICT: Verification commands". Pass one `--testPathPatterns=<name>` flag
-per suite.
+codex: room (weekly 36% at 2026-10-26, resets 2026-11-02). opencode: AT LIMIT until 2026-11-04.
+`ptah_agent_spawn` rejects `taskKind`/`routingSource`: omit them. Codex reviewers cannot run git:
+give them patch files. Lane signals from other worktrees (chat-layout-declutter, etc.) are NOT this task.
 
 ## Next steps
 
-1. Fresh backend-developer subagent to FINISH the backend fix round from the partial state.
-   Give it: findings A1-A4 in `T/reviews/p2-code-logic-review-a.md`, S1/S2 in
-   `T/reviews/p2-code-style-review.md`, D32, the file list in "In progress" item 2, and
-   `git diff -- apps libs/backend` as its starting point. It must audit each finding against the
-   current diff, complete what is missing, write `T/reports/p2-fix-round-backend-report.md`, and
-   must not touch `libs/frontend/**`. Same rules as below.
-2. Combined verify (one foreground run):
-   `npm run verify -- -p @ptah-extension/setup-wizard,@ptah-extension/agent-generation,@ptah-extension/rpc-handlers,@ptah-extension/platform-core,@ptah-extension/platform-cli,@ptah-extension/platform-electron,@ptah-extension/platform-vscode,@ptah-extension/lane-routing,@ptah-extension/vscode-lm-tools,@ptah-extension/workspace-intelligence,ptah-cli,ptah-electron,ptah-extension-vscode,ptah-tui 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -E "Running target|tasks:|✖|full log"`
-   (check exact project names with `npx nx show projects | grep -E "lane-routing|vscode-lm|workspace-intel|platform-"` first).
-   Accept D19 and D21 only.
-3. Commit the fix round in the foreground, explicit paths, two commits (backend, frontend), scopes
-   from `.commitlintrc.json`, `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Include the
-   T/reviews and T/reports files, decisions.md, this HANDOFF.md; fix the Batch 17 SHA in batches.md.
-4. One short codex re-review scoped to the fix diff (new patch file of the fix commits): resume
-   or start fresh per lane; verify A1-A4, B1, B2/B4, B5, S1, S2, M1 are fixed.
-5. Merge `origin/main` into the branch (verify lock change); re-read CLAUDE.md verify rules.
-6. P3 (Batches 19-25), same pattern; P4 (Batch 26) with a codex logic review. Then the combined
-   Electron visual review (D31, D15: F7i notice states, F6 link; dark, light, ~400px).
-7. Team-leader MODE 3, then push + `gh pr create` in the background against `main` (title < 70
+1. Batch 19: if `T/reports/batch-19-report.md` exists, read it. If not, start a fresh
+   backend-developer subagent to audit the uncommitted Batch 19 files against Tasks 19.1/19.2 in
+   `T/batches.md`, finish what is missing, and write that report (must not touch libs/frontend or
+   the A2 lock files). Then verify (background, `timeout: 3600000`):
+   `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli > /tmp/b19.log 2>&1; echo "exit $?"; sed 's/\x1b\[[0-9;]*m//g' /tmp/b19.log | grep -E "Running target|tasks:|✖|error TS" | head -20`
+2. Commit Batch 19 in the foreground with explicit paths (scope `rpc-handlers` plus `electron`/`cli`
+   as needed per `.commitlintrc.json`), include `T/decisions.md`, `T/reviews/p2-a2-rereview.md`,
+   `T/reports/batch-19-report.md`, this HANDOFF.md; mark Batch 19 COMPLETE with SHA in batches.md.
+   End message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+3. Batches 20 -> 21 -> 22/23 -> 24/25 in order per `T/batches.md` (20 backend; 21-25 frontend;
+   22 depends on 19 only). Each: subagent, its batch verify command, commit.
+4. P3 phase review: one codex code-logic review on the P3 diff (patch file) + style review for the
+   new RPCs (Batch 20). One fix round, one short re-review.
+5. P4 (Batch 26) + codex logic review. Then the combined Electron visual review (D31, D15: F7i
+   notice states, F6 link; dark, light, ~400px) — needs the user to start Electron.
+6. Team-leader MODE 3, then push + `gh pr create` in the background against `main` (title < 70
    chars, `## Summary` + `## Test plan` with real results, end with the Claude Code line). Watch CI
    and reviews; fix confirmed findings. No merge, force push or worktree removal.
 
-Rules for every lane and subagent: scoped `npm run verify -- -p ...` only, one foreground run,
-output filtered; never workspace-wide; never build/serve/dev/e2e/package; Electron first; keep
-every host compiling; executors never commit/push or edit batches.md/task.md/decisions.md; never
-git stash/restore/checkout/reset/clean; specs never write outside a temp or mocked root; never
+Rules for every lane and subagent: scoped `npm run verify -- -p ...` only, one run, output
+filtered; never workspace-wide; never build/serve/dev/e2e/package; Electron first; keep every host
+compiling; executors never commit/push or edit batches.md/task.md/decisions.md; never git
+stash/restore/checkout/reset/clean; specs never write outside a temp or mocked root; never
 `npm install` in the worktree. Parallel executors in one lib run only their own specs; the
 orchestrator runs the combined verify.
