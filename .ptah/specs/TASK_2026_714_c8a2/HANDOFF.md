@@ -1,8 +1,10 @@
-# Session handoff — TASK_2026_714_c8a2 (session 17)
+# Session handoff — TASK_2026_714_c8a2 (session 18)
 
-Written 2026-10-27. Replaces the session 15/16 handoff (in git history, commit 9b0b89b5b).
-At handoff: NO subagent, team-leader or CLI lane of this task is running. The worktree is clean.
-Local HEAD = the commit that adds this file, on top of `3e7188d05`; origin = `756814876`.
+Written 2026-10-28. Replaces the session 17 handoff (in git history, commit `9b5f4c86c^` area;
+see `git log -- .ptah/specs/TASK_2026_714_c8a2/HANDOFF.md`).
+At handoff: NO subagent, team-leader or CLI lane of this task is running. The verify lock is free.
+
+W = `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration`
 
 ## Goal
 
@@ -10,183 +12,179 @@ One Codex runtime for Ptah: the Codex App Server, shared by main chat, the messa
 CLI lanes through ONE core lib (`@ptah-extension/codex-runtime`) and thin adapters. Then DELETE
 legacy path B (`@openai/codex-sdk`, CLI lanes) and path A (Claude Agent SDK + Codex translation
 proxy for Codex main chat). Claude behavior unchanged. Electron first. No runtime-selector UI.
-Production stays behind the parity gate until parity is proven.
+Native chat must produce EXACTLY the same UI contracts as Claude (`FlatStreamEventUnion`,
+`turn_state`, `PermissionRequest`, session RPCs); never special-case the frontend for Codex.
 
-**User decisions (all confirmed by the user):**
-- PR #823 is NOT merged by us. It is ready only when main chat, gateways and lanes run on the App
-  Server AND paths A and B are removed. Defects that existed before this task go out as SEPARATE
-  small PRs that the user merges first; then `main` is MERGED into the runtime branch (no rebase,
-  no force push).
-- Native App Server features wherever they exist; build only where they do not.
+## User decisions (all confirmed by the user; full table in decisions.md)
+
+- PR #823 is NOT merged by us. Pre-existing defects go out as SEPARATE small PRs from `main`;
+  `main` is MERGED into the branch (merge commit, no rebase, no force push).
+- Native App Server features first; build only where they do not exist.
 - Identity store = option A (SessionMetadataStore). Removal B at the END of P10.
-- P8 D7 (decisions.md): PR scope = P8, P9 gateway, P10 lanes + Removal B, live parity check (P14),
-  P15 Removal A. P11–P13 and spikes S0–S2 go to a FOLLOW-UP PR.
-- Speed: per batch ONLY scoped `npm run verify -- -p <changed>`. Degradation audit, di-lint, the
-  4-host typecheck and host-attention ONCE per phase. Add `@ptah-extension/settings-core` for
-  Electron DI/settings changes, `@ptah-extension/chat` for frontend, `ptah-electron` when
-  `CodexChatAdapterPorts` changes.
+- PR #823 scope (P8 D7, re-confirmed as D9 this session): P8, P9 gateways, P10 lanes + Removal B,
+  P14 live parity check, P15 Removal A. P11 (subagents), P12 (history), P13 (checkpoints) go to
+  the FOLLOW-UP PR. User accepted that Codex main chat loses those natively until the follow-up.
+- **D8 (session 18):** native Codex chat must reach full parity with Claude main chat: skills,
+  MCP servers (Ptah MCP AND the user's MCP servers), system prompts. Native chat HONORS MCP.
+  Do NOT strip, revert or comment out MCP to bypass a problem. The 8h/D6 strip-with-notice is
+  TEMPORARY until native MCP attach (round 8l).
+- **NEW (session 18, record as a decision row in round 8l):** the Codex harness sync (writes
+  `~/.codex/config.toml` `# ptah:begin` MCP blocks + the `ptah` entry via `ptah-mcp-slots.ts`,
+  `{ws}/.agents/skills`, `{ws}/.codex/agents/*.toml`) is REMOVED COMPLETELY in the FOLLOW-UP PR,
+  with a one-time cleanup of Ptah-fenced blocks. Ptah reads MCP/skills/agents from its OWN store
+  and passes them natively per thread. In PR #823 (8l): Ptah's own synced `ptah` entry is
+  overridden/disabled per Ptah thread so the native session-scoped Ptah MCP URL always wins;
+  the user's hand-written entries (e.g. `node_repl`) are not touched.
+- D10: the dev-only probe `scripts/codex-start-probe.ts` is approved (coordinator runs it).
+- D9 (history after reload) is REQUIRED before Removal A (P15).
 - Live Electron test is approved: build-dev, `PTAH_CODEX_RUNTIME_DEV=1`, Codex luna only,
   <=10 paid turns per run, settings.json backup + `cmp` restore, approval mode "Manual" first.
-- **NEW (session 17) D6 policy:** host-assembled ambient inputs (`mcpServersOverride` with
-  entries, `thinking`, `outputStyleName`) are stripped; the start proceeds and the chat shows ONE
-  non-error notice per start/resume naming the MCP servers not attached / the style not applied
-  (names only). Parity row 39 is revised: "the feature fails visibly, not the turn". Native MCP
-  mapping is NOT manageable now (no secret resolution at the runtime boundary, C10 unproved) ->
-  P14.
-- **NEW (session 17):** another worktree's Ptah Dev app holding the single-instance lock is NOT
-  killed without asking the user. User answer for p8d: wait until that session releases it.
-  (PID 35288 from `claude-named-accounts` was killed once with user approval.)
+- Another worktree's Ptah Dev app holding the single-instance lock is NOT killed without asking.
 
 ## PRs and branches
 
 | PR | Branch / worktree | State |
 | --- | --- | --- |
-| #823 https://github.com/Hive-Academy/ptah-extension/pull/823 | `feat/codex-runtime-integration` / `D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration` | DRAFT, do not merge. origin = `756814876`. CI GREEN at `0008f7f3d` (19 pass, 4 skipped). **NO CI ran for `756814876`: the PR is CONFLICTING with main** (`mergeStateStatus DIRTY`, main 53 commits ahead). Local `3e7188d05` + handoff commit NOT pushed. No reviews (REVIEW_REQUIRED). |
+| #823 https://github.com/Hive-Academy/ptah-extension/pull/823 | `feat/codex-runtime-integration` / W | DRAFT, do not merge. Main merged this session (42170f631). CI GREEN at `88c50b841` (19 pass, 4 skipped). Commits up to this handoff commit pushed at handoff (check `git status -sb`). No reviews (REVIEW_REQUIRED). |
 | #824, #826 | `fix/provider-switch-model-sync`, `fix/host-stored-model-validation` | MERGED. Worktrees + branches kept until the user authorizes cleanup. |
 
-## Done this session
+## Done this session (session 18)
 
-| Commit | Subject | Verify |
-| --- | --- | --- |
-| 3362b2ad5 | fix(electron,codex-runtime): batch 8g-2 - binary inspection, shutdown | ptah-electron, codex-runtime, settings-core pass |
-| 1194ed505 | fix(rpc-handlers,agent-sdk): batch 8g-1b - map ptahUiFence natively | rpc-handlers, agent-sdk pass |
-| 2f9a98bd9 | fix(agent-sdk,rpc-handlers): batch 8g-3 - one native compaction signal | pass + ptah-electron typecheck |
-| 82901d5c4 | fix(rpc-handlers,shared,agent-sdk): batch 8g-4 - typed codex rpc codes | shared, rpc-handlers, agent-sdk, chat pass |
-| aa8dd6c60 | fix(chat): batch 8g-5 - quiet cancelled codex start, one compact error | chat pass |
-| 0008f7f3d | docs(task-specs): record batch 8g-1b..8g-5 commits and the P8 gate | 8g phase gate all pass. PUSHED, CI green |
-| 49345a199 | docs(task-specs): record live test p8c, D6 open blocker | docs |
-| c02d25f2f | fix(rpc-handlers): batch 8h-2 - log the real chat rpc outcome | see 8h |
-| 18ef3fef8 | fix(rpc-handlers,agent-sdk): batch 8h-1,3,4 - codex ambient inputs | rpc-handlers (186 suites / 4814 tests), agent-sdk, ptah-electron pass |
-| 756814876 | docs(task-specs): record batch 8h, parity row 39 revision, P8 gate | 8h phase gate all pass (audit, di-lint, 4-host typecheck, host-attention). PUSHED |
-| 3e7188d05 | docs(task-specs): record live test p8d, D6 fixed, D7 open blocker | docs, NOT pushed |
+| Commit | Subject / result |
+| --- | --- |
+| 42170f631 | Merge origin/main (conflict in apps/ptah-electron/src/di/surface-composition.spec.ts: kept main's 3rd `IpcBridge` arg `[]`) |
+| 2fec60b8b | fix(electron): pass trusted documents in the codex permission spec (merge fallout). CI green |
+| c2a06f834 | fix(codex-runtime): keep and log the cause of a failed context open (8i-1) |
+| 092095c4b | feat(scripts,codex-runtime): add a local codex app-server start probe (8i-2) |
+| 9b5f4c86c | docs(task-specs): record batch 8i, D7 probe and parity decisions (D8-D10) |
+| eccc2182f | fix(codex-runtime): tolerate additive app-server shapes and early events (8j) |
+| 88c50b841 | docs(task-specs): record batch 8j, D7 root cause and fix decisions. CI green |
+| e91e967c9 | docs(task-specs): record live test p8e, D7 fixed, D8-D12 open |
+| 65a5537e6 | fix(agent-sdk,electron): end native Codex turns with turn_state (8k-1: D8, D12 abort) |
+| 095e4246e | feat(agent-sdk,codex-runtime): present native tools as Ptah tools (8k-2) |
+| dac92cedb | fix(agent-sdk,codex-runtime): report native model and context in stats (8k-4) |
+| 785de99ef | fix(agent-sdk,rpc-handlers): resume native Codex sessions, Ptah tool names (8k-3 part: D10). Subject is 74 chars (hook accepted; no rewrite) |
+| 20ce5854f | docs(task-specs): record batch 8k, D8/D10/D12 fixed, D11 host pending |
 
-Known lint noise only: agent-sdk `session-query-executor.accounts.spec.ts:174,183`; chat lazy-load
-imports and `attention-context.util.ts` (unchanged from main).
+**D7 root cause (fixed in 8j):** strict `z.strictObject` schemas rejected 7 additive fields in the
+real `thread/start` result, and `remoteControl/status/changed` arriving before `ready` was fatal.
+User MCP servers were NOT the cause. Server-sent shapes now drop unknown keys (required fields
+still strict); client-sent params stay strict; unknown notifications are ignored (debug log once
+per method, cap 64); early notifications are buffered (cap 64). Probe on eccc2182f: both
+variants OK (`initialize + thread/start`).
 
-Live tests (reports committed in this folder):
-- `live-test-p8c.md` (HEAD 0008f7f3d): FAIL, blocker D6 (`mcpServersOverride` rejected). 0 paid
-  turns, settings restored (`cmp` identical). D5, single error UI and Orchestrator chip fixed.
-- `live-test-p8d.md` (HEAD 756814876): FAIL, blocker **D7**. D6 and M1 confirmed fixed live
-  (0 `CodexChatOptionError`, names-only `codex-user-mcp-not-attached` log, real outcome logged).
-  0 paid turns, settings restored (`cmp` identical). Evidence:
-  `C:\Users\abdal\AppData\Local\Temp\ptah-live-p8d-20261027-214138\`.
+**Live test p8e** (live-test-p8e.md, first native turns in the UI): all 5 opens OK, Codex replies.
+D8 turn never ended (fixed 8k-1), D11 no approval buttons (bridge part committed, host part
+uncommitted), D10 continue starts new thread (fixed 8k-3), D12 stop = runtime-failed (abort fixed
+8k-1; notice release is in the uncommitted host part), D9 history after reload (deferred, required
+before P15). Codex attached Ptah MCP only through `~/.codex/config.toml`. 5 paid turns; cmp OK.
 
-## In progress
+## In progress (UNCOMMITTED in W)
 
-Nothing is partly written. The next work item is fix round **8i** for D7 (not planned yet in
-batches.md).
+D11 host side, written by lane 8k-3 (Codex session `01a17f67-41d3-7741-98c6-b3d0180d50c6`):
+- `W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts` — UUID id per
+  prompt mapped to the Codex request identity; that id for cancel, auto-resolve and notice release;
+  omit `tabId` when it would be the session id; `timeoutAt` = real deadline; uses
+  `presentCodexApproval`. Production code compiles (phase gate passed with it in the tree).
+- `W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.spec.ts` — DOES NOT
+  COMPILE: `:360`, `:457`, `:458`, `:572` pass `['deny','allowOnce']` where the full 4-item choices
+  list is required; `:556` the cancel `reason` from the test table is typed `string`, not the
+  allowed literals. Test typing only.
 
-## Open problems and decisions
+## Open problems and deferred items (all recorded in batches.md "Batch 8k")
 
-- **D7 (blocker for every Codex chat start):** `libs/backend/codex-runtime/src/lib/codex-runtime.ts:115-122`
-  replaces any `RuntimeContext.open` failure with `Error('Codex context could not be opened')`,
-  no cause, no log. The `codex app-server` process DID start (its MCP client connected to Ptah's
-  MCP server), so the failure is in `thread/start`: a rejected request, a reply that failed the
-  protocol check (`codex-app-server-process.ts:211-219`, `:269-271`, `:308-327`), or
-  `store.persist`. Codex stderr is discarded (`codex-app-server-process.ts:170`). Likely trigger:
-  the user's `~/.codex/config.toml` defines MCP servers `node_repl` and `ptah` that Codex loads at
-  `thread/start`. First fix: keep and log the real cause (no payloads, no secrets) and keep a
-  bounded stderr tail at debug; then ONE start attempt shows the cause without a paid turn.
-- **Decision needed (ask the user once D7's cause is known):** native chat honors or suppresses
-  MCP servers from the user's own `~/.codex/config.toml`. Ptah logs "Ptah MCP is not attached",
-  but Codex attaches Ptah MCP anyway from that config.
-- **Merge conflict with main:** one file conflicts,
-  `apps/ptah-electron/src/di/surface-composition.spec.ts` (auto-merged: bootstrap.ts, shutdown.ts,
-  container.smoke.spec.ts, expected-resolvable.ts, ipc-bridge.ts, rpc-surface.spec.ts,
-  rpc-handlers/shared index.ts, message-constants.ts, payload-map.ts). Per the user decision:
-  `git merge origin/main` (merge commit, no rebase), resolve, scoped verify of the touched
-  projects + the 4 DI guard specs, then push so CI runs again.
-- **Deferred (batches.md "Batch 8g deferred", "Batch 8h deferred"):** native user-MCP mapping
-  (P14), output style by name on Codex (P14), apply changed model/effort/permissionLevel on an
-  active resume (P14), MCP Apps page `apps` profile on Codex (explicit error now), M2 "api error"
-  label for local failures (needs a new terminal reason in shared + chat + chat-ui), and the older
-  lists (M-N7/M3 approvals on renderer reload, M2 metadata rollback, M6 `surfaceMode`, etc.).
-- **For the P8 re-review (minor):** publish catch still logs "Model substitution notice failed"
-  for every runtime notice; in `codex-chat-adapter.ts` the class doc comment now sits above the
-  `TrackedSession` alias; on a cancelled start `markLoaded`/`markTabIdle` run twice (harmless).
-- **Separate small PRs from `main` (own worktrees), not this branch:** S-N0 (hidden-tab terminal
+- 8k-5 not run: end-to-end specs (native turn vs a Claude fixture turn, event by event; approval
+  through the real renderer parser `permission.parsers.ts` with `toolUseId` == tool_start id;
+  stop during approval -> abort + notice cleared).
+- Header Tokens/Cost stay "—": `SessionStatsOwnerService.replaceRun` needs cumulative per-run
+  totals; Codex sends per-turn deltas. Needs new contracts. Cost has no Codex pricing.
+- `fileChange` edits keep the raw name (Edit card needs old/new strings). Only single-file add ->
+  `Write`.
+- Streaming gaps: `item/reasoning/*Delta` and `item/commandExecution|fileChange/outputDelta` are
+  unmodeled and ignored -> thinking and tool output appear only on completion. Map them natively.
+- Recorded-stream fixtures (sanitized real App Server notifications per scenario) run through
+  translator + chat-events in CI; count ignored notification methods in the parity report.
+- `session-rpc.handlers.ts:125` local copy of the thread-record schema (parser not exported).
+- Probe: a normal close logs debug "Codex process failure / process exited" (wrong wording).
+- Unknown server REQUEST with an extra top-level key still kills the process instead of a
+  "Method not found" reply (pre-8j behavior).
+- Known pre-existing lint noise from main: agent-sdk
+  `session-query-executor.accounts.spec.ts:174,183` (CI is green with it). Do not fix in this PR.
+- Process defect: Codex `backend-developer` lanes call `ptah_get_diagnostics` despite the ban
+  (role preamble requires it; task prompt cannot override). Twice in 8i/8j. Needs a role change.
+- Process: lane completion signals arrive at the COORDINATOR, not the team-leader. Relay each one
+  with SendMessage to the team-leader (files + session id), or the team-leader waits.
+- Codex lane weekly limit was at 92-95% at handoff; the team-leader used GLM lanes for 8k-2/8k-4.
+- Separate small PRs from `main` (own worktrees), not this branch: S-N0 (hidden-tab terminal
   overwrite, `chat-stream-delivery-coordinator.service.ts:232-235`) and LIVE D4 (save to "This
-  workspace" also writes global `provider.openai-codex.mainAgent.modelTier.*`; seen again in p8c
-  and p8d).
-- **Process lessons (session 17):**
-  - `ptah_agent_message` to a Codex lane in mid-turn is only QUEUED, and it was LOST twice when
-    the lane ended. Use a resume (`ptah_agent_spawn` with `resume_session_id`) from the
-    team-leader instead. Check every lane's final diff for coordinator decisions.
-  - A team-leader resume can run CONCURRENTLY with the original lane's queued turn on the same
-    files: wait for both completion signals before verify.
-  - Lanes still call `ptah_get_diagnostics` despite the rule (it runs TypeScript outside the lock);
-    say "do NOT call ptah_get_diagnostics" explicitly in every lane prompt.
-  - Only one Ptah Dev Electron can run per machine (`apps/ptah-electron/src/main.ts:61-66`).
-    Check for another root `electron.exe` before a live run.
-  - github.com HTTPS sometimes fails; the push retry worked.
+  workspace" also writes global `provider.openai-codex.mainAgent.modelTier.*`).
 
-## Key files (W = D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration)
+## Key files
 
-- W/.ptah/specs/TASK_2026_714_c8a2/batches.md — source of truth ("Batch 8g", "Batch 8h" with the
-  ambient-key audit table, deferred lists, "Run state (session 17)"; P9, P10, Removal B, P14, P15
-  further down).
-- W/.ptah/specs/TASK_2026_714_c8a2/decisions.md — P8 D1-D7. parity-inventory.md — row 39 revised.
-- W/.ptah/specs/TASK_2026_714_c8a2/live-test-p8d.md — D7 evidence and the procedure used.
-- W/libs/backend/codex-runtime/src/lib/codex-runtime.ts:89 (refuses profiles with mcpServers),
-  :115-122 (D7 swallowed cause).
-- W/libs/backend/codex-runtime/src/lib/codex-app-server-process.ts:170 (stderr dropped),
-  :211-219, :269-271, :308-327 (protocol checks).
-- W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-profile-options.ts — option
-  policy (supported / stripped / rejected).
-- W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts — profile build,
-  PTAH_UI_HINT, `checkOptions`.
-- W/libs/backend/rpc-handlers/src/lib/chat/session/chat-runtime-profile.service.ts —
-  `publishRuntimeNotices` (the visible notice).
-- W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.ts — adapter (compaction,
-  cancel logging, active resume).
-- W/libs/backend/rpc-handlers/src/lib/chat/session/chat-session.native.spec.ts — real-config spec
-  (renderer payload, Smithery + OAuth stubs).
-- W/apps/ptah-electron/src/di/surface-composition.spec.ts — the merge conflict.
-
-## Background work
-
-None. All subagents and CLI lanes of this session finished and reported. Nothing waits on a
-permission.
+- W/.ptah/specs/TASK_2026_714_c8a2/batches.md — source of truth (Batch 8i, 8j, 8k sections,
+  deferred lists; P9, P10, Removal B, P14, P15 further down). decisions.md (P8 D1-D12).
+- W/.ptah/specs/TASK_2026_714_c8a2/live-test-p8e.md — latest live evidence and procedure.
+- W/scripts/codex-start-probe.ts — free start probe (no Electron, no turn).
+- W/libs/backend/codex-runtime/src/lib/: codex-runtime.ts (open; `:89` still REFUSES profiles
+  with `mcpServers` — round 8l changes this), codex-app-server-process.ts, codex-protocol-*.ts,
+  codex-event-translator.ts, codex-approval-bridge.ts, codex-stderr-tail.ts.
+- W/libs/backend/agent-sdk/src/lib/codex-app-server/: codex-chat-adapter.ts,
+  codex-chat-turn-stream.ts, codex-chat-events.ts, codex-chat-approval-sink.ts,
+  codex-tool-presentation.ts.
+- W/libs/backend/rpc-handlers/src/lib/chat/codex-host/: codex-chat-host-ports.ts (profile build,
+  approvals, "Ptah MCP is not attached" log at ~:157), codex-chat-profile-options.ts (strip list).
+- W/libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts — native `session:validate`.
+- MCP sync to remove in the follow-up PR: W/libs/backend/harness-sync/src/lib/targets/mcp/
+  codex-toml-mcp-facet.ts, targets/rival-targets.ts (`createCodexTarget`),
+  W/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-http/ptah-mcp-slots.ts (Codex rows).
+- Native Ptah MCP URL builder already used by lanes: W/libs/backend/cli-agent-runtime/src/lib/
+  cli-agents/cli-adapters/ptah-mcp-url.ts (`ptahMcpServerUrl`, session/workspace scoped, no secret)
+  and codex/codex-lane-config.builder.ts:147-156.
 
 ## Next steps (in order)
 
-1. `cd W`; `git status -sb` (expect clean, 2 commits ahead of origin `756814876`);
-   `node scripts/verify.mjs --status`.
-2. Merge main (user decision: merge, no rebase): `git fetch origin main`; `git merge origin/main`;
-   resolve `apps/ptah-electron/src/di/surface-composition.spec.ts`; commit the merge in the
-   foreground. Verify:
-   `npm run verify -- -p ptah-electron,ptah-extension-vscode,@ptah-extension/rpc-handlers,@ptah-extension/shared,@ptah-extension/settings-core`
-   (covers the DI guard specs `container.smoke.spec.ts`, `expected-resolvable.ts`,
-   `rpc-surface.spec.ts`, `surface-composition.spec.ts`).
-3. Push in the background; watch `gh pr checks 823` (known flakes `state.spec.ts:41`,
-   `config-change-permission-survival.spec.ts:204`: rerun once).
-4. Fix round 8i via a FRESH team-leader (short prompt, absolute paths): D7 step 1 = preserve and
-   log the real `RuntimeContext.open` / `thread/start` failure cause (no payloads or secrets) and a
-   bounded Codex stderr tail at debug in `codex-runtime.ts` / `codex-app-server-process.ts`, with
-   specs. Verify `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/agent-sdk,ptah-electron`.
-   Phase gate once:
+1. `cd W`; `git status -sb` (expect only the 2 uncommitted host-ports files);
+   `node scripts/verify.mjs --status`; `gh pr checks 823` for the pushed head.
+2. Finish D11 host side: resume lane `01a17f67-41d3-7741-98c6-b3d0180d50c6` (ptah_agent_spawn with
+   resume_session_id; Codex may be near its weekly limit — else a fresh lane with the same scope)
+   to fix the 5 spec typing lines, OR a fresh team-leader. Then
+   `npm run verify -- -t test -p @ptah-extension/rpc-handlers` and
+   `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron`; commit both files.
+3. 8k-5 end-to-end specs (see Open problems). Verify the touched projects.
+4. Round 8l, native MCP (FRESH team-leader): Ptah MCP as an http `profile.mcpServers` entry with
+   the session/workspace URL from `ptahMcpServerUrl`; relax `codex-runtime.ts:89` for servers
+   without secret references; pass servers through the native App Server config at thread/start
+   (`mcp_servers.ptah.url`, `tool_timeout_sec`), overriding the synced `ptah` entry; remove the
+   "Ptah MCP is not attached" log. Then the user's MCP servers from `mcpServersOverride` (stdio +
+   http/sse; secrets only to the process, never logs/fingerprint/stored profile); remove the D6
+   strip. Record the harness-sync removal decision in decisions.md. Specs per transport.
+5. Phase gate once:
    - `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint`
    - `node scripts/verify.mjs --exec --task di-lint -- npx nx run di-lint:lint`
    - `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`
    - `npm run verify -- -t test -p @ptah-extension/vscode-core -- --testPathPatterns=host-attention-ingress`
-5. Push; then live test p8e (procedure below, reuse `live-test-p8d.md`): ONE start attempt to read
-   the real D7 cause. Then fix the cause (ask the user the `~/.codex/config.toml` MCP question if it
-   is the trigger), and rerun the full scenarios a, a2, b, c, d, `/compact`, e, f.
-6. If live passes: P8 re-review of the 8g + 8h + 8i commits (code-logic + code-style, a CLAUDE
-   reviewer because Codex lanes implemented). Then P9 (gateway), P10 (lanes, Removal B at its end),
-   P14 live parity check, P15 Removal A — per batches.md and D7.
-7. Separate small PRs from `main`: S-N0 and LIVE D4.
+6. Push (background); watch `gh pr checks 823` (known flakes `state.spec.ts:41`,
+   `config-change-permission-survival.spec.ts:204`: rerun once).
+7. Probe both variants:
+   `npx ts-node --transpile-only -P scripts/codex-start-probe.tsconfig.json -r tsconfig-paths/register scripts/codex-start-probe.ts --model gpt-5.6-luna`
+   (and the same with `--no-user-mcp`). Expect OK open; with 8l, the `ptah` server attached.
+8. Live test p8f (procedure below; reuse live-test-p8e.md): scenarios a, a2, b, c, d, `/compact`,
+   e, f + one `ptah_*` tool call + one call to a user MCP server. Delegate to a test agent.
+9. If live passes: P8 re-review (code-logic + code-style, CLAUDE reviewers) of
+   `9b5f4c86c..HEAD`, then P9, P10 + Removal B, P14, D9 (history) before P15 Removal A.
+10. Follow-up PR (later): P11-P13 + harness-sync Codex removal + one-time block cleanup.
 
 ## Verification rules (repeat to every lane)
 
 - `npm run verify -- -p A,B` / `npm run verify -- -t test -p A` (extra Jest flags after a second
-  `--`; confirm the "N projects" header). FIFO counting lock is machine-wide;
-  `node scripts/verify.mjs --status`. Other heavy commands:
-  `node scripts/verify.mjs --exec --task <name> -- <cmd>`. Never workspace-wide, never
-  `nx run-many`, never positional `nx test A B`, never build/serve/dev/e2e/package except for the
-  approved Electron live run.
+  `--`). FIFO counting lock is machine-wide; `node scripts/verify.mjs --status`. Other heavy
+  commands: `node scripts/verify.mjs --exec --task <name> -- <cmd>`. Never workspace-wide, never
+  `nx run-many`, never positional `nx test A B`, never build/serve/dev/e2e/package except the
+  approved Electron live run. Run verify in the background with a LONG timeout (>=90 min): a 10
+  min background limit killed a verify mid-run this session and produced false failures.
 - Lanes: deliverable paths absolute and declared at spawn; never verify, commit or push; never
-  call `ptah_get_diagnostics`. Check `git status` for files beyond the declared set.
+  call `ptah_get_diagnostics` (say it explicitly). Check `git status` for undeclared files.
+  Change a running lane only by a resume, not `ptah_agent_message`.
 - Never npm ci / npm install in a worktree (node_modules is a junction).
 - No `as unknown as`, `any`, `@ts-ignore` or `eslint-disable` added by this task.
 - Commit in the foreground, explicit paths, `.commitlintrc.json` (scope `task-specs` for docs),
@@ -196,17 +194,16 @@ permission.
 
 ## Electron live-test procedure (run from W)
 
-1. Check that no other root Ptah Dev `electron.exe` runs (single-instance lock). If one does, ask
-   the user; do not kill it.
-2. Back up `~/.ptah/settings.json` into a NEW `%TEMP%/ptah-live-p8e-<timestamp>/` folder.
+1. Check that no other root Ptah Dev `electron.exe` runs (no `--type=`). If one does, ask the user.
+2. Back up `~/.ptah/settings.json` into a NEW `%TEMP%/ptah-live-p8f-<timestamp>/` folder.
 3. `node scripts/verify.mjs --exec --task electron-live-test -- npx nx build-dev ptah-electron`
 4. `node scripts/copy-wasm.js dist/apps/ptah-electron`
 5. `node scripts/verify.mjs --exec --task electron-live-test -- npx nx copy-renderer-dev ptah-electron`
 6. `PTAH_CODEX_RUNTIME_DEV=1 PTAH_NO_DEVTOOLS=1 PTAH_DB_PATH=<folder>/ptah.db PTAH_SESSIONS_DB_PATH=<folder>/sessions.db node apps/ptah-electron/scripts/launch.js --remote-debugging-port=9335 <folder>/ws`
-- Port 9335 only. Drive with Playwright `connectOverCDP`; reusable scripts in
-  `%TEMP%/ptah-live-p8d-20261027-214138/` and `%TEMP%/ptah-live-p8b-20261026-203740/`.
-  Before the first turn: main agent OpenAI Codex / GPT-5.6-Luna ("This workspace"), approval mode
-  "Manual" via "Disable Autopilot". Legacy marker `[SessionLifecycle] Starting SDK query with options:`
-  must be 0. Stop the app with `taskkill /T /F` on THIS worktree's root `electron.exe` only.
-  Restore settings.json and confirm with `cmp` (mandatory even on failure).
-- Paid: Codex luna only (haiku only for a Claude regression check), tiny prompts, <=10 turns.
+- Port 9335 only. Playwright `connectOverCDP`; scripts in
+  `%TEMP%/ptah-live-p8e-20261027-235006/`. Before the first turn: OpenAI Codex / GPT-5.6-Luna
+  ("This workspace"), approval mode "Manual". Legacy marker
+  `[SessionLifecycle] Starting SDK query with options:` must be 0. Use `MSYS_NO_PATHCONV=1` when
+  sending `/compact` from Git Bash. Stop the app with `taskkill /T /F` on THIS worktree's root
+  `electron.exe` only. Restore settings.json and confirm with `cmp` (mandatory even on failure).
+- Paid: Codex luna only, tiny prompts, <=10 turns.
