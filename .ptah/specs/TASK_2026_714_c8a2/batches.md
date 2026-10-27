@@ -2435,6 +2435,116 @@ Assumptions:
 - D7 contract gap (`ptah-mcp-not-attached` notice vs Codex attaching Ptah MCP from config.toml):
   per P8 D8, native chat honours MCP servers; resolved in the P14 MCP mapping.
 
+## Batch 8j: P8 fix round 5 (D7 real fix: server-shape tolerance + notification timing) — COMPLETE (code eccc2182f; phase gate PASS; probe re-run and P8 re-review pending)
+
+- Phase: P8 | Phase gate once after 8j-1 and 8j-2: degradation-audit lint, di-lint lint, 4-host
+  typecheck, vscode-core host-attention-ingress test. Phase review: the coordinator's P8 re-review.
+- Recommended executor: CLI lane, implementation capability (Codex: only lane with confirmed
+  room). Fallback: other family same capability -> same family other model -> subagent.
+  Subagent reason: N/A. Review family: implementer Codex, reviewer Claude.
+- Execution mode: parallel (8j-1 and 8j-2 are file-disjoint and independent). One combined
+  verify over the working tree, then one commit per sub-batch.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/agent-sdk,ptah-electron`.
+
+### Evidence (coordinator 8i probe, codex-cli 0.155.1, pin check OK)
+
+- Variant 1 (real profile): `thread/start` fails with CodexProtocolError invalidResult; stderr
+  empty. A read-only safeParse of the real result with `threadResult` (strictObject) reports
+  unrecognized_keys at ["thread"]: environments, extra, canAcceptDirectInput, daybreakEnabled;
+  at []: runtimeWorkspaceRoots, activePermissionProfile, multiAgentMode.
+- Variant 2 (`--no-user-mcp`): fails earlier at notification `remoteControl/status/changed`
+  with Error('Unexpected notification') (codex-app-server-process.ts:363-364) because `ready`
+  is set only after `initialized` is written (line 222); the server sends it right after the
+  initialize reply. User MCP servers are NOT the cause. The 8i ASSUMPTION (unknown notification
+  kills the process) is confirmed for unknown methods (validator `unknownMethod`) and for any
+  notification before `ready`.
+
+### Plan validation (8j)
+
+- Server data validation is strict (`z.strictObject`) across results, notification params and
+  server-request params; the pinned schema is additive between patch builds, so any added
+  field kills `open()`. Fix: server-sent shapes strip unknown keys, keep required fields and
+  types. Client-sent params (ours) and our replies to server requests stay strict. Task 8j-1.
+- RISK (MEDIUM): building blocks are shared by both directions (sandbox, approvalPolicy,
+  functionOutput, permissions, `empty`, input-like content). A tolerant variant must not leak
+  into client params. 8j-1 builds a server variant per dual-use block; specs pin both sides.
+- RISK (LOW): spec `rejects malformed %s params and result` feeds `{ misspelled: true }` to every
+  result; results with no required field (e.g. `empty`) now accept it. Spec changes to the new
+  rule with the reason; the params half stays.
+- Validator keeps `unknownMethod` for methods outside the pinned manifest (contract unchanged);
+  the PROCESS decides to ignore unknown notifications (debug log once per method). Task 8j-2.
+- Pre-ready notifications: only after the initialize response arrived; bounded buffer, flushed
+  in order once `ready`; `initialized` from the server and server requests before ready stay
+  errors. Before the initialize response a notification stays an error. Task 8j-2.
+- `model/list` request-local rejection (process.ts:340-352) still applies to type drift and
+  missing required fields; keep it. Task 8j-2 confirms.
+- Pinned schema contract spec (field names subset/required) is unaffected by unknown-key mode.
+
+### Batch 8j-1: tolerant server-shape schemas — COMPLETE (eccc2182f)
+
+- Files (W = D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/):
+  W/libs/backend/codex-runtime/src/lib/codex-protocol-schemas.ts, codex-protocol-methods.ts,
+  codex-protocol-validator.ts, codex-protocol-validator.spec.ts.
+- Report: batch-8j-1-report.md.
+
+### Batch 8j-2: non-fatal notification timing and unknown notifications — COMPLETE (eccc2182f; fixes 8j-2b, 8j-2c)
+
+- Files: W/libs/backend/codex-runtime/src/lib/codex-app-server-process.ts,
+  codex-app-server-process.spec.ts.
+- Report: batch-8j-2-report.md.
+
+### Batch 8j execution record
+
+- 8j-1 lane: Codex (CLI session 01a17efc-31d1-7d81-b87a-b39603c505be), 6 min, batch-8j-1-report.md.
+  Server-only blocks now strip (z.object): commandAction, every item variant (nested), turnError,
+  turn, thread, threadResult, elicitation, usage, rateWindow, rateLimits; all codexRequestSchemas
+  RESULTS (initialize, thread/start, thread/resume, turn/start, turn/steer, turn/interrupt,
+  thread/compact/start, model/list, account/rateLimits/read); all codexServerRequestSchemas
+  PARAMS; all notification params except `initialized` (former looseObject ones switched to
+  strip); incoming envelope + JSON-RPC error object (with a pre-strip routing refine: id type,
+  method excludes result/error, response excludes params, result XOR error).
+  Dual-use pairs (original strict / new tolerant): empty/serverEmpty, approvalPolicy/
+  serverApprovalPolicy, sandbox/serverSandbox, input/serverInput, textElement/serverTextElement,
+  functionOutput/serverFunctionOutput, permissions/serverPermissions. Kept strict: every client
+  request params, every server-request RESULT (our replies), `initialized`.
+  Manifest/parity-gate specs: no strictness dependency (binary identity / rollout evidence only).
+- 8j-2 lane: Codex (CLI session 01a17efc-75b3-7b71-b89b-e4ec1eb4802c), 3 min, batch-8j-2-report.md.
+  `initializeResponseReceived` set on the successful initialize response; notifications after it
+  and before `ready` buffered (64, overflow fails closed), flushed after `ready`; unknown
+  notification methods ignored (catch of validator `unknownMethod` after envelope validation,
+  no id), debug log once per method, 64-name cap; buffer and set cleared on close. model/list
+  request-local rejection kept (type drift / missing fields still reach it).
+- Combined verify (parallel lanes, each blind to the other): 5 spec failures, all old-strictness
+  assertions (codex-runtime.spec.ts model-list invalid table + idle malformed traffic; process spec
+  invalid-unknown-notification envelope + malformed catalog envelope). Fixed spec-only by 8j-2b
+  (fresh lane, session 01a17f0f-8338-7f00-bfe6-0b9b049ac436) and 8j-2c (resume: string-match
+  assertion; restored the `reasoningEffort: ''` min(1) case).
+- Verify (codex-runtime, agent-sdk, ptah-electron; lock line lists the 3 projects): 14/15 pass; the
+  one failure is the known pre-existing agent-sdk lint (session-query-executor.accounts.spec.ts:
+  174,183, no-unexpected-multiline), unchanged from main. codex-runtime tests 887.
+- Commit decision: ONE code commit for 8j-1 + 8j-2 (eccc2182f), not two. Reason: the lanes ran in
+  parallel and 8j-1 alone fails codex-runtime specs that 8j-2b fixed; only the combined tree was
+  verified, so a split commit would record an unverified intermediate state.
+- PROCESS NOTE: the 8j-1 lane called `ptah_get_diagnostics` once despite the ban (role preamble
+  again); it returned unavailable, no files changed, not used as evidence.
+
+### Batch 8j phase gate — PASS (2026-10-27, after eccc2182f)
+
+- degradation-audit:lint PASS; di-lint:lint PASS; typecheck ptah-electron, ptah-extension-vscode,
+  ptah-cli, ptah-tui PASS (4 tasks); vscode-core host-attention-ingress test PASS (1 task).
+
+### Batch 8j deferred
+
+- Coordinator: re-run the probe (both variants) on eccc2182f; then the P8 re-review (reviewer
+  family Claude, implementer Codex) over 9b5f4c86c..eccc2182f.
+- Minor: the process's unsupported-server-request pre-check (codex-app-server-process.ts
+  `unsupported` z.strictObject) still rejects an UNKNOWN server request carrying an extra envelope
+  key (falls through to a fatal unknownMethod instead of a `Method not found` reply). Unchanged
+  behaviour from before 8j; align with the stripping envelope in a later round.
+- Unknown notifications before the initialize response are ignored (not fatal) — a known-method
+  notification there stays fatal. Accepted: unknown methods carry no state Ptah reads.
+- Pre-existing agent-sdk lint errors from main (see 8i deferred).
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
