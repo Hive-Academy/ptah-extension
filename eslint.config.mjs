@@ -284,6 +284,11 @@ export default [
             '@ptah-extension/marketplace/harness',
             // TasksChangedFeed (a MESSAGE_HANDLERS service) must register at app bootstrap.
             '@ptah-extension/tasks-ui/presentation',
+            // `shared` is an eager dependency of every lib. Chat lazy-loads only
+            // the narrow `/mcp-apps-contracts` entry (89d2d6720) to keep the
+            // artifact Zod schemas out of the initial bundle; the project-
+            // granular check otherwise rejects every static `shared` import.
+            '@ptah-extension/shared',
           ],
           depConstraints: [
             {

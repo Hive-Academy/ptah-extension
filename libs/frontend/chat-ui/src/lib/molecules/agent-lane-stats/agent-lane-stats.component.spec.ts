@@ -81,16 +81,12 @@ describe('AgentLaneStatsComponent', () => {
     expect(tokensChip?.getAttribute('title')).toBe('in 1,000 · out 500');
   });
 
-  it('tells an unreported cost (undefined) from an unpriced one (null)', () => {
-    expect(
-      render({ cost: undefined }).querySelector(
-        '[data-testid="cost-unavailable"]',
-      ),
-    ).toBeNull();
-    TestBed.resetTestingModule();
-    expect(
-      render({ cost: null }).querySelector('[data-testid="cost-unavailable"]'),
-    ).not.toBeNull();
+  it.each([undefined, null])('uses a muted accessible dash for missing cost %s', cost => {
+    const root = render({ cost });
+    const value = root.querySelector('[data-testid="lane-stats-cost"]');
+    expect(value?.textContent?.trim()).toBe('—');
+    expect(value?.getAttribute('aria-label')).toBe('Cost unavailable');
+    expect(value?.classList.contains('text-base-content-muted')).toBe(true);
   });
 
   it('prefixes a partial known cost', () => {

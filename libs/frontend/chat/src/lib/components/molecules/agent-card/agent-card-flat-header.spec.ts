@@ -255,4 +255,28 @@ describe('AgentCardComponent flat execution header', () => {
         ?.className,
     ).toContain('!text-warning');
   });
+  it('hides passive stats on request and keeps Resume, Close column and Details', () => {
+    const fixture = TestBed.createComponent(AgentCardComponent);
+    fixture.componentRef.setInput('agent', lane());
+    fixture.componentRef.setInput('presentation', 'flat');
+    fixture.componentRef.setInput('showStats', false);
+    fixture.componentRef.setInput('closable', true);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.querySelector('ptah-agent-lane-stats')).toBeNull();
+    expect(
+      root.querySelector('[aria-label="Resume codex session"]'),
+    ).not.toBeNull();
+    expect(
+      root.querySelector('[aria-label="Remove codex column"]'),
+    ).not.toBeNull();
+    detailsToggle(root).click();
+    fixture.detectChanges();
+    expect(
+      root.querySelector<HTMLElement>('#cli-lane-details-lane-1')?.hidden,
+    ).toBe(false);
+    expect(
+      root.querySelector('#cli-lane-details-lane-1')?.textContent,
+    ).toContain('cli-123');
+  });
 });

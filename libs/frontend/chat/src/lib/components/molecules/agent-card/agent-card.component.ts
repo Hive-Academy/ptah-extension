@@ -68,6 +68,7 @@ import {
         <ptah-execution-header
           class="block flex-shrink-0"
           kind="cli"
+          [showStats]="showStats()"
           [label]="laneLabel()"
           [live]="agent().status === 'running'"
           [peek]="lanePeek()"
@@ -82,11 +83,13 @@ import {
           "
           [controlsId]="'cli-lane-details-' + agent().agentId"
         >
-          <ptah-agent-lane-stats
-            executionHeaderStats
-            class="block min-w-0"
-            [stats]="laneStats()"
-          />
+          @if (showStats()) {
+            <ptah-agent-lane-stats
+              executionHeaderStats
+              class="block min-w-0"
+              [stats]="laneStats()"
+            />
+          }
           <div
             executionHeaderActions
             class="flex shrink-0 items-center gap-0.5"
@@ -251,6 +254,7 @@ import {
   `,
 })
 export class AgentCardComponent {
+  readonly showStats = input(true);
   readonly agent = input.required<MonitoredAgent>();
   readonly closable = input(false);
   readonly presentation = input<'card' | 'flat'>('card');

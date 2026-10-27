@@ -38,7 +38,11 @@ function laneTile(caption = LANE_CAPTION): LaneUsageTileModel {
     caption,
     tokensText: 'unknown tokens',
     costLine: 'cost unknown',
+    tokensValue: '',
+    costValue: '',
+    summary: 'Usage unavailable · Limit unavailable',
     runChip: { tone: 'neutral', text: 'Done' },
+    runStatusText: 'Done',
     limitChips: [],
     tone: 'neutral',
     runCount: 1,
@@ -50,6 +54,8 @@ const SUBTOTAL: LaneSubtotalTileModel = {
   id: LANES_SUBTOTAL_TILE_ID,
   caption: LANE_CAPTION,
   tokensText: '0 tokens known',
+  tokensValue: '0',
+  costValue: '$0.00',
   summary: '$0.00 known cost · 1 lane · 1 run · 1 cost unknown',
 };
 

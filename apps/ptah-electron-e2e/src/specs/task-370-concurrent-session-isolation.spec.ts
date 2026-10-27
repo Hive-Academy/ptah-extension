@@ -51,6 +51,7 @@ const CHAT_CHUNK = 'chat:chunk';
 const A_MARKER = 'PTAH_E2E_A_MARKER';
 const B_MARKER = 'PTAH_E2E_B_MARKER';
 const BUBBLE = '[data-testid="chat-tool-output"]';
+const COMPOSER = 'ptah-chat-input textarea[role="combobox"]';
 
 function chunk(sessionId: string, event: Record<string, unknown>) {
   return { type: CHAT_CHUNK, payload: { sessionId, event } };
@@ -148,14 +149,16 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
     // Bind pane A. Clicking inside a pane makes it the active one (the board's
     // activatePane -> canvasStore.focusTile -> tabManager.switchTab), which is
     // what makes it the hijack target. The pane label ends ", active" while it is.
-    await tileA.locator('ptah-canvas-focus-header strong').click();
+    // Panes have no header row, so click the pane's own composer: it has no
+    // side effect beyond activating the pane.
+    await tileA.locator(COMPOSER).click();
     await expect(tileA).toHaveAttribute('aria-label', /, active$/);
     await ui.pushEvent(messageStart(sessionA, messageA, t0));
     await ui.pushEvent(textDelta(sessionA, messageA, t0 + 1, `${A_MARKER}-1 `));
     await expect(tileA.locator(BUBBLE)).toContainText(A_MARKER);
 
     // Bind pane B the same way.
-    await tileB.locator('ptah-canvas-focus-header strong').click();
+    await tileB.locator(COMPOSER).click();
     await expect(tileB).toHaveAttribute('aria-label', /, active$/);
     await ui.pushEvent(messageStart(sessionB, messageB, t0 + 2));
     await ui.pushEvent(textDelta(sessionB, messageB, t0 + 3, `${B_MARKER}-1 `));

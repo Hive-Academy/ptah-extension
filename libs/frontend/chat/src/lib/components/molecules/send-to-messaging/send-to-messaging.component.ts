@@ -36,7 +36,7 @@ const RESULT_BASE_CLASS =
 
 /**
  * SendToMessagingComponent — session HAND-OFF control for a single tab,
- * rendered in the Orchestra Canvas tile header.
+ * rendered as menu items in the session card's "Session actions" menu.
  *
  * This is not a share action: picking a binding hands control of the tab's
  * live SDK session to a messaging platform and makes the tab READ-ONLY in the
@@ -44,12 +44,12 @@ const RESULT_BASE_CLASS =
  * inline confirm all say so before anything is committed.
  *
  * Two mutually-exclusive states:
- *  1. Detached — "Hand off session to…" trigger plus the approved-binding
+ *  1. Detached — "Hand off session to…" menu item plus the approved-binding
  *     picker (`gateway:listBindings` + `gateway:status` → `gateway:attachSession`).
- *     The trigger stays VISIBLE but disabled when hand-off is impossible, with
- *     a tooltip naming the reason.
- *  2. Attached — platform indicator plus the "Resolve back to webview" detach
- *     action (`gateway:detachSession`), which is confirm-free.
+ *     The item stays VISIBLE but aria-disabled when hand-off is impossible,
+ *     with a second line naming the reason.
+ *  2. Attached — the "Resolve back to webview" menu item naming the platform
+ *     (`gateway:detachSession`), which is confirm-free.
  *
  * The panel itself is `HandoffBindingPickerComponent`; this class owns the
  * transport, the in-flight guards and the outcome lines.
@@ -63,49 +63,59 @@ const RESULT_BASE_CLASS =
     NativePopoverComponent,
     HandoffBindingPickerComponent,
   ],
+  host: { class: 'block' },
   template: `
     @if (isElectron) {
-      <div class="relative inline-flex items-center">
+      <div class="relative flex flex-col">
         @if (attachedReadOnly()) {
-          <!-- Attached: platform indicator + resolve back to webview -->
+          <!-- Attached: resolve back to the webview; the second line names the platform -->
           <button
-            class="btn btn-ghost btn-xs px-1 min-h-0 h-5 gap-1 text-info hover:text-info"
-            [disabled]="detaching()"
-            (click)="detachBinding()"
             type="button"
+            role="menuitem"
+            class="btn btn-ghost btn-sm h-auto min-h-8 w-full flex-col items-start justify-center py-1 text-left font-normal"
+            [attr.aria-disabled]="detaching() ? 'true' : null"
             [title]="detachTooltip()"
+            (click)="detachBinding()"
             data-testid="tile-resolve-back-btn"
           >
-            @if (detaching()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            } @else {
-              <lucide-angular [img]="UnlinkIcon" class="w-3 h-3" />
-            }
-            <span class="text-[10px]">{{ attachedPlatformLabel() }}</span>
+            <span class="inline-flex items-center gap-1">
+              @if (detaching()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="UnlinkIcon" class="size-3.5 text-info" aria-hidden="true" />
+              }
+              Resolve back to webview
+            </span>
+            <span class="text-xs text-base-content-muted">Driven from {{ attachedPlatformLabel() }} · read-only here</span>
           </button>
         } @else {
           <!-- Detached: hand this session off to a messaging platform -->
           <ptah-native-popover
+            class="block [&>.popover-trigger]:block"
             [isOpen]="pickerOpen()"
-            placement="bottom-end"
+            placement="right-start"
             [hasBackdrop]="true"
             backdropClass="transparent"
             (closed)="closePicker()"
           >
-            <span trigger [title]="triggerTooltip()">
-              <button
-                class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-[10px] font-medium text-base-content-muted hover:text-base-content"
-                type="button"
-                [disabled]="!canHandOff()"
-                [attr.aria-label]="HANDOFF_LABEL"
-                aria-haspopup="listbox"
-                [attr.aria-expanded]="pickerOpen()"
-                (click)="togglePicker()"
-                data-testid="tile-send-to-messaging-btn"
-              >
-                Hand off
-              </button>
-            </span>
+            <button
+              trigger
+              type="button"
+              role="menuitem"
+              class="btn btn-ghost btn-sm h-auto min-h-8 w-full flex-col items-start justify-center py-1 text-left font-normal"
+              [class.opacity-60]="!canHandOff()"
+              [attr.aria-disabled]="canHandOff() ? null : 'true'"
+              [title]="triggerTooltip()"
+              aria-haspopup="listbox"
+              [attr.aria-expanded]="pickerOpen()"
+              (click)="canHandOff() && togglePicker()"
+              data-testid="tile-send-to-messaging-btn"
+            >
+              <span>{{ HANDOFF_LABEL }}</span>
+              @if (unavailableReason(); as reason) {
+                <span class="max-w-full truncate text-xs text-base-content-muted">{{ reason }}</span>
+              }
+            </button>
 
             <div content class="w-72 text-left">
               <ptah-handoff-binding-picker

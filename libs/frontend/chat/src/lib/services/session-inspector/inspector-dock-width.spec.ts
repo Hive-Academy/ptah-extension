@@ -4,6 +4,7 @@ import {
   INSPECTOR_MAIN_MIN_WIDTH,
   INSPECTOR_MAX_WIDTH,
   INSPECTOR_MIN_WIDTH,
+  INSPECTOR_TAB_WIDTH,
   INSPECTOR_WIDE_DEFAULT_WIDTH,
   inspectorDefaultWidthFor,
   inspectorDockWidth,
@@ -11,6 +12,10 @@ import {
 } from './inspector-dock-width';
 
 describe('inspector dock width functions', () => {
+  it('reserves 56px for the compact rail independently of expanded defaults', () => {
+    expect(INSPECTOR_TAB_WIDTH).toBe(56);
+    expect(inspectorDockWidth(null, 1000)).toBe(336);
+  });
   it('keeps the single-focus tile floor of decisions.md row 18', () => {
     expect(INSPECTOR_MAIN_MIN_WIDTH).toBe(360);
   });

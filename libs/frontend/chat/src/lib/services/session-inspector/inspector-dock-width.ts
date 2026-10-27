@@ -25,11 +25,10 @@ export const INSPECTOR_LARGE_DEFAULT_WIDTH = 400;
 export const INSPECTOR_WIDE_DEFAULT_WIDTH = 448;
 
 /**
- * Width (px) of the canvas board's Stats tab (`ptah-sidebar-tab`, default
- * size `w-8`). It sits between the tile area and the dock and belongs to
- * neither, so the host subtracts it before computing `availableWidth`.
+ * Width (px) of the compact inspector rail. The host subtracts this only
+ * while compact; expanded presentation replaces it with the dock width.
  */
-export const INSPECTOR_TAB_WIDTH = 32;
+export const INSPECTOR_TAB_WIDTH = 56;
 
 /**
  * Widest docked inspector for `availableWidth` px, the width the tile area

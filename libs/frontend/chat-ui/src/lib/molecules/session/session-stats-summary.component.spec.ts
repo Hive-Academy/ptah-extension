@@ -737,8 +737,9 @@ describe('SessionStatsSummaryComponent limits', () => {
   }
 
   function tileButton(root: HTMLElement, tileId: string): HTMLButtonElement {
+    // The disclosure button of a plan tile, or of a lane's DaisyUI collapse.
     const found = root.querySelector<HTMLButtonElement>(
-      `[data-tile-id="${tileId}"] > button`,
+      `[data-tile-id="${tileId}"] > button, [data-tile-id="${tileId}"] > .collapse > button`,
     );
     if (!found) throw new Error(`No tile ${tileId}`);
     return found;

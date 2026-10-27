@@ -281,6 +281,7 @@ const CHIP_STATES = [
               (openBesideRequested)="openBesideRequested.emit($event)"
               (moveUpRequested)="moveUpRequested.emit($event)"
               (moveDownRequested)="moveDownRequested.emit($event)"
+              (closeRequested)="closeRequested.emit($event)"
             ></li>
           }
         </ul>
@@ -468,6 +469,8 @@ export class CanvasRailComponent {
   readonly staleAction = output<string>();
   readonly lanesRequested = output<string>();
   readonly openBesideRequested = output<string>();
+  /** A card menu's Close session, for that card's tab. */
+  readonly closeRequested = output<string>();
   readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
   readonly maxRunning = MAX_RUNNING_SESSIONS;

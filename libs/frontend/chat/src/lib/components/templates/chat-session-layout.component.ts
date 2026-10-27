@@ -12,10 +12,6 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
     <ng-content select="[sessionComposer]" />
   `,
   styles: `
-    :host {
-      --chat-content-max-width: 758px;
-    }
-
     :host(.hidden) {
       display: none;
     }

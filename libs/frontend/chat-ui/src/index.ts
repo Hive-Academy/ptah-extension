@@ -232,12 +232,13 @@ export { InspectorSessionStatsComponent } from './lib/molecules/session/inspecto
 export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
 export {
   sessionContextCue,
+  compactSessionMetrics,
+  type CompactSessionMetric,
   type SessionStatsInputs,
   type SessionContextCue,
 } from './lib/molecules/session/session-stats-view';
 export {
   sessionLimitSummary,
-  inspectorToggleDescription,
   limitAwareDot,
   type SessionLimitSummary,
 } from './lib/molecules/session/plan-limits/session-limit-summary';

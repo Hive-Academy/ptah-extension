@@ -116,11 +116,12 @@ async function closeStaleAgentTiles(
       .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^agent-\d+$/ }) })
       .first();
     if (!(await staleCard.count())) return;
-    await staleCard.click({ position: { x: 10, y: 40 } });
-    const stale = page.locator('[data-testid="canvas-tile"]').filter({
-      has: page.locator('ptah-canvas-focus-header strong[title]', { hasText: /^agent-\d+$/ }),
-    }).first();
-    const close = stale.getByRole('button', { name: 'Close session' }).first();
+    // Close session lives in the stale card's own Session actions menu.
+    const menuTrigger = staleCard.getByRole('button', { name: 'Session actions' });
+    if (!(await visible(menuTrigger))) return;
+    await menuTrigger.click({ timeout: 5_000 }).catch(() => undefined);
+    const close = page.getByRole('menu', { name: 'Session actions' })
+      .getByRole('menuitem', { name: 'Close session' });
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);
@@ -131,7 +132,7 @@ async function closeStaleAgentTiles(
  * Exploration coda for a single tile: pan its conversation, spotlight the
  * stats strip, hover its agent indicator, and toggle compact/full view. Every
  * beat is guarded on visibility so a tile that finished sparse never stalls the
- * scene. This exploration leaves the "Close session" control untouched.
+ * scene. This exploration leaves the card menu's "Close session" untouched.
  */
 async function exploreTile(director: Director, tile: Locator): Promise<void> {
   // Pan the tile's own conversation transcript so the camera reveals the full
@@ -146,9 +147,11 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
   }
 
   // Spotlight the session inspector's context, tokens, cost, and time.
-  const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]').first();
-  if (await visible(inspectorToggle) && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-    await inspectorToggle.click();
+  // The sidebar's compact rail renders only while the sidebar is closed.
+  const inspectorExpand = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+    .locator('[data-inspector-rail] [data-inspector-expand]').first();
+  if (await visible(inspectorExpand)) {
+    await inspectorExpand.click();
   }
   const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
     .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]').first();
@@ -170,16 +173,21 @@ async function exploreTile(director: Director, tile: Locator): Promise<void> {
 
   // Toggle the tile between full and compact view, then back — a quick,
   // satisfying layout flourish that shows the tiles are real, resizable panes.
-  const viewToggle = tile.locator(
-    'button[title="Switch to compact view"], button[title="Switch to full view"]',
-  );
-  if (await visible(viewToggle)) {
-    await director.click(viewToggle.first());
-    await director.hold(900);
-    if (await visible(viewToggle)) {
-      await director.click(viewToggle.first());
-      await director.hold(700);
+  // The toggle is in the focused session card's Session actions menu.
+  const page = tile.page();
+  for (const hold of [900, 700]) {
+    const trigger = page.locator('li[ptah-canvas-rail-card]:has(ptah-compact-rail-card.rc-focused)')
+      .getByRole('button', { name: 'Session actions' }).first();
+    if (!(await visible(trigger))) return;
+    await director.click(trigger);
+    const viewToggle = page.getByRole('menu', { name: 'Session actions' })
+      .getByRole('menuitem', { name: /^Switch to (compact|full) view$/ });
+    if (!(await visible(viewToggle))) {
+      await page.keyboard.press('Escape');
+      return;
     }
+    await director.click(viewToggle);
+    await director.hold(hold);
   }
 }
 

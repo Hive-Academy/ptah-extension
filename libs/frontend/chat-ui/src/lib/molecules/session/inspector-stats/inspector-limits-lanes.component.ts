@@ -1,11 +1,11 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, input, signal } from '@angular/core';
 import { Gauge, Info, LucideAngularModule } from 'lucide-angular';
 import { LaneSubtotalTileComponent } from '../plan-limits/lane-subtotal-tile.component';
 import { LaneUsageTileComponent } from '../plan-limits/lane-usage-tile.component';
 import { PlanLimitTileComponent } from '../plan-limits/plan-limit-tile.component';
 import { planSectionProvenance, sharedLaneCaption } from '../plan-limits/stats-limit-sections';
 import { StatsTileExpansionState } from '../plan-limits/stats-tile-expansion.state';
-import { sourceChipClass } from '../plan-limits/stats-tile.styles';
+import { LANE_DETAIL_LINE, LANE_INFO_BUTTON, sourceChipClass } from '../plan-limits/stats-tile.styles';
 import type { StatsLimitViewModel } from '../plan-limits/stats-limit-view-model.types';
 import { lanesAriaLabelFor } from '../session-stats-view';
 
@@ -24,7 +24,7 @@ let nextSectionId = 0;
           <p role="status" class="border-l-2 border-info pl-2 text-[11px] text-base-content-muted">{{ vm.refreshNotice }}</p>
         }
         @let provenance = planProvenance();
-        @if (provenance.caption || provenance.sourceChips.length) {
+        @if (provenance.caption?.caption || provenance.sourceChips.length) {
           <div class="mb-2 flex items-center gap-1.5 text-[11px] text-base-content-muted">
             <lucide-angular [img]="GaugeIcon" class="size-3.5 shrink-0" aria-hidden="true" />
             @if (provenance.caption; as caption) {
@@ -47,20 +47,33 @@ let nextSectionId = 0;
     }
     @if (vm.laneTiles.length || vm.subtotal) {
       <section class="p-4 border-t border-surface-border" [attr.aria-labelledby]="lanesHeadingId">
-        <div class="flex items-center justify-between gap-2">
-          <h3 [id]="lanesHeadingId" tabindex="-1" class="sec-label text-[10.5px] font-semibold uppercase">LANES</h3>
-          <span role="img" class="text-[11px] text-base-content-muted" [attr.aria-label]="lanesAriaLabelFor(vm.lanesCount)">
-            {{ vm.laneTiles.length }} {{ vm.laneTiles.length === 1 ? 'lane' : 'lanes' }} · {{ vm.lanesCount }} runs
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <span class="flex min-w-0 items-center gap-1">
+            <h3 [id]="lanesHeadingId" tabindex="-1" class="sec-label text-[10.5px] font-semibold uppercase">LANES</h3>
+            @if (laneCaption(); as caption) {
+              <button type="button" [class]="infoButtonClass" [attr.title]="caption"
+                aria-label="Lanes note" [attr.aria-expanded]="captionOpen()"
+                [attr.aria-controls]="captionOpen() ? captionId : null"
+                data-testid="lanes-caption"
+                (click)="captionOpen.set(!captionOpen())" (keydown.escape)="closeCaption($event)">
+                <lucide-angular [img]="InfoIcon" class="size-3" aria-hidden="true" />
+              </button>
+            }
+          </span>
+          @let lanesLabel = lanesCountLabel();
+          <span role="img" class="text-[10.5px] tabular-nums text-base-content-muted" [attr.aria-label]="lanesLabel"
+            [attr.title]="lanesLabel" data-testid="lanes-count">
+            {{ vm.laneTiles.length }} · {{ vm.lanesCount }} {{ vm.lanesCount === 1 ? 'run' : 'runs' }}
           </span>
         </div>
-        @if (laneCaption(); as caption) {
-          <p class="mb-2 flex items-center gap-1 text-[11px] text-base-content-muted">
-            <lucide-angular [img]="InfoIcon" class="size-3" aria-hidden="true" /> {{ caption }}
+        @if (captionOpen() && laneCaption(); as caption) {
+          <p [id]="captionId" [class]="'-mt-1 mb-2 ' + detailLineClass" data-testid="lanes-caption-detail">
+            {{ caption }}
           </p>
         }
-        <div class="grid gap-2">
+        <div class="grid gap-1.5">
           @for (tile of vm.laneTiles; track tile.id) {
-            <ptah-lane-usage-tile [tile]="tile" [open]="isOpen(tile.id)"
+            <ptah-lane-usage-tile [tile]="tile" [open]="isOpen(tile.id)" variant="inspector"
               [captionShared]="!!laneCaption()" [linkPlanTiles]="true"
               (toggled)="toggle(tile.id)" (planTileRequested)="openPlanTile($event)" />
           }
@@ -84,7 +97,22 @@ export class InspectorLimitsLanesComponent {
   protected readonly GaugeIcon = Gauge;
   protected readonly InfoIcon = Info;
   protected readonly sourceChipClass = sourceChipClass;
-  protected readonly lanesAriaLabelFor = lanesAriaLabelFor;
+  protected readonly captionId = `ptah-lanes-note-${this.instanceId}`;
+  protected readonly infoButtonClass = LANE_INFO_BUTTON;
+  protected readonly detailLineClass = LANE_DETAIL_LINE;
+  /** The "lane · not in totals" note, shown under the header while open. */
+  protected readonly captionOpen = signal(false);
+  protected closeCaption(event: Event): void {
+    if (!this.captionOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.captionOpen.set(false);
+  }
+  /** Full reading of the compact "1 · 1 run" count. */
+  protected readonly lanesCountLabel = computed(() => {
+    const lanes = this.limits().laneTiles.length;
+    return `${lanes} ${lanes === 1 ? 'lane' : 'lanes'}, ${lanesAriaLabelFor(this.limits().lanesCount)}`;
+  });
   protected readonly planProvenance = computed(() => planSectionProvenance(this.limits().planTiles));
   protected readonly laneCaption = computed(() => sharedLaneCaption(this.limits().laneTiles, this.limits().subtotal));
 
