@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { AgentOutcomeSignals, CloneSummary } from '@ptah-extension/shared';
+import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 
 import {
   CloneBodySaveRequest,
@@ -216,6 +217,105 @@ describe('CloneDetailDrawerComponent — body edit mode', () => {
     fixture.detectChanges();
 
     expect(find(fixture, 'clone-body-editor')).toBeNull();
+  });
+});
+
+describe('CloneDetailDrawerComponent — provenance and diverged reason', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  async function render(entry: CloneSummary): Promise<Fixture> {
+    await TestBed.configureTestingModule({
+      imports: [CloneDetailDrawerComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(CloneDetailDrawerComponent);
+    fixture.componentRef.setInput('clone', entry);
+    fixture.componentRef.setInput('body', '# live body');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('puts the provenance badge first in the header meta row', async () => {
+    const fixture = await render(
+      clone({ provenance: { kind: 'setup-wizard' } }),
+    );
+    const first = require_(fixture, 'drawer-meta').firstElementChild;
+    expect(first?.tagName.toLowerCase()).toBe('ptah-provenance-badge');
+    expect(find(fixture, 'provenance-badge')?.textContent?.trim()).toBe(
+      'Setup wizard',
+    );
+  });
+
+  it('shows Origin and Reason rows for a plugin-update divergence (shared fixture)', async () => {
+    const { pluginUpdateDiverged } = makeLibraryAgreementFixtures();
+    const entry = pluginUpdateDiverged.listClones.clones[0];
+    const fixture = await render(entry);
+    expect(find(fixture, 'provenance-badge')?.textContent?.trim()).toBe(
+      pluginUpdateDiverged.expectedLabels['agent:reviewer'],
+    );
+    expect(find(fixture, 'drawer-origin')?.textContent?.trim()).toBe(
+      'Plugin: Acme Toolkit',
+    );
+    expect(find(fixture, 'drawer-reason')?.textContent?.trim()).toBe(
+      'Source updated by the plugin Acme Toolkit. Your edits are kept in the Library copy.',
+    );
+    expect(find(fixture, 'drawer-rebase-btn')).not.toBeNull();
+  });
+
+  it('omits the Reason row when the reason has no specific copy', async () => {
+    const fixture = await render(
+      clone({
+        diverged: true,
+        cloneStatus: 'diverged',
+        divergedReason: { kind: 'source-changed' },
+      }),
+    );
+    expect(find(fixture, 'drawer-origin')?.textContent?.trim()).toBe(
+      'Workspace file',
+    );
+    expect(find(fixture, 'drawer-reason')).toBeNull();
+  });
+
+  it('rewords the upstream note for a recorded origin and still offers no Rebase (A-hint)', async () => {
+    const fixture = await render(
+      clone({
+        diverged: true,
+        cloneStatus: 'authored',
+        provenance: { kind: 'setup-wizard' },
+        divergedReason: { kind: 'setup-wizard' },
+      }),
+    );
+    const note = find(fixture, 'drawer-upstream-note')?.textContent ?? '';
+    expect(note).not.toContain('no upstream source');
+    expect(note).toContain('Rebase is not available');
+    expect(find(fixture, 'drawer-rebase-btn')).toBeNull();
+    expect(find(fixture, 'drawer-keep-btn')).not.toBeNull();
+  });
+
+  it('keeps the gated note when no provenance is recorded', async () => {
+    const fixture = await render(
+      clone({ diverged: true, cloneStatus: 'authored' }),
+    );
+    expect(find(fixture, 'drawer-upstream-note')?.textContent).toContain(
+      'no upstream source',
+    );
+  });
+
+  it('keeps the former label on an orphan and says the plugin is gone', async () => {
+    const { uninstalledPluginEditedClone } = makeLibraryAgreementFixtures();
+    const fixture = await render(
+      uninstalledPluginEditedClone.listClones.clones[0],
+    );
+    expect(find(fixture, 'provenance-badge')?.textContent?.trim()).toBe(
+      'Plugin: Former Helper',
+    );
+    expect(find(fixture, 'provenance-plugin-state')?.textContent?.trim()).toBe(
+      'Orphaned',
+    );
+    expect(find(fixture, 'drawer-plugin-state')?.textContent?.trim()).toBe(
+      'The plugin "Former Helper" is no longer installed. Your edits are kept here.',
+    );
   });
 });
 
