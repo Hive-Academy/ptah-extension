@@ -666,7 +666,12 @@ export class VoiceRpcHandlers {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const category = isVoiceProviderError(error) ? error.category : undefined;
-      this.logger.warn('[voice] listVoices failed', { providerId, category });
+      // A VoiceProviderError message is sanitized (category + HTTP status only).
+      this.logger.warn('[voice] listVoices failed', {
+        providerId,
+        category,
+        ...(category ? { error: message } : {}),
+      });
       return { ok: false, error: message, category };
     }
   }

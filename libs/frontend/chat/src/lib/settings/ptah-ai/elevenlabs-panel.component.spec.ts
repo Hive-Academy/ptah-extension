@@ -526,6 +526,44 @@ describe('ElevenLabsPanelComponent', () => {
       },
     );
 
+    it('names the missing permission and saves a typed voice ID when the key cannot list voices', async () => {
+      routeRpc({
+        'voice:listVoices': () => rpcSuccess({ ok: false, error: 'host detail', category: 'auth' }),
+        'voice:setProviderConfig': () => rpcSuccess({ ok: true }),
+      });
+      const component = mount('tts', elConfig({ apiKeyConfigured: true, voiceId: 'v1' }));
+      await settle();
+
+      expect(byTestId('elevenlabs-voices-hint').textContent).toContain('Enable Voices (read)');
+      const input = byTestId<HTMLInputElement>('elevenlabs-voice-id-input');
+      const save = byTestId<HTMLButtonElement>('elevenlabs-voice-id-save');
+      expect(input.value).toBe('v1');
+      expect(isDisabledControl(save)).toBe(true);
+
+      input.value = 'bad id!';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(isDisabledControl(save)).toBe(true);
+
+      input.value = ' JBFqnCBsd6RMkjVDRZzb ';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      save.click();
+      await settle();
+
+      expect(calls('voice:setProviderConfig')).toEqual([{ elevenlabs: { voiceId: 'JBFqnCBsd6RMkjVDRZzb' } }]);
+      expect(component.voiceId()).toBe('JBFqnCBsd6RMkjVDRZzb');
+    });
+
+    it('offers a voice ID entry with a generic hint for a non-permission failure', async () => {
+      routeRpc({ 'voice:listVoices': () => rpcError('host detail') });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+
+      expect(byTestId('elevenlabs-voices-hint').textContent?.trim()).toBe('You can still enter a voice ID.');
+      expect(byTestId('elevenlabs-voice-id-input')).toBeTruthy();
+    });
+
     it('saves a voice on selection with Undo writing the previous voice', async () => {
       routeRpc({
         'voice:listVoices': VOICES,

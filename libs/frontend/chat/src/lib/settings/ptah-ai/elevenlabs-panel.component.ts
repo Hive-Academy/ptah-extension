@@ -49,6 +49,11 @@ const SAVE_KEY_FAILED_MESSAGE = 'Could not save the ElevenLabs API key.';
 const CLEAR_KEY_FAILED_MESSAGE = 'Could not clear the ElevenLabs API key.';
 const SAVE_SETTINGS_FAILED_MESSAGE = 'Could not save the ElevenLabs settings.';
 const LOAD_VOICES_FAILED_MESSAGE = 'Could not load your ElevenLabs voices.';
+const VOICES_PERMISSION_HINT =
+  'This key cannot list voices. Enable Voices (read) for it in ElevenLabs, or enter a voice ID.';
+const VOICES_FALLBACK_HINT = 'You can still enter a voice ID.';
+/** Mirrors the host's voice-id rule (`voice-rpc.schema.ts` CONFIG_ID). */
+const VOICE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const TEST_OK_MESSAGE = 'Connection works.';
 const TEST_FAILED_MESSAGE = 'The connection test failed.';
 /** One fixed sentence per `VoiceErrorCategory` the probe can report (V22). */
@@ -306,6 +311,7 @@ function testFailureMessage(category: string | undefined): string {
                   Loading voices…
                 </div>
               } @else if (voicesError(); as vErr) {
+                <div class="space-y-2">
                 <div class="flex items-center gap-2">
                   <span
                     class="flex items-center gap-1 text-xs text-base-content"
@@ -326,6 +332,39 @@ function testFailureMessage(category: string | undefined): string {
                   >
                     Retry
                   </button>
+                </div>
+                @if (voicesHint(); as hint) {
+                  <p
+                    class="text-xs text-base-content-muted"
+                    data-testid="elevenlabs-voices-hint"
+                  >
+                    {{ hint }}
+                  </p>
+                }
+                <!-- Without a voice list, a voice is still chosen by its ElevenLabs voice ID. -->
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    class="input input-bordered input-xs w-full font-mono"
+                    aria-label="ElevenLabs voice ID"
+                    placeholder="Voice ID"
+                    autocomplete="off"
+                    spellcheck="false"
+                    [value]="voiceIdDraft()"
+                    (input)="onVoiceIdInput($event)"
+                    (keydown.enter)="saveVoiceId()"
+                    data-testid="elevenlabs-voice-id-input"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs whitespace-nowrap"
+                    [ptahBusyDisabled]="!canSaveVoiceId()"
+                    (click)="saveVoiceId()"
+                    data-testid="elevenlabs-voice-id-save"
+                  >
+                    Use voice ID
+                  </button>
+                </div>
                 </div>
               } @else {
                 <select
@@ -431,6 +470,15 @@ export class ElevenLabsPanelComponent {
   readonly voices = signal<VoiceInfoDto[]>([]);
   readonly isLoadingVoices = signal(false);
   readonly voicesError = signal<string | null>(null);
+  readonly voicesHint = signal<string | null>(null);
+  /** Manual voice id, used when the voice list cannot load; starts at the saved voice. */
+  readonly voiceIdDraft = linkedSignal(() => this.voiceId());
+  readonly canSaveVoiceId = computed(() => {
+    const draft = this.voiceIdDraft().trim();
+    return (
+      !this.saving() && VOICE_ID_PATTERN.test(draft) && draft !== this.voiceId()
+    );
+  });
 
   readonly showVoicePicker = computed(
     () =>
@@ -566,19 +614,49 @@ export class ElevenLabsPanelComponent {
     if (!this.showVoicePicker()) return;
     this.isLoadingVoices.set(true);
     this.voicesError.set(null);
+    this.voicesHint.set(null);
     let loaded: VoiceInfoDto[] | null = null;
+    let category: string | undefined;
     try {
       const result = await this.rpc.call('voice:listVoices', {
         providerId: 'elevenlabs',
       });
-      if (result.isSuccess() && result.data.ok) loaded = result.data.voices;
+      if (result.isSuccess()) {
+        if (result.data.ok) loaded = result.data.voices;
+        else category = result.data.category;
+      }
     } catch {
       // A thrown transport error gets the same fixed sentence (F1).
     } finally {
       this.isLoadingVoices.set(false);
     }
-    if (loaded) this.voices.set(loaded);
-    else this.voicesError.set(LOAD_VOICES_FAILED_MESSAGE);
+    if (loaded) {
+      this.voices.set(loaded);
+      return;
+    }
+    this.voicesError.set(LOAD_VOICES_FAILED_MESSAGE);
+    // The key itself works (it was saved after a passing test), so `auth` here is a missing scope.
+    this.voicesHint.set(
+      category === 'auth' ? VOICES_PERMISSION_HINT : VOICES_FALLBACK_HINT,
+    );
+  }
+
+  onVoiceIdInput(event: Event): void {
+    this.voiceIdDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  async saveVoiceId(): Promise<void> {
+    if (!this.canSaveVoiceId()) return;
+    const next = this.voiceIdDraft().trim();
+    const previous = this.voiceId();
+    await this.feedback.saveGeneric({
+      label: 'ElevenLabs voice',
+      write: () => this.writeSelection(this.voiceId, 'voiceId', next, previous),
+      undo:
+        previous.length > 0
+          ? () => this.writeSelection(this.voiceId, 'voiceId', previous, next)
+          : null,
+    });
   }
 
   onVoiceChange(event: Event): Promise<void> {
