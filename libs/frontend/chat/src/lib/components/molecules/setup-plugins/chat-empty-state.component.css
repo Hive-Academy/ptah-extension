@@ -24,7 +24,6 @@
   --scrim-in-x: 96px;
   --scrim-in-y: 40px;
   position: relative;
-  z-index: 10;
   isolation: isolate;
   display: flex;
   flex-direction: column;

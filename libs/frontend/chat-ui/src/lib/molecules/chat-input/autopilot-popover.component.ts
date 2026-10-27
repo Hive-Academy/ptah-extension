@@ -119,7 +119,7 @@ let nextApprovalPopoverId = 0;
             </div>
 
             @if (selectedLevel() === 'yolo') {
-              <p class="text-[11px] text-warning/80 mb-2 px-1">
+              <p class="autopilot-warning text-[11px] text-warning mb-2 px-1">
                 Skips all permission prompts — best for trusted tasks.
               </p>
             }

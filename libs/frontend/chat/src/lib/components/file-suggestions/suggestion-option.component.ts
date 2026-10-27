@@ -50,8 +50,7 @@ export type SuggestionItem =
     '[id]': 'optionId()',
     class:
       'flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
-    '[class.bg-primary]': 'isActive()',
-    '[class.text-primary-content]': 'isActive()',
+    '[class.suggestion-active]': 'isActive()',
     '[class.hover:bg-base-300]': '!isActive()',
     '(click)': 'handleClick()',
     '(mouseenter)': 'handleMouseEnter()',

@@ -24,7 +24,7 @@ describe('glass surface roles', () => {
       /\[data-glass-surface='chrome'\], \[data-glass-surface='bar'\]\)::after[\s\S]*?backdrop-filter:\s*var\(--glass-filter\)/,
     );
     expect(css).toMatch(
-      /:root\[data-glass='on'\] :has\(> \[data-glass-surface='content'\]:has\(\.popover-panel\)\)/,
+      /:root\[data-glass='on'\] :has\(> \[data-glass-surface='content'\]:has\(\.popover-panel, \.suggestions-panel\)\)/,
     );
   });
 

@@ -231,31 +231,31 @@
   .ptah-empty-board__stage {
     --scrim-ext-y: 0px;
     --scrim-in-y: 6px;
-    padding-block: 2px;
+    padding-block: 0;
   }
   .ptah-empty-board__notice {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
   .ptah-empty-board__zone {
-    margin-top: 12px;
-    row-gap: 8px;
+    margin-top: 8px;
+    row-gap: 6px;
   }
   .ptah-empty-board__new {
-    margin-top: 12px;
+    margin-top: 8px;
   }
   .ptah-empty-board__reason {
-    margin-top: 4px;
+    margin-top: 2px;
   }
   .ptah-empty-board__history {
-    margin-top: 4px;
+    margin-top: 2px;
   }
   @container (max-width: 860px) {
     .ptah-empty-board__zone {
-      margin-top: 8px;
-      row-gap: 4px;
+      margin-top: 4px;
+      row-gap: 2px;
     }
     .ptah-empty-board__new {
-      margin-top: 8px;
+      margin-top: 4px;
     }
   }
 }

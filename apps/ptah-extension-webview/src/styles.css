@@ -2991,8 +2991,8 @@ END OF ANUBIS DESIGN SYSTEM
    The surface's own z-index does not escape an inline custom-element host
    (the license card host has no display), so the following block sibling
    paints over the panel. Lift the host that directly wraps that surface. */
-:root[data-glass='on'] [data-glass-surface]:has(.popover-panel) { z-index: 30; }
-:root[data-glass='on'] :has(> [data-glass-surface='content']:has(.popover-panel)) {
+:root[data-glass='on'] [data-glass-surface]:has(.popover-panel, .suggestions-panel) { z-index: 30; }
+:root[data-glass='on'] :has(> [data-glass-surface='content']:has(.popover-panel, .suggestions-panel)) {
   position: relative;
   z-index: 30;
 }
@@ -3422,6 +3422,28 @@ END OF ANUBIS DESIGN SYSTEM
 /* Full-strength option descriptions stay readable on selected/hover rows too. */
 :root[data-glass='on'] [data-composer-overlay] ptah-suggestion-option .opacity-70 {
   opacity: 1;
+}
+/* Keep the selection fill and ink paired, including badges: glass badge
+   tinting and secondary-text opacity must not weaken selected-row contrast. */
+:root .suggestions-panel ptah-suggestion-option.suggestion-active {
+  background: oklch(var(--p));
+  color: oklch(var(--pc));
+}
+:root .suggestions-panel ptah-suggestion-option.suggestion-active .opacity-70 {
+  opacity: 1;
+}
+:root .suggestions-panel ptah-suggestion-option.suggestion-active .badge {
+  background: transparent;
+  color: inherit;
+  border-color: currentColor;
+}
+/* Preserve dark glass's warning appearance; solid themes use full-strength
+   warning ink, and light surfaces use the existing deep warm text token. */
+:root[data-glass='on'][data-glass-mode='dark'] .autopilot-warning {
+  color: oklch(var(--wa) / 0.8);
+}
+:root[data-theme-mode='light'] .autopilot-warning {
+  color: var(--ptah-gold-strong);
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root[data-glass='on'] [data-composer-overlay] {

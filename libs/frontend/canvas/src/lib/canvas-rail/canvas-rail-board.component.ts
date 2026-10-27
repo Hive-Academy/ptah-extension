@@ -100,6 +100,13 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   },
   styles: [`
     :host-context([data-glass='on']) .canvas-rail-board-layout { gap: 8px; }
+    /* Glass on: the inspector dock is a floating pane (data-glass-surface='chrome')
+       like the sessions rail and the Electron git dock, so it drops its solid
+       fill and its flush left edge. Solid themes keep both. */
+    :host-context([data-glass='on']) aside[data-inspector-dock] {
+      background: transparent;
+      border-left: 0;
+    }
     @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
     @media (prefers-reduced-motion: no-preference) {
       .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }
@@ -287,6 +294,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
               <aside
                 class="flex h-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
                 data-inspector-dock
+                data-glass-surface="chrome"
                 [style.width.px]="dock.width()"
               >
                 <!-- Every inspector reference is deferred so it stays out of the initial bundle;
@@ -314,7 +322,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
         }
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
-             <div class="fixed inset-0 z-50 overflow-y-auto bg-base-100" role="dialog" aria-modal="true" aria-label="Session details" tabindex="-1" data-compact-sheet (keydown)="onSheetKeydown($event)">
+             <div class="fixed inset-0 z-50 overflow-y-auto bg-base-100" role="dialog" aria-modal="true" aria-label="Session details" tabindex="-1" data-compact-sheet data-glass-surface="overlay" (keydown)="onSheetKeydown($event)">
               @defer (when compactSheetOpen()) {
                  <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="openLaneFromCompactSheet(id, $event)" (closeRequested)="closeCompactSheet()" />
               } @placeholder {

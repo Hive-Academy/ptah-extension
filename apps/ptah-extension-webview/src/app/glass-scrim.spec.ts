@@ -3,6 +3,57 @@ import { join } from 'node:path';
 
 const css = readFileSync(join(__dirname, '..', 'styles.css'), 'utf8');
 
+describe('composer visual regressions', () => {
+  const root = join(__dirname, '../../../..');
+  const source = (path: string) => readFileSync(join(root, path), 'utf8');
+
+  it('keeps the empty-stage scrim isolated without raising it over suggestions', () => {
+    const stage = source('libs/frontend/chat/src/lib/components/molecules/setup-plugins/chat-empty-state.component.css');
+    const body = /\.empty-chat__stage\s*\{([^}]+)\}/.exec(stage)?.[1] ?? '';
+    expect(body).toContain('isolation: isolate;');
+    expect(body).not.toMatch(/z-index:/);
+    expect(stage).toMatch(/\.empty-chat__stage::before\s*\{[^}]*z-index: -1;/);
+    expect(css).toContain("[data-glass-surface]:has(.popover-panel, .suggestions-panel) { z-index: 30; }");
+    expect(css).toContain("[data-glass-surface='content']:has(.popover-panel, .suggestions-panel)");
+  });
+
+  it('pairs active-row ink with its fill and keeps descriptions and badges at full contrast', () => {
+    const option = source('libs/frontend/chat/src/lib/components/file-suggestions/suggestion-option.component.ts');
+    expect(option).toContain("'[class.suggestion-active]': 'isActive()'");
+    const active = block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active/);
+    expect(active).toContain('background: oklch(var(--p));');
+    expect(active).toContain('color: oklch(var(--pc));');
+    expect(block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active \.opacity-70/)).toContain('opacity: 1;');
+    const badge = block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active \.badge/);
+    expect(badge).toContain('background: transparent;');
+    expect(badge).toContain('color: inherit;');
+  });
+
+  it.each(['anubis', 'ptah-glass', 'ptah-glass-light'])('keeps the %s selection palette above 4.5:1', (theme) => {
+    const config = source('apps/ptah-extension-webview/tailwind.config.js');
+    const palette = new RegExp(`["']?${theme}["']?:\\s*\\{([^}]+)`).exec(config)?.[1] ?? '';
+    const color = (key: string) => new RegExp(`["']?${key}["']?:\\s*["'](#[a-fA-F0-9]{6})["']`).exec(palette)?.[1] ?? '';
+    const luminance = (hex: string) => {
+      expect(hex).toMatch(/^#[a-fA-F0-9]{6}$/);
+      const channels = [1, 3, 5].map((offset) => {
+        const value = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const fill = luminance(color('primary'));
+    const ink = luminance(color('primary-content'));
+    expect((Math.max(fill, ink) + 0.05) / (Math.min(fill, ink) + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('uses deep warm ink on light warning footnotes and preserves dark glass', () => {
+    const popover = source('libs/frontend/chat-ui/src/lib/molecules/chat-input/autopilot-popover.component.ts');
+    expect(popover).toContain('autopilot-warning text-[11px] text-warning');
+    expect(block(/:root\[data-theme-mode='light'\] \.autopilot-warning/)).toContain('color: var(--ptah-gold-strong);');
+    expect(block(/:root\[data-glass='on'\]\[data-glass-mode='dark'\] \.autopilot-warning/)).toContain('color: oklch(var(--wa) / 0.8);');
+  });
+});
+
 /**
  * Body of the first rule whose selector ends with `selector` directly before `{`.
  * Callers pass a selector that occurs first as its own token block. Token blocks

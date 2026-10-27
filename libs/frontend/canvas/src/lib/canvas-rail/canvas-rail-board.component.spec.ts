@@ -918,6 +918,9 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
     const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
     expect(sheet).not.toBeNull();
+    // Full-screen modal: the overlay glass role (near-opaque blur under glass,
+    // inert on solid themes).
+    expect(sheet?.getAttribute('data-glass-surface')).toBe('overlay');
     expect(sheet?.contains(document.activeElement)).toBe(true);
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
@@ -943,6 +946,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
     const dock = fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
     expect(dock).not.toBeNull();
+    // Glass: the dock is a chrome surface (blur via styles.css); bg-base-100 and
+    // border-l stay in the class list for non-glass themes.
+    expect(dock?.getAttribute('data-glass-surface')).toBe('chrome');
+    expect(dock?.classList.contains('bg-base-100')).toBe(true);
     const { tab } = dockParts(fixture.nativeElement);
     expect(tab?.getAttribute('aria-expanded')).toBe('true');
     // Before the deferred inspector loads, the dock shows a skeleton and focus waits on its toggle.
