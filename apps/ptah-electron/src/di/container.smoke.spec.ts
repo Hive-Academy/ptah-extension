@@ -391,6 +391,17 @@ describe('Electron DI — plugin and Library handler resolution (TASK_2026_701)'
   beforeAll(() => {
     c = buildMinimalContainer();
     c.register(HARNESS_SYNC_TOKENS.PROPAGATION, { useValue: {} });
+    // Batch 20: the local-item services read the destination scanner, the
+    // digest-checked repair, the guarded agent writer and the file system;
+    // stubbed (when the minimal container lacks them) like the ports above.
+    for (const token of [
+      HARNESS_SYNC_TOKENS.DESTINATION_SCANNER,
+      HARNESS_SYNC_TOKENS.BLOCKED_REPAIR,
+      AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE,
+      PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
+    ]) {
+      if (!c.isRegistered(token)) c.register(token, { useValue: {} });
+    }
     c.register(TOKENS.COMMAND_DISCOVERY_SERVICE, { useValue: {} });
     c.register(PLUGIN_MARKETPLACE_TOKENS.REGISTRY, { useValue: {} });
     c.register(PLUGIN_MARKETPLACE_TOKENS.INSTALLER, { useValue: {} });

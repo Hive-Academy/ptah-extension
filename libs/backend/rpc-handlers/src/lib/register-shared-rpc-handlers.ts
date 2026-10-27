@@ -42,6 +42,7 @@ import { AgentPackDownloadService } from '@ptah-extension/platform-core';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
 import { LocalItemApprovals } from './handlers/marketplace/local-item-approvals';
 import { InstallLocalItemsService } from './handlers/marketplace/install-local-items.service';
+import { MarketplaceLocalItemsService } from './handlers/marketplace/marketplace-local-items.service';
 import { CloneRebaseService } from './handlers/skill-synthesis/clone-rebase.service';
 import { CloneProvenanceResolver } from './handlers/skill-synthesis/clone-provenance.resolver';
 
@@ -96,6 +97,8 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(LocalItemApprovals);
   container.registerSingleton(CloneRebaseService);
   container.registerSingleton(InstallLocalItemsService);
+  // Finds and registers the local items an install plan or kept report offers.
+  container.registerSingleton(MarketplaceLocalItemsService);
   // Library provenance (B13); stateless, reads the live sources per listing.
   container.registerSingleton(CloneProvenanceResolver);
   container.registerSingleton(

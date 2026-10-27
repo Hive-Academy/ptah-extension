@@ -31,9 +31,9 @@ describe('Electron RPC surface', () => {
   const surface = deriveRpcSurface(
     createElectronRpcHostProfile(container, logger),
   );
-  const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) =>
-    [...entry.methods],
-  ).sort();
+  const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) => [
+    ...entry.methods,
+  ]).sort();
 
   it('excludes nothing', () => {
     expect([...surface.excluded]).toEqual([]);
@@ -60,6 +60,17 @@ describe('Electron RPC surface', () => {
     expect(surface.excluded).not.toContain('wizard:plan-pack-install');
   });
 
+  it('serves the plugin kept-item and config-home methods (TASK_2026_701 B12)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'plugins:replace-kept-items',
+        'plugins:resolve-config-home',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('plugins:replace-kept-items');
+    expect(surface.excluded).not.toContain('plugins:resolve-config-home');
+  });
+
   it('serves every method owned by the live manifest', () => {
     expect(surface.registered).toEqual(manifestMethods);
     expect(surface.registered.length + surface.excluded.length).toBe(
@@ -68,6 +79,8 @@ describe('Electron RPC surface', () => {
   });
 
   it('serves artifact listing and external link opening', () => {
-    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
+    );
   });
 });

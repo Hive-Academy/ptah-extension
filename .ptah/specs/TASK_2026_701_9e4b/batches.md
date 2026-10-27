@@ -1019,7 +1019,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
 
-## Batch 20: Marketplace installer routes and new plugin RPCs (B12 routes) — PENDING
+## Batch 20: Marketplace installer routes and new plugin RPCs (B12 routes) — COMPLETE
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -1030,7 +1030,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 3, 9, 19
 - Phase: P3 | Phase review: P3 code-logic + style (new RPCs)
 
-### Task 20.1: Harness root + config home at the boundary, consent local items, kept reports, `plugins:replace-kept-items`, `plugins:resolve-config-home` — PENDING
+### Task 20.1: Harness root + config home at the boundary, consent local items, kept reports, `plugins:replace-kept-items`, `plugins:resolve-config-home` — COMPLETE
 
 - Files: MODIFY `libs/backend/rpc-handlers/src/lib/handlers/plugin-rpc.handlers.ts` (+ spec), `plugin-rpc.schema.ts`, `libs/backend/rpc-handlers/src/lib/handlers/skills-sh-rpc.handlers.ts` (+ spec), `libs/backend/plugin-marketplace/src/lib/install/external-plugin-installer.service.ts` (+ spec), `libs/shared/src/lib/types/rpc.types.ts` (registry entries only), `libs/backend/rpc-handlers/src/lib/rpc-allowlist.spec.ts`, `apps/ptah-electron/src/di/rpc-surface.spec.ts`, `apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts`, `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts`
 - Plan reference: implementation-plan.md:761-890; A13, A21, A27, A30; D14

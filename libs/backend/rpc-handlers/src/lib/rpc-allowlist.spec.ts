@@ -169,6 +169,31 @@ describe('wizard:plan-pack-install registration (TASK_2026_701 B8)', () => {
   });
 });
 
+describe('plugin kept-item and config-home registration (TASK_2026_701 B12)', () => {
+  const methods = [
+    'plugins:replace-kept-items',
+    'plugins:resolve-config-home',
+  ] as const;
+
+  it.each(methods)('%s is in the shared RPC registry', (method) => {
+    expect(RPC_METHOD_NAMES).toContain(method);
+  });
+
+  it.each(methods)(
+    '%s is owned by the plugin handler manifest entry and no other',
+    (method) => {
+      const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+        (entry.methods as readonly string[]).includes(method),
+      ).map((entry) => entry.key);
+      expect(owners).toEqual(['plugin']);
+    },
+  );
+
+  it('is accepted by the existing `plugins:` runtime prefix', () => {
+    expect(ALLOWED_METHOD_PREFIXES).toContain('plugins:');
+  });
+});
+
 describe('provider account methods (TASK_2026_712 Batch 35)', () => {
   const accountMethods: readonly string[] = PROVIDER_ACCOUNT_RPC_METHOD_NAMES;
 
@@ -193,7 +218,9 @@ describe('provider account methods (TASK_2026_712 Batch 35)', () => {
     const entry = RPC_HANDLER_MANIFEST.find(
       (candidate) => candidate.key === 'providerAccounts',
     );
-    expect([...(entry?.methods ?? [])].sort()).toEqual([...accountMethods].sort());
+    expect([...(entry?.methods ?? [])].sort()).toEqual(
+      [...accountMethods].sort(),
+    );
   });
 
   it('every account method is under the allowlisted `provider:` prefix', () => {

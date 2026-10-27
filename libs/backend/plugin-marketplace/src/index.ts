@@ -16,7 +16,14 @@ export type {
   MarketplaceManifestPlugin,
 } from './lib/registry/marketplace-manifest.schema';
 
-export { ExternalPluginInstallerService } from './lib/install/external-plugin-installer.service';
+export {
+  ExternalPluginInstallerService,
+  PLUGIN_INSTALL_PLAN_TTL_MS,
+} from './lib/install/external-plugin-installer.service';
+export type {
+  ConfirmedExternalInstall,
+  ExternalPluginItemSlugs,
+} from './lib/install/external-plugin-installer.service';
 export { ExternalPluginStateStore } from './lib/install/external-plugin-state.store';
 export type {
   InstalledExternalPlugin,

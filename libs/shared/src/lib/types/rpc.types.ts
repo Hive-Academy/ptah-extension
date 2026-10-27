@@ -12,7 +12,10 @@ export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-analytics.types';
-import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
+import type {
+  UsageSummary,
+  UsageSummaryParams,
+} from './rpc/rpc-analytics.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
@@ -96,6 +99,8 @@ import type {
   ListMarketplacesResult,
   MarketplaceBrowseParams,
   MarketplaceSourceParams,
+  PluginsReplaceKeptItemsParams,
+  PluginsReplaceKeptItemsResult,
 } from './rpc/rpc-plugin-marketplace.types';
 import type {
   LibraryPassStatus,
@@ -660,6 +665,8 @@ import type {
   PluginInfo,
   PluginConfigStateWithHome,
   PluginSkillEntry,
+  PluginsResolveConfigHomeParams,
+  PluginsResolveConfigHomeResult,
 } from './rpc/rpc-misc.types';
 import type {
   EditorDetectTargetsParams,
@@ -790,9 +797,18 @@ import type {
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
  */
 export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
-  'artifacts:list': { params: ArtifactListRequest; result: ArtifactListResponse };
-  'artifacts:openLink': { params: { url: string }; result: { opened: boolean } };
-  'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
+  'artifacts:list': {
+    params: ArtifactListRequest;
+    result: ArtifactListResponse;
+  };
+  'artifacts:openLink': {
+    params: { url: string };
+    result: { opened: boolean };
+  };
+  'analytics:spendSummary': {
+    params: UsageSummaryParams;
+    result: UsageSummary;
+  };
   'attention:getSnapshot': {
     params: AttentionGetSnapshotParams;
     result: AttentionGetSnapshotResult;
@@ -1346,6 +1362,19 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'plugins:uninstall-external': {
     params: ExternalUninstallParams;
     result: ExternalUninstallResult;
+  };
+  /**
+   * Replace local items a no-dialog action (skills.sh install, plugin enable,
+   * plugin agents) kept. Accepts only server-issued approval ids.
+   */
+  'plugins:replace-kept-items': {
+    params: PluginsReplaceKeptItemsParams;
+    result: PluginsReplaceKeptItemsResult;
+  };
+  /** Adopt or dismiss one folder's saved plugin settings (D14, Electron). */
+  'plugins:resolve-config-home': {
+    params: PluginsResolveConfigHomeParams;
+    result: PluginsResolveConfigHomeResult;
   };
   'agent:getConfig': {
     params: void;
@@ -3253,6 +3282,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'plugins:browse-marketplace': true,
   'plugins:install-external': true,
   'plugins:uninstall-external': true,
+  'plugins:replace-kept-items': true,
+  'plugins:resolve-config-home': true,
   'agent:getConfig': true,
   'agent:setConfig': true,
   'agent:detectClis': true,
