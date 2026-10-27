@@ -128,6 +128,9 @@ export class KimiCodeOAuthRefresher {
         // The body is opaque to logs; never let axios transform it.
         transformResponse: [(data: unknown) => parseJson(data)],
         validateStatus: () => true,
+        // The body carries the refresh token: never re-send it to another
+        // host. A 3xx then takes the non-200 transient branch below.
+        maxRedirects: 0,
       });
       const status = response.status;
       if (status === 401 || status === 403) return { kind: 'rejected', status };

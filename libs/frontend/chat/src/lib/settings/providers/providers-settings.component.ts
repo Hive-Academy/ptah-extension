@@ -407,22 +407,24 @@ const CONTROL =
           />
         }
 
-        @if (state.externalAuth().data; as auth) {
-          <p role="status" class="break-words">{{ auth.message }}</p>
+        @if (state.externalAuth().data?.message; as message) {
+          <p role="status" class="break-words">{{ message }}</p>
         }
         @if (pageKimiLogin(); as login) {
           <div class="space-y-2" data-testid="providers-kimi-login">
             @defer (on immediate) {
               <ptah-kimi-code-login-progress [state]="login" />
             }
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              (click)="externalAction(kimiCodeId, 'sign-in-cancel')"
-              data-testid="providers-kimi-login-cancel"
-            >
-              Cancel Kimi Code sign-in
-            </button>
+            @if (login.status !== 'failed') {
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                (click)="externalAction(kimiCodeId, 'sign-in-cancel')"
+                data-testid="providers-kimi-login-cancel"
+              >
+                Cancel Kimi Code sign-in
+              </button>
+            }
           </div>
         }
         @if (state.externalAuth().status === 'loading') {
@@ -719,9 +721,11 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
    */
   protected readonly pageKimiLogin = computed(() => {
     const login = this.state.kimiCodeLogin();
-    const running =
-      login?.status === 'starting' || login?.status === 'awaiting-browser';
-    return running &&
+    const shown =
+      login?.status === 'starting' ||
+      login?.status === 'awaiting-browser' ||
+      login?.status === 'failed';
+    return shown &&
       this.drawerId() !== this.kimiCodeId &&
       !this.wizardOpen()
       ? login

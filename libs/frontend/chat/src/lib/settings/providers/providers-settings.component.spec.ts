@@ -628,6 +628,12 @@ describe('ProvidersSettingsComponent', () => {
     await render();
     expect(element.querySelector('[data-testid="providers-kimi-login"]')).toBeNull();
   });
+  it('keeps a failed Kimi Code sign-in on the page without Cancel', async () => {
+    state.kimiCodeLogin.set({ status: 'failed' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="providers-kimi-login-cancel"]')).toBeNull();
+  });
   it('passes the Kimi Code sign-in progress to the wizard only for Kimi Code', async () => {
     state.kimiCodeLogin.set({ status: 'starting' });
     await render(); await openWizardThroughCatalog();

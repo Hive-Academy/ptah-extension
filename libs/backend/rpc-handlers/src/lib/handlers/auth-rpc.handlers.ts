@@ -249,6 +249,7 @@ export class AuthRpcHandlers {
       rpcHandler,
       sentryService,
       sdkAdapter,
+      activeProviderResolver,
       kimiCodeAuth,
       kimiCodeLogin,
       invalidateAuthStatusCache,

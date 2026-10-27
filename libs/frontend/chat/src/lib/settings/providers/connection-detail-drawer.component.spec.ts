@@ -116,6 +116,20 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe(`Provider sign-in · ${label}`);
   });
 
+  it('GV28-1: a sign-in connection shows its stored fallback key as the masked hint on Overview and Credentials', () => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: 'cli-login', keyHint: '•••• 8f21' }) });
+    expect(byTestId('connection-key-hint')?.textContent?.trim()).toBe('•••• 8f21');
+    expect(byTestId('connection-credential-storage')?.textContent).toContain('(stored on this machine)');
+    expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe('Provider sign-in · Kimi Code CLI sign-in');
+    selectTab('Credentials');
+    expect(byTestId('credentials-key-mask')?.textContent?.trim()).toBe('•••• 8f21');
+  });
+
+  it('an OAuth connection without a fallback key (Codex) shows no key hint on Overview', () => {
+    render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', keyHint: '•••• 8f21' }) });
+    expect(byTestId('connection-key-hint')).toBeNull();
+  });
+
   it('passes the in-app Kimi Code sign-in to the Credentials tab', () => {
     render({ connection: connection({ authMode: 'oauth', credentialSource: 'none', hasKey: false }),
       kimiLogin: { status: 'awaiting-browser', userCode: 'FAKE-1234' } });

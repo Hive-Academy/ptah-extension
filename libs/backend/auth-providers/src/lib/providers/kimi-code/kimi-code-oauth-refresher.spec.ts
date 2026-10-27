@@ -84,6 +84,8 @@ describe('KimiCodeOAuthRefresher', () => {
     post.mockResolvedValueOnce(reply(200, { access_token: 'fake-a', refresh_token: 'fake-r', expires_in: 900 }));
     await refresher.refresh('fake-refresh-token-1', 'https://auth.example.test', undefined);
     expect(post.mock.calls[0][2]?.headers).not.toHaveProperty('X-Msh-Device-Id');
+    // The body carries the refresh token: a redirect must never re-send it.
+    expect(post.mock.calls[0][2]?.maxRedirects).toBe(0);
   });
 
   it.each([401, 403])('treats HTTP %d as a rejected login without retrying', async (status) => {

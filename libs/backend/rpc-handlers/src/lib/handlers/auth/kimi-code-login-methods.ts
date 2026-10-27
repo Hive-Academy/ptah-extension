@@ -6,10 +6,11 @@ import type {
 } from '@ptah-extension/vscode-core';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type {
+  ActiveProviderResolver,
   IKimiCodeAuthService,
   IKimiCodeLoginService,
 } from '@ptah-extension/auth-providers';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { KIMI_CODE_PROVIDER_ENTRY, MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   AuthKimiCodeLoginCancelParams,
   AuthKimiCodeLoginCancelResponse,
@@ -27,6 +28,7 @@ export interface KimiCodeLoginMethodsDeps {
   readonly rpcHandler: RpcHandler;
   readonly sentryService: SentryService;
   readonly sdkAdapter: Pick<SdkAgentAdapter, 'reset'>;
+  readonly activeProviderResolver: Pick<ActiveProviderResolver, 'resolveActiveAuth'>;
   readonly kimiCodeAuth: Pick<IKimiCodeAuthService, 'clearCache'>;
   readonly kimiCodeLogin: IKimiCodeLoginService;
   readonly invalidateAuthStatusCache: () => void;
@@ -97,12 +99,19 @@ export class KimiCodeLoginMethods {
 
   /**
    * A new CLI login changes which credential serves Kimi Code: drop the
-   * cached read and the status payload, and re-initialize the adapter (it may
-   * have failed to configure while signed out).
+   * cached read and the status payload. Re-initialize the adapter (it may have
+   * failed to configure while signed out) only when Kimi Code is the active
+   * provider: a reset disposes every session, also those of other providers.
    */
   private async applySignedIn(): Promise<void> {
     this.deps.kimiCodeAuth.clearCache();
     this.deps.invalidateAuthStatusCache();
+    if (
+      this.deps.activeProviderResolver.resolveActiveAuth().providerId !==
+      KIMI_CODE_PROVIDER_ENTRY.id
+    ) {
+      return;
+    }
     try {
       await this.deps.sdkAdapter.reset();
     } catch (error) {

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
-import type { ConnectionCheckRecord, KimiCodeLoginState } from '@ptah-extension/shared';
+import { getAnthropicProvider, type ConnectionCheckRecord, type KimiCodeLoginState } from '@ptah-extension/shared';
 import { NativeDrawerComponent, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type { UsedBy } from './connection-usage';
 import {
@@ -246,7 +246,12 @@ export class ConnectionDetailDrawerComponent {
   /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */
   protected readonly overviewKeyHint = computed(() => {
     const current = this.connection();
-    return current?.hasKey && (this.kind() === 'api-key' || this.kind() === 'custom') ? current.keyHint ?? null : null;
+    if (!current?.hasKey) return null;
+    const kind = this.kind();
+    // A sign-in connection that also takes a stored key (`apiKeyFallback`, Kimi Code) shows its fallback key too.
+    const storesKey = kind === 'api-key' || kind === 'custom'
+      || (kind === 'oauth' && getAnthropicProvider(current.id)?.apiKeyFallback === true);
+    return storesKey ? current.keyHint ?? null : null;
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {

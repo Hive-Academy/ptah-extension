@@ -2535,8 +2535,22 @@ describe('AuthRpcHandlers — Kimi Code', () => {
     expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
   });
 
-  it('a succeeded sign-in drops the caches and re-initializes the adapter', async () => {
-    const h = makeHarness();
+  it('a succeeded sign-in drops the caches and keeps other providers\' sessions', async () => {
+    const h = makeHarness({ configSeed: { authMethod: 'claudeCli' } });
+    h.handlers.register();
+    await call(h, 'auth:kimiCodeLogin');
+
+    h.kimiCodeLogin.emit({ status: 'succeeded' });
+    await flushUntil(() => h.kimiCodeAuth.clearCache.mock.calls.length > 0);
+
+    expect(h.kimiCodeAuth.clearCache).toHaveBeenCalled();
+    expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+  });
+
+  it('a succeeded sign-in re-initializes the adapter when Kimi Code is active', async () => {
+    const h = makeHarness({
+      configSeed: { authMethod: 'thirdParty', anthropicProviderId: 'kimi-code' },
+    });
     h.handlers.register();
     await call(h, 'auth:kimiCodeLogin');
 
