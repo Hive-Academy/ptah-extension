@@ -46,7 +46,7 @@ interface VoiceGroup {
 /**
  * Local Kokoro (TTS) panel, drawer D-VOICE tab "Text-to-speech" (pattern map
  * V13, V15, V17-V20; FR-4.1, FR-6.2): the existing controls reflowed as
- * `table-xs` rows. Saves run through
+ * `table-sm` rows. Saves run through
  * {@link SettingsSaveFeedbackService.saveGeneric} — "Saved" only after the
  * write's own result, a failed write reverts the control and raises an alert
  * toast (D15), the "Saved" chip is gone (V20). The voice list comes from
@@ -94,7 +94,7 @@ interface VoiceGroup {
       </div>
     }
 
-    <table class="table table-xs" data-testid="local-tts-panel-table">
+    <table class="table table-sm" data-testid="local-tts-panel-table">
       <tbody>
         <!-- V13: source. Returning to Curated saves immediately; a custom source
              is committed by its Save button (V15). -->
@@ -142,7 +142,7 @@ interface VoiceGroup {
                   id="local-tts-custom"
                   type="text"
                   aria-label="Custom model id or folder"
-                  class="input input-bordered input-xs w-full"
+                  class="input input-bordered input-sm w-full"
                   [class.input-error]="
                     customModel().length > 0 && !customModelValid()
                   "
@@ -204,7 +204,7 @@ interface VoiceGroup {
               <select
                 id="local-tts-voice"
                 aria-label="Voice"
-                class="select select-bordered select-xs w-full"
+                class="select select-bordered select-sm w-full"
                 [value]="selectedVoice()"
                 [ptahBusyDisabled]="saving()"
                 (change)="onVoiceChange($event)"

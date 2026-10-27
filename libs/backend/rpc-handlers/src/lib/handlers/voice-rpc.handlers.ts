@@ -120,7 +120,7 @@ function downloadPercent(evt: VoiceDownloadEvent): number | null {
 /** ElevenLabs config defaults — mirror the adapter defaults (voice-providers). */
 const EL_DEFAULT_TTS_MODEL_ID = 'eleven_multilingual_v2';
 const EL_DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const EL_DEFAULT_STT_MODEL_ID = 'scribe_v1';
+const EL_DEFAULT_STT_MODEL_ID = 'scribe_v2';
 const EL_VOICE_ID_KEY = 'voice.elevenlabs.voiceId';
 const EL_TTS_MODEL_KEY = 'voice.elevenlabs.ttsModelId';
 const EL_OUTPUT_FORMAT_KEY = 'voice.elevenlabs.outputFormat';

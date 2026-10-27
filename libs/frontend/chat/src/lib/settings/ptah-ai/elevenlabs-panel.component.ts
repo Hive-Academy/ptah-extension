@@ -75,7 +75,7 @@ function testFailureMessage(category: string | undefined): string {
 /**
  * ElevenLabs cloud provider panel, drawer D-VOICE (pattern map V21-V25), rendered once per
  * direction. Shared: the API key block. Direction-specific: TTS shows voice, model and output
- * format; STT shows the transcription model. All controls are `table-xs` rows.
+ * format; STT shows the transcription model. All controls are `table-sm` rows.
  *
  * Key (V21, G13 verify-then-save): a typed key must pass `voice:testConnection` with that exact
  * draft before Save turns on, so a key is never saved on a failed probe. Clear asks for an inline
@@ -108,7 +108,7 @@ function testFailureMessage(category: string | undefined): string {
       </div>
     }
 
-    <table class="table table-xs" data-testid="elevenlabs-panel-table">
+    <table class="table table-sm" data-testid="elevenlabs-panel-table">
       <tbody>
         <!-- V21: stored key status + Clear (S-confirm, no Undo) -->
         <tr>
@@ -253,7 +253,7 @@ function testFailureMessage(category: string | undefined): string {
                   spellcheck="false"
                   aria-label="ElevenLabs API key"
                   aria-describedby="elevenlabs-key-help"
-                  class="input input-bordered input-xs w-full pr-8 font-mono"
+                  class="input input-bordered input-sm w-full pr-8 font-mono"
                   [value]="keyDraft()"
                   [disabled]="saving()"
                   [placeholder]="
@@ -399,7 +399,7 @@ function testFailureMessage(category: string | undefined): string {
                 <div class="flex items-center gap-2">
                   <input
                     type="text"
-                    class="input input-bordered input-xs w-full font-mono"
+                    class="input input-bordered input-sm w-full font-mono"
                     aria-label="ElevenLabs voice ID"
                     [placeholder]="'Default: ' + defaultVoiceLabel"
                     autocomplete="off"
@@ -424,7 +424,7 @@ function testFailureMessage(category: string | undefined): string {
                 <select
                   id="elevenlabs-voice"
                   aria-label="Voice"
-                  class="select select-bordered select-xs w-full"
+                  class="select select-bordered select-sm w-full"
                   [value]="voiceId()"
                   [ptahBusyDisabled]="saving()"
                   (change)="onVoiceChange($event)"
@@ -456,7 +456,7 @@ function testFailureMessage(category: string | undefined): string {
               <select
                 [id]="'elevenlabs-' + row.slug"
                 [attr.aria-label]="row.ariaLabel"
-                class="select select-bordered select-xs w-full"
+                class="select select-bordered select-sm w-full"
                 [value]="selection[row.key]()"
                 [ptahBusyDisabled]="saving()"
                 (change)="onSelectionChange($event, row)"

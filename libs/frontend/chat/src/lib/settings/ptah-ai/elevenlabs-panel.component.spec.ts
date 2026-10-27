@@ -151,7 +151,7 @@ describe('ElevenLabsPanelComponent', () => {
     expect(input.type).toBe('password');
     expect(input.value).toBe('');
     expect(element.textContent).not.toMatch(/sk_[a-zA-Z0-9]/);
-    expect(element.querySelector('table.table.table-xs')).not.toBeNull();
+    expect(element.querySelector('table.table.table-sm')).not.toBeNull();
   });
 
   describe('verify-then-save (V21, G13)', () => {
@@ -664,7 +664,7 @@ describe('ElevenLabsPanelComponent', () => {
       ['voice', 'tts', 'elevenlabs-voice-select', 'v2', 'voiceId'],
       ['TTS model', 'tts', 'elevenlabs-tts-model-select', 'eleven_turbo_v2_5', 'ttsModelId'],
       ['output format', 'tts', 'elevenlabs-output-format-select', 'pcm_16000', 'outputFormat'],
-      ['STT model', 'stt', 'elevenlabs-stt-model-select', 'scribe_v1', 'sttModelId'],
+      ['STT model', 'stt', 'elevenlabs-stt-model-select', 'scribe_v2', 'sttModelId'],
     ];
 
     it.each(SELECTS)(
@@ -674,7 +674,7 @@ describe('ElevenLabsPanelComponent', () => {
           'voice:listVoices': VOICES,
           'voice:setProviderConfig': () => rpcSuccess({ ok: true }),
         });
-        // STT has a single option, so start it elsewhere to make the choice a change.
+        // Start STT elsewhere so every choice is a change.
         mount(direction, elConfig({ apiKeyConfigured: true, voiceId: 'v1', sttModelId: 'old' }));
         await settle();
 

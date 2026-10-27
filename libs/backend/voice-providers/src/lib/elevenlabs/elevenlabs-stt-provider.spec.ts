@@ -105,7 +105,7 @@ describe('ElevenLabsSttProvider — transcribe', () => {
     });
   });
 
-  it('defaults the Scribe model to scribe_v1', async () => {
+  it('defaults the Scribe model to scribe_v2', async () => {
     readFileMock.mockResolvedValue(new Uint8Array([1]));
     const transcribe = jest.fn(async (_params: unknown) => ({ text: 't' }));
     const provider = new ElevenLabsSttProvider(
@@ -119,7 +119,7 @@ describe('ElevenLabsSttProvider — transcribe', () => {
       mimeType: 'audio/ogg',
     });
 
-    expect(transcribe.mock.calls[0][0]).toMatchObject({ modelId: 'scribe_v1' });
+    expect(transcribe.mock.calls[0][0]).toMatchObject({ modelId: 'scribe_v2' });
   });
 
   it('wraps a file-read failure in a sanitized provider-error', async () => {

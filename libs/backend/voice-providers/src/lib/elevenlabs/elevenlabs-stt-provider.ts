@@ -21,7 +21,7 @@ import { ElevenLabsClient } from './elevenlabs-client';
 import { VoiceSecretStore } from '../voice-secret-store';
 
 const EL_STT_MODEL_KEY = 'voice.elevenlabs.sttModelId';
-const DEFAULT_STT_MODEL_ID = 'scribe_v1';
+const DEFAULT_STT_MODEL_ID = 'scribe_v2';
 
 const API_KEY_MISSING_REASON =
   'Add your ElevenLabs API key under Voice engines › Details to use this provider.';
