@@ -23,6 +23,7 @@ import {
 } from '@ptah-extension/core';
 
 type AccentName = Parameters<ThemeService['setAccent']>[0];
+type SceneName = Parameters<ThemeService['setScene']>[0];
 type ThemeCategory = 'light' | 'dark' | 'glass';
 
 /** Glass wins, then isDark. Each theme is in one tab, in DAISYUI_THEMES order. */
@@ -275,6 +276,22 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
               }
             </div>
           </fieldset>
+          <fieldset class="mt-3 border-t border-base-content/20 px-2 pt-3">
+            <legend class="text-xs font-semibold">Backdrop</legend>
+            <div class="grid grid-cols-4 gap-3 pt-2">
+              @for (option of scenes; track option.name) {
+                <label class="cursor-pointer" [title]="option.label">
+                  <input class="sr-only peer" type="radio" [attr.name]="sceneGroup"
+                    [attr.aria-label]="option.label" [checked]="scene() === option.name"
+                    (change)="selectScene(option.name)" />
+                  <span aria-hidden="true"
+                    class="block aspect-[3/2] rounded-[12px] ring-offset-2 ring-offset-base-200 peer-checked:ring-2 peer-checked:ring-base-content peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-[var(--glass-focus)]"
+                    [style.background]="sceneBackground(option.name)"></span>
+                  <span class="mt-1 block text-center text-xs">{{ option.label }}</span>
+                </label>
+              }
+            </div>
+          </fieldset>
         }
       </div>
     </div>
@@ -292,9 +309,11 @@ export class ThemeToggleComponent implements OnDestroy {
 
   readonly currentTheme = this.themeService.currentTheme;
   readonly accent = this.themeService.accent;
+  readonly scene = this.themeService.scene;
   protected readonly menuId = `ptah-theme-menu-${++ThemeToggleComponent.sequence}`;
   protected readonly tabPanelId = `${this.menuId}-tabpanel`;
   protected readonly accentGroup = `${this.menuId}-accent`;
+  protected readonly sceneGroup = `${this.menuId}-scene`;
   protected readonly menuOpen = signal(false);
   protected readonly activeCategory = signal<ThemeCategory>(
     this.categoryOfName(this.currentTheme()),
@@ -311,6 +330,12 @@ export class ThemeToggleComponent implements OnDestroy {
     { name: 'gold', label: 'Gold', fill: 'linear-gradient(#f6d675, #d9a928)' },
     { name: 'rose', label: 'Rose quartz', fill: 'linear-gradient(#f9c6d4, #e98fab)' },
     { name: 'moonstone', label: 'Moonstone', fill: 'linear-gradient(#eef1f8, #bcc4d6)' },
+  ];
+  readonly scenes: readonly { name: SceneName; label: string }[] = [
+    { name: 'aurora', label: 'Aurora' },
+    { name: 'ember', label: 'Ember' },
+    { name: 'tide', label: 'Tide' },
+    { name: 'horizon', label: 'Horizon' },
   ];
   readonly lightThemes = LIGHT_THEMES;
   readonly darkThemes = DARK_THEMES;
@@ -363,6 +388,15 @@ export class ThemeToggleComponent implements OnDestroy {
       return;
     }
     this.focusTile(theme);
+  }
+
+  protected sceneBackground(scene: SceneName): string {
+    const tint = `oklch(var(--b1) / var(--glass-tint-alpha-${scene}))`;
+    return `linear-gradient(${tint}, ${tint}), var(--glass-scene-${scene}) center / cover`;
+  }
+
+  protected selectScene(scene: SceneName): void {
+    this.themeService.setScene(scene);
   }
 
   protected selectAccent(accent: AccentName): void {

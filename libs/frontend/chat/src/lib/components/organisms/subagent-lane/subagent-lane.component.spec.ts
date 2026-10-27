@@ -634,4 +634,27 @@ describe('SubagentLaneComponent', () => {
       )?.textContent,
     ).toContain('Stop failed');
   });
+  it('hides passive stats while keeping Stop, Background and Details', () => {
+    contexts.set(
+      new Map([['tool-1', context({ canBackground: true, stoppable: true })]]),
+    );
+    const fixture = setup();
+    fixture.componentRef.setInput('showStats', false);
+    fixture.detectChanges();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.querySelector('ptah-agent-lane-stats')).toBeNull();
+    expect(root.querySelector('[aria-label="Stop Explore"]')).not.toBeNull();
+    expect(
+      root.querySelector('[aria-label="Send Explore to background"]'),
+    ).not.toBeNull();
+    root
+      .querySelector<HTMLButtonElement>(
+        '[data-test="execution-header-details"]',
+      )!
+      .click();
+    fixture.detectChanges();
+    expect(
+      root.querySelector<HTMLElement>('#subagent-lane-details-tool-1')?.hidden,
+    ).toBe(false);
+  });
 });

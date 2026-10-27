@@ -562,6 +562,48 @@ describe('JsonlReaderService', () => {
       expect(out[1].isSynthetic).toBeUndefined();
     });
 
+    it('preserves the author fields replay uses to tell a peer turn from a typed prompt', async () => {
+      const jsonl = [
+        JSON.stringify({
+          uuid: 'u-human',
+          type: 'user',
+          origin: { kind: 'human' },
+          turnOrigin: 'human',
+          message: { role: 'user', content: 'typed' },
+        }),
+        JSON.stringify({
+          uuid: 'u-peer',
+          type: 'user',
+          turnOrigin: 'sdk',
+          isSidechain: true,
+          message: { role: 'user', content: 'injected' },
+        }),
+        JSON.stringify({
+          uuid: 'u-malformed',
+          type: 'user',
+          origin: 'human',
+          turnOrigin: 7,
+          isSidechain: 'yes',
+          message: { role: 'user', content: 'odd' },
+        }),
+      ].join('\n');
+      mockedStat.mockResolvedValueOnce(statsWithSize(Buffer.byteLength(jsonl)));
+      primeFileContent(jsonl);
+
+      const out = await service.readJsonlMessages('/tmp/session.jsonl');
+
+      expect(out[0]).toMatchObject({
+        origin: { kind: 'human' },
+        turnOrigin: 'human',
+      });
+      expect(out[0].isSidechain).toBeUndefined();
+      expect(out[1]).toMatchObject({ turnOrigin: 'sdk', isSidechain: true });
+      expect(out[1].origin).toBeUndefined();
+      expect(out[2].origin).toBeUndefined();
+      expect(out[2].turnOrigin).toBeUndefined();
+      expect(out[2].isSidechain).toBeUndefined();
+    });
+
     it('rejects files over the 50 MB cap with SdkError before reading content', async () => {
       // `await expect(...).rejects.toThrow(...)` invokes the thunk once, so we
       // need exactly one stat reply — any extra primed replies stay queued

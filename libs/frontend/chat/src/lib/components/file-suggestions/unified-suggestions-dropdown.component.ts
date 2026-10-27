@@ -57,6 +57,8 @@ export type { SuggestionItem } from './suggestion-option.component';
     <!-- Panel positioned by Floating UI relative to overlayOrigin -->
     <div
       #floatingPanel
+      data-glass-surface="overlay"
+      data-composer-overlay
       [id]="listboxId"
       class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
       style="visibility: hidden; position: absolute;"
@@ -104,6 +106,17 @@ export type { SuggestionItem } from './suggestion-option.component';
             track trackBy($index, suggestion);
             let i = $index
           ) {
+            @if (isGroupStart(i)) {
+              <!-- Divider between the command and prompt groups. Decorative:
+                   each prompt row carries its own "Prompt · <Category>" badge,
+                   so screen readers get the grouping from the options. -->
+              <div
+                class="px-2 pt-1.5 pb-0.5 text-[11px] font-semibold text-base-content-muted uppercase tracking-wide"
+                role="presentation"
+              >
+                {{ groupHeaderTitle(suggestion) }}
+              </div>
+            }
             <ptah-suggestion-option
               [suggestion]="suggestion"
               [optionId]="'suggestion-' + i"
@@ -198,8 +211,34 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
 
     const firstType = suggestions[0]?.type;
     if (firstType === 'file') return 'Files & Folders';
-    if (firstType === 'command') return 'Slash Commands';
-    return 'Suggestions';
+    const hasCommands = suggestions.some(
+      (suggestion) => suggestion.type === 'command',
+    );
+    const hasPrompts = suggestions.some(
+      (suggestion) => suggestion.type === 'prompt',
+    );
+    if (hasCommands && hasPrompts) return 'Commands & Prompts';
+    if (hasPrompts) return 'Prompts';
+    return 'Slash Commands';
+  }
+
+  /**
+   * Whether a visual group divider should precede the row at `index`.
+   * The composer appends prompt suggestions after the command suggestions,
+   * so the row where the type changes starts the "Prompts" group. File-only
+   * lists never change type, so they render without dividers.
+   */
+  isGroupStart(index: number): boolean {
+    if (index <= 0) return false;
+    const suggestions = this.suggestions();
+    return suggestions[index]?.type !== suggestions[index - 1]?.type;
+  }
+
+  /**
+   * Header label for the group the row at `index` starts.
+   */
+  groupHeaderTitle(suggestion: SuggestionItem): string {
+    return suggestion.type === 'prompt' ? 'Prompts' : 'Commands';
   }
 
   /**
@@ -285,6 +324,7 @@ export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
 
   trackBy(index: number, item: SuggestionItem): string {
     if (item.type === 'file') return `file-${item.path}`;
+    if (item.type === 'prompt') return `prompt-${item.text}`;
     return `${item.type}-${item.name}`;
   }
 }

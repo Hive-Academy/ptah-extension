@@ -8,7 +8,16 @@ import {
   signal,
 } from '@angular/core';
 import { LucideAngularModule, Check, Loader } from 'lucide-angular';
-import type { BackendReadiness, BootPhase } from '@ptah-extension/shared';
+import type {
+  BackendReadiness,
+  BootPhase,
+  BootProgressStepId,
+  BootProgressStepState,
+} from '@ptah-extension/shared';
+import {
+  StagedStepsComponent,
+  type StagedStep,
+} from '../vitals/staged-steps.component';
 
 /**
  * BootProgressComponent — the staged boot screen (TASK_2026_380, component 13).
@@ -21,6 +30,11 @@ import type { BackendReadiness, BootPhase } from '@ptah-extension/shared';
  * `settled` is deliberately NOT in the list — the screen is gone by then. An
  * unrecognised phase degrades to "Starting" with nothing checked, because a
  * host may skip a phase and a renderer must never gate on one it expects.
+ *
+ * `hostSteps` (TASK_2026_721, 11d) carries the Electron host's three boot
+ * steps on from the pre-renderer window, with the same labels and figures, so
+ * the first in-app frame continues the checklist the user was just watching.
+ * `null` (every non-Electron host, or before the first `boot:progress`) hides it.
  */
 interface BootStep {
   readonly phase: BootPhase;
@@ -35,13 +49,56 @@ const BOOT_STEPS: readonly BootStep[] = [
   { phase: 'index', label: 'Indexing the workspace' },
 ];
 
+/**
+ * One host boot step as `BootStatusService.hostSteps()` reports it. Declared
+ * structurally here because this presentation lib may not import core.
+ */
+export interface BootHostStep {
+  readonly stepId: BootProgressStepId;
+  readonly state: 'pending' | BootProgressStepState;
+  readonly done?: number;
+  readonly count?: number;
+  readonly elapsedMs?: number;
+}
+
+/** The pre-renderer window's labels (`preparing-workspace.html`), verbatim. */
+const HOST_STEP_LABELS: Record<BootProgressStepId, string> = {
+  verify: 'Verify local state',
+  restore: 'Restore workspace history',
+  agents: 'Start agents',
+};
+
+/** Same figure the pre-renderer window shows for a finished step. */
+function formatStepElapsed(ms: number): string {
+  const seconds = ms / 1000;
+  return seconds < 10 ? `${seconds.toFixed(1)} s` : `${Math.round(seconds)} s`;
+}
+
+function toStagedStep(step: BootHostStep): StagedStep {
+  const elapsed =
+    step.state === 'done' &&
+    typeof step.elapsedMs === 'number' &&
+    Number.isFinite(step.elapsedMs)
+      ? formatStepElapsed(Math.max(0, step.elapsedMs))
+      : undefined;
+  return {
+    id: step.stepId,
+    label: HOST_STEP_LABELS[step.stepId],
+    state: step.state,
+    ...(step.done === undefined || step.count === undefined
+      ? {}
+      : { done: step.done, total: step.count }),
+    ...(elapsed === undefined ? {} : { detail: elapsed }),
+  };
+}
+
 /** How often the elapsed counter is re-read. One second is all it shows. */
 const ELAPSED_TICK_MS = 1000;
 
 @Component({
   selector: 'ptah-boot-progress',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, StagedStepsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -59,6 +116,15 @@ const ELAPSED_TICK_MS = 1000;
         </span>
       </div>
 
+      @if (hostStagedSteps(); as hostSteps) {
+        <ptah-staged-steps
+          class="w-full max-w-xs"
+          data-testid="boot-host-steps"
+          [steps]="hostSteps"
+          ariaLabel="Startup steps"
+        />
+      }
+
       <ol
         class="flex flex-col gap-1.5 w-full max-w-xs"
         data-testid="boot-steps"
@@ -68,7 +134,7 @@ const ELAPSED_TICK_MS = 1000;
             [class]="
               'flex items-center gap-2 text-sm ' +
               (step.state === 'pending'
-                ? 'text-base-content-muted opacity-70'
+                ? 'text-base-content-muted'
                 : 'text-base-content')
             "
             [attr.data-phase]="step.phase"
@@ -148,9 +214,18 @@ export class BootProgressComponent {
   /** Epoch ms of boot start, so elapsed time is the host's, not the view's. */
   readonly startedAt = input.required<number>();
   readonly detail = input<string | undefined>(undefined);
+  /** The host's boot steps, or `null` when the host publishes none. */
+  readonly hostSteps = input<readonly BootHostStep[] | null>(null);
 
   protected readonly CheckIcon = Check;
   protected readonly LoaderIcon = Loader;
+
+  protected readonly hostStagedSteps = computed<readonly StagedStep[] | null>(
+    () => {
+      const steps = this.hostSteps();
+      return steps && steps.length > 0 ? steps.map(toStagedStep) : null;
+    },
+  );
 
   private readonly now = signal<number>(Date.now());
 

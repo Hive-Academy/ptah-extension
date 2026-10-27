@@ -127,7 +127,10 @@ import type {
   VecLoadDiagnosticWire,
   EmbedderStatusWire,
 } from '../rpc/rpc-persistence.types';
-import type { BootReadinessChangedPayload } from '../rpc/rpc-readiness.types';
+import type {
+  BootProgressPayload,
+  BootReadinessChangedPayload,
+} from '../rpc/rpc-readiness.types';
 import type { ActivityEventPayload } from '../rpc/rpc-activity.types';
 import type { DegradationEventPayload } from '../rpc/rpc-degradation.types';
 import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
@@ -437,6 +440,7 @@ export interface MessagePayloadMap {
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
+  'boot:progress': BootProgressPayload;
   'activity:event': ActivityEventPayload;
   'degradation:event': DegradationEventPayload;
   'memory:observationCaptured': MemoryObservationCapturedPayload;

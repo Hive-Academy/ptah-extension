@@ -14,6 +14,8 @@ import { ThemeToggleComponent } from './theme-toggle.component';
 describe('ThemeToggleComponent', () => {
   let setTheme: jest.Mock;
   let setAccent: jest.Mock;
+  let setScene: jest.Mock;
+  let scene: ReturnType<typeof signal<Parameters<ThemeService['setScene']>[0]>>;
   let currentTheme: ReturnType<typeof signal<ThemeName>>;
   let accent: ReturnType<typeof signal<'gold' | 'rose' | 'moonstone'>>;
 
@@ -22,6 +24,8 @@ describe('ThemeToggleComponent', () => {
     accent = signal<'gold' | 'rose' | 'moonstone'>('gold');
     setTheme = jest.fn();
     setAccent = jest.fn();
+    setScene = jest.fn();
+    scene = signal<Parameters<ThemeService['setScene']>[0]>('aurora');
 
     await TestBed.configureTestingModule({
       imports: [ThemeToggleComponent],
@@ -33,6 +37,8 @@ describe('ThemeToggleComponent', () => {
             accent: accent.asReadonly(),
             setTheme,
             setAccent,
+            setScene,
+            scene: scene.asReadonly(),
           },
         },
       ],
@@ -202,6 +208,29 @@ describe('ThemeToggleComponent', () => {
     expect(hide).not.toHaveBeenCalled();
   });
 
+  it('renders four named backdrop radios only for the pair and delegates selection once', () => {
+    currentTheme.set('ptah-glass');
+    const first = create();
+    const second = create();
+    const radios = (): HTMLInputElement[] => [...first.nativeElement.querySelectorAll('input[name$="-scene"]')];
+    expect(radios().map((radio) => radio.getAttribute('aria-label'))).toEqual(['Aurora', 'Ember', 'Tide', 'Horizon']);
+    expect(radios().map((radio) => radio.checked)).toEqual([true, false, false, false]);
+    expect(radios()[0].name).not.toBe((second.nativeElement.querySelector('input[name$="-scene"]') as HTMLInputElement).name);
+    radios()[1].dispatchEvent(new Event('change'));
+    expect(setScene).toHaveBeenCalledTimes(1);
+    expect(setScene).toHaveBeenCalledWith('ember');
+    scene.set('ember');
+    currentTheme.set('ptah-glass-light');
+    first.detectChanges();
+    expect(radios().map((radio) => radio.checked)).toEqual([false, true, false, false]);
+    expect([...first.nativeElement.querySelectorAll('legend')].map((node) => (node as HTMLElement).textContent)).toEqual(['Primary accent', 'Backdrop']);
+    for (const name of ['anubis', 'dark', 'nord', 'cupcake', 'dracula'] as const) {
+      currentTheme.set(name);
+      first.detectChanges();
+      expect(radios()).toHaveLength(0);
+    }
+  });
+
   it('keeps the three accents on every tab for either Ptah theme and delegates them', () => {
     currentTheme.set('ptah-glass');
     const first = create();
@@ -213,7 +242,7 @@ describe('ThemeToggleComponent', () => {
       tab.click();
       first.detectChanges();
       expect(
-        [...first.nativeElement.querySelectorAll('input[type="radio"]')].map((radio) =>
+        [...first.nativeElement.querySelectorAll('input[name$="-accent"]')].map((radio) =>
           (radio as HTMLInputElement).getAttribute('aria-label'),
         ),
       ).toEqual(['Gold', 'Rose quartz', 'Moonstone']);
@@ -227,7 +256,7 @@ describe('ThemeToggleComponent', () => {
     expect(panelOf(first).classList.contains('picker-surface-light')).toBe(false);
     currentTheme.set('ptah-glass-light');
     first.detectChanges();
-    expect(first.nativeElement.querySelectorAll('input[type="radio"]')).toHaveLength(3);
+    expect(first.nativeElement.querySelectorAll('input[name$="-accent"]')).toHaveLength(3);
     expect(panelOf(first).classList.contains('picker-surface-light')).toBe(true);
     const nameA = (first.nativeElement.querySelector('input[type="radio"]') as HTMLInputElement).name;
     const nameB = (second.nativeElement.querySelector('input[type="radio"]') as HTMLInputElement).name;

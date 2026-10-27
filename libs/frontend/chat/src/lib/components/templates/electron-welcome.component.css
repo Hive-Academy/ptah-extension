@@ -1,0 +1,179 @@
+:host {
+  display: block;
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+}
+.ptah-welcome {
+  /* The scrim below sizes its side fades from the free room beside the
+     stage (cqw), and is clipped to this box so it never adds a scrollbar. */
+  container-type: inline-size;
+  overflow-x: clip;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+}
+/* Frameless local text scrim (glass only: transparent where the token is not
+   defined). A pseudo-element behind the stage, larger than it, is solid under
+   the whole stage padding box, so text keeps the full scrim; it fades to fully
+   transparent at every outer edge through two eased ramps intersected by a
+   mask, so no edge or corner of a box is ever drawn. The ramps start outside
+   the stage (--scrim-ext-*) and end inside its padding (--scrim-in-*), never
+   under content. */
+.ptah-welcome__stage {
+  /* Free room beside the stage, up to the clip edge: half the leftover
+     content width plus the container's 24 px inline padding. */
+  --scrim-ext-x: min(96px, max(24px, (100cqw - 1040px) / 2 + 24px));
+  --scrim-ext-y: 32px;
+  --scrim-in-x: 48px;
+  --scrim-in-y: 32px;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+  width: 100%;
+  max-width: 1040px;
+  padding: 40px 64px;
+}
+.ptah-welcome__stage::before {
+  --rx: calc(var(--scrim-ext-x) + var(--scrim-in-x));
+  --ry: calc(var(--scrim-ext-y) + var(--scrim-in-y));
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--scrim-ext-y)) calc(-1 * var(--scrim-ext-x));
+  z-index: -1;
+  pointer-events: none;
+  background: var(--glass-scrim-text, transparent);
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--rx) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--rx) * 0.7),
+      #000 var(--rx),
+      #000 calc(100% - var(--rx)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--rx) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--rx) * 0.35),
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      rgb(0 0 0 / 0.3) calc(var(--ry) * 0.35),
+      rgb(0 0 0 / 0.75) calc(var(--ry) * 0.7),
+      #000 var(--ry),
+      #000 calc(100% - var(--ry)),
+      rgb(0 0 0 / 0.75) calc(100% - var(--ry) * 0.7),
+      rgb(0 0 0 / 0.3) calc(100% - var(--ry) * 0.35),
+      transparent 100%
+    );
+  mask-composite: intersect;
+}
+.ptah-welcome__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+/* Zone and vitals row share one box as wide as the wider of the two, so the
+   Recent list's left edge and the activity grid's right edge are the stat
+   row's left and right edges too. */
+.ptah-welcome__body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 40px;
+  width: fit-content;
+  max-width: 100%;
+}
+.ptah-welcome__zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px 96px;
+}
+/* An explicit width, not a flex basis: it is what the body's fit-content
+   width reads, so a long folder name (which truncates) cannot widen it. */
+.ptah-welcome__recents {
+  flex: 0 1 auto;
+  width: 360px;
+  min-width: 260px;
+}
+.ptah-welcome__grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* First run: the grid alone is centred. */
+.ptah-welcome__grid:only-child {
+  margin-inline: auto;
+}
+/* Each cell is as wide as its content (Spend 7d keeps its numeral and bars
+   apart from Agents) and the cells spread edge to edge, so the group is
+   centred and lines up with the zone above. Overrides the row's fixed
+   192 px / 150 px columns for this screen only. */
+.ptah-welcome__body > .ptah-welcome__vitals {
+  grid-auto-columns: max-content;
+  justify-content: space-between;
+  column-gap: 40px;
+}
+/* Label row 16 + gaps 12 + value row 56 + one caption line. */
+.ptah-welcome__vitals-slot {
+  height: 104px;
+}
+@media (max-width: 1000px) {
+  .ptah-welcome__stage {
+    --scrim-in-x: 16px;
+    padding: 32px 24px;
+    gap: 32px;
+  }
+  .ptah-welcome__body {
+    gap: 32px;
+  }
+  .ptah-welcome__zone {
+    column-gap: 48px;
+  }
+  .ptah-welcome__body > .ptah-welcome__vitals {
+    column-gap: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .ptah-welcome__zone {
+    flex-direction: column;
+    align-items: center;
+  }
+  .ptah-welcome__recents {
+    width: min(100%, 420px);
+  }
+}
+/* Short windows (900 x 640 and the default 735 px height): tighter rhythm so
+   the vitals row is on screen without scrolling. */
+@media (max-height: 760px) {
+  .ptah-welcome {
+    padding-block: 16px;
+  }
+  .ptah-welcome__stage {
+    --scrim-ext-y: 16px;
+    --scrim-in-y: 12px;
+    padding-block: 16px;
+    gap: 24px;
+  }
+  .ptah-welcome__hero {
+    gap: 10px;
+  }
+  .ptah-welcome__hero img {
+    width: 40px;
+    height: 40px;
+  }
+  .ptah-welcome__body {
+    gap: 24px;
+  }
+}

@@ -12,10 +12,8 @@ export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-analytics.types';
-import type {
-  UsageSummary,
-  UsageSummaryParams,
-} from './rpc/rpc-analytics.types';
+import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
+import type { WorkspaceListRecentResult } from './rpc/rpc-workspace.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
@@ -1698,6 +1696,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: { path: string };
     result: { success: boolean; path: string; name: string; error?: string };
   };
+  'workspace:listRecent': {
+    params: Record<string, never>;
+    result: WorkspaceListRecentResult;
+  };
   'file:read': {
     params: { path: string };
     result: { content: string };
@@ -3342,6 +3344,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'workspace:removeFolder': true,
   'workspace:switch': true,
   'workspace:registerFolder': true,
+  'workspace:listRecent': true,
   'file:read': true,
   'file:exists': true,
   'file:save-dialog': true,

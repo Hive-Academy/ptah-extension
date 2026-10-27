@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  EnvironmentInjector,
   Injector,
   afterNextRender,
   computed,
@@ -15,7 +16,9 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
+  ChatStore,
   CompactSessionCardComponent,
+  SendToMessagingComponent,
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
   TabManagerService,
@@ -31,12 +34,12 @@ import {
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import type { AttentionItem } from '@ptah-extension/core';
+import { LoggingService, type AttentionItem } from '@ptah-extension/core';
 import { CircleAlert, LucideAngularModule } from 'lucide-angular';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { isIgnoredCardClick } from '../canvas-card-click';
-import { railMoveKey } from './canvas-rail-keyboard';
+import { focusMenuItem, handleMenuKeydown, railMoveKey } from './canvas-rail-keyboard';
 import { isPrimaryAttentionAction } from './rail-attention-action';
 
 /** B6: the board has fewer than two sessions, so there is nothing to split with. */
@@ -55,6 +58,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     CompactSessionCardComponent,
     NgTemplateOutlet,
     NativePopoverComponent,
+    SendToMessagingComponent,
     WorkflowBadgeComponent,
     LucideAngularModule,
   ],
@@ -254,7 +258,8 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             aria-haspopup="menu"
             [attr.aria-expanded]="menuOpen()"
             [tabIndex]="focused() ? 0 : -1"
-            (click)="menuOpen.set(!menuOpen())"
+            (pointerdown)="onTriggerPointerDown()"
+            (click)="toggleMenu($event)"
           >
             <span aria-hidden="true">⋮</span>
           </button>
@@ -340,6 +345,41 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             >
               Move down
             </button>
+            <div role="separator" class="my-1 border-t border-base-content/10"></div>
+            <button
+              type="button"
+              role="menuitem"
+              data-action="toggle-view"
+              class="btn btn-ghost btn-sm justify-start font-normal"
+              (click)="toggleView()"
+            >
+              {{ tab()?.viewMode === 'compact' ? 'Switch to full view' : 'Switch to compact view' }}
+            </button>
+            <!-- Projected content exists while closed: build Hand off only in an open menu. -->
+            @if (menuOpen()) {
+              <ptah-send-to-messaging [tabId]="tabId()" />
+            }
+            @if (running()) {
+              <button
+                type="button"
+                role="menuitem"
+                data-action="stop"
+                class="btn btn-ghost btn-sm justify-start font-normal"
+                (click)="stop()"
+              >
+                Stop session
+              </button>
+            }
+            <div role="separator" class="my-1 border-t border-base-content/10"></div>
+            <button
+              type="button"
+              role="menuitem"
+              data-action="close-session"
+              class="btn btn-ghost btn-sm justify-start font-normal"
+              (click)="closeSession($event)"
+            >
+              Close session
+            </button>
           </div>
         </ptah-native-popover>
           </div>
@@ -367,7 +407,10 @@ export class CanvasRailCardComponent implements SessionCardActions {
   private readonly detail = inject(CanvasDetailService);
   readonly organizer = inject(SessionOrganizerService);
   private readonly rowActions = inject(SessionRowActionsService);
+  private readonly chatStore = inject(ChatStore);
+  private readonly logger = inject(LoggingService);
   private readonly injector = inject(Injector);
+  private readonly appInjector = inject(EnvironmentInjector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly renameKeydown = (event: KeyboardEvent) => this.onRenameKeydown(event);
@@ -401,6 +444,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly openBesideRequested = output<string>();
   readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
+  /** Close session for this card's tab; the board owns the close path. */
+  readonly closeRequested = output<string>();
   readonly announcement = signal('');
   private announcementTimer: ReturnType<typeof setTimeout> | undefined;
   constructor() {
@@ -410,6 +455,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
     });
   }
   readonly menuOpen = signal(false);
+  /** The element focused before a pointer opened the menu; null for a keyboard open. */
+  private focusBeforeMenu: Element | null = null;
   readonly renameOpen = signal(false);
   readonly renameDraft = signal('');
   readonly renameError = signal('');
@@ -431,6 +478,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab ?? null,
   );
   readonly sessionId = computed(() => this.tab()?.claudeSessionId ?? null);
+  /** This card's session is running: the menu offers Stop session. */
+  readonly running = computed(() => this.canvasStore.isSessionRunning(this.tabId()));
   /**
    * The expanded actions cell is absolute with a z-index, so it is a stacking
    * context that traps its popovers' z-50 (and their backdrop). While the
@@ -506,6 +555,44 @@ export class CanvasRailCardComponent implements SessionCardActions {
     if (this.splitDisabledReason()) return;
     this.closeMenu();
     this.openBesideRequested.emit(this.tabId());
+  }
+  toggleView(): void {
+    this.closeMenu();
+    this.tabs.toggleTabViewMode(this.tabId());
+  }
+  /** Stop acts on the active chat tab, so this card's tile is focused first. */
+  async stop(): Promise<void> {
+    this.closeMenu();
+    if (this.tabs.activeTabId() !== this.tabId()) this.canvasStore.focusTile(this.tabId());
+    try {
+      await this.chatStore.abortWithConfirmation();
+    } catch (error) {
+      this.logger.error('CanvasRailCard', 'Could not stop session', error);
+      this.announce('Could not stop this session.');
+    }
+  }
+  /**
+   * A keyboard close leaves focus on this card's trigger, so the board moves it
+   * to a neighbour card. A pointer close (`detail > 0`) puts focus back where
+   * it was before the menu opened (e.g. the composer) when that is outside this
+   * card: after the render in which the popover returns focus to its trigger,
+   * on the app injector so the hook outlives this removed card.
+   */
+  closeSession(event?: MouseEvent): void {
+    const before = event?.detail ? this.focusBeforeMenu : null;
+    this.closeMenu();
+    if (before instanceof HTMLElement && before !== before.ownerDocument.body
+      && !this.host.nativeElement.contains(before))
+      afterNextRender(() => { if (before.isConnected) before.focus(); }, { injector: this.appInjector });
+    this.closeRequested.emit(this.tabId());
+  }
+  /** A press on the trigger runs before it takes focus: remember the focused element. */
+  onTriggerPointerDown(): void {
+    this.focusBeforeMenu = this.host.nativeElement.ownerDocument.activeElement;
+  }
+  toggleMenu(event: MouseEvent): void {
+    if (!event.detail) this.focusBeforeMenu = null;
+    this.menuOpen.set(!this.menuOpen());
   }
   moveUp(): void {
     if (!this.canMoveUp()) return;
@@ -631,31 +718,12 @@ export class CanvasRailCardComponent implements SessionCardActions {
     if (this.menuOpen()) this.focusMenuItem(0);
   }
   focusMenuItem(index: number): void {
-    const items = this.menuItems();
-    items[(index + items.length) % items.length]?.focus();
+    focusMenuItem(this.menuItems(), index);
   }
   onMenuKeydown(event: KeyboardEvent): void {
-    const items = this.menuItems();
-    const current = items.findIndex(
-      (item) => item === item.ownerDocument.activeElement,
-    );
-    switch (event.key) {
-      case 'ArrowDown':
-        this.focusMenuItem(current + 1);
-        break;
-      case 'ArrowUp':
-        this.focusMenuItem(current < 0 ? -1 : current - 1);
-        break;
-      case 'Home':
-        this.focusMenuItem(0);
-        break;
-      case 'End':
-        this.focusMenuItem(-1);
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
+    // The Hand off picker nests inside the menu: its listbox roves its own options.
+    if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
+    handleMenuKeydown(event, this.menuItems());
   }
   private menuItems(): HTMLElement[] {
     return [

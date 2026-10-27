@@ -83,6 +83,7 @@ describe('DisplaySheetComponent', () => {
     dock.openArtifact('tab-1', artifact.id);
     fixture.detectChanges();
     const display = await mountedPanel(fixture);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.sheet-shell')?.getAttribute('data-glass-surface')).toBe('chrome');
     expect(display.artifacts()).toEqual([artifact]);
     expect(display.selectedKey()).toBe(`artifact:${artifact.id}`);
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');

@@ -1,4 +1,5 @@
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import { visibleNewSessionTrigger } from './new-session-trigger';
 
 export type ElectronView =
   | 'chat'
@@ -432,8 +433,8 @@ export class UiDriver {
   /**
    * Ensure the Rail board has a focused session with a visible chat input.
    * Reuses an existing session when one is already present (so this never
-   * inflates the session count); otherwise creates one from the Rail footer New session button, which
-   * is present for both empty and populated boards. Assumes the canvas is already visible.
+   * inflates the session count); otherwise creates one from the visible New session trigger (the
+   * empty-board hero, or the Rail footer once a session exists). Assumes the canvas is already visible.
    */
   private async ensureCanvasChatTile(): Promise<void> {
     const input = this.page.locator(
@@ -448,10 +449,7 @@ export class UiDriver {
       return;
     }
 
-    await this.page
-      .locator('[data-testid="canvas-footer-new-session"]')
-      .first()
-      .click();
+    await (await visibleNewSessionTrigger(this.page)).click();
     await this.page
       .getByRole('button', { name: 'Create', exact: true })
       .click();

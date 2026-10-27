@@ -9,6 +9,7 @@ import {
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  RecentWorkspacesService,
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
@@ -22,6 +23,7 @@ export const EXPECTED_RESOLVABLE = [
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
   FileEditRpcHandlers,
+  RecentWorkspacesService,
 ] as const;
 
 /** Phase-2 singleton; kept separate from the handler-class census. */

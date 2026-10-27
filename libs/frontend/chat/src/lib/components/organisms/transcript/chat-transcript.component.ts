@@ -353,6 +353,7 @@ export class ChatTranscriptComponent {
   readonly rewindRequested = output<string>();
   /** Empty-state prompt selection → parent fills the chat input. */
   readonly promptSelected = output<string>();
+  readonly resumeRequested = output<string>();
 
   /**
    * ResizeObserver on the content wrapper. Fires whenever the content's height

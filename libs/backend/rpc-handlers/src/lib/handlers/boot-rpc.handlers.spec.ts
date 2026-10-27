@@ -77,6 +77,39 @@ describe('BootRpcHandlers', () => {
     expect(result).toEqual(SNAPSHOT);
   });
 
+  it('passes the boot progress steps through unchanged', async () => {
+    const { rpcHandler, registered } = createRpcHandler();
+    const withSteps: BootGetReadinessResult = {
+      ...SNAPSHOT,
+      steps: [
+        {
+          stepId: 'verify',
+          index: 0,
+          total: 3,
+          state: 'done',
+          elapsedMs: 120,
+          startedAt: 1_700_000_000_000,
+        },
+        {
+          stepId: 'restore',
+          index: 1,
+          total: 3,
+          state: 'active',
+          done: 2,
+          count: 5,
+          startedAt: 1_700_000_000_120,
+        },
+      ],
+    };
+    const port: IBootReadinessProvider = { getReadiness: () => withSteps };
+    new BootRpcHandlers(createLogger(), rpcHandler, port).register();
+
+    const result = await registered.get('boot:getReadiness')?.({});
+
+    expect(result).toEqual(withSteps);
+    expect(result?.steps).toHaveLength(2);
+  });
+
   it('falls back to ready/settled when the port throws', async () => {
     const { rpcHandler, registered } = createRpcHandler();
     const logger = createLogger();
@@ -94,6 +127,7 @@ describe('BootRpcHandlers', () => {
     expect(result?.readiness).toBe('ready');
     expect(result?.phase).toBe('settled');
     expect(typeof result?.startedAt).toBe('number');
+    expect(result?.steps).toBeUndefined();
     expect(logger.warn).toHaveBeenCalled();
   });
 

@@ -28,11 +28,13 @@ import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { WORKSPACE_COORDINATOR } from '../tokens/workspace-coordinator.token';
 import type { MessageHandler } from './message-router.types';
-
-export interface WorkspaceFolder {
-  path: string;
-  name: string;
-}
+import {
+  clampActiveWorkspaceIndex,
+  persistedActiveFolderName,
+  persistedWorkspaceFolders,
+  type PersistedWorkspaceState,
+  type WorkspaceFolder,
+} from './electron-layout-persisted-state';
 
 const LAYOUT_STATE_KEY = 'electron-layout';
 const DEFAULT_SIDEBAR_WIDTH = 220;
@@ -80,7 +82,22 @@ export class ElectronLayoutService implements MessageHandler {
   private readonly _editorDragging = signal(false);
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
   private readonly _activeWorkspaceIndex = signal(0);
+  /**
+   * False in Electron until the first host sync settles (TASK_2026_721 D11):
+   * until then the folder list is the cached guess, not the host's answer,
+   * so the shell paints a loading state instead of the welcome. Always true
+   * elsewhere, so VS Code never sees the loading state.
+   */
+  private readonly _workspaceResolved = signal(!this.vscodeService.isElectron);
+  /** Basename of the active folder in the restored layout cache, if any. */
+  private readonly _cachedWorkspaceName = signal<string | null>(null);
   private _switchId = 0;
+  /**
+   * The id of the newest {@link syncFromBackend} run. Kept apart from
+   * `_switchId` because the cache fallback and user switches bump that one
+   * too, and neither of them is a sync that will settle resolution later.
+   */
+  private _latestSyncId = 0;
   private _switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private _pendingOriginRef: { current: string | null } = { current: null };
   readonly workspaceSidebarWidth = this._workspaceSidebarWidth.asReadonly();
@@ -106,6 +123,28 @@ export class ElectronLayoutService implements MessageHandler {
   readonly hasWorkspaceFolders = computed(
     () => this._workspaceFolders().length > 0,
   );
+
+  /**
+   * True once the first `workspace:getInfo` sync settled, whatever its
+   * outcome. Starts true outside Electron.
+   */
+  readonly workspaceResolved = this._workspaceResolved.asReadonly();
+
+  /**
+   * The workspace name to show while {@link workspaceResolved} is false.
+   *
+   * First the host's startup workspace root: the Electron preload reads it
+   * with a sync `get-startup-config` IPC before Angular boots, and the host
+   * restored its workspaces before it loaded this page, so it is the active
+   * folder whenever there is one. Then the active folder of the cached layout.
+   * `null` when neither names a folder.
+   */
+  readonly pendingWorkspaceName = computed<string | null>(() => {
+    const root = this.vscodeService.config().workspaceRoot;
+    const hostName = root ? lastPathSegment(root) : '';
+    return hostName || this._cachedWorkspaceName();
+  });
+
   readonly handledMessageTypes = [MESSAGE_TYPES.WORKSPACE_CHANGED];
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -760,6 +799,7 @@ export class ElectronLayoutService implements MessageHandler {
       if (typeof state.appsSplitWidth === 'number') {
         this.setAppsSplitWidth(state.appsSplitWidth);
       }
+      this._cachedWorkspaceName.set(persistedActiveFolderName(state));
     }
     void this.syncFromBackend(state ?? null);
   }
@@ -773,17 +813,22 @@ export class ElectronLayoutService implements MessageHandler {
    * call sites cannot race each other: whichever bumps _switchId last
    * wins; earlier in-flight calls bail at the stale-id guard.
    *
+   * Its `finally` marks the workspace resolved on every outcome (success,
+   * failed result, throw, or a user switch that superseded it; the user's own
+   * switch drives the UI from there), unless a newer sync started, which then
+   * settles resolution itself. A cache fallback resolves only once its
+   * `workspace:switch` settled. Every RPC here is bounded by
+   * `ClaudeRpcService`'s default 30 s timeout, so resolution cannot hang.
+   *
    * @param cachedState - Persisted webview state available as a fallback
    *   when the backend has no workspaces. Pass null when there is no
    *   cached state (first launch, or handleMessage path).
    */
   private async syncFromBackend(
-    cachedState: {
-      workspaceFolders?: unknown[];
-      activeWorkspaceIndex?: number;
-    } | null,
+    cachedState: PersistedWorkspaceState | null,
   ): Promise<void> {
     const syncId = ++this._switchId;
+    this._latestSyncId = syncId;
 
     try {
       const result = await this.rpcService.call('workspace:getInfo', {});
@@ -830,8 +875,7 @@ export class ElectronLayoutService implements MessageHandler {
           this.persistLayout();
         } else {
           if (cachedState) {
-            this.restoreWorkspaceFoldersFromCache(cachedState);
-            this.persistLayout();
+            await this.fallBackToPersistedFolders(cachedState);
           } else {
             this._workspaceFolders.set([]);
             this._activeWorkspaceIndex.set(0);
@@ -840,8 +884,7 @@ export class ElectronLayoutService implements MessageHandler {
           }
         }
       } else if (cachedState) {
-        this.restoreWorkspaceFoldersFromCache(cachedState);
-        this.persistLayout();
+        await this.fallBackToPersistedFolders(cachedState);
       }
     } catch {
       // degradation-audit: optional-capability - a failed workspace:getInfo or
@@ -850,54 +893,52 @@ export class ElectronLayoutService implements MessageHandler {
       // host stays authoritative and the next sync or explicit switch reports
       // its own failure through the RPC result the user acted on.
       if (this._switchId !== syncId) return;
-      if (cachedState) {
-        this.restoreWorkspaceFoldersFromCache(cachedState);
-        this.persistLayout();
-      }
+      if (cachedState) await this.fallBackToPersistedFolders(cachedState);
+    } finally {
+      if (this._latestSyncId === syncId) this._workspaceResolved.set(true);
     }
   }
 
-  private restoreWorkspaceFoldersFromCache(state: {
-    workspaceFolders?: unknown[];
-    activeWorkspaceIndex?: number;
-  }): void {
-    if (Array.isArray(state.workspaceFolders)) {
-      const validFolders = state.workspaceFolders.filter(
-        (f): f is WorkspaceFolder =>
-          f != null &&
-          typeof f === 'object' &&
-          typeof (f as WorkspaceFolder).path === 'string' &&
-          typeof (f as WorkspaceFolder).name === 'string',
-      );
-      this._workspaceFolders.set(validFolders);
-    }
+  /**
+   * Restore the folder rail from the persisted layout and persist it, then
+   * switch the host to the restored active folder. The rail updates
+   * synchronously; the returned promise settles with the switch and never
+   * rejects, so {@link syncFromBackend} can wait for it before it resolves.
+   */
+  private async fallBackToPersistedFolders(
+    state: PersistedWorkspaceState,
+  ): Promise<void> {
+    const folders = persistedWorkspaceFolders(state);
+    if (folders) this._workspaceFolders.set(folders);
     if (typeof state.activeWorkspaceIndex === 'number') {
-      const maxIndex = Math.max(0, this._workspaceFolders().length - 1);
       this._activeWorkspaceIndex.set(
-        Math.min(Math.max(0, state.activeWorkspaceIndex), maxIndex),
+        clampActiveWorkspaceIndex(
+          state.activeWorkspaceIndex,
+          this._workspaceFolders().length,
+        ),
       );
     }
+    this.persistLayout();
 
-    const restoredFolders = this._workspaceFolders();
     const restoredIndex = this._activeWorkspaceIndex();
-    if (restoredFolders.length > 0 && restoredFolders[restoredIndex]) {
-      const activePath = restoredFolders[restoredIndex].path;
-      const restoreSwitchId = ++this._switchId;
-
-      this.rpcService
-        .call('workspace:switch', { path: activePath })
-        .then((result) => {
-          if (this._switchId !== restoreSwitchId) return;
-          if (result.isSuccess()) {
-            this.coordinateWorkspaceSwitch(activePath, restoredIndex);
-          }
-        })
-        .catch((error) => {
-          console.error(
-            '[ElectronLayout] Fallback workspace:switch failed:',
-            error,
-          );
-        });
+    const activePath = this._workspaceFolders()[restoredIndex]?.path;
+    if (!activePath) return;
+    const restoreSwitchId = ++this._switchId;
+    try {
+      const result = await this.rpcService.call('workspace:switch', {
+        path: activePath,
+      });
+      if (this._switchId !== restoreSwitchId) return;
+      if (result.isSuccess()) {
+        this.coordinateWorkspaceSwitch(activePath, restoredIndex);
+      } else {
+        console.error(
+          '[ElectronLayout] Fallback workspace:switch failed:',
+          result,
+        );
+      }
+    } catch (error: unknown) {
+      console.error('[ElectronLayout] Fallback workspace:switch failed:', error);
     }
   }
 

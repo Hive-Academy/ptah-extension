@@ -26,6 +26,10 @@
  * - `workspace:switch`          — Switch active workspace, then fire-and-forget
  *                                 a session import and a file-index rebuild for
  *                                 the new root (both off the critical path)
+ * - `workspace:listRecent`      — Most-recently-used workspaces that still
+ *                                 exist (TASK_2026_721). `switch` and
+ *                                 `registerFolder` record into it, off the
+ *                                 critical path.
  *
  * VS Code Note: VS Code's `VsCodeWorkspaceProvider` does not implement
  * `IWorkspaceLifecycleProvider`, so its host profile leaves the
@@ -35,7 +39,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
-import { TOKENS, WorkspaceContextManager } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  RpcUserError,
+  WorkspaceContextManager,
+} from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import type { WorkspaceFileIndexService } from '@ptah-extension/workspace-intelligence';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
@@ -50,7 +58,13 @@ import type {
   IWorkspaceLifecycleProvider,
   IUserInteraction,
 } from '@ptah-extension/platform-core';
-import type { RpcMethodName } from '@ptah-extension/shared';
+import { WorkspaceListRecentParamsSchema } from '@ptah-extension/shared';
+import type {
+  RpcMethodName,
+  WorkspaceListRecentParams,
+  WorkspaceListRecentResult,
+} from '@ptah-extension/shared';
+import { RecentWorkspacesService } from '../services/recent-workspaces.service';
 
 @injectable()
 export class WorkspaceRpcHandlers {
@@ -64,6 +78,7 @@ export class WorkspaceRpcHandlers {
     'workspace:registerFolder',
     'workspace:removeFolder',
     'workspace:switch',
+    'workspace:listRecent',
   ] as const satisfies readonly RpcMethodName[];
 
   /**
@@ -120,6 +135,8 @@ export class WorkspaceRpcHandlers {
     private readonly providerProxyPool: ProviderProxyPool,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     private readonly container: DependencyContainer,
+    @inject(RecentWorkspacesService)
+    private readonly recentWorkspaces: RecentWorkspacesService,
   ) {}
 
   register(): void {
@@ -128,6 +145,38 @@ export class WorkspaceRpcHandlers {
     this.registerRegisterFolder();
     this.registerRemoveFolder();
     this.registerSwitch();
+    this.registerListRecent();
+  }
+
+  private registerListRecent(): void {
+    this.rpcHandler.registerMethod<
+      WorkspaceListRecentParams,
+      WorkspaceListRecentResult
+    >('workspace:listRecent', async (params: unknown) => {
+      const parsed = WorkspaceListRecentParamsSchema.safeParse(params ?? {});
+      if (!parsed.success) {
+        throw new RpcUserError(
+          'workspace:listRecent: invalid params',
+          'INVALID_PARAMS',
+        );
+      }
+      return { workspaces: await this.recentWorkspaces.list() };
+    });
+  }
+
+  /**
+   * Remember a switched-to workspace for `workspace:listRecent`. Only
+   * `workspace:switch` records: `workspace:registerFolder` also runs for
+   * auto-created worktrees, and the frontend switches to a folder it adds.
+   * Fire-and-forget: a failed write loses one MRU entry and must never change
+   * the switch result. The path stays out of the log line.
+   */
+  private recordRecent(workspacePath: string): void {
+    void this.recentWorkspaces.record(workspacePath).catch((error: unknown) =>
+      this.logger.warn('[RPC] workspace:switch could not record a recent workspace', {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
 
   private registerGetInfo(): void {
@@ -327,6 +376,7 @@ export class WorkspaceRpcHandlers {
           }
 
           this.workspaceLifecycle.setActiveFolder(params.path);
+          this.recordRecent(params.path);
 
           // Session import is intentionally OFF the switch critical path: the
           // RPC responds immediately and the scan runs fire-and-forget. When

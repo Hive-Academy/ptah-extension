@@ -15,6 +15,12 @@ export * from './image-media-type';
 export { pickPrimaryModel, type ModelUsageEntry } from './pick-primary-model';
 export { classifyTestCommand } from './test-command-matcher';
 export {
+  laneEnvelopePeerLabel,
+  parseLaneEnvelope,
+  type LaneEnvelope,
+  type LaneEnvelopeKind,
+} from './lane-envelope';
+export {
   collectTurnTests,
   summarizeTurnTests,
   type TurnTestOutcome,

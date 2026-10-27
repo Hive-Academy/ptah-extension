@@ -36,6 +36,12 @@ export interface JsonlMessageLine {
   };
   isMeta?: boolean;
   isSynthetic?: boolean;
+  /** True on a subagent record (unvalidated). */
+  isSidechain?: unknown;
+  /** Author of a user record, e.g. `{ kind: 'human' }` (unvalidated). */
+  origin?: unknown;
+  /** `'human'` or `'sdk'` on a user record (unvalidated). */
+  turnOrigin?: unknown;
   slug?: string;
   /** `type: 'cost-state'` only: the SDK's saved running cost (unvalidated). */
   totalCostUSD?: unknown;
@@ -74,6 +80,16 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   readonly timestamp?: string;
   readonly isMeta?: boolean;
   readonly isSynthetic?: boolean;
+  /** True on a subagent record written into the main transcript. */
+  readonly isSidechain?: boolean;
+  /**
+   * Author of a user record as the CLI wrote it. A prompt typed at the tab
+   * carries `{ kind: 'human' }`; a turn injected through the input stream
+   * (a lane report) carries none.
+   */
+  readonly origin?: { readonly kind?: string };
+  /** `'human'` on a typed prompt, `'sdk'` on an injected turn. */
+  readonly turnOrigin?: string;
   readonly slug?: string;
   /** Model identifier from system init messages (e.g., 'claude-sonnet-4-20250514') */
   readonly model?: string;

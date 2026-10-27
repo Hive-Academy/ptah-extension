@@ -19,6 +19,7 @@ import type {
   SessionBudgetState,
 } from '@ptah-extension/shared';
 import { parseSessionStatsCache } from '@ptah-extension/shared';
+import { usageTotalsFromSegments } from '../../components/molecules/agent-card/stats-bar.utils';
 import { ChatStore } from '../chat.store';
 
 /** What a stats host resolves; every getter is read reactively. */
@@ -84,7 +85,7 @@ export function toStatsLimitLaneRun(agent: MonitoredAgent): StatsLimitLaneRun {
     startedAt: agent.startedAt,
     failureKind: agent.failureKind,
     quotaOwner: agent.quotaOwner,
-    usageTotals: agent.usageTotals,
+    usageTotals: agent.usageTotals ?? usageTotalsFromSegments(agent.segments ?? []),
   };
 }
 

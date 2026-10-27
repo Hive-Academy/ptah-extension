@@ -47,6 +47,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
 import type { BootCoordinator } from './boot-coordinator';
 import { bootStep } from './boot-trace';
+import {
+  openBootProgress,
+  type BootProgressPublisher,
+} from './boot-progress-publisher';
 
 export interface BootstrapResult {
   container: DependencyContainer;
@@ -185,7 +189,10 @@ export async function startAgentAdapterInitialization(
 export function createMainWindowHandleGetter(
   getMainWindow: () =>
     | (Pick<BrowserWindow, 'isDestroyed'> & {
-        webContents: Pick<BrowserWindow['webContents'], 'send' | 'isDestroyed'>;
+        webContents: Pick<
+          BrowserWindow['webContents'],
+          'id' | 'send' | 'isDestroyed'
+        >;
       })
     | null,
 ): ConstructorParameters<typeof IpcBridge>[1] {
@@ -194,6 +201,7 @@ export function createMainWindowHandleGetter(
     if (!win || win.isDestroyed()) return null;
     return {
       webContents: {
+        id: win.webContents.id,
         send: (channel: string, ...args: unknown[]) =>
           win.webContents.send(channel, ...args),
         isDestroyed: () => win.isDestroyed() || win.webContents.isDestroyed(),
@@ -246,9 +254,31 @@ export function attachElectronHostAttention(
   }
 }
 
+/**
+ * Boot the container and the IPC surface behind the preparing shell.
+ *
+ * Publishes the three boot steps to that shell (`boot:progress`). The step
+ * that is still active when the boot throws is marked `failed` before the
+ * rejection reaches `main.ts`, which then loads the recovery shell.
+ */
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
   coordinator: Pick<BootCoordinator, 'snapshot'>,
+): Promise<BootstrapResult> {
+  const bootProgress = openBootProgress(getMainWindow);
+  bootProgress.step('verify', 'active');
+  return runBootstrap(getMainWindow, coordinator, bootProgress).catch(
+    (error: unknown) => {
+      bootProgress.failActive();
+      throw error;
+    },
+  );
+}
+
+async function runBootstrap(
+  getMainWindow: () => BrowserWindow | null,
+  coordinator: Pick<BootCoordinator, 'snapshot'>,
+  bootProgress: BootProgressPublisher,
 ): Promise<BootstrapResult> {
   fixPath();
   const workspacePath = resolveInitialWorkspaceArg(
@@ -455,16 +485,27 @@ export async function bootstrapElectron(
     PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
   );
   await workspaceStateStorage.whenReady();
+  bootProgress.step('verify', 'done');
 
   // Every registered folder now has its live store, so the copy-forward reads
   // through those and never opens a second worker on one folder. Not awaited:
-  // session reads wait on the store's gate instead (PTAH-35).
+  // session reads wait on the store's gate instead (PTAH-35). The progress
+  // hook rethrows, so a rejection surfaces exactly as it did before. The
+  // migration logs and swallows its own copy errors, so `restore` reports
+  // `done` when the copy-forward finished, not that every source copied.
+  bootProgress.step('restore', 'active');
   void runSessionStoreMigration(container, {
     userDataPath: platformOptions.userDataPath,
     stateStorageWorkerPath: platformOptions.stateStorageWorkerPath,
     liveStorage: workspaceStateStorage,
     logger: container.resolve<Logger>(TOKENS.LOGGER),
-  });
+  }).then(
+    () => bootProgress.step('restore', 'done'),
+    (error: unknown) => {
+      bootProgress.step('restore', 'failed');
+      throw error;
+    },
+  );
 
   // Started, NOT awaited — see `startMembershipVerification`. The settings
   // migration and `restoreWorkspaces()` above stay awaited because the renderer
@@ -477,6 +518,10 @@ export async function bootstrapElectron(
   const ipcBridge = new IpcBridge(
     container,
     createMainWindowHandleGetter(getMainWindow),
+    [
+      path.join(__dirname, 'renderer', 'index.html'),
+      path.join(__dirname, 'assets', 'preparing-workspace.html'),
+    ],
   );
 
   try {
@@ -510,9 +555,10 @@ export async function bootstrapElectron(
   // surface needs to reach. `useValue`, not `registerSingleton` — the
   // coordinator is constructed in `main.ts` before this container exists, and
   // this binding deliberately overrides `vscode-core`'s always-ready null
-  // adapter (last registration wins in tsyringe).
+  // adapter (last registration wins in tsyringe). It also answers with the boot
+  // progress snapshots, the pull fallback for a missed `boot:progress` replay.
   container.register(PLATFORM_TOKENS.BOOT_READINESS, {
-    useValue: new ElectronBootReadinessProvider(coordinator),
+    useValue: new ElectronBootReadinessProvider(coordinator, bootProgress),
   });
 
   try {
@@ -526,7 +572,15 @@ export async function bootstrapElectron(
   }
   // Started, NOT awaited — see `startAgentAdapterInitialization`. This was the
   // second network round-trip sitting between `app.whenReady` and the window.
-  void startAgentAdapterInitialization(container);
+  // The progress hook rethrows, so a rejection surfaces exactly as before.
+  bootProgress.step('agents', 'active');
+  void startAgentAdapterInitialization(container).then(
+    () => bootProgress.step('agents', 'done'),
+    (error: unknown) => {
+      bootProgress.step('agents', 'failed');
+      throw error;
+    },
+  );
 
   return {
     container,

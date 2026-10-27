@@ -68,6 +68,7 @@ import {
   AutopilotPopoverComponent,
   COMPOSER_CARD_BORDER_CLASS,
   COMPOSER_CARD_CLASS,
+  PROMPT_CATALOGUE,
 } from '@ptah-extension/chat-ui';
 import {
   FilePickerService,
@@ -106,6 +107,7 @@ interface PastedImage extends ComposerDraftImage {
 }
 
 type FileSuggestionItem = Extract<SuggestionItem, { type: 'file' }>;
+type CommandSuggestionItem = Extract<SuggestionItem, { type: 'command' }>;
 
 /** Per-instance suffix for the textarea id (several composers can mount). */
 let nextComposerId = 0;
@@ -366,8 +368,8 @@ function folderName(root: string): string {
 
         <!-- In-card toolbar (design-spec §6.3 order): + -> approval chip ->
              spacer -> model / effort group -> mic -> stop / send -->
-        <div class="flex items-center gap-1 px-2 pr-2.5 pb-2 min-w-0">
-          <div class="flex items-center gap-1 min-w-0 flex-1">
+        <div class="ptah-composer-toolbar flex items-center gap-1 px-2 pr-2.5 pb-2 min-w-0">
+          <div class="ptah-composer-toolbar-start flex items-center gap-1 min-w-0 flex-1">
             <ptah-native-popover
               [isOpen]="attachMenuOpen()"
               [placement]="'top-start'"
@@ -395,7 +397,7 @@ function folderName(root: string): string {
                 />
               </button>
 
-              <div content class="w-44 p-1 flex flex-col" role="menu">
+              <div content data-glass-surface="overlay" data-composer-overlay class="w-44 p-1 flex flex-col" role="menu">
                 <button
                   class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left hover:bg-base-300 focus-visible:bg-base-300 focus-visible:outline-none transition-colors"
                   (click)="selectAttachFiles()"
@@ -432,7 +434,7 @@ function folderName(root: string): string {
           </div>
 
           <!-- Right: model / effort, voice, stop, send -->
-          <div class="flex items-center gap-1 min-w-0 flex-shrink">
+          <div class="ptah-composer-toolbar-end flex items-center gap-1 min-w-0 flex-shrink">
             <!-- Both existing controls kept (Decision A2-5); below 640 px the
                  effort label hides and its icon trigger stays. -->
             <div
@@ -601,6 +603,18 @@ function folderName(root: string): string {
       @container ptah-composer (max-width: 400px) {
         :host ::ng-deep .ptah-composer-label {
           display: none;
+        }
+        /* Icon-only controls can still exceed a ~200px pane: the start group keeps its
+           content width and the model/send group wraps to its own right-aligned row
+           instead of overlapping it. */
+        .ptah-composer-toolbar {
+          flex-wrap: wrap;
+        }
+        .ptah-composer-toolbar-start {
+          flex-basis: auto;
+        }
+        .ptah-composer-toolbar-end {
+          margin-left: auto;
         }
       }
     `,
@@ -858,12 +872,12 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * neutral hairline that strengthens on focus-within.
    */
   readonly cardClasses = computed(() => {
-    const base = `chat-composer-column ${COMPOSER_CARD_CLASS}`;
+    const base = `chat-composer-column chat-composer-card ${COMPOSER_CARD_CLASS}`;
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
     ) {
-      return `${base} border-info/50 focus-within:border-info/70`;
+      return `${base} chat-composer-card--plan border-info/50 focus-within:border-info/70`;
     }
     if (this.autopilotState.enabled()) {
       return `${base} border-primary/40 focus-within:border-primary/60`;
@@ -885,7 +899,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   private readonly _projectedQuery = signal('');
   private readonly _localSuggestions = signal<SuggestionItem[]>([]);
   private readonly _fileSuggestionCache = new Map<string, SuggestionItem[]>();
-  private _commandSuggestions: SuggestionItem[] | null = null;
+  private _commandSuggestions: CommandSuggestionItem[] | null = null;
   private _triggerProjectionTimeout: ReturnType<typeof setTimeout> | null =
     null;
   private readonly _selectedFiles = signal<ChatFile[]>([]);
@@ -1404,25 +1418,31 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const commands =
+    const commands: CommandSuggestionItem[] =
       this._commandSuggestions ??
-      this.commandDiscovery.searchCommands('').map((command) => ({
-        type: 'command' as const,
-        ...command,
-      }));
+      this.commandDiscovery.searchCommands('').map(
+        (command): CommandSuggestionItem => ({
+          type: 'command',
+          ...command,
+        }),
+      );
     this._commandSuggestions = commands;
-    this._localSuggestions.set(
-      !query
-        ? commands
-        : commands.filter(
-            (command) =>
-              command.name.toLowerCase().includes(query.toLowerCase()) ||
-              (command.description &&
-                command.description
-                  .toLowerCase()
-                  .includes(query.toLowerCase())),
-          ),
-    );
+    const matchedCommands = !query
+      ? commands
+      : commands.filter(
+          (command) =>
+            command.name.toLowerCase().includes(query.toLowerCase()) ||
+            (command.description &&
+              command.description
+                .toLowerCase()
+                .includes(query.toLowerCase())),
+        );
+    // TASK_2026_721 D7: the prompt catalogue lives behind `/`, appended after
+    // the commands so the dropdown renders one command group then prompts.
+    this._localSuggestions.set([
+      ...matchedCommands,
+      ...this.toPromptSuggestionItems(query),
+    ]);
   }
 
   private toFileSuggestionItem(file: FileSuggestion): FileSuggestionItem {
@@ -1451,6 +1471,35 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       if (oldest !== undefined) this._fileSuggestionCache.delete(oldest);
     }
     this._fileSuggestionCache.set(query, suggestions);
+  }
+
+  /**
+   * Catalogue prompt suggestions for the `/` dropdown. The typed query
+   * filters by label, description, category and text; every entry carries
+   * its category label for the "Prompt · <Category>" badge. An empty query
+   * lists the whole catalogue.
+   */
+  private toPromptSuggestionItems(query: string): SuggestionItem[] {
+    const needle = query.toLowerCase();
+    const prompts: SuggestionItem[] = [];
+    for (const category of PROMPT_CATALOGUE) {
+      for (const prompt of category.prompts) {
+        const matches =
+          !needle ||
+          prompt.label.toLowerCase().includes(needle) ||
+          (prompt.description?.toLowerCase().includes(needle) ?? false) ||
+          category.label.toLowerCase().includes(needle) ||
+          prompt.text.toLowerCase().includes(needle);
+        if (matches) {
+          prompts.push({
+            type: 'prompt',
+            category: category.label,
+            ...prompt,
+          });
+        }
+      }
+    }
+    return prompts;
   }
 
   private clearTriggerProjectionTimeout(): void {
@@ -1506,6 +1555,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
       this.removeTriggerText();
     } else if (suggestion.type === 'command') {
       this.replaceTrigger(`/${suggestion.name} `);
+    } else if (suggestion.type === 'prompt') {
+      // A prompt prefills the composer for editing; it does not send.
+      this.restoreContentToInput(suggestion.text, { replace: true });
     }
 
     this.closeSuggestions();
@@ -1771,9 +1823,16 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Restore content to input textarea (called by effect when signal changes)
    * FIX #2: Check if input is empty before restoring to prevent overwriting user input
    * @param content - Content to restore to input
+   * @param options - `replace: true` overwrites a non-empty input. Used for
+   *   explicit user selections (a prompt picked from the `/` dropdown, which
+   *   replaces the trigger and the input); the queued-restore effect keeps
+   *   the default so it never clobbers typed text.
    */
-  restoreContentToInput(content: string): void {
-    if (this._currentMessage().trim()) {
+  restoreContentToInput(
+    content: string,
+    options?: { replace?: boolean },
+  ): void {
+    if (!options?.replace && this._currentMessage().trim()) {
       return;
     }
 

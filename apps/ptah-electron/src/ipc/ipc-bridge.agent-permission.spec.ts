@@ -17,11 +17,17 @@ jest.mock('electron', () => ({
 }));
 
 import type { DependencyContainer } from 'tsyringe';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { IpcBridge } from './ipc-bridge';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
+const TRUSTED_DOCUMENT = path.resolve('/app/renderer/index.html');
+const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENT).href };
+
 function setup(
   result: { success: boolean; error?: string } = { success: true },
+  frameUrl: string = MAIN_FRAME.url,
 ) {
   const handleMessage = jest.fn(async () => result);
   const container = {
@@ -32,10 +38,24 @@ function setup(
     })),
     isRegistered: jest.fn(() => false),
   } as unknown as DependencyContainer;
-  const bridge = new IpcBridge(container, () => null);
+  const bridge = new IpcBridge(
+    container,
+    () => ({ webContents: { id: 1, send: jest.fn() } }),
+    [TRUSTED_DOCUMENT],
+  );
   bridge.initialize();
   const [rpc] = ipcMainListeners.get('rpc') ?? [];
-  const event = { sender: { isDestroyed: () => false, send: jest.fn() } };
+  const senderFrame =
+    frameUrl === MAIN_FRAME.url ? MAIN_FRAME : { url: frameUrl };
+  const event = {
+    sender: {
+      id: 1,
+      mainFrame: senderFrame,
+      isDestroyed: () => false,
+      send: jest.fn(),
+    },
+    senderFrame,
+  };
   const send = async (message: unknown) => {
     await rpc(event, message);
     await new Promise((resolve) => setImmediate(resolve));
@@ -91,6 +111,25 @@ describe('IpcBridge — CLI-agent permission answers', () => {
       '[IpcBridge] Agent permission response failed',
       { requestId: 'req-2', error: 'No permission handler' },
     );
+    warn.mockRestore();
+    bridge.dispose();
+  });
+
+  it('drops an rpc message from a frame showing another document', async () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const { bridge, handleMessage, send } = setup(
+      { success: true },
+      'https://example.com/',
+    );
+    await send({
+      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+      payload: { requestId: 'req-3', decision: 'allow' },
+    });
+    expect(handleMessage).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).not.toContain('req-3');
     warn.mockRestore();
     bridge.dispose();
   });

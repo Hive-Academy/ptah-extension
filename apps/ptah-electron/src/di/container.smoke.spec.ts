@@ -222,6 +222,15 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: {},
   });
+  // `RecentWorkspacesService` (TASK_2026_721) persists its MRU list here. The
+  // real Electron container binds it in `platform-electron/src/registration.ts`.
+  c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+    useValue: {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    },
+  });
   // `EditorRpcHandlers`, `FileViewRpcHandlers` and `FileEditRpcHandlers` inject
   // `FileLinkRootPolicy`, which needs GitInfoService to widen the authorized
   // root set to a registered folder's worktrees (TASK_2026_413 Batch 8a). The

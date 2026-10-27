@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Component, NO_ERRORS_SCHEMA, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
@@ -259,7 +261,9 @@ describe('CanvasLaneViewComponent', () => {
     const subLane = fixture.nativeElement.querySelector('ptah-subagent-lane');
     expect(subLane?.parentElement?.tagName).toBe('PTAH-CHAT-SESSION-LAYOUT');
     expect(
-      subLane?.closest('[data-testid="lane-panel"]')?.getAttribute('data-glass-surface'),
+      subLane
+        ?.closest('[data-testid="lane-panel"]')
+        ?.getAttribute('data-glass-surface'),
     ).toBe('chrome');
   });
 
@@ -877,5 +881,17 @@ describe('CanvasLaneViewComponent', () => {
       decision: 'allow',
     });
     expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
+  });
+});
+
+describe('canvas lane passive usage', () => {
+  it('hides stats on CLI and subagent mounts while retaining the lane components', () => {
+    const source = readFileSync(
+      join(__dirname, 'canvas-lane-view.component.ts'),
+      'utf8',
+    );
+    for (const tag of ['ptah-agent-card', 'ptah-subagent-lane']) {
+      expect(source).toMatch(new RegExp(`<${tag}\\s+\\[showStats\\]="false"`));
+    }
   });
 });
