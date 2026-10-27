@@ -61,6 +61,34 @@ export const CLAUDE_CERTIFIED_ENV_KEYS = [
   'NODE_EXTRA_CA_CERTS',
 ] as const;
 
+/**
+ * Claude Code feature and tuning names a Claude settings file (user, project,
+ * local, managed or flag tier) may set in its `env` block on a named-account
+ * run (D63). Exact names, matched case-insensitively; no prefix or pattern.
+ * None selects an account, a credential, an API endpoint, a provider or a
+ * config directory. This list judges settings files only: the CLI applies
+ * these values inside the child, so the process env passed to the child
+ * (`CLAUDE_CERTIFIED_ENV_KEYS`, digest and launch re-check) does not widen.
+ */
+export const CLAUDE_SETTINGS_SAFE_ENV_KEYS = [
+  'ENABLE_TOOL_SEARCH',
+  'MAX_THINKING_TOKENS',
+  'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
+  'BASH_DEFAULT_TIMEOUT_MS',
+  'BASH_MAX_TIMEOUT_MS',
+  'BASH_MAX_OUTPUT_LENGTH',
+  'MCP_TIMEOUT',
+  'MCP_TOOL_TIMEOUT',
+  'MAX_MCP_OUTPUT_TOKENS',
+  'DISABLE_TELEMETRY',
+  'DISABLE_ERROR_REPORTING',
+  'DISABLE_AUTOUPDATER',
+  'DISABLE_COST_WARNINGS',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+  'CLAUDE_CODE_DISABLE_TERMINAL_TITLE',
+  'CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR',
+] as const;
+
 /** Subscription words that classify a Claude login as personal (class P). */
 export const CLAUDE_PERSONAL_SUBSCRIPTIONS = ['pro', 'max'] as const;
 
@@ -79,6 +107,9 @@ const CERTIFIED_KEY_SET: ReadonlySet<string> = new Set(
   CLAUDE_CERTIFIED_ENV_KEYS,
 );
 const RUN_POLICY_KEY_SET: ReadonlySet<string> = new Set(CLAUDE_RUN_POLICY_KEYS);
+const SETTINGS_SAFE_KEY_SET: ReadonlySet<string> = new Set(
+  CLAUDE_SETTINGS_SAFE_ENV_KEYS,
+);
 const LOCAL_NO_PROXY = '127.0.0.1,localhost';
 const CONFIG_DIR_KEYS = [
   'CLAUDE_CONFIG_DIR',
@@ -130,6 +161,18 @@ export interface ClaudeActualLaunch {
 /** True when `name` is on the certified allowlist, compared case-insensitively. */
 export function isCertifiedClaudeEnvKey(name: string): boolean {
   return CERTIFIED_KEY_SET.has(name.toUpperCase());
+}
+
+/**
+ * True when a Claude settings file may set `name` in its `env` block: a
+ * certified process name or a settings-safe feature name. Never used for the
+ * process env passed to the child.
+ */
+export function isClaudeSettingsEnvKeyAllowed(name: string): boolean {
+  return (
+    isCertifiedClaudeEnvKey(name) ||
+    SETTINGS_SAFE_KEY_SET.has(name.toUpperCase())
+  );
 }
 
 function isRunPolicyKey(name: string): boolean {
@@ -401,7 +444,8 @@ function nonEmpty(value: unknown): boolean {
  * Classify one parsed Claude settings object. `override` when it supplies or
  * selects credentials outside the named login (a credential helper, a
  * `forceLoginMethod` other than `claudeai`, any `forceLoginOrgUUID`, an `env`
- * key off the certified allowlist) or enables plugins; `malformed` when the
+ * key that is neither certified nor in `CLAUDE_SETTINGS_SAFE_ENV_KEYS`) or
+ * enables plugins; `malformed` when the
  * value or its `env` is not an object; otherwise `none`.
  */
 export function claudeSettingsOverride(
@@ -420,7 +464,7 @@ export function claudeSettingsOverride(
   if (hasKey(value, 'env')) {
     const env = value['env'];
     if (!isPlainObject(env)) return 'malformed';
-    if (Object.keys(env).some((key) => !isCertifiedClaudeEnvKey(key))) {
+    if (Object.keys(env).some((key) => !isClaudeSettingsEnvKeyAllowed(key))) {
       return 'override';
     }
   }

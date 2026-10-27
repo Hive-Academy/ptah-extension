@@ -6,6 +6,7 @@ import type {
 import {
   CLAUDE_CERTIFIED_ENV_KEYS,
   CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  CLAUDE_SETTINGS_SAFE_ENV_KEYS,
   ClaudeCertifiedLaunchRefusal,
   assertCertifiedLaunch,
   buildCertifiedClaudeEnv,
@@ -13,6 +14,7 @@ import {
   certifiedNamedEnv,
   claudeSettingsOverride,
   isCertifiedClaudeEnvKey,
+  isClaudeSettingsEnvKeyAllowed,
   type ClaudeActualLaunch,
 } from './claude-certified-launch';
 
@@ -224,6 +226,45 @@ describe('allowlist helpers', () => {
     expect(
       CLAUDE_CERTIFIED_ENV_KEYS.some((key) => /^(CLAUDE|ANTHROPIC)/.test(key)),
     ).toBe(false);
+  });
+
+  it('keeps settings-safe names off every auth, endpoint and provider pattern', () => {
+    const deny = [
+      /ANTHROPIC/,
+      /API_KEY/,
+      /_TOKEN$/,
+      /AUTH/,
+      /BASE_URL/,
+      /BEDROCK|VERTEX/,
+      /^AWS_/,
+      /^GOOGLE_/,
+      /^CLOUD_ML/,
+      /CONFIG_DIR/,
+      /OAUTH/,
+      /HELPER/,
+      /PROXY/,
+      /CREDENTIAL/,
+      /PROVIDER/,
+      /MODEL$/,
+    ];
+    for (const key of CLAUDE_SETTINGS_SAFE_ENV_KEYS) {
+      expect({ key, denied: deny.filter((re) => re.test(key)).map(String) }).toEqual({ key, denied: [] });
+    }
+  });
+
+  it('accepts settings-safe names only for settings files, never the child env', () => {
+    for (const key of CLAUDE_SETTINGS_SAFE_ENV_KEYS) {
+      expect(isClaudeSettingsEnvKeyAllowed(key)).toBe(true);
+      expect(isClaudeSettingsEnvKeyAllowed(key.toLowerCase())).toBe(true);
+      expect(isCertifiedClaudeEnvKey(key)).toBe(false);
+    }
+    expect(isClaudeSettingsEnvKeyAllowed('PATH')).toBe(true);
+    for (const key of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CONFIG_DIR', 'ENABLE_TOOL_SEARCH_X']) {
+      expect(isClaudeSettingsEnvKeyAllowed(key)).toBe(false);
+    }
+    const env = buildCertifiedClaudeEnv({ PATH: 'p', ENABLE_TOOL_SEARCH: 'true', MCP_TIMEOUT: '5' }, 'D:\\cfg');
+    expect(Object.keys(env)).not.toContain('ENABLE_TOOL_SEARCH');
+    expect(Object.keys(env)).not.toContain('MCP_TIMEOUT');
   });
 
   it('lists the personal subscriptions', () => {
@@ -546,6 +587,21 @@ describe('claudeSettingsOverride', () => {
     [
       'provider env',
       { env: { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' } },
+      'override',
+    ],
+    ['settings-safe env', { env: { ENABLE_TOOL_SEARCH: 'true' } }, 'none'],
+    [
+      'settings-safe env mixed with certified env',
+      { env: { enable_tool_search: '1', MCP_TIMEOUT: '1', PATH: 'x' } },
+      'none',
+    ],
+    ['base url env', { env: { ANTHROPIC_BASE_URL: 'x' } }, 'override'],
+    ['api key env', { env: { ANTHROPIC_API_KEY: 'x' } }, 'override'],
+    ['bedrock env', { env: { CLAUDE_CODE_USE_BEDROCK: '1' } }, 'override'],
+    ['unknown env', { env: { SOME_UNKNOWN_KEY: '1' } }, 'override'],
+    [
+      'settings-safe env mixed with an unsafe key',
+      { env: { ENABLE_TOOL_SEARCH: 'true', ANTHROPIC_BASE_URL: 'x' } },
       'override',
     ],
     ['plugins', { enabledPlugins: { 'p@m': true } }, 'override'],

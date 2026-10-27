@@ -382,6 +382,23 @@ describe('scanClaudeAuthPolicy', () => {
       await expect(scanClaudeAuthPolicy(request({ fs }))).resolves.toEqual(REFUSED);
     });
 
+    it('scans a settings-safe env key in <cwd>/.claude/settings.local.json (D63)', async () => {
+      const { fs } = fakeFs({ files: { [paths.local]: JSON.stringify({ env: { ENABLE_TOOL_SEARCH: 'true' } }) } });
+      await expect(scanClaudeAuthPolicy(request({ fs }))).resolves.toMatchObject({ ok: true });
+    });
+
+    it.each([
+      ['ANTHROPIC_BASE_URL', { ANTHROPIC_BASE_URL: CANARY }],
+      ['ANTHROPIC_API_KEY', { ANTHROPIC_API_KEY: CANARY }],
+      ['CLAUDE_CODE_USE_BEDROCK', { CLAUDE_CODE_USE_BEDROCK: '1' }],
+      ['CLAUDE_CONFIG_DIR', { CLAUDE_CONFIG_DIR: CANARY }],
+      ['an unknown key', { SOME_UNKNOWN_KEY: '1' }],
+      ['a safe key mixed with an unsafe key', { ENABLE_TOOL_SEARCH: 'true', ANTHROPIC_BASE_URL: CANARY }],
+    ])('refuses %s in the local settings env', async (_label, env) => {
+      const { fs } = fakeFs({ files: { [paths.local]: JSON.stringify({ env }) } });
+      await expect(scanClaudeAuthPolicy(request({ fs }))).resolves.toEqual(REFUSED);
+    });
+
     it('refuses enabledPlugins in <cwd>/.claude/settings.json', async () => {
       const { fs } = fakeFs({ files: { [paths.project]: JSON.stringify({ enabledPlugins: { x: true } }) } });
       await expect(scanClaudeAuthPolicy(request({ fs }))).resolves.toEqual(REFUSED);
