@@ -134,22 +134,22 @@ export class TurnEndHandlerService {
 
   /**
    * Handle the `session:subagentEnded` push (backend `SubagentStop` SDK hook).
-   * Stops the matching entry in `BackgroundAgentStore` when the agent is a
+   * Completes the matching entry in `BackgroundAgentStore` when the agent is a
    * known BACKGROUND agent, and applies the SDK's authoritative
    * `backgroundTasks` snapshot onto every bound tab. The
    * `awaiting-background → loaded` flip is the backend's call: it arrives as
    * an `idle` `turn_state` once the registry sees no remaining tasks.
    *
-   * This is the main terminal signal a background agent has — the only
-   * `background_agent_completed` producer is the transformer's
-   * `task_notification` path, and only for a task it announced from
-   * `task_started` — so an entry this method cannot address can stay
-   * `running` forever. It could
+   * This is the main terminal signal a background agent has. The
+   * transformer's `task_notification` path adds one only for a task it
+   * announced from `task_started` (a SendMessage resume), plus a
+   * `background_agent_stopped` for any background task the user stopped. An
+   * entry this method cannot address can therefore stay `running` forever. It could
    * not address one whose `background_agent_started` event arrived without an
    * `agentId`, because the store then keys that entry by its `toolCallId` and
    * `findByAgentId` is a lookup on the other identity space. When the payload
    * carries the `toolCallId` the two are reconciled first, through
-   * `adoptRealAgentId`, and the stop then proceeds unchanged.
+   * `adoptRealAgentId`, and the completion then proceeds unchanged.
    *
    * With a `toolCallId` it also finishes the `AgentMonitorStore` record for
    * that Task. A Task the SDK backgrounded by default gets only the
@@ -178,15 +178,20 @@ export class TurnEndHandlerService {
           )
         : null);
     if (knownEntry) {
-      this.backgroundAgents.onStopped({
-        id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,
-        eventType: 'background_agent_stopped',
+      // SubagentStop is the normal-finish hook, so the entry completes. A
+      // user stop arrives as `background_agent_stopped` from the SDK's
+      // `task_notification`; `onCompleted` never reopens or relabels an
+      // entry that is already terminal, so that `stopped` is kept.
+      this.backgroundAgents.onCompleted({
+        id: `subagent-ended-${payload.agentId}-${payload.timestamp}`,
+        eventType: 'background_agent_completed',
         timestamp: payload.timestamp,
         sessionId: payload.sessionId,
         messageId: '',
         toolCallId: knownEntry.toolCallId,
         agentId: payload.agentId,
         agentType: payload.agentType,
+        result: payload.lastAssistantMessage ?? undefined,
       });
     }
     if (tabs.length === 0) {

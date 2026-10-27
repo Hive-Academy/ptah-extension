@@ -763,11 +763,11 @@ describe('SystemMessageTransformer', () => {
         expect(state.markBackgroundAnnounced).toHaveBeenCalledTimes(1);
         expect(state.markBackgroundAnnounced).toHaveBeenCalledWith(
           'toolu_task',
-          'task_started',
+          'task_tool',
         );
       });
 
-      it('settles the tray entry with a background terminal event on task_notification', () => {
+      it('emits no transformer terminal on task_notification (SubagentStop ends the entry)', () => {
         const { helpers } = makeRegistryBackedHelpers();
         state.isTaskStartedEmitted.mockReturnValue(true);
         transformer.transformTaskStarted(
@@ -790,11 +790,65 @@ describe('SystemMessageTransformer', () => {
           'sess' as never,
         );
 
-        expect(
-          settled.filter((e) => e.eventType === 'background_agent_completed'),
-        ).toEqual([
-          expect.objectContaining({ toolCallId: 'toolu_task', result: 'done' }),
+        expect(settled.map((e) => e.eventType)).toEqual(['agent_completed']);
+        expect(state.clearBackgroundAnnounced).toHaveBeenCalledWith(
+          'toolu_task',
+        );
+      });
+
+      it('reports a user stop as background_agent_stopped addressed by toolCallId', () => {
+        const { helpers, records } = makeRegistryBackedHelpers();
+        records.set('toolu_task', {
+          ...records.get('toolu_task'),
+          agentId: 'abc123',
+        });
+        state.isTaskStartedEmitted.mockReturnValue(true);
+        transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        state.getTaskParentToolUseId.mockReturnValue('toolu_task');
+        const stopped = transformer.transformTaskNotification(
+          {
+            task_id: 'task-default-bg',
+            tool_use_id: 'toolu_task',
+            status: 'stopped',
+          } as never,
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(stopped.map((e) => e.eventType)).toEqual([
+          'agent_completed',
+          'background_agent_stopped',
         ]);
+        // agentId '' so the store resolves the entry by toolCallId even after
+        // SubagentStop re-keyed it onto its real agentId.
+        expect(stopped[1]).toMatchObject({
+          toolCallId: 'toolu_task',
+          agentId: '',
+        });
+      });
+
+      it('defers an explicit run_in_background spawn to its placeholder tool_result', () => {
+        const { helpers } = makeRegistryBackedHelpers();
+        state.isTaskStartedEmitted.mockReturnValue(true);
+        state.hasBackgroundTaskToolUseId.mockReturnValue(true);
+
+        const events = transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(events).toEqual([]);
+        expect(state.markBackgroundAnnounced).not.toHaveBeenCalled();
+        expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
       });
 
       it.each([false, undefined])(

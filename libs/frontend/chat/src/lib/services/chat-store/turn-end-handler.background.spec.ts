@@ -9,7 +9,7 @@
  *
  *   - handleTurnEnded: pendingBackgroundTasks / pendingSessionCrons /
  *     lastTerminalReason; NO `status` key in the update.
- *   - handleSubagentEnded: onStopped only for a KNOWN background agent;
+ *   - handleSubagentEnded: onCompleted only for a KNOWN background agent;
  *     updateBackgroundTab with pendingBackgroundTasks; NO `status` key.
  *   - handleTurnFailed: updateBackgroundTab with lastTerminalReason only; the
  *     foreground handleChatError channel is NOT invoked (its active-tab
@@ -122,7 +122,7 @@ describe('TurnEndHandlerService — background fallback', () => {
   let setLastTerminalReasonMock: jest.Mock;
   let setPendingBackgroundTasksMock: jest.Mock;
   let handleChatErrorMock: jest.Mock;
-  let onStoppedMock: jest.Mock;
+  let onCompletedMock: jest.Mock;
   let findByAgentIdMock: jest.Mock;
   let onSubagentEndedMock: jest.Mock;
   let warn: jest.SpyInstance;
@@ -148,7 +148,7 @@ describe('TurnEndHandlerService — background fallback', () => {
     setLastTerminalReasonMock = jest.fn();
     setPendingBackgroundTasksMock = jest.fn();
     handleChatErrorMock = jest.fn();
-    onStoppedMock = jest.fn();
+    onCompletedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
     onSubagentEndedMock = jest.fn();
 
@@ -167,7 +167,7 @@ describe('TurnEndHandlerService — background fallback', () => {
     } as unknown as ChatLifecycleService;
 
     const backgroundAgentStoreMock = {
-      onStopped: onStoppedMock,
+      onCompleted: onCompletedMock,
       findByAgentId: findByAgentIdMock,
       adoptRealAgentId: jest.fn().mockReturnValue(null),
     } as unknown as BackgroundAgentStore;
@@ -280,7 +280,7 @@ describe('TurnEndHandlerService — background fallback', () => {
   });
 
   describe('handleSubagentEnded background fallback', () => {
-    it('stops the known agent and stamps the snapshot without a status key', () => {
+    it('completes the known agent and stamps the snapshot without a status key', () => {
       crossWsTab = makeTab({ status: 'awaiting-background' });
       findByAgentIdMock.mockReturnValue(knownEntry);
 
@@ -288,7 +288,7 @@ describe('TurnEndHandlerService — background fallback', () => {
         makeSubagentEndedPayload({ backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).toHaveBeenCalledTimes(1);
+      expect(onCompletedMock).toHaveBeenCalledTimes(1);
       expect(updateBackgroundTabMock).toHaveBeenCalledTimes(1);
       const updates = updateBackgroundTabMock.mock.calls[0][1];
       expect(updates).toEqual({ pendingBackgroundTasks: [] });
@@ -310,7 +310,7 @@ describe('TurnEndHandlerService — background fallback', () => {
       expect('status' in updates).toBe(false);
     });
 
-    it('does NOT stop a store entry for an unknown (foreground) agent', () => {
+    it('does NOT complete a store entry for an unknown (foreground) agent', () => {
       crossWsTab = makeTab({ status: 'streaming' });
       findByAgentIdMock.mockReturnValue(null);
 
@@ -318,7 +318,7 @@ describe('TurnEndHandlerService — background fallback', () => {
         makeSubagentEndedPayload({ backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).not.toHaveBeenCalled();
+      expect(onCompletedMock).not.toHaveBeenCalled();
       expect(updateBackgroundTabMock).toHaveBeenCalledTimes(1);
     });
 
@@ -332,13 +332,13 @@ describe('TurnEndHandlerService — background fallback', () => {
       expect(setPendingBackgroundTasksMock).not.toHaveBeenCalled();
     });
 
-    it('still stops a known agent when no tab is found anywhere, then warns', () => {
+    it('still completes a known agent when no tab is found anywhere, then warns', () => {
       crossWsTab = null;
       findByAgentIdMock.mockReturnValue(knownEntry);
 
       service.handleSubagentEnded(makeSubagentEndedPayload());
 
-      expect(onStoppedMock).toHaveBeenCalledTimes(1);
+      expect(onCompletedMock).toHaveBeenCalledTimes(1);
       expect(updateBackgroundTabMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleSubagentEnded: no tab bound to sessionId',

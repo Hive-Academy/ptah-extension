@@ -26,6 +26,7 @@ import type {
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
 import type {
+  BackgroundAnnounceOrigin,
   TransformerState,
   TransformerSessionId,
 } from './transformer-state';
@@ -236,12 +237,10 @@ export class SystemMessageTransformer {
 
     // A task registered in the background from the start never gets a
     // task_updated is_backgrounded patch, so announce it here or the
-    // background tray never learns about it. That covers a subagent resumed
-    // via SendMessage (always backgrounded) and a Task tool spawn the SDK
-    // backgrounds by default — the latter OMITS `run_in_background` from the
-    // tool input, so the assistant transformer neither classified it as
-    // background nor held back its agent_start.
-    const announceIfBackgrounded = (): BackgroundAgentStartedEvent | null =>
+    // background tray never learns about it.
+    const announceIfBackgrounded = (
+      origin: BackgroundAnnounceOrigin,
+    ): BackgroundAgentStartedEvent | null =>
       msg.is_backgrounded === true
         ? this.announceBackgrounded({
             state,
@@ -252,15 +251,29 @@ export class SystemMessageTransformer {
             sessionId: resolvedSession,
             messageId,
             helpers,
-            origin: 'task_started',
+            origin,
           })
         : null;
 
     // The assistant transformer already emitted agent_start from the Task
-    // tool_use. Only the background announcement can still be new here, and
-    // `announceBackgrounded` dedups that on its own.
+    // tool_use, so only the background announcement can still be new here.
+    // The SDK backgrounds a Task by default and then OMITS
+    // `run_in_background` from the tool input, so the tool_use alone did not
+    // classify it; `is_backgrounded` here is the only signal. Two cases stay
+    // silent so each agent gets exactly one started event:
+    //  - an explicit `run_in_background: true` spawn whose placeholder
+    //    tool_result has not arrived yet — that tool_result announces it
+    //    (with the agentId and output file the placeholder carries);
+    //  - a task already announced (placeholder first, or a repeat) —
+    //    `announceBackgrounded` dedups on the stream mark and the registry.
+    // The origin is `task_tool`: the registry record shares this tool_use
+    // id, so the SubagentStop path ends the tray entry and the transformer
+    // must not emit a second terminal event.
     if (state.isTaskStartedEmitted(toolUseId)) {
-      const bgEvent = announceIfBackgrounded();
+      if (state.hasBackgroundTaskToolUseId(toolUseId)) {
+        return [];
+      }
+      const bgEvent = announceIfBackgrounded('task_tool');
       return bgEvent ? [bgEvent] : [];
     }
     state.markTaskStartedEmitted(toolUseId);
@@ -296,7 +309,11 @@ export class SystemMessageTransformer {
       toolUseId,
     });
 
-    const bgEvent = announceIfBackgrounded();
+    // No Task tool_use preceded this — notably a subagent resumed via
+    // SendMessage, which the SDK always backgrounds. Its registry record is
+    // keyed by another tool_use id, so the transformer owns its terminal
+    // event (origin `task_started`, see `takeBackgroundTerminalEvent`).
+    const bgEvent = announceIfBackgrounded('task_started');
     return bgEvent ? [event, bgEvent] : [event];
   }
 
@@ -440,11 +457,13 @@ export class SystemMessageTransformer {
    * hook's tool_use id, not the SendMessage tool_use id this announcement
    * carries, so the registry lookup misses and `update()` is a no-op; without
    * the mark, a later task_updated `is_backgrounded` patch would announce it
-   * a second time. The mark also records WHICH system message announced the
-   * task: only a `task_started` announcement earns a transformer-produced
-   * terminal event (see `takeBackgroundTerminalEvent`), because a task
-   * backgrounded mid-run via `task_updated` has a registry record under the
-   * same tool_use id whose SubagentStop path already ends its tray entry.
+   * a second time. The mark also records WHICH message announced the task
+   * (see `BackgroundAnnounceOrigin`): only a `task_started` announcement
+   * earns a transformer-produced terminal event (see
+   * `takeBackgroundTerminalEvent`), because a task backgrounded mid-run via
+   * `task_updated`, or a Task tool spawn (`task_tool`), has a registry
+   * record under the same tool_use id whose SubagentStop path already ends
+   * its tray entry.
    * Returns null when either source says already announced.
    */
   private announceBackgrounded(params: {
@@ -456,7 +475,7 @@ export class SystemMessageTransformer {
     sessionId?: TransformerSessionId;
     messageId: string;
     helpers: TransformerHelpers;
-    origin: 'task_started' | 'task_updated';
+    origin: BackgroundAnnounceOrigin;
   }): BackgroundAgentStartedEvent | null {
     const { toolUseId, state, helpers } = params;
     const record = helpers.subagentRegistry.get(toolUseId);
@@ -510,10 +529,13 @@ export class SystemMessageTransformer {
    * subagent) is here: its started entry was filed under the SendMessage
    * tool_use id with no agentId, so the frontend's other terminal signal —
    * the SubagentStop hook — can never resolve it and the entry would stay
-   * `running` forever. A task backgrounded mid-run via `task_updated` has a
+   * `running` forever. A task backgrounded mid-run via `task_updated`, or a
+   * Task tool spawn that started in the background (`task_tool`), has a
    * registry record under the same tool_use id and its SubagentStop path
    * already ends the entry, so a second terminal event here would insert a
-   * duplicate tray entry — those are left alone.
+   * duplicate tray entry — those are left alone, EXCEPT a user stop
+   * (`status: 'stopped'`): only this notification reports it, so it emits
+   * `background_agent_stopped` addressed by `toolCallId` alone.
    *
    * WHY THE STATUS BRANCH. `task_notification.status` is
    * 'completed' | 'failed' | 'stopped': a stopped task routes to
@@ -521,8 +543,8 @@ export class SystemMessageTransformer {
    * `completed`), and a failed one carries `status: 'failed'` on the
    * completed event so the tray renders the failure. The `toolCallId` always
    * matches the started event's, which is how the frontend store resolves
-   * the entry. Returns null for every task the transformer did not announce
-   * at `task_started`.
+   * the entry. Returns null for every task the transformer did not announce,
+   * and for a non-`task_started` announcement that did not end `stopped`.
    */
   private takeBackgroundTerminalEvent(
     msg: SDKTaskNotificationMessage,
@@ -535,7 +557,13 @@ export class SystemMessageTransformer {
     // compaction no longer clears it, and a task_updated mark would leak.
     const origin = state.getBackgroundAnnounceOrigin(parentToolUseId);
     state.clearBackgroundAnnounced(parentToolUseId);
-    if (origin !== 'task_started') {
+    if (origin === undefined) {
+      return null;
+    }
+    // A user stop (`subagent:stop` → Query.stopTask) is reported ONLY here.
+    // The SubagentStop path completes an entry, so without this a stopped
+    // `task_updated`/`task_tool` task would end as `completed`.
+    if (origin !== 'task_started' && msg.status !== 'stopped') {
       return null;
     }
 
@@ -543,8 +571,12 @@ export class SystemMessageTransformer {
     // `agentId` is required by both event types; an empty string is the
     // "not known" encoding the frontend store understands — `resolveKey`
     // treats a zero-length id as absent and falls back to `toolCallId`,
-    // which is the key the started entry was filed under.
-    const agentId = record?.agentId ?? '';
+    // which is the key the started entry was filed under. A non-
+    // `task_started` entry may already have been re-keyed onto its real
+    // agentId; `''` still finds it through the store's toolCallId fallback,
+    // where a real agentId that misses would insert a duplicate entry.
+    const agentId =
+      origin === 'task_started' ? (record?.agentId ?? '') : '';
     const agentType = record?.agentType ?? 'unknown';
     const id = generateEventId();
     const timestamp = Date.now();
