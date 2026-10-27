@@ -30,8 +30,12 @@ export const TRANSCRIBE_TIMEOUT_MS = 30_000;
 export const LIST_TIMEOUT_MS = 10_000;
 export const TEST_TIMEOUT_MS = 10_000;
 
-/** ElevenLabs' `detail.status` for a valid but scoped key that lacks the endpoint's permission. */
-const MISSING_PERMISSIONS = 'missing_permissions';
+/**
+ * A valid but scoped key that lacks the endpoint's permission: the current `detail.code`, or the
+ * legacy `detail.status` older responses carry.
+ */
+const INSUFFICIENT_PERMISSIONS_CODE = 'insufficient_permissions';
+const MISSING_PERMISSIONS_STATUS = 'missing_permissions';
 const MISSING_PERMISSIONS_MESSAGE =
   'The ElevenLabs API key is missing a permission this request needs.';
 const MISSING_PERMISSIONS_REMEDIATION =
@@ -73,7 +77,10 @@ export function mapElevenLabsError(input: {
   }
 
   if (status === 401 || status === 403) {
-    if (detail?.status === MISSING_PERMISSIONS) {
+    if (
+      detail?.code === INSUFFICIENT_PERMISSIONS_CODE ||
+      detail?.status === MISSING_PERMISSIONS_STATUS
+    ) {
       return new VoiceProviderError(
         'auth',
         PROVIDER_ID,

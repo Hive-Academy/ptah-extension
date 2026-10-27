@@ -37,6 +37,7 @@ export const ErrorBodySchema = z.looseObject({
   detail: z
     .looseObject({
       status: z.string().optional(),
+      code: z.string().optional(),
       message: z.string().optional(),
     })
     .optional(),
@@ -44,5 +45,5 @@ export const ErrorBodySchema = z.looseObject({
 
 /** Categorization-only detail extracted from an error body (never forwarded). */
 export type ElevenLabsErrorDetail =
-  | { status?: string; message?: string }
+  | { status?: string; code?: string; message?: string }
   | undefined;

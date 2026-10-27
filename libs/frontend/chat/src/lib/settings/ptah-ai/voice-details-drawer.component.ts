@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  inject,
   input,
   model,
   output,
@@ -16,6 +17,7 @@ import type { VoiceProviderConfigDto } from '@ptah-extension/shared';
 import { LocalSttPanelComponent } from './local-stt-panel.component';
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
 import { ElevenLabsPanelComponent } from './elevenlabs-panel.component';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 export type VoiceDirection = 'stt' | 'tts';
 
@@ -43,8 +45,8 @@ const TABS: readonly NativeTab[] = [
     ElevenLabsPanelComponent,
   ],
   template: `
-    <ptah-native-drawer [isOpen]="direction() !== null" widthClass="w-full max-w-lg"
-      ariaLabel="Voice engine details" (closed)="closed.emit()">
+    <ptah-native-drawer [isOpen]="direction() !== null" widthClass="w-full max-w-2xl"
+      ariaLabel="Voice engine details" (closed)="requestClose()">
       <!-- One projectable node per @if: a multi-node @if cannot project into the drawer's slots (NG8011). -->
       @if (direction() !== null) {
         <div drawer-header data-testid="voice-details-drawer">
@@ -96,7 +98,7 @@ const TABS: readonly NativeTab[] = [
       @if (direction() !== null) {
         <div drawer-footer class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3">
           <span class="text-xs text-base-content-muted">Each control saves itself. Esc to close</span>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="closed.emit()"
+          <button type="button" class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="requestClose()"
             data-testid="voice-details-close">Close</button>
         </div>
       }
@@ -120,7 +122,18 @@ export class VoiceDetailsDrawerComponent {
     return `Speech-to-text: ${providerName(cfg.sttProvider)} · Text-to-speech: ${providerName(cfg.ttsProvider)}`;
   });
 
+  /**
+   * A panel's `changed` is what makes the parent re-read provider availability, so the panel must
+   * outlive its pending write: closing and tab switches wait until no save is in flight.
+   */
+  protected readonly saving = inject(SettingsSaveFeedbackService).saving;
+
+  protected requestClose(): void {
+    if (!this.saving()) this.closed.emit();
+  }
+
   protected selectTab(id: string | null): void {
+    if (this.saving()) return;
     if (id === 'stt' || id === 'tts') this.direction.set(id);
   }
 }

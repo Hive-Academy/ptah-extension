@@ -226,6 +226,15 @@ describe('ElevenLabsClient — testConnection', () => {
     await expect(client.testConnection()).resolves.toBeUndefined();
   });
 
+  it('passes a scoped key reported with the current insufficient_permissions code', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ status: 403, json: { detail: { type: 'authorization_error', code: 'insufficient_permissions' } } }),
+    );
+    const client = makeClient();
+
+    await expect(client.testConnection()).resolves.toBeUndefined();
+  });
+
   it('still rejects an invalid key', async () => {
     fetchMock.mockResolvedValue(
       fakeResponse({ status: 401, json: { detail: { status: 'invalid_api_key' } } }),

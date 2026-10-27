@@ -12,6 +12,7 @@ import { VoiceDetailsDrawerComponent, type VoiceDirection } from './voice-detail
 import { LocalSttPanelComponent } from './local-stt-panel.component';
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
 import { ElevenLabsPanelComponent } from './elevenlabs-panel.component';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 @Component({ selector: 'ptah-local-stt-panel', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
   template: '<button type="button" data-testid="stub-local-stt" (click)="changed.emit()">stt</button>' })
@@ -64,8 +65,14 @@ describe('VoiceDetailsDrawerComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
 
+  const saving = signal(false);
+
   beforeEach(async () => {
-    TestBed.configureTestingModule({ imports: [HostComponent] }).overrideComponent(VoiceDetailsDrawerComponent, {
+    saving.set(false);
+    TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [{ provide: SettingsSaveFeedbackService, useValue: { saving } }],
+    }).overrideComponent(VoiceDetailsDrawerComponent, {
       remove: { imports: [LocalSttPanelComponent, LocalTtsPanelComponent, ElevenLabsPanelComponent] },
       add: { imports: [LocalSttStub, LocalTtsStub, ElevenLabsStub] },
     });
@@ -137,6 +144,26 @@ describe('VoiceDetailsDrawerComponent', () => {
     fixture.detectChanges();
     expect(host.closedCount).toBe(1);
     expect(q('voice-details-drawer')).toBeNull();
+  });
+
+  it('keeps the drawer open and on its tab while a save is in flight, so the panel can report it', () => {
+    saving.set(true);
+    fixture.detectChanges();
+
+    const close = q('voice-details-close') as HTMLButtonElement;
+    expect(close.disabled).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(host.closedCount).toBe(0);
+    expect(host.direction()).toBe('stt');
+    expect(q('stub-local-stt')).not.toBeNull();
+
+    saving.set(false);
+    fixture.detectChanges();
+    close.click();
+    fixture.detectChanges();
+    expect(host.closedCount).toBe(1);
   });
 
   it('is closed while no direction is set', () => {
