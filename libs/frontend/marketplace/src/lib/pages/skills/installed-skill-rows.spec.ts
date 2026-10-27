@@ -4,10 +4,12 @@
  * search, and ref lookup (including an external id with `/` and `:`).
  */
 
-import type {
-  ExternalPluginListing,
-  InstalledSkill,
-  PluginInfo,
+import {
+  provenanceLabel,
+  type CloneSummary,
+  type ExternalPluginListing,
+  type InstalledSkill,
+  type PluginInfo,
 } from '@ptah-extension/shared';
 import type { InventorySlice } from '../../data/marketplace-inventory.store';
 import { decodeSkillRef, encodeSkillRef } from '../../data/skill-ref';
@@ -19,8 +21,11 @@ import {
   findInstalledSkill,
   installedSkillGroups,
   marketplaceRow,
+  orphanedCopyNames,
+  pluginContents,
   pluginRow,
   pluginSourceLabel,
+  shadowedAgentNames,
   type InstalledSkillSlices,
 } from './installed-skill-rows';
 
@@ -98,6 +103,19 @@ describe('installed-skill-rows', () => {
         version: null,
         detail: '1 skill · 2 commands',
         action: 'manage',
+        provenance: {
+          kind: 'plugin',
+          pluginId: 'ptah-core',
+          name: 'Ptah Core',
+          state: 'active',
+        },
+        contents: {
+          summary: '1 skill · 2 commands',
+          skills: [],
+          commands: [],
+          agents: [],
+        },
+        shadowedAgents: [],
       });
     });
 
@@ -152,6 +170,137 @@ describe('installed-skill-rows', () => {
         kind: 'marketplace-plugin',
         id: EXTERNAL_ID,
       });
+    });
+  });
+
+  describe('contents, provenance and agent shadow state', () => {
+    const named = plugin({
+      id: 'ptah-release-kit',
+      name: 'Ptah Release Kit',
+      skillCount: 2,
+      commandCount: 1,
+      agentCount: 1,
+      skillNames: ['release-notes', 'changelog'],
+      commandNames: ['release'],
+      agentNames: ['release-manager'],
+    });
+
+    const agentClone = (
+      slug: string,
+      provenance?: CloneSummary['provenance'],
+    ): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      ...(provenance === undefined ? {} : { provenance }),
+    });
+
+    it('says "N skills · M commands · K agents" and keeps the names', () => {
+      const row = pluginRow(named);
+
+      expect(row.detail).toBe('2 skills · 1 command · 1 agent');
+      expect(row.contents).toEqual({
+        summary: '2 skills · 1 command · 1 agent',
+        skills: ['release-notes', 'changelog'],
+        commands: ['release'],
+        agents: ['release-manager'],
+      });
+    });
+
+    it('counts agents from their names when the host sent no agent count', () => {
+      expect(
+        pluginContents(plugin({ agentNames: ['a', 'b'] })).summary,
+      ).toBe('3 skills · 1 command · 2 agents');
+    });
+
+    it('labels the provenance of every kind with the shared label function', () => {
+      expect(provenanceLabel(pluginRow(named).provenance)).toBe(
+        'Plugin: Ptah Release Kit',
+      );
+      expect(
+        provenanceLabel(communityRow(skill({ source: 'acme/skills' })).provenance),
+      ).toBe('skills.sh: acme/skills');
+      expect(
+        provenanceLabel(communityRow(skill({ source: 'local' })).provenance),
+      ).toBe('Workspace file');
+      expect(provenanceLabel(marketplaceRow(listing()).provenance)).toBe(
+        'Plugin: lint-kit',
+      );
+    });
+
+    it('marks an agent shadowed by a Library copy with another origin (F7f)', () => {
+      const row = pluginRow(named, [
+        agentClone('release-manager', { kind: 'setup-wizard' }),
+      ]);
+
+      expect(row.shadowedAgents).toEqual(['release-manager']);
+    });
+
+    it('does not mark the plugin’s own copy, another kind, or an unknown origin', () => {
+      const own = agentClone('release-manager', {
+        kind: 'plugin',
+        pluginId: 'ptah-release-kit',
+        name: 'Ptah Release Kit',
+        state: 'active',
+      });
+      const skillCopy: CloneSummary = {
+        ...agentClone('release-manager', { kind: 'workspace' }),
+        kind: 'skill',
+      };
+      const unknown = agentClone('release-manager');
+
+      expect(
+        shadowedAgentNames('ptah-release-kit', ['release-manager'], [
+          own,
+          skillCopy,
+          unknown,
+        ]),
+      ).toEqual([]);
+    });
+
+    it('joins a marketplace plugin with its catalogue entry for contents', () => {
+      const groups = installedSkillGroups(
+        slices({
+          plugins: ready([
+            plugin({
+              id: EXTERNAL_ID,
+              name: 'lint-kit',
+              agentNames: ['linter'],
+            }),
+          ]),
+          libraryClones: [agentClone('linter', { kind: 'workspace' })],
+        }),
+      );
+
+      expect(groups[2].rows[0].detail).toBe('3 skills · 1 command · 1 agent');
+      expect(groups[2].rows[0].shadowedAgents).toEqual(['linter']);
+    });
+
+    it('names Library copies whose plugin is no longer installed', () => {
+      expect(
+        orphanedCopyNames([
+          agentClone('legacy-linter', {
+            kind: 'plugin',
+            pluginId: 'former-helper',
+            name: 'Former Helper',
+            state: 'uninstalled',
+          }),
+          agentClone('helper-agent', {
+            kind: 'plugin',
+            pluginId: 'old-helper',
+            name: 'Old Helper',
+            state: 'turned-off',
+          }),
+        ]),
+      ).toEqual(['legacy-linter (plugin "Former Helper")']);
     });
   });
 
@@ -237,6 +386,35 @@ describe('installed-skill-rows', () => {
 
       const bySource = filterInstalledSkillGroups(groups, 'acme');
       expect(bySource[2].rows.map((r) => r.name)).toEqual(['lint-kit']);
+    });
+
+    it('matches when every word appears across name, description, source or kind (R1-1)', () => {
+      const withAcme = installedSkillGroups(
+        slices({
+          community: ready([
+            skill({ name: 'tailwind-v4', source: 'acme/skills' }),
+            skill(),
+          ]),
+        }),
+      );
+
+      // `acme/skills` is a source: it finds the community skill only.
+      const bySource = filterInstalledSkillGroups(withAcme, 'acme/skills');
+      expect(bySource[1].rows.map((r) => r.name)).toEqual(['tailwind-v4']);
+      expect(bySource[2].rows).toEqual([]);
+
+      // Kind plus name, in either order, across two fields.
+      const byKind = filterInstalledSkillGroups(withAcme, 'lint marketplace');
+      expect(byKind.map((g) => g.rows.map((r) => r.name))).toEqual([
+        [],
+        [],
+        ['lint-kit'],
+      ]);
+
+      // One word missing from all four fields drops the row.
+      expect(
+        filterInstalledSkillGroups(withAcme, 'marketplace tailwind')[2].rows,
+      ).toEqual([]);
     });
 
     it('keeps the unfiltered total so "no match" differs from "none"', () => {

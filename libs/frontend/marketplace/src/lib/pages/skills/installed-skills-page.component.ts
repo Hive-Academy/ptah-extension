@@ -22,7 +22,11 @@ import {
   Search,
   type LucideIconData,
 } from 'lucide-angular';
-import type { MarketplaceSkillSource } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  type MarketplaceSkillSource,
+} from '@ptah-extension/core';
+import { provenanceLabel } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import {
@@ -38,10 +42,13 @@ import {
   filterInstalledSkillGroups,
   findInstalledSkill,
   installedSkillGroups,
+  orphanedCopyNames,
+  plural,
   type InstalledSkillGroupId,
   type InstalledSkillRow,
   type InstalledSkillSlices,
 } from './installed-skill-rows';
+import { PluginConfigHomeNoticeComponent } from './plugin-config-home-notice.component';
 import { SkillsSectionHeaderComponent } from './skills-section-header.component';
 
 /** The slices this page renders, in display order. */
@@ -102,6 +109,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
     NativeDrawerComponent,
     DockedInspectorComponent,
     SkillsSectionHeaderComponent,
+    PluginConfigHomeNoticeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -124,6 +132,12 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
           </div>
           <ptah-skills-section-header />
         </header>
+
+        @if (isElectron()) {
+          <ptah-plugin-config-home-notice
+            (failed)="setPageError('plugins', $event)"
+          />
+        }
 
         <label
           class="input input-sm input-bordered flex w-full max-w-sm items-center gap-2"
@@ -298,6 +312,28 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                           }}{{ row.detail ? ' · ' + row.detail : '' }}
                         </span>
                       </a>
+                      <span
+                        class="badge badge-sm h-auto max-w-[40%] shrink-0 border bg-base-300 text-base-content [overflow-wrap:anywhere]"
+                        [class]="
+                          row.provenance.kind === 'plugin'
+                            ? 'border-primary'
+                            : 'border-[color:var(--surface-border-strong)]'
+                        "
+                        [attr.title]="'Origin: ' + provenanceText(row)"
+                        data-testid="installed-skill-provenance"
+                        >{{ provenanceText(row) }}</span
+                      >
+                      @if (row.shadowedAgents.length > 0) {
+                        <span
+                          class="badge badge-warning badge-sm shrink-0"
+                          data-testid="installed-skill-shadowed"
+                          [attr.title]="
+                            'Shadowed by a Library copy: ' +
+                            row.shadowedAgents.join(', ')
+                          "
+                          >{{ shadowedText(row) }}</span
+                        >
+                      }
                       @if (row.action === 'manage') {
                         <a
                           class="btn btn-ghost btn-xs shrink-0"
@@ -329,6 +365,16 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
             </section>
           }
         </div>
+
+        @if (orphanedCopies().length > 0) {
+          <p
+            class="text-xs text-base-content-muted [overflow-wrap:anywhere]"
+            data-testid="installed-skills-orphaned"
+          >
+            Edited copies of plugins that are no longer installed stay in the
+            Library as Orphaned: {{ orphanedCopies().join(', ') }}.
+          </p>
+        }
       </div>
     </div>
 
@@ -367,6 +413,7 @@ export class InstalledSkillsPageComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly vscode = inject(VSCodeService);
 
   protected readonly SearchIcon = Search;
   protected readonly RefreshIcon = RefreshCw;
@@ -380,6 +427,9 @@ export class InstalledSkillsPageComponent {
   });
 
   protected readonly pendingIds = this.inventory.pendingIds;
+
+  /** The D14 plugin settings notice is Electron only (no other host sends it). */
+  protected readonly isElectron = computed(() => this.vscode.isElectron);
 
   /** The search text; page-local, kept while a detail is open. */
   protected readonly query = signal('');
@@ -400,7 +450,13 @@ export class InstalledSkillsPageComponent {
     plugins: this.inventory.plugins(),
     community: this.inventory.community(),
     marketplaces: this.inventory.marketplaces(),
+    libraryClones: this.inventory.libraryClones(),
   }));
+
+  /** Library copies whose plugin is no longer installed (footer line). */
+  protected readonly orphanedCopies = computed(() =>
+    orphanedCopyNames(this.inventory.libraryClones()),
+  );
 
   protected readonly groups = computed(() =>
     filterInstalledSkillGroups(
@@ -490,6 +546,14 @@ export class InstalledSkillsPageComponent {
     return `${row.name}${version}, ${SKILL_KIND_LABELS[row.kind]} from ${row.source}`;
   }
 
+  protected provenanceText(row: InstalledSkillRow): string {
+    return provenanceLabel(row.provenance);
+  }
+
+  protected shadowedText(row: InstalledSkillRow): string {
+    return `${plural(row.shadowedAgents.length, 'agent', 'agents')} shadowed`;
+  }
+
   protected sourceLink(source: MarketplaceSkillSource): string[] {
     return marketplaceRouteLink({ page: 'skills', source });
   }
@@ -543,7 +607,7 @@ export class InstalledSkillsPageComponent {
     }
   }
 
-  private setPageError(
+  protected setPageError(
     group: InstalledSkillGroupId,
     message: string | null,
   ): void {

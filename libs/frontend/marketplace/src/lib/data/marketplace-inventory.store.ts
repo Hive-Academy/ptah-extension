@@ -13,6 +13,7 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
   PluginCatalogService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import {
@@ -22,6 +23,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import type { SessionMcpStatus } from '@ptah-extension/chat-state';
 import type {
+  CloneSummary,
   ExternalPluginListing,
   InstalledMcpServer,
   InstalledSkill,
@@ -166,11 +168,16 @@ function messageOf(error: unknown, fallback: string): string {
 
 // ── Internal slice machinery ──────────────────────────────────────────────────
 
-/** What each slice stores from its own read. Plugins read the root catalogue. */
+/**
+ * What each slice stores from its own read. Plugins read the root catalogue;
+ * their cell holds the Library copies (Electron only) the agent shadow state
+ * joins with, so they share the slice's generation guard and are dropped with
+ * it on a workspace switch.
+ */
 interface SliceData {
   /** `null` until a read lands: connector rows need the installed keys first. */
   installed: readonly InstalledMcpServer[] | null;
-  plugins: null;
+  plugins: readonly CloneSummary[];
   community: readonly InstalledSkill[];
   marketplaces: readonly ExternalPluginListing[];
 }
@@ -262,11 +269,12 @@ export class MarketplaceInventoryStore {
   private readonly catalog = inject(PluginCatalogService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly scope = inject(WorkspaceScopeService);
+  private readonly vscode = inject(VSCodeService);
 
   private readonly cells: { [K in InventorySliceId]: SliceCell<SliceData[K]> } =
     {
       installed: cell<readonly InstalledMcpServer[] | null>(null),
-      plugins: cell<null>(null),
+      plugins: cell<readonly CloneSummary[]>([]),
       community: cell<readonly InstalledSkill[]>([]),
       marketplaces: cell<readonly ExternalPluginListing[]>([]),
     };
@@ -331,6 +339,14 @@ export class MarketplaceInventoryStore {
       data: status.state === 'ready' ? this.catalog.enabledPlugins() : [],
     };
   });
+
+  /**
+   * Library copies of the current workspace, read with the plugins slice
+   * (Electron only). Empty before that read, after it failed, and from the
+   * instant the workspace changes.
+   */
+  public readonly libraryClones: Signal<readonly CloneSummary[]> =
+    this.cells.plugins.data.asReadonly();
 
   /** skills.sh skills installed on this machine. */
   public readonly community = sliceView(this.cells.community);
@@ -458,12 +474,32 @@ export class MarketplaceInventoryStore {
    * publishes a failure on `error()` instead. `ensure` lets it answer from
    * cache; a reload or Retry asks it to re-read.
    */
-  private async readPlugins(mode: LoadMode): Promise<Loaded<null>> {
-    await (mode === 'ensure'
-      ? this.catalog.ensureLoaded()
-      : this.catalog.refresh());
+  private async readPlugins(
+    mode: LoadMode,
+  ): Promise<Loaded<SliceData['plugins']>> {
+    const [, clones] = await Promise.all([
+      mode === 'ensure' ? this.catalog.ensureLoaded() : this.catalog.refresh(),
+      this.readLibraryClones(),
+    ]);
     const error = this.catalog.error();
-    return error === null ? { ok: true, data: null } : { ok: false, error };
+    return error === null ? { ok: true, data: clones } : { ok: false, error };
+  }
+
+  /**
+   * The Library copies, for the agent shadow state (F7f). Electron only: no
+   * other host has a Library. A failed read degrades to "nothing shadowed"
+   * instead of failing the plugin list it decorates.
+   */
+  private async readLibraryClones(): Promise<readonly CloneSummary[]> {
+    if (!this.vscode.isElectron) return [];
+    try {
+      const result = await this.rpc.call('skillSynthesis:listClones', {});
+      return result.isSuccess() ? result.data.clones : [];
+    } catch {
+      // degradation-audit: decoration only — the rows render without the
+      // "Shadowed" marks, which is the state before any Library existed.
+      return [];
+    }
   }
 
   private async readCommunity(): Promise<Loaded<SliceData['community']>> {

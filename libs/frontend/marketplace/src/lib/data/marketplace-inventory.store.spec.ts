@@ -44,6 +44,7 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
   PluginCatalogService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import {
@@ -52,6 +53,7 @@ import {
 } from '@ptah-extension/chat-state';
 import type { InstalledServerGroup } from '@ptah-extension/chat-ui';
 import type {
+  CloneSummary,
   ExternalPluginListing,
   InstalledMcpServer,
   InstalledSkill,
@@ -1276,6 +1278,88 @@ describe('MarketplaceInventoryStore', () => {
       await settle();
 
       expect(store.community().data.map((s) => s.name)).toEqual(['from-b']);
+    });
+  });
+
+  // ── Library copies for the agent shadow state (F7f) ────────────────────────
+
+  describe('library copies (F7f)', () => {
+    const clone = (slug: string): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      provenance: { kind: 'setup-wizard' },
+    });
+
+    const asElectron = (): void => {
+      jest
+        .spyOn(TestBed.inject(VSCodeService), 'isElectron', 'get')
+        .mockReturnValue(true);
+    };
+
+    it('reads nothing outside Electron', async () => {
+      await store.ensure('plugins');
+      await settle();
+
+      expect(methodsCalled()).not.toContain('skillSynthesis:listClones');
+      expect(store.libraryClones()).toEqual([]);
+    });
+
+    it('reads the copies with the plugins slice in Electron', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [clone('release-manager')] }),
+      );
+      await store.ensure('plugins');
+      await settle();
+
+      expect(methodsCalled()).toEqual(['skillSynthesis:listClones']);
+      expect(store.plugins().state).toBe('ready');
+      expect(store.libraryClones().map((c) => c.slug)).toEqual([
+        'release-manager',
+      ]);
+    });
+
+    it('degrades to no copies when the read fails, keeping the plugins', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () => fail('no library'));
+      enabledPlugins.set([plugin('ptah-core', 'Ptah Core')]);
+      await store.ensure('plugins');
+      await settle();
+
+      expect(store.plugins().state).toBe('ready');
+      expect(store.plugins().data).toHaveLength(1);
+      expect(store.libraryClones()).toEqual([]);
+    });
+
+    it('drops the copies on a workspace switch and reads the new ones', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [clone('from-a')] }),
+      );
+      await store.ensure('plugins');
+      await settle();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual(['from-a']);
+
+      const gate = deferred<unknown>();
+      responders.set('skillSynthesis:listClones', () => gate.promise);
+      scope.switchTo('/workspace/b');
+      TestBed.tick();
+
+      // Gone the moment the switch lands, before the new read answers.
+      expect(store.libraryClones()).toEqual([]);
+
+      gate.resolve(ok({ clones: [clone('from-b')] }));
+      await settle();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual(['from-b']);
     });
   });
 

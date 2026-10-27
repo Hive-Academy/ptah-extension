@@ -17,7 +17,7 @@ import {
   RefreshCw,
   TriangleAlert,
 } from 'lucide-angular';
-import type { PluginInfo } from '@ptah-extension/shared';
+import { provenanceLabel, type PluginInfo } from '@ptah-extension/shared';
 import {
   MarketplaceInventoryStore,
   type InventoryRemovalOutcome,
@@ -35,7 +35,6 @@ import {
   SKILL_KIND_LABELS,
   SKILL_KIND_SLICE,
   findInstalledSkill,
-  plural,
   type InstalledSkillMatch,
   type InstalledSkillSlices,
 } from './installed-skill-rows';
@@ -49,6 +48,14 @@ interface SkillFact {
   readonly value: string;
   /** Render as `<code>` (paths, ids). */
   readonly code?: boolean;
+  /** Render as the provenance badge (C7); `plugin` takes the primary border. */
+  readonly badge?: 'plugin' | 'other';
+}
+
+/** One named list of the "Show names" disclosure. */
+interface SkillNameGroup {
+  readonly label: string;
+  readonly names: readonly { readonly name: string; readonly shadowed: boolean }[];
 }
 
 /** One detected CLI in the harness summary. */
@@ -64,7 +71,24 @@ function categoryLabel(category: PluginInfo['category']): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** The facts of one installed item, in display order. Only known facts. */
+function provenanceFact(match: InstalledSkillMatch): SkillFact {
+  return {
+    label: 'Provenance',
+    value: provenanceLabel(match.row.provenance),
+    badge: match.row.provenance.kind === 'plugin' ? 'plugin' : 'other',
+  };
+}
+
+function contentsFact(match: InstalledSkillMatch): SkillFact[] {
+  const contents = match.row.contents;
+  return contents === null ? [] : [{ label: 'Contents', value: contents.summary }];
+}
+
+/**
+ * The facts of one installed item, in display order. Only known facts. Every
+ * value is read from the row the inspector resolved, so the facts always
+ * describe the selected row (R1-1).
+ */
 export function skillFacts(match: InstalledSkillMatch): readonly SkillFact[] {
   const facts: SkillFact[] = [
     { label: 'Kind', value: SKILL_KIND_LABELS[match.kind] },
@@ -73,20 +97,25 @@ export function skillFacts(match: InstalledSkillMatch): readonly SkillFact[] {
   switch (match.kind) {
     case 'ptah-plugin':
       facts.push(
-        { label: 'Category', value: categoryLabel(match.plugin.category) },
         {
-          label: 'Contents',
-          value: `${plural(match.plugin.skillCount, 'skill', 'skills')} · ${plural(
-            match.plugin.commandCount,
-            'command',
-            'commands',
-          )}`,
+          label: 'Version',
+          value:
+            (match.plugin.source ?? 'bundled') === 'bundled'
+              ? 'Bundled with Ptah'
+              : 'Not declared',
         },
+        provenanceFact(match),
+        { label: 'Category', value: categoryLabel(match.plugin.category) },
+        ...contentsFact(match),
         { label: 'Plugin id', value: match.plugin.id, code: true },
       );
       break;
     case 'community-skill':
-      facts.push({ label: 'Path', value: match.skill.path, code: true });
+      facts.push(
+        { label: 'Version', value: 'Not declared' },
+        provenanceFact(match),
+        { label: 'Path', value: match.skill.path, code: true },
+      );
       break;
     case 'marketplace-plugin': {
       const { installedVersion, version } = match.listing;
@@ -100,6 +129,8 @@ export function skillFacts(match: InstalledSkillMatch): readonly SkillFact[] {
         facts.push({ label: 'Version', value: 'Not declared' });
       }
       facts.push(
+        provenanceFact(match),
+        ...contentsFact(match),
         { label: 'Path in repository', value: match.listing.path, code: true },
         { label: 'Plugin id', value: match.listing.id, code: true },
       );
@@ -107,6 +138,28 @@ export function skillFacts(match: InstalledSkillMatch): readonly SkillFact[] {
     }
   }
   return facts;
+}
+
+/** The named lists behind the Contents fact; shadowed agents are marked. */
+export function skillNameGroups(
+  match: InstalledSkillMatch,
+): readonly SkillNameGroup[] {
+  const contents = match.row.contents;
+  if (contents === null) return [];
+  const shadowed = new Set(match.row.shadowedAgents);
+  const plain = (names: readonly string[]) =>
+    names.map((name) => ({ name, shadowed: false }));
+  return [
+    { label: 'Skills', names: plain(contents.skills) },
+    { label: 'Commands', names: plain(contents.commands) },
+    {
+      label: 'Agents',
+      names: contents.agents.map((name) => ({
+        name,
+        shadowed: shadowed.has(name),
+      })),
+    },
+  ].filter((group) => group.names.length > 0);
 }
 
 /**
@@ -225,12 +278,56 @@ export function skillFacts(match: InstalledSkillMatch): readonly SkillFact[] {
                 <dd class="min-w-0 text-base-content" [attr.data-fact]="fact.label">
                   @if (fact.code) {
                     <code class="break-all text-xs">{{ fact.value }}</code>
+                  } @else if (fact.badge) {
+                    <span
+                      class="badge badge-sm h-auto border bg-base-300 text-base-content [overflow-wrap:anywhere]"
+                      [class]="fact.badge === 'plugin' ? 'border-primary' : 'border-[color:var(--surface-border-strong)]'"
+                      data-testid="skill-detail-provenance"
+                      >{{ fact.value }}</span
+                    >
                   } @else {
                     {{ fact.value }}
                   }
                 </dd>
               }
             </dl>
+
+            @if (item.row.shadowedAgents.length > 0) {
+              <p class="text-xs text-base-content-muted" data-testid="skill-detail-shadowed">
+                <span class="badge badge-warning badge-sm">Shadowed</span>
+                A Library agent with the same name and another origin is used
+                instead: {{ item.row.shadowedAgents.join(', ') }}.
+              </p>
+            }
+
+            @if (nameGroups().length > 0) {
+              <details class="text-sm" data-testid="skill-detail-names">
+                <summary
+                  class="cursor-pointer rounded-md text-xs font-medium text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  Show names
+                </summary>
+                <div class="mt-2 space-y-2">
+                  @for (group of nameGroups(); track group.label) {
+                    <div [attr.data-names]="group.label">
+                      <h4 class="text-xs text-base-content-muted">{{ group.label }}</h4>
+                      <ul class="mt-1 flex flex-wrap gap-1.5" role="list">
+                        @for (entry of group.names; track entry.name) {
+                          <li class="flex items-center gap-1 text-xs [overflow-wrap:anywhere]">
+                            <code>{{ entry.name }}</code>
+                            @if (entry.shadowed) {
+                              <span class="badge badge-warning badge-xs" data-testid="skill-detail-name-shadowed"
+                                >Shadowed</span
+                              >
+                            }
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
+                </div>
+              </details>
+            }
 
             <section aria-labelledby="skill-detail-harness-heading" data-testid="skill-detail-harness">
               <h3
@@ -331,6 +428,7 @@ export class SkillDetailComponent {
     plugins: this.inventory.plugins(),
     community: this.inventory.community(),
     marketplaces: this.inventory.marketplaces(),
+    libraryClones: this.inventory.libraryClones(),
   }));
 
   /** The slice the ref's kind lives in. */
@@ -376,6 +474,11 @@ export class SkillDetailComponent {
   protected readonly facts = computed(() => {
     const match = this.match();
     return match === null ? [] : skillFacts(match);
+  });
+
+  protected readonly nameGroups = computed(() => {
+    const match = this.match();
+    return match === null ? [] : skillNameGroups(match);
   });
 
   protected readonly brokenIssues = computed(() => {

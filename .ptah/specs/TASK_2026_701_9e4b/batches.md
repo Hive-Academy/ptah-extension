@@ -1144,7 +1144,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/marketplace,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 25: Marketplace installed view and config-home notice (F7 c, f, i) — PENDING
+## Batch 25: Marketplace installed view and config-home notice (F7 c, f, i) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1155,7 +1155,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 21, 24
 - Phase: P3 (last) | Phase review: P3 code-logic + style + Electron visual (dark, light, narrow; F7i states and F6 pointer) — due after this batch commits
 
-### Task 25.1: Installed rows/page/detail, inventory store, `PluginConfigHomeNoticeComponent` — PENDING
+### Task 25.1: Installed rows/page/detail, inventory store, `PluginConfigHomeNoticeComponent` — COMPLETE
 
 - Files: MODIFY `libs/frontend/marketplace/src/lib/pages/skills/installed-skill-rows.ts` (+ spec), `installed-skills-page.component.ts` (+ spec), `skill-detail.component.ts` (+ spec), `libs/frontend/marketplace/src/lib/data/marketplace-inventory.store.ts` (+ spec); CREATE `libs/frontend/marketplace/src/lib/pages/skills/plugin-config-home-notice.component.ts` (+ spec)
 - Plan reference: implementation-plan.md:1320-1361; design-spec Review F1, R1-1; D14
