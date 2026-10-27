@@ -1119,7 +1119,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/skill-synthesis-ui,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 24: Marketplace consent, report and repair prompt (F7 a, b, g, h) — PENDING
+## Batch 24: Marketplace consent, report and repair prompt (F7 a, b, g, h) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1130,7 +1130,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 20, 21
 - Phase: P3 | Phase review: P3 code-logic + visual
 
-### Task 24.1: Consent dialog local-files section, install report counters, `KeptItemsRepairPromptComponent` — PENDING
+### Task 24.1: Consent dialog local-files section, install report counters, `KeptItemsRepairPromptComponent` — COMPLETE
 
 - Files: MODIFY `libs/frontend/marketplace/src/lib/external-consent-dialog.component.ts` (+ spec), `external-install-report.component.ts`; CREATE `libs/frontend/marketplace/src/lib/external-install-report.component.spec.ts`, `libs/frontend/marketplace/src/lib/kept-items-repair-prompt.component.ts` (+ spec); MODIFY `libs/frontend/marketplace/src/lib/external-marketplaces.component.ts` (+ spec)
 - Plan reference: implementation-plan.md:1307-1338, 1362-1369; design-spec Review F2, F5, F9, R1-3; prototype/marketplace.html

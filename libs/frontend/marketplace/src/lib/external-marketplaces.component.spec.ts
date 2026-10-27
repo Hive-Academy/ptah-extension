@@ -2,8 +2,12 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   ExternalInstallPlan,
+  ExternalInstallResult,
+  ExternalLocalItem,
   ExternalPluginListing,
+  KeptItem,
 } from '@ptah-extension/shared';
+import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 import { ExternalMarketplacesComponent } from './external-marketplaces.component';
 
 /**
@@ -690,6 +694,176 @@ describe('ExternalMarketplacesComponent', () => {
       expect(component.pendingPlan()).not.toBeNull();
       expect(query('[data-testid="external-consent"]')).toBeTruthy();
       expect(component.lastInstall()).toBeNull();
+    });
+
+    describe('local items and the kept-items repair route', () => {
+      /** Acme Toolkit items, named from the shared agreement fixture. */
+      const acme = () =>
+        makeLibraryAgreementFixtures().shadowedSkill.plugins.find(
+          (plugin) => plugin.source === 'external',
+        );
+      const localItems = (): ExternalLocalItem[] => [
+        {
+          approvalId: 'a-architect',
+          target: 'claude',
+          relPath: `.claude/agents/${acme()?.agentNames?.[0]}.md`,
+          family: 'external',
+          kind: 'unowned',
+        },
+        {
+          approvalId: 'a-deploy',
+          target: 'claude',
+          relPath: '.claude/commands/deploy.md',
+          family: 'external',
+          kind: 'unreadable',
+        },
+      ];
+      const agentKept: KeptItem = {
+        approvalId: 'pa-1',
+        family: 'plugin-agent',
+        target: 'claude',
+        relPath: '.claude/agents/release-manager.md',
+        reason: 'owned-edited',
+      };
+      const installedResult = (): ExternalInstallResult => ({
+        pluginId: PLUGIN_ID,
+        displayName: acme()?.name ?? 'missing-fixture',
+        installedVersion: '1.2.0',
+        filesWritten: 4,
+        skippedBinaryFiles: [],
+        collisions: [],
+        kept: [
+          {
+            approvalId: 'a-deploy',
+            family: 'external',
+            target: 'claude',
+            relPath: '.claude/commands/deploy.md',
+            reason: 'unreadable',
+          },
+          agentKept,
+        ],
+        libraryPass: 'updated',
+      });
+      const planResponse = () =>
+        ok({
+          status: 'consent-required',
+          reason: 'not-yet-approved',
+          plan: makePlan({ localItems: localItems() }),
+        });
+      const rows = (): HTMLElement[] =>
+        Array.from(
+          host.querySelectorAll<HTMLElement>(
+            '[data-testid="external-consent-local-row"]',
+          ),
+        );
+
+      it('sends the per-item decisions keyed by approvalId on confirm', async () => {
+        setResponder('plugins:install-external', () =>
+          installCalls().length > 1
+            ? ok({ status: 'installed', result: installedResult() })
+            : planResponse(),
+        );
+        await createAndBrowse();
+        await clickInstall();
+
+        rows()[0]
+          .querySelector<HTMLButtonElement>('[data-testid="replace-segment"]')
+          ?.click();
+        fixture.detectChanges();
+        await clickConfirm();
+
+        expect(installCalls()[1].params).toEqual({
+          source: SOURCE,
+          plugin: 'dotnet-test',
+          consentToken: 'token-v1',
+          localItemDecisions: { 'a-architect': 'replace', 'a-deploy': 'keep' },
+        });
+        expect(component.pendingPlan()).toBeNull();
+      });
+
+      it('keeps the dialog open with "Retry install" and the choices after a failed confirm', async () => {
+        setResponder('plugins:install-external', () =>
+          installCalls().length > 1
+            ? fail(
+                'Could not write .claude/agents/architect.md (permission denied).',
+              )
+            : planResponse(),
+        );
+        await createAndBrowse();
+        await clickInstall();
+        rows()[0]
+          .querySelector<HTMLButtonElement>('[data-testid="replace-segment"]')
+          ?.click();
+        fixture.detectChanges();
+        await clickConfirm();
+
+        const dialog = query('[data-testid="external-consent"]');
+        expect(dialog).toBeTruthy();
+        expect(dialog?.textContent).toContain('Install failed.');
+        const confirm = query<HTMLButtonElement>(
+          '[data-testid="external-consent-confirm"]',
+        );
+        expect(confirm?.textContent?.trim()).toBe('Retry install');
+        expect(component.lastInstall()).toBeNull();
+
+        // Retry re-sends the same choices.
+        await clickConfirm();
+        expect(installCalls()[2].params).toEqual(installCalls()[1].params);
+      });
+
+      it('"Review and replace…" opens the prompt bound to its family and replaces through the RPC', async () => {
+        setResponder('plugins:replace-kept-items', () =>
+          ok({ replaced: [agentKept], kept: [], libraryPass: 'updated' }),
+        );
+        await createComponent();
+        component.lastInstall.set(installedResult());
+        fixture.detectChanges();
+
+        const review = query<HTMLButtonElement>(
+          'ptah-external-install-report button[data-family="plugin-agent"]',
+        );
+        expect(review).toBeTruthy();
+        review?.click();
+        fixture.detectChanges();
+
+        const prompt = query('[data-testid="kept-items-repair"]');
+        expect(prompt?.getAttribute('data-family')).toBe('plugin-agent');
+        const promptRows = Array.from(
+          prompt?.querySelectorAll<HTMLElement>(
+            '[data-testid="kept-item-row"]',
+          ) ?? [],
+        );
+        expect(promptRows.map((row) => row.dataset['path'])).toEqual([
+          '.claude/agents/release-manager.md',
+        ]);
+
+        promptRows[0]
+          .querySelector<HTMLButtonElement>('[data-testid="replace-segment"]')
+          ?.click();
+        fixture.detectChanges();
+        query<HTMLButtonElement>(
+          '[data-testid="kept-items-repair-confirm"]',
+        )?.click();
+        await settle();
+
+        const replaceCall = calls.find(
+          (c) => c.method === 'plugins:replace-kept-items',
+        );
+        expect(replaceCall?.params).toEqual({
+          decisions: { 'pa-1': 'replace' },
+        });
+        // The replaced item leaves the report; the external one stays.
+        expect(
+          component.lastInstall()?.kept?.map((item) => item.approvalId),
+        ).toEqual(['a-deploy']);
+
+        query<HTMLButtonElement>(
+          '[data-testid="kept-items-repair-done"]',
+        )?.click();
+        fixture.detectChanges();
+        expect(query('[data-testid="kept-items-repair"]')).toBeNull();
+        expect(component.repairRequest()).toBeNull();
+      });
     });
 
     it('surfaces a failed plan request on the row and opens no dialog', async () => {
