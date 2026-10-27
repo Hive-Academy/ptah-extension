@@ -1,5 +1,9 @@
 import 'reflect-metadata';
-import { resolve } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { PTAH_UI_HINT } from '@ptah-extension/agent-sdk';
+import { createCodexChatHostPorts, type CodexChatHostPortsDeps } from '../codex-host/codex-chat-host-ports';
 import { WorkspaceProviderProfileResolver } from '@ptah-extension/auth-providers';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 jest.mock('@ptah-extension/workspace-intelligence', () => ({
@@ -115,16 +119,34 @@ function harness() {
 }
 
 describe('chat native session preparation', () => {
+  let workspace: string;
+  beforeAll(async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'ptah-codex-session-'));
+  });
+  afterAll(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
   it('accepts the real default start and resume configs with host MCP running', async () => {
     const h = harness();
+    h.prepare.mockResolvedValue({
+      ...execution,
+      seed: { ...execution.seed, workspacePath: workspace },
+      workspacePath: workspace,
+      cwd: workspace,
+    });
     Object.assign(h.service, {
       sdkContext: {
         resolveEnhancedPromptsContent: async () => undefined,
         isMcpServerRunning: () => true,
       },
       workspaceProvider: createMockWorkspaceProvider({
-        folders: ['/original-workspace'],
+        folders: [workspace],
       }),
+      historyRead: { resolveSessionFolder: async () => workspace },
+      sessionMetadataStore: {
+        get: async () => ({ codexExecution: { ...identity, workspaceId: workspace } }),
+      },
       platformInfo: {
         extensionPath: resolve('/codex-options-app'),
         globalStoragePath: resolve('/codex-options-storage'),
@@ -137,9 +159,49 @@ describe('chat native session preparation', () => {
       outputStyleActivation: { resolveSessionFields: async () => ({}) },
     });
 
-    // Public chat:start exercises the real launchSdkSession through existing mocks.
+    const { Logger } = jest.createMockFromModule<
+      typeof import('@ptah-extension/vscode-core')
+    >('@ptah-extension/vscode-core');
+    const deps: CodexChatHostPortsDeps = {
+      resolver: { resolveExecutionProfile: jest.fn().mockResolvedValue({
+        runtime: 'codex-app-server',
+        seed: { ...execution.seed, workspacePath: workspace, home: workspace, normalizedHome: workspace },
+      }) },
+      workspaceProvider: createMockWorkspaceProvider({ folders: [workspace] }),
+      platformInfo: { extensionPath: resolve('/codex-options-app'), globalStoragePath: resolve('/codex-options-storage') },
+      hostCapabilities: { nativeCodex: true },
+      webviewManager: { broadcastMessage: jest.fn().mockResolvedValue(undefined) },
+      logger: Logger.prototype,
+      platform: { platform: process.platform, arch: process.arch },
+      info: {
+        id: 'codex-app-server', name: 'Codex', version: '1.0.0',
+        description: 'Native Codex chat test provider', vendor: 'OpenAI',
+        capabilities: {
+          streaming: true, fileAttachments: true, contextManagement: true,
+          sessionPersistence: true, multiTurn: true, codeGeneration: true,
+          imageAnalysis: true, functionCalling: true,
+        },
+      },
+      createScope: () => { throw new Error('No process in unit tests'); },
+      metadata: { save: jest.fn() },
+      approvals: {
+        register: jest.fn(() => () => undefined), respond: jest.fn(() => true), cancelPrompt: jest.fn(),
+      },
+      callbacks: () => ({ result: jest.fn(), content: jest.fn(), live: jest.fn(), compaction: jest.fn(), error: jest.fn() }),
+      readResumeIdentity: async () => undefined,
+      broadcaster: { streamEventsToWebview: jest.fn() },
+      tabId: () => 'tab',
+    };
+    const ports = createCodexChatHostPorts(deps);
+
+    // Mirrors message-sender.service.ts: Electron start request with no attachments,
+    // effort override or persona. The session layer supplies MCP/workflow defaults.
     await expect(
-      h.service.startSession({ tabId: 'tab', prompt: 'hello' }),
+      h.service.startSession({
+        prompt: 'hello', tabId: 'tab', name: 'hello',
+        workspacePath: workspace, ptahCliId: undefined,
+        ptahUiFence: true, options: { model: 'default' },
+      }),
     ).resolves.toEqual({ success: true });
     expect(h.startChatSession).toHaveBeenCalledTimes(1);
     const started = h.startChatSession.mock.calls[0][0] as AgentSessionStartConfig;
@@ -147,27 +209,39 @@ describe('chat native session preparation', () => {
       mcpServerRunning: true,
       workflowsDisabled: false,
       runtime: 'codex-app-server',
+      ptahUiFence: true,
+      name: 'hello',
+      prompt: 'hello',
     });
     expect(started.mcpServersOverride).toBeUndefined();
     expect(started.thinking).toBeUndefined();
     expect(started.outputStyleName).toBeUndefined();
+    expect(started.includePartialMessages).toBeUndefined();
+    expect(started.files).toEqual([]);
+    expect(started.images).toEqual([]);
+    expect(started.effort).toBeUndefined();
+    expect(started.systemPrompt).toBeUndefined();
     expect(classifyCodexChatOptions(started).rejected).toEqual([]);
+    expect((await ports.profile(started)).profile.developerPrompt).toContain(PTAH_UI_HINT);
 
     await expect(
       h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
         sessionId,
         tabId: 'tab',
+        ptahUiFence: true,
       }),
     ).resolves.toEqual({ justResumed: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     const resumed = h.resumeSession.mock.calls[0][1] as AgentSessionResumeConfig;
     expect(resumed).toMatchObject({
+      ptahUiFence: true,
       mcpServerRunning: true,
       workflowsDisabled: false,
     });
     expect(resumed.thinking).toBeUndefined();
     expect(resumed.outputStyleName).toBeUndefined();
     expect(classifyCodexChatOptions(resumed).rejected).toEqual([]);
+    expect((await ports.profile(resumed)).profile.developerPrompt).toContain(PTAH_UI_HINT);
   });
 
   it('prepares complete start inputs and launches through the injected adapter without legacy auth', async () => {

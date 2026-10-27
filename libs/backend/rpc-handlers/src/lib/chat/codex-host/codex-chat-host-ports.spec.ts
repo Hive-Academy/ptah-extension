@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
-import type { SessionApprovalRouter } from '@ptah-extension/agent-sdk';
+import { PTAH_UI_HINT, type SessionApprovalRouter } from '@ptah-extension/agent-sdk';
 import type { ResolvedExecutionProfile } from '@ptah-extension/auth-providers';
 import type {
   CodexApprovalRequest,
@@ -24,6 +24,9 @@ import { CodexChatOptionError } from './codex-chat-profile-options';
 import { ChatRuntimeProfileService } from '../session/chat-runtime-profile.service';
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
+  PTAH_UI_HINT: jest.requireActual<
+    typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
+  >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT,
   SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
 }));
 jest.mock('@ptah-extension/auth-providers', () => ({
@@ -205,15 +208,31 @@ describe('Codex chat host ports', () => {
     expect(h.logger.error).not.toHaveBeenCalled();
     expect(h.logger.info).not.toHaveBeenCalled();
   });
-  it('throws the coded option error with the rejected key', async () => {
+  it.each([undefined, 'coding'] as const)('maps the UI fence for tool profile %s', async (mcpToolProfile) => {
     const h = harness();
-    const result = h.ports.profile({ ...config(), ptahUiFence: true });
+    const { profile } = await h.ports.profile({
+      ...config(), ptahUiFence: true, mcpToolProfile,
+      systemPrompt: 'system', enhancedPromptsContent: 'enhanced', outputStyleBody: 'style',
+    });
+    expect(profile.developerPrompt).toBe(PTAH_UI_HINT);
+    expect(profile).toMatchObject({ systemPrompt: 'system', enhancedPrompt: 'enhanced', outputStyle: 'style' });
+  });
+  it.each([false, undefined] as const)('omits the UI hint when the fence is %s', async (ptahUiFence) => {
+    const { profile } = await harness().ports.profile({ ...config(), ptahUiFence });
+    expect(profile.developerPrompt).toBeUndefined();
+  });
+  it('rejects a non-coding tool profile with the coded option error', async () => {
+    const h = harness();
+    const result = h.ports.profile({
+      ...config(), ptahUiFence: true, mcpToolProfile: 'apps',
+    });
     await expect(result).rejects.toBeInstanceOf(CodexChatOptionError);
     await expect(result).rejects.toMatchObject({
       code: 'unsupported-option',
-      key: 'ptahUiFence',
-      message: 'Codex chat does not support the "ptahUiFence" option.',
+      key: 'mcpToolProfile',
+      message: 'Codex chat does not support the "mcpToolProfile" option.',
     });
+    expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
   it.each([true, false])('strips host flags and reports MCP availability %s', async (mcpServerRunning) => {
     const h = harness();

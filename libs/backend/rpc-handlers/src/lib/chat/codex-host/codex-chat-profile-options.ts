@@ -12,6 +12,7 @@ const supportedKeys = [
   'permissionLevel',
   'effort',
   'systemPrompt',
+  'ptahUiFence',
   'enhancedPromptsContent',
   'outputStyleBody',
   'files',
@@ -26,7 +27,7 @@ const stripped = new Set([
 ]);
 
 type SupportedOptions<T> = T extends object
-  ? Pick<T, Extract<keyof T, (typeof supportedKeys)[number]>>
+  ? Pick<T, Extract<keyof T, (typeof supportedKeys)[number] | 'mcpToolProfile'>>
   : never;
 
 export class CodexChatOptionError extends Error {
@@ -45,7 +46,7 @@ export function classifyCodexChatOptions<T extends object>(config: T) {
   const rejected: string[] = [];
   for (const [key, value] of Object.entries(config)) {
     if (value === undefined) continue;
-    if (supported.has(key)) {
+    if (supported.has(key) || (key === 'mcpToolProfile' && value === 'coding')) {
       entries.push([key, value]);
     } else if (
       stripped.has(key) ||

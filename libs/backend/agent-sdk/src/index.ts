@@ -399,6 +399,7 @@ export {
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
   PTAH_MCP_SUBSTITUTION_SECTION,
 } from './lib/prompt-harness';
+export { PTAH_UI_HINT } from './lib/prompt-harness';
 export { PluginLoaderService } from './lib/helpers';
 export {
   discoverPluginSkills,

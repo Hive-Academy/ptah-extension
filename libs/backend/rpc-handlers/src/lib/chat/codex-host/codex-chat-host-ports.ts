@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { PTAH_UI_HINT } from '@ptah-extension/agent-sdk';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
@@ -202,7 +203,7 @@ export function createCodexChatHostPorts(
           entries[absolute] = { kind: 'missing' };
         }
       }
-      const profile = buildCodexExecutionProfile({
+      const profileInput: CodexExecutionProfileInput = {
         paths: {
           platform: process.platform === 'win32' ? 'win32' : 'posix',
           baseDirectory: cwd,
@@ -231,6 +232,20 @@ export function createCodexChatHostPorts(
             ),
           ],
         },
+      };
+      let developerPrompt = profileInput.session.developerPrompt;
+      if (
+        config.ptahUiFence === true &&
+        (config.mcpToolProfile ?? 'coding') === 'coding'
+      ) {
+        developerPrompt = [
+          developerPrompt,
+          PTAH_UI_HINT,
+        ].filter((part) => part !== undefined).join('\n\n');
+      }
+      const profile = buildCodexExecutionProfile({
+        ...profileInput,
+        session: { ...profileInput.session, developerPrompt },
       });
       if (
         resume &&

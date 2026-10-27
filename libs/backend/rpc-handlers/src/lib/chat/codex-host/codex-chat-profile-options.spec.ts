@@ -18,6 +18,8 @@ describe('classifyCodexChatOptions', () => {
       permissionLevel: 'ask',
       effort: 'high',
       systemPrompt: 'system',
+      ptahUiFence: true,
+      mcpToolProfile: 'coding',
       enhancedPromptsContent: 'instructions',
       outputStyleBody: 'style',
       files: ['file.ts'],
@@ -29,6 +31,30 @@ describe('classifyCodexChatOptions', () => {
       rejected: [],
     });
     expect(classifyCodexChatOptions(config).supported).not.toBe(config);
+  });
+
+  it('accepts the coding tool profile for the UI hint gate', () => {
+    const mcpToolProfile = 'coding';
+    expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
+      supported: { ptahUiFence: true, mcpToolProfile }, stripped: [], rejected: [],
+    });
+  });
+
+  it.each(['apps', 'default', '', null, false, 0] as const)(
+    'rejects the defined non-coding tool profile %s while accepting the fence',
+    (mcpToolProfile) => {
+      expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
+        supported: { ptahUiFence: true },
+        stripped: [],
+        rejected: ['mcpToolProfile'],
+      });
+    },
+  );
+
+  it.each([true, false])('accepts the UI fence when %s', (ptahUiFence) => {
+    expect(classifyCodexChatOptions({ ptahUiFence })).toEqual({
+      supported: { ptahUiFence }, stripped: [], rejected: [],
+    });
   });
 
   it.each([true, false])('strips host and Claude flags when %s', (value) => {
@@ -56,8 +82,7 @@ describe('classifyCodexChatOptions', () => {
     ['mcpServersOverride', { private: { url: 'secret' } }],
     ['thinking', { enabled: true }],
     ['outputStyleName', 'concise'],
-    ['mcpToolProfile', 'default'],
-    ['ptahUiFence', false],
+
     ['futureOption', null],
     ['futureOption', false],
     ['futureOption', 0],
@@ -73,6 +98,8 @@ describe('classifyCodexChatOptions', () => {
   it('ignores undefined supported, stripped, rejected and future options', () => {
     expect(classifyCodexChatOptions({
       model: undefined,
+      ptahUiFence: undefined,
+      mcpToolProfile: undefined,
       mcpServerRunning: undefined,
       thinking: undefined,
       outputStyleName: undefined,
