@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah Onboarding prototype</title>
+<style>
+/* Token values copied from apps/ptah-extension-webview/tailwind.config.js (anubis / anubis-light)
+   and src/styles.css (--ptah-ease-soft, --surface-*, --ptah-gold). No invented values. */
+:root{
+  --ptah-ease-soft:cubic-bezier(0.22,0.61,0.36,1);
+  --ptah-motion-in:200ms;
+  --r-box:.75rem; --r-btn:.375rem; --r-badge:.25rem;
+}
+[data-theme="anubis"]{
+  color-scheme:dark;
+  --b1:#131317; --b2:#1a1a20; --b3:#242430; --bc:#e8e6e1;
+  --muted:#a9a7ad;                 /* base-content-muted tier, >=5:1 on b1..b3 */
+  --primary:#2563eb; --primary-ink:#ffffff;
+  --gold:#d4af37; --gold-soft:rgba(212,175,55,.12);
+  --run:#3b82f6; --need:#f97316; --err:#ef4444; --done:#16a34a; --idle:#9ca3af;
+  --ring:#f5d97d;
+}
+[data-theme="anubis-light"]{
+  color-scheme:light;
+  --b1:oklch(97.788% .004 56.375); --b2:oklch(93.982% .007 61.449); --b3:oklch(91.586% .006 53.44);
+  --bc:oklch(23.574% .066 313.189);
+  --muted:#5b5266;
+  --primary:#1d4ed8; --primary-ink:#ffffff;
+  --gold:oklch(58% .132 75); --gold-soft:rgba(160,110,20,.12);
+  --run:#2a56c6; --need:#8f5200; --err:#b4232a; --done:#13713a; --idle:#6b6570;
+  --ring:oklch(48% .12 70);
+}
+:root{
+  --s0:var(--b1);
+  --s1:color-mix(in oklch,var(--b2) 88%,var(--b1));
+  --s2:var(--b2);
+  --s3:color-mix(in oklch,var(--b3) 86%,var(--b2));
+  --line:color-mix(in oklch,var(--bc) 14%,transparent);
+  --line-strong:color-mix(in oklch,var(--bc) 22%,transparent);
+  --hi:color-mix(in oklch,var(--bc) 10%,transparent);
+}
+*{box-sizing:border-box}
+html{font-size:15px}
+body{margin:0;background:var(--s0);color:var(--bc);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+h1,h2,h3,p{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.muted{color:var(--muted)}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.85em}
+
+/* proto chrome (not part of the product) */
+.proto-bar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.5rem 1rem;background:var(--s3);border-bottom:1px solid var(--line);font-size:.8rem}
+.proto-bar .sp{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-btn);overflow:hidden}
+.seg button{background:transparent;border:0;padding:.3rem .7rem;min-height:32px}
+.seg button[aria-pressed="true"]{background:var(--gold-soft);color:var(--bc);font-weight:600;box-shadow:inset 0 -2px 0 var(--gold)}
+
+/* shell */
+.page{max-width:1120px;margin:0 auto;padding:1.25rem 1.25rem 4rem}
+.topbar{display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.crumb{display:flex;align-items:center;gap:.5rem;font-size:.85rem}
+.crumb a{color:var(--muted);text-decoration:none}
+.crumb a:hover{color:var(--bc);text-decoration:underline}
+.btn{display:inline-flex;align-items:center;gap:.4rem;min-height:36px;padding:.4rem .9rem;border-radius:var(--r-btn);border:1px solid var(--line-strong);background:transparent;font-weight:500;font-size:.9rem;text-decoration:none;transition:background var(--ptah-motion-in) var(--ptah-ease-soft)}
+.btn:hover{background:var(--hi)}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+.btn-primary:hover{background:color-mix(in oklch,var(--primary) 88%,black)}
+.btn-ghost{border-color:transparent;color:var(--muted)}
+.btn-danger{border-color:color-mix(in oklch,var(--err) 60%,transparent);color:var(--err)}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:.35rem;padding:.1rem .55rem;border-radius:999px;border:1px solid var(--line-strong);font-size:.75rem;white-space:nowrap}
+.chip.run{color:var(--run)} .chip.done{color:var(--done)} .chip.err{color:var(--err)} .chip.need{color:var(--need)} .chip.idle{color:var(--idle)}
+.dot{width:.5rem;height:.5rem;border-radius:50%;background:currentColor;flex:none}
+.run .dot{animation:pulse 1.4s var(--ptah-ease-soft) infinite}
+@keyframes pulse{50%{opacity:.35}}
+
+h1{font-size:1.7rem;line-height:1.2;font-weight:650;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:1.1rem;font-weight:600}
+h3{font-size:.95rem;font-weight:600}
+.lede{max-width:62ch;color:var(--muted);margin-top:.5rem;text-wrap:pretty}
+
+/* HOME */
+.resume{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin:1.25rem 0;padding:.75rem 1rem;border:1px solid var(--line-strong);border-radius:var(--r-box);background:var(--s1)}
+.paths{display:grid;grid-template-columns:1.35fr 1fr;grid-template-areas:"a b" "a c";gap:1rem;margin-top:1.5rem}
+.path{display:flex;flex-direction:column;gap:.6rem;padding:1.25rem;border:1px solid var(--line);border-radius:var(--r-box);background:var(--s1);color:inherit;text-decoration:none;transition:border-color var(--ptah-motion-in) var(--ptah-ease-soft),background var(--ptah-motion-in) var(--ptah-ease-soft)}
+.path:hover{border-color:var(--line-strong);background:var(--s2)}
+.path.main{grid-area:a;border-color:color-mix(in oklch,var(--gold) 45%,transparent);background:linear-gradient(var(--gold-soft),var(--gold-soft)),var(--s1)}
+.path.b{grid-area:b}.path.c{grid-area:c}
+.path .icon{width:2.25rem;height:2.25rem;border-radius:var(--r-btn);display:grid;place-items:center;background:var(--hi)}
+.path ol{margin:.25rem 0 0;padding-left:1.1rem;color:var(--muted);font-size:.88rem}
+.path .go{margin-top:auto;font-weight:600;font-size:.9rem;display:flex;gap:.4rem;align-items:center}
+.foot{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:center;margin-top:1.5rem;font-size:.85rem}
+
+/* STEP LAYOUT */
+.flow{display:grid;grid-template-columns:210px minmax(0,1fr);gap:2rem;margin-top:1.25rem}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.25rem;position:sticky;top:1rem;align-self:start}
+.steps li a, .steps li span.st{display:flex;gap:.65rem;align-items:center;padding:.5rem .6rem;border-radius:var(--r-btn);color:var(--muted);text-decoration:none;font-size:.9rem}
+.steps .n{width:1.5rem;height:1.5rem;border-radius:50%;border:1.5px solid currentColor;display:grid;place-items:center;font-size:.72rem;font-weight:600;flex:none}
+.steps .done{color:var(--done)} .steps .done .n{background:var(--done);border-color:var(--done);color:var(--s0)}
+.steps .cur{color:var(--bc);background:var(--hi);font-weight:600}
+.steps .cur .n{border-color:var(--gold);color:var(--gold)}
+.steps .label small{display:block;font-weight:400;color:var(--muted);font-size:.75rem}
+
+.panel{border:1px solid var(--line);border-radius:var(--r-box);background:var(--s1)}
+.panel-h{display:flex;flex-wrap:wrap;gap:.75rem;justify-content:space-between;align-items:center;padding:1rem 1.1rem;border-bottom:1px solid var(--line)}
+.panel-b{padding:1.1rem}
+.meter{height:.5rem;border-radius:999px;background:var(--hi);overflow:hidden}
+.meter>i{display:block;height:100%;background:var(--run);border-radius:inherit;transition:width 400ms var(--ptah-ease-soft)}
+.agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.75rem;margin-top:1rem}
+.acard{padding:.8rem .9rem;border:1px solid var(--line);border-radius:var(--r-box);background:var(--s0);display:flex;flex-direction:column;gap:.4rem}
+.acard.running{border-color:color-mix(in oklch,var(--run) 55%,transparent)}
+.acard.failed{border-color:color-mix(in oklch,var(--err) 55%,transparent)}
+.acard header{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+.acard .path-line{font-size:.8rem;color:var(--muted);overflow-wrap:anywhere}
+.acard .err-line{font-size:.82rem;color:var(--err)}
+.facts{display:flex;flex-wrap:wrap;gap:1.25rem;font-size:.85rem;color:var(--muted);margin-top:.9rem}
+.facts b{color:var(--bc);font-weight:600}
+details.log{margin-top:1rem;border:1px solid var(--line);border-radius:var(--r-box);background:var(--s1)}
+details.log summary{cursor:pointer;padding:.7rem 1rem;color:var(--muted);font-size:.88rem;min-height:40px;display:flex;align-items:center}
+details.log pre{margin:0;padding:.8rem 1rem;border-top:1px solid var(--line);max-height:180px;overflow:auto;font-size:.78rem;color:var(--muted);white-space:pre-wrap}
+.pill{display:inline-flex;gap:.4rem;align-items:center;font-size:.8rem;padding:.2rem .6rem;border-radius:var(--r-btn);background:var(--hi)}
+.note{padding:.65rem .85rem;border-radius:var(--r-btn);background:var(--hi);font-size:.86rem;margin-top:1rem}
+
+/* PROPOSAL */
+.pw{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:1.25rem;margin-top:1.25rem;align-items:start}
+.sec{padding:1rem 1.1rem;border-top:1px solid var(--line)}
+.sec:first-child{border-top:0}
+.sec-h{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.6rem}
+.items{display:flex;flex-wrap:wrap;gap:.5rem}
+.item{display:flex;flex-direction:column;gap:.1rem;padding:.55rem .75rem;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--s0);min-width:170px;flex:1 1 170px}
+.item.new{border-color:color-mix(in oklch,var(--gold) 60%,transparent);background:var(--gold-soft)}
+.item small{color:var(--muted)}
+.rev{font-size:.78rem}
+.dock{position:sticky;top:1rem;border:1px solid color-mix(in oklch,var(--need) 55%,transparent);border-radius:var(--r-box);background:var(--s1)}
+.dock .panel-b{display:flex;flex-direction:column;gap:.6rem}
+textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);border:1px solid var(--line-strong);background:var(--s0);color:inherit;font:inherit;padding:.55rem .7rem}
+.quick{display:flex;flex-wrap:wrap;gap:.4rem}
+.apply-bar{display:flex;flex-wrap:wrap;gap:.75rem;justify-content:space-between;align-items:center;margin-top:1rem}
+
+
+.tag{display:inline-block;margin-left:.35rem;padding:0 .4rem;border:1px solid var(--gold);border-radius:var(--r-badge);font-size:.68rem;font-weight:600;color:var(--bc);vertical-align:middle}
+.msg{margin:0;padding:.55rem .75rem;border-radius:var(--r-btn);background:var(--hi);font-size:.9rem}
+.dockbar{display:none}
+#project[hidden] .dockbar{display:none!important}
+.dock-close{display:none}
+@media (max-width:720px){
+  .dock{display:none}
+  .dockbar{display:flex;align-items:center;gap:.6rem;position:fixed;left:0;right:0;bottom:0;z-index:30;min-height:52px;padding:.5rem .85rem;background:var(--s3);color:inherit;border:0;border-top:1px solid var(--line-strong);text-align:left}
+  .dockbar-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}
+  .dock.open{display:block;position:fixed;left:0;right:0;bottom:0;z-index:40;max-height:80vh;overflow:auto;border-radius:var(--r-box) var(--r-box) 0 0;order:0}
+  .dock.open .dock-close{display:inline-flex}
+  .scrim{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.5)}
+  .seg{max-width:100%;overflow-x:auto}
+}
+@media (max-width:420px){ .proto-bar .seg:first-of-type{flex-wrap:wrap} }
+[hidden]{display:none!important}
+.view{animation:in var(--ptah-motion-in) var(--ptah-ease-soft)}
+@keyframes in{from{opacity:.001;transform:translateY(4px)}}
+
+@media (max-width:860px){
+  .pw{grid-template-columns:1fr}
+  .dock{position:static;order:-1}
+}
+@media (max-width:720px){
+  .paths{grid-template-columns:1fr;grid-template-areas:"a" "b" "c"}
+  .flow{grid-template-columns:1fr;gap:1rem}
+  .steps{flex-direction:row;position:static;overflow-x:auto;gap:.25rem;padding-bottom:.25rem}
+  .steps .label small{display:none}
+  .steps li{flex:none}
+  .steps li:not(:has(.cur)) .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  h1{font-size:1.35rem}
+  .page{padding:1rem .85rem 4rem}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar" role="region" aria-label="Prototype controls">
+  <strong>Prototype</strong>
+  <div class="seg" role="group" aria-label="Screen">
+    <button data-go="home" aria-pressed="true">Home</button>
+    <button data-go="analyze" aria-pressed="false">Analyze: generating</button>
+    <button data-go="project" aria-pressed="false">New project: proposal</button>
+    <button data-go="review" aria-pressed="false">Review &amp; apply</button>
+    <button data-go="team" aria-pressed="false">Team builder: start</button>
+    <button data-go="teamproposal" aria-pressed="false">Team builder: proposal</button>
+    <button data-go="states" aria-pressed="false">States</button>
+  </div>
+  <span class="sp"></span>
+  <div class="seg" role="group" aria-label="Theme">
+    <button data-theme-set="anubis" aria-pressed="true">Dark</button>
+    <button data-theme-set="anubis-light" aria-pressed="false">Light</button>
+  </div>
+</div>
+
+<main class="page">
+
+<!-- ================= HOME  /onboarding ================= -->
+<section id="home" class="view" aria-labelledby="home-h">
+  <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="chat">Back to chat</a></nav></div>
+  <h1 id="home-h">Set up Ptah for your work</h1>
+  <p class="lede">Pick the situation you are in. Each path walks you through the steps and shows what is happening; you never need to read an agent transcript.</p>
+
+  <div class="resume" role="status">
+    <div><span class="chip run"><span class="dot"></span>In progress</span>
+      <strong style="margin-left:.5rem">Agent generation for ptah-extension</strong>
+      <span class="muted"> &middot; 6 of 9 agents written</span></div>
+    <a class="btn btn-primary" href="#" data-go="analyze">Resume</a>
+  </div>
+
+  <div class="paths">
+    <a class="path main" href="#" data-go="analyze" aria-describedby="p1d">
+      <span class="icon" aria-hidden="true">&#9906;</span>
+      <h2>Analyze current project</h2>
+      <p id="p1d" class="muted">Best when you already have code. Ptah reads your workspace, recommends agents, writes them and prepares project guidance.</p>
+      <ol><li>Analyze workspace</li><li>Choose agents</li><li>Generate agents</li><li>Project guidance</li></ol>
+      <span class="go">Start analysis <span aria-hidden="true">&rarr;</span></span>
+    </a>
+    <a class="path b" href="#" data-go="project">
+      <span class="icon" aria-hidden="true">+</span>
+      <h2>New project</h2>
+      <p class="muted">Answer five short questions and review a proposed agent, skill and toolchain setup.</p>
+      <span class="go">Start a project <span aria-hidden="true">&rarr;</span></span>
+    </a>
+    <a class="path c" href="#" data-go="project">
+      <span class="icon" aria-hidden="true">&#9776;</span>
+      <h2>AI team builder</h2>
+      <p class="muted">Describe the team you want and tune the proposed configuration with the agent.</p>
+      <span class="go">Build a team <span aria-hidden="true">&rarr;</span></span>
+    </a>
+  </div>
+
+  <div class="foot">
+    <span class="muted">Reopen this anytime from the configuration menu: Setup.</span>
+    <button class="btn btn-ghost" data-go="chat">Skip for now</button>
+  </div>
+</section>
+
+<!-- ================= ANALYZE  /onboarding/analyze/generate ================= -->
+<section id="analyze" class="view" hidden aria-labelledby="an-h">
+  <div class="topbar">
+    <nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>Analyze current project</span></nav>
+    <span style="flex:1"></span>
+    <span class="pill" title="Provider and model for this run">Anthropic &middot; claude-sonnet</span>
+  </div>
+  <div class="flow">
+    <ol class="steps" aria-label="Progress">
+      <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Analyze<small>4 phases</small></span><span class="sr"> (completed)</span></a></li>
+      <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Choose agents<small>9 selected</small></span><span class="sr"> (completed)</span></a></li>
+      <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">3</span><span class="label">Generate agents<small>Running</small></span></span></li>
+      <li><span class="st"><span class="n" aria-hidden="true">4</span><span class="label">Project guidance<small>Next</small></span></span></li>
+      <li><span class="st"><span class="n" aria-hidden="true">5</span><span class="label">Done</span></span></li>
+    </ol>
+
+    <div>
+      <h1 id="an-h" tabindex="-1">Generating your agents</h1>
+      <p class="lede">Specimen counts. Writing 9 agents into <span class="mono">.claude/agents</span>. You can leave this page; the run keeps going.</p>
+
+      <div class="panel" style="margin-top:1.1rem">
+        <div class="panel-h">
+          <div>
+            <span class="chip run"><span class="dot"></span>Running</span>
+            <span class="muted" style="margin-left:.5rem">Phase: tailoring sections</span>
+          </div>
+          <button class="btn btn-danger" id="stop-btn">Stop</button>
+        </div>
+        <div class="panel-b">
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:.35rem"><span>6 of 9 agents</span><span id="pct">67%</span></div>
+          <div class="meter" role="progressbar" aria-label="Agent generation progress" aria-valuenow="67" aria-valuemin="0" aria-valuemax="100"><i style="width:67%"></i></div>
+          <div class="agents">
+            <article class="acard"><header><h3>backend-developer</h3><span class="chip done"><span class="dot"></span>Written</span></header><p class="path-line mono">.claude/agents/backend-developer.md</p></article>
+            <article class="acard"><header><h3>frontend-developer</h3><span class="chip done"><span class="dot"></span>Written</span></header><p class="path-line mono">.claude/agents/frontend-developer.md</p></article>
+            <article class="acard"><header><h3>software-architect</h3><span class="chip idle"><span class="dot"></span>Unchanged</span></header><p class="path-line mono">.claude/agents/software-architect.md</p></article>
+            <article class="acard running"><header><h3>senior-tester</h3><span class="chip run"><span class="dot"></span>Writing</span></header><p class="path-line">Tailoring 3 of 5 sections</p></article>
+            <article class="acard failed"><header><h3>devops-engineer</h3><span class="chip err"><span class="dot"></span>Failed</span></header><p class="err-line">Model returned an empty section. Retry available.</p><div><button class="btn">Retry this agent</button></div></article>
+            <article class="acard"><header><h3>code-style-reviewer</h3><span class="chip idle"><span class="dot"></span>Waiting</span></header><p class="path-line">Queued</p></article>
+          </div>
+          <div class="facts"><span><b>6</b> files produced</span><span><b>2</b> will overwrite existing</span><span><b>4m 12s</b> elapsed</span></div>
+        </div>
+      </div>
+
+      <details class="log">
+        <summary>Details log: 142 events (31 text, 12 thinking, 88 tool, 0 errors)</summary>
+        <pre>[10:41:02] senior-tester: reading analysis phase 3
+[10:41:09] senior-tester: tool Read libs/shared/src/index.ts
+[10:41:14] senior-tester: tailoring section "Testing conventions"</pre>
+      </details>
+      <p class="note muted">Next: Ptah starts project guidance automatically in 5 seconds after agents finish. You can skip it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= NEW PROJECT  /onboarding/new-project/workspace ================= -->
+<section id="project" class="view" hidden aria-labelledby="pj-h">
+  <div class="topbar">
+    <nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>New project</span></nav>
+    <span style="flex:1"></span>
+    <button class="btn btn-ghost">Save draft</button>
+  </div>
+  <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
+    <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Intake</span></a></li>
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">2</span><span class="label">Proposal</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+  </ol>
+  <h1 id="pj-h" tabindex="-1" style="margin-top:1rem">Proposed setup for "B2B invoicing web app"</h1>
+  <p class="lede">The agent is shaping this from your answers. Items highlighted changed in the latest revision.</p>
+
+  <div class="pw" id="pw">
+    <div class="panel">
+      <div class="panel-h"><span class="chip need"><span class="dot"></span>Agent still refining</span><span class="rev muted">Revision 3 (specimen)</span></div>
+      <div class="sec"><div class="sec-h"><h2>Agents (4)</h2><button class="btn btn-ghost">Edit</button></div>
+        <div class="items">
+          <div class="item new"><strong>software-architect <span class="tag">New</span></strong><small>Plans modules and data model</small></div>
+          <div class="item"><strong>frontend-developer</strong><small>Angular, Tailwind</small></div>
+          <div class="item"><strong>backend-developer</strong><small>NestJS, Postgres</small></div>
+          <div class="item new"><strong>senior-tester <span class="tag">Changed</span></strong><small>Jest, Playwright</small></div>
+        </div></div>
+      <div class="sec"><div class="sec-h"><h2>Skills (3)</h2><button class="btn btn-ghost">Edit</button></div>
+        <div class="items"><div class="item"><strong>nestjs-backend-patterns</strong><small>Catalog skill</small></div><div class="item"><strong>angular-frontend-patterns</strong></div><div class="item new"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
+      <div class="sec"><div class="sec-h"><h2>MCP (1)</h2><button class="btn btn-ghost">Edit</button></div>
+        <div class="items"><div class="item"><strong>postgres-mcp</strong><small>Enabled</small></div></div></div>
+      <div class="sec intake-only"><div class="sec-h"><h2>Plugins <span class="tag">From your intake</span></h2></div>
+        <div class="items"><div class="item"><strong>github</strong><small>Install required</small></div></div></div>
+      <div class="sec intake-only"><div class="sec-h"><h2>Toolchain <span class="tag">From your intake</span></h2></div>
+        <p class="muted">Nx monorepo &middot; TypeScript &middot; Jest &middot; ESLint</p></div>
+      <details class="log" style="margin:1rem;margin-top:0"><summary>Conversation log</summary><pre>agent: Which payment provider do you plan to use?
+you: Stripe
+agent: Added saas-platform-patterns skill.</pre></details>
+    </div>
+
+    <aside class="dock" id="dock" aria-labelledby="dock-h">
+      <div class="panel-h"><h2 id="dock-h">Reply to the agent</h2><span class="chip idle"><span class="dot"></span>Agent replied</span></div>
+      <div class="panel-b">
+        <p class="muted" style="font-size:.8rem">Latest message</p>
+        <blockquote class="msg">Do users sign in with SSO, or email and password? I added the saas-platform-patterns skill for billing.</blockquote>
+        <button class="btn btn-ghost" type="button">Show full message in log</button>
+        <label for="reply" class="sr">Your reply</label>
+        <textarea id="reply" placeholder="Reply to the agent"></textarea>
+        <div style="display:flex;gap:.5rem"><button class="btn btn-primary" id="send-btn" type="button">Send reply</button><button class="btn dock-close" id="dock-close" type="button">Close</button></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="apply-bar">
+    <span class="muted">Review is available once a proposal exists. The agent has not marked it complete.</span>
+    <div style="display:flex;gap:.5rem"><button class="btn">Save draft</button><button class="btn">Save as preset</button><button class="btn btn-primary" data-go="review">Review</button></div>
+  </div>
+  <button class="dockbar" id="dockbar" type="button" aria-expanded="false" aria-controls="dock"><span class="chip idle"><span class="dot"></span>Agent replied</span><span class="dockbar-t">Do users sign in with SSO, or email and password?</span><strong>Reply</strong></button>
+</section>
+
+
+<!-- ================= REVIEW ================= -->
+<section id="review" class="view" hidden aria-labelledby="rv-h">
+  <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><a href="#" data-go="project">New project</a><span aria-hidden="true">/</span><span>Review</span></nav></div>
+  <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
+    <li><a href="#" class="done" data-go="home"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Intake<span class="sr">, completed</span></span></a></li>
+    <li><a href="#" class="done" data-go="project"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Proposal<span class="sr">, completed</span></span></a></li>
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+  </ol>
+  <h1 id="rv-h" tabindex="-1" style="margin-top:1rem">Review revision 3</h1>
+  <p class="lede">Applying writes the proposal to <span class="mono">~/work/invoicing</span>.</p>
+  <div class="note" role="note"><strong>The agent has not marked this complete.</strong> You are applying revision 3. You can still apply.</div>
+  <div class="note" role="status">Revision 4 is available. <button class="btn" type="button">Update review</button></div>
+  <div class="panel" style="margin-top:1rem">
+    <div class="panel-h"><h2>Changes since revision 2</h2><span class="muted rev">Compared revision to revision</span></div>
+    <div class="sec"><div class="items"><div class="item new"><strong>software-architect <span class="tag">New</span></strong><small>Agent</small></div><div class="item new"><strong>senior-tester <span class="tag">Changed</span></strong><small>Agent</small></div><div class="item new"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
+    <div class="sec"><h3>Unchanged (6)</h3><p class="muted">frontend-developer, backend-developer, 2 skills, postgres-mcp, toolchain</p></div>
+    <div class="sec"><h3>CLAUDE.md <span class="tag">Proposal</span></h3><p class="muted">From the proposal configuration</p></div>
+    <div class="sec"><h3>Generated document <span class="tag">Helper output</span></h3><p class="muted">Separate from CLAUDE.md. 412 words (specimen).</p><button class="btn" type="button">Review</button> <button class="btn" type="button">Copy</button></div>
+  </div>
+  <div class="apply-bar"><span class="muted">Pinned workspace: ~/work/invoicing</span><div style="display:flex;gap:.5rem"><button class="btn" data-go="project">Back to proposal</button><button class="btn btn-primary">Apply to invoicing</button></div></div>
+</section>
+
+<!-- ================= TEAM BUILDER START ================= -->
+<section id="team" class="view" hidden aria-labelledby="tb-h">
+  <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>AI team builder</span></nav></div>
+  <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">1</span><span class="label">Describe</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true">2</span><span class="label">Proposal</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+  </ol>
+  <h1 id="tb-h" tabindex="-1" style="margin-top:1rem">Describe the team you want</h1>
+  <p class="lede">The agent proposes a configuration for <span class="mono">~/work/invoicing</span>. You review it before anything is written.</p>
+  <form class="panel" style="margin-top:1rem;max-width:620px" onsubmit="return false">
+    <div class="panel-b" style="display:flex;flex-direction:column;gap:.75rem">
+      <label for="tb-t"><strong>What should this team do?</strong></label>
+      <textarea id="tb-t" aria-describedby="tb-e" aria-invalid="true" style="min-height:110px"></textarea>
+      <p id="tb-e" class="err-line" style="color:var(--err);font-size:.85rem">Describe the team in at least a sentence.</p>
+      <details class="log" style="margin:0"><summary>Advanced: provider and model</summary><div class="panel-b muted">Provider and model selector (existing picker)</div></details>
+      <div style="display:flex;gap:.5rem;justify-content:space-between"><button class="btn" type="button">Load preset</button><div style="display:flex;gap:.5rem"><button class="btn" type="button" data-go="home">Cancel</button><button class="btn btn-primary" type="button" data-go="project">Create proposal</button></div></div>
+    </div>
+  </form>
+</section>
+
+<!-- ================= STATE GALLERY ================= -->
+<section id="states" class="view" hidden aria-labelledby="st-h">
+  <h1 id="st-h" tabindex="-1">Shared states</h1>
+  <p class="lede">Specimens of the run, loading, empty, error, recovery and done states each flow reuses.</p>
+  <div class="agents" style="margin-top:1.25rem">
+    <article class="acard"><header><h3>Loading</h3><span class="chip idle"><span class="dot"></span>Loading</span></header><div class="meter" style="height:.9rem;opacity:.6"></div><div class="meter" style="height:.9rem;width:70%;opacity:.4"></div></article>
+    <article class="acard"><header><h3>Empty (no saved analyses)</h3></header><p class="muted">No saved analyses yet. Start an analysis to create one.</p><div><button class="btn btn-primary">Start analysis</button></div></article>
+    <article class="acard"><header><h3>Cancelling</h3><span class="chip need"><span class="dot"></span>Stopping</span></header><p class="muted">Waiting for the run to stop. Actions are disabled.</p><div><button class="btn" disabled>Stop</button></div></article>
+    <article class="acard failed"><header><h3>Failed</h3><span class="chip err"><span class="dot"></span>Failed</span></header><p class="err-line">Generation failed for 2 agents.</p><div style="display:flex;gap:.5rem"><button class="btn">Retry failed</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard"><header><h3>Resumable</h3><span class="chip need"><span class="dot"></span>Interrupted</span></header><p class="muted">Stopped after 6 agents were written.</p><div style="display:flex;gap:.5rem"><button class="btn btn-primary">Resume</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard"><header><h3>Cancelled, no checkpoint</h3><span class="chip idle"><span class="dot"></span>Stopped</span></header><p class="muted">Nothing to resume.</p><div><button class="btn">Start over</button></div></article>
+    <article class="acard failed"><header><h3>Session missing (recovery)</h3><span class="chip err"><span class="dot"></span>Unavailable</span></header><p class="err-line">This session is no longer available.</p><div style="display:flex;gap:.5rem"><button class="btn">Restore from draft</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard"><header><h3>Owner conflict</h3><span class="chip need"><span class="dot"></span>Blocked</span></header><p class="muted">Another run is active in this workspace.</p><div style="display:flex;gap:.5rem"><button class="btn">Open it</button><button class="btn btn-ghost">Retry</button></div></article>
+    <article class="acard"><header><h3>Done</h3><span class="chip done"><span class="dot"></span>Done</span></header><p class="muted">9 written, 1 unchanged (specimen).</p><div><button class="btn btn-primary">Continue</button></div></article>
+  </div>
+</section>
+
+</main>
+<p id="status-region" class="sr" role="status"></p>
+
+<script>
+const views=['home','analyze','project','review','team','states'];
+const MODES={teamproposal:'team'};
+function setTeam(t){document.querySelector('#project .crumb span:last-child').textContent=t?'AI team builder':'New project';document.querySelector('#project .steps li:first-child .label').childNodes[0].textContent=t?'Describe':'Intake';}
+function show(id){
+  if(id==='teamproposal'){document.getElementById('project').dataset.mode='team';document.getElementById('pj-h').textContent='Proposed team for ~/work/invoicing';setTeam(true);document.querySelectorAll('.intake-only').forEach(n=>n.hidden=true);id='project';}
+  else if(id==='project'){document.getElementById('project').dataset.mode='new';document.getElementById('pj-h').textContent='Proposed setup for "B2B invoicing web app"';setTeam(false);document.querySelectorAll('.intake-only').forEach(n=>n.hidden=false);}
+  const navId=document.getElementById('project').dataset.mode==='team'&&id==='project'?'teamproposal':id;
+  if(id==='chat'){alert('Back to chat (host navigation)');return;}
+  views.forEach(v=>document.getElementById(v).hidden=v!==id);
+  if(dock.classList.contains('open'))closeDock();
+  document.querySelectorAll('[data-go]').forEach(b=>{ if(b.closest('.seg')) b.setAttribute('aria-pressed',b.dataset.go===navId)});
+  const h=document.querySelector('#'+id+' h1'); if(h){h.setAttribute('tabindex','-1');h.focus({preventScroll:true});}
+  history.replaceState(null,'','#'+id);
+}
+document.addEventListener('click',e=>{
+  const g=e.target.closest('[data-go]'); if(g){e.preventDefault();show(g.dataset.go);}
+  const t=e.target.closest('[data-theme-set]'); if(t){
+    document.documentElement.dataset.theme=t.dataset.themeSet;
+    document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',b===t));
+  }
+  if(e.target.id==='stop-btn'){e.target.textContent='Stopping...';e.target.disabled=true;}
+});
+
+const dock=document.getElementById('dock'),bar=document.getElementById('dockbar'),pw=document.getElementById('pw');
+let scrim;
+function openDock(){dock.classList.add('open');bar.setAttribute('aria-expanded','true');
+  dock.setAttribute('role','dialog');dock.setAttribute('aria-modal','true');
+  document.querySelectorAll('#project > *:not(#dockbar)').forEach(n=>{if(!n.contains(dock))n.inert=true});
+  pw.querySelectorAll(':scope > *:not(#dock)').forEach(n=>n.inert=true);
+  bar.inert=true;
+  scrim=document.createElement('div');scrim.className='scrim';scrim.addEventListener('click',closeDock);document.body.appendChild(scrim);
+  document.getElementById('reply').focus();}
+function closeDock(msg){dock.classList.remove('open');bar.setAttribute('aria-expanded','false');
+  dock.removeAttribute('role');dock.removeAttribute('aria-modal');
+  document.querySelectorAll('#project *').forEach(n=>{if(n.inert)n.inert=false});bar.inert=false;
+  scrim&&scrim.remove();scrim=null;bar.focus();
+  if(typeof msg==='string')document.getElementById('status-region').textContent=msg;}
+bar.addEventListener('click',openDock);
+document.getElementById('dock-close').addEventListener('click',()=>closeDock());
+document.getElementById('send-btn').addEventListener('click',()=>{if(dock.classList.contains('open'))closeDock('Reply sent');});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&dock.classList.contains('open'))closeDock();
+  if(e.key==='Tab'&&dock.classList.contains('open')){const f=[...dock.querySelectorAll('button,textarea')].filter(x=>!x.disabled&&x.offsetParent);const a=f[0],z=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}}
+});
+const h=location.hash.slice(1); if(views.includes(h)) show(h);
+const q=new URLSearchParams(location.search).get('theme'); if(q) document.querySelector('[data-theme-set="'+q+'"]')?.click();
+</script>
+</body>
+</html>

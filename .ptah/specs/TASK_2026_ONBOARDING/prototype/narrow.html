@@ -1,0 +1,4 @@
+<!doctype html><title>640px harness</title><body style="margin:0;background:#888">
+<!-- usage: narrow.html?theme=anubis&view=project&w=360  renders index.html in a 640px frame -->
+<iframe id="f" style="height:1000px;border:0;background:#fff"></iframe>
+<script>const p=new URLSearchParams(location.search);document.getElementById('f').style.width=(p.get('w')||640)+'px';document.getElementById('f').src='index.html?theme='+(p.get('theme')||'anubis')+'#'+(p.get('view')||'home')</script>
