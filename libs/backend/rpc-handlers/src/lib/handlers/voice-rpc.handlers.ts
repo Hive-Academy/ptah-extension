@@ -816,9 +816,11 @@ export class VoiceRpcHandlers {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const category = isVoiceProviderError(error) ? error.category : undefined;
+      // A VoiceProviderError message is sanitized (category + HTTP status only, never key or body).
       this.logger.warn('[voice] testConnection failed', {
         providerId: parsed.data.providerId,
         category,
+        ...(category ? { error: message } : {}),
       });
       return { ok: false, error: message, category };
     }
