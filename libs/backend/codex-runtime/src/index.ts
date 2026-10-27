@@ -76,3 +76,5 @@ export {
   normalizeCodexHomeKey,
   normalizeCodexWorkspaceKey,
 } from './lib/codex-home-path';
+
+export { CodexProcessFailureError } from './lib/codex-app-server-process';
