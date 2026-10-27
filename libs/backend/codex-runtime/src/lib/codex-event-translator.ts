@@ -142,9 +142,15 @@ export class CodexEventTranslator {
           difference(data.tokenUsage.total, data.tokenUsage.last);
         this.baselines.set(key, baseline);
         this.totals.set(data.threadId, data.tokenUsage.total);
+        const modelContextWindow = data.tokenUsage.modelContextWindow;
         const usage: CodexReportedUsage = {
           ...difference(data.tokenUsage.total, baseline),
           lastRequestTotalTokens: data.tokenUsage.last.totalTokens,
+          // Only a positive server-reported window is carried; null or absent
+          // stays absent so no consumer can mistake a missing window for one.
+          ...(typeof modelContextWindow === 'number' && modelContextWindow > 0
+            ? { modelContextWindow }
+            : {}),
         };
         this.usage.set(this.key(data), usage);
         return this.emit(data, [{ type: 'usage', usage }]);

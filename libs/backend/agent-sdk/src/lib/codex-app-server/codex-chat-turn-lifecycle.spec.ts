@@ -8,6 +8,7 @@ import {
   type ApprovalSink,
   type CodexContext,
   type CodexExecutionProfile,
+  type CodexReportedUsage,
   type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
@@ -231,6 +232,125 @@ describe('Codex chat turn lifecycle', () => {
     });
     expect(states[1].revision).toBeGreaterThan(states[0].revision);
     expect(h.turnState.get(id)?.revision).toBe(states[1].revision);
+    await h.adapter.dispose();
+  });
+
+  it('feeds native usage and model into the session-stats payload', async () => {
+    const h = setup();
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    const reported: CodexReportedUsage = {
+      inputTokens: 120,
+      cachedInputTokens: 40,
+      outputTokens: 30,
+      totalTokens: 150,
+      lastRequestTotalTokens: 90,
+      modelContextWindow: 272_000,
+    };
+    const usageEvent: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 2,
+      type: 'usage',
+      usage: reported,
+    };
+    const settled: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+      usage: reported,
+    };
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+        yield usageEvent;
+        yield settled;
+      })(),
+    );
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: id,
+        turnCost: null,
+        tokens: { input: 80, output: 30, cacheRead: 40 },
+        modelUsage: [
+          expect.objectContaining({
+            model: 'gpt',
+            inputTokens: 80,
+            outputTokens: 30,
+            contextWindow: 272_000,
+            contextCapacity: {
+              tokens: 272_000,
+              source: 'sdk-native',
+              providerId: null,
+              model: 'gpt',
+            },
+            costUSD: null,
+            cacheReadInputTokens: 40,
+            lastTurnContextTokens: 90,
+          }),
+        ],
+      }),
+    );
+    await h.adapter.dispose();
+  });
+
+  it('reports an unknown native context window without inventing one', async () => {
+    const h = setup();
+    const stats = jest.fn();
+    h.adapter.setResultStatsCallback(stats);
+    const reported: CodexReportedUsage = {
+      inputTokens: 120,
+      cachedInputTokens: 40,
+      outputTokens: 30,
+      totalTokens: 150,
+      lastRequestTotalTokens: 90,
+    };
+    const usageEvent: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 2,
+      type: 'usage',
+      usage: reported,
+    };
+    const settled: CodexRuntimeEvent = {
+      ...identity,
+      turnId: 'turn',
+      sequence: 3,
+      type: 'terminal',
+      status: 'completed',
+      usage: reported,
+    };
+    h.context.events.mockImplementation(() =>
+      (async function* () {
+        yield delta;
+        yield usageEvent;
+        yield settled;
+      })(),
+    );
+    await collect(await h.adapter.startChatSession({ tabId }));
+    expect(stats).toHaveBeenCalledTimes(1);
+    expect(stats).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelUsage: [
+          expect.objectContaining({
+            model: 'gpt',
+            contextWindow: 0,
+            contextCapacity: {
+              tokens: null,
+              source: 'unknown',
+              providerId: null,
+              model: 'gpt',
+            },
+            costUSD: null,
+            lastTurnContextTokens: 90,
+          }),
+        ],
+      }),
+    );
     await h.adapter.dispose();
   });
 

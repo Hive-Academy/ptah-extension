@@ -161,6 +161,8 @@ export interface CodexReportedUsage {
   readonly totalTokens?: number;
   /** Context-window occupancy of the most recent model request in this turn (wire tokenUsage.last.totalTokens). NOT a whole-turn quantity; use it for compaction preTokens / context fill, never for turn cost. */
   readonly lastRequestTotalTokens?: number;
+  /** The model context window the server reported with this update (wire tokenUsage.modelContextWindow). Present only when the server reported a positive integer; null or absent stays absent. */
+  readonly modelContextWindow?: number;
   readonly costUsd?: number;
 }
 /** Sanitized, consumer-safe information, never raw errors or credentials. */

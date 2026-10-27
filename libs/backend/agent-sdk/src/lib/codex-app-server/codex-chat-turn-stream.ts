@@ -10,6 +10,7 @@ import type {
   IAgentAdapter,
   SessionId,
 } from '@ptah-extension/shared';
+import { resolveContextCapacity } from '@ptah-extension/shared';
 import type {
   CodexChatAdapterError,
   CodexChatAdapterPorts,
@@ -34,6 +35,12 @@ export interface CodexChatSession {
   readonly scope: CodexChatScope;
   readonly abort: AbortController;
   usage?: CodexReportedUsage;
+  /**
+   * The adapter's tracked settings (TrackedSession.settings); the turn's
+   * stats row reads the effective model from here. The adapter keeps the
+   * object current across setSessionModel, so read it per turn.
+   */
+  settings?: { model?: string };
   busy: boolean;
   turnId?: string;
   blocked: boolean;
@@ -132,13 +139,49 @@ export async function* streamCodexChatTurn(
         if (
           usage?.inputTokens !== undefined &&
           usage.outputTokens !== undefined
-        )
+        ) {
+          const tokens = tokenUsage(usage);
+          const model = session.settings?.model;
+          const contextCapacity = model
+            ? resolveContextCapacity({
+                route: { kind: 'native', providerId: null },
+                model,
+                sdkContextWindow: usage.modelContextWindow,
+              })
+            : undefined;
           deps.stats({
             sessionId: session.id,
             turnCost: null,
-            tokens: tokenUsage(usage),
+            tokens,
             duration: Date.now() - started,
+            ...(model && contextCapacity
+              ? {
+                  // The same per-model row the Claude path sends, from native
+                  // data only: cost stays null (Codex reports no pricing) and
+                  // an unknown window reads 0 while contextCapacity says
+                  // 'unknown', so the header renders an explicit unknown
+                  // context, never a wrong percentage.
+                  modelUsage: [
+                    {
+                      model,
+                      inputTokens: tokens.input,
+                      outputTokens: tokens.output,
+                      contextWindow: contextCapacity.tokens ?? 0,
+                      contextCapacity,
+                      costUSD: null,
+                      cacheReadInputTokens: tokens.cacheRead ?? 0,
+                      ...(usage.lastRequestTotalTokens !== undefined
+                        ? {
+                            lastTurnContextTokens:
+                              usage.lastRequestTotalTokens,
+                          }
+                        : {}),
+                    },
+                  ],
+                }
+              : {}),
           });
+        }
       },
     });
     if (session.pendingInterrupt) {

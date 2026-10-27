@@ -328,6 +328,33 @@ describe('CodexEventTranslator', () => {
     });
   });
 
+  it('carries only a positive server-reported context window', () => {
+    const reported = {
+      ...counts,
+      inputTokens: 12,
+      outputTokens: 5,
+      totalTokens: 17,
+    };
+    const update = (modelContextWindow?: number | null) => ({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        ...ids,
+        tokenUsage: { last: counts, total: reported, modelContextWindow },
+      },
+    });
+    for (const absent of [null, undefined, 0])
+      expect(
+        translator.translate(update(absent))[0],
+      ).not.toHaveProperty('usage.modelContextWindow');
+    expect(translator.translate(update(272_000))).toMatchObject([
+      { type: 'usage', usage: { modelContextWindow: 272_000 } },
+    ]);
+    // The terminal reuses the turn's latest snapshot, window included.
+    expect(translator.translate(terminal())[0]).toMatchObject({
+      usage: { modelContextWindow: 272_000 },
+    });
+  });
+
   it.each(['completed', 'failed', 'interrupted'])(
     'emits exactly one %s terminal and ignores late events',
     (status) => {
