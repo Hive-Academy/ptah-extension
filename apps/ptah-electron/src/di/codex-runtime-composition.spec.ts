@@ -1,6 +1,8 @@
 import 'reflect-metadata';
+import { createHash } from 'node:crypto';
 import type { IAgentAdapter, SessionId } from '@ptah-extension/shared';
 import type { CodexChatHostPorts } from '@ptah-extension/rpc-handlers';
+import type { ElectronCodexBindingInput } from './codex-binding.types';
 import {
   createElectronCodexSessionState,
   createElectronCodexSessionLifecycle,
@@ -18,6 +20,7 @@ import { ELECTRON_CODEX_BOUND_TOKENS } from './expected-resolvable';
 import { container } from 'tsyringe';
 import {
   CODEX_RUNTIME_TOKENS,
+  findCodexExecutablePin,
   buildCodexExecutionProfile,
   resolveGatedCodexRuntime,
   type CodexRuntime,
@@ -37,9 +40,15 @@ import {
   resolveElectronCodexBundledRoot,
   createElectronCodexRouting,
   createElectronCodexScopeFactory,
-  type ElectronCodexBindingInput,
   type ElectronCodexScopeInput,
 } from './codex-runtime-composition';
+
+jest.mock('@ptah-extension/codex-runtime', () => ({
+  ...jest.requireActual<typeof import('@ptah-extension/codex-runtime')>(
+    '@ptah-extension/codex-runtime',
+  ),
+  findCodexExecutablePin: jest.fn(),
+}));
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
   ...jest.requireActual<typeof import('@ptah-extension/agent-sdk')>(
@@ -57,6 +66,9 @@ beforeEach(() => {
   mkdirSync(bundledRoot);
   executablePath = join(bundledRoot, 'codex');
   writeFileSync(executablePath, 'fixture');
+  jest.mocked(findCodexExecutablePin).mockReset().mockReturnValue({
+    ...manifest, binarySha256: createHash('sha256').update('fixture').digest('hex'),
+  });
   jest.mocked(resolveCodexNativeBinaryPath).mockReset().mockReturnValue(executablePath);
 });
 afterEach(() => rmSync(temporaryRoot, { recursive: true, force: true }));
@@ -497,27 +509,62 @@ describe('Electron Codex asynchronous binary inspection', () => {
   it('shares one inspection across concurrent opens and repeats only after a file change', async () => {
     const readVersion = jest.fn(async () => 'codex-cli 0.155.1');
     const [first, second] = await Promise.all([
-      inspectElectronCodexBinary(executablePath, readVersion),
-      inspectElectronCodexBinary(executablePath, readVersion),
+      inspectElectronCodexBinary(executablePath, readVersion, platform),
+      inspectElectronCodexBinary(executablePath, readVersion, platform),
     ]);
     expect(first).toBe(second);
     expect(first.sha256).toHaveLength(64);
     expect(first.versionOutput).toBe('codex-cli 0.155.1');
     expect(readVersion).toHaveBeenCalledTimes(1);
-    await inspectElectronCodexBinary(executablePath, readVersion);
+    await inspectElectronCodexBinary(executablePath, readVersion, platform);
     expect(readVersion).toHaveBeenCalledTimes(1);
     writeFileSync(executablePath, 'updated fixture with a different size');
-    const changed = await inspectElectronCodexBinary(executablePath, readVersion);
+    jest.mocked(findCodexExecutablePin).mockReturnValue({
+      ...manifest,
+      binarySha256: createHash('sha256').update('updated fixture with a different size').digest('hex'),
+    });
+    const changed = await inspectElectronCodexBinary(executablePath, readVersion, platform);
     expect(changed.sha256).not.toBe(first.sha256);
     expect(readVersion).toHaveBeenCalledTimes(2);
   });
 
-  it('shares a failed inspection until the executable changes', async () => {
-    const failure = new Error('version process failed');
-    const readVersion = jest.fn(async () => { throw failure; });
-    await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
-    await expect(inspectElectronCodexBinary(executablePath, readVersion)).rejects.toBe(failure);
+  it.each(['version process failed', 'version process timed out', 'EBUSY'])(
+    'retries a rejected inspection on the next open: %s', async (message) => {
+      const failure = new Error(message);
+      const readVersion = jest.fn<Promise<string>, [string]>()
+        .mockRejectedValueOnce(failure)
+        .mockResolvedValue('codex-cli 0.155.1');
+      await expect(inspectElectronCodexBinary(executablePath, readVersion, platform)).rejects.toBe(failure);
+      await expect(inspectElectronCodexBinary(executablePath, readVersion, platform)).resolves.toMatchObject({
+        versionOutput: 'codex-cli 0.155.1',
+      });
+      expect(readVersion).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('rejects an unreviewed digest without executing the binary', async () => {
+    jest.mocked(findCodexExecutablePin).mockReturnValue(manifest);
+    const readVersion = jest.fn(async () => 'codex-cli 0.155.1');
+    await expect(inspectElectronCodexBinary(executablePath, readVersion, platform)).rejects.toMatchObject({
+      code: 'codex-digest-mismatch',
+    });
+    expect(readVersion).not.toHaveBeenCalled();
+    jest.mocked(findCodexExecutablePin).mockReturnValue({
+      ...manifest, binarySha256: createHash('sha256').update('fixture').digest('hex'),
+    });
+    await expect(inspectElectronCodexBinary(executablePath, readVersion, platform)).resolves.toMatchObject({
+      versionOutput: 'codex-cli 0.155.1',
+    });
     expect(readVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a platform without a reviewed pin without executing the binary', async () => {
+    jest.mocked(findCodexExecutablePin).mockReturnValue(undefined);
+    const readVersion = jest.fn(async () => 'codex-cli 0.155.1');
+    await expect(inspectElectronCodexBinary(executablePath, readVersion, { platform: 'linux', arch: 'arm64' })).rejects.toMatchObject({
+      code: 'codex-pin-unavailable',
+    });
+    expect(readVersion).not.toHaveBeenCalled();
   });
 });
 

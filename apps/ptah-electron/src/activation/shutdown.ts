@@ -291,7 +291,8 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   }
 
   if (hasElectronCodexBindings()) {
-    // markInactive stages metadata writes; the final flush runs after this drain.
+    // Binding disposal stages every inactive write before waiting on scopes.
+    // Late runtime closes reuse that write, even after this budget expires.
     await withBudget(
       'Codex bindings dispose',
       disposeElectronCodexBindings,

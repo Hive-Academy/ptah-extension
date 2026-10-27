@@ -8,6 +8,14 @@
  * finished or its budget has run out.
  */
 
+import 'reflect-metadata';
+import { container } from 'tsyringe';
+import type { CodexThreadIdentity } from '@ptah-extension/codex-runtime';
+import {
+  createElectronCodexBindingHandle,
+  createElectronCodexSessionState,
+  createElectronCodexShutdownStore,
+} from '../di/codex-session-binding';
 import {
   killRunningChecks,
   runningCheckPids,
@@ -23,7 +31,16 @@ import {
 
 import { disposeElectronCodexBindings, hasElectronCodexBindings } from '../di/codex-binding-registry';
 
+// Keep the real binding shutdown helpers without loading unrelated RPC handlers.
+// These control factories are not used by the shutdown scenarios below.
+jest.mock('@ptah-extension/rpc-handlers', () => ({
+  createNativeSessionControls: jest.fn(),
+  createLegacySessionControlPorts: jest.fn(),
+  createLegacyCodexSessionSettings: jest.fn(),
+}));
+
 jest.mock('../di/codex-binding-registry', () => ({
+  ...jest.requireActual<typeof import('../di/codex-binding-registry')>('../di/codex-binding-registry'),
   disposeElectronCodexBindings: jest.fn(async () => undefined),
   hasElectronCodexBindings: jest.fn(() => false),
 }));
@@ -210,22 +227,66 @@ describe('will-quit ? Codex bindings', () => {
     );
   });
 
-  it('continues teardown after the Codex close budget expires', async () => {
-    jest.mocked(disposeElectronCodexBindings).mockImplementation(
-      () => new Promise<void>(() => undefined),
-    );
+  it('stages inactive metadata before SQLite closes when the scope close exceeds its budget', async () => {
     const order: string[] = [];
+    const identity: CodexThreadIdentity = {
+      threadId: 'thread-1', contextId: 'context-1', processGeneration: 1,
+      normalizedHome: '/home', workspaceId: '/work', providerId: 'codex',
+      profileFingerprint: 'fingerprint',
+    };
+    let metadataState = 'active';
+    const markInactive = jest.fn(async () => {
+      metadataState = 'inactive';
+      order.push('markInactive');
+    });
+    const store = createElectronCodexShutdownStore({
+      persist: async () => undefined, read: async () => identity, markInactive,
+    });
+    await store.persist(identity);
+    const otherIdentity = { ...identity, threadId: 'thread-2', contextId: 'context-2' };
+    await store.persist(otherIdentity);
+    const parent = container.createChildContainer();
+    let releaseClose: () => void = () => undefined;
+    const pendingClose = new Promise<void>((resolve) => { releaseClose = resolve; });
+    const binding = createElectronCodexBindingHandle({
+      routing: { devRoute: undefined, capabilities: { nativeCodex: true } },
+      scopes: new Set([{
+        container: parent,
+        dispose: async () => {
+          await pendingClose;
+          await store.markInactive(identity);
+        },
+      }]),
+      record: { dispose: jest.fn() }, lookup: { dispose: jest.fn() },
+      store, state: createElectronCodexSessionState(parent), disposed: false,
+    });
+    jest.mocked(disposeElectronCodexBindings).mockImplementation(
+      jest.requireActual<typeof import('../di/codex-binding-registry')>(
+        '../di/codex-binding-registry',
+      ).disposeElectronCodexBindings,
+    );
     const deps = quitDeps(minimalRefs(order));
-    handleWillQuit(deps);
-    await flushMicrotasks();
-    expect(order).toEqual([]);
-    expect(deps.quit).not.toHaveBeenCalled();
-    await jest.advanceTimersByTimeAsync(CODEX_DISPOSE_BUDGET_MS);
-    await flushMicrotasks();
-    expect(order).toEqual(['sqliteConnection', 'diagnostics']);
-    expect(deps.flushSessionMetadataStores).toHaveBeenCalledTimes(2);
-    expect(deps.quit).toHaveBeenCalledTimes(1);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Codex bindings dispose exceeded'));
+    deps.flushSessionMetadataStores.mockImplementation(async () => { order.push('flush'); });
+    try {
+      handleWillQuit(deps);
+      await flushMicrotasks();
+      expect(metadataState).toBe('inactive');
+      expect(order).toEqual(['flush', 'markInactive', 'markInactive']);
+      expect(deps.quit).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(CODEX_DISPOSE_BUDGET_MS);
+      await flushMicrotasks();
+      expect(order).toEqual(['flush', 'markInactive', 'markInactive', 'sqliteConnection', 'diagnostics', 'flush']);
+      expect(deps.quit).toHaveBeenCalledTimes(1);
+      releaseClose();
+      await binding.dispose();
+      expect(markInactive).toHaveBeenCalledTimes(2);
+      expect(markInactive).toHaveBeenCalledWith(identity);
+      expect(markInactive).toHaveBeenCalledWith(otherIdentity);
+    } finally {
+      releaseClose();
+      await binding.dispose();
+      await parent.dispose();
+    }
   });
 
   it('drains Codex writes before closing storage and performing the final flush', async () => {
@@ -236,5 +297,34 @@ describe('will-quit ? Codex bindings', () => {
     handleWillQuit(deps);
     await flushMicrotasks();
     expect(order).toEqual(['flush', 'markInactive', 'sqliteConnection', 'diagnostics', 'flush']);
+  });
+});
+
+describe('Electron Codex shutdown metadata staging', () => {
+  it('includes a pending persist and refuses new persistence during shutdown', async () => {
+    const identity: CodexThreadIdentity = {
+      threadId: 'thread-1', contextId: 'context-1', processGeneration: 1,
+      normalizedHome: '/home', workspaceId: '/work', providerId: 'codex',
+      profileFingerprint: 'fingerprint',
+    };
+    let finishPersist: () => void = () => undefined;
+    const pending = new Promise<void>((resolve) => { finishPersist = resolve; });
+    const persist = jest.fn(() => pending);
+    const markInactive = jest.fn(async () => undefined);
+    const store = createElectronCodexShutdownStore({
+      persist, markInactive, read: async () => identity,
+    });
+    const writing = store.persist(identity);
+    const rejected = expect(writing).rejects.toThrow('shutting down');
+    const staged = store.stageInactive();
+    expect(markInactive).toHaveBeenCalledWith(identity);
+    finishPersist();
+    await rejected;
+    await staged;
+    expect(store.stageInactive()).toBe(staged);
+    await expect(store.persist(identity)).rejects.toThrow('shutting down');
+    await store.markInactive(identity);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(markInactive).toHaveBeenCalledTimes(1);
   });
 });

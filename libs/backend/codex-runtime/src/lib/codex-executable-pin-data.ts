@@ -1,6 +1,7 @@
 import type { CodexExecutableManifestRow } from './codex-runtime-ports';
 
-/** Reviewed portable identity; keep in sync with the protocol manifest via the pin spec. */
+/** Reviewed win32/x64 identity; all other platforms have no pin and fail closed.
+ * Keep in sync with the protocol manifest via the pin spec. */
 export const CODEX_EXECUTABLE_PIN_DATA: CodexExecutableManifestRow = Object.freeze({
   platform: 'win32',
   arch: 'x64',

@@ -4,7 +4,11 @@ import {
   SDK_TOKENS,
   type SessionLifecycleManager,
   type CodexChatAdapterPorts,
+  type CodexChatScope,
+  type NativeSessionControls,
 } from '@ptah-extension/agent-sdk';
+import type { CodexThreadIdentity, CodexThreadIdentityStore } from '@ptah-extension/codex-runtime';
+import { trackElectronCodexBinding } from './codex-binding-registry';
 import {
   AUTH_PROVIDERS_TOKENS,
   type AuthManager,
@@ -16,17 +20,23 @@ import {
   type CodexChatHostPortsDeps,
   type NativeSessionControlsDeps,
   type LegacySessionControlPortsDeps,
-  type createCodexSessionSettingsRecord,
 } from '@ptah-extension/rpc-handlers';
 import type {
+  ElectronCodexBinding,
   ElectronCodexBindingInput,
-  createElectronCodexIdentityLookup,
-} from './codex-runtime-composition';
+  ElectronCodexIdentityLookup,
+  ElectronCodexPreparedSession,
+  ElectronCodexRouting,
+  ElectronCodexSessionControls,
+  ElectronCodexSessionState,
+  ElectronCodexSettingsRecord,
+  ElectronCodexShutdownStore,
+} from './codex-binding.types';
 
-type IdentityLookup = Awaited<ReturnType<typeof createElectronCodexIdentityLookup>>;
-type SettingsRecord = ReturnType<typeof createCodexSessionSettingsRecord>;
-
-export function createElectronCodexSessionState(container: DependencyContainer) {
+/** @internal Electron composition and its lifecycle specs. */
+export function createElectronCodexSessionState(
+  container: DependencyContainer,
+): ElectronCodexSessionState {
   const lifecycle = () =>
     container.resolve<SessionLifecycleManager>(
       SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
@@ -38,29 +48,22 @@ export function createElectronCodexSessionState(container: DependencyContainer) 
   const legacy = () =>
     container.resolve<IAgentAdapter>(SDK_TOKENS.SDK_AGENT_ADAPTER);
   const tabs = new Map<SessionId, string>();
-  const profiles = new Map<
-    SessionId,
-    Awaited<ReturnType<CodexChatAdapterPorts['profile']>>
-  >();
-  const preparedTabs = new WeakMap<
-    Awaited<ReturnType<CodexChatAdapterPorts['profile']>>,
-    string
-  >();
+  const profiles = new Map<SessionId, ElectronCodexPreparedSession>();
+  const preparedTabs = new WeakMap<ElectronCodexPreparedSession, string>();
   const tabId = (id: SessionId) =>
     tabs.get(id) ?? lifecycle().find(id)?.tabId ?? id;
   return { lifecycle, native, legacy, tabs, profiles, preparedTabs, tabId };
 }
 
-type SessionState = ReturnType<typeof createElectronCodexSessionState>;
-
+/** @internal Electron composition only. */
 export function createElectronCodexControls(
   container: DependencyContainer,
   input: ElectronCodexBindingInput,
-  state: SessionState,
-  record: SettingsRecord,
-  lookup: IdentityLookup,
+  state: ElectronCodexSessionState,
+  record: ElectronCodexSettingsRecord,
+  lookup: ElectronCodexIdentityLookup,
   broadcaster: CodexChatHostPortsDeps['broadcaster'],
-) {
+): ElectronCodexSessionControls {
   const { settingsStore, scopeResolver } = input;
   const { tabId, native, legacy, lifecycle } = state;
   const controls = createNativeSessionControls({
@@ -114,11 +117,12 @@ export function createElectronCodexControls(
   return { controls, legacyPorts };
 }
 
+/** @internal Electron composition and its lifecycle specs. */
 export function createElectronCodexSessionLifecycle(
-  record: Pick<SettingsRecord, 'lifecycle'>,
-  state: Pick<SessionState, 'tabs' | 'profiles' | 'preparedTabs'>,
-  lookup: Pick<IdentityLookup, 'releaseSession'>,
-  controls: Pick<ReturnType<typeof createNativeSessionControls>, 'releaseSession'>,
+  record: Pick<ElectronCodexSettingsRecord, 'lifecycle'>,
+  state: Pick<ElectronCodexSessionState, 'tabs' | 'profiles' | 'preparedTabs'>,
+  lookup: Pick<ElectronCodexIdentityLookup, 'releaseSession'>,
+  controls: Pick<NativeSessionControls, 'releaseSession'>,
 ): NonNullable<CodexChatAdapterPorts['sessions']> {
   const { profiles, tabs, preparedTabs } = state;
   return {
@@ -136,4 +140,103 @@ export function createElectronCodexSessionLifecycle(
       controls.releaseSession?.(id);
     },
   };
+}
+
+/** @internal Own inactive writes independently of the runtime's close latency. */
+export function createElectronCodexShutdownStore(
+  store: CodexThreadIdentityStore,
+): ElectronCodexShutdownStore {
+  const identities = new Set<CodexThreadIdentity>();
+  let stopping = false;
+  let staged: Promise<void> | undefined;
+  return {
+    read: (id) => store.read(id),
+    async persist(identity) {
+      if (stopping) throw new Error('Native Codex chat is shutting down');
+      // Include an in-flight persist: the metadata store serializes its writes.
+      identities.add(identity);
+      try {
+        await store.persist(identity);
+      } catch (error) {
+        identities.delete(identity);
+        throw error;
+      }
+      if (stopping) throw new Error('Native Codex chat is shutting down');
+    },
+    async markInactive(identity) {
+      // A late runtime close must not enqueue a write against closed storage.
+      if (stopping) return staged;
+      await store.markInactive(identity);
+      identities.delete(identity);
+    },
+    stageInactive() {
+      if (staged) return staged;
+      stopping = true;
+      staged = Promise.allSettled(
+        [...identities].map((identity) => store.markInactive(identity)),
+      ).then((results) => {
+        identities.clear();
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : [],
+        );
+        if (failures.length)
+          throw new AggregateError(failures, 'Codex inactive metadata staging failed');
+      });
+      return staged;
+    },
+  };
+}
+
+interface BindingHandleContext {
+  readonly routing: ElectronCodexRouting;
+  readonly scopes: Set<CodexChatScope>;
+  readonly record: Pick<ElectronCodexSettingsRecord, 'dispose'>;
+  readonly lookup: Pick<ElectronCodexIdentityLookup, 'dispose'>;
+  readonly store: ElectronCodexShutdownStore;
+  readonly state: Pick<ElectronCodexSessionState, 'tabs' | 'profiles'>;
+  disposed: boolean;
+}
+
+/** @internal Electron composition; exported for shutdown regression coverage. */
+export function createElectronCodexBindingHandle(
+  context: BindingHandleContext,
+): ElectronCodexBinding {
+  const { routing, scopes, record, lookup, store } = context;
+  const { tabs, profiles } = context.state;
+  let closing: Promise<void> | undefined;
+  const tracking: { untrack: () => void } = { untrack: () => undefined };
+  const binding: ElectronCodexBinding = {
+    ...routing,
+    dispose: () =>
+      (closing ??= (async () => {
+        context.disposed = true;
+        try {
+          // Invoke first so every inactive write is queued before slow closes.
+          const staged = store.stageInactive();
+          const results = await Promise.allSettled([
+            staged,
+            ...[...scopes].map((scope) => Promise.resolve().then(() => scope.dispose())),
+          ]);
+          const failures = results.flatMap((result) =>
+            result.status === 'rejected' ? [result.reason] : [],
+          );
+          if (failures.length)
+            throw new AggregateError(failures, 'Codex scope shutdown failed');
+        } finally {
+          try {
+            record.dispose();
+          } finally {
+            try {
+              lookup.dispose();
+            } finally {
+              tabs.clear();
+              profiles.clear();
+              tracking.untrack();
+            }
+          }
+        }
+      })()),
+  };
+  tracking.untrack = trackElectronCodexBinding(binding);
+  return binding;
 }

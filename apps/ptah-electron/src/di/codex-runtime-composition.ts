@@ -2,9 +2,10 @@ import {
   createElectronCodexSessionState,
   createElectronCodexControls,
   createElectronCodexSessionLifecycle,
+  createElectronCodexShutdownStore,
+  createElectronCodexBindingHandle,
 } from './codex-session-binding';
 import { createHash, randomUUID } from 'node:crypto';
-import { trackElectronCodexBinding } from './codex-binding-registry';
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -21,11 +22,9 @@ import {
   createCodexRuntimeAdmission,
   createCodexChatEventCallbacks,
   createCodexSessionSettingsRecord,
-  type LegacyCodexSessionSettingsDeps,
   type CodexChatHostPorts,
   type CodexChatHostPortsDeps,
   type CodexChatEventCallbacksDeps,
-  type NativeSessionControlsDeps,
 } from '@ptah-extension/rpc-handlers';
 import type { DependencyContainer } from 'tsyringe';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -37,6 +36,7 @@ import {
   initializeSessionRuntimeIdentityLookup,
   resolveCodexNativeBinaryPath,
   type CodexChatScope,
+  type RuntimeAdmissionPort,
 } from '@ptah-extension/agent-sdk';
 import {
   buildCodexExecutionProfile,
@@ -53,14 +53,20 @@ import {
   type CodexRuntimeRegistrationPorts,
 } from '@ptah-extension/codex-runtime';
 
-export interface ElectronCodexRoutingInput {
-  readonly isPackaged: boolean;
-  readonly env: Readonly<Record<string, string | undefined>>;
-  readonly platform: CodexParityPlatform;
-}
+import type {
+  ElectronCodexBinding,
+  ElectronCodexBindingInput,
+  ElectronCodexIdentityLookup,
+  ElectronCodexRouting,
+  ElectronCodexRoutingInput,
+  ElectronCodexSessionControls,
+  ElectronCodexSessionState,
+  ElectronCodexSettingsRecord,
+  ElectronCodexShutdownStore,
+} from './codex-binding.types';
 
 /** A capability hint only; opening a chat still uses resolveGatedCodexRuntime. */
-export function createElectronCodexRouting(input: ElectronCodexRoutingInput) {
+export function createElectronCodexRouting(input: ElectronCodexRoutingInput): ElectronCodexRouting {
   const devRoute = readCodexDevRouteOverride({
     isPackaged: input.isPackaged,
     env: input.env,
@@ -134,11 +140,16 @@ type VerifiedCodexBinary = Pick<
 >;
 const binaryInspections = new Map<string, Promise<VerifiedCodexBinary>>();
 
-/** Share concurrent opens and retain failures until the executable changes. */
+/** Share in-flight opens and cache successes; failed inspections can retry. */
 export async function inspectElectronCodexBinary(
   executablePath: string,
   readVersion: (path: string) => Promise<string> = readCodexVersion,
+  platform: CodexParityPlatform = process,
 ): Promise<VerifiedCodexBinary> {
+  const pin = findCodexExecutablePin(platform.platform, platform.arch);
+  if (!pin) throw Object.assign(new Error('No reviewed Codex executable pin for this platform'), {
+    code: 'codex-pin-unavailable',
+  });
   const { size, mtimeMs } = await stat(executablePath);
   const key = JSON.stringify([executablePath, size, mtimeMs]);
   let pending = binaryInspections.get(key);
@@ -155,12 +166,24 @@ export async function inspectElectronCodexBinary(
           sha256 += value;
         }
       });
+      if (sha256 !== pin.binarySha256)
+        throw Object.assign(new Error('Codex executable digest does not match the reviewed pin'), {
+          code: 'codex-digest-mismatch',
+        });
       const versionOutput = await readVersion(executablePath);
       return { executablePath, sha256, versionOutput };
-    })();
+    })().catch((error: unknown) => {
+      binaryInspections.delete(key);
+      throw error;
+    });
     binaryInspections.set(key, pending);
   }
-  return pending;
+  const inspected = await pending;
+  if (inspected.sha256 !== pin.binarySha256)
+    throw Object.assign(new Error('Codex executable digest does not match the reviewed pin'), {
+      code: 'codex-digest-mismatch',
+    });
+  return inspected;
 }
 
 async function readCodexVersion(executablePath: string): Promise<string> {
@@ -260,17 +283,18 @@ export function createElectronCodexScopeFactory(
   };
 }
 
-/** Await this before registering SESSION_RUNTIME_IDENTITY_LOOKUP as an instance. */
-export async function createElectronCodexIdentityLookup(
-  ...args: Parameters<typeof initializeSessionRuntimeIdentityLookup>
-) {
-  return await initializeSessionRuntimeIdentityLookup(...args);
-}
-
-export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {
-  readonly bundledRoot: string;
-  readonly scopeResolver: LegacyCodexSessionSettingsDeps['scopeResolver'];
-  readonly settingsStore: NativeSessionControlsDeps['store'];
+interface BindingContext {
+  readonly container: DependencyContainer;
+  readonly input: ElectronCodexBindingInput;
+  readonly logger: Logger;
+  readonly metadataStore: SessionMetadataStore;
+  readonly lookup: ElectronCodexIdentityLookup;
+  readonly record: ElectronCodexSettingsRecord;
+  readonly routing: ElectronCodexRouting;
+  readonly store: ElectronCodexShutdownStore;
+  readonly scopes: Set<CodexChatScope>;
+  readonly state: ElectronCodexSessionState;
+  disposed: boolean;
 }
 
 function createElectronCodexBindingContext(
@@ -278,9 +302,9 @@ function createElectronCodexBindingContext(
   input: ElectronCodexBindingInput,
   logger: Logger,
   metadataStore: SessionMetadataStore,
-  lookup: Awaited<ReturnType<typeof createElectronCodexIdentityLookup>>,
-  record: ReturnType<typeof createCodexSessionSettingsRecord>,
-) {
+  lookup: ElectronCodexIdentityLookup,
+  record: ElectronCodexSettingsRecord,
+): BindingContext {
   return {
     container,
     input,
@@ -289,15 +313,25 @@ function createElectronCodexBindingContext(
     lookup,
     record,
     routing: createElectronCodexRouting(input),
-    store: createCodexThreadIdentityStore(lookup, metadataStore),
+    store: createElectronCodexShutdownStore(createCodexThreadIdentityStore(lookup, metadataStore)),
     scopes: new Set<CodexChatScope>(),
     disposed: false,
     state: createElectronCodexSessionState(container),
   };
 }
-type BindingContext = ReturnType<typeof createElectronCodexBindingContext>;
 
-function createElectronCodexHostDependencies(context: BindingContext) {
+interface HostDependencies {
+  readonly deps: Pick<CodexChatHostPortsDeps,
+    'resolver' | 'workspaceProvider' | 'platformInfo' | 'hostCapabilities' | 'webviewManager'>;
+  readonly broadcaster: CodexChatHostPortsDeps['broadcaster'];
+}
+
+interface ScopePorts {
+  createScope(sink: ApprovalSink): CodexChatScope;
+  verifyBinary(): Promise<void>;
+}
+
+function createElectronCodexHostDependencies(context: BindingContext): HostDependencies {
   const { container, routing } = context;
   const broadcaster: CodexChatHostPortsDeps['broadcaster'] = {
     streamEventsToWebview: (...args) =>
@@ -325,7 +359,7 @@ function createElectronCodexHostDependencies(context: BindingContext) {
   return { deps, broadcaster };
 }
 
-function createElectronCodexScopePorts(context: BindingContext) {
+function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
   const { container, input, logger, routing, store, scopes } = context;
   const { profiles } = context.state;
   let verified: {
@@ -341,7 +375,7 @@ function createElectronCodexScopePorts(context: BindingContext) {
       if (!pin)
         throw new Error('No reviewed Codex executable pin for this platform');
       const executable = createElectronCodexExecutable(pin, input.bundledRoot);
-      const inspected = await inspectElectronCodexBinary(executable.resolvedPath);
+      const inspected = await inspectElectronCodexBinary(executable.resolvedPath, readCodexVersion, input.platform);
       if (context.disposed) throw new Error('Native Codex chat is disabled');
       verified = { pin, binary: { ...input.platform, ...inspected } };
     } catch (error) {
@@ -435,8 +469,8 @@ function createElectronCodexScopePorts(context: BindingContext) {
 
 function createElectronCodexAdapterPorts(
   context: BindingContext,
-  host: ReturnType<typeof createElectronCodexHostDependencies>,
-  scope: ReturnType<typeof createElectronCodexScopePorts>,
+  host: HostDependencies,
+  scope: ScopePorts,
   sessions: NonNullable<CodexChatAdapterPorts['sessions']>,
 ): CodexChatHostPorts {
   const { container, input, logger, metadataStore, store, lookup } = context;
@@ -534,49 +568,11 @@ function createElectronCodexAdapterPorts(
   };
 }
 
-function createElectronCodexBindingHandle(context: BindingContext) {
-  const { routing, scopes, record, lookup } = context;
-  const { tabs, profiles } = context.state;
-  let closing: Promise<void> | undefined;
-  const tracking: { untrack: () => void } = { untrack: () => undefined };
-  const binding = {
-    ...routing,
-    dispose: () =>
-      (closing ??= (async () => {
-        context.disposed = true;
-        try {
-          const results = await Promise.allSettled(
-            [...scopes].map((scope) => Promise.resolve().then(() => scope.dispose())),
-          );
-          const failures = results.flatMap((result) =>
-            result.status === 'rejected' ? [result.reason] : [],
-          );
-          if (failures.length)
-            throw new AggregateError(failures, 'Codex scope shutdown failed');
-        } finally {
-          try {
-            record.dispose();
-          } finally {
-            try {
-              lookup.dispose();
-            } finally {
-              tabs.clear();
-              profiles.clear();
-              tracking.untrack();
-            }
-          }
-        }
-      })()),
-  };
-  tracking.untrack = trackElectronCodexBinding(binding);
-  return binding;
-}
-
 function registerElectronCodexBinding(
   context: BindingContext,
   adapterPorts: CodexChatHostPorts,
-  admission: ReturnType<typeof createCodexRuntimeAdmission>,
-  sessionControls: ReturnType<typeof createElectronCodexControls>,
+  admission: RuntimeAdmissionPort,
+  sessionControls: ElectronCodexSessionControls,
 ) {
   const { container, lookup, routing } = context;
   const { controls, legacyPorts } = sessionControls;
@@ -604,14 +600,14 @@ function registerElectronCodexBinding(
 export async function bindElectronCodexChat(
   container: DependencyContainer,
   input: ElectronCodexBindingInput,
-) {
+): Promise<ElectronCodexBinding> {
   const logger = container.resolve<Logger>(TOKENS.LOGGER);
   const metadataStore = container.resolve<SessionMetadataStore>(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
   );
-  const lookup = await createElectronCodexIdentityLookup(metadataStore, logger);
-  let record: ReturnType<typeof createCodexSessionSettingsRecord> | undefined;
-  let binding: ReturnType<typeof createElectronCodexBindingHandle> | undefined;
+  const lookup = await initializeSessionRuntimeIdentityLookup(metadataStore, logger);
+  let record: ElectronCodexSettingsRecord | undefined;
+  let binding: ElectronCodexBinding | undefined;
   try {
     record = createCodexSessionSettingsRecord({
       identities: lookup,
