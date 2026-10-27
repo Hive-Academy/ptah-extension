@@ -89,21 +89,21 @@ export function createCodexChatEventCallbacks(
       }),
     // The projection already reconciles each item at its assigned block index.
     result: () => undefined,
-    // A failed compaction only clears the banner. The turn itself is not ended here:
-    // if the App Server fails the turn, its own error/terminal reaches `error`.
-    compaction: (phase) =>
-      safe(() =>
-        publish(
-          phase === 'started'
-            ? {
-                ...base(),
-                eventType: 'compaction_start',
-                trigger: 'auto',
-                preTokens: 0,
-              }
-            : { ...base(), eventType: 'compaction_complete', trigger: 'auto' },
-        ),
-      ),
+    // Starts belong to the adapter's native-usage callback. These turn events
+    // are automatic; /compact completion is published by the adapter itself.
+    compaction: (phase) => {
+      if (phase === 'started') return;
+      // Failure clears the banner through CHAT_ERROR, not a successful boundary.
+      if (phase === 'failed')
+        return safe(() => error('Codex context compaction failed.'));
+      return safe(() =>
+        publish({
+          ...base(),
+          eventType: 'compaction_complete',
+          trigger: 'auto',
+        }),
+      );
+    },
     live: (event) =>
       safe(async () => {
         // Approvals have one owner: the adapter's approval sink calls

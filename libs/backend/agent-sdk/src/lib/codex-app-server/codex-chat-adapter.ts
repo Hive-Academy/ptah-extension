@@ -56,6 +56,14 @@ export class CodexChatAdapterError extends Error {
   }
 }
 
+export type CodexChatAdapterErrorCode = CodexChatAdapterError['code'];
+
+export function isCodexChatAdapterError(
+  error: unknown,
+): error is CodexChatAdapterError {
+  return error instanceof CodexChatAdapterError;
+}
+
 export interface CodexChatMetadataPort {
   /** Title is not persisted until the metadata writer contract gains a title field. */
   save(
@@ -459,13 +467,18 @@ export class CodexChatAdapter implements NativeChatAdapter {
 
   private notifyCompaction(session: Session, trigger: 'manual' | 'auto'): void {
     const preTokens = session.usage?.lastRequestTotalTokens;
-    if (preTokens !== undefined)
-      this.compactionStart?.({
-        sessionId: session.id,
-        trigger,
-        timestamp: Date.now(),
-        preTokens,
-      });
+    if (preTokens === undefined) {
+      this.ports.logger.debug(
+        '[CodexChatAdapter] Compaction start skipped: native last-request usage unavailable.',
+      );
+      return;
+    }
+    this.compactionStart?.({
+      sessionId: session.id,
+      trigger,
+      timestamp: Date.now(),
+      preTokens,
+    });
   }
 
   private turn(
@@ -589,12 +602,42 @@ export class CodexChatAdapter implements NativeChatAdapter {
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (command !== '/compact') this.unsupported('slashCommand');
     const session = this.session(id);
-    this.notifyCompaction(session, 'manual');
-    await this.safe('compact', () => session.context.compact());
+    if (session.busy) throw new CodexChatAdapterError('busy', 'compact');
+    session.compacting ??= this.compact(session).finally(() => {
+      session.compacting = undefined;
+    });
+    await session.compacting;
     return (async function* () {
       /* Compact has no assistant turn result. */
     })();
   }
+
+  private async compact(session: Session): Promise<void> {
+    this.notifyCompaction(session, 'manual');
+    try {
+      await this.safe('compact', () => session.context.compact());
+    } catch (error) {
+      await this.ports
+        .callbacks(session.id, undefined)
+        .error('Codex context compaction failed.');
+      throw error;
+    }
+    await this.ports.publish(
+      session.id,
+      (async function* (): AsyncGenerator<FlatStreamEventUnion> {
+        const messageId = `codex-compaction:${session.id}:${Date.now()}`;
+        yield {
+          id: messageId,
+          messageId,
+          sessionId: session.id,
+          timestamp: Date.now(),
+          eventType: 'compaction_complete',
+          trigger: 'manual',
+        };
+      })(),
+    );
+  }
+
   async setSessionPermissionLevel(
     ...[id, level]: Parameters<IAgentAdapter['setSessionPermissionLevel']>
   ): Promise<void> {

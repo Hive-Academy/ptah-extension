@@ -142,6 +142,7 @@ export {
 // Electron codex-runtime-composition.spec.ts and di/register.ts consume registration; hosts must override only nullable port tokens.
 export {
   registerSdkServices,
+  /** @internal Electron composition specs only. */
   registerCodexChatServices,
   wireAgentAdapterAliases,
 } from './lib/di/register';
@@ -153,7 +154,10 @@ export type { AuthOperationContext } from './lib/auth-env.port';
 export { SDK_TOKENS } from './lib/di/tokens';
 // Electron codex-runtime-composition.spec.ts constructs this adapter; hosts must override only nullable port tokens.
 export {
+  /** @internal Electron composition specs only. */
   CodexChatAdapter,
+  isCodexChatAdapterError,
+  type CodexChatAdapterErrorCode,
   type CodexChatAdapterPorts,
   type CodexChatScope,
   type CodexChatSessionLifecycle,

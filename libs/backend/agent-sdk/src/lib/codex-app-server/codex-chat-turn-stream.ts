@@ -31,6 +31,7 @@ export interface CodexChatSession {
   blocked: boolean;
   pendingInterrupt?: boolean;
   closing?: Promise<void>;
+  compacting?: Promise<void>;
 }
 
 interface CodexChatTurnDependencies {
@@ -63,6 +64,8 @@ export async function* streamCodexChatTurn(
   const started = Date.now();
   let events: AsyncIterator<CodexRuntimeEvent> | undefined;
   let projection: CodexChatEvents | undefined;
+  let compactionActive = false;
+  let finishCompaction: (() => void) | undefined;
   try {
     if (session.abort.signal.aborted) throw deps.error('unavailable', 'turn');
     const eventStream = session.context.events(subscription.signal);
@@ -74,8 +77,24 @@ export async function* streamCodexChatTurn(
     session.turnId = receipt.turnId;
     const turn = { ...session.context.identity, turnId: receipt.turnId };
     const callbacks = deps.callbacks(session.id, turn);
+    finishCompaction = () => {
+      if (!compactionActive) return;
+      compactionActive = false;
+      callbacks.compaction('failed');
+    };
     projection = new CodexChatEvents(session.id, turn, {
       ...callbacks,
+      compaction: (phase) => {
+        if (phase === 'started') {
+          if (!compactionActive) {
+            compactionActive = true;
+            deps.notifyCompaction(session, 'auto');
+          }
+        } else {
+          compactionActive = false;
+          callbacks.compaction(phase);
+        }
+      },
       result: async (result) => {
         terminal = true;
         await callbacks.result(result);
@@ -113,8 +132,6 @@ export async function* streamCodexChatTurn(
       ) {
         if (event.type === 'usage') session.usage = event.usage;
         if (event.type === 'terminal' && event.usage) session.usage = event.usage;
-        if (event.type === 'compaction' && event.phase === 'started')
-          deps.notifyCompaction(session, 'auto');
       }
       await projection.settled();
       for (const mapped of mappedEvents) yield mapped;
@@ -124,6 +141,7 @@ export async function* streamCodexChatTurn(
   } catch (error) {
     throw deps.failure(error, 'turn');
   } finally {
+    finishCompaction?.();
     const release = () => {
       subscription.abort();
       session.abort.signal.removeEventListener('abort', abort);

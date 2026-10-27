@@ -10,10 +10,12 @@ import {
   type CodexExecutionProfile,
   type CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type FlatStreamEventUnion } from '@ptah-extension/shared';
 import {
   CodexChatAdapter,
   CodexChatAdapterError,
+  isCodexChatAdapterError,
+  type CodexChatAdapterErrorCode,
   type CodexChatAdapterPorts,
 } from './codex-chat-adapter';
 import { SessionApprovalRouter } from './session-approval-router';
@@ -735,10 +737,14 @@ it('queries the session context model list and rejects closed sessions', async (
     code: 'unavailable',
   });
 });
-it.each([7, undefined])(
+it.each([7, 0, undefined])(
   'reports only last-request compaction tokens (%s)',
   async (lastRequestTotalTokens) => {
-    const { adapter, context } = setup();
+    const { adapter, context, ports } = setup();
+    const published: FlatStreamEventUnion[] = [];
+    ports.publish = jest.fn(async (_id, stream) => {
+      for await (const event of stream) published.push(event);
+    });
     context.events.mockImplementation(() =>
       (async function* () {
         yield {
@@ -762,18 +768,170 @@ it.each([7, undefined])(
     const stream = await adapter.startChatSession({ tabId });
     for await (const event of stream) void event;
     await adapter.executeSlashCommand(id, '/compact', {});
-    if (lastRequestTotalTokens === undefined)
+    if (lastRequestTotalTokens === undefined) {
       expect(callback).not.toHaveBeenCalled();
-    else
+      expect(ports.logger.debug).toHaveBeenCalledWith(
+        '[CodexChatAdapter] Compaction start skipped: native last-request usage unavailable.',
+      );
+    } else {
+      expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith({
         sessionId: id,
         trigger: 'manual',
         timestamp: expect.any(Number),
-        preTokens: 7,
+        preTokens: lastRequestTotalTokens,
       });
+    }
+    expect(published).toEqual([
+      expect.objectContaining({
+        eventType: 'compaction_complete',
+        trigger: 'manual',
+      }),
+    ]);
     await adapter.interruptSession(id);
   },
 );
+
+it.each([
+  { phase: 'completed', preTokens: 7 },
+  { phase: 'completed', preTokens: 0 },
+  { phase: 'completed', preTokens: undefined },
+  { phase: 'failed', preTokens: 37 },
+  { phase: 'stream-ended', preTokens: 37 },
+] as const)(
+  'deduplicates automatic starts with native usage and forwards $phase ($preTokens)',
+  async ({ phase, preTokens }) => {
+    const { adapter, context, callbacks, ports } = setup();
+    const debug = jest.spyOn(ports.logger, 'debug');
+    const start = jest.fn();
+    adapter.setCompactionStartCallback(start);
+    context.events.mockImplementation(() =>
+      (async function* (): AsyncGenerator<CodexRuntimeEvent> {
+        const base = { ...identity, turnId: 'turn' };
+        yield {
+          ...base,
+          sequence: 1,
+          type: 'usage',
+          usage: { lastRequestTotalTokens: preTokens },
+        };
+        yield { ...base, sequence: 2, type: 'compaction', phase: 'started' };
+        yield { ...base, sequence: 3, type: 'compaction', phase: 'started' };
+        if (phase !== 'stream-ended') {
+          yield { ...base, sequence: 4, type: 'compaction', phase };
+          yield { ...terminal, sequence: 5 };
+        }
+      })(),
+    );
+    const stream = await adapter.startChatSession({ tabId });
+    const consume = async () => {
+      for await (const event of stream) void event;
+    };
+    if (phase === 'stream-ended') await expect(consume()).rejects.toThrow();
+    else await consume();
+    if (preTokens === undefined) {
+      expect(start).not.toHaveBeenCalled();
+      expect(
+        debug.mock.calls.filter(
+          ([message]) =>
+            message ===
+            '[CodexChatAdapter] Compaction start skipped: native last-request usage unavailable.',
+        ),
+      ).toHaveLength(1);
+    } else {
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledWith({
+        sessionId: id,
+        timestamp: expect.any(Number),
+        trigger: 'auto',
+        preTokens,
+      });
+    }
+    expect(callbacks.compaction).toHaveBeenCalledTimes(1);
+    expect(callbacks.compaction).toHaveBeenCalledWith(
+      phase === 'stream-ended' ? 'failed' : phase,
+    );
+    await adapter.interruptSession(id);
+  },
+);
+
+it.each([false, true])(
+  'coalesces manual compaction and publishes a boundary only on success (failure: %s)',
+  async (fails) => {
+    const { adapter, context, ports, callbacks } = setup();
+    const start = jest.fn();
+    const published: FlatStreamEventUnion[] = [];
+    adapter.setCompactionStartCallback(start);
+    ports.publish = jest.fn(async (_id, stream) => {
+      for await (const event of stream) published.push(event);
+    });
+    await adapter.startChatSession({ tabId });
+    const completion = deferred<void>();
+    context.compact.mockImplementation(async () => {
+      await completion.promise;
+      if (fails) throw new Error('Native compaction failed');
+    });
+    const first = adapter.executeSlashCommand(id, '/compact', {});
+    const second = adapter.executeSlashCommand(id, '/compact', {});
+    const outcome = Promise.all([first, second]);
+    completion.resolve();
+    if (fails)
+      await expect(outcome).rejects.toMatchObject({ code: 'runtime-failed' });
+    else await outcome;
+    expect(start).not.toHaveBeenCalled();
+    expect(context.compact).toHaveBeenCalledTimes(1);
+    if (fails) {
+      expect(published).toEqual([]);
+      expect(callbacks.error).toHaveBeenCalledTimes(1);
+      expect(callbacks.error).toHaveBeenCalledWith(
+        'Codex context compaction failed.',
+      );
+    } else {
+      expect(callbacks.error).not.toHaveBeenCalled();
+      expect(published).toEqual([
+        expect.objectContaining({
+          eventType: 'compaction_complete',
+          trigger: 'manual',
+        }),
+      ]);
+    }
+    await adapter.interruptSession(id);
+  },
+);
+
+it('narrows adapter errors by instance, not by a lookalike code or name', () => {
+  const error: unknown = new CodexChatAdapterError('busy', 'turn');
+  expect(isCodexChatAdapterError(error)).toBe(true);
+  if (!isCodexChatAdapterError(error)) throw new Error('Expected adapter error');
+  const code: CodexChatAdapterErrorCode = error.code;
+  expect(code).toBe('busy');
+  for (const value of [
+    null,
+    undefined,
+    'busy',
+    new Error('busy'),
+    { name: 'CodexChatAdapterError', code: 'busy', operation: 'turn' },
+  ])
+    expect(isCodexChatAdapterError(value)).toBe(false);
+});
+
+it('does not announce manual compaction when the native context has an active turn', async () => {
+  const { adapter, context } = setup();
+  const start = jest.fn();
+  adapter.setCompactionStartCallback(start);
+  const stream = await adapter.startChatSession({ tabId });
+  const iterator = stream[Symbol.asyncIterator]();
+  await iterator.next();
+  await expect(adapter.executeSlashCommand(id, '/compact', {})).rejects.toMatchObject({
+    code: 'busy',
+    operation: 'compact',
+  });
+  expect(start).not.toHaveBeenCalled();
+  expect(context.compact).not.toHaveBeenCalled();
+  while (!(await iterator.next()).done) {
+    /* Drain the native turn. */
+  }
+  await adapter.interruptSession(id);
+});
 
 function deferred<T>() {
   let complete: ((value: T) => void) | undefined;

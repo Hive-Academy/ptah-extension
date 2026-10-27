@@ -108,7 +108,14 @@ describe('Codex chat event callbacks', () => {
     await settle();
     expect(h.delivery.publish).not.toHaveBeenCalled();
   });
-  it.each(['started', 'completed', 'failed'] as const)(
+  it('leaves the single compaction start to the adapter callback', async () => {
+    const h = harness();
+    h.callbacks.compaction('started');
+    await settle();
+    expect(h.delivery.publish).not.toHaveBeenCalled();
+    expect(h.delivery.publishTerminal).not.toHaveBeenCalled();
+  });
+  it.each(['completed'] as const)(
     'routes compaction %s',
     async (phase) => {
       const h = harness();
@@ -120,15 +127,30 @@ describe('Codex chat event callbacks', () => {
         expect.objectContaining({
           sessionId,
           messageId,
-          eventType:
-            phase === 'started' ? 'compaction_start' : 'compaction_complete',
+          eventType: 'compaction_complete',
+          trigger: 'auto',
         }),
         undefined,
       );
-      // A failed compaction clears the banner only; the turn's own error ends it.
       expect(h.delivery.publishTerminal).not.toHaveBeenCalled();
     },
   );
+  it('clears failed compaction through CHAT_ERROR without a completion boundary', async () => {
+    const h = harness();
+    h.callbacks.compaction('failed');
+    await settle();
+    expect(h.delivery.publish).not.toHaveBeenCalled();
+    expect(h.delivery.publishTerminal).toHaveBeenCalledTimes(1);
+    expect(h.delivery.publishTerminal).toHaveBeenCalledWith(
+      'tab',
+      MESSAGE_TYPES.CHAT_ERROR,
+      {
+        tabId: 'tab',
+        sessionId,
+        error: 'Codex context compaction failed.',
+      },
+    );
+  });
   it('routes file changes through a tool card and the existing file notification', async () => {
     const h = harness();
     h.callbacks.live({
@@ -242,7 +264,7 @@ describe('Codex chat event callbacks', () => {
         blockIndex: 0,
       });
       h.callbacks.result({ status: 'completed', text: 'answer' });
-      h.callbacks.compaction('started');
+      h.callbacks.compaction('completed');
       h.callbacks.live({
         ...identity,
         type: 'file',
