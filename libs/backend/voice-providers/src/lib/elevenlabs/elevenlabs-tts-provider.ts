@@ -28,7 +28,7 @@ const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
 const API_KEY_MISSING_REASON =
-  'Add your ElevenLabs API key in Voice settings to use this provider.';
+  'Add your ElevenLabs API key under Voice engines › Details to use this provider.';
 
 /** MP3 formats → `audio/mpeg`, Opus → `audio/ogg` (v1 curated formats, D6). */
 export function mimeTypeForFormat(format: string): string {

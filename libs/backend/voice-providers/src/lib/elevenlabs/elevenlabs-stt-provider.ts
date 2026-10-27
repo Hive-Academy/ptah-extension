@@ -24,7 +24,7 @@ const EL_STT_MODEL_KEY = 'voice.elevenlabs.sttModelId';
 const DEFAULT_STT_MODEL_ID = 'scribe_v1';
 
 const API_KEY_MISSING_REASON =
-  'Add your ElevenLabs API key in Voice settings to use this provider.';
+  'Add your ElevenLabs API key under Voice engines › Details to use this provider.';
 
 @injectable()
 export class ElevenLabsSttProvider implements ISpeechToTextProvider {

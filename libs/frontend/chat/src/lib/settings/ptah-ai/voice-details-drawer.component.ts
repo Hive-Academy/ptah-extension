@@ -6,6 +6,7 @@ import {
   model,
   output,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   NativeDrawerComponent,
   NativeTabGroupComponent,
@@ -34,6 +35,7 @@ const TABS: readonly NativeTab[] = [
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NgTemplateOutlet,
     NativeDrawerComponent,
     NativeTabGroupComponent,
     LocalSttPanelComponent,
@@ -61,6 +63,7 @@ const TABS: readonly NativeTab[] = [
                 }
                 @default {
                   <ptah-local-stt-panel [config]="cfg.local" (changed)="changed.emit()" />
+                  <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'stt' }" />
                 }
               }
             } @else {
@@ -70,12 +73,26 @@ const TABS: readonly NativeTab[] = [
                 }
                 @default {
                   <ptah-local-tts-panel [config]="cfg.local" (changed)="changed.emit()" />
+                  <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'tts' }" />
                 }
               }
             }
           </div>
         </ptah-native-tab-group>
       }
+      <!-- ElevenLabs is selectable only with a stored key, so its key form must be reachable while Local is active. -->
+      <ng-template #elevenLabsSetup let-cfg let-dir="direction">
+        <section class="mt-4 border-t border-base-300 pt-4" aria-labelledby="elevenlabs-setup-heading"
+          data-testid="voice-elevenlabs-setup">
+          <h3 id="elevenlabs-setup-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">
+            ElevenLabs (cloud)
+          </h3>
+          <p class="mb-3 text-xs text-base-content-muted">
+            Save an API key here, then pick ElevenLabs as the provider in the Voice engines table.
+          </p>
+          <ptah-elevenlabs-panel [direction]="dir" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
+        </section>
+      </ng-template>
       @if (direction() !== null) {
         <div drawer-footer class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3">
           <span class="text-xs text-base-content-muted">Each control saves itself. Esc to close</span>

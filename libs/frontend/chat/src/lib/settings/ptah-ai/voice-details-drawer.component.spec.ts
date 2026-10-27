@@ -106,6 +106,20 @@ describe('VoiceDetailsDrawerComponent', () => {
     fixture.detectChanges();
     expect(q('stub-elevenlabs-tts')).not.toBeNull();
     expect(q('stub-local-tts')).toBeNull();
+    expect(q('voice-elevenlabs-setup')).toBeNull();
+  });
+
+  it('offers ElevenLabs key setup beside the local panel so the provider can become available', () => {
+    host.config.set(config({ elevenlabs: { ...config().elevenlabs, apiKeyConfigured: false } }));
+    fixture.detectChanges();
+    expect(q('stub-local-stt')).not.toBeNull();
+    expect(q('voice-elevenlabs-setup')?.querySelector('[data-testid="stub-elevenlabs-stt"]')).not.toBeNull();
+
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(q('stub-local-tts')).not.toBeNull();
+    expect(q('stub-elevenlabs-tts')).not.toBeNull();
+    expect(q('stub-elevenlabs-stt')).toBeNull();
   });
 
   it('forwards a panel save so the parent re-reads config', () => {
