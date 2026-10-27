@@ -34,7 +34,10 @@ import {
   SessionHistoryReplayer,
   type ReplayLiveSeed,
 } from './chat-store/session-history-replayer.service';
-import { ConversationService } from './chat-store/conversation.service';
+import {
+  ConversationService,
+  type QueuedCommand,
+} from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import type { SendOutcome } from './message-sender.service';
@@ -386,11 +389,17 @@ export class ChatStore {
   }
 
   /**
-   * Withdraw one queued or held slash command and keep the rest of the tab's
-   * queue (the automatic hand-off's Cancel). False when it was already sent.
+   * Withdraw exactly this queued or held slash command and keep the rest of
+   * the tab's queue (the automatic hand-off's Cancel). False when it is no
+   * longer queued.
    */
-  withdrawQueuedCommand(tabId: string, content: string): boolean {
-    return this.conversation.withdrawQueuedCommand(tabId, content);
+  withdrawQueuedCommand(command: QueuedCommand): boolean {
+    return this.conversation.withdrawQueuedCommand(command);
+  }
+
+  /** Whether this queued slash command is still waiting on its tab. */
+  isQueuedCommand(command: QueuedCommand): boolean {
+    return this.conversation.isQueuedCommand(command);
   }
 
   clearQueueRestoreSignal(): void {

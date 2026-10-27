@@ -34,9 +34,26 @@ import { SessionLoaderService } from './session-loader.service';
  */
 const SLASH_COMMAND = /^\/[a-zA-Z]/;
 
+/**
+ * A slash command {@link ConversationService.queueOrAppendMessage} queued:
+ * its identity on the tab's queue, so a caller can tell and withdraw exactly
+ * that entry even when the user queues identical text.
+ */
+export interface QueuedCommand {
+  readonly tabId: string;
+  readonly content: string;
+  /**
+   * Set when it waits behind queued text: settles `true` when it becomes the
+   * tab's queued message, `false` when it is dropped. `null` when it went
+   * straight into the tab's queued message.
+   */
+  readonly held: Promise<boolean> | null;
+}
+
 /** A slash command waiting behind a tab's queued text. */
 interface HeldCommand {
   readonly content: string;
+  readonly handle: QueuedCommand;
   /** `true` once it is the tab's queued message, `false` when dropped. */
   readonly settle: (queued: boolean) => void;
 }
@@ -87,6 +104,14 @@ export class ConversationService {
    */
   private readonly heldCommands = new Map<string, HeldCommands>();
 
+  /**
+   * The slash command each tab's queued message starts with, when it was
+   * queued (or released from held) as one. Replaced whenever a new message
+   * starts the queue and dropped once the queued message is delivered or
+   * removed, so a later identical command is a different entry.
+   */
+  private readonly queueHeads = new Map<string, QueuedCommand>();
+
   constructor() {
     // Held commands are released only by a flush of the tab's queue, which
     // needs the queue and the tab's session. Every event that ends that wait
@@ -97,7 +122,10 @@ export class ConversationService {
     //   turn end flushes. That includes a command held behind the `/clear`
     //   flush itself: its `chat:complete` reset arrives before the reply.
     inject(DestroyRef).onDestroy(
-      this.tabManager.onTabClosed(({ tabId }) => this.dropHeldCommands(tabId)),
+      this.tabManager.onTabClosed(({ tabId }) => {
+        this.queueHeads.delete(tabId);
+        this.dropHeldCommands(tabId);
+      }),
     );
     // A removed workspace takes its tabs, active and parked, with no close
     // event (the layout ends their sessions itself).
@@ -166,14 +194,15 @@ export class ConversationService {
    * subsequent appends are text-only.
    *
    * Exception: a slash command is not appended to queued text. It is held as
-   * its own turn behind that text, and the returned promise settles `true`
-   * when it becomes the tab's queued message, or `false` when it is dropped.
-   * Every other call returns `null`.
+   * its own turn behind that text (see {@link QueuedCommand.held}).
+   *
+   * Returns the {@link QueuedCommand} for a queued or held slash command;
+   * every other call returns `null`.
    */
   public queueOrAppendMessage(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<boolean> | null {
+  ): QueuedCommand | null {
     const targetTabId = options?.tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return null;
     const validation = this.validator.validate(content);
@@ -188,10 +217,8 @@ export class ConversationService {
     const targetTab = this.tabManager.tabs().find((t) => t.id === targetTabId);
     const existingQueue = targetTab?.queuedContent?.trim() ?? '';
 
-    if (
-      SLASH_COMMAND.test(sanitized.trim()) &&
-      (existingQueue || this.heldCommands.has(targetTabId))
-    ) {
+    const isCommand = SLASH_COMMAND.test(sanitized.trim());
+    if (isCommand && (existingQueue || this.heldCommands.has(targetTabId))) {
       return this.holdCommand(targetTabId, sanitized, existingQueue);
     }
 
@@ -209,25 +236,35 @@ export class ConversationService {
     } else {
       this.tabManager.setQueuedContent(targetTabId, sanitized);
     }
-    return null;
+    if (existingQueue) return null;
+    // A new message starts the queue: any earlier head is gone.
+    this.queueHeads.delete(targetTabId);
+    if (!isCommand) return null;
+    const head: QueuedCommand = {
+      tabId: targetTabId,
+      content: sanitized,
+      held: null,
+    };
+    this.queueHeads.set(targetTabId, head);
+    return head;
   }
 
   private holdCommand(
     tabId: string,
     content: string,
     behind: string,
-  ): Promise<boolean> {
-    return new Promise<boolean>((settle) => {
-      const held = this.heldCommands.get(tabId);
-      if (held) {
-        held.commands.push({ content, settle });
-      } else {
-        this.heldCommands.set(tabId, {
-          behind,
-          commands: [{ content, settle }],
-        });
-      }
-    });
+  ): QueuedCommand {
+    let settle!: (queued: boolean) => void;
+    const promise = new Promise<boolean>((resolve) => (settle = resolve));
+    const handle: QueuedCommand = { tabId, content, held: promise };
+    const command: HeldCommand = { content, handle, settle };
+    const held = this.heldCommands.get(tabId);
+    if (held) {
+      held.commands.push(command);
+    } else {
+      this.heldCommands.set(tabId, { behind, commands: [command] });
+    }
+    return handle;
   }
 
   /**
@@ -242,6 +279,8 @@ export class ConversationService {
    * When newer text was queued meanwhile, the command keeps waiting behind it.
    */
   releaseHeldCommand(tabId: string, sent?: string): void {
+    // The queued message was delivered or removed: its head is gone.
+    this.queueHeads.delete(tabId);
     const held = this.heldCommands.get(tabId);
     if (!held) return;
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
@@ -258,6 +297,7 @@ export class ConversationService {
     // The removed text's attachments must not travel with the command.
     this.tabManager.clearQueuedContentAndOptions(tabId);
     this.tabManager.setQueuedContent(tabId, next.content);
+    this.queueHeads.set(tabId, next.handle);
     if (rest.length > 0) {
       this.heldCommands.set(tabId, { behind: next.content, commands: rest });
     } else {
@@ -267,27 +307,43 @@ export class ConversationService {
   }
 
   /**
-   * Withdraw one slash command a caller queued with {@link queueOrAppendMessage}
-   * (the automatic hand-off's Cancel), keeping everything else queued on the
-   * tab. A held copy settles as dropped. A queued message that starts with the
-   * command keeps the text appended after it, and a command held behind it
-   * moves up. Returns false when the command is no longer queued.
+   * Whether `command` is still waiting on its tab: held, or the start of the
+   * tab's queued message as that same entry (not identical text queued later).
    */
-  withdrawQueuedCommand(tabId: string, content: string): boolean {
-    const command = this.validator.sanitize(content);
+  isQueuedCommand(command: QueuedCommand): boolean {
+    const held = this.heldCommands.get(command.tabId);
+    if (held?.commands.some((entry) => entry.handle === command)) return true;
+    if (this.queueHeads.get(command.tabId) !== command) return false;
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(command.tabId)?.tab;
+    const queued = tab?.queuedContent?.trim() ?? '';
+    return (
+      queued === command.content || queued.startsWith(`${command.content}\n`)
+    );
+  }
+
+  /**
+   * Withdraw exactly `command` (the automatic hand-off's Cancel), keeping
+   * everything else queued on the tab, including identical text the user
+   * queued. A held entry settles as dropped. As the queued message's head it
+   * is cut off the front: text appended after it stays, and a command held
+   * behind it moves up. Returns false when it is no longer queued.
+   */
+  withdrawQueuedCommand(command: QueuedCommand): boolean {
+    const { tabId } = command;
     const held = this.heldCommands.get(tabId);
     const index =
-      held?.commands.findIndex((entry) => entry.content === command) ?? -1;
+      held?.commands.findIndex((entry) => entry.handle === command) ?? -1;
     if (held && index >= 0) {
       const [withdrawn] = held.commands.splice(index, 1);
       if (held.commands.length === 0) this.heldCommands.delete(tabId);
       withdrawn.settle(false);
       return true;
     }
+    if (!this.isQueuedCommand(command)) return false;
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-    const queued = tab?.queuedContent?.trim() ?? '';
-    if (queued !== command && !queued.startsWith(`${command}\n`)) return false;
-    const rest = queued.slice(command.length).trim();
+    const rest = (tab?.queuedContent?.trim() ?? '')
+      .slice(command.content.length)
+      .trim();
     if (rest) this.tabManager.setQueuedContent(tabId, rest);
     else this.tabManager.clearQueuedContentAndOptions(tabId);
     this.releaseHeldCommand(tabId);

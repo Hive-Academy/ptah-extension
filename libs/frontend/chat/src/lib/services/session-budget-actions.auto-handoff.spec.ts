@@ -30,7 +30,10 @@ import type {
 } from '@ptah-extension/shared';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
-import { ConversationService } from './chat-store/conversation.service';
+import {
+  ConversationService,
+  type QueuedCommand,
+} from './chat-store/conversation.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { MessageSenderService } from './message-sender.service';
@@ -68,6 +71,8 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
   let skillListed: boolean;
   let permissions: WritableSignal<PermissionRequest[]>;
   let denyPermission: jest.Mock;
+  /** While set, the skill probe waits for it (an in-flight discovery). */
+  let probeGate: Promise<void> | null;
   let service: SessionBudgetActionsService;
   let dispatch: MessageDispatchService;
 
@@ -129,6 +134,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     skillListed = true;
     permissions = signal<PermissionRequest[]>([]);
     denyPermission = jest.fn();
+    probeGate = null;
     showError = jest.fn();
     send = jest.fn().mockResolvedValue({ success: true });
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -167,7 +173,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     };
 
     const rpcCall = jest.fn((method: string) =>
-      Promise.resolve(
+      (probeGate ?? Promise.resolve()).then(() =>
         method === 'autocomplete:commands'
           ? {
               success: true,
@@ -241,8 +247,10 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
             ) => d.sendOrQueueMessage(content, options),
             hasPendingPermissionForTab: (tabId: string) =>
               d.hasPendingPermissionForTab(tabId),
-            withdrawQueuedCommand: (tabId: string, content: string) =>
-              conversation.withdrawQueuedCommand(tabId, content),
+            withdrawQueuedCommand: (command: QueuedCommand) =>
+              conversation.withdrawQueuedCommand(command),
+            isQueuedCommand: (command: QueuedCommand) =>
+              conversation.isQueuedCommand(command),
           }),
           deps: [MessageDispatchService, ConversationService],
         },
@@ -447,6 +455,125 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
         reason: COMMAND,
       });
       expect(service.wrapUpSent()).toBe(true);
+    });
+  });
+
+  describe('a skill probe that resolves after the target changed (F1)', () => {
+    /** Hold the probe; returns its release. */
+    const holdProbe = () => {
+      let release!: () => void;
+      probeGate = new Promise<void>((resolve) => (release = resolve));
+      return release;
+    };
+
+    it('does not send into the session that replaced it on the same tab', async () => {
+      const release = holdProbe();
+      start();
+      await run();
+      expect(service.wrapUpSent()).toBe(true);
+
+      // `/clear` or a loaded session: the tab now holds session B.
+      const B = '22222222-2222-4222-8222-222222222222';
+      patch(TAB, {
+        claudeSessionId: B,
+        sessionBudget: { ...LIMIT_BUDGET, sessionId: B, stage: 'normal' },
+      });
+      release();
+      await run();
+
+      expect(send).not.toHaveBeenCalled();
+      expect(tab().queuedContent).toBeNull();
+      const store = TestBed.inject(SessionAutoHandoffService);
+      expect(store.entry(SESSION)).toBeNull();
+      expect(store.entry(B)).toBeNull();
+    });
+
+    it('does not send when the setting was turned off meanwhile', async () => {
+      const release = holdProbe();
+      start();
+      await run();
+
+      patch(TAB, { sessionBudget: { ...LIMIT_BUDGET, autoHandoff: false } });
+      release();
+      await run();
+
+      expect(tab().queuedContent).toBeNull();
+      expect(
+        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
+      ).toBeNull();
+    });
+
+    it('does not send when the session left the limit meanwhile', async () => {
+      const release = holdProbe();
+      start();
+      await run();
+
+      patch(TAB, {
+        sessionBudget: { ...LIMIT_BUDGET, stage: 'handoff', percent: 85 },
+      });
+      release();
+      await run();
+
+      expect(tab().queuedContent).toBeNull();
+      expect(
+        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
+      ).toBeNull();
+    });
+  });
+
+  describe('identical user commands (F2)', () => {
+    it('Cancel withdraws the automatic command, not the identical one the user held after it', async () => {
+      start();
+      await run();
+      expect(tab().queuedContent).toBe(COMMAND);
+
+      // The user queues the same command: it is held behind the auto one.
+      const user = await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
+      expect(user.heldCommand).toBeInstanceOf(Promise);
+
+      service.cancelAutoHandoff();
+      await settle();
+
+      // The user's command moved up and is the one delivered.
+      expect(tab().queuedContent).toBe(COMMAND);
+      await expect(user.heldCommand).resolves.toBe(true);
+      expect(service.autoHandoffQueued()).toBe(false);
+      expect(
+        TestBed.inject(SessionAutoHandoffService).entry(SESSION)?.state,
+      ).toBe('cancelled');
+      await endTurn();
+      expect(flushed).toEqual([COMMAND]);
+    });
+
+    it('Cancel withdraws the held automatic command, not the identical one the user held after it', async () => {
+      start();
+      await dispatch.sendOrQueueMessage('Please check tests', { tabId: TAB });
+      await run();
+      const user = await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
+
+      service.cancelAutoHandoff();
+      await settle();
+
+      await endTurn();
+      await endTurn();
+      expect(flushed).toEqual(['Please check tests', COMMAND]);
+      await expect(user.heldCommand).resolves.toBe(true);
+      expect(showError).not.toHaveBeenCalled();
+    });
+
+    it('an identical command the user queues after the automatic one ran is not shown as automatic', async () => {
+      start();
+      await run();
+      await endTurn();
+      expect(flushed).toEqual([COMMAND]);
+
+      // A new turn runs; the user queues the same command by hand.
+      await dispatch.sendOrQueueMessage(COMMAND, { tabId: TAB });
+      expect(tab().queuedContent).toBe(COMMAND);
+      expect(service.autoHandoffQueued()).toBe(false);
+
+      service.cancelAutoHandoff();
+      expect(tab().queuedContent).toBe(COMMAND);
     });
   });
 });

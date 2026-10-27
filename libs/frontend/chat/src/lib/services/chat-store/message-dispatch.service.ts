@@ -232,8 +232,11 @@ export class MessageDispatchService {
           reason: content,
         });
       }
-      const held = this.conversation.queueOrAppendMessage(content, options);
-      return held ? { success: true, heldCommand: held } : { success: true };
+      const queued = this.conversation.queueOrAppendMessage(content, options);
+      if (!queued) return { success: true };
+      return queued.held
+        ? { success: true, queuedCommand: queued, heldCommand: queued.held }
+        : { success: true, queuedCommand: queued };
     }
     const outcome = await this.messageSender.send(content, options);
     if (outcome && !outcome.success && resolvedTabId) {

@@ -177,10 +177,11 @@ export class SessionBudgetActionsService {
   readonly autoHandoffQueued = computed(() => {
     const sessionId = this.budget()?.sessionId;
     const entry = sessionId ? this.autoHandoff.entry(sessionId) : null;
-    if (entry?.state !== 'fired' || !entry.command) return false;
+    if (entry?.state !== 'fired' || !entry.queued) return false;
     if (entry.held) return true;
-    const queued = this.view().activeTab()?.queuedContent?.trim() ?? '';
-    return queued === entry.command || queued.startsWith(`${entry.command}\n`);
+    // Read here so a queue change re-evaluates; matched by identity below.
+    if (!this.view().activeTab()?.queuedContent) return false;
+    return this.chatStore.isQueuedCommand(entry.queued);
   });
 
   /** True once the wrap-up prompt was sent (or auto-queued) for the shown session. */
@@ -227,12 +228,11 @@ export class SessionBudgetActionsService {
   cancelAutoHandoff(): void {
     const sessionId = this.budget()?.sessionId;
     if (!sessionId || !this.autoHandoffQueued()) return;
-    const entry = this.autoHandoff.entry(sessionId);
+    const queued = this.autoHandoff.entry(sessionId)?.queued;
+    if (!queued || !this.chatStore.withdrawQueuedCommand(queued)) return;
+    // A held entry's drop settles after this; `cancelled` keeps it silent.
     this.autoHandoff.cancel(sessionId);
     this.setWrapUpSent(sessionId, false);
-    if (entry?.tabId && entry.command) {
-      this.chatStore.withdrawQueuedCommand(entry.tabId, entry.command);
-    }
   }
 
   /** Hide the banner for the shown session until its stage rises. */
@@ -276,25 +276,42 @@ export class SessionBudgetActionsService {
     this.setWrapUpSent(sessionId, true);
     try {
       const skill = await this.handoffSkillAvailable();
-      const prompt = skill
-        ? buildHandoffCommand(budget)
-        : buildWrapUpPrompt(budget);
-      if (auto && !this.claimAutoHandoff(sessionId, tabId, prompt, skill)) {
+      // The probe is asynchronous: the view may show another tab or session
+      // now, or the session may no longer qualify. Never send into those.
+      if (
+        !this.stillTargets(tabId, sessionId, auto) ||
+        (auto && !this.claimAutoHandoff(sessionId, tabId, skill))
+      ) {
         this.setWrapUpSent(sessionId, false);
         return;
       }
+      const prompt = skill
+        ? buildHandoffCommand(budget)
+        : buildWrapUpPrompt(budget);
       const outcome = await this.chatStore.sendOrQueueMessage(prompt, {
         tabId,
       });
+      if (auto) {
+        this.autoHandoff.recordQueued(
+          sessionId,
+          outcome?.queuedCommand ?? null,
+          !!outcome?.heldCommand,
+        );
+      }
       // The send path already shows its own failure notice in the transcript.
       if (!outcome?.success) {
         this.setWrapUpSent(sessionId, false);
         return;
       }
       if (!outcome.heldCommand) return;
-      if (auto) this.autoHandoff.recordCommand(sessionId, tabId, prompt, true);
       const queued = await outcome.heldCommand;
-      if (auto) this.autoHandoff.recordCommand(sessionId, tabId, prompt, false);
+      if (auto) {
+        this.autoHandoff.recordQueued(
+          sessionId,
+          outcome.queuedCommand ?? null,
+          false,
+        );
+      }
       if (queued) return;
       this.setWrapUpSent(sessionId, false);
       if (auto && this.autoHandoff.entry(sessionId)?.state === 'cancelled') {
@@ -347,7 +364,6 @@ export class SessionBudgetActionsService {
   private claimAutoHandoff(
     sessionId: string,
     tabId: string,
-    command: string,
     skill: boolean,
   ): boolean {
     if (!skill) {
@@ -355,9 +371,29 @@ export class SessionBudgetActionsService {
       return false;
     }
     if (this.chatStore.hasPendingPermissionForTab(tabId)) return false;
-    if (!this.autoHandoff.claim(sessionId)) return false;
-    this.autoHandoff.recordCommand(sessionId, tabId, command, false);
-    return true;
+    return this.autoHandoff.claim(sessionId);
+  }
+
+  /**
+   * After an await: the view still shows the captured tab and session, and,
+   * for the automatic hand-off, the session still qualifies (limit stage,
+   * setting on, a session may be started).
+   */
+  private stillTargets(
+    tabId: string,
+    sessionId: string,
+    auto: boolean,
+  ): boolean {
+    const budget = this.budget();
+    if (this.view().tabId() !== tabId || budget?.sessionId !== sessionId) {
+      return false;
+    }
+    if (!auto) return true;
+    return (
+      budget.autoHandoff === true &&
+      this.displayStage() === 'limit' &&
+      !this.sessionStartGuard?.()
+    );
   }
 
   private setWrapUpSent(sessionId: string, sent: boolean): void {

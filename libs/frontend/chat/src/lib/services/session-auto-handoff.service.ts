@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import type { QueuedCommand } from './chat-store/conversation.service';
 
 /** `fired`: the automatic hand-off ran for the session; `cancelled`: the user cancelled it. */
 export type AutoHandoffState = 'fired' | 'cancelled';
@@ -6,11 +7,12 @@ export type AutoHandoffState = 'fired' | 'cancelled';
 /** One session's automatic hand-off, as far as it got. */
 export interface AutoHandoffEntry {
   readonly state: AutoHandoffState;
-  /** The tab the command was sent or queued on; `null` before the send. */
-  readonly tabId: string | null;
-  /** The exact command text sent or queued; `null` before the send. */
-  readonly command: string | null;
-  /** True while the command waits behind other queued text (a held command). */
+  /**
+   * The queue entry the command became, by identity (not by text); `null`
+   * before the send and when it was sent straight away.
+   */
+  readonly queued: QueuedCommand | null;
+  /** True while that entry waits behind other queued text (held). */
   readonly held: boolean;
 }
 
@@ -43,25 +45,19 @@ export class SessionAutoHandoffService {
    */
   claim(sessionId: string): boolean {
     if (this._entries().has(sessionId)) return false;
-    this.set(sessionId, {
-      state: 'fired',
-      tabId: null,
-      command: null,
-      held: false,
-    });
+    this.set(sessionId, { state: 'fired', queued: null, held: false });
     return true;
   }
 
-  /** Record what was sent or queued for a fired session. */
-  recordCommand(
+  /** Record the queue entry a fired session's command became. */
+  recordQueued(
     sessionId: string,
-    tabId: string,
-    command: string,
+    queued: QueuedCommand | null,
     held: boolean,
   ): void {
     const current = this.entry(sessionId);
     if (current?.state !== 'fired') return;
-    this.set(sessionId, { ...current, tabId, command, held });
+    this.set(sessionId, { ...current, queued, held });
   }
 
   /** The user cancelled it: it never fires again for the session. */
@@ -69,8 +65,7 @@ export class SessionAutoHandoffService {
     const current = this.entry(sessionId);
     this.set(sessionId, {
       state: 'cancelled',
-      tabId: current?.tabId ?? null,
-      command: current?.command ?? null,
+      queued: current?.queued ?? null,
       held: false,
     });
   }

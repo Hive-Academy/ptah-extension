@@ -549,7 +549,7 @@ describe('ConversationService', () => {
       tabsSignal.set([makeTab({ id: 'tab-1', queuedContent: 'first' })]);
       const held = service.queueOrAppendMessage('/session-handoff wrap up', {
         tabId: 'tab-1',
-      });
+      })?.held;
       expect(held).toBeInstanceOf(Promise);
       const outcome: { value: boolean | undefined } = { value: undefined };
       void held?.then((queued) => (outcome.value = queued));
