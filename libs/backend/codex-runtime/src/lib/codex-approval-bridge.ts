@@ -25,6 +25,8 @@ const kinds: Record<Method, CodexApprovalRequest['kind']> = {
   'item/tool/requestUserInput': 'userInput',
   'mcpServer/elicitation/request': 'mcpElicitation',
 };
+/** Auto-decline delay, and the deadline offset, when no timeout is configured. */
+const DEFAULT_APPROVAL_TIMEOUT_MS = 240_000;
 const answersSchema = z.record(
   z.string(),
   z.object({ answers: z.array(z.string()) }),
@@ -133,10 +135,8 @@ export class CodexApprovalBridge {
   private disposed = false;
 
   constructor(private readonly options: CodexApprovalBridgeOptions) {
-    if (
-      !Number.isFinite(options.timeoutMs ?? 240_000) ||
-      (options.timeoutMs ?? 240_000) <= 0
-    ) {
+    const timeout = this.approvalTimeout();
+    if (!Number.isFinite(timeout) || timeout <= 0) {
       throw new Error('Invalid approval timeout');
     }
   }
@@ -178,6 +178,10 @@ export class CodexApprovalBridge {
       ...identity,
       ...correlation,
       kind: kinds[method],
+      ...(typeof params['itemId'] === 'string' && params['itemId']
+        ? { toolId: params['itemId'] }
+        : {}),
+      expiresAt: this.options.clock.now() + this.approvalTimeout(),
       message:
         typeof params['message'] === 'string'
           ? params['message']
@@ -293,6 +297,11 @@ export class CodexApprovalBridge {
     return target;
   }
 
+  /** The auto-decline delay; the presented deadline is stamped with the same value. */
+  private approvalTimeout(): number {
+    return this.options.timeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+  }
+
   private interact(
     request: CodexApprovalRequest,
     signal: AbortSignal,
@@ -314,7 +323,7 @@ export class CodexApprovalBridge {
       const dispose = () => finish('decline');
       const timer = this.options.clock.setTimeout(
         dispose,
-        this.options.timeoutMs ?? 240_000,
+        this.approvalTimeout(),
       );
       this.pending.add(dispose);
       signal.addEventListener('abort', abort, { once: true });

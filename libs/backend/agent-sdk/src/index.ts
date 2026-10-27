@@ -171,6 +171,10 @@ export {
   type CodexChatEventCallbacks,
   type CodexChatTurnIdentity,
 } from './lib/codex-app-server/codex-chat-events';
+export {
+  presentCodexApproval,
+  presentCodexTool,
+} from './lib/codex-app-server/codex-tool-presentation';
 export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
 export type { SdkDIToken } from './lib/di/tokens';
 export {

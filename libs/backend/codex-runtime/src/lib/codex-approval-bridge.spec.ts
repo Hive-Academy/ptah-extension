@@ -195,6 +195,27 @@ describe('CodexApprovalBridge', () => {
     });
   });
 
+  it('stamps the native item id and the auto-decline deadline', async () => {
+    const { bridge, request } = setup();
+    const before = Date.now();
+    await bridge.handle(frame(), 'turn', signal());
+    expect(request.mock.calls[0][0].toolId).toBe('item');
+    expect(request.mock.calls[0][0].expiresAt).toBe(before + 100);
+  });
+
+  it('omits the tool id when the request carries no native item id', async () => {
+    const { bridge, request } = setup();
+    await bridge.handle(frame(mcp), 'turn', signal());
+    expect(request.mock.calls[0][0].toolId).toBeUndefined();
+  });
+
+  it('uses the default auto-decline delay when no timeout is configured', async () => {
+    const { bridge, request } = setup({ timeoutMs: undefined });
+    const before = Date.now();
+    await bridge.handle(frame(), 'turn', signal());
+    expect(request.mock.calls[0][0].expiresAt).toBe(before + 240_000);
+  });
+
   it('rejects duplicates both pending and completed without a second presentation', async () => {
     const { bridge, request } = setup();
     const pending = bridge.handle(frame(), 'turn', signal());

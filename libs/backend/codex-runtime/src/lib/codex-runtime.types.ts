@@ -139,6 +139,7 @@ export interface CodexApprovalRequest extends CodexApprovalCorrelation {
   readonly providerId: string;
   readonly toolId?: string;
   readonly toolName?: string;
+  readonly expiresAt?: number; // epoch ms when the bridge auto-declines
   readonly message: string;
   readonly details: Readonly<Record<string, CodexJsonValue>>;
 }
