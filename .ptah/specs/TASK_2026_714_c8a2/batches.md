@@ -2345,6 +2345,96 @@ Assumptions:
   resume (8h-4b logs `codex-active-resume-options-not-applied` with key names only).
 - M2 label (above). Active-record resume RISK: fixed in 8h-4/8h-4b.
 
+## Batch 8i: P8 fix round 4 (live-test-p8d.md D7: diagnosable open failure + start probe) — COMPLETE (code; 8i-1 c2a06f834; 8i-2 092095c4b; phase gate PASS; probe run and P8 re-review pending)
+
+- Phase: P8 | Phase gate once after 8i-2: degradation-audit lint, di-lint lint, 4-host typecheck,
+  vscode-core host-attention-ingress test. Phase review: the coordinator's P8 re-review.
+- Recommended executor: CLI lane, implementation capability (Codex: only lane with confirmed
+  room). Fallback: other family same capability -> same family other model -> subagent.
+  Subagent reason: N/A. Review family: implementer Codex, reviewer Claude.
+- Execution mode: sequential (8i-2 consumes the 8i-1 failure log / stderr tail API).
+- Verify per batch: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/agent-sdk,ptah-electron`.
+
+### Plan validation (8i)
+
+- Consumers of the old text 'Codex context could not be opened': only
+  `codex-runtime.spec.ts` (grep over libs/apps). agent-sdk and rpc-handlers do not match on it.
+  The message stays; only `cause` and a log are added. OK.
+- `CodexAppServerProcess` has no logger today (constructor: spawner, executable, binary,
+  profile, handlers). RISK (LOW): adding a logger must not change behaviour; an optional
+  trailing constructor argument keeps every existing spec call site valid. Task 8i-1.
+- `fail(message)` keeps only the first message; the underlying exception (e.g. a
+  `CodexProtocolError` with `code`/`method` from `validateCodexFrame`) is dropped in `onData`'s
+  catch. RISK (MEDIUM): the method that failed is exactly the D7 evidence; keep the original as
+  `cause` of the failure error and name the frame method (never the frame). Task 8i-1.
+- ASSUMPTION: an unknown server NOTIFICATION method (e.g. MCP startup status during
+  thread/start) fails validation and kills the process. Unverified; the probe (8i-2) settles it.
+- Stderr ring buffer: bounded bytes and lines; redaction (Bearer, sk-, Authorization) applied
+  on read; never logged at info. Task 8i-1.
+- Probe: no Electron, no build target, no turn/start. Load check only (`--help`, no spawn) is
+  allowed to the lane; the coordinator runs the real probe.
+
+### Batch 8i-1: keep and log the real open failure cause — COMPLETE (c2a06f834)
+
+- Files (W = D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration/):
+  W/libs/backend/codex-runtime/src/lib/codex-runtime.ts, codex-app-server-process.ts,
+  codex-runtime.spec.ts, codex-app-server-process.spec.ts, optional new
+  codex-stderr-tail.ts (+ .spec.ts), W/libs/backend/codex-runtime/src/index.ts only if an export
+  is needed by 8i-2.
+- `open()` rethrow keeps `cause`; one `logger.error` with error class, message, method, rpc code,
+  redacted stderr tail. Process: failure error carries cause + method; debug log of the tail on
+  process failure / rejected request.
+- Lane: Codex (CLI session 01a17ed6-080d-78c3-ad71-9fa7cc42923d), 6 min, report
+  batch-8i-1-report.md. Files match the declared set (git status checked).
+- PROCESS NOTE: the lane called `ptah_get_diagnostics` once despite the ban (its backend-developer
+  role preamble requires it; the task prompt forbids it). Result 0 errors; not used as evidence.
+  Future lane prompts: state that the task prompt's ban overrides the role preamble.
+- Public surface: the lane added `export { CodexProcessFailureError }` to the package index for
+  the probe. Team-leader decision: index.ts is NOT committed in 8i-1 (no consumer yet); 8i-2 owns
+  it and keeps the export only if the probe imports it from `@ptah-extension/codex-runtime`,
+  otherwise reverts it.
+- Verify (codex-runtime, agent-sdk, ptah-electron): 14/15 tasks pass, 0 cache hits. The one
+  failure is `@ptah-extension/agent-sdk:lint`, 2 `no-unexpected-multiline` errors in
+  session-query-executor.accounts.spec.ts:174,183, a file this task never touched and that is
+  byte-identical to origin/main (came in with the main merge 42170f631). Pre-existing, not an
+  8i-1 regression; committed on that basis. Reported to the coordinator for a main-side fix.
+
+### Batch 8i-2: local start probe script — COMPLETE (092095c4b; reports batch-8i-2-report.md, -2b)
+
+- File: W/scripts/codex-start-probe.ts (one file). Real `CodexRuntime.open` with an
+  Electron-equivalent profile (codex-chat-host-ports.ts, codex-chat-profile-options.ts,
+  apps/ptah-electron/src/di/codex-runtime-composition.ts), initialize -> thread/start -> close.
+  `--no-user-mcp` variant uses a native App Server config override.
+- Lane: Codex (CLI sessions 01a17eea-c85b-7fb0-a52c-faf590adc138; fix 01a17ef0-1b0b-7260-adb4-421ae5da2c27).
+  Files: scripts/codex-start-probe.ts, scripts/codex-start-probe.tsconfig.json; index.ts export
+  of CodexProcessFailureError KEPT (the probe imports it) and committed here. git status: no
+  undeclared files.
+- Probe typecheck `npx tsc --noEmit -p scripts/codex-start-probe.tsconfig.json` (under the lock):
+  first FAIL TS2322 (spawner handle `pid` optional vs SpawnedProcessHandle) + a `runtime!`
+  assertion; fixed by the lane (typed handle adapter); re-run PASS. `npx eslint` on the file:
+  clean. scripts/ has no project.json, so no Nx lint/test/typecheck target picks the probe up.
+- MCP suppression: `-c mcp_servers.<name>.enabled=false` appended after `app-server` for each
+  `[mcp_servers.<name>]` header name in CODEX_HOME/config.toml (evidence: rust-v0.155.1
+  config_override.rs, mcp_types.rs). Whether the override is honoured after the subcommand is
+  for the probe run to show (the variant prints the suppressed names).
+- Default model `gpt-6.1-sol`; add `--model gpt-5.6-luna` to match the live-test selection.
+- Verify (codex-runtime, agent-sdk, ptah-electron): 14/15 pass; same pre-existing agent-sdk lint
+  failure as 8i-1 (session-query-executor.accounts.spec.ts:174,183, identical to origin/main).
+
+### Batch 8i phase gate — PASS (2026-10-27, after 092095c4b)
+
+- degradation-audit:lint PASS; di-lint:lint PASS; typecheck ptah-electron, ptah-extension-vscode,
+  ptah-cli, ptah-tui PASS (4 tasks); vscode-core host-attention-ingress test PASS (1 task).
+
+### Batch 8i deferred
+
+- Pre-existing agent-sdk lint errors from main (`no-unexpected-multiline`,
+  session-query-executor.accounts.spec.ts:174,183): fix on main or in a separate commit; not in
+  this task's scope. CI lint for agent-sdk will fail on this PR until it is fixed.
+- Run the probe (coordinator), both variants, then fix D7 itself from its evidence.
+- D7 contract gap (`ptah-mcp-not-attached` notice vs Codex attaching Ptah MCP from config.toml):
+  per P8 D8, native chat honours MCP servers; resolved in the P14 MCP mapping.
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
