@@ -2545,6 +2545,206 @@ Assumptions:
   notification there stays fatal. Accepted: unknown methods carry no state Ptah reads.
 - Pre-existing agent-sdk lint errors from main (see 8i deferred).
 
+## Batch 8k: P8 fix round 6 (live-test-p8e.md D8, D10, D11, D12, tool naming, session stats) — IN_PROGRESS (8k-1, 8k-2, 8k-4 COMPLETE; 8k-3 host ports NOT ACCEPTED; 8k-5 PENDING; phase gate PASS)
+
+- Phase: P8 | Phase gate once after 8k-5: degradation-audit lint, di-lint lint, 4-host typecheck,
+  vscode-core host-attention-ingress test. Phase review: the coordinator's P8 re-review (reviewer
+  family Claude, implementer Codex/Glm), after the live re-test. Not run in this round.
+- Principle: the native Codex path produces the SAME contracts the Claude path produces
+  (FlatStreamEventUnion, `turn_state` lifecycle, PermissionRequest, session RPCs). Fix the Codex
+  backend side; no Codex special case in the frontend unless a shared contract lacks a field.
+- Recommended executor: CLI lane, implementation capability. Codex for 8k-1, 8k-3, 8k-4, 8k-5
+  (near weekly limit; on a confirmed limit fall back to Glm), Glm (ptah-cli) for 8k-2. Fallback
+  order: other family same capability -> same family other provider/model -> subagent.
+  Subagent reason: N/A. Review family: implementers Codex + Glm (Ollama Cloud), reviewer Claude.
+- Execution mode: waves. Wave A parallel {8k-1, 8k-2} (file-disjoint). Wave B parallel
+  {8k-3, 8k-4} (file-disjoint, both need wave A). Wave C 8k-5 (specs over the whole path).
+  One combined verify per wave over the working tree; commit per sub-batch when the sub-batch
+  alone is verifiable, else one commit per wave (8j precedent).
+- Verify (W = D:/projects/ptah-extension/.claude-worktrees/codex-runtime-integration):
+  `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/codex-runtime,@ptah-extension/rpc-handlers,ptah-electron`
+  (only the changed projects of the wave). Known pre-existing lint: agent-sdk
+  session-query-executor.accounts.spec.ts:174,183.
+
+### Plan validation (8k) — PASSED WITH RISKS
+
+Evidence read by the team-leader (file:line at e91e967c9):
+
+- D8 root cause confirmed: `CodexChatEvents.map` emits `message_start` and terminal
+  `message_complete` only (agent-sdk codex-app-server/codex-chat-events.ts:101-111, 237-265); no
+  Codex file touches `SessionTurnStateRegistry`. Claude emits `turn_state(generating)` before the
+  root `message_start` (message-transform/stream-event.transformer.ts:193-198) and
+  `turn_state(settleTurn)` on `result` (result-message.transformer.ts:28-36). Broadcaster safety
+  net needs phase `generating` (chat-stream-broadcaster.service.ts finally block). Each Codex turn
+  is one stream (`streamCodexChatTurn`, codex-chat-turn-stream.ts:51); follow-ups go through the
+  host `publish` port into `streamEventsToWebview` (codex-chat-host-ports.ts last lines).
+- D11 root cause confirmed: wire id = JSON key (codex-chat-host-ports.ts `key()` and `present`),
+  parser requires UUID (shared permission.parsers.ts:51). Also found: `toolUseId: request.toolId`
+  is always undefined because the bridge never sets `toolId`
+  (codex-runtime codex-approval-bridge.ts request literal ~:177-187); the native item id is
+  `params.itemId` (runtime resolveTarget, codex-runtime.ts:362-365) and equals the `toolStarted`
+  `toolId` = `item.id` (codex-event-translator.ts:261-280). `toolName` falls back to the raw kind;
+  `description` is `params.reason` or "Codex requests approval". `timeoutAt: 0` while the bridge
+  auto-declines after 240 s (codex-approval-bridge.ts:315-318): the card shows "no timeout" for a
+  request that expires. `tabId` comes from `state.tabId(id)`, which falls back to the session id
+  (apps/ptah-electron/src/di/codex-session-binding.ts:54).
+- D12 root cause confirmed: `chat:abort` -> `interruptSession` -> `close()` (same as Claude's
+  `interruptSession`, which ends the session: sdk-agent-adapter.ts:1783-1789). The aborted
+  subscription ends the event iterator and the loop falls through to
+  `throw deps.error('runtime-failed', 'stream')` (codex-chat-turn-stream.ts:118-140). The
+  broadcaster classifies a user abort by "abort"/"cancel" in the message; `CodexChatAdapterError`
+  message is `Codex chat <op>: <code>`, so code `cancelled` classifies as a user abort and
+  `failure()` already skips the error log for it (codex-chat-adapter.ts:727-737). The pending
+  approval is released by `sink.dispose()` -> `cancelPrompt` + `dismiss` (codex-chat-approval-sink.ts),
+  but those carry the JSON key / raw request id, never a renderer-known id.
+- D10 root cause confirmed: `session:validate` only looks for a Claude JSONL
+  (session-rpc.handlers.ts:1048-1067). SessionMetadataStore already holds `codexExecution`
+  (runtime `codex-app-server`) and `codexThread` (session-metadata-store.ts:245-248), which the
+  Electron `readResumeIdentity` reads (apps/ptah-electron/src/di/codex-runtime-composition.ts:538).
+- Session stats: stats ARE emitted (`Session stats received` in p8e with tokens), but the payload
+  has no `modelUsage` and no `sessionStats` (codex-chat-turn-stream.ts:98-112); the frontend
+  header derives Model/Context from `modelUsage` and the snapshot from `sessionStats`
+  (frontend chat session-stats-aggregator.service.ts:119-180). Native `modelContextWindow` exists on
+  `thread/tokenUsage/updated` (codex-protocol-methods.ts:343-348) but the translator drops it.
+  So: emitted but incomplete; 8k-4 confirms against the header code before changing it.
+- Tool naming: translator names are native (`commandExecution`, `fileChange`, `server/tool`,
+  `webSearch`) (codex-event-translator.ts:261-400); the projection passes them through
+  (codex-chat-events.ts:187-202).
+
+Risks:
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| Turn-state revision is per session id; the Codex thread id is the Ptah session id, so a resumed Codex thread continues the same floor (no restart) | LOW | 8k-1 uses the shared registry instance (SDK_SESSION_TURN_STATE_REGISTRY) |
+| A detached consumer (drain path) settles without a consumer; the broadcaster already forced idle | LOW | 8k-1: drain path calls settle/forceIdle on the registry without yielding; spec |
+| Mapping Codex `fileChange` to Claude `Edit`/`Write` needs inputs the renderer may require (old_string/new_string) | MEDIUM | 8k-2 maps only where the renderer's required inputs exist; else keeps the raw type; decisions recorded |
+| `state.tabId` falls back to the session id: a permission could carry a thread id as `tabId` | MEDIUM | 8k-3 omits `tabId` when the lookup has no real tab (the field is optional in the parser) |
+| Codex-side stop must not leave Codex pending approvals or host notices | MEDIUM | 8k-1 settles pending approvals of the turn on every terminal path; 8k-3/8k-5 pin hostAttention.resolve with the wire id |
+| Codex weekly limit at 92% | MEDIUM | fallback to Glm per lane recovery order |
+
+Assumptions:
+
+- `chat:continue` for a Codex-owned session reaches `CodexChatAdapter.resumeSession` once
+  `session:validate` says exists (routing by identity lookup). Unverified; 8k-3 checks the
+  continue path and states the evidence.
+- `parsePermissionRequest` is importable from `@ptah-extension/shared` in backend specs. 8k-3/8k-5 check.
+
+Decisions (team-leader):
+
+- Codex failed turn -> `recordFailure(id, { error: 'unknown', terminalReason: null })` then
+  `settleTurn` -> phase `failed` (Claude's failed phase comes from the StopFailure snapshot the
+  same way). Interrupted -> `settleTurn(id, 'aborted_streaming')`. Completed ->
+  `settleTurn(id, 'completed')`. Reversible.
+- Stop keeps Claude semantics (close the session) but the turn stream raises
+  `CodexChatAdapterError('cancelled', 'turn')`, which the shared broadcaster classifies as a
+  user abort. No `turn/interrupt` rewrite of `chat:abort` this round. Reversible.
+- Wire approval id = `randomUUID()` per presentation, host map wire id -> correlation; every
+  outbound message (`PERMISSION_AUTO_RESOLVED`, `PERMISSION_PROMPT_CANCELLED`) and the host
+  attention release use the wire id.
+- `timeoutAt` = the bridge's real decline deadline (new `expiresAt` on CodexApprovalRequest),
+  not 0, so the card and the renderer expiry match the native timeout.
+- D10 option A: `session:validate` answers `exists: true` for a session whose metadata carries
+  `codexExecution.runtime === 'codex-app-server'` and a valid `codexThread`.
+
+Deferred / not this round:
+
+- D9 (history after reload, = P12 `thread/read`): REQUIRED BEFORE Removal A (P15).
+- Native MCP attach and the wrong `ptah-mcp-not-attached` notice: round 8l.
+- Plan-limits "Unavailable" for Codex: recorded only.
+- Manual mode running read-only commands without a prompt (Codex sandbox policy): observation only.
+- The host notice title shows the raw session id when metadata has no name: recorded only.
+
+### Batch 8k-1: Codex turn lifecycle (D8) and user-abort classification (D12, adapter side) — COMPLETE (65a5537e6)
+
+- Files: W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-turn-stream.ts,
+  codex-chat-adapter.ts, codex-chat-approval-sink.ts, W/libs/backend/agent-sdk/src/lib/di/register.ts,
+  specs codex-chat-adapter.spec.ts, codex-chat-approval-sink.spec.ts, new
+  codex-chat-turn-lifecycle.spec.ts (same folder).
+- Report: batch-8k-1-report.md.
+
+### Batch 8k-2: native tool presentation and approval identity in core — COMPLETE (095e4246e)
+
+- Files: new W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-tool-presentation.ts + .spec.ts,
+  W/libs/backend/agent-sdk/src/index.ts (export), W/libs/backend/codex-runtime/src/lib/codex-approval-bridge.ts,
+  codex-runtime.types.ts, codex-approval-bridge.spec.ts.
+- Report: batch-8k-2-report.md.
+
+### Batch 8k-3: host approval wire contract (D11, D12 host side), session:validate (D10), tool names in the projection — IN_PROGRESS (D10 + projection COMPLETE 785de99ef; host ports NOT ACCEPTED, uncommitted)
+
+- NOT ACCEPTED part: W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts
+  + .spec.ts stay uncommitted in the worktree. rpc-handlers typecheck (source) passed; the spec
+  suite fails to compile: codex-chat-host-ports.spec.ts:360, :457, :458, :572 pass
+  `['deny', 'allowOnce']` where `typeof CODEX_CHAT_APPROVAL_CHOICES` (4-tuple) is required, and
+  :556 passes a `string` `reason` where PermissionPromptCancelledPayload['reason'] is required
+  (the it.each table needs literal types). Spec-only typing; production code unchanged by the fix.
+  Next: resume the 8k-3 lane (Codex session 01a17f67-41d3-7741-98c6-b3d0180d50c6) with these
+  five lines, re-run `npm run verify -- -t test -p @ptah-extension/rpc-handlers`, then commit.
+- Minor (recorded, not fixed): session-rpc.handlers.ts:125 keeps a LOCAL copy of the codexThread
+  schema because `parseCodexThreadRecord` (session-metadata-store.ts:136) is not exported from the
+  agent-sdk barrel. Export it and drop the copy in a later round.
+
+- Files: W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts + .spec.ts,
+  W/libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts + its spec,
+  W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-events.ts + .spec.ts.
+- Report: batch-8k-3-report.md.
+
+### Batch 8k-4: native session stats (model, context, tokens) — COMPLETE (dac92cedb)
+
+- Finding: Model and Context were never emitted (no modelUsage row; translator dropped
+  modelContextWindow). Header Tokens/Cost read the session-lifetime `sessionStats` snapshot,
+  which Codex never sends. DEFERRED: wiring Codex into the Claude stats owner
+  (stream-transformer.ts statsOwner.replaceRun) for sessionStats; Cost stays null (unpriced).
+  Native wire reports no effective model; the session's settings.model is used.
+
+- Files: W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-turn-stream.ts (stats
+  payload), codex-chat-adapter.ts (model hand-off only if needed),
+  W/libs/backend/codex-runtime/src/lib/codex-event-translator.ts, codex-runtime.types.ts,
+  codex-event-translator.spec.ts, plus the turn-lifecycle spec from 8k-1 for the stats assertions.
+- Report: batch-8k-4-report.md.
+
+### Batch 8k execution record
+
+- Lanes: 8k-1 Codex (01a17f46-50d7-7fc3-a307-0f2f62a57f6b; continuation 01a17f4b-...; fix round
+  01a17f5b-8187-71f2-b142-d5e7703b17ea), 8k-2 Glm (1fe2d164-737c-4ba1-ac30-055b998245d8), 8k-3
+  Codex (01a17f67-41d3-7741-98c6-b3d0180d50c6), 8k-4 Glm (ad357a12-ecb2-4cf6-9ac9-e6e88dd45484).
+  No lane ran verification or ptah_get_diagnostics; git status after each lane showed only
+  declared files (8k-1 flagged and then fixed the out-of-scope Electron spec).
+- Wave A verify (agent-sdk, codex-runtime, ptah-electron): 1st run 3 failures (sink spec fixture
+  over-spread into a strict reply; Electron spec container lacked SDK_SESSION_TURN_STATE_REGISTRY),
+  fixed spec-only; re-run test agent-sdk + ptah-electron PASS. Lint: only the known pre-existing
+  agent-sdk session-query-executor.accounts.spec.ts:174,183.
+- Wave B verify (agent-sdk, codex-runtime, rpc-handlers, ptah-electron): 16/18; failures = the
+  known agent-sdk lint and the codex-chat-host-ports.spec.ts compile errors (see 8k-3).
+- Commits: 65a5537e6 (8k-1), 095e4246e (8k-2), dac92cedb (8k-4), 785de99ef (8k-3 part:
+  D10 + projection tool names). 785de99ef subject is 74 chars (over the 72 rule); not pushed,
+  not amended (no history rewrite).
+- Codex weekly limit rose 92% -> 95% over this round.
+
+### Batch 8k phase gate — PASS (2026-10-28, after 785de99ef; host-ports pair uncommitted in tree)
+
+- degradation-audit:lint PASS; di-lint:lint PASS; typecheck ptah-electron, ptah-extension-vscode,
+  ptah-cli, ptah-tui PASS (4 tasks); vscode-core host-attention-ingress test PASS.
+
+### Batch 8k-5: end-to-end contract specs (host + translator + projection) — PENDING (deferred: session wrap-up; the coordinator stopped new lanes after 8k-4)
+
+- Coverage already landed per path, but per unit, not end to end: turn lifecycle ordering with a
+  real registry (codex-chat-turn-lifecycle.spec.ts), approval payload through the REAL
+  `parsePermissionRequest` with toolUseId = request.toolId (codex-chat-host-ports.spec.ts), stop
+  during approval -> `cancelled` error + prompt cancelled + notice released with the wire id
+  (lifecycle spec + host-ports spec), toolId = native itemId (codex-approval-bridge.spec.ts).
+- Still owed (the required end-to-end specs): one spec per path through translator -> projection ->
+  turn stream -> host ports, and the comparison with a Claude fixture turn through the real
+  Claude transformer. Required before the P8 live re-test is signed off.
+
+- Files: new W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-native-contract.spec.ts.
+- Specs: (1) a completed turn emits the same ordered root lifecycle (`turn_state` generating,
+  `message_start`, ..., `message_complete`, `turn_state` idle) as a Claude fixture turn through the
+  real Claude transformer; (2) an approval produces a PermissionRequest that passes the real
+  `parsePermissionRequest` and whose `toolUseId` equals the `tool_start` `toolCallId`; (3) stop
+  during approval -> abort-classified error, `turn_state` idle `aborted_streaming`, prompt cancelled
+  and host notice released with the wire id.
+- Report: batch-8k-5-report.md.
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
