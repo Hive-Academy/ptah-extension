@@ -1030,6 +1030,13 @@ export class SessionLoaderService {
         return { staleSnapshot: false };
       }
 
+      if (resumeResult.data?.cancelled === true) {
+        this.tabManager.applyResumeFailure(resolvedTabId);
+        this.tabManager.markTabIdle(resolvedTabId);
+        this.sessionManager.setStatus('loaded');
+        return { staleSnapshot: false };
+      }
+
       if (
         opts?.reason === 'compaction' &&
         targetTabId &&

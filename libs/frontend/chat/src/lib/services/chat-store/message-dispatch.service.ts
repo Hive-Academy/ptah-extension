@@ -235,7 +235,15 @@ export class MessageDispatchService {
       const held = this.conversation.queueOrAppendMessage(content, options);
       return held ? { success: true, heldCommand: held } : { success: true };
     }
+    const previousTerminalReason = dispatchTab?.lastTerminalReason;
     const outcome = await this.messageSender.send(content, options);
+    if (outcome?.cancelled === true) {
+      if (resolvedTabId) {
+        this.restoreCancelledSend(resolvedTabId, previousTerminalReason);
+      }
+      return outcome;
+    }
+    if (outcome?.errorAlreadyShown === true) return outcome;
     if (outcome && !outcome.success && resolvedTabId) {
       this.showSendFailure(resolvedTabId, outcome.error);
     }
@@ -268,6 +276,7 @@ export class MessageDispatchService {
     let delivered = false;
     try {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      const previousTerminalReason = tab?.lastTerminalReason;
       if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
       const sessionId = tab?.claudeSessionId;
       if (!sessionId) {
@@ -293,6 +302,16 @@ export class MessageDispatchService {
           sessionId,
           { ...queuedOptions, tabId, ownerToken: options?.ownerToken },
         );
+      if (outcome?.cancelled === true) {
+        this.restoreCancelledSend(tabId, previousTerminalReason);
+        this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
+        return;
+      }
+      if (outcome?.errorAlreadyShown === true) {
+        // CHAT_ERROR already settled this command. Do not requeue it or
+        // release a held command as though the failed operation succeeded.
+        return;
+      }
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);
         this.showSendFailure(tabId, outcome.error);
@@ -310,6 +329,15 @@ export class MessageDispatchService {
     // Outside the try: the text is sent, so nothing here may re-queue it. A
     // slash command held behind it is queued next, as its own turn.
     if (delivered) this.conversation.releaseHeldCommand(tabId, queuedContent);
+  }
+
+  private restoreCancelledSend(
+    tabId: string,
+    previousTerminalReason: TabState['lastTerminalReason'],
+  ): void {
+    this.tabManager.markLoaded(tabId);
+    this.tabManager.markTabIdle(tabId);
+    this.tabManager.setLastTerminalReason(tabId, previousTerminalReason ?? null);
   }
 
   /**

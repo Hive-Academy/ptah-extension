@@ -1364,6 +1364,27 @@ describe('SessionLoaderService', () => {
       ).rejects.toThrow(/session:load failed/i);
     });
 
+    it('settles a cancelled resume before the missing-events error', async () => {
+      const localService = makeRichService();
+      const tabs = TestBed.inject(TabManagerService);
+      tabs.markTabIdle = jest.fn();
+      const log = jest.spyOn(console, 'error').mockImplementation();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: { success: false, cancelled: true } }
+        : { success: true, data: {} });
+      try {
+        await expect(localService.switchSession('sess-cancelled' as SessionId))
+          .resolves.toEqual({ staleSnapshot: false });
+        expect(tabs.applyResumeFailure).toHaveBeenCalledWith('tab-fresh');
+        expect(tabs.markTabIdle).toHaveBeenCalledWith('tab-fresh');
+        expect(TestBed.inject(SessionManager).setStatus).toHaveBeenLastCalledWith('loaded');
+        expect(historyPagingMock.recordTail).not.toHaveBeenCalled();
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+
     it('throws when chat:resume has no events', async () => {
       const localService = makeRichService();
       rpcCall.mockImplementation((method: string) => {
@@ -2512,6 +2533,27 @@ describe('SessionLoaderService', () => {
         return { success: true, data: { events, stats: null } };
       });
     }
+
+    it('keeps delivered history when Codex activation fails', async () => {
+      const harness = makeChunkedService();
+      const tabs = TestBed.inject(TabManagerService);
+      tabs.setSessionProvider = jest.fn();
+      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
+        ? { success: true, data: {
+          success: true,
+          events: historyEvents(1),
+          activated: false,
+          activationErrorCode: 'CODEX_RUNTIME_FAILED',
+        } }
+        : { success: true, data: {} });
+
+      await expect(harness.service.switchSession(SESSION, { activate: true }))
+        .resolves.toEqual({ staleSnapshot: false });
+      expect(harness.processStreamEvent).toHaveBeenCalledTimes(1);
+      expect(harness.applyResumeFailure).not.toHaveBeenCalled();
+      expect(tabs.markSessionActive).not.toHaveBeenCalled();
+      expect(harness.setStatus).toHaveBeenLastCalledWith('loaded');
+    });
 
     it('claims a resync before session:load and releases history, seed, then buffered live events', async () => {
       const harness = makeChunkedService();
