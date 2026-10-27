@@ -66,7 +66,7 @@ const TABS: readonly NativeTab[] = [
                   <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'stt' }" />
                 }
               }
-            } @else {
+            } @else if (direction() === 'tts') {
               @switch (ttsProvider()) {
                 @case ('elevenlabs') {
                   <ptah-elevenlabs-panel direction="tts" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
@@ -90,7 +90,7 @@ const TABS: readonly NativeTab[] = [
           <p class="mb-3 text-xs text-base-content-muted">
             Save an API key here, then pick ElevenLabs as the provider in the Voice engines table.
           </p>
-          <ptah-elevenlabs-panel [direction]="dir" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
+          <ptah-elevenlabs-panel [direction]="dir" [config]="cfg.elevenlabs" [keyOnly]="true" (changed)="changed.emit()" />
         </section>
       </ng-template>
       @if (direction() !== null) {

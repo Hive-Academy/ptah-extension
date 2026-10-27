@@ -66,6 +66,7 @@ describe('ElevenLabsPanelComponent', () => {
   function mount(
     direction: 'stt' | 'tts',
     config: VoiceProviderConfigElevenLabsDto,
+    keyOnly = false,
   ): ElevenLabsPanelComponent {
     TestBed.configureTestingModule({
       imports: [ElevenLabsPanelComponent],
@@ -84,6 +85,7 @@ describe('ElevenLabsPanelComponent', () => {
     element = fixture.nativeElement as HTMLElement;
     fixture.componentRef.setInput('direction', direction);
     fixture.componentRef.setInput('config', config);
+    fixture.componentRef.setInput('keyOnly', keyOnly);
     fixture.detectChanges();
     return fixture.componentInstance;
   }
@@ -474,6 +476,17 @@ describe('ElevenLabsPanelComponent', () => {
       expect(
         byTestId<HTMLSelectElement>('elevenlabs-voice-select').querySelectorAll('option').length,
       ).toBe(2);
+    });
+
+    it('in key-only mode shows just the key block and never lists cloud voices', async () => {
+      routeRpc({ 'voice:listVoices': VOICES });
+      mount('tts', elConfig({ apiKeyConfigured: true }), true);
+      await settle();
+
+      expect(calls('voice:listVoices')).toEqual([]);
+      expect(byTestId('elevenlabs-key-input')).toBeTruthy();
+      expect(element.querySelector('[data-testid="elevenlabs-voice-select"]')).toBeNull();
+      expect(element.querySelector('select')).toBeNull();
     });
 
     it('loads voices once the container passes a config with a first saved key', async () => {

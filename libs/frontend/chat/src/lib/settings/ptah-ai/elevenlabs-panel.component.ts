@@ -281,7 +281,7 @@ function testFailureMessage(category: string | undefined): string {
           </td>
         </tr>
 
-        @if (direction() === 'tts') {
+        @if (direction() === 'tts' && !keyOnly()) {
           <!-- V23: voice (S-sel + Undo) -->
           <tr>
             <th
@@ -391,6 +391,8 @@ export class ElevenLabsPanelComponent {
 
   readonly direction = input.required<'stt' | 'tts'>();
   readonly config = input.required<VoiceProviderConfigElevenLabsDto>();
+  /** Key block only (ElevenLabs not active yet): no voice/model rows and no cloud voice listing. */
+  readonly keyOnly = input(false);
   readonly changed = output<void>();
 
   readonly AlertCircleIcon = AlertCircle;
@@ -411,9 +413,10 @@ export class ElevenLabsPanelComponent {
     outputFormat: linkedSignal(() => this.config().outputFormat),
     sttModelId: linkedSignal(() => this.config().sttModelId),
   };
-  readonly selectRows = computed(() =>
-    this.direction() === 'tts' ? ELEVENLABS_TTS_ROWS : ELEVENLABS_STT_ROWS,
-  );
+  readonly selectRows = computed(() => {
+    if (this.keyOnly()) return [];
+    return this.direction() === 'tts' ? ELEVENLABS_TTS_ROWS : ELEVENLABS_STT_ROWS;
+  });
 
   /** Draft key — NEVER seeded from the stored key (which is never sent to us). */
   readonly keyDraft = signal('');
@@ -430,7 +433,10 @@ export class ElevenLabsPanelComponent {
   readonly voicesError = signal<string | null>(null);
 
   readonly showVoicePicker = computed(
-    () => this.direction() === 'tts' && this.config().apiKeyConfigured,
+    () =>
+      !this.keyOnly() &&
+      this.direction() === 'tts' &&
+      this.config().apiKeyConfigured,
   );
   /** The typed draft is the one that passed the probe. */
   readonly draftVerified = computed(() => {
@@ -516,7 +522,7 @@ export class ElevenLabsPanelComponent {
           this.keyVisible.set(false);
           this.testResult.set(null);
           // A replaced key may see a different voice library; a first key loads via the effect.
-          void this.loadVoices();
+          if (this.showVoicePicker()) void this.loadVoices();
         }
         return result;
       },

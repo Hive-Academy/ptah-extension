@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import type { VoiceProviderConfigDto } from '@ptah-extension/shared';
 import { VoiceDetailsDrawerComponent, type VoiceDirection } from './voice-details-drawer.component';
 import { LocalSttPanelComponent } from './local-stt-panel.component';
@@ -31,6 +32,7 @@ class LocalTtsStub {
 class ElevenLabsStub {
   readonly direction = input.required<'stt' | 'tts'>();
   readonly config = input.required<unknown>();
+  readonly keyOnly = input(false);
   readonly changed = output<void>();
 }
 
@@ -114,6 +116,7 @@ describe('VoiceDetailsDrawerComponent', () => {
     fixture.detectChanges();
     expect(q('stub-local-stt')).not.toBeNull();
     expect(q('voice-elevenlabs-setup')?.querySelector('[data-testid="stub-elevenlabs-stt"]')).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub)).componentInstance.keyOnly()).toBe(true);
 
     tab('Text-to-speech')?.click();
     fixture.detectChanges();
@@ -140,5 +143,16 @@ describe('VoiceDetailsDrawerComponent', () => {
     host.direction.set(null);
     fixture.detectChanges();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('destroys every panel on close so an unsaved ElevenLabs key draft is not kept', () => {
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub))).not.toBeNull();
+
+    host.direction.set(null);
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub))).toBeNull();
+    expect(fixture.debugElement.query(By.directive(LocalTtsStub))).toBeNull();
   });
 });
