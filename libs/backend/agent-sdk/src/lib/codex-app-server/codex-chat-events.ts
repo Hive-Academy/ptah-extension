@@ -3,6 +3,7 @@ import type {
   CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { presentCodexTool } from './codex-tool-presentation';
 
 /** Convert a whole-turn OpenAI snapshot into Ptah's disjoint token buckets. */
 export function tokenUsage(usage: CodexReportedUsage) {
@@ -190,14 +191,15 @@ export class CodexChatEvents {
             ...base,
             eventType: 'tool_start',
             toolCallId: event.toolId,
-            toolName: event.toolName,
             isTaskTool: false,
-            toolInput:
+            ...presentCodexTool(
+              event.toolName,
               typeof event.input === 'object' &&
               event.input !== null &&
               !Array.isArray(event.input)
                 ? Object.fromEntries(Object.entries(event.input))
                 : undefined,
+            ),
           },
         ];
       case 'toolCompleted':

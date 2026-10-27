@@ -120,6 +120,17 @@ const STATS_PAGE_BUDGET_MS = 20_000;
 /** `session:list` calls slower than this log one warn line (AC1, L13). */
 const SESSION_LIST_SLOW_MS = 200;
 
+// The metadata parser is internal to agent-sdk; validate the persisted resume
+// fields here before treating a native session as available without a JSONL.
+const CodexThreadResumeSchema = z.object({
+  version: z.literal(1),
+  contextId: z.string().min(1),
+  processGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  workspaceId: z.string().min(1),
+  profileFingerprint: z.string().min(1),
+  state: z.enum(['active', 'inactive']),
+}).strict();
+
 /** Surviving transcripts of one sessions directory. */
 interface TranscriptIndex {
   readonly sessionsDir: string;
@@ -1046,6 +1057,15 @@ export class SessionRpcHandlers {
           }
 
           const metadata = await this.metadataStore.get(sessionId);
+          if (
+            metadata?.codexExecution?.runtime === 'codex-app-server' &&
+            CodexThreadResumeSchema.safeParse(metadata.codexThread).success
+          ) {
+            this.logger.debug('RPC: session:validate - native Codex session exists', {
+              sessionId,
+            });
+            return { exists: true };
+          }
           const resolvedWorkspacePath = await this.resolveTranscriptDirectory(
             metadata?.workingDirectory,
             workspacePath,

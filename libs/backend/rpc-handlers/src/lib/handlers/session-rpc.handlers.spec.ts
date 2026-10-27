@@ -106,6 +106,7 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import type {
   JsonlReaderService,
+  SessionMetadata,
   SessionMetadataStore,
   SessionStatsReaderService,
   SessionStatsReadEntry,
@@ -2006,6 +2007,75 @@ describe('SessionRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('session:validate', () => {
+    function nativeMetadata(): SessionMetadata {
+      return {
+        ...makeMetadata({ sessionId: VALID_SESSION_ID, workspaceId: WORKSPACE }),
+        codexExecution: {
+          version: 1,
+          sessionId: VALID_SESSION_ID as SessionId,
+          runtime: 'codex-app-server',
+          providerId: 'openai-codex',
+          workspaceId: WORKSPACE,
+          codex: { normalizedHome: '/home/codex' },
+        },
+        codexThread: {
+          version: 1,
+          contextId: 'native-context',
+          processGeneration: 1,
+          workspaceId: WORKSPACE,
+          profileFingerprint: 'native-profile',
+          state: 'inactive',
+        },
+      };
+    }
+
+    it('accepts a native Codex session without looking for a Claude JSONL', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue(nativeMetadata());
+      h.handlers.register();
+      const result = await call<{ exists: boolean; filePath?: string }>(
+        h, 'session:validate',
+        { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
+      );
+      expect(result).toEqual({ exists: true });
+      expect(mockAccess).not.toHaveBeenCalled();
+      expect(mockReaddir).not.toHaveBeenCalled();
+    });
+
+    it.each(['missing', 'invalid'] as const)('falls through without a valid native thread (%s)', async (thread) => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      const metadata = nativeMetadata();
+      h.metadataStore.get.mockResolvedValue({
+        ...metadata,
+        codexThread: thread === 'missing' ? undefined : {
+          version: 1,
+          contextId: '',
+          processGeneration: 0,
+          workspaceId: WORKSPACE,
+          profileFingerprint: 'native-profile',
+          state: 'inactive',
+        },
+      });
+      h.handlers.register();
+      const result = await call<{ exists: boolean }>(h, 'session:validate', {
+        sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE,
+      });
+      expect(result).toEqual({ exists: false });
+      expect(mockAccess).toHaveBeenCalled();
+    });
+
+    it('keeps the Claude JSONL lookup when native execution is absent', async () => {
+      const h = makeHarness({ workspaceFolders: [WORKSPACE] });
+      h.metadataStore.get.mockResolvedValue({ ...nativeMetadata(), codexExecution: undefined });
+      h.handlers.register();
+      const result = await call<{ exists: boolean; filePath?: string }>(
+        h, 'session:validate',
+        { sessionId: VALID_SESSION_ID, workspacePath: WORKSPACE },
+      );
+      expect(result).toEqual({ exists: false });
+      expect(mockAccess).toHaveBeenCalled();
+    });
+
     it('rejects unauthorized workspace paths with exists=false (no throw)', async () => {
       const h = makeHarness({ workspaceFolders: [WORKSPACE] });
       h.handlers.register();

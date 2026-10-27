@@ -136,10 +136,10 @@ describe('CodexChatEvents', () => {
         sequence: 1,
         type: 'toolStarted',
         toolId: 'stable',
-        toolName: 'shell',
+        toolName: 'commandExecution',
         input: { command: 'pwd' },
       })[1],
-    ).toMatchObject({ toolCallId: 'stable', toolInput: { command: 'pwd' } });
+    ).toMatchObject({ toolCallId: 'stable', toolName: 'Bash', toolInput: { command: 'pwd' } });
     expect(
       projection.map({
         ...identity,
