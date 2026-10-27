@@ -1476,6 +1476,33 @@ describe('AuthStateService', () => {
       expect(service.showProviderModels()).toBe(true);
     });
 
+    it.each<[string, Partial<AuthGetAuthStatusResponse>, boolean]>([
+      ['CLI login only', { kimiCodeAuthenticated: true, kimiCodeCredentialSource: 'cli-login' }, true],
+      ['key only', { kimiCodeCredentialSource: 'api-key', hasOpenRouterKey: true }, true],
+      ['neither', { kimiCodeCredentialSource: 'none' }, false],
+      [
+        'a stale login without a key',
+        { kimiCodeAuthenticated: false, kimiCodeTokenStale: true, kimiCodeCredentialSource: 'none' },
+        false,
+      ],
+    ])('Kimi Code credential follows its source (%s)', async (_label, fields, expected) => {
+      const service = await loadedWith(
+        makeAuthStatusResponse({
+          authMethod: 'thirdParty',
+          anthropicProviderId: 'kimi-code',
+          availableProviders: [
+            makeProvider({ id: 'kimi-code', authType: 'oauth', apiKeyFallback: true }),
+          ],
+          ...fields,
+        }),
+      );
+      expect(service.showProviderModels()).toBe(expected);
+      expect(service.hasProviderCredential()).toBe(expected);
+      expect(service.hasAnyAuth()).toBe(expected);
+      expect(service.kimiCodeCredentialSource()).toBe(fields.kimiCodeCredentialSource);
+      expect(service.kimiCodeTokenStale()).toBe(fields.kimiCodeTokenStale === true);
+    });
+
     it('showProviderModels is true for local providers without keys', async () => {
       const service = await loadedWith(
         makeAuthStatusResponse({

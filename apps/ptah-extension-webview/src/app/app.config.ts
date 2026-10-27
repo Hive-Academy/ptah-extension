@@ -30,6 +30,7 @@ import {
   BackOfficeActivityService,
   PlanLimitsStore,
   ProviderAccountsStateService,
+  ProvidersConnectionSetupService,
   MemoryPlatformLocation,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
@@ -424,6 +425,13 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ProviderAccountsStateService,
+      multi: true,
+    },
+    // In-app Kimi Code sign-in (TASK_KIMI_OAUTH): `auth:kimiCodeLoginStatus` carries each phase
+    // (verification URL, user code, final result) of the `kimi login` the host runs.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: ProvidersConnectionSetupService,
       multi: true,
     },
     provideMarkdownRendering({ extensions: 'full' }),

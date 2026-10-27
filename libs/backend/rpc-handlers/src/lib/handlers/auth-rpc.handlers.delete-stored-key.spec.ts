@@ -56,6 +56,10 @@ import type {
   AuthDeleteStoredKeyResult,
 } from '@ptah-extension/shared';
 
+import {
+  createFakeKimiCodeAuth,
+  createFakeKimiCodeLogin,
+} from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
@@ -215,6 +219,8 @@ function makeHarness(
     scopeResolver as unknown as WorkspaceScopeResolver,
   );
 
+  const kimiCodeAuth = createFakeKimiCodeAuth();
+  const kimiCodeLogin = createFakeKimiCodeLogin();
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -225,6 +231,8 @@ function makeHarness(
     activeProviderResolver,
     copilot as unknown as CopilotAuthService,
     codex as unknown as ICodexAuthService,
+    kimiCodeAuth,
+    kimiCodeLogin,
     platformCommands as unknown as IPlatformCommands,
     platformAuth as unknown as IPlatformAuthProvider,
     cliDetector as unknown as ClaudeCliDetector,

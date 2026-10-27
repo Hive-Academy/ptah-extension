@@ -23,7 +23,10 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
-import { OLLAMA_CLOUD_DIRECT_BASE_URL } from '@ptah-extension/shared';
+import {
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+  OLLAMA_CLOUD_DIRECT_BASE_URL,
+} from '@ptah-extension/shared';
 import {
   Logger,
   TOKENS,
@@ -80,6 +83,7 @@ const PLACEHOLDER_CREDENTIALS: ReadonlySet<string> = new Set([
   CODEX_PROXY_TOKEN_PLACEHOLDER,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CUSTOM_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   LOCAL_PROXY_TOKEN_PLACEHOLDER,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
   OPENCODE_PROXY_TOKEN_PLACEHOLDER,

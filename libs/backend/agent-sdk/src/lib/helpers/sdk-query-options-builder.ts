@@ -110,6 +110,7 @@ import { experimentalBetaEnv } from './build-safe-env';
 import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   OLLAMA_AUTH_TOKEN_PLACEHOLDER,
 } from '@ptah-extension/shared';
@@ -195,6 +196,9 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
   if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
     return 'openai-codex';
+  }
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === KIMI_CODE_PROXY_TOKEN_PLACEHOLDER) {
+    return 'kimi-code';
   }
   if (authEnv.ANTHROPIC_AUTH_TOKEN === OPENROUTER_PROXY_TOKEN_PLACEHOLDER) {
     return 'openrouter';
@@ -1591,6 +1595,7 @@ export class SdkQueryOptionsBuilder {
       [OLLAMA_AUTH_TOKEN_PLACEHOLDER]: 'Ollama',
       [COPILOT_PROXY_TOKEN_PLACEHOLDER]: 'GitHub Copilot',
       [CODEX_PROXY_TOKEN_PLACEHOLDER]: 'OpenAI Codex',
+      [KIMI_CODE_PROXY_TOKEN_PLACEHOLDER]: 'Kimi Code',
       [OPENROUTER_PROXY_TOKEN_PLACEHOLDER]: 'OpenRouter',
     };
 

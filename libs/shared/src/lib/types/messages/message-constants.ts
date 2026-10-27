@@ -319,6 +319,12 @@ export const MESSAGE_TYPES = {
    */
   AUTH_LOGIN_OUTPUT: 'auth:loginOutput',
   /**
+   * Backend → Frontend: the in-app Kimi Code sign-in (`kimi login` run by the
+   * host, started with `auth:kimiCodeLogin`) changed phase. Payload is a
+   * `KimiCodeLoginState` snapshot; it never carries CLI output or tokens.
+   */
+  AUTH_KIMI_CODE_LOGIN_STATUS: 'auth:kimiCodeLoginStatus',
+  /**
    * Backend → Frontend: git status changed for a workspace root.
    *
    * Pushed by the Electron git watcher after a debounced burst of `.git/*`

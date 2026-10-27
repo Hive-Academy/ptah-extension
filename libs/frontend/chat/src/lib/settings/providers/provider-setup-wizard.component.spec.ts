@@ -366,6 +366,71 @@ describe('ProviderSetupWizardComponent', () => {
       expect(emitted).toEqual(['sign-in-cancel']);
     });
 
+    it('apiKeyFallback: switches Kimi Code to the key path and back, and Continue follows the active path', () => {
+      const verify =
+        jest.fn<Promise<AuthVerifyDraftConnectionResult>, [AuthVerifyDraftConnectionParams]>(
+          () => new Promise(() => undefined),
+        );
+      const fixture = createComponent({}, verify);
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      expect(button(fixture, 'wizard-sign-in')?.textContent?.trim()).toBe('Sign in with Kimi Code');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
+
+      click(fixture, 'wizard-use-api-key');
+      expect(query(fixture, 'wizard-sign-in')).toBeNull();
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
+      typeInto(fixture, 'wizard-api-key', 'fake-kimi-key');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-verify-start');
+      expect(verify.mock.calls[0][0]).toMatchObject({
+        providerId: 'kimi-code',
+        authMode: 'apiKey',
+        credential: { kind: 'apiKey', value: 'fake-kimi-key' },
+      });
+
+    });
+
+    it('apiKeyFallback: the link back to sign-in drops the typed key and locks Continue again', () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      click(fixture, 'wizard-use-api-key');
+      typeInto(fixture, 'wizard-api-key', 'fake-kimi-key');
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(false);
+      click(fixture, 'wizard-use-sign-in');
+      expect(query(fixture, 'wizard-api-key')).toBeNull();
+      expect(button(fixture, 'wizard-sign-in')).not.toBeNull();
+      expect(button(fixture, 'wizard-continue')?.disabled).toBe(true);
+      click(fixture, 'wizard-use-api-key');
+      expect((query(fixture, 'wizard-api-key') as HTMLInputElement).value).toBe('');
+    });
+
+    it('apiKeyFallback is offered only for providers that declare it', () => {
+      const fixture = createComponent();
+      selectProvider(fixture, 'github-copilot');
+      click(fixture, 'wizard-continue');
+      expect(query(fixture, 'wizard-use-api-key')).toBeNull();
+    });
+
+    it('shows the in-app sign-in link and code while Kimi Code waits for the browser', () => {
+      const fixture = createComponent({
+        externalAuth: { signInState: 'in-flight', accountLabel: null, cliInstalled: null },
+        signInProgress: {
+          status: 'awaiting-browser',
+          verificationUrl: 'https://auth.example.test/device',
+          userCode: 'FAKE-1234',
+          browserOpened: true,
+        },
+      });
+      selectProvider(fixture, 'kimi-code');
+      click(fixture, 'wizard-continue');
+      expect(query(fixture, 'kimi-login-url')?.getAttribute('href')).toBe('https://auth.example.test/device');
+      expect(query(fixture, 'kimi-login-code')?.textContent?.trim()).toBe('FAKE-1234');
+      expect(button(fixture, 'wizard-sign-in-cancel')).not.toBeNull();
+    });
+
     it('unlocks the step when the host reports a signed-in account', () => {
       const fixture = createComponent({
         externalAuth: { signInState: 'signed-in', accountLabel: 'octocat', cliInstalled: null },

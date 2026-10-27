@@ -105,6 +105,25 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-auth-mode')?.textContent?.trim()).toBe('Custom endpoint');
   });
 
+  it.each([
+    ['cli-login', 'Kimi Code CLI sign-in'],
+    ['api-key', 'API key (fallback)'],
+    ['none', 'Not signed in'],
+  ] as const)('a sign-in connection with a fallback key names the credential in use (%s)', (source, label) => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: source }) });
+    expect(byTestId('connection-auth-mode')?.textContent?.trim()).toBe('Provider sign-in');
+    expect(byTestId('connection-credential-storage')?.textContent?.trim()).toBe(label);
+    expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe(`Provider sign-in · ${label}`);
+  });
+
+  it('passes the in-app Kimi Code sign-in to the Credentials tab', () => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: 'none', hasKey: false }),
+      kimiLogin: { status: 'awaiting-browser', userCode: 'FAKE-1234' } });
+    selectTab('Credentials');
+    expect(byTestId('credentials-kimi')).not.toBeNull();
+    expect(byTestId('kimi-login-code')?.textContent?.trim()).toBe('FAKE-1234');
+  });
+
   it('an unreadable stored key (final review M-6) reads as unknown on Overview and Credentials, never "No key stored", and Retry re-reads', () => {
     const unreadable = connection({ hasKey: false, keyUnreadable: true });
     render({ connection: unreadable });

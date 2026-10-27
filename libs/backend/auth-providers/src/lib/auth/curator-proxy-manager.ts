@@ -6,6 +6,7 @@ import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../providers/codex';
 import { OPENROUTER_PROXY_TOKEN_PLACEHOLDER } from '../providers/openrouter';
 import { LOCAL_PROXY_TOKEN_PLACEHOLDER } from '../providers/local';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 
 export interface CuratorProxyHandle {
   readonly url: string;
@@ -35,6 +36,8 @@ export class CuratorProxyManager {
     openRouterProxy: ITranslationProxy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY)
     lmStudioProxy: ITranslationProxy,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_KIMI_CODE_PROXY)
+    kimiCodeProxy: ITranslationProxy,
     private readonly idleTtlMs: number = DEFAULT_IDLE_TTL_MS,
   ) {
     this.entries = new Map<string, CuratorProxyEntry>([
@@ -53,6 +56,10 @@ export class CuratorProxyManager {
       [
         'lm-studio',
         { proxy: lmStudioProxy, token: LOCAL_PROXY_TOKEN_PLACEHOLDER },
+      ],
+      [
+        'kimi-code',
+        { proxy: kimiCodeProxy, token: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER },
       ],
     ]);
   }

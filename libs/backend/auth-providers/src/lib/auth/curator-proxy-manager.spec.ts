@@ -10,6 +10,7 @@ import { CuratorProxyManager } from './curator-proxy-manager';
 import { TranslationProxyBase } from '../translation';
 import type { ITranslationProxy } from '../translation';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
@@ -54,17 +55,24 @@ function createIdleProxy(): jest.Mocked<ITranslationProxy> {
 describe('CuratorProxyManager', () => {
   let logger: MockLogger;
   let copilotProxy: StubTranslationProxy;
+  let kimiCodeProxy: jest.Mocked<ITranslationProxy>;
   let manager: CuratorProxyManager;
 
   beforeEach(() => {
     logger = createMockLogger();
     copilotProxy = new StubTranslationProxy(asLogger(logger));
+    kimiCodeProxy = createIdleProxy();
+    kimiCodeProxy.start.mockResolvedValue({
+      port: 4242,
+      url: 'http://127.0.0.1:4242',
+    });
     manager = new CuratorProxyManager(
       asLogger(logger),
       copilotProxy,
       createIdleProxy(),
       createIdleProxy(),
       createIdleProxy(),
+      kimiCodeProxy,
       50,
     );
   });
@@ -100,6 +108,16 @@ describe('CuratorProxyManager', () => {
     expect(copilotProxy.isRunning()).toBe(true);
     await manager.disposeAll();
     expect(copilotProxy.isRunning()).toBe(false);
+  });
+
+  it('serves kimi-code through its own curator proxy with the Kimi placeholder', async () => {
+    expect(manager.isProxyProvider('kimi-code')).toBe(true);
+    const handle = await manager.ensureProxy('kimi-code');
+    expect(handle).toEqual({
+      url: 'http://127.0.0.1:4242',
+      token: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+    });
+    expect(kimiCodeProxy.start).toHaveBeenCalledTimes(1);
   });
 
   it('rejects providers that are not proxy-class', async () => {

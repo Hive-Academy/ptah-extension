@@ -16,8 +16,10 @@ import type {
   AuthVerifyDraftConnectionResult,
 } from '@ptah-extension/shared';
 import { DraftVerificationService } from '@ptah-extension/auth-providers';
+import type { KimiCodeAuthStatus } from '@ptah-extension/auth-providers';
 import type { InternalQueryService } from '@ptah-extension/agent-sdk';
 
+import { createFakeKimiCodeAuth } from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import {
   probeCustomProvider,
@@ -71,6 +73,7 @@ function makeChecker(
     copilot?: boolean;
     codex?: { authenticated: boolean; stale: boolean };
     cli?: boolean;
+    kimi?: Partial<KimiCodeAuthStatus>;
   } = {},
 ) {
   const recorder = new ConnectionCheckRecorder();
@@ -92,12 +95,14 @@ function makeChecker(
     })),
   };
   const readProviderKey = jest.fn(async () => KEY);
+  const kimiCodeAuth = createFakeKimiCodeAuth(overrides.kimi);
   const checker = new ConnectionChecker({
     recorder,
     draftVerification: { verify } as never,
     copilotAuth: copilotAuth as never,
     codexAuth: codexAuth as never,
     cliDetector: cliDetector as never,
+    kimiCodeAuth,
     readProviderKey,
     logger: logger as unknown as Logger,
   });
@@ -110,6 +115,7 @@ function makeChecker(
     copilotAuth,
     codexAuth,
     cliDetector,
+    kimiCodeAuth,
   };
 }
 
@@ -118,7 +124,8 @@ afterEach(() => clearCustomProviderEntries());
 describe('connectionCheckKind', () => {
   it.each([
     ['anthropic', 'apiKey'],
-    ['kimi-code', 'apiKey'],
+    ['kimi-code', 'kimi-code'],
+    ['z-ai', 'apiKey'],
     ['openrouter', 'apiKey'],
     ['github-copilot', 'copilot'],
     ['openai-codex', 'codex'],
@@ -429,6 +436,7 @@ describe('ConnectionChecker — no stored key (real DraftVerificationService)', 
       copilotAuth: { isAuthenticated: jest.fn() } as never,
       codexAuth: { getTokenStatus: jest.fn(), clearCache: jest.fn() } as never,
       cliDetector: { performHealthCheck: jest.fn() } as never,
+      kimiCodeAuth: createFakeKimiCodeAuth(),
       readProviderKey: jest.fn(),
       logger: createMockLogger() as unknown as Logger,
     });
@@ -515,6 +523,118 @@ describe('ConnectionChecker — sign-in and CLI connections (no request, latency
     await checker.check('openai-codex', 'codex');
     await checker.check('claude-cli', 'claude-cli');
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConnectionChecker — Kimi Code (CLI sign-in, stored key fallback)', () => {
+  it('a CLI sign-in is verified by its refresh, with no request', async () => {
+    const { checker, verify, kimiCodeAuth } = makeChecker({
+      kimi: { cliDetected: true, loggedIn: true, credentialSource: 'cli-login' },
+    });
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(kimiCodeAuth.clearCache).toHaveBeenCalled();
+    expect(kimiCodeAuth.ensureFresh).toHaveBeenCalledTimes(1);
+    expect(verify).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'verified', latencyMs: null });
+  });
+
+  it('the stored-key fallback gets the stored-key probe', async () => {
+    const { checker, verify } = makeChecker({
+      kimi: { hasApiKey: true, credentialSource: 'api-key' },
+    });
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'kimi-code',
+        authMode: 'apiKey',
+        credential: { kind: 'stored' },
+      }),
+    );
+    expect(result).toMatchObject({ status: 'verified', latencyMs: 92 });
+  });
+
+  it('a sign-in that cannot refresh falls back to the key when one is stored', async () => {
+    const { checker, verify, kimiCodeAuth } = makeChecker({
+      kimi: { loggedIn: true, credentialSource: 'cli-login' },
+    });
+    kimiCodeAuth.ensureFresh.mockResolvedValue(false);
+    kimiCodeAuth.getStatus
+      .mockResolvedValueOnce({
+        cliDetected: true,
+        loggedIn: true,
+        stale: false,
+        hasApiKey: true,
+        credentialSource: 'cli-login',
+      })
+      .mockResolvedValueOnce({
+        cliDetected: true,
+        loggedIn: false,
+        stale: true,
+        hasApiKey: true,
+        credentialSource: 'api-key',
+      });
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('verified');
+  });
+
+  it('an expired sign-in with a transient refresh failure verifies a valid stored key', async () => {
+    // A transient failure does not make the login stale, so the status still
+    // reports `cli-login` after the refresh; the stored key decides.
+    const cliStatus: KimiCodeAuthStatus = {
+      cliDetected: true,
+      loggedIn: true,
+      stale: false,
+      hasApiKey: true,
+      credentialSource: 'cli-login',
+    };
+    const { checker, verify, kimiCodeAuth } = makeChecker({ kimi: cliStatus });
+    kimiCodeAuth.ensureFresh.mockResolvedValue(false);
+    kimiCodeAuth.getStatus.mockResolvedValue(cliStatus);
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(verify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'kimi-code',
+        authMode: 'apiKey',
+        credential: { kind: 'stored' },
+      }),
+    );
+    expect(result).toMatchObject({ status: 'verified', latencyMs: 92 });
+  });
+
+  it('a sign-in that cannot refresh without a stored key records signed-out without a request', async () => {
+    const cliStatus: KimiCodeAuthStatus = {
+      cliDetected: true,
+      loggedIn: true,
+      stale: false,
+      hasApiKey: false,
+      credentialSource: 'cli-login',
+    };
+    const { checker, verify, kimiCodeAuth } = makeChecker({ kimi: cliStatus });
+    kimiCodeAuth.ensureFresh.mockResolvedValue(false);
+    kimiCodeAuth.getStatus.mockResolvedValue(cliStatus);
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'failed', reason: 'signed-out' });
+  });
+
+  it('neither a sign-in nor a key records signed-out without a request', async () => {
+    const { checker, verify } = makeChecker();
+
+    const result = await checker.check('kimi-code', 'kimi-code');
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'failed', reason: 'signed-out' });
   });
 });
 

@@ -5,7 +5,9 @@ import {
   ClaudeRpcService, RpcResult, ProvidersSettingsStateService, type ProvidersSettingsSection, type ProvidersEffectiveRoute,
   type ProvidersSettingsCommit, type ProvidersConnection, type ProvidersExternalAuth,
 } from '@ptah-extension/core';
-import type { AuthVerifyDraftConnectionResult, ConfigGetScopesResult, SettingScope } from '@ptah-extension/shared';
+import type {
+  AuthVerifyDraftConnectionResult, ConfigGetScopesResult, KimiCodeLoginState, SettingScope,
+} from '@ptah-extension/shared';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
@@ -43,6 +45,7 @@ class WizardStub {
   readonly externalActionRequested = output<{ providerId: string; action: WizardExternalAction }>();
   readonly externalAuth = input<unknown>(null);
   readonly externalMessage = input<string | null>(null);
+  readonly signInProgress = input<unknown>(null);
   readonly initialSetup = input<unknown>(null);
   readonly contextChanged = input(false);
   readonly commitDetail = input('');
@@ -92,6 +95,7 @@ class StateStub {
   readonly connectionCheck = signal<{ providerId: string; status: 'checking' | 'done' | 'failed' } | null>(null);
   readonly checkProviderConnection = jest.fn(async (_providerId: string) => undefined);
   readonly externalAuth = signal<ProvidersSettingsSection<ProvidersExternalAuth>>(unloaded());
+  readonly kimiCodeLogin = signal<KimiCodeLoginState | null>(null);
   readonly delegatedModelOptions = signal(unloaded());
   readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
   readonly verification = signal<ProvidersSettingsSection<AuthVerifyDraftConnectionResult>>(unloaded());
@@ -613,6 +617,24 @@ describe('ProvidersSettingsComponent', () => {
     expect(labels).not.toContain('Check Copilot sign-in');
     // The card's own action remains.
     expect(element.querySelectorAll('[data-testid="btn-sign-in"]')).toHaveLength(1);
+  });
+  it('shows a running Kimi Code sign-in on the page with Cancel, and hides it once it ends', async () => {
+    state.kimiCodeLogin.set({ status: 'awaiting-browser', verificationUrl: 'https://auth.example.test/device', userCode: 'FAKE-1234' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('[data-testid="providers-kimi-login-cancel"]')?.click();
+    expect(state.performExternalAuth).toHaveBeenCalledWith('kimi-code', 'sign-in-cancel');
+    state.kimiCodeLogin.set({ status: 'cancelled' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).toBeNull();
+  });
+  it('passes the Kimi Code sign-in progress to the wizard only for Kimi Code', async () => {
+    state.kimiCodeLogin.set({ status: 'starting' });
+    await render(); await openWizardThroughCatalog();
+    wizard().providerChanged.emit('first'); await render();
+    expect(wizard().signInProgress()).toBeNull();
+    wizard().providerChanged.emit('kimi-code'); await render();
+    expect(wizard().signInProgress()).toEqual({ status: 'starting' });
   });
   it('tells the wizard whether the selected provider already has a stored key', async () => {
     state.connections.set(ready([connection('first'), { ...connection('second'), hasKey: false }]));

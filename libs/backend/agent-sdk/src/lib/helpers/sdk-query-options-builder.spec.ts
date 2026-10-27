@@ -19,8 +19,10 @@ import 'reflect-metadata';
 
 import {
   SdkQueryOptionsBuilder,
+  getActiveProviderId,
   type SdkQueryOptions,
 } from './sdk-query-options-builder';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 import { ModelNotAvailableError, SdkError } from '../errors';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import type {
@@ -2094,5 +2096,25 @@ describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TAS
   it('still returns {} without throwing when the MCP server is not running', () => {
     // No server means no URL to build, so a missing id is not a defect here.
     expect(makeMcpBuilder().buildMcpServers(false, undefined)).toEqual({});
+  });
+});
+
+describe('getActiveProviderId — Kimi Code behind its local proxy', () => {
+  it('maps the Kimi Code proxy placeholder to kimi-code', () => {
+    expect(
+      getActiveProviderId({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4242',
+        ANTHROPIC_AUTH_TOKEN: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+      }),
+    ).toBe('kimi-code');
+  });
+
+  it('still recognises a direct Kimi Code base URL by host', () => {
+    expect(
+      getActiveProviderId({
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
+        ANTHROPIC_API_KEY: 'fake-kimi-key',
+      }),
+    ).toBe('kimi-code');
   });
 });

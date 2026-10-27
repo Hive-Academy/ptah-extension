@@ -416,7 +416,7 @@ describe('AuthManager', () => {
       expect(strategies.cli.configure).not.toHaveBeenCalled();
     });
 
-    it.each(['github-copilot', 'openai-codex'])(
+    it.each(['github-copilot', 'openai-codex', 'kimi-code'])(
       "routes 'thirdParty' + %s to oauth-proxy",
       async (providerId) => {
         const { manager, strategies } = makeManager({
@@ -436,7 +436,7 @@ describe('AuthManager', () => {
       },
     );
 
-    it.each(['kimi-code', 'z-ai'])(
+    it.each(['z-ai', 'requesty'])(
       "routes 'thirdParty' + %s to api-key",
       async (providerId) => {
         const { manager, strategies } = makeManager({

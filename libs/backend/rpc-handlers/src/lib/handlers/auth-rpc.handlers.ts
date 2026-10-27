@@ -2,7 +2,9 @@
  * Auth RPC Handlers
  *
  * Handles authentication-related RPC methods: auth:getHealth, auth:saveSettings,
- * auth:testConnection, auth:getAuthStatus.
+ * auth:testConnection, auth:getAuthStatus, and the sign-in flows
+ * (auth:copilotLogin, auth:codexLogin, auth:kimiCodeLogin,
+ * auth:kimiCodeLoginCancel).
  *
  * This class is the DI-facing composition root of the `auth:*` family: it owns
  * the constructor signature, the method list and registration order, and hands
@@ -40,6 +42,8 @@ import {
 import type {
   CopilotAuthService,
   ICodexAuthService,
+  IKimiCodeAuthService,
+  IKimiCodeLoginService,
   ModelResolver,
 } from '@ptah-extension/auth-providers';
 import {
@@ -57,6 +61,7 @@ import { ConnectionSettingsMethods } from './auth/connection-settings-methods';
 import { DraftVerificationMethods } from './auth/draft-verification-methods';
 import { EffectiveRouteMethod } from './auth/effective-route-method';
 import { InteractiveLoginMethods } from './auth/interactive-login-methods';
+import { KimiCodeLoginMethods } from './auth/kimi-code-login-methods';
 import { WorkspaceScopeMethods } from './auth/workspace-scope-methods';
 
 /**
@@ -78,6 +83,8 @@ export class AuthRpcHandlers {
     'auth:copilotLogout',
     'auth:copilotStatus',
     'auth:codexLogin',
+    'auth:kimiCodeLogin',
+    'auth:kimiCodeLoginCancel',
     'auth:getApiKeyStatus',
     'auth:getScope',
     'auth:clearWorkspaceOverride',
@@ -96,6 +103,7 @@ export class AuthRpcHandlers {
   private readonly connectionSettingsMethods: ConnectionSettingsMethods;
   private readonly apiKeyMethods: ApiKeyMethods;
   private readonly interactiveLoginMethods: InteractiveLoginMethods;
+  private readonly kimiCodeLoginMethods: KimiCodeLoginMethods;
   private readonly workspaceScopeMethods: WorkspaceScopeMethods;
   private readonly draftVerificationMethods: DraftVerificationMethods;
 
@@ -116,6 +124,10 @@ export class AuthRpcHandlers {
     private readonly copilotAuth: CopilotAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuth: ICodexAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH)
+    private readonly kimiCodeAuth: IKimiCodeAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_LOGIN)
+    private readonly kimiCodeLogin: IKimiCodeLoginService,
     @inject(TOKENS.PLATFORM_COMMANDS)
     private readonly platformCommands: IPlatformCommands,
     @inject(TOKENS.PLATFORM_AUTH_PROVIDER)
@@ -154,6 +166,7 @@ export class AuthRpcHandlers {
       draftVerification,
       copilotAuth,
       codexAuth,
+      kimiCodeAuth,
       cliDetector,
       readProviderKey: (id) => authSecretsService.getProviderKey(id),
       logger,
@@ -175,6 +188,7 @@ export class AuthRpcHandlers {
         authSecretsService,
         copilotAuth,
         codexAuth,
+        kimiCodeAuth,
         platformAuth,
       }),
     });
@@ -230,6 +244,16 @@ export class AuthRpcHandlers {
       invalidateAuthStatusCache,
       webviewManager,
     });
+    this.kimiCodeLoginMethods = new KimiCodeLoginMethods({
+      logger,
+      rpcHandler,
+      sentryService,
+      sdkAdapter,
+      kimiCodeAuth,
+      kimiCodeLogin,
+      invalidateAuthStatusCache,
+      webviewManager,
+    });
     this.workspaceScopeMethods = new WorkspaceScopeMethods({
       logger,
       rpcHandler,
@@ -263,13 +287,15 @@ export class AuthRpcHandlers {
     this.interactiveLoginMethods.registerCopilotLogout();
     this.interactiveLoginMethods.registerCopilotStatus();
     this.interactiveLoginMethods.registerCodexLogin();
+    this.kimiCodeLoginMethods.registerKimiCodeLogin();
+    this.kimiCodeLoginMethods.registerKimiCodeLoginCancel();
     this.apiKeyMethods.registerGetApiKeyStatus();
     this.workspaceScopeMethods.registerGetScope();
     this.workspaceScopeMethods.registerClearWorkspaceOverride();
     this.draftVerificationMethods.registerVerifyDraftConnection();
     this.draftVerificationMethods.registerCancelDraftVerification();
 
-    // An external `codex login` changes the answer without going through any
+    // An external `codex login` (or `kimi login`) changes the answer without going through any
     // method here, so the TTL is the only thing that would eventually notice.
     this.adapterEvents?.onAuthFileChanged(() =>
       this.invalidateAuthStatusCache(),
@@ -289,6 +315,8 @@ export class AuthRpcHandlers {
         'auth:copilotLogout',
         'auth:copilotStatus',
         'auth:codexLogin',
+        'auth:kimiCodeLogin',
+        'auth:kimiCodeLoginCancel',
         'auth:getApiKeyStatus',
         'auth:getScope',
         'auth:clearWorkspaceOverride',

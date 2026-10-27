@@ -176,8 +176,8 @@ export class AuthStatusCache {
   }
 
   /**
-   * Build one `auth:getAuthStatus` payload. The three independent probes
-   * (Copilot, Codex, Claude CLI) run in PARALLEL and each swallows its own
+   * Build one `auth:getAuthStatus` payload. The independent probes
+   * (Copilot, Codex, Kimi Code, Claude CLI) run in PARALLEL and each swallows its own
    * failure, so one broken source degrades a single field instead of the whole
    * response or the whole latency budget.
    */
@@ -194,12 +194,14 @@ export class AuthStatusCache {
     // holding the only configured key must still flip `hasAnyProviderKey`.
     const allProviders = getAllAnthropicProviders();
 
-    const [secrets, copilot, codex, claudeCliInstalled] = await Promise.all([
-      probes.probeSecrets(checkProviderId, allProviders),
-      probes.probeCopilot(),
-      probes.probeCodex(),
-      this.claudeCli.probe(generation),
-    ]);
+    const [secrets, copilot, codex, kimiCode, claudeCliInstalled] =
+      await Promise.all([
+        probes.probeSecrets(checkProviderId, allProviders),
+        probes.probeCopilot(),
+        probes.probeCodex(),
+        probes.probeKimiCode(),
+        this.claudeCli.probe(generation),
+      ]);
 
     // The read model behind BOTH the webview tile grid and the TUI tile
     // list. Sourcing it from the static array is what made user-defined
@@ -218,6 +220,7 @@ export class AuthStatusCache {
       baseUrl: p.baseUrl,
       supportsOptionalApiKey:
         'supportsOptionalApiKey' in p ? p.supportsOptionalApiKey : undefined,
+      apiKeyFallback: 'apiKeyFallback' in p ? p.apiKeyFallback : undefined,
       // Ambient-credential providers (claude-cli). Without this the tile
       // is indistinguishable from a local server in this payload, which is
       // how the TUI came to render it with a fabricated localhost endpoint.
@@ -233,6 +236,7 @@ export class AuthStatusCache {
       copilotAuthenticated: copilot.copilotAuthenticated,
       codexAuthenticated: codex.codexAuthenticated,
       codexTokenStale: codex.codexTokenStale,
+      kimiCodeCredentialSource: kimiCode.kimiCodeCredentialSource,
       claudeCliInstalled,
     });
 
@@ -248,6 +252,7 @@ export class AuthStatusCache {
       copilotUsername: copilot.copilotUsername,
       codexAuthenticated: codex.codexAuthenticated,
       codexTokenStale: codex.codexTokenStale,
+      ...kimiCode,
       claudeCliInstalled,
     };
   }

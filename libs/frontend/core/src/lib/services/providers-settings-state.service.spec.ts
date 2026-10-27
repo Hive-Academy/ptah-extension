@@ -9,6 +9,7 @@ import type {
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
+import { ProvidersConnectionSetupService } from './providers-connection-setup.service';
 import {
   ProvidersSettingsStateService,
   type ProvidersConnectionDraft,
@@ -268,6 +269,28 @@ describe('ProvidersSettingsStateService', () => {
       expect(readIndex).toBeGreaterThan(writeIndex);
       expect(call.mock.calls[writeIndex][1]).toEqual({ key, value });
     }
+  });
+
+  it('re-reads once when a Kimi Code sign-in ends after a reload, with no local start', async () => {
+    await service.open();
+    handlers.set('auth:getAuthStatus', async () =>
+      success({ kimiCodeAuthenticated: true, kimiCodeTokenStale: false }),
+    );
+    call.mockClear();
+    refreshAuthStatus.mockClear();
+    const setup = TestBed.inject(ProvidersConnectionSetupService);
+    setup.handleMessage({
+      type: 'auth:kimiCodeLoginStatus',
+      payload: { status: 'succeeded' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const count = (method: RpcMethodName) =>
+      call.mock.calls.filter(([name]) => name === method).length;
+    expect(count('auth:kimiCodeLogin')).toBe(0);
+    expect(refreshAuthStatus).toHaveBeenCalledTimes(1);
+    expect(count('provider:listCustomEntries')).toBe(1);
+    expect(count('auth:getEffectiveRoute')).toBe(1);
+    expect(service.externalAuth().data?.signInState).toBe('signed-in');
   });
 
   it('rereads effective effort on open and refresh without exposing the cached value during loading', async () => {
@@ -2357,6 +2380,65 @@ describe('ProvidersSettingsStateService', () => {
       );
       await service.refreshConnections();
       expect(byId('github-copilot')?.accountLabel).toBeNull();
+    });
+
+    it.each([
+      {
+        name: 'CLI login only',
+        auth: { kimiCodeAuthenticated: true, kimiCodeCredentialSource: 'cli-login' },
+        hasKey: false,
+        expected: { credentialSource: 'cli-login', configured: true, tokenStale: false },
+      },
+      {
+        name: 'key only',
+        auth: { kimiCodeAuthenticated: false, kimiCodeCredentialSource: 'api-key' },
+        hasKey: true,
+        expected: { credentialSource: 'api-key', configured: true, tokenStale: false },
+      },
+      {
+        name: 'neither',
+        auth: { kimiCodeCredentialSource: 'none' },
+        hasKey: false,
+        expected: { credentialSource: 'none', configured: false, tokenStale: false },
+      },
+      {
+        name: 'stale CLI login with a fallback key',
+        auth: {
+          kimiCodeAuthenticated: false,
+          kimiCodeTokenStale: true,
+          kimiCodeCredentialSource: 'api-key',
+        },
+        hasKey: true,
+        expected: { credentialSource: 'api-key', configured: true, tokenStale: true },
+      },
+      {
+        name: 'an unknown source from the host',
+        auth: { kimiCodeCredentialSource: 'browser-cookie' },
+        hasKey: false,
+        expected: { credentialSource: 'none', configured: false, tokenStale: false },
+      },
+    ])('maps the Kimi Code credential source: $name', async ({ auth, hasKey, expected }) => {
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ authMethod: 'apiKey', hasApiKey: false, ...auth }),
+      );
+      handlers.set('auth:getApiKeyStatus', async () =>
+        success({
+          providers: [
+            { provider: 'kimi-code', displayName: 'Kimi Code', hasApiKey: hasKey, isDefault: false },
+          ],
+        }),
+      );
+      await service.refreshConnections();
+      const connections = service.connections().data ?? [];
+      expect(connections.find((entry) => entry.id === 'kimi-code')).toMatchObject({
+        authMode: 'oauth',
+        hasKey,
+        ...expected,
+      });
+      // Only a sign-in connection with a fallback key carries a credential source.
+      expect(
+        connections.find((entry) => entry.id === 'openai-codex'),
+      ).not.toHaveProperty('credentialSource');
     });
 
     it("maps the host's masked key hints onto stored-key connections and drops any other shape (Batch 28d)", async () => {
