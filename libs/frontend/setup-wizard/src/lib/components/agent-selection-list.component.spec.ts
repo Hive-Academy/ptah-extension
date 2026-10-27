@@ -261,6 +261,11 @@ describe('AgentSelectionListComponent', () => {
     await fixture.whenStable();
     fixture.componentInstance['toggle'](agent.agentId);
     await fixture.componentInstance['openPreview']();
+    // Render until the deferred preview dialog has loaded.
+    for (let pass = 0; pass < 3; pass++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
     fixture.detectChanges();
     return fixture;
   }

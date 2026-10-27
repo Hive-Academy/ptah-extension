@@ -102,10 +102,15 @@ describe('CommunityPacksPanelComponent', () => {
     fixture.detectChanges();
   }
 
+  /**
+   * Renders until the deferred prompt has loaded: the first pass fires the
+   * `@defer` trigger, later passes render it and let its plan call settle.
+   */
   async function settle(): Promise<void> {
-    // Render first so the prompt's request effect starts the plan call.
-    fixture.detectChanges();
-    await fixture.whenStable();
+    for (let pass = 0; pass < 3; pass++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
     fixture.detectChanges();
   }
 

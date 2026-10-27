@@ -86,6 +86,13 @@ describe('CompletionComponent', () => {
     fixture.detectChanges();
   });
 
+  /** Runs change detection and waits for the deferred outcome views. */
+  async function settle(): Promise<void> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
   it('should create', () => {
     expect(component).toBeTruthy();
   });
@@ -113,7 +120,7 @@ describe('CompletionComponent', () => {
       expect(text).toContain('(0)');
     });
 
-    it('counts only agents verified by the completion payload', () => {
+    it('counts only agents verified by the completion payload', async () => {
       skillGenerationProgress.set([
         {
           id: '1',
@@ -135,14 +142,14 @@ describe('CompletionComponent', () => {
         },
       ]);
       completionData.set(completion({ agents: [outcome()] }));
-      fixture.detectChanges();
+      await settle();
 
       expect(component['agentCount']()).toBe(1);
       const text = fixture.nativeElement.textContent;
       expect(text).toContain('(1)');
     });
 
-    it('renders a row per verified outcome', () => {
+    it('renders a row per verified outcome', async () => {
       skillGenerationProgress.set([
         {
           id: '1',
@@ -165,7 +172,7 @@ describe('CompletionComponent', () => {
           ],
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       const rows = fixture.nativeElement.querySelectorAll('li[data-status]');
       expect(rows.length).toBe(2);
@@ -178,9 +185,9 @@ describe('CompletionComponent', () => {
       expect(badge).toBeFalsy();
     });
 
-    it('should show enhanced badge when status is complete', () => {
+    it('should show enhanced badge when status is complete', async () => {
       enhancedPromptsStatus.set('complete');
-      fixture.detectChanges();
+      await settle();
 
       const badge = fixture.nativeElement.querySelector('.badge-success');
       expect(badge).toBeTruthy();
@@ -290,13 +297,13 @@ describe('CompletionComponent', () => {
       errors: ['Generation timed out'],
     });
 
-    it('derives one tile per explicit outcome, not from streamed items', () => {
+    it('derives one tile per explicit outcome, not from streamed items', async () => {
       // A stray streamed item must not add a tile once outcomes exist.
       skillGenerationProgress.set([
         { id: 'ghost', name: 'ghost.md', type: 'agent', status: 'complete' },
       ]);
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const tiles = fixture.nativeElement.querySelectorAll('[data-status]');
       expect(tiles.length).toBe(3);
@@ -305,9 +312,9 @@ describe('CompletionComponent', () => {
       expect(text).not.toContain('Ghost');
     });
 
-    it('labels an unchanged outcome as already current', () => {
+    it('labels an unchanged outcome as already current', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const unchangedTile = fixture.nativeElement.querySelector(
         '[data-status="unchanged"]',
@@ -316,9 +323,9 @@ describe('CompletionComponent', () => {
       expect(unchangedTile.textContent).toContain('Already current');
     });
 
-    it('shows a failed outcome with safe copy instead of the raw error', () => {
+    it('shows a failed outcome with safe copy instead of the raw error', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const failedRow = fixture.nativeElement.querySelector(
         '[data-status="failed"]',
@@ -332,9 +339,9 @@ describe('CompletionComponent', () => {
       expect(callout.textContent).not.toContain('SDK timeout');
     });
 
-    it('shows five counters that equal the per-file rows', () => {
+    it('shows five counters that equal the per-file rows', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       expect(counter('written')).toBe('1');
       expect(counter('kept')).toBe('0');
@@ -343,9 +350,9 @@ describe('CompletionComponent', () => {
       expect(counter('failed')).toBe('1');
     });
 
-    it('shows the output directory from the payload', () => {
+    it('shows the output directory from the payload', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const directory = fixture.nativeElement.querySelector(
         '[data-testid="output-directory"]',
@@ -353,17 +360,17 @@ describe('CompletionComponent', () => {
       expect(directory.textContent).toContain('/ws/.claude/agents');
     });
 
-    it('switches the header to an error state when any agent failed', () => {
+    it('switches the header to an error state when any agent failed', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const heading = fixture.nativeElement.querySelector('h1');
       expect(heading.textContent).toContain('Setup Finished With Errors');
     });
 
-    it('lists payload errors and keeps earlier writes visible', () => {
+    it('lists payload errors and keeps earlier writes visible', async () => {
       completionData.set(mixed);
-      fixture.detectChanges();
+      await settle();
 
       const errorsAlert = fixture.nativeElement.querySelector(
         '[data-testid="completion-errors"]',
@@ -376,7 +383,7 @@ describe('CompletionComponent', () => {
       expect(writtenTile.textContent).toContain('frontend-developer.md');
     });
 
-    it('keeps the success header when every outcome is written or unchanged', () => {
+    it('keeps the success header when every outcome is written or unchanged', async () => {
       completionData.set(
         completion({
           writtenCount: 1,
@@ -391,14 +398,14 @@ describe('CompletionComponent', () => {
           ],
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       const heading = fixture.nativeElement.querySelector('h1');
       expect(heading.textContent).toContain('Setup Complete!');
       expect(counter('failed')).toBe('0');
     });
 
-    it('does not claim completion from streamed items when no payload arrived', () => {
+    it('does not claim completion from streamed items when no payload arrived', async () => {
       skillGenerationProgress.set([
         {
           id: 'frontend-developer',
@@ -407,17 +414,17 @@ describe('CompletionComponent', () => {
           status: 'complete',
         },
       ]);
-      fixture.detectChanges();
+      await settle();
 
       const tiles = fixture.nativeElement.querySelectorAll('[data-status]');
       expect(tiles.length).toBe(0);
     });
 
-    it('shows the rejected-section count when validation rejected sections', () => {
+    it('shows the rejected-section count when validation rejected sections', async () => {
       completionData.set(
         completion({ rejectedSections: 11, tailoredSections: 4 }),
       );
-      fixture.detectChanges();
+      await settle();
 
       const badge = fixture.nativeElement.querySelector(
         '[data-testid="rejected-sections-count"]',
@@ -426,9 +433,9 @@ describe('CompletionComponent', () => {
       expect(badge.textContent).toContain('11 sections rejected');
     });
 
-    it('renders no rejected-sections badge when nothing was rejected', () => {
+    it('renders no rejected-sections badge when nothing was rejected', async () => {
       completionData.set(completion({ rejectedSections: 0 }));
-      fixture.detectChanges();
+      await settle();
 
       expect(
         fixture.nativeElement.querySelector(
@@ -476,9 +483,9 @@ describe('CompletionComponent', () => {
     const byTestId = (id: string): HTMLElement | null =>
       fixture.nativeElement.querySelector(`[data-testid="${id}"]`);
 
-    it('renders kept and changed-since-preview rows with their own labels', () => {
+    it('renders kept and changed-since-preview rows with their own labels', async () => {
       completionData.set(completion({ agents: keptMix }));
-      fixture.detectChanges();
+      await settle();
 
       const kept = fixture.nativeElement.querySelector('[data-status="kept"]');
       expect(kept.textContent).toContain('Kept (your file)');
@@ -492,23 +499,23 @@ describe('CompletionComponent', () => {
       expect(counter('changed-since-preview')).toBe('1');
     });
 
-    it('shows no grade or Library copy when the host sent no result facts', () => {
+    it('shows no grade or Library copy when the host sent no result facts', async () => {
       completionData.set(completion({ agents: keptMix }));
-      fixture.detectChanges();
+      await settle();
 
       expect(text()).not.toContain('About grades.');
       expect(byTestId('library-stale-notice')).toBeNull();
       expect(byTestId('outcome-diverged')).toBeNull();
     });
 
-    it('shows the grade callout and stale notice for a harness-root run in Electron', () => {
+    it('shows the grade callout and stale notice for a harness-root run in Electron', async () => {
       completionData.set(
         completion({
           agents: keptMix,
           result: resultFacts({ target: harnessRoot, libraryPass: 'failed' }),
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       expect(text()).toContain('About grades.');
       expect(byTestId('library-stale-notice')?.textContent).toContain(
@@ -516,7 +523,7 @@ describe('CompletionComponent', () => {
       );
     });
 
-    it('names only written agents as diverged, never a kept one', () => {
+    it('names only written agents as diverged, never a kept one', async () => {
       completionData.set(
         completion({
           agents: keptMix,
@@ -527,7 +534,7 @@ describe('CompletionComponent', () => {
           }),
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       const diverged = byTestId('outcome-diverged');
       expect(diverged?.textContent).toContain('backend-developer');
@@ -537,7 +544,7 @@ describe('CompletionComponent', () => {
       expect(openSkillsDivergedClones).toHaveBeenCalledTimes(1);
     });
 
-    it('states that nothing new was written when every agent was kept or current', () => {
+    it('states that nothing new was written when every agent was kept or current', async () => {
       completionData.set(
         completion({
           writtenCount: 0,
@@ -556,14 +563,14 @@ describe('CompletionComponent', () => {
           }),
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       expect(text()).toContain('Nothing new was written');
       expect(text()).toContain('All 2 agents were kept or already current.');
       expect(text()).not.toContain('About grades.');
     });
 
-    it('shows no grade copy and an opened-folder notice for the opened-folder target', () => {
+    it('shows no grade copy and an opened-folder notice for the opened-folder target', async () => {
       completionData.set(
         completion({
           outputDirectory: '/ws/packages/api/.claude/agents',
@@ -579,7 +586,7 @@ describe('CompletionComponent', () => {
           }),
         }),
       );
-      fixture.detectChanges();
+      await settle();
 
       expect(text()).not.toContain('About grades.');
       expect(text()).toContain('will not appear in the Library');

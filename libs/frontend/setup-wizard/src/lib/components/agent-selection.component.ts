@@ -607,27 +607,32 @@ import {
         </button>
       </div>
     </div>
-    <ptah-generation-preview-modal
-      [open]="preview.isOpen()"
-      [loading]="preview.loading()"
-      [changed]="preview.changed()"
-      [error]="preview.error() !== null"
-      [generating]="isGenerating()"
-      [preview]="preview.preview()"
-      [snapshot]="preview.decisions()"
-      [isElectron]="isElectron"
-      (dismissed)="preview.cancel()"
-      (confirm)="onConfirmPreview()"
-      (decisionChange)="setRowDecision($event)"
-      (applyAll)="setAllRowDecisions($event)"
-      (targetChange)="changeTarget($event)"
-    />
-    <ptah-pack-install-prompt
-      [request]="packRequest()"
-      [isElectron]="isElectron"
-      scope="wizard"
-      (dismissed)="packRequest.set(null)"
-    />
+    <!-- Lazy chunks: both dialogs load on first open, outside the initial bundle. -->
+    @defer (when preview.isOpen()) {
+      <ptah-generation-preview-modal
+        [open]="preview.isOpen()"
+        [loading]="preview.loading()"
+        [changed]="preview.changed()"
+        [error]="preview.error() !== null"
+        [generating]="isGenerating()"
+        [preview]="preview.preview()"
+        [snapshot]="preview.decisions()"
+        [isElectron]="isElectron"
+        (dismissed)="preview.cancel()"
+        (confirm)="onConfirmPreview()"
+        (decisionChange)="setRowDecision($event)"
+        (applyAll)="setAllRowDecisions($event)"
+        (targetChange)="changeTarget($event)"
+      />
+    }
+    @defer (when packRequest() !== null) {
+      <ptah-pack-install-prompt
+        [request]="packRequest()"
+        [isElectron]="isElectron"
+        scope="wizard"
+        (dismissed)="packRequest.set(null)"
+      />
+    }
   `,
 })
 export class AgentSelectionComponent {

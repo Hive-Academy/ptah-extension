@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { GradeExpectationComponent } from './grade-expectation.component';
-import type { OutcomeFileRow } from './outcome-summary.component';
+import type { OutcomeFileRow } from './outcome-rows';
 
 const row = (id: string, status: OutcomeFileRow['status']): OutcomeFileRow => ({
   id,

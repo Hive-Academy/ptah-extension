@@ -203,6 +203,19 @@ describe('AgentSelectionComponent', () => {
     fixture.detectChanges();
   });
 
+  /**
+   * Renders until the deferred dialogs have loaded: the first pass fires the
+   * `@defer` trigger, later passes render the loaded block and let its
+   * effects (the prompt's plan call) settle.
+   */
+  async function settle(): Promise<void> {
+    for (let pass = 0; pass < 3; pass++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+  }
+
   it('should create', () => {
     expect(component).toBeTruthy();
   });
@@ -486,7 +499,7 @@ describe('AgentSelectionComponent', () => {
     });
     it('renders the preview modal with state badges, conditional files and the warning', async () => {
       await component['onGenerateAgents']();
-      fixture.detectChanges();
+      await settle();
       const dialog: HTMLDialogElement =
         fixture.nativeElement.querySelector('dialog');
       expect(dialog.open).toBe(true);
@@ -522,12 +535,12 @@ describe('AgentSelectionComponent', () => {
 
     it('cancels the preview without submitting and keeps selection', async () => {
       await component['onGenerateAgents']();
-      fixture.detectChanges();
+      await settle();
       const cancel: HTMLButtonElement = fixture.nativeElement.querySelector(
         '[modal-footer] button',
       );
       cancel.click();
-      fixture.detectChanges();
+      await settle();
       expect(component['preview'].isOpen()).toBe(false);
       expect(selectedAgentsMap()).toEqual({ a: true });
       await component['onConfirmPreview']();
@@ -558,7 +571,7 @@ describe('AgentSelectionComponent', () => {
         changed,
       );
       await component['onConfirmPreview']();
-      fixture.detectChanges();
+      await settle();
       expect(
         fixture.nativeElement.querySelector('dialog').textContent,
       ).toContain('Targets changed since preview');
@@ -599,7 +612,7 @@ describe('AgentSelectionComponent', () => {
         );
         if (stage === 'initial') await component['onGenerateAgents']();
         else await component['onConfirmPreview']();
-        fixture.detectChanges();
+        await settle();
         const dialog: HTMLDialogElement =
           fixture.nativeElement.querySelector('dialog');
         expect(dialog.textContent).toContain('Preview unavailable');
@@ -687,7 +700,7 @@ describe('AgentSelectionComponent', () => {
       await component['onGenerateAgents']();
       component['setRowDecision']({ id: 'a', decision: 'replace' });
       await component['changeTarget']('opened-folder');
-      fixture.detectChanges();
+      await settle();
 
       expect(mockRpcService.previewGeneration).toHaveBeenLastCalledWith(
         ['a'],
@@ -826,13 +839,6 @@ describe('AgentSelectionComponent', () => {
       fixture.detectChanges();
     }
 
-    async function settle(): Promise<void> {
-      // Render first so the prompt's request effect starts the plan call.
-      fixture.detectChanges();
-      await fixture.whenStable();
-      fixture.detectChanges();
-    }
-
     const button = (testId: string): HTMLButtonElement =>
       fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
 
@@ -851,7 +857,7 @@ describe('AgentSelectionComponent', () => {
       );
       expect(mockRpcService.installPackAgents).not.toHaveBeenCalled();
       const prompt: HTMLDialogElement =
-        fixture.nativeElement.querySelectorAll('dialog')[1];
+        fixture.nativeElement.querySelector('ptah-pack-install-prompt dialog');
       expect(prompt.open).toBe(true);
       expect(prompt.textContent).toContain(
         'Install agent-one.md from "Example Pack"?',

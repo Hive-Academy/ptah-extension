@@ -14,11 +14,11 @@ import type {
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { GradeExpectationComponent } from './completion/grade-expectation.component';
 import { LibraryStaleNoticeComponent } from './completion/library-stale-notice.component';
+import { OutcomeSummaryComponent } from './completion/outcome-summary.component';
 import {
-  OutcomeSummaryComponent,
   libraryReachable,
   type OutcomeFileRow,
-} from './completion/outcome-summary.component';
+} from './completion/outcome-rows';
 
 type ResultOutcome = NonNullable<
   SetupGenerationResultFacts['agentOutcomes']
@@ -57,18 +57,21 @@ function fileOutcomeOf(status: ResultOutcome['status']): FileOutcome | null {
       <h2 id="agent-next-title" class="font-semibold">Next steps</h2>
       @if (result(); as facts) {
         <div class="mt-2 mb-3">
-          <ptah-outcome-summary
-            [rows]="outcomeRows()"
-            [libraryDiverged]="facts.libraryDiverged ?? []"
-            [target]="facts.target"
-            [isElectron]="isElectron"
-            [compact]="true"
-            [outputDirectory]="outputDirectory()"
-            (openLibrary)="openLibrary()"
-          />
-          @if (showsLibrary()) {
-            <ptah-grade-expectation [rows]="outcomeRows()" />
-            <ptah-library-stale-notice [libraryPass]="facts.libraryPass" />
+          <!-- Lazy chunk: the outcome views stay out of the initial bundle. -->
+          @defer (on immediate) {
+            <ptah-outcome-summary
+              [rows]="outcomeRows()"
+              [libraryDiverged]="facts.libraryDiverged ?? []"
+              [target]="facts.target"
+              [isElectron]="isElectron"
+              [compact]="true"
+              [outputDirectory]="outputDirectory()"
+              (openLibrary)="openLibrary()"
+            />
+            @if (showsLibrary()) {
+              <ptah-grade-expectation [rows]="outcomeRows()" />
+              <ptah-library-stale-notice [libraryPass]="facts.libraryPass" />
+            }
           }
         </div>
       }

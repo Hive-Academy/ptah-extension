@@ -4,7 +4,7 @@ import {
   computed,
   input,
 } from '@angular/core';
-import type { OutcomeFileRow } from './outcome-summary.component';
+import type { OutcomeFileRow } from './outcome-rows';
 
 /** Outcomes that leave the user's existing file and grade as they were. */
 const LEFT_AS_IS = new Set<OutcomeFileRow['status']>([

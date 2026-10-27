@@ -7,16 +7,7 @@ import {
 } from '@angular/core';
 import type { FileOutcome, GenerationTargetInfo } from '@ptah-extension/shared';
 import { safeFailureCopy } from '../../utils/safe-failure-copy';
-
-/** One processed agent file on a completion surface. */
-export interface OutcomeFileRow {
-  readonly id: string;
-  /** File name shown under `.claude/agents/`, e.g. `tester.md`. */
-  readonly fileName: string;
-  readonly status: FileOutcome;
-  /** Raw failure detail; never rendered, only classified (B5). */
-  readonly error?: string;
-}
+import { libraryReachable, type OutcomeFileRow } from './outcome-rows';
 
 const WRITE_FAILED_FALLBACK = 'The write failed.';
 
@@ -30,19 +21,6 @@ const OUTCOME_LABELS: ReadonlyArray<readonly [FileOutcome, string]> = [
 ];
 
 const OUTCOME_LABEL = new Map<FileOutcome, string>(OUTCOME_LABELS);
-
-/**
- * Whether Library copy (diverged naming, grade copy, stale notice) applies:
- * only in Electron (VS Code has no Library, D3) and only when the agents went
- * to the root the Library reads. An unknown target shows no Library copy.
- */
-export function libraryReachable(
-  isElectron: boolean,
-  target: GenerationTargetInfo | undefined,
-): boolean {
-  if (!isElectron || !target) return false;
-  return target.chosen === 'harness-root' || target.openedIsHarnessRoot;
-}
 
 /**
  * C9 OutcomeSummary: five outcome counters, the per-file list and the named

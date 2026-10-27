@@ -19,11 +19,11 @@ import {
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { GradeExpectationComponent } from './completion/grade-expectation.component';
 import { LibraryStaleNoticeComponent } from './completion/library-stale-notice.component';
+import { OutcomeSummaryComponent } from './completion/outcome-summary.component';
 import {
-  OutcomeSummaryComponent,
   libraryReachable,
   type OutcomeFileRow,
-} from './completion/outcome-summary.component';
+} from './completion/outcome-rows';
 
 /**
  * CompletionComponent - Success screen with quick start guide and orchestration examples
@@ -132,19 +132,22 @@ import {
                 data.outputDirectory
               }}</code>
             </div>
-            <ptah-outcome-summary
-              [rows]="outcomeRows()"
-              [libraryDiverged]="data.result?.libraryDiverged ?? []"
-              [target]="data.result?.target"
-              [isElectron]="isElectron"
-              [outputDirectory]="data.outputDirectory"
-              (openLibrary)="onOpenLibrary()"
-            />
-            @if (showsLibrary()) {
-              <ptah-grade-expectation [rows]="outcomeRows()" />
-              <ptah-library-stale-notice
-                [libraryPass]="data.result?.libraryPass"
+            <!-- Lazy chunk: the outcome views stay out of the initial bundle. -->
+            @defer (on immediate) {
+              <ptah-outcome-summary
+                [rows]="outcomeRows()"
+                [libraryDiverged]="data.result?.libraryDiverged ?? []"
+                [target]="data.result?.target"
+                [isElectron]="isElectron"
+                [outputDirectory]="data.outputDirectory"
+                (openLibrary)="onOpenLibrary()"
               />
+              @if (showsLibrary()) {
+                <ptah-grade-expectation [rows]="outcomeRows()" />
+                <ptah-library-stale-notice
+                  [libraryPass]="data.result?.libraryPass"
+                />
+              }
             }
           }
 

@@ -191,12 +191,15 @@ import {
         </div>
       }
     </section>
-    <ptah-pack-install-prompt
-      [request]="request()"
-      [isElectron]="isElectron"
-      scope="sidebar"
-      (dismissed)="request.set(null)"
-    />
+    <!-- Lazy chunk: the prompt loads on first open, outside the initial bundle. -->
+    @defer (when request() !== null) {
+      <ptah-pack-install-prompt
+        [request]="request()"
+        [isElectron]="isElectron"
+        scope="sidebar"
+        (dismissed)="request.set(null)"
+      />
+    }
   `,
 })
 export class CommunityPacksPanelComponent {

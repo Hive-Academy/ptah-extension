@@ -126,7 +126,8 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(root.querySelector('ptah-generation-agent-sidebar')).not.toBeNull();
     expect(root.textContent).toContain('Select agents');
     expect(root.querySelector('ptah-generation-source-status')).not.toBeNull();
-    expect(root.querySelector('ptah-agent-preview-dialog')).not.toBeNull();
+    // The preview dialog is a @defer block that loads on first open.
+    expect(root.querySelector('ptah-agent-preview-dialog')).toBeNull();
     expect(root.textContent).toContain('Model for this tab');
     expect(root.textContent).toContain('Resume saved run');
     expect(

@@ -1,10 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import type { GenerationTargetInfo } from '@ptah-extension/shared';
-import {
-  OutcomeSummaryComponent,
-  libraryReachable,
-  type OutcomeFileRow,
-} from './outcome-summary.component';
+import { libraryReachable, type OutcomeFileRow } from './outcome-rows';
+import { OutcomeSummaryComponent } from './outcome-summary.component';
 
 const harnessRoot: GenerationTargetInfo = {
   harnessRoot: '/ws',

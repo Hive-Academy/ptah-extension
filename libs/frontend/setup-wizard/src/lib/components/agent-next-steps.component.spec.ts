@@ -143,8 +143,11 @@ describe('AgentNextStepsComponent', () => {
       outcome('e2e-tester', 'skipped'),
     ];
 
-    function render(): HTMLElement {
+    /** Renders and waits for the deferred outcome views to load. */
+    async function render(): Promise<HTMLElement> {
       const fixture = TestBed.createComponent(AgentNextStepsComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
       fixture.detectChanges();
       return fixture.nativeElement as HTMLElement;
     }
@@ -157,14 +160,14 @@ describe('AgentNextStepsComponent', () => {
       );
     }
 
-    it('shows counters that equal the per-file rows, failed hidden at 0', () => {
+    it('shows counters that equal the per-file rows, failed hidden at 0', async () => {
       setResult({
         agentOutcomes: mixed,
         target: harnessRoot,
         libraryPass: 'updated',
         libraryDiverged: ['backend-developer'],
       });
-      const root = render();
+      const root = await render();
       expect(counter(root, 'written')).toBe('2');
       expect(counter(root, 'kept')).toBe('2');
       expect(counter(root, 'unchanged')).toBe('1');
@@ -177,7 +180,7 @@ describe('AgentNextStepsComponent', () => {
       ).toContain('backend-developer');
     });
 
-    it('counts a rejected agent as failed and shows its reason', () => {
+    it('counts a rejected agent as failed and shows its reason', async () => {
       setResult({
         agentOutcomes: [
           outcome('tester', 'rejected', 'permission denied'),
@@ -186,14 +189,14 @@ describe('AgentNextStepsComponent', () => {
         target: harnessRoot,
         libraryPass: 'updated',
       });
-      const root = render();
+      const root = await render();
       expect(counter(root, 'failed')).toBe('1');
       expect(
         root.querySelector('[data-testid="outcome-failure"]')?.textContent,
       ).toContain('permission denied');
     });
 
-    it('shows the all-kept statement without the grade callout', () => {
+    it('shows the all-kept statement without the grade callout', async () => {
       setResult({
         agentOutcomes: [
           outcome('planner', 'kept'),
@@ -202,20 +205,20 @@ describe('AgentNextStepsComponent', () => {
         target: harnessRoot,
         libraryPass: 'not-applicable',
       });
-      const root = render();
+      const root = await render();
       expect(root.textContent).toContain('Nothing new was written');
       expect(root.textContent).toContain('All 2 agents were kept');
       expect(root.textContent).not.toContain('About grades.');
     });
 
-    it('shows the stale-Library notice only when the Library pass failed', () => {
+    it('shows the stale-Library notice only when the Library pass failed', async () => {
       setResult({
         agentOutcomes: [outcome('tester', 'written')],
         target: harnessRoot,
         libraryPass: 'failed',
       });
       expect(
-        render().querySelector('[data-testid="library-stale-notice"]'),
+        (await render()).querySelector('[data-testid="library-stale-notice"]'),
       ).not.toBeNull();
       setResult({
         agentOutcomes: [outcome('tester', 'written')],
@@ -223,11 +226,11 @@ describe('AgentNextStepsComponent', () => {
         libraryPass: 'updated',
       });
       expect(
-        render().querySelector('[data-testid="library-stale-notice"]'),
+        (await render()).querySelector('[data-testid="library-stale-notice"]'),
       ).toBeNull();
     });
 
-    it('hides grade and Library copy in VS Code', () => {
+    it('hides grade and Library copy in VS Code', async () => {
       isElectron = false;
       setResult({
         agentOutcomes: [outcome('tester', 'written')],
@@ -235,7 +238,7 @@ describe('AgentNextStepsComponent', () => {
         libraryPass: 'failed',
         libraryDiverged: ['tester'],
       });
-      const root = render();
+      const root = await render();
       expect(counter(root, 'written')).toBe('1');
       expect(root.textContent).not.toContain('About grades.');
       expect(
@@ -244,14 +247,14 @@ describe('AgentNextStepsComponent', () => {
       expect(root.querySelector('[data-testid="outcome-diverged"]')).toBeNull();
     });
 
-    it('opens the Library diverged filter from the diverged callout', () => {
+    it('opens the Library diverged filter from the diverged callout', async () => {
       setResult({
         agentOutcomes: [outcome('tester', 'written')],
         target: harnessRoot,
         libraryPass: 'updated',
         libraryDiverged: ['tester'],
       });
-      const root = render();
+      const root = await render();
       root
         .querySelector<HTMLButtonElement>(
           '[data-testid="outcome-diverged"] button',
@@ -260,8 +263,8 @@ describe('AgentNextStepsComponent', () => {
       expect(openSkillsDivergedClones).toHaveBeenCalledTimes(1);
     });
 
-    it('renders no summary before the run reports outcomes', () => {
-      const root = render();
+    it('renders no summary before the run reports outcomes', async () => {
+      const root = await render();
       expect(root.querySelector('ptah-outcome-summary')).toBeNull();
     });
   });

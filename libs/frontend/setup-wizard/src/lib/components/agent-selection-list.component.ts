@@ -22,10 +22,8 @@ import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { findBoundGenerationTab } from '../services/bound-generation-tab';
 import type { BoundAgentDecisions } from '../services/wizard-rpc.service';
-import {
-  AgentPreviewDialogComponent,
-  type PreviewRowDecision,
-} from './agent-preview-dialog.component';
+import { AgentPreviewDialogComponent } from './agent-preview-dialog.component';
+import type { PreviewRowDecision } from './agent-preview-dialog.component';
 import {
   buildWizardRows,
   decisionCounts,
@@ -178,21 +176,24 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
       >
         Generate {{ selected().size }} agents
       </button>
-      <ptah-agent-preview-dialog
-        [open]="previewOpen()"
-        [loading]="previewLoading()"
-        [preview]="preview()"
-        [snapshot]="decisions()"
-        [changed]="targetsChanged()"
-        [error]="previewError()"
-        [model]="store.model()"
-        [isElectron]="isElectron"
-        (dismissed)="closePreview()"
-        (confirm)="confirmPreview()"
-        (decisionChange)="setRowDecision($event)"
-        (applyAll)="setAllRowDecisions($event)"
-        (targetChange)="changeTarget($event)"
-      />
+      <!-- Lazy chunk: the dialog loads on first open, outside the initial bundle. -->
+      @defer (when previewOpen()) {
+        <ptah-agent-preview-dialog
+          [open]="previewOpen()"
+          [loading]="previewLoading()"
+          [preview]="preview()"
+          [snapshot]="decisions()"
+          [changed]="targetsChanged()"
+          [error]="previewError()"
+          [model]="store.model()"
+          [isElectron]="isElectron"
+          (dismissed)="closePreview()"
+          (confirm)="confirmPreview()"
+          (decisionChange)="setRowDecision($event)"
+          (applyAll)="setAllRowDecisions($event)"
+          (targetChange)="changeTarget($event)"
+        />
+      }
     </section>
   `,
 })
