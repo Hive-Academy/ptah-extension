@@ -87,24 +87,19 @@ import {
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
-// NOTE: intentionally the WIDE barrel, and there is deliberately no
-// `@ptah-extension/setup-wizard/services` barrel (TASK_2026_187 R6/R15).
-// The setup wizard is a LAUNCH SURFACE: `onCommand:ptah.setupAgents`
-// (apps/ptah-extension-vscode/package.json:41) opens a dedicated webview panel
-// whose HTML hardcodes `initialView: 'setup-wizard'`
-// (agent-generation/.../wizard/webview-lifecycle.service.ts:153), so a fresh
-// Angular bootstrap lands straight on that component with a user waiting.
-// `app.routes.ts` therefore binds it with a static `component:` and keeps the
-// wide barrel in the eager graph regardless of where the two services below
-// are imported from — a narrow barrel would move zero bytes. Same structural
-// no-op as the dashboard barrel dropped in Batch 3.
+// NARROW `/app` entry on purpose, here and in `app.routes.ts`. The setup
+// wizard is a LAUNCH SURFACE (`initialView: 'setup-wizard'`), so its route
+// stays a static `component:`. But its later steps render inside `@defer`,
+// and the wide barrel re-exports those step components, so importing the
+// wide barrel from eager code would put them back into the initial bundle
+// (about 208 kB, TASK_2026_701).
 import {
   provideWizardInternalState,
   provideSetupWizardFocusRouter,
   SetupWizardStateService,
   SetupGenerationOpenHandler,
   GenerationRunEventAdapter,
-} from '@ptah-extension/setup-wizard';
+} from '@ptah-extension/setup-wizard/app';
 import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
 import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
 import {

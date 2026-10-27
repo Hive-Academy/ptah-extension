@@ -9,7 +9,7 @@ import { DashboardGridComponent } from '@ptah-extension/dashboard';
 import {
   GenerationWorkflowShellComponent,
   WizardViewComponent,
-} from '@ptah-extension/setup-wizard';
+} from '@ptah-extension/setup-wizard/app';
 
 import { electronOnlySurface } from './electron-only-surface.guard';
 
