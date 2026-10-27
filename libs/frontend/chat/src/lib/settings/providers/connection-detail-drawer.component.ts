@@ -246,10 +246,9 @@ export class ConnectionDetailDrawerComponent {
   /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */
   protected readonly overviewKeyHint = computed(() => {
     const current = this.connection();
-    const kind = this.kind();
-    // `credentialSource` is set only for a sign-in connection with a stored fallback key (`apiKeyFallback`, Kimi Code).
-    const storesKey = kind === 'api-key' || kind === 'custom' || (kind === 'oauth' && current?.credentialSource !== undefined);
-    return current?.hasKey && storesKey ? current.keyHint ?? null : null;
+    // `credentialSource` is set only for a sign-in connection that also takes a stored key (`apiKeyFallback`, Kimi Code).
+    return current?.hasKey && (current.credentialSource || this.kind() === 'api-key' || this.kind() === 'custom')
+      ? current.keyHint ?? null : null;
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {
