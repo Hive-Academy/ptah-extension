@@ -798,6 +798,7 @@ describe('isFileBasedSettingKey', () => {
      */
     const budgetDefaults: Record<string, unknown> = {
       'sessionBudget.enabled': true,
+      'sessionBudget.autoHandoffAtLimit': false,
       'sessionBudget.unit': 'tokens',
       'sessionBudget.tokens': 50_000_000,
       'sessionBudget.usd': 30,
@@ -823,7 +824,7 @@ describe('isFileBasedSettingKey', () => {
       },
     );
 
-    it('registers exactly the nine keys of the shared table', () => {
+    it('registers exactly the keys of the shared table', () => {
       const budgetKeys = [...FILE_BASED_SETTINGS_KEYS].filter((key) =>
         key.startsWith('sessionBudget.'),
       );

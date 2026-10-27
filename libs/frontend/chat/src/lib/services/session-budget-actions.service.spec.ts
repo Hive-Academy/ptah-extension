@@ -39,6 +39,7 @@ const BUDGET: SessionBudgetState = {
   lowerBound: false,
   revision: 9,
   compactions: 0,
+  autoHandoff: false,
 };
 
 describe('SessionBudgetActionsService', () => {

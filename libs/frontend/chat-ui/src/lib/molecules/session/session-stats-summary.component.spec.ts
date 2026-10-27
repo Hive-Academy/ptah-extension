@@ -348,6 +348,7 @@ describe('SessionStatsSummaryComponent', () => {
       lowerBound: false,
       revision: 4,
       compactions: 0,
+      autoHandoff: false,
     };
 
     function renderWithBudget(
@@ -544,6 +545,7 @@ describe('SessionStatsSummaryComponent', () => {
         lowerBound: false,
         revision: 4,
         compactions: 0,
+        autoHandoff: false,
       } satisfies SessionBudgetState);
       fixture.detectChanges();
 
@@ -570,6 +572,7 @@ describe('SessionStatsSummaryComponent', () => {
         lowerBound: false,
         revision: 4,
         compactions: 0,
+        autoHandoff: false,
       } satisfies SessionBudgetState);
       fixture.detectChanges();
 

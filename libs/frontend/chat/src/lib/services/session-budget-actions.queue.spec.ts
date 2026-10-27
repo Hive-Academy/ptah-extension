@@ -50,6 +50,7 @@ const BUDGET: SessionBudgetState = {
   lowerBound: false,
   revision: 9,
   compactions: 0,
+  autoHandoff: false,
 };
 /** The backend router's test (`SlashCommandInterceptor.isSlashCommand`). */
 const ROUTED_AS_SLASH_COMMAND = /^\/[a-zA-Z]/;

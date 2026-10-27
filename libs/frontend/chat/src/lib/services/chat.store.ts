@@ -265,6 +265,14 @@ export class ChatStore {
     return this.sessionLoader.upsertSessionSummary(summary);
   }
 
+  /**
+   * Whether the tab has a pending permission prompt, which a message queued
+   * on it now would answer (deny). Reactive.
+   */
+  hasPendingPermissionForTab(tabId: string): boolean {
+    return this.messageDispatch.hasPendingPermissionForTab(tabId);
+  }
+
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
@@ -375,6 +383,14 @@ export class ChatStore {
     if (!targetTabId) return;
     this.tabManager.setQueuedContent(targetTabId, null);
     this.conversation.releaseHeldCommand(targetTabId);
+  }
+
+  /**
+   * Withdraw one queued or held slash command and keep the rest of the tab's
+   * queue (the automatic hand-off's Cancel). False when it was already sent.
+   */
+  withdrawQueuedCommand(tabId: string, content: string): boolean {
+    return this.conversation.withdrawQueuedCommand(tabId, content);
   }
 
   clearQueueRestoreSignal(): void {

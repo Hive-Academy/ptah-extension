@@ -97,6 +97,7 @@ describe('SessionBudgetState.rotation', () => {
     lowerBound: false,
     revision: null,
     compactions: 0,
+    autoHandoff: false,
   };
 
   it('is optional: a state without the advisory is complete', () => {

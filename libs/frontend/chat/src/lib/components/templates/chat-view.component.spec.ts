@@ -2862,6 +2862,7 @@ describe('ChatViewComponent — session budget banner wiring', () => {
     lowerBound: false,
     revision: 9,
     compactions: 0,
+    autoHandoff: false,
   };
 
   type BudgetView = {

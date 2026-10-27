@@ -2845,6 +2845,7 @@ describe('SdkAgentAdapter', () => {
     function budgetFor(sessionId: string): SessionBudgetState {
       return {
         sessionId,
+        autoHandoff: false,
         stage: 'tighten',
         unit: 'tokens',
         measure: 'tokens',

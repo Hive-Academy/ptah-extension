@@ -267,6 +267,34 @@ export class ConversationService {
   }
 
   /**
+   * Withdraw one slash command a caller queued with {@link queueOrAppendMessage}
+   * (the automatic hand-off's Cancel), keeping everything else queued on the
+   * tab. A held copy settles as dropped. A queued message that starts with the
+   * command keeps the text appended after it, and a command held behind it
+   * moves up. Returns false when the command is no longer queued.
+   */
+  withdrawQueuedCommand(tabId: string, content: string): boolean {
+    const command = this.validator.sanitize(content);
+    const held = this.heldCommands.get(tabId);
+    const index =
+      held?.commands.findIndex((entry) => entry.content === command) ?? -1;
+    if (held && index >= 0) {
+      const [withdrawn] = held.commands.splice(index, 1);
+      if (held.commands.length === 0) this.heldCommands.delete(tabId);
+      withdrawn.settle(false);
+      return true;
+    }
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    const queued = tab?.queuedContent?.trim() ?? '';
+    if (queued !== command && !queued.startsWith(`${command}\n`)) return false;
+    const rest = queued.slice(command.length).trim();
+    if (rest) this.tabManager.setQueuedContent(tabId, rest);
+    else this.tabManager.clearQueuedContentAndOptions(tabId);
+    this.releaseHeldCommand(tabId);
+    return true;
+  }
+
+  /**
    * Drop the tab's held commands, after a Stop, a failed turn, a tab close or
    * reset, or a workspace removal: like the queued text, they must not be
    * sent on their own later.

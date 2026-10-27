@@ -124,7 +124,9 @@ interface BudgetEntry {
 type ObserveSource = 'live' | 'loaded';
 
 function configKeyOf(config: SessionBudgetConfig): string {
-  return JSON.stringify(config);
+  // Auto hand-off only changes the webview's action, not the measured stage.
+  const { autoHandoffAtLimit: _autoHandoff, ...measured } = config;
+  return JSON.stringify(measured);
 }
 
 function errorMessage(error: unknown): string {
@@ -217,7 +219,7 @@ export class SessionBudgetService {
       const key = configKeyOf(config);
       const configChanged = entry.configKey !== null && entry.configKey !== key;
       const previous = entry.figure
-        ? this.composeState(entry, entry.figure)
+        ? this.composeState(entry, entry.figure, config)
         : null;
       const figure = evaluateSessionBudget({
         snapshot,
@@ -359,7 +361,9 @@ export class SessionBudgetService {
     if (
       !acceptsSessionBudgetSnapshot(entry.figure, snapshot.revision, source)
     ) {
-      return entry.figure ? this.composeState(entry, entry.figure) : undefined;
+      return entry.figure
+        ? this.composeState(entry, entry.figure, config)
+        : undefined;
     }
 
     this.evaluateRotation(snapshot);
@@ -382,7 +386,7 @@ export class SessionBudgetService {
     const key = configKeyOf(config);
     const configChanged = entry.configKey !== null && entry.configKey !== key;
     const previous = entry.figure
-      ? this.composeState(entry, entry.figure)
+      ? this.composeState(entry, entry.figure, config)
       : null;
 
     const figure = evaluateSessionBudget({
@@ -419,7 +423,7 @@ export class SessionBudgetService {
       }
       entry.actedRank = rank;
     }
-    return this.composeState(entry, figure);
+    return this.composeState(entry, figure, config);
   }
 
   // ---------------------------------------------------------------------------
@@ -524,10 +528,12 @@ export class SessionBudgetService {
   private composeState(
     entry: BudgetEntry,
     figure: SessionBudgetFigure,
+    config: SessionBudgetConfig,
   ): SessionBudgetState {
     return {
       sessionId: entry.sessionId,
       ...figure,
+      autoHandoff: config.autoHandoffAtLimit,
       ...(entry.window ? { window: entry.window } : {}),
       ...this.rotationField(entry.sessionId),
     };
@@ -560,6 +566,7 @@ export class SessionBudgetService {
     const tokens = config.unit === 'tokens';
     return {
       sessionId: snapshot.sessionId,
+      autoHandoff: config.autoHandoffAtLimit,
       stage: 'unknown',
       unit: config.unit,
       measure: tokens ? 'tokens' : 'cost',
