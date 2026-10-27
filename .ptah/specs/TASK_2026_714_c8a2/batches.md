@@ -915,6 +915,51 @@ Verification is memory-safe and scoped only (`npm run verify -- -p ...`, see CLA
 
 ---
 
+# Run state (session 17, 2026-10-27) — P8 fix round 2 (8g) code complete, gate green
+
+- Fresh team-leader (Mode 2). All lanes Codex CLI (implementer family Codex); none verified,
+  committed or pushed. Team-leader ran every verify under the lock and committed in the
+  foreground. Branch not pushed (coordinator pushes).
+- 8g-1b — COMMITTED 1194ed505. D5 closed: `ptahUiFence` supported; when true and the tool
+  profile is `coding`, PTAH_UI_HINT is appended to the native Codex developerPrompt.
+  `mcpToolProfile: 'coding'` supported, any other value -> coded CodexChatOptionError (team-leader
+  review caught an unconditional accept). Real-config spec uses the renderer-shaped payload on a
+  temp dir (first run failed ENOENT on a fake path; fixed). Verify `-p rpc-handlers,agent-sdk`:
+  tests + typecheck pass; agent-sdk lint known noise only.
+- 8g-2 — COMMITTED 3362b2ad5. shutdown.spec load failure fixed with a spec-local
+  `jest.mock('@ptah-extension/rpc-handlers')` (the binding imports runtime values, so a
+  type-only import was impossible); real binding shutdown helpers still tested. Verify
+  `-p ptah-electron,codex-runtime,settings-core`: PASS (exit 0).
+- 8g-3 — COMMITTED 2f9a98bd9. One compaction start from the adapter with native preTokens
+  (skipped + debug log without a sample; reported 0 kept); no libs/shared change; failed
+  manual/auto compaction -> CHAT_ERROR, never compaction_complete; /compact coalescing.
+  Barrel: @internal marks, isCodexChatAdapterError + CodexChatAdapterErrorCode. Two lanes wrote
+  concurrently (queued coordinator messages); final diff checked. Verify
+  `-p agent-sdk,rpc-handlers` tests + typecheck pass (lint known noise); ptah-electron typecheck
+  PASS.
+- 8g-4 — COMMITTED 82901d5c4. CODEX_BUSY / CODEX_UNSUPPORTED_OPTION / CODEX_UNAVAILABLE /
+  CODEX_RUNTIME_FAILED; cancelled -> `{ success:false, cancelled:true }` (no log/Sentry, adapter
+  no longer logs cancelled); failed /compact -> `settled + CODEX_RUNTIME_FAILED`; legacy settings
+  derive effort from EFFORT_LEVEL_SCHEMA + LegacyCodexSessionSettingsError. Shared changes are
+  additive/optional. First verify: 1 stale spec (chat-session-agent-child.spec.ts) + 1 new
+  module-boundary lint error (deep import in native.spec); fixed with a local error fixture and a
+  partial guard mock (real guard covered in codex-chat-adapter.spec.ts). Re-verify
+  `-p shared,rpc-handlers,agent-sdk,chat`: all tests + typecheck pass; lint known noise only.
+- 8g-5 — COMMITTED aa8dd6c60. Cancelled start/continue/resume settle quietly; settled compact
+  failure keeps CHAT_ERROR as the only error (message-dispatch.service.ts authorized as 7th
+  file); CODEX_* messages; Orchestrator chip failed after failed start, absent after cancel.
+  Verify `-p chat`: tests + typecheck pass; lint known noise (242/140, unchanged).
+  Minor (recorded, not fixed): on cancel both message-sender and message-dispatch call
+  markLoaded/markTabIdle (idempotent).
+- **P8 phase gate (2026-10-27 ~16:52Z, HEAD aa8dd6c60): ALL PASS.** degradation-audit:lint
+  exit 0; di-lint:lint exit 0; typecheck ptah-electron, ptah-extension-vscode, ptah-cli,
+  ptah-tui 4/4 succeeded; vscode-core test `--testPathPatterns=host-attention-ingress` 1/1
+  succeeded.
+- Process: lanes called ptah_get_diagnostics twice (8g-4, 8g-5) despite the rule; both returned
+  UNAVAILABLE; no stray TS process remained.
+- Next (coordinator): push, live Electron p8c run (STOP before it — not run here), then the
+  P8 re-review (code-logic + style, reviewer family Claude).
+
 # Run state (session 16, 2026-10-26) — P8 fix round 2 (8g)
 
 - Fresh team-leader. Inputs: live-test-p8b.md (FAIL a, D5), code-logic-review-p8f.md (REVISE 7/10),
@@ -2029,7 +2074,7 @@ and CLI get compatible bindings only (no feature work).
 - LIVE D4 (workspace save also writes global `provider.openai-codex.mainAgent.modelTier.*`):
   pre-existing, the known #824 leftover; separate small PR (user).
 
-## Batch 8g: P8 fix round 2 (live-test-p8b.md, code-logic-review-p8f.md, code-style-review-p8f.md) — IN_PROGRESS (8g-1 df531dd52; D5 open; 8g-2 uncommitted)
+## Batch 8g: P8 fix round 2 (live-test-p8b.md, code-logic-review-p8f.md, code-style-review-p8f.md) — COMPLETE (code; 8g-1 df531dd52 + 8g-1b 1194ed505; 8g-2 3362b2ad5; 8g-3 2f9a98bd9; 8g-4 82901d5c4; 8g-5 aa8dd6c60; phase gate PASS; re-review after live p8c)
 
 - Phase: P8 | Phase gate once after 8g-5: degradation-audit lint, di-lint lint, 4-host typecheck
   (ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui), vscode-core host-attention-ingress
@@ -2086,7 +2131,7 @@ Assumptions:
 | Verify of 8g-1 picks up 8g-3 edits | MEDIUM | 8g-3 starts only after the 8g-1 commit |
 | Shared `rpc-error-codes.types.ts` change hits every host | MEDIUM | phase gate 4-host typecheck |
 
-### Batch 8g-1: D5 profile option policy, approval settle, undelivered prompt — IN_PROGRESS (df531dd52 committed; D5 ptahUiFence mapping still open -> 8g-1b)
+### Batch 8g-1: D5 profile option policy, approval settle, undelivered prompt — COMPLETE (df531dd52; 8g-1b 1194ed505 closes D5; reports batch-8g-1-report.md, batch-8g-1b-report.md)
 
 - Items: LIVE D5 (blocker), logic M-N4 / S3 remainder, M3 remainder (resolved-but-undelivered
   send), M-N7 (re-present pending approvals on renderer reload — only if a native/existing
@@ -2111,7 +2156,7 @@ Assumptions:
   one-line `PTAH_UI_HINT` export in W/libs/backend/agent-sdk/src/index.ts.
 - Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk`
 
-### Batch 8g-2: Electron binary inspection, shutdown budget, style — IN_PROGRESS (written, verify FAILED shutdown.spec.ts, uncommitted)
+### Batch 8g-2: Electron binary inspection, shutdown budget, style — COMPLETE (3362b2ad5; reports batch-8g-2-report.md, batch-8g-2b-report.md)
 
 - Items: logic M-N1 (do not cache failed/timed-out inspections), M-N2 (digest compared with the
   pin BEFORE `--version` runs), M-N3 (budget expiry must not leave threads `active`), style M2
@@ -2124,7 +2169,7 @@ Assumptions:
   W/libs/backend/codex-runtime/src/lib/codex-executable-pin-data.ts (comment only).
 - Verification: `npm run verify -- -p ptah-electron,@ptah-extension/codex-runtime,@ptah-extension/settings-core`
 
-### Batch 8g-3: compaction single signal, barrel, typed adapter error guard — PENDING
+### Batch 8g-3: compaction single signal, barrel, typed adapter error guard — COMPLETE (2f9a98bd9; report batch-8g-3-report.md)
 
 - Depends on: 8g-1 committed.
 - Items: logic M-N6 (one compaction start signal, trigger/preTokens from native App Server data,
@@ -2136,7 +2181,7 @@ Assumptions:
   (+ spec), codex-chat-adapter.ts (guard only), R/codex-host/codex-chat-event-callbacks.ts (+ spec).
 - Verification: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`
 
-### Batch 8g-4: typed Codex RPC codes, cancelled is not an error, legacy settings style — PENDING
+### Batch 8g-4: typed Codex RPC codes, cancelled is not an error, legacy settings style — COMPLETE (82901d5c4; report batch-8g-4-report.md)
 
 - Depends on: 8g-1, 8g-3.
 - Items: logic M-N5 / M4 / D3 backend: replace the `error.name` match with the guard; dedicated
@@ -2149,7 +2194,7 @@ Assumptions:
   R/codex-host/codex-legacy-session-settings.ts (+ .spec.ts).
 - Verification: `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/shared`
 
-### Batch 8g-5: frontend cancelled start and Orchestrator chip state — PENDING
+### Batch 8g-5: frontend cancelled start and Orchestrator chip state — COMPLETE (aa8dd6c60; report batch-8g-5-report.md)
 
 - Depends on: 8g-4.
 - Items: D3 remainder: a `cancelled` start shows no "could not start" error; the Orchestrator
@@ -2174,6 +2219,11 @@ Assumptions:
   listener cleanup (Electron + rpc-handlers). Later task.
 - Still accepted from 8f: M2 rollback, M6 surfaceMode, tabId fallback, ipc-bridge console.warn,
   process-global binding registry, LIVE D4 (separate PR).
+- Known limitation (8g-1b): MCP Apps page + Codex runtime. The only `mcpToolProfile` sender is
+  `libs/frontend/mcp-apps-page/src/lib/services/apps-session.service.ts:250,332` (`'apps'`). On
+  the Codex runtime that start now fails with `CodexChatOptionError` (key `mcpToolProfile`)
+  instead of being silently ignored; the apps profile needs native Ptah MCP attachment (parity
+  row 39). Main chat never sends `mcpToolProfile`, so the default Electron Codex start passes.
 
 ---
 
