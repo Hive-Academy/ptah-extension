@@ -552,3 +552,29 @@
   17:29:46). In streaming-input mode, CLI 2.1.278 builds `system/init` in the turn loop, so `init` follows the
   first user message. The old order waited for `init` before it released the gate, and the deadline fired.
 - Reversible: yes.
+
+## D69
+
+- Decision: apply the D68 order to the named main chat (`session-query-executor.service.ts` `NamedQueryGate`)
+  in the same PR. Release only the first user message after the identity proof; withhold output, tools,
+  later turns and the binding until `system/init` is verified. Refusals after the identity proof now
+  yield 1 message (the released first turn) instead of 0.
+- Source: orchestrator (session 11). D68 is a user decision for "the final named-account child"; the main chat
+  launches the same CLI 2.1.278 in streaming-input mode, so it has the same deadlock (code evidence
+  `session-query-executor.service.ts:624-641,801-843`, `bugfix-init-order-report.md` session 11). Requirement 8
+  needs the main chat on a named account, so leaving it would block acceptance.
+- Also: the lane skip of re-validation is keyed on the exact released message, not per iterator (defect found by
+  the adapter spec, session 11).
+- Reversible: yes.
+
+## D70
+
+- Decision: fix both Blocking findings of `code-logic-review-init-order.md` (codex, REVISE 4/10) in one round.
+  F1: gate tools of the named lane and named main chat with a `PreToolUse` hook (deny before init is verified,
+  hold until admission, deny on refusal/abort/dispose), merged with existing hooks, because `bypassPermissions`
+  (YOLO) and allow rules skip `canUseTool` (SDK 0.3.278 `sdk.mjs:209`, `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`).
+  F2: main-chat `dispose()` becomes terminal (abort, disposed flag, admission settled false, held tools denied,
+  late identity/storage success cannot admit).
+- Source: orchestrator, evidence from the review and the installed SDK. Test-gap items (paused identity read,
+  pre-init output buffering) are fixed only where cheap; else recorded as Minor.
+- Reversible: yes.
