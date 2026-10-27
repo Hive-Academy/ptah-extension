@@ -143,13 +143,13 @@ describe('ElevenLabsPanelComponent', () => {
     mount('tts', elConfig({ apiKeyConfigured: true }));
     await settle();
 
+    expect(byTestId('elevenlabs-key-configured').textContent).toContain('Key saved');
+    expect(byTestId('elevenlabs-key-stored-note').textContent).toContain('never shown');
+    byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+    fixture.detectChanges();
     const input = byTestId<HTMLInputElement>('elevenlabs-key-input');
     expect(input.type).toBe('password');
     expect(input.value).toBe('');
-    const badge = byTestId('elevenlabs-key-configured');
-    expect(badge.textContent).toContain('Configured');
-    expect(badge.classList).toContain('badge-outline');
-    expect(badge.classList).toContain('text-base-content');
     expect(element.textContent).not.toMatch(/sk_[a-zA-Z0-9]/);
     expect(element.querySelector('table.table.table-xs')).not.toBeNull();
   });
@@ -299,7 +299,49 @@ describe('ElevenLabsPanelComponent', () => {
 
       expect(calls('voice:testConnection')).toEqual([{ providerId: 'elevenlabs' }]);
       expect(byTestId('elevenlabs-test-result').textContent).toContain('Connection works.');
-      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
+      expect(element.querySelector('[data-testid="elevenlabs-key-save"]')).toBeNull();
+    });
+
+    it('hides the key form behind Replace for a saved key; Cancel drops the draft', async () => {
+      routeRpc({ 'voice:listVoices': VOICES });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+
+      const replace = byTestId<HTMLButtonElement>('elevenlabs-key-replace');
+      replace.click();
+      fixture.detectChanges();
+      expect(replace.getAttribute('aria-expanded')).toBe('true');
+      typeKey('sk_abandoned');
+
+      replace.click();
+      fixture.detectChanges();
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+      replace.click();
+      fixture.detectChanges();
+      expect(byTestId<HTMLInputElement>('elevenlabs-key-input').value).toBe('');
+    });
+
+    it('closes the replace form after the new key saves', async () => {
+      routeRpc({
+        'voice:listVoices': VOICES,
+        'voice:testConnection': () => rpcSuccess({ ok: true }),
+        'voice:setApiKey': () => rpcSuccess({ ok: true }),
+      });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+      byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+      fixture.detectChanges();
+
+      typeKey('sk_new_key');
+      byTestId<HTMLButtonElement>('elevenlabs-test-btn').click();
+      await settle();
+      byTestId<HTMLButtonElement>('elevenlabs-key-save').click();
+      await settle();
+
+      expect(calls('voice:setApiKey')).toEqual([{ providerId: 'elevenlabs', apiKey: 'sk_new_key' }]);
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+      expect(byTestId('elevenlabs-key-replace').textContent?.trim()).toBe('Replace');
     });
 
     it.each(HOST_FAILURES)(
@@ -358,6 +400,10 @@ describe('ElevenLabsPanelComponent', () => {
       routeRpc({ 'voice:listVoices': VOICES });
       mount('tts', elConfig({ apiKeyConfigured: configured }));
       await settle();
+      if (configured) {
+        byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+        fixture.detectChanges();
+      }
 
       expect(byTestId<HTMLInputElement>('elevenlabs-key-input').placeholder).toBe(placeholder);
     });
@@ -484,7 +530,7 @@ describe('ElevenLabsPanelComponent', () => {
       await settle();
 
       expect(calls('voice:listVoices')).toEqual([]);
-      expect(byTestId('elevenlabs-key-input')).toBeTruthy();
+      expect(byTestId('elevenlabs-key-configured')).toBeTruthy();
       expect(element.querySelector('[data-testid="elevenlabs-voice-select"]')).toBeNull();
       expect(element.querySelector('select')).toBeNull();
     });
@@ -561,7 +607,9 @@ describe('ElevenLabsPanelComponent', () => {
       await settle();
 
       expect(byTestId('elevenlabs-voices-hint').textContent?.trim()).toBe('You can still enter a voice ID.');
-      expect(byTestId('elevenlabs-voice-id-input')).toBeTruthy();
+      expect(byTestId<HTMLInputElement>('elevenlabs-voice-id-input').placeholder).toBe(
+        'Default: Rachel (21m00Tcm4TlvDq8ikWAM)',
+      );
     });
 
     it('saves a voice on selection with Undo writing the previous voice', async () => {
@@ -684,7 +732,7 @@ describe('ElevenLabsPanelComponent', () => {
     expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-voice-select'))).toBe(true);
     expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-output-format-select'))).toBe(true);
     expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-clear'))).toBe(true);
-    expect(isDisabledControl(byTestId<HTMLInputElement>('elevenlabs-key-input'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-replace'))).toBe(true);
 
     resolveWrite(rpcSuccess({ ok: true }));
     await settle();
