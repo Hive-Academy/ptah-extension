@@ -28,6 +28,9 @@ import { CanvasInspectorDockComponent } from './canvas-inspector-dock.component'
           Close
         </button>
         <ng-content select="[inspectorSection]" />
+        <button data-agent-select (click)="agentSelected.emit('cli:picked')">
+          Select agent
+        </button>
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
         </button>
@@ -50,6 +53,7 @@ class InspectorStub {
   readonly stats = input<unknown>(null);
   readonly limitSummary = input<unknown>();
   readonly laneRequested = output<string>();
+  readonly agentSelected = output<string>();
   readonly closeRequested = output<void>();
 }
 
@@ -188,7 +192,7 @@ describe('CanvasInspectorDockComponent', () => {
     host.remove();
   });
 
-  it.each(['dock', 'sheet'])('renders exactly one lane selector during and after deferred %s loading', async (presentation) => {
+  it.each(['dock', 'sheet'])('shows a skeleton without a lane strip while the deferred %s loads, and an agent pick selects its lane', async (presentation) => {
     const { fixture } = mount();
     if (presentation === 'sheet') {
       fixture.componentRef.setInput('dockShown', false);
@@ -205,12 +209,18 @@ describe('CanvasInspectorDockComponent', () => {
     const inspectorBlock = blocks[blocks.length - 1];
     await inspectorBlock.render(DeferBlockState.Loading);
     fixture.detectChanges();
-    expect(host.querySelector('[data-inspector-skeleton] ptah-canvas-lane-tabs')).not.toBeNull();
-    expect(host.querySelectorAll('ptah-canvas-lane-tabs')).toHaveLength(1);
+    expect(host.querySelector('[data-inspector-skeleton]')).not.toBeNull();
+    expect(host.querySelectorAll('ptah-canvas-lane-tabs')).toHaveLength(0);
     await inspectorBlock.render(DeferBlockState.Complete);
     fixture.detectChanges();
     expect(host.querySelector('[data-inspector-skeleton]')).toBeNull();
-    expect(host.querySelectorAll('ptah-session-inspector ptah-canvas-lane-tabs')).toHaveLength(1);
+    // The AGENTS list replaced the expanded avatar strip.
+    expect(host.querySelectorAll('ptah-canvas-lane-tabs')).toHaveLength(0);
+    host.querySelector<HTMLButtonElement>('[data-agent-select]')?.click();
+    fixture.detectChanges();
+    expect(TestBed.inject(CanvasDetailService).selectLaneFor).toHaveBeenCalledWith('a', 'cli:picked');
+    // A pick keeps the compact sheet open; only "Open thread" leaves it.
+    if (presentation === 'sheet') expect(host.querySelector('[data-compact-sheet]')).not.toBeNull();
   });
 
   it('a key step persists the width, a remount restores it, and a narrow board clamps only the render', () => {

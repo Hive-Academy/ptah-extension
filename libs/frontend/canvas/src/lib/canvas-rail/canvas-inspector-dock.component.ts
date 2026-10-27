@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, Injector,
   afterNextRender, computed, effect, inject, input, linkedSignal, model, output, signal, untracked,
 } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
 import {
   INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorOpenStateService,
   TabManagerService, injectSessionStatsSource,
@@ -100,20 +99,11 @@ export function injectCanvasInspectorDockState(sources: {
   selector: 'ptah-canvas-inspector-dock',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, SessionInspectorComponent,
+  imports: [SessionInspectorComponent,
     SplitHandleComponent, CanvasLaneTabsComponent],
   providers: [InspectorDockController],
   host: { class: 'contents', '(document:keydown.escape)': 'onDocumentEscape($event)' },
   template: `
-    <ng-template #laneStrip>
-      @if (focusedId(); as id) {
-        <ptah-canvas-lane-tabs
-          [panelId]="panelId()" [tabId]="id" [sidebar]="true"
-          [laneKey]="detail.laneKeyFor(id)"
-          (laneSelected)="detail.selectLaneFor(id, $event)"
-        />
-      }
-    </ng-template>
         @if (dockShown() && !compactSheetOpen()) {
           @if (focusedId(); as id) {
             <!-- Every inspector reference is deferred so it stays out of the initial bundle.
@@ -185,7 +175,7 @@ export function injectCanvasInspectorDockState(sources: {
                 data-inspector-dock
                 [style.width.px]="dock.width()"
               >
-                <!-- The expanded inspector loads on open; its @loading block keeps the lane strip mounted meanwhile. -->
+                <!-- The expanded inspector loads on open; @loading shows a skeleton meanwhile. -->
                 @defer (when dockOpen()) {
                   <ptah-session-inspector
                     class="min-h-0 flex-1"
@@ -194,6 +184,7 @@ export function injectCanvasInspectorDockState(sources: {
                     [hasLaneSurface]="true"
                     [stats]="stats()"
                     (laneRequested)="detail.selectLaneFor(id, $event)"
+                    (agentSelected)="detail.selectLaneFor(id, $event)"
                     (closeRequested)="closeDock()"
                     [sessionTitle]="sessionTab(id)?.title ?? ''"
                     [sessionStatus]="state()"
@@ -201,9 +192,7 @@ export function injectCanvasInspectorDockState(sources: {
                     [branch]="sessionTab(id)?.agentOrigin?.branch ?? null"
                     [selectedAgentKey]="detail.laneKeyFor(id)"
                     [focusSection]="inspectorSection()"
-                  >
-                    <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
-                  </ptah-session-inspector>
+                  />
                 } @loading {
                   <div
                     class="flex min-h-0 flex-1 flex-col gap-2 p-4"
@@ -211,7 +200,6 @@ export function injectCanvasInspectorDockState(sources: {
                     aria-label="Loading session details"
                     data-inspector-skeleton
                   >
-                    <ng-container [ngTemplateOutlet]="laneStrip" />
                     <div class="skeleton h-4 w-32"></div>
                     <div class="skeleton h-3 w-full"></div>
                     <div class="skeleton h-3 w-3/4"></div>
@@ -239,6 +227,7 @@ export function injectCanvasInspectorDockState(sources: {
                   [hasLaneSurface]="true"
                   [stats]="stats()"
                   (laneRequested)="openLaneFromCompactSheet(id, $event)"
+                  (agentSelected)="detail.selectLaneFor(id, $event)"
                   (closeRequested)="closeCompactSheet()"
                   [sessionTitle]="sessionTab(id)?.title ?? ''"
                   [sessionStatus]="state()"
@@ -246,9 +235,7 @@ export function injectCanvasInspectorDockState(sources: {
                   [branch]="sessionTab(id)?.agentOrigin?.branch ?? null"
                   [selectedAgentKey]="detail.laneKeyFor(id)"
                   [focusSection]="inspectorSection()"
-                >
-                  <ng-container inspectorSection [ngTemplateOutlet]="laneStrip" />
-                </ptah-session-inspector>
+                />
               } @loading {
                 <div
                   class="flex flex-col gap-2 p-4"
@@ -256,8 +243,7 @@ export function injectCanvasInspectorDockState(sources: {
                   aria-label="Loading session details"
                   data-inspector-skeleton
                 >
-                  <ng-container [ngTemplateOutlet]="laneStrip" />
-                    <div class="skeleton h-4 w-32"></div>
+                  <div class="skeleton h-4 w-32"></div>
                   <div class="skeleton h-3 w-full"></div>
                   <div class="skeleton h-3 w-3/4"></div>
                 </div>

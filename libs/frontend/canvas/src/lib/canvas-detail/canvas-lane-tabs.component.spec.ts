@@ -238,19 +238,6 @@ describe('CanvasLaneTabsComponent', () => {
     fixture.destroy();
   });
 
-  it('sidebar reserves two rows and always labels its overflow trigger', () => {
-    agents.set(cliRoster(15));
-    const fixture = TestBed.createComponent(CanvasLaneTabsComponent);
-    fixture.componentRef.setInput('tabId', TAB_ID);
-    fixture.componentRef.setInput('sidebar', true);
-    fixture.detectChanges();
-    const root: HTMLElement = fixture.nativeElement;
-    expect(root.querySelector('[aria-haspopup="menu"]')?.textContent).toContain('agents');
-    expect(root.querySelectorAll('[role="tab"]').length).toBeLessThan(16);
-    expect(tabLabels(root)[0]).toContain('Orchestrator');
-    fixture.destroy();
-  });
-
   it.each([1, 5, 6])('shows the dropdown only above five agents (%i total)', (count) => {
     agents.set(Array.from({ length: count - 1 }, (_, i) => cli({ agentId: `c${i}`, parentSessionId: 'owner', cli: `CLI ${i}` })));
     const fixture = TestBed.createComponent(CanvasLaneTabsComponent);

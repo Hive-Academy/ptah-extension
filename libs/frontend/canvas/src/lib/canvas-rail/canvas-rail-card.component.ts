@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  EnvironmentInjector,
   Injector,
   afterNextRender,
   computed,
@@ -38,7 +39,7 @@ import { CircleAlert, LucideAngularModule } from 'lucide-angular';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { isIgnoredCardClick } from '../canvas-card-click';
-import { railMoveKey } from './canvas-rail-keyboard';
+import { focusMenuItem, handleMenuKeydown, railMoveKey } from './canvas-rail-keyboard';
 import { isPrimaryAttentionAction } from './rail-attention-action';
 
 /** B6: the board has fewer than two sessions, so there is nothing to split with. */
@@ -257,7 +258,8 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             aria-haspopup="menu"
             [attr.aria-expanded]="menuOpen()"
             [tabIndex]="focused() ? 0 : -1"
-            (click)="menuOpen.set(!menuOpen())"
+            (pointerdown)="onTriggerPointerDown()"
+            (click)="toggleMenu($event)"
           >
             <span aria-hidden="true">⋮</span>
           </button>
@@ -374,7 +376,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
               role="menuitem"
               data-action="close-session"
               class="btn btn-ghost btn-sm justify-start font-normal"
-              (click)="closeSession()"
+              (click)="closeSession($event)"
             >
               Close session
             </button>
@@ -408,6 +410,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
   private readonly chatStore = inject(ChatStore);
   private readonly logger = inject(LoggingService);
   private readonly injector = inject(Injector);
+  private readonly appInjector = inject(EnvironmentInjector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly renameKeydown = (event: KeyboardEvent) => this.onRenameKeydown(event);
@@ -452,6 +455,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
     });
   }
   readonly menuOpen = signal(false);
+  /** The element focused before a pointer opened the menu; null for a keyboard open. */
+  private focusBeforeMenu: Element | null = null;
   readonly renameOpen = signal(false);
   readonly renameDraft = signal('');
   readonly renameError = signal('');
@@ -563,11 +568,31 @@ export class CanvasRailCardComponent implements SessionCardActions {
       await this.chatStore.abortWithConfirmation();
     } catch (error) {
       this.logger.error('CanvasRailCard', 'Could not stop session', error);
+      this.announce('Could not stop this session.');
     }
   }
-  closeSession(): void {
+  /**
+   * A keyboard close leaves focus on this card's trigger, so the board moves it
+   * to a neighbour card. A pointer close (`detail > 0`) puts focus back where
+   * it was before the menu opened (e.g. the composer) when that is outside this
+   * card: after the render in which the popover returns focus to its trigger,
+   * on the app injector so the hook outlives this removed card.
+   */
+  closeSession(event?: MouseEvent): void {
+    const before = event?.detail ? this.focusBeforeMenu : null;
     this.closeMenu();
+    if (before instanceof HTMLElement && before !== before.ownerDocument.body
+      && !this.host.nativeElement.contains(before))
+      afterNextRender(() => { if (before.isConnected) before.focus(); }, { injector: this.appInjector });
     this.closeRequested.emit(this.tabId());
+  }
+  /** A press on the trigger runs before it takes focus: remember the focused element. */
+  onTriggerPointerDown(): void {
+    this.focusBeforeMenu = this.host.nativeElement.ownerDocument.activeElement;
+  }
+  toggleMenu(event: MouseEvent): void {
+    if (!event.detail) this.focusBeforeMenu = null;
+    this.menuOpen.set(!this.menuOpen());
   }
   moveUp(): void {
     if (!this.canMoveUp()) return;
@@ -693,33 +718,12 @@ export class CanvasRailCardComponent implements SessionCardActions {
     if (this.menuOpen()) this.focusMenuItem(0);
   }
   focusMenuItem(index: number): void {
-    const items = this.menuItems();
-    items[(index + items.length) % items.length]?.focus();
+    focusMenuItem(this.menuItems(), index);
   }
   onMenuKeydown(event: KeyboardEvent): void {
-    // The Hand off picker nests inside the menu: its listbox keeps its own arrow keys.
+    // The Hand off picker nests inside the menu: its listbox roves its own options.
     if (event.target instanceof Element && event.target.closest('[role="listbox"]')) return;
-    const items = this.menuItems();
-    const current = items.findIndex(
-      (item) => item === item.ownerDocument.activeElement,
-    );
-    switch (event.key) {
-      case 'ArrowDown':
-        this.focusMenuItem(current + 1);
-        break;
-      case 'ArrowUp':
-        this.focusMenuItem(current < 0 ? -1 : current - 1);
-        break;
-      case 'Home':
-        this.focusMenuItem(0);
-        break;
-      case 'End':
-        this.focusMenuItem(-1);
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
+    handleMenuKeydown(event, this.menuItems());
   }
   private menuItems(): HTMLElement[] {
     return [

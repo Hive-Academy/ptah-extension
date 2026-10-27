@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ApplicationRef,
   ChangeDetectionStrategy,
   Component,
   Injector,
@@ -1095,7 +1096,7 @@ describe('CanvasRailCardComponent', () => {
     expect(host.querySelector('[role="menu"]')).toBeNull();
   });
 
-  it('logs a failed Stop instead of leaving the rejection unhandled', async () => {
+  it('logs and announces a failed Stop instead of leaving the rejection unhandled', async () => {
     running.set(true);
     const failure = new Error('abort failed');
     abortWithConfirmation.mockRejectedValueOnce(failure);
@@ -1103,6 +1104,52 @@ describe('CanvasRailCardComponent', () => {
     await expect(fixture.componentInstance.stop()).resolves.toBeUndefined();
     expect(focusTile).not.toHaveBeenCalled();
     expect(logError).toHaveBeenCalledWith('CanvasRailCard', 'Could not stop session', failure);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('Could not stop this session.');
+    const live = (fixture.nativeElement as HTMLElement).querySelector('[aria-live="polite"]');
+    expect(live?.textContent).toContain('Could not stop this session.');
+  });
+
+  it('Close session by keyboard leaves focus on the trigger, so the board can move it to a neighbour', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('Close session by pointer returns focus to where it was before the menu opened (the composer)', async () => {
+    const composer = document.createElement('textarea');
+    document.body.appendChild(composer);
+    const fixture = mount();
+    // As in the app, one tick renders the card (the popover's own focus return) before after-render hooks.
+    TestBed.inject(ApplicationRef).attachView(fixture.componentRef.hostView);
+    const closed = jest.fn();
+    fixture.componentInstance.closeRequested.subscribe(closed);
+    const host = fixture.nativeElement as HTMLElement;
+    composer.focus();
+    // A press runs before the trigger takes focus; the click then opens the menu.
+    trigger(host).dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    trigger(host).focus();
+    trigger(host).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    TestBed.tick();
+    expect(closed).toHaveBeenCalledWith('a');
+    expect(document.activeElement).toBe(composer);
+    // A keyboard reopen forgets the earlier press: a later pointer close keeps the trigger.
+    trigger(host).focus();
+    trigger(host).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    TestBed.tick();
+    expect(document.activeElement).toBe(trigger(host));
+    composer.remove();
   });
 
   it('leaves arrow keys inside the nested Hand off picker to the picker', async () => {

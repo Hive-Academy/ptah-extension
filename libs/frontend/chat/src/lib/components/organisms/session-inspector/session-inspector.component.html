@@ -177,10 +177,13 @@
       [tabId]="tabId()"
       [sessionId]="m.sessionId"
       [agents]="m.agents"
+      [orchestrator]="m.orchestrator"
+      [sessionTokens]="sessionTokens()"
       [selectedAgentKey]="selectedAgentKey()"
       [hasLaneSurface]="hasLaneSurface()"
       [staggerStart]="agentsStaggerStart()"
       (laneRequested)="laneRequested.emit($event)"
+      (agentSelected)="agentSelected.emit($event)"
       (answerRequested)="answerRequested.emit($event)"
       (announced)="announce($event)"
     />

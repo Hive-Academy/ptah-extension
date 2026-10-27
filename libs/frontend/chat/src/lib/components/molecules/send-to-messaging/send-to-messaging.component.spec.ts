@@ -369,6 +369,40 @@ describe('SendToMessagingComponent', () => {
       expect(byTestId(h.el, 'handoff-row-offline')).toBeNull();
     });
 
+    it('roves the enabled options with ArrowDown/ArrowUp, Home and End', async () => {
+      const opsTwo = makeBinding({ id: 'b-tg2', platform: 'telegram', displayName: 'Ops 2' });
+      const h = await setup({
+        bindings: [TELEGRAM_BINDING, DISCORD_BINDING, opsTwo],
+        running: [
+          { platform: 'telegram', running: true },
+          { platform: 'discord', running: false },
+        ],
+      });
+      await openPicker(h);
+      document.body.appendChild(h.el);
+      const first = byTestId(h.el, 'handoff-row-b-tg') as HTMLButtonElement;
+      const last = byTestId(h.el, 'handoff-row-b-tg2') as HTMLButtonElement;
+      const press = (key: string) => {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        (document.activeElement ?? first).dispatchEvent(event);
+        return event;
+      };
+      first.focus();
+      // The offline Discord row is disabled, so ArrowDown skips it.
+      expect(press('ArrowDown').defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(last);
+      press('ArrowDown');
+      expect(document.activeElement).toBe(first);
+      press('ArrowUp');
+      expect(document.activeElement).toBe(last);
+      press('Home');
+      expect(document.activeElement).toBe(first);
+      press('End');
+      expect(document.activeElement).toBe(last);
+      expect(press('Tab').defaultPrevented).toBe(false);
+      h.el.remove();
+    });
+
     it('closes on the popover closed output (Escape / outside click)', async () => {
       const h = await setup();
       await openPicker(h);

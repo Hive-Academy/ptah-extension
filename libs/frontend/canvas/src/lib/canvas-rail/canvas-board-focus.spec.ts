@@ -72,4 +72,27 @@ describe('canvas board focus', () => {
     TestBed.tick();
     expect(document.activeElement).toBe(root.querySelector('[data-tab-id="c"] .rc-select'));
   });
+
+  it('moves focus lost with the last card to the empty board New session, then the footer one', () => {
+    const footer = '<footer><button type="button" data-testid="canvas-footer-new-session">New session</button></footer>';
+    // The empty board follows the rail in the DOM (it is only ordered first visually).
+    const root = board(`${footer}<main><button type="button" data-testid="canvas-hero-new-session">New session</button></main>`);
+    focusNeighbourCard(root, null, TestBed.inject(Injector));
+    TestBed.tick();
+    expect(document.activeElement).toBe(root.querySelector('[data-testid="canvas-hero-new-session"]'));
+    document.body.innerHTML = '';
+    const railOnly = board(footer);
+    focusNeighbourCard(railOnly, null, TestBed.inject(Injector));
+    TestBed.tick();
+    expect(document.activeElement).toBe(railOnly.querySelector('[data-testid="canvas-footer-new-session"]'));
+  });
+
+  it('leaves live focus alone after a close (a pointer close kept it in the composer)', () => {
+    const root = board(`${CARD('c')}<textarea></textarea>`);
+    const composer = root.querySelector('textarea')!;
+    composer.focus();
+    focusNeighbourCard(root, 'c', TestBed.inject(Injector));
+    TestBed.tick();
+    expect(document.activeElement).toBe(composer);
+  });
 });

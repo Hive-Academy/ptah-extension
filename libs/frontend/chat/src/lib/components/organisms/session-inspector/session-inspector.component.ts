@@ -44,10 +44,12 @@ type InspectorFocusSection = 'session' | 'agents' | 'todos';
  * component serves the chat-view (docked or sheet) and the Rail board aside;
  * hosts load it only inside `@defer`, so its sections stay a lazy chunk.
  *
- * Section order (D45): Orchestrator, the projected `[inspectorSection]` add-on
- * slot (no wrapper, so an empty slot leaves no box), SESSION (when `stats`),
- * AGENTS, PLAN LIMITS + LANES (when `stats.limits`), TASK, TODOS, GIT. Rows
- * carry `st-r` + `--i` for the entry stagger; the CSS caps the index at 6.
+ * Section order (D45, rev 3 "B+"): Orchestrator requests, the projected
+ * `[inspectorSection]` add-on slot (no wrapper, so an empty slot leaves no
+ * box), SESSION totals (when `stats`), AGENTS (every agent, the selected row
+ * expanded in place), PLAN LIMITS + LANES (when `stats.limits`), TASK,
+ * TODOS, GIT. Rows carry `st-r` + `--i` for the entry stagger; the CSS
+ * caps the index at 6.
  */
 @Component({
   selector: 'ptah-session-inspector',
@@ -91,7 +93,10 @@ export class SessionInspectorComponent {
 
   readonly closeRequested = output<void>();
   readonly expandRequested = output<InspectorFocusSection | undefined>();
+  /** "Open thread" on an agent row: show that agent's lane. */
   readonly laneRequested = output<string>();
+  /** An AGENTS row was selected (or the selected key was normalized). */
+  readonly agentSelected = output<string>();
   readonly answerRequested = output<string>();
 
   protected readonly PanelRightCloseIcon = PanelRightClose;
@@ -144,6 +149,17 @@ export class SessionInspectorComponent {
     const model = this.model();
     const count = model.agents.data?.active;
     return `${count == null ? 'Running agents unavailable' : `Running agents: ${count}`}; ${model.needsYouCount} need you`;
+  });
+
+  /** Prompt (uncached + cache) and output tokens of the session. */
+  protected readonly sessionTokens = computed(() => {
+    const tokens = this.stats()?.snapshot?.tokens;
+    return tokens
+      ? {
+          input: tokens.input + tokens.cacheRead + tokens.cacheCreation,
+          output: tokens.output,
+        }
+      : null;
   });
 
   protected readonly model = computed(() =>

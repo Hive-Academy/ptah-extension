@@ -79,6 +79,40 @@ describe('CanvasFocusHeaderComponent', () => {
     root.remove();
   });
 
+  it('focuses the first item on open and roves with ArrowUp/Down, Home and End; Escape returns to the trigger', () => {
+    const { fixture, root } = mount();
+    const trigger = root.querySelector<HTMLButtonElement>('[data-header-menu]')!;
+    trigger.focus();
+    trigger.click();
+    fixture.detectChanges();
+    TestBed.tick();
+    const [swap, closePane, closeSplit] = Array.from(
+      root.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    );
+    expect(document.activeElement).toBe(swap);
+    const press = (key: string) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      document.activeElement!.dispatchEvent(event);
+      fixture.detectChanges();
+      return event;
+    };
+    expect(press('ArrowDown').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(closePane);
+    press('End');
+    expect(document.activeElement).toBe(closeSplit);
+    press('ArrowDown');
+    expect(document.activeElement).toBe(swap);
+    press('ArrowUp');
+    expect(document.activeElement).toBe(closeSplit);
+    press('Home');
+    expect(document.activeElement).toBe(swap);
+    expect(press('Tab').defaultPrevented).toBe(false);
+    expect(press('Escape').defaultPrevented).toBe(true);
+    expect(root.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    root.remove();
+  });
+
   it('closes the menu on an outside press, not on a press inside it', () => {
     const { fixture, root } = mount();
     root.querySelector<HTMLButtonElement>('[data-header-menu]')!.click();

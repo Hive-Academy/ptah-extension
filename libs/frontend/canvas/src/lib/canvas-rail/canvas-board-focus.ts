@@ -73,6 +73,8 @@ export function restoreBoardFocus(
 /**
  * After a session closed from its card menu, lost focus moves to the
  * neighbouring card's select button, so the keyboard stays in the Sessions rail.
+ * With no neighbour left (the last session closed) it moves to the empty
+ * board's New session button, else the Sessions footer's New session button.
  */
 export function focusNeighbourCard(
   board: HTMLElement,
@@ -81,8 +83,14 @@ export function focusNeighbourCard(
 ): void {
   afterNextRender(
     () => {
-      if (focusLost(board.ownerDocument))
-        focusRailSelectButton(railCard(board, neighbourId));
+      if (!focusLost(board.ownerDocument)) return;
+      const card = railCard(board, neighbourId);
+      if (card) focusRailSelectButton(card);
+      else
+        (
+          board.querySelector<HTMLElement>('[data-testid="canvas-hero-new-session"]') ??
+          board.querySelector<HTMLElement>('[data-testid="canvas-footer-new-session"]')
+        )?.focus();
     },
     { injector },
   );

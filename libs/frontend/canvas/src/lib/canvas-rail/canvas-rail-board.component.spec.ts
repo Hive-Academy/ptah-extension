@@ -239,6 +239,9 @@ class FocusStub {
           Close
         </button>
         <ng-content select="[inspectorSection]" />
+        <button data-agent-select (click)="agentSelected.emit('cli:picked')">
+          Select agent
+        </button>
         <button data-lane (click)="laneRequested.emit('agent-1')">
           Open lane
         </button>
@@ -261,6 +264,7 @@ class InspectorStub {
   readonly stats = input<unknown>(null);
   readonly limitSummary = input<unknown>();
   readonly laneRequested = output<string>();
+  readonly agentSelected = output<string>();
   readonly closeRequested = output<void>();
 }
 
@@ -1004,7 +1008,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.nativeElement.querySelector('button.w-11')).toBeNull();
   });
 
-  it('expands the compact rail at the requested section and projects one selector', async () => {
+  it('expands the compact rail at the requested section without an expanded strip', async () => {
     const { fixture } = mount(true, 2, 'a', undefined, false, true);
     fixture.componentInstance.closeDock();
     fixture.detectChanges();
@@ -1015,17 +1019,15 @@ describe('CanvasRailBoardComponent rendering', () => {
     ).toHaveLength(1);
     dockParts(fixture.nativeElement).tab?.click();
     fixture.detectChanges();
-    // While the inspector chunk loads, the @loading block carries the strip.
+    // While the inspector chunk loads, the @loading block shows a skeleton only.
     await renderDeferBlocks(fixture, DeferBlockState.Loading);
     fixture.detectChanges();
     expect(
-      fixture.nativeElement.querySelectorAll(
-        '[data-inspector-skeleton] ptah-canvas-lane-tabs',
-      ),
-    ).toHaveLength(1);
+      fixture.nativeElement.querySelector('[data-inspector-skeleton]'),
+    ).not.toBeNull();
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
     await completeDeferBlocks(fixture);
     fixture.detectChanges();
     expect(fixture.componentInstance.dockOpen()).toBe(true);
@@ -1037,14 +1039,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(inspector.focusSection()).toBe('agents');
     expect(inspector.sessionTitle()).toBe('a');
     expect(inspector.selectedAgentKey()).toBe('orchestrator');
+    // The expanded sidebar lists agents in its AGENTS section, not a strip.
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-tabs'),
-    ).toHaveLength(1);
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-inspector-dock] ptah-canvas-lane-tabs',
-      ),
-    ).not.toBeNull();
+    ).toHaveLength(0);
   });
 
   it('the inspector close shuts the dock and returns focus to the Stats tab', async () => {

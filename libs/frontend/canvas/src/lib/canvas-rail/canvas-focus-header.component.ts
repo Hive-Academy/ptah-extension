@@ -2,12 +2,15 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   type OutputEmitterRef,
+  afterNextRender,
   inject,
   output,
   signal,
 } from '@angular/core';
 import { Ellipsis, LucideAngularModule } from 'lucide-angular';
+import { focusMenuItem, handleMenuKeydown } from './canvas-rail-keyboard';
 
 /**
  * A split pane's floating `⋯` control: the pane actions only (Swap panes,
@@ -39,6 +42,7 @@ import { Ellipsis, LucideAngularModule } from 'lucide-angular';
         <div
           role="menu"
           aria-label="Pane actions"
+          (keydown)="onMenuKeydown($event)"
           class="absolute right-0 top-9 z-20 flex w-max min-w-36 flex-col gap-0.5 whitespace-nowrap rounded-lg border border-base-content/10 bg-base-200 p-2 shadow-lg"
         >
           <button
@@ -75,6 +79,7 @@ import { Ellipsis, LucideAngularModule } from 'lucide-angular';
 })
 export class CanvasFocusHeaderComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   readonly EllipsisIcon = Ellipsis;
   readonly closeSplitRequested = output<void>();
   readonly closePaneRequested = output<void>();
@@ -94,8 +99,21 @@ export class CanvasFocusHeaderComponent {
     this.focusTrigger();
   }
 
+  /** An opened menu moves focus to its first item, as the session card menu does. */
   toggleMenu(): void {
     this.menuOpen.update((open) => !open);
+    if (!this.menuOpen()) return;
+    afterNextRender(
+      () => {
+        if (this.menuOpen()) focusMenuItem(this.menuItems(), 0);
+      },
+      { injector: this.injector },
+    );
+  }
+
+  /** ArrowUp/Down (wrapping), Home and End rove over the menu items. */
+  onMenuKeydown(event: KeyboardEvent): void {
+    handleMenuKeydown(event, this.menuItems());
   }
 
   /** A pointer press outside the controls closes the menu; focus stays where the press put it. */
@@ -114,6 +132,12 @@ export class CanvasFocusHeaderComponent {
     this.menuOpen.set(false);
     this.focusTrigger();
     action.emit();
+  }
+
+  private menuItems(): HTMLElement[] {
+    return [
+      ...this.host.nativeElement.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ];
   }
 
   private focusTrigger(): void {

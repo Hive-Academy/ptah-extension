@@ -137,7 +137,7 @@ interface DockLayout {
       class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
-        @if (!first && !rail() && !sidebar()) {
+        @if (!first && !rail()) {
           <span
             class="mx-1 h-5 w-px shrink-0 self-center bg-[var(--surface-border-strong)]"
             aria-hidden="true"
@@ -145,7 +145,7 @@ interface DockLayout {
           ></span>
         }
         @for (chip of group.chips; track chip.key) {
-          @if (!rail() && (sidebar() ? chip.agent.kind === 'orchestrator' : chip.selected)) {
+          @if (!rail() && chip.selected) {
             <button
               type="button"
               role="tab"
@@ -214,12 +214,12 @@ interface DockLayout {
           }
         }
       }
-      @if (!rail() && (!view.named || sidebar())) {
+      @if (!rail() && !view.named) {
         <ptah-agent-dock-menu
           [agents]="agents()"
           [hidden]="view.hidden"
           [selectedKey]="selectedKey()"
-          [compact]="sidebar() ? false : view.compact"
+          [compact]="view.compact"
           [now]="now()"
           (agentSelect)="onMenuSelect($event)"
         />
@@ -227,7 +227,6 @@ interface DockLayout {
       @if (cardAgent(); as agent) {
         <ptah-agent-dock-card
           [agent]="agent"
-          [inline]="sidebar()"
           [durationText]="cardDuration()"
           [cardId]="view.cardId"
           (hovered)="onCardHovered($event)"
@@ -256,7 +255,6 @@ export class CanvasLaneTabsComponent {
   /** Rail only: the user picked an agent (click, Enter, Space or the overflow menu). */
   readonly railPicked = output<string>();
   readonly expandRequested = output<void>();
-  readonly sidebar = input(false);
   readonly rail = input(false);
 
   /** Measured dock width. `Infinity` until a ResizeObserver reports one. */
@@ -286,7 +284,7 @@ export class CanvasLaneTabsComponent {
 
   /** Inline roster: every chip is named, so none needs the hover / focus card. */
   private readonly namesInline = computed(
-    () => !this.rail() && !this.sidebar() && this.agents().length <= DOCK_INLINE_MAX,
+    () => !this.rail() && this.agents().length <= DOCK_INLINE_MAX,
   );
 
   protected readonly layout = computed((): DockLayout => {
@@ -304,18 +302,6 @@ export class CanvasLaneTabsComponent {
       const candidates = active.length ? active : this.agents().filter(agent => agent.kind === 'orchestrator');
       visible = candidates.slice(0, 5);
       hidden = candidates.slice(5);
-    } else if (this.sidebar()) {
-      // Reserve the orchestrator pill on row one and the labelled menu on row two.
-      const measured = Number.isFinite(width) ? width : 320;
-      const capacity = Math.max(0, Math.floor((measured - 196) / 40)) +
-        Math.max(0, Math.floor((measured - 128) / 40));
-      const planned = planDockOverflow(this.agents(), selected, capacity);
-      const orchestrator = this.agents().find(agent => agent.kind === 'orchestrator');
-      visible = [
-        ...(orchestrator ? [orchestrator] : []),
-        ...planned.visible.filter(agent => agent.kind !== 'orchestrator').slice(0, capacity),
-      ];
-      hidden = this.agents().filter(agent => !visible.includes(agent));
     }
     const chips = new Map<AgentKind, DockChipModel[]>();
     for (const agent of visible) {
@@ -505,13 +491,12 @@ export class CanvasLaneTabsComponent {
 
   /** A chip that already shows its name opens no hover / focus card. */
   private isNamedChip(key: string): boolean {
-    return !this.rail() && !this.sidebar() && (this.namesInline() || key === this.selectedKey());
+    return !this.rail() && (this.namesInline() || key === this.selectedKey());
   }
 
   private openCard(key: string): void {
     if (this.isNamedChip(key)) return;
     this.cardKey.set(key);
-    if (this.sidebar()) return;
     afterNextRender(
       () => {
         const tab = document.getElementById(this.tabDomId(key));
@@ -519,7 +504,7 @@ export class CanvasLaneTabsComponent {
         if (!tab || !card) return;
         const boundary = this.dock().nativeElement.closest<HTMLElement>('[data-inspector-dock]');
         void this.floatingUI.position(tab, card, {
-          placement: this.rail() || this.sidebar() ? 'left-start' : 'bottom-start',
+          placement: this.rail() ? 'left-start' : 'bottom-start',
           offset: 0,
           boundary: boundary ?? undefined,
         });

@@ -1,17 +1,22 @@
-import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { ModelStateService } from '@ptah-extension/core';
+import { formatAgentDuration } from '@ptah-extension/chat-ui';
 import {
   SessionInspectorStore,
   type InspectorRequest,
+  type OrchestratorCardModel,
 } from '../../../services/session-inspector';
-import { signal } from '@angular/core';
-import { ModelStateService } from '@ptah-extension/core';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
+import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
-import { agentRunLabel, formatAgentDuration } from '@ptah-extension/chat-ui';
 
-function agent(usageTotals?: SessionAgent['usageTotals']): SessionAgent {
+function agent(
+  overrides: Partial<SessionAgent> = {},
+  usageTotals?: SessionAgent['usageTotals'],
+): SessionAgent {
   return {
     key: 'cli:lane-1',
     kind: 'cli',
@@ -21,13 +26,36 @@ function agent(usageTotals?: SessionAgent['usageTotals']): SessionAgent {
     status: 'done',
     startedAt: 1000,
     endedAt: 6000,
-    activity: 'Reading files',
+    activity: 'Usage: 2284653 input, 19323 output tokens',
     openRequestIds: [],
     usageTotals,
+    ...overrides,
   };
 }
 
-describe('inspector CLI usage badges', () => {
+const ORCHESTRATOR: SessionAgent = agent({
+  key: 'orchestrator',
+  kind: 'orchestrator',
+  name: 'Orchestrator',
+  cliId: null,
+  status: 'done',
+  startedAt: null,
+  endedAt: null,
+  activity: null,
+});
+
+const CARD: OrchestratorCardModel = {
+  model: 'claude-opus-5-5',
+  state: { kind: 'idle' },
+  contextPercent: 42,
+  contextWindow: 200_000,
+  tokens: 1_100_000,
+  cost: 0.8,
+  turns: 14,
+  requests: [],
+};
+
+describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [InspectorAgentsSectionComponent],
@@ -45,253 +73,223 @@ describe('inspector CLI usage badges', () => {
           useValue: {
             contextsFor: () => new Map(),
             extrasFor: () => new Map(),
+            focus: jest.fn(),
           },
         },
         {
+          provide: SessionAgentRosterService,
+          useValue: { roster: () => [ORCHESTRATOR] },
+        },
+        {
           provide: ModelStateService,
-          useValue: { availableModels: signal([]) },
+          useValue: {
+            availableModels: signal([{ id: 'claude-opus-5-5', name: 'Opus 5.5' }]),
+          },
         },
       ],
     });
   });
 
-  function render(row: SessionAgent): HTMLElement {
+  function mount(
+    rows: readonly SessionAgent[],
+    options: {
+      selected?: string | null;
+      requests?: Record<string, InspectorRequest[]>;
+      laneSurface?: boolean;
+    } = {},
+  ): ComponentFixture<InspectorAgentsSectionComponent> {
     const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
-    fixture.componentRef.setInput('selectedAgentKey', row.key);
+    fixture.componentRef.setInput('orchestrator', CARD);
+    fixture.componentRef.setInput('sessionTokens', { input: 1_050_000, output: 48_000 });
+    fixture.componentRef.setInput('hasLaneSurface', options.laneSurface ?? false);
+    if (options.selected !== undefined) {
+      fixture.componentRef.setInput('selectedAgentKey', options.selected);
+    }
     fixture.componentRef.setInput('agents', {
       status: 'ready',
-      data: { rows: [{ agent: row, requests: [] }], active: 0, finished: 1 },
+      data: {
+        rows: rows.map((row) => ({
+          agent: row,
+          requests: options.requests?.[row.key] ?? [],
+        })),
+        active: 0,
+        finished: 0,
+      },
     });
     fixture.detectChanges();
-    return fixture.nativeElement as HTMLElement;
+    return fixture;
   }
 
-  it('renders known token, cost, and duration badges', () => {
-    const el = render(
-      agent({ inputTokens: 1200, outputTokens: 300, costUsd: 0.25 }),
+  const keys = (el: HTMLElement) =>
+    Array.from(el.querySelectorAll('[data-agent-key]')).map((row) =>
+      row.getAttribute('data-agent-key'),
     );
-    expect(el.querySelector('ptah-token-badge')?.textContent).toContain(
-      '1.5k tokens',
+
+  it('lists every agent with running first, then the Orchestrator, then the rest', () => {
+    const el: HTMLElement = mount([
+      agent({ key: 'cli:done', status: 'done' }),
+      agent({ key: 'cli:run', status: 'running', endedAt: null }),
+      agent({ key: 'cli:failed', status: 'failed' }),
+    ]).nativeElement;
+    expect(keys(el)).toEqual(['cli:run', 'orchestrator', 'cli:done', 'cli:failed']);
+    expect(el.querySelector('h3')?.textContent?.trim()).toBe('AGENTS');
+    expect(
+      el.querySelector('[data-testid="agents-count"]')?.textContent?.trim(),
+    ).toBe('1 running · 4');
+    expect(el.textContent).not.toContain('ACTIVE SUBAGENTS');
+    expect(el.textContent).not.toContain('Usage: 2284653');
+  });
+
+  it('shows provider avatar, type line, status ink and compact tokens and cost', () => {
+    const el: HTMLElement = mount([
+      agent({}, { inputTokens: 2_284_653, outputTokens: 19_323, costUsd: 0.25 }),
+    ]).nativeElement;
+    const row = el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
+    expect(row.querySelector('ptah-agent-avatar')).not.toBeNull();
+    expect(row.textContent).toContain('CLI lane');
+    const status = Array.from(row.querySelectorAll('span')).find(
+      (span) => span.textContent?.trim() === 'done',
     );
+    expect(status?.classList.contains('text-state-done')).toBe(true);
     expect(
-      el.querySelector('[title="Reported or estimated cost"]')?.textContent,
-    ).toContain('~$0.25 est.');
-    expect(el.querySelector('ptah-cost-badge')).toBeNull();
+      row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim(),
+    ).toBe('2.3M');
     expect(
-      el.querySelector('[title="Elapsed duration"]')?.textContent,
-    ).toContain('5s');
-    expect(el.textContent).toContain('CLI lane');
+      row.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim(),
+    ).toBe('~$0.25');
+    const orchestrator = el.querySelector('[data-agent-key="orchestrator"]') as HTMLElement;
+    expect(orchestrator.textContent).toContain('Opus 5.5');
+    expect(
+      orchestrator.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim(),
+    ).toBe('$0.80');
   });
 
-  it('uses reported total tokens when only the total is available', () => {
-    const el = render(agent({ totalTokens: 2400 }));
-    expect(el.querySelector('ptah-token-badge')?.textContent).toContain(
-      '2.4k tokens',
+  it('renders an unknown figure as a quiet dash with a not-reported tooltip', () => {
+    const el: HTMLElement = mount([agent()]).nativeElement;
+    const tokens = el.querySelector(
+      '[data-agent-key="cli:lane-1"] [data-testid="agent-row-tokens"]',
+    ) as HTMLElement;
+    expect(tokens.textContent?.trim()).toBe('—');
+    expect(tokens.getAttribute('title')).toBe('not reported');
+    expect(tokens.classList.contains('text-base-content-muted')).toBe(true);
+  });
+
+  it('marks partial usage from retained segments as a lower bound', () => {
+    const el: HTMLElement = mount([
+      agent({
+        usageTotals: null,
+        segments: [
+          {
+            type: 'info',
+            content: '',
+            usage: { inputTokens: 11_900, outputTokens: 100, costUsd: 0.1 },
+          },
+        ],
+      }),
+    ]).nativeElement;
+    const row = el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
+    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('≥ 12.0k');
+    expect(row.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim()).toBe('≥ ~$0.10');
+  });
+
+  it('expands the Orchestrator dock detail by default with Context, In / out and Turns', () => {
+    const el: HTMLElement = mount([agent()]).nativeElement;
+    const button = el.querySelector('[data-agent-key="orchestrator"]') as HTMLElement;
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    const details = el.querySelectorAll('[data-testid="agent-dock-detail"]');
+    expect(details).toHaveLength(1);
+    const text = details[0].textContent ?? '';
+    expect(text).toContain('42%');
+    expect(text).toContain('1.1M / 48.0k');
+    expect(text).toContain('Turns');
+    expect(text).toContain('14');
+    expect(button.getAttribute('aria-controls')).toBe(
+      el.querySelector('ptah-inspector-agent-dock-detail')?.id,
     );
   });
 
-  it('sums input and output tokens when a total is unavailable', () => {
-    const el = render(agent({ inputTokens: 1200, outputTokens: 300 }));
-    expect(el.querySelector('ptah-token-badge')?.textContent).toContain(
-      '1.5k tokens',
-    );
+  it('selects one row at a time; a second click collapses it', () => {
+    const fixture = mount([agent({}, { inputTokens: 1200, outputTokens: 300 })]);
+    const selected = jest.fn();
+    fixture.componentInstance.agentSelected.subscribe(selected);
+    const el: HTMLElement = fixture.nativeElement;
+    const lane = el.querySelector<HTMLButtonElement>('[data-agent-key="cli:lane-1"]')!;
+    lane.click();
+    fixture.detectChanges();
+    expect(selected).toHaveBeenCalledWith('cli:lane-1');
+    expect(lane.getAttribute('aria-expanded')).toBe('true');
+    expect(
+      el.querySelector('[data-agent-key="orchestrator"]')?.getAttribute('aria-expanded'),
+    ).toBe('false');
+    const detail = el.querySelectorAll('[data-testid="agent-dock-detail"]');
+    expect(detail).toHaveLength(1);
+    expect(detail[0].textContent).toContain('1.2k / 300');
+    expect(detail[0].textContent).toContain('Duration');
+    expect(detail[0].textContent).toContain(formatAgentDuration(5000) ?? '');
+    expect(lane.closest('li')?.getAttribute('aria-current')).toBe('true');
+    lane.click();
+    fixture.detectChanges();
+    expect(lane.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('[data-testid="agent-dock-detail"]')).toBeNull();
   });
 
-  it('omits the token badge when only input tokens are available', () => {
-    const el = render(agent({ inputTokens: 1200 }));
-    expect(el.querySelector('ptah-token-badge')).toBeNull();
-  });
-
-  it('preserves a measured zero token total', () => {
-    const el = render(
-      agent({ totalTokens: 0, inputTokens: 1200, outputTokens: 300 }),
-    );
-    expect(el.querySelector('ptah-token-badge')?.textContent).toContain(
-      '0 tokens',
-    );
-  });
-
-  it('omits token and cost badges when usage is absent', () => {
-    const el = render(agent());
-    expect(el.querySelector('ptah-token-badge')).toBeNull();
-    expect(el.querySelector('[title="Reported or estimated cost"]')).toBeNull();
-  });
-
-  it('omits partial badges when totals are null and no usage segments exist', () => {
-    const el = render({ ...agent(null), segments: [] });
-    expect(el.querySelector('ptah-token-badge')).toBeNull();
-    expect(el.querySelector('[title="Reported or estimated cost"]')).toBeNull();
-    expect(
-      el.querySelector('[title="From retained output, may be partial"]'),
-    ).toBeNull();
-    expect(el.textContent).not.toContain('≥');
-  });
-
-  it('uses segment usage and the lane duration text for a restored CLI lane', () => {
-    const row = {
-      ...agent(null),
-      startedAt: 0,
-      endedAt: (67 * 60 + 14) * 60_000,
-      segments: [
-        {
-          type: 'info' as const,
-          content: '',
-          usage: { inputTokens: 11_900, outputTokens: 56, costUsd: 0.15 },
-        },
-      ],
-    };
-    const el = render(row);
-    expect(
-      el.querySelector('[title="From retained output, may be partial"]')
-        ?.textContent,
-    ).toContain('≥ 12.0k tokens');
-    expect(
-      el
-        .querySelector('[title="From retained output, may be partial"]')
-        ?.getAttribute('aria-label'),
-    ).toBe('at least 12.0k tokens');
-    expect(
-      Array.from(
-        el.querySelectorAll('[title="From retained output, may be partial"]'),
-      ).some((badge) => badge.textContent?.includes('≥ ~$0.15 est.')),
-    ).toBe(true);
-    expect(
-      el.querySelector('[title="Elapsed duration"]')?.textContent,
-    ).toContain('67h 14m');
-    expect(
-      el.querySelector('[data-agent-key]')?.getAttribute('aria-label'),
-    ).toContain('67h 14m');
-  });
-
-  it('keeps structured totals unmarked and formats CLI duration like the lane', () => {
-    const row = {
-      ...agent({ totalTokens: 65, costUsd: 0.01 }),
-      startedAt: 0,
-      endedAt: 65_000,
-    };
-    const el = render(row);
-    expect(el.querySelector('ptah-token-badge')?.textContent).toContain(
-      '65 tokens',
-    );
-    expect(
-      el.querySelector('[title="Reported or estimated cost"]')?.textContent,
-    ).toContain('~$0.01 est.');
-    expect(el.textContent).not.toContain('≥');
-    expect(
-      el.querySelector('[title="Elapsed duration"]')?.textContent,
-    ).toContain(formatAgentDuration(65_000));
-    expect(
-      el.querySelector('[data-agent-key]')?.getAttribute('aria-label'),
-    ).toContain(formatAgentDuration(65_000));
-  });
-
-  it('restored CLI lane without end time shows Worked, not lane age', () => {
-    const el = render({ ...agent(), startedAt: 1_000, endedAt: null });
-    expect(el.querySelector('[title="Elapsed duration"]')).toBeNull();
-    expect(agentRunLabel({ running: false, startedAt: 1_000 }, 1_000_000)).toBe(
-      'Worked',
-    );
-    expect(
-      el.querySelector('[data-agent-key]')?.getAttribute('aria-label'),
-    ).not.toContain('999s');
-  });
-  it('shows only running and waiting rows, with a single unknown usage dash', () => {
-    const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    fixture.componentRef.setInput('agents', {
-      status: 'ready',
-      data: {
-        rows: ['running', 'waiting', 'queued', 'done', 'failed', 'stopped'].map(
-          (status) => ({
-            agent: { ...agent(), key: status, status },
-            requests: [],
-          }),
-        ),
-        active: 2,
-        finished: 3,
-      },
+  it('follows the host selection and reports a key that left the roster', () => {
+    const fixture = mount([agent({ key: 'bg:tool-1', kind: 'background', cliId: null })], {
+      selected: 'sub:tool-1',
     });
+    const selected = jest.fn();
+    fixture.componentInstance.agentSelected.subscribe(selected);
     fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
     expect(
-      Array.from(el.querySelectorAll('[data-agent-key]')).map((row) =>
-        row.getAttribute('data-agent-key'),
-      ),
-    ).toEqual(['running', 'waiting']);
-    expect(
-      el
-        .querySelector('[data-testid="agent-compact-usage"]')
-        ?.textContent?.trim(),
-    ).toBe('—');
-    expect(
-      el
-        .querySelector('[data-testid="agent-compact-usage"]')
-        ?.getAttribute('aria-label'),
-    ).toBe('Tokens unavailable; Cost unavailable');
-    expect(el.textContent).not.toContain('No active subagents');
-    expect(el.querySelector('.overflow-y-auto')).toBeNull();
-  });
-
-  it.each([
-    {
-      usage: { totalTokens: 12_000, costUsd: 0.1 },
-      expected: '12.0k · ~$0.10 est.',
-    },
-    { usage: { totalTokens: 12_000 }, expected: '12.0k' },
-    { usage: { costUsd: 0.1 }, expected: '~$0.10 est.' },
-  ])('renders known compact usage as $expected', ({ usage, expected }) => {
-    const el = render({ ...agent(usage), status: 'running' });
-    expect(
-      el
-        .querySelector('[data-testid="agent-compact-usage"]')
-        ?.textContent?.trim(),
-    ).toBe(expected);
-  });
-
-  it.each([
-    { usage: { inputTokens: 11_900, outputTokens: 100 }, expected: '≥ 12.0k' },
-    {
-      usage: { inputTokens: 11_900, outputTokens: 100, costUsd: 0.1 },
-      expected: '≥ 12.0k · ≥ ~$0.10 est.',
-    },
-  ])('preserves partial compact usage as $expected', ({ usage, expected }) => {
-    const el = render({
-      ...agent(null),
-      status: 'running',
-      segments: [{ type: 'info', content: '', usage }],
-    });
-    expect(
-      el
-        .querySelector('[data-testid="agent-compact-usage"]')
-        ?.textContent?.trim(),
-    ).toBe(expected);
-  });
-
-  it('shows the one-line empty state and exposes a selected finished agent', () => {
-    const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    fixture.componentRef.setInput('agents', {
-      status: 'ready',
-      data: {
-        rows: [{ agent: agent(), requests: [] }],
-        active: 0,
-        finished: 1,
-      },
-    });
+      el.querySelector('[data-agent-key="bg:tool-1"]')?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    fixture.componentRef.setInput('selectedAgentKey', 'cli:gone');
     fixture.detectChanges();
+    expect(selected).toHaveBeenCalledWith('orchestrator');
+  });
+
+  it('"Open thread" requests the lane with a lane surface', () => {
+    const fixture = mount([agent()], { selected: 'cli:lane-1', laneSurface: true });
+    const lane = jest.fn();
+    fixture.componentInstance.laneRequested.subscribe(lane);
+    const open = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '[data-testid="agent-open-thread"]',
+    );
+    expect(open?.getAttribute('aria-label')).toBe('Open Codex thread');
+    open?.click();
+    expect(lane).toHaveBeenCalledWith('cli:lane-1');
+  });
+
+  it('shows six rows, then expands in place with "Show N more"', () => {
+    const rows = Array.from({ length: 9 }, (_, i) =>
+      agent({ key: `cli:l${i}`, name: `Lane ${i}` }),
+    );
+    const fixture = mount(rows);
     const el: HTMLElement = fixture.nativeElement;
-    expect(el.textContent).toContain('No active subagents');
-    expect(el.querySelector('[data-agent-key]')).toBeNull();
-    fixture.componentRef.setInput('selectedAgentKey', 'cli:lane-1');
+    expect(keys(el)).toHaveLength(6);
+    const toggle = el.querySelector<HTMLButtonElement>('[data-testid="agents-show-more"]')!;
+    expect(toggle.textContent?.trim()).toBe('Show 4 more');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
     fixture.detectChanges();
-    expect(el.querySelector('[data-agent-key="cli:lane-1"]')).not.toBeNull();
-    expect(
-      el.querySelector('[title="Elapsed duration"]')?.textContent,
-    ).toContain('5s');
+    expect(keys(el)).toHaveLength(10);
+    expect(toggle.textContent?.trim()).toBe('Show fewer');
   });
 
-  it('keeps a finished agent with a pending question visible and forwards its answer', () => {
+  it('keeps a selected row below the fold visible', () => {
+    const rows = Array.from({ length: 9 }, (_, i) =>
+      agent({ key: `cli:l${i}`, name: `Lane ${i}` }),
+    );
+    const el: HTMLElement = mount(rows, { selected: 'cli:l8' }).nativeElement;
+    expect(keys(el)).toContain('cli:l8');
+    expect(
+      el.querySelector('[data-testid="agents-show-more"]')?.textContent?.trim(),
+    ).toBe('Show 3 more');
+  });
+
+  it('keeps a finished agent with a pending question on its row and forwards the answer', () => {
     const request: InspectorRequest = {
       requestId: 'question-1',
       kind: 'question',
@@ -304,29 +302,16 @@ describe('inspector CLI usage badges', () => {
       questionPreview: 'Choose a file',
       timestamp: 1000,
     };
-    const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    fixture.componentRef.setInput('agents', {
-      status: 'ready',
-      data: {
-        rows: [{ agent: agent(), requests: [request] }],
-        active: 0,
-        finished: 1,
-      },
-    });
+    const fixture = mount([agent()], { requests: { 'cli:lane-1': [request] } });
     const answered = jest.fn();
     fixture.componentInstance.answerRequested.subscribe(answered);
-    fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
-    expect(el.querySelector('[data-agent-key="cli:lane-1"]')).not.toBeNull();
-    const requestButton = el.querySelector<HTMLButtonElement>(
-      '[data-request-button]',
-    );
-    expect(requestButton).not.toBeNull();
-    requestButton?.click();
+    expect(keys(el)[0]).toBe('cli:lane-1');
+    el.querySelector<HTMLButtonElement>('[data-request-button]')?.click();
     expect(answered).toHaveBeenCalledWith('question-1');
   });
-  it('reuses subagent lane usage for selected historical context, tokens and model', () => {
+
+  it('reuses sub-agent lane usage for context, in / out and the model tooltip', () => {
     TestBed.overrideProvider(AgentMonitorStore, {
       useValue: {
         agents: signal([]),
@@ -347,40 +332,90 @@ describe('inspector CLI usage badges', () => {
         ),
       },
     });
-    const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
-    fixture.componentRef.setInput('tabId', 'tab-1');
-    fixture.componentRef.setInput('selectedAgentKey', 'sub:tool-1');
-    fixture.componentRef.setInput('agents', {
-      status: 'ready',
-      data: {
-        rows: [
-          {
-            agent: {
-              ...agent(),
-              key: 'sub:tool-1',
-              kind: 'subagent',
-              cliId: null,
-            },
-            requests: [],
-          },
-        ],
-        active: 0,
-        finished: 1,
+    const el: HTMLElement = mount(
+      [agent({ key: 'sub:tool-1', kind: 'subagent', cliId: null, name: 'Explore' })],
+      { selected: 'sub:tool-1' },
+    ).nativeElement;
+    const row = el.querySelector('[data-agent-key="sub:tool-1"]') as HTMLElement;
+    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('2.4k');
+    expect(row.querySelector('[title="test-model"]')?.textContent?.trim()).toBe('Sub-agent');
+    expect(el.querySelector('[data-testid="agent-dock-detail"]')?.textContent).toContain(
+      '1.2k / 300',
+    );
+  });
+
+  it('keeps sub-agent usage after the sub-agent moves to the background', () => {
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: {
+        agents: signal([]),
+        subagents: signal(
+          new Map([
+            [
+              'tool-1',
+              {
+                parentToolUseId: 'tool-1',
+                status: 'background',
+                startedAt: 1000,
+                totalTokens: 2400,
+                usage: { input: 1200, output: 300, model: 'test-model' },
+              },
+            ],
+          ]),
+        ),
       },
     });
-    fixture.detectChanges();
+    const el: HTMLElement = mount(
+      [
+        agent({
+          key: 'bg:tool-1',
+          kind: 'background',
+          cliId: null,
+          name: 'Explore',
+          status: 'running',
+          endedAt: null,
+        }),
+      ],
+      { selected: 'bg:tool-1' },
+    ).nativeElement;
+    const row = el.querySelector('[data-agent-key="bg:tool-1"]') as HTMLElement;
+    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('2.4k');
+    expect(el.querySelector('[data-testid="agent-dock-detail"]')?.textContent).toContain(
+      '1.2k / 300',
+    );
+  });
+
+  it('opens a collapsed row again after the host selects another row and returns', () => {
+    const fixture = mount([agent()], { selected: 'cli:lane-1' });
     const el: HTMLElement = fixture.nativeElement;
-    expect(
-      el.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
-    ).toContain('2.4k');
-    expect(
-      el.querySelector('[data-testid="lane-stats-model"]')?.textContent,
-    ).toContain('test-model');
-    expect(
-      el.querySelector('[data-testid="lane-stats-context"]'),
-    ).not.toBeNull();
-    fixture.componentRef.setInput('selectedAgentKey', null);
+    const lane = () => el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
+    lane().click();
     fixture.detectChanges();
-    expect(el.querySelector('[data-agent-key]')).toBeNull();
+    expect(lane().getAttribute('aria-expanded')).toBe('false');
+    fixture.componentRef.setInput('selectedAgentKey', 'orchestrator');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('selectedAgentKey', 'cli:lane-1');
+    fixture.detectChanges();
+    expect(lane().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('opens a collapsed row again in another tab', () => {
+    const fixture = mount([agent()], { selected: 'cli:lane-1' });
+    const el: HTMLElement = fixture.nativeElement;
+    const lane = () => el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
+    lane().click();
+    fixture.detectChanges();
+    expect(lane().getAttribute('aria-expanded')).toBe('false');
+    fixture.componentRef.setInput('tabId', 'tab-2');
+    fixture.detectChanges();
+    expect(lane().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('shows no "Show more" when the selected seventh row makes every row visible', () => {
+    const rows = Array.from({ length: 6 }, (_, i) =>
+      agent({ key: `cli:l${i}`, name: `Lane ${i}` }),
+    );
+    const el: HTMLElement = mount(rows, { selected: 'cli:l5' }).nativeElement;
+    expect(keys(el)).toHaveLength(7);
+    expect(el.querySelector('[data-testid="agents-show-more"]')).toBeNull();
   });
 });
