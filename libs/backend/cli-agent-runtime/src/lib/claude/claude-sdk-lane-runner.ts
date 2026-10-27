@@ -307,12 +307,47 @@ class ClaudeLaneRefusal extends Error {
 }
 
 /**
+ * Fixed, path-free refusal text per code. Each names its code so the error an
+ * agent sees states why the named run was refused.
+ */
+const CLAUDE_LANE_REFUSAL_MESSAGES: Readonly<
+  Record<ClaudeLaneRefusalCode, string>
+> = Object.freeze({
+  'missing-profile':
+    'Claude account refused (missing-profile): the named account does not exist',
+  'wrong-provider':
+    'Claude account refused (wrong-provider): the account belongs to another provider',
+  'unsupported-store':
+    'Claude account refused (unsupported-store): the account directory or the installed Claude CLI is not usable for named accounts',
+  'unsupported-source':
+    'Claude account refused (unsupported-source): a Claude settings source for this working directory or machine policy is not supported for named accounts',
+  'identity-mismatch':
+    'Claude account refused (identity-mismatch): the signed-in Claude login is not the stored account',
+  'identity-unproved':
+    'Claude account refused (identity-unproved): the account sign-in could not be proved',
+  'route-changed':
+    'Claude account refused (route-changed): the account configuration changed during admission',
+  busy: 'Claude account refused (busy): the account is in use by another operation',
+  'unavailable-storage':
+    'Claude account refused (unavailable-storage): account storage is not available',
+  conflict:
+    'Claude account refused (conflict): the account selection conflicts with the request or session',
+  cancelled: 'Claude account refused (cancelled): the admission was cancelled',
+  timeout: 'Claude account refused (timeout): the admission timed out',
+  'release-held':
+    'Claude account refused (release-held): a previous run of this account is not released yet',
+  'invalid-bound':
+    'Claude account refused (invalid-bound): the stored session binding is not valid',
+});
+
+/**
  * `message` must be a fixed string: never a path, an account value or CLI text.
- * A refusal with no stated code is an unproved named run, `identity-unproved`.
+ * It defaults to the fixed text of `code`. A refusal with no stated code is an
+ * unproved named run, `identity-unproved`.
  */
 export function claudeLaneRefusal(
   code: ClaudeLaneRefusalCode = 'identity-unproved',
-  message = 'Claude account admission prompt gate is not available',
+  message: string = CLAUDE_LANE_REFUSAL_MESSAGES[code],
 ): Error & { code: ClaudeLaneRefusalCode } {
   return new ClaudeLaneRefusal(code, message);
 }

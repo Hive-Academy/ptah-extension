@@ -264,10 +264,23 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     } catch (error: unknown) {
       if (named) {
         await named.dispose();
-        throw claudeLaneRefusal(claudeLaneRefusalCode(error));
+        const code = claudeLaneRefusalCode(error);
+        this.logRefusal('launch', code);
+        throw claudeLaneRefusal(code);
       }
       throw error;
     }
+  }
+
+  /**
+   * Fixed-text refusal diagnostic: the code and a fixed stage word only. No
+   * path, account value or CLI text is ever logged here.
+   */
+  private logRefusal(
+    stage: 'request' | 'admission' | 'prepare' | 'timeout' | 'launch',
+    code: ProviderAccountPortRefusal['code'],
+  ): void {
+    this.logger.warn('[ClaudeCliAdapter] Named lane refused', { stage, code });
   }
 
   private async prepareNamed(
@@ -285,17 +298,24 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       return undefined;
     }
     const admission = this.deps.admission();
-    if (!admission)
+    if (!admission) {
+      this.logRefusal('request', 'unavailable-storage');
       throw claudeLaneRefusal(
         'unavailable-storage',
         'Claude account admission is not available',
       );
+    }
     const persistence = this.deps.accountPersistence?.();
-    if (!persistence?.available) throw claudeLaneRefusal('unavailable-storage');
+    if (!persistence?.available) {
+      this.logRefusal('request', 'unavailable-storage');
+      throw claudeLaneRefusal('unavailable-storage');
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     // The admission port's own refusal code wins; otherwise the code the
     // failure carries (`identity-unproved` for any foreign error).
     let refusalCode: ProviderAccountPortRefusal['code'] | undefined;
+    // The step a refusal came from, for the diagnostic log only.
+    let stage: 'request' | 'admission' | 'prepare' | 'timeout' = 'request';
     const pending = (async () => {
       const lookup = input.resumeSessionId
         ? await persistence.lookupBySdkSession({
@@ -330,6 +350,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         throw claudeLaneRefusal('conflict');
       if (!stored && selected.kind !== 'named') throw claudeLaneRefusal();
       if (abort.signal.aborted) throw claudeLaneRefusal();
+      stage = 'admission';
       const result = await admission.admitClaudeRoute({
         ...request,
         scope: 'lane',
@@ -344,6 +365,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         refusalCode = result.code;
         throw claudeLaneRefusal();
       }
+      stage = 'prepare';
       if (result.resources.kind !== 'named') {
         await admission.releaseReservation({
           reservationId: result.reservation.reservationId,
@@ -382,13 +404,16 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         pending,
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
+            stage = 'timeout';
             abort.abort();
             reject(claudeLaneRefusal());
           }, 15_000);
         }),
       ]);
     } catch (error: unknown) {
-      throw claudeLaneRefusal(refusalCode ?? claudeLaneRefusalCode(error));
+      const code = refusalCode ?? claudeLaneRefusalCode(error);
+      this.logRefusal(stage, code);
+      throw claudeLaneRefusal(code);
     } finally {
       clearTimeout(timer);
     }

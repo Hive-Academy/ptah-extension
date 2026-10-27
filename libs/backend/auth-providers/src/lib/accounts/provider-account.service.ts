@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { inject, injectable } from 'tsyringe';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { ProviderAccountAdmissionPort, ClaudeAccountAdmissionRequest, ClaudeAccountAdmissionOutcome,
   ClaudeAccountNamedRoute, ClaudeAccountSelectionReader,
   ClaudeAccountReservationRelease, ClaudeAccountReservationReleaseOutcome,
@@ -63,7 +64,9 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
   constructor(@inject(ProviderAccountStore) private readonly store: ProviderAccountStore,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: Pick<SqliteConnectionService, 'db' | 'dbPath'>,
-    @inject(ClaudeRouteCertifier) private readonly certifier: ClaudeRouteCertifier) {}
+    @inject(ClaudeRouteCertifier) private readonly certifier: ClaudeRouteCertifier,
+    // Diagnostics only: a container without a logger still admits and refuses the same way.
+    @inject(TOKENS.LOGGER, { isOptional: true }) private readonly logger: Pick<Logger, 'warn'> | null = null) {}
 
   /** Persistence checkpoint for a live lease; prompt release still waits for the SDK gate. */
   async commitRunBinding(command: AccountRunBindingCommit): Promise<ProviderAccountBinding> {
@@ -105,13 +108,13 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
    * otherwise the lease is retained (no age or PID reclaim).
    */
   async admitClaudeRoute(request: ClaudeAccountAdmissionRequest): Promise<ClaudeAccountAdmissionOutcome> {
-    if (this.disposed) return this.refusal('unavailable-storage');
-    if (request.provider !== 'claude') return this.refusal('wrong-provider');
+    if (this.disposed) return this.admissionRefusal('request', 'unavailable-storage');
+    if (request.provider !== 'claude') return this.admissionRefusal('request', 'wrong-provider');
     const parsed = admissionRequestSchema.safeParse(request);
-    if (!parsed.success) return this.refusal('conflict');
+    if (!parsed.success) return this.admissionRefusal('request', 'conflict');
     const { selection, runId, operationId, workingDirectory } = parsed.data;
     // The default route is never admitted through this port.
-    if (selection.kind !== 'named') return this.refusal('conflict');
+    if (selection.kind !== 'named') return this.admissionRefusal('request', 'conflict');
     let route: CanonicalProviderAccountRoute;
     let lease: AccountRunLease;
     let identityRef: string | null;
@@ -122,7 +125,7 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
         runId, reservationId: randomUUID(), operationId });
       identityRef = profile.identity_ref;
     } catch (error: unknown) {
-      return this.refusal(storeCode(error));
+      return this.admissionRefusal('store', storeCode(error));
     }
     const { reservation } = lease;
     const settle = { reservationId: reservation.reservationId, operationId, authEpoch: reservation.authEpoch };
@@ -139,9 +142,9 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
         if (certification.terminated) this.store.release({ ...settle, reason: 'startup-failure' });
         else this.store.retain(settle);
       } catch (error: unknown) {
-        return this.refusal(storeCode(error));
+        return this.admissionRefusal('settle', storeCode(error));
       }
-      return this.refusal(certification.code);
+      return this.admissionRefusal('certify', certification.code);
     }
     // The only place the certification marker is asserted: after the lease and a passed certification.
     const namedRoute = Object.freeze({
@@ -181,6 +184,13 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
 
   private refusal(code: ProviderAccountPortRefusal['code']): ProviderAccountPortRefusal {
     return { code, summary: accountActionResult(code).summary };
+  }
+
+  /** An admission refusal, logged with its code and a fixed stage word only (no path, value or CLI text). */
+  private admissionRefusal(stage: 'request' | 'store' | 'certify' | 'settle',
+    code: ProviderAccountPortRefusal['code']): ProviderAccountPortRefusal {
+    this.logger?.warn('[ProviderAccountService] Claude route admission refused', { stage, code });
+    return this.refusal(code);
   }
 
   /**

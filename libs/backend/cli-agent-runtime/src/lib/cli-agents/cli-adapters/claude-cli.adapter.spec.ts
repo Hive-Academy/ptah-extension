@@ -414,7 +414,9 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     });
     await expect(
       f.adapter.runSdk({ ...f.input, accountAdmission }),
-    ).rejects.toThrow('prompt gate is not available');
+    ).rejects.toThrow(
+      'Claude account refused (unavailable-storage): account storage is not available',
+    );
     expect(admitClaudeRoute).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
@@ -666,6 +668,35 @@ describe('named Claude lane admission', () => {
     });
     expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    expect(f.logger.warn).toHaveBeenCalledWith(
+      '[ClaudeCliAdapter] Named lane refused',
+      { stage: 'request', code: 'unavailable-storage' },
+    );
+  });
+
+  it('logs the admission port refusal code with a fixed stage word before refusing', async () => {
+    const f = namedFixture();
+    // A project settings override in the run's working directory refuses at
+    // certification, before any child (the TASK_2026_719 lane refusal).
+    Object.assign(f.admission, {
+      admitClaudeRoute: jest.fn(async () => ({
+        code: 'unsupported-source' as const,
+        summary: 'fixture summary',
+      })),
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'unsupported-source',
+      message: expect.stringMatching(/^Claude account refused \(unsupported-source\): /),
+    });
+    expect(f.logger.warn).toHaveBeenCalledWith(
+      '[ClaudeCliAdapter] Named lane refused',
+      { stage: 'admission', code: 'unsupported-source' },
+    );
+    // Code and stage only: no summary, path or account value is logged.
+    expect(JSON.stringify(jest.mocked(f.logger.warn).mock.calls)).not.toMatch(
+      /fixture summary|workspace|profile/,
+    );
+    expect(f.query).not.toHaveBeenCalled();
   });
 
   it('bootstraps without task options and awaits both stores and the receipt callback on a fresh final gate', async () => {
@@ -1068,6 +1099,10 @@ describe('named Claude lane certified launch boundaries', () => {
       await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
         code: 'unsupported-source',
       });
+      expect(f.logger.warn).toHaveBeenCalledWith(
+        '[ClaudeCliAdapter] Named lane refused',
+        { stage: 'launch', code: 'unsupported-source' },
+      );
       expect(f.query).not.toHaveBeenCalled();
       expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
       expect(f.admission[settled]).toHaveBeenCalledTimes(1);

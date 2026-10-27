@@ -771,6 +771,27 @@ describe('ProviderAccountStore transactions', () => {
       expect(certify.certify).not.toHaveBeenCalled();
     });
 
+    it('logs each admission refusal with its code and a fixed stage word only', async () => {
+      add();
+      const logger = { warn: jest.fn() };
+      const refusing = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') },
+        certifier({ ok: false, code: 'unsupported-source', terminated: true }), logger);
+      // A project settings override in another workspace refuses at certification, before any child.
+      expect(await refusing.admitClaudeRoute({ ...named, workingDirectory: join(root, 'other-workspace') }))
+        .toMatchObject({ code: 'unsupported-source' });
+      expect(await refusing.admitClaudeRoute({ ...named, selection: { kind: 'omitted' } }))
+        .toMatchObject({ code: 'conflict' });
+      expect(await refusing.admitClaudeRoute({ ...named, selection: { kind: 'named', profileId: 'absent-profile-0001' } }))
+        .toMatchObject({ code: 'missing-profile' });
+      expect(logger.warn.mock.calls).toEqual([
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'certify', code: 'unsupported-source' }],
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'request', code: 'conflict' }],
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'store', code: 'missing-profile' }],
+      ]);
+      // Fixed text only: no path, profile ID or run ID reaches the log.
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(new RegExp(`${profileId}|run-00001|other-workspace`));
+    });
+
     it('reads the stored selection for the selection reader', async () => {
       add();
       a.select(root, 'lane', profileId, -1, 0);
