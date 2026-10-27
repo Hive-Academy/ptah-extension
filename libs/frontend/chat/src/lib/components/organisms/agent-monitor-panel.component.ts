@@ -204,12 +204,19 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
         width: 540px;
       }
     }
+    /* Glass on: docked in the inspector's chrome pane, the panel stays clear
+       so the pane's blur shows through. Solid themes keep their fill. */
+    :host-context([data-glass='on']) .agent-panel-docked {
+      background: transparent;
+      box-shadow: none;
+    }
   `,
   template: `
     <aside
       class="surface-1 flex flex-col min-w-0 overflow-hidden h-full"
       [class.bg-base-200]="!isOverlay()"
       [class.border-l]="!isOverlay() && !docked()"
+      [class.agent-panel-docked]="docked()"
       [class.agent-panel-open]="effectiveOpen() && !isOverlay() && !docked()"
       [class.w-full]="(effectiveOpen() && isOverlay()) || docked()"
       [class.w-0]="!effectiveOpen()"

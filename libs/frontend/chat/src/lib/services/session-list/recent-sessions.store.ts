@@ -1,10 +1,18 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
-import type { ChatSessionSummary, SessionListResult } from '@ptah-extension/shared';
+import type {
+  ChatSessionSummary,
+  SessionListResult,
+} from '@ptah-extension/shared';
 
 interface RecentSessionsState {
   readonly workspacePath: string | null;
   readonly sessions: readonly ChatSessionSummary[];
+  /**
+   * Every listed (non-archived) session of the workspace, pinned plus
+   * unpinned, as the host counted them; `null` until a read confirms it.
+   */
+  readonly total: number | null;
   readonly loading: boolean;
   readonly confirmed: boolean;
   readonly error: string | null;
@@ -20,6 +28,7 @@ export class RecentSessionsStore {
   private readonly state = signal<RecentSessionsState>({
     workspacePath: null,
     sessions: [],
+    total: null,
     loading: false,
     confirmed: false,
     error: null,
@@ -28,6 +37,7 @@ export class RecentSessionsStore {
 
   readonly workspacePath = computed(() => this.state().workspacePath);
   readonly sessions = computed(() => this.state().sessions);
+  readonly total = computed(() => this.state().total);
   readonly loading = computed(() => this.state().loading);
   readonly confirmed = computed(() => this.state().confirmed);
   readonly error = computed(() => this.state().error);
@@ -39,6 +49,7 @@ export class RecentSessionsStore {
     this.state.set({
       workspacePath,
       sessions: sameWorkspace ? previous.sessions : [],
+      total: sameWorkspace ? previous.total : null,
       loading: true,
       confirmed: sameWorkspace && previous.confirmed,
       error: null,
@@ -69,13 +80,21 @@ export class RecentSessionsStore {
           pinnedErrorCode: pinned.errorCode,
           unpinnedErrorCode: unpinned.errorCode,
         });
-        this.state.set({ workspacePath, sessions: [], loading: false, confirmed: false, error: LOAD_ERROR });
+        this.state.set({
+          workspacePath,
+          sessions: [],
+          total: null,
+          loading: false,
+          confirmed: false,
+          error: LOAD_ERROR,
+        });
         return;
       }
 
       this.state.set({
         workspacePath,
         sessions: this.topThree(pinned.data, unpinned.data),
+        total: this.sessionTotal(pinned.data, unpinned.data),
         loading: false,
         confirmed: true,
         error: null,
@@ -85,13 +104,35 @@ export class RecentSessionsStore {
       this.logger.error('RecentSessionsStore', 'Session list RPC rejected', {
         errorType: error instanceof Error ? error.name : 'unknown',
       });
-      this.state.set({ workspacePath, sessions: [], loading: false, confirmed: false, error: LOAD_ERROR });
+      this.state.set({
+        workspacePath,
+        sessions: [],
+        total: null,
+        loading: false,
+        confirmed: false,
+        error: LOAD_ERROR,
+      });
     }
   }
 
   async refresh(): Promise<void> {
     const workspacePath = this.workspacePath();
     if (workspacePath !== null) await this.load(workspacePath);
+  }
+
+  /**
+   * Pinned plus unpinned when the host honours the `pinned` filter. A host
+   * without session organization ignores it (`session-list-query.ts`), so
+   * both answers already count every session and their sum would double it.
+   */
+  private sessionTotal(
+    pinned: SessionListResult,
+    unpinned: SessionListResult,
+  ): number {
+    return pinned.organizationAvailable === true &&
+      unpinned.organizationAvailable === true
+      ? pinned.total + unpinned.total
+      : Math.max(pinned.total, unpinned.total);
   }
 
   private topThree(
@@ -106,7 +147,10 @@ export class RecentSessionsStore {
       }
     }
     return [...byId.values()]
-      .sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id))
+      .sort(
+        (a, b) =>
+          b.lastActivityAt - a.lastActivityAt || a.id.localeCompare(b.id),
+      )
       .slice(0, 3);
   }
 }

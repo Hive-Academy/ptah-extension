@@ -62,7 +62,7 @@ function selectionForKey(key: string): DisplayDockSelection {
     @media (prefers-reduced-motion: reduce) { .sheet-pulse { animation: none; } }
   `,
   template: `
-    <div class="sheet-shell relative border-t border-base-content/15 bg-base-200">
+    <div class="sheet-shell relative border-t border-base-content/15 bg-base-200" data-glass-surface="chrome">
       @if (pulse()) { <span class="sheet-pulse pointer-events-none absolute inset-0 border border-primary" aria-hidden="true"></span> }
       <div class="flex h-9 items-center gap-1 px-2">
         <button #bar type="button" class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start focus-visible:outline focus-visible:outline-2"

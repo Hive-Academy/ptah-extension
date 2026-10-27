@@ -17,7 +17,7 @@
  *
  * The EAGER list is also the contract with
  * `apps/ptah-extension-webview/tailwind.config.js`, which compiles exactly
- * those two themes into the initial bundle.
+ * those four themes into the initial bundle.
  */
 
 import { readFileSync } from 'node:fs';
@@ -25,6 +25,10 @@ import { join } from 'node:path';
 import { DAISYUI_THEMES } from '@ptah-extension/core';
 
 const INDEX_HTML = join(__dirname, '..', 'index.html');
+const SERVICE_SOURCE = readFileSync(
+  join(__dirname, '..', '..', '..', '..', 'libs', 'frontend', 'core', 'src', 'lib', 'services', 'theme.service.ts'),
+  'utf8',
+);
 
 function readList(html: string, name: string): readonly string[] {
   // Matches:  var EAGER =\n  'a b c';
@@ -43,6 +47,44 @@ describe('index.html pre-paint theme boot lists', () => {
 
   it('EAGER lists exactly the themes compiled into styles.css', () => {
     expect(readList(html, 'EAGER')).toEqual(['anubis', 'anubis-light', 'ptah-glass', 'ptah-glass-light']);
+  });
+
+  it('EAGER matches EAGER_THEMES in theme.service.ts', () => {
+    // EAGER_THEMES is module-private, so it is read from source the same way
+    // the ACCENTS check below reads its list.
+    const declared =
+      /const EAGER_THEMES: ReadonlySet<string> = new Set\(\[([^\]]+)\]\)/
+        .exec(SERVICE_SOURCE)?.[1]
+        .match(/'([^']+)'/g)
+        ?.map((name) => name.slice(1, -1)) ?? [];
+
+    expect(declared.length).toBeGreaterThan(0);
+    expect([...readList(html, 'EAGER')].sort()).toEqual([...declared].sort());
+  });
+
+  it('every other theme-name literal in the script is a declared, eager theme of the right lightness', () => {
+    // The glass-migration targets are spelled inline in the script, and the
+    // <html> default is spelled in markup. Both must be themes styles.css
+    // carries (no sheet fetch on the migration path), and the migration
+    // targets must sit on the side of DARK their names claim.
+    const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+    const eager = new Set(readList(html, 'EAGER'));
+    const dark = new Set(readList(html, 'DARK'));
+    const darkTarget = /\? '([^']+)'\s*:\s*'([^']+)'\s*: null/.exec(script);
+
+    expect(darkTarget?.slice(1, 3)).toEqual(['ptah-glass', 'ptah-glass-light']);
+    expect(dark.has('ptah-glass')).toBe(true);
+    expect(dark.has('ptah-glass-light')).toBe(false);
+    for (const name of ['ptah-glass', 'ptah-glass-light']) {
+      expect(eager.has(name)).toBe(true);
+    }
+
+    const htmlDefault = /<html[^>]*data-theme="([^"]+)"/.exec(html)?.[1];
+    const serviceDefault =
+      /_currentTheme = signal<ThemeName>\('([^']+)'\)/.exec(SERVICE_SOURCE)?.[1];
+    expect(htmlDefault).toBeDefined();
+    expect(htmlDefault).toBe(serviceDefault);
+    expect(eager.has(htmlDefault ?? '')).toBe(true);
   });
 
   it('EAGER + DEFERRED together cover every theme in DAISYUI_THEMES', () => {
@@ -84,6 +126,12 @@ describe('index.html pre-paint theme boot lists', () => {
     const source = readFileSync(join(__dirname, '..', '..', '..', '..', 'libs', 'frontend', 'core', 'src', 'lib', 'services', 'theme.service.ts'), 'utf8');
     const declared = /export const ACCENTS:[^=]+ = \[([^\]]+)\]/.exec(source)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
     expect(readList(html, 'ACCENT')).toEqual(declared);
+  });
+
+  it('pre-paint accepts exactly the declared scenes, including the default', () => {
+    const declared = /export const SCENES:[^=]+ = \[([^\]]+)\]/.exec(SERVICE_SOURCE)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
+    expect(declared).toEqual(['aurora', 'ember', 'tide', 'horizon']);
+    expect(readList(html, 'SCENE')).toEqual(declared);
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {

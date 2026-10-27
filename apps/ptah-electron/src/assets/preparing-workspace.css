@@ -1,5 +1,21 @@
+/*
+ * Preparing shell: fixed ptah-glass dark (TASK_2026_721 D22). The aurora scene
+ * sits under a 0.70 base-100 tint; contrast figures are in the task's
+ * design/options.md ("Measured contrast", dark, tint 0.70, bare).
+ */
 :root {
   color-scheme: dark;
+  --base: #17191d;
+  --tint: rgb(23 25 29 / 0.7);
+  --ink: #f2f2f1;
+  --ink2: rgb(242 242 241 / 0.78);
+  --ink3: rgb(242 242 241 / 0.66);
+  --gold: #e4b94a;
+  --gold-a: #f6d675;
+  --gold-b: #d9a928;
+  --ok: #5fe0a0;
+  --error: #fca5a5;
+  --track: rgb(255 255 255 / 0.1);
   font-family:
     Inter,
     ui-sans-serif,
@@ -8,8 +24,31 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  background: #101218;
-  color: #f3f4f6;
+  font-size: 14px;
+  line-height: 1.45;
+  background: var(--base);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(var(--tint), var(--tint)),
+    url('./preparing-workspace-scene.svg') center / cover no-repeat;
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root::before {
+    background: var(--base);
+  }
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
@@ -17,41 +56,243 @@ body {
   margin: 0;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 50% 35%, #24283a 0, #101218 52%);
+  overflow: hidden;
 }
 
 main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   max-width: 34rem;
-  padding: 3rem;
+  padding: 1.5rem;
   text-align: center;
 }
 
-.mark {
-  width: 3rem;
-  height: 3rem;
-  margin: 0 auto 1.5rem;
-  display: grid;
-  place-items: center;
-  border: 1px solid #6366f1;
-  border-radius: 0.8rem;
-  color: #c7d2fe;
-  font-weight: 700;
+[hidden] {
+  display: none !important;
 }
 
-h1 {
-  margin: 0 0 0.75rem;
-  font-size: 1.45rem;
+.num {
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-p {
-  margin: 0;
-  color: #aeb4c3;
+.cap {
+  font-size: 12.5px;
+  color: var(--ink3);
+}
+
+/* Ring ------------------------------------------------------------------ */
+
+.ring {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+
+.ring-svg {
+  display: block;
+}
+
+.ring-track,
+.ring-arc {
+  fill: none;
+  stroke-width: 10;
+}
+
+.ring-track {
+  stroke: var(--track);
+}
+
+.ring-arc {
+  stroke: var(--gold);
+  stroke-linecap: round;
+}
+
+.ring[data-mode='done'] .ring-arc {
+  stroke: var(--ok);
+}
+
+.ring[data-mode='failed'] .ring-arc {
+  stroke: var(--error);
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ring-percent {
+  font-size: 38px;
+  line-height: 1;
+}
+
+/* Copy ------------------------------------------------------------------ */
+
+.title {
+  margin: 24px 0 0;
+  font-family: Cinzel, 'Cormorant Garamond', 'Trajan Pro', Georgia, serif;
+  font-variant: small-caps;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.detail {
+  margin: 8px 0 0;
+  color: var(--ink2);
   line-height: 1.6;
+  text-wrap: balance;
 }
 
 .error-code {
-  margin-top: 1rem;
-  color: #fca5a5;
+  margin: 1rem 0 0;
+  color: var(--error);
   font-family: ui-monospace, 'Cascadia Code', monospace;
+}
+
+/* Steps ----------------------------------------------------------------- */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 360px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 12px;
+  /* The body reserves the meter line, so align icon and figure to the label. */
+  align-items: start;
+}
+
+.step-icon {
+  display: grid;
+  place-items: center;
+  color: var(--ink3);
+}
+
+.icon {
+  display: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.step[data-state='pending'] .icon-step,
+.step[data-state='active'] .icon-step,
+.step[data-state='done'] .icon-done,
+.step[data-state='failed'] .icon-failed {
+  display: block;
+}
+
+.step[data-state='active'] .step-icon {
+  color: var(--gold);
+}
+
+.step[data-state='done'] .step-icon {
+  color: var(--ok);
+}
+
+.step[data-state='failed'] .step-icon {
+  color: var(--error);
+}
+
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.step-label {
+  font-weight: 600;
+}
+
+.step[data-state='pending'] .step-label {
+  font-weight: 500;
+  color: var(--ink2);
+}
+
+.meter {
+  display: block;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.meter[hidden] {
+  /* Keep the row height when the meter is not shown, so a counted step does
+     not move the centred stack. */
+  display: block !important;
+  visibility: hidden;
+}
+
+.meter > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--gold-b), var(--gold-a));
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+@media (max-width: 480px) {
+  .steps {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* Motion: transform and opacity only, and only when the user allows it. */
+/* Without the spin, a still quarter arc would read as 25 %: show the track only. */
+@media (prefers-reduced-motion: reduce) {
+  .ring[data-mode='indeterminate'] .ring-arc {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ring[data-mode='indeterminate'] .ring-svg {
+    animation: ring-spin 1.1s linear infinite;
+  }
+
+  .step[data-state='active'] .step-icon {
+    animation: step-pulse 1.8s ease-in-out infinite;
+  }
+
+  .meter > i {
+    transition: transform 0.2s ease-out;
+  }
+
+  @keyframes ring-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes step-pulse {
+    50% {
+      opacity: 0.45;
+    }
+  }
 }

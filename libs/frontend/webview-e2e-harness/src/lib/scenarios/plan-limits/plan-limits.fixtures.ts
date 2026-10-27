@@ -102,7 +102,7 @@ export async function installWorkspaceHost(
 export async function installTheme(page: Page, theme: string): Promise<void> {
   await page.addInitScript((value: string) => {
     try {
-      localStorage.setItem('ptah-theme', value);
+      localStorage.setItem('ptah-theme-v2', value);
       localStorage.setItem('ptah-thoth-first-run-dismissed', 'true');
     } catch {
       // Storage can be unavailable on the initial about:blank document.

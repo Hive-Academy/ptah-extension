@@ -1,6 +1,7 @@
 import type { Locator, Page } from '@playwright/test';
 import type { Director } from './_harness/director';
 import { test } from './_harness/showcase-fixtures';
+import { visibleNewSessionTrigger } from '../support/new-session-trigger';
 
 /** Live PR #580 review. Real authenticated Electron/provider runs; no mocks or VO. */
 const PROMPT =
@@ -48,11 +49,8 @@ async function goToCanvas(page: Page): Promise<void> {
 }
 
 async function createTile(page: Page, director: Director): Promise<void> {
-  // Wait for the Rail footer, then use the hero on an empty board.
-  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').locator('visible=true').first();
-  await footerButton.waitFor({ state: 'visible', timeout: 90_000 });
-  const hero = page.locator('[data-testid="canvas-hero-new-session"]').locator('visible=true').first();
-  await director.click((await visible(hero)) ? hero : footerButton);
+  // The hero on an empty board (the Rail is behind its Sessions tab), else the Rail footer.
+  await director.click(await visibleNewSessionTrigger(page, 90_000));
 
   const nameInput = page
     .locator('input[placeholder*="session name" i]')

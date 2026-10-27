@@ -103,6 +103,16 @@ export function injectCanvasInspectorDockState(sources: {
     SplitHandleComponent, CanvasLaneTabsComponent],
   providers: [InspectorDockController],
   host: { class: 'contents', '(document:keydown.escape)': 'onDocumentEscape($event)' },
+  styles: [`
+    /* Glass on: the docked inspector is a floating pane (data-glass-surface='chrome')
+       like the sessions rail and the Electron git dock, so it drops its solid
+       fill and its flush left edge; as an overlay it is a near-opaque
+       data-glass-surface='overlay' panel. Solid themes keep both. */
+    :host-context([data-glass='on']) aside[data-inspector-dock] {
+      background: transparent;
+      border-left: 0;
+    }
+  `],
   template: `
         @if (dockShown() && !compactSheetOpen()) {
           @if (focusedId(); as id) {
@@ -175,6 +185,7 @@ export function injectCanvasInspectorDockState(sources: {
                 (keydown.escape)="closeDock()"
                 (keydown)="overlay() ? onSheetKeydown($event) : null"
                 data-inspector-dock
+                [attr.data-glass-surface]="overlay() ? 'overlay' : 'chrome'"
                 [style.width.px]="dock.width()"
               >
                 <!-- The expanded inspector loads on open; @loading shows a skeleton meanwhile. -->
@@ -220,6 +231,7 @@ export function injectCanvasInspectorDockState(sources: {
               aria-label="Session details"
               tabindex="-1"
               data-compact-sheet
+              data-glass-surface="overlay"
               (keydown)="onSheetKeydown($event)"
             >
               @defer (when compactSheetOpen()) {

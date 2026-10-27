@@ -57,7 +57,7 @@ let nextApprovalPopoverId = 0;
       </button>
 
       <!-- Dropdown Content -->
-      <div content class="w-72 flex flex-col" role="dialog" aria-label="Approval mode settings" [id]="popoverId">
+      <div content data-glass-surface="overlay" data-composer-overlay class="w-72 flex flex-col" role="dialog" aria-label="Approval mode settings" [id]="popoverId">
         <!-- Header -->
         <div class="px-3 py-2 border-b border-base-300 flex items-center gap-2">
           <lucide-angular
@@ -119,7 +119,7 @@ let nextApprovalPopoverId = 0;
             </div>
 
             @if (selectedLevel() === 'yolo') {
-              <p class="text-[11px] text-warning/80 mb-2 px-1">
+              <p class="autopilot-warning text-[11px] text-warning mb-2 px-1">
                 Skips all permission prompts — best for trusted tasks.
               </p>
             }

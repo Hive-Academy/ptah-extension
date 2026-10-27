@@ -521,3 +521,183 @@ describe('IndexingControlService.onProgress', () => {
     expect(typeof unsub).toBe('function');
   });
 });
+
+// ============================================================================
+// getStatus fileCount
+// ============================================================================
+
+interface FakeSymbolRow {
+  readonly workspace_root: string;
+  readonly file_path: string;
+}
+
+/**
+ * A fake DB that answers the two `readFileCount` statements from `symbols`
+ * and defers every other statement to `makeFakeDb`.
+ */
+function makeFileCountDb(
+  symbols: readonly FakeSymbolRow[],
+  options: { failCount?: boolean } = {},
+  rowsByFp: Map<string, Record<string, unknown>> = new Map(),
+): SqliteDatabase {
+  const base = makeFakeDb(rowsByFp);
+  const basePrepare = base.prepare.bind(base);
+  const prepare = jest.fn((sql: string): SqliteStatement => {
+    if (sql.includes('SELECT DISTINCT workspace_root')) {
+      const stmt = basePrepare(sql);
+      stmt.all = jest.fn(() =>
+        [...new Set(symbols.map((s) => s.workspace_root))].map((root) => ({
+          root,
+        })),
+      );
+      return stmt;
+    }
+    if (sql.includes('COUNT(DISTINCT file_path)')) {
+      if (options.failCount) throw new Error('no such table: code_symbols');
+      const stmt = basePrepare(sql);
+      stmt.get = jest.fn((...roots: unknown[]) => ({
+        n: new Set(
+          symbols
+            .filter((s) => roots.includes(s.workspace_root))
+            .map((s) => s.file_path),
+        ).size,
+      }));
+      return stmt;
+    }
+    return basePrepare(sql);
+  });
+  return { ...base, prepare };
+}
+
+describe('IndexingControlService.getStatus fileCount', () => {
+  it('counts distinct files for the requested workspace only', async () => {
+    const fakeDb = makeFileCountDb([
+      { workspace_root: ROOT, file_path: `${ROOT}/a.ts` },
+      { workspace_root: ROOT, file_path: `${ROOT}/a.ts` },
+      { workspace_root: ROOT, file_path: `${ROOT}/b.ts` },
+      {
+        workspace_root: '/workspace/other',
+        file_path: '/workspace/other/c.ts',
+      },
+    ]);
+    const { service } = buildService(fakeDb);
+
+    const status = await service.getStatus(ROOT);
+
+    expect(status.fileCount).toBe(2);
+    expect(fakeDb.prepare as jest.Mock).toHaveBeenCalledWith(
+      'SELECT COUNT(DISTINCT file_path) AS n FROM code_symbols WHERE workspace_root IN (?)',
+    );
+  });
+
+  it('matches a stored root spelled differently from the requested one', async () => {
+    const fakeDb = makeFileCountDb([
+      { workspace_root: `${ROOT}/`, file_path: `${ROOT}/a.ts` },
+      { workspace_root: ROOT, file_path: `${ROOT}/a.ts` },
+      { workspace_root: ROOT, file_path: `${ROOT}/b.ts` },
+    ]);
+    const { service } = buildService(fakeDb);
+
+    const status = await service.getStatus(ROOT);
+
+    expect(status.fileCount).toBe(2);
+  });
+
+  it('seeks the exact root first and scans stored roots only when it has no rows', async () => {
+    const fakeDb = makeFileCountDb([
+      { workspace_root: ROOT, file_path: `${ROOT}/a.ts` },
+      { workspace_root: ROOT, file_path: `${ROOT}/b.ts` },
+    ]);
+    const { service } = buildService(fakeDb);
+    const prepare = fakeDb.prepare as jest.Mock;
+    const scans = (): number =>
+      prepare.mock.calls.filter(([sql]) =>
+        String(sql).includes('SELECT DISTINCT workspace_root'),
+      ).length;
+
+    expect((await service.getStatus(ROOT)).fileCount).toBe(2);
+    expect(scans()).toBe(0);
+
+    expect((await service.getStatus(`${ROOT}/`)).fileCount).toBe(2);
+    expect(scans()).toBe(1);
+  });
+
+  it('reports 0 when the workspace has no symbols', async () => {
+    const fakeDb = makeFileCountDb([
+      {
+        workspace_root: '/workspace/other',
+        file_path: '/workspace/other/c.ts',
+      },
+    ]);
+    const { service } = buildService(fakeDb);
+
+    const status = await service.getStatus(ROOT);
+
+    expect(status.fileCount).toBe(0);
+  });
+
+  it('leaves fileCount undefined when the count query fails', async () => {
+    const fakeDb = makeFileCountDb(
+      [{ workspace_root: ROOT, file_path: `${ROOT}/a.ts` }],
+      { failCount: true },
+    );
+    const { service, logger } = buildService(fakeDb);
+
+    const status = await service.getStatus(ROOT);
+
+    expect(status.fileCount).toBeUndefined();
+    expect('fileCount' in status).toBe(false);
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[indexing-control] code_symbols file count failed',
+      { error: 'no such table: code_symbols' },
+    );
+  });
+
+  it('sets fileCount on the existing-row branch too', async () => {
+    const rows = new Map<string, Record<string, unknown>>();
+    const fakeDb = makeFileCountDb(
+      [{ workspace_root: ROOT, file_path: `${ROOT}/a.ts` }],
+      {},
+      rows,
+    );
+    const { service } = buildService(fakeDb, {
+      headContent: `${VALID_SHA_A}
+`,
+    });
+    const { workspaceFingerprint } = await service.getStatus(ROOT);
+    rows.set(workspaceFingerprint, {
+      workspace_fingerprint: workspaceFingerprint,
+      git_head_sha: VALID_SHA_A,
+      last_indexed_at: 1,
+      symbols_enabled: 1,
+      memory_enabled: 1,
+      symbols_cursor: null,
+      disclosure_acknowledged_at: null,
+      last_dismissed_stale_sha: null,
+      last_error: null,
+    });
+
+    const status = await service.getStatus(ROOT);
+
+    expect(status.state).toBe('indexed');
+    expect(status.fileCount).toBe(1);
+  });
+});
+
+describe('IndexingControlService Done progress event', () => {
+  it('omits processed/total from the final Done event', async () => {
+    const fakeDb = makeFakeDb();
+    const { service, webviewManager } = buildService(fakeDb, {
+      headContent: `${VALID_SHA_A}\n`,
+    });
+
+    await service.start('symbols', ROOT, makeRunDeps());
+
+    const done = (webviewManager.broadcastMessage as jest.Mock).mock.calls
+      .map((call: unknown[]) => call[1] as Record<string, unknown>)
+      .find((payload) => payload?.['currentLabel'] === 'Done');
+    expect(done).toBeDefined();
+    expect(done).not.toHaveProperty('processed');
+    expect(done).not.toHaveProperty('total');
+  });
+});

@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { visibleNewSessionTrigger } from '../support/new-session-trigger';
 
 /**
  * P2.1 — "Run 3 agents at once" (Canvas multi-tile orchestra).
@@ -70,9 +71,7 @@ async function createTile(
 ): Promise<void> {
   // The empty-board hero creates the first session; the Rail footer creates
   // sessions once tiles exist.
-  const hero = page.locator('[data-testid="canvas-hero-new-session"]').first();
-  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').first();
-  await director.click((await hero.isVisible().catch(() => false)) ? hero : footerButton);
+  await director.click(await visibleNewSessionTrigger(page));
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
   await director.type(nameInput, name);

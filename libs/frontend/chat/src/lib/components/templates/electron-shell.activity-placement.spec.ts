@@ -74,6 +74,8 @@ describe('ElectronShellComponent — activity placement', () => {
 
   const layoutStub = {
     hasWorkspaceFolders: signal(true),
+    workspaceResolved: signal(true),
+    pendingWorkspaceName: signal<string | null>(null),
     workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: () => 240,
     editorPanelVisible: () => false,

@@ -55,6 +55,8 @@ describe('ElectronShellComponent Apps tab', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
   const layoutStub = {
     hasWorkspaceFolders: signal(true),
+    workspaceResolved: signal(true),
+    pendingWorkspaceName: signal<string | null>(null),
     workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: signal(240),
     editorPanelVisible: signal(false),

@@ -65,6 +65,9 @@ contextBridge.exposeInMainWorld('ptahDiag', {
   captureCpuProfile: (durationMs?: number): Promise<string> =>
     ipcRenderer.invoke('diag:cpu-profile', durationMs),
 });
+// Keep this a synthetic MessageEvent with no origin: the boot shell
+// (assets/preparing-workspace.js) accepts only empty-origin events, so that
+// a real postMessage cannot inject boot progress.
 ipcRenderer.on('to-renderer', (_event, message) => {
   window.dispatchEvent(new MessageEvent('message', { data: message }));
 });

@@ -14,6 +14,15 @@
  * installed after that. A renderer reload has the same problem. So the first
  * read has to be a pull, and this is it.
  *
+ * ## Progress snapshots
+ *
+ * The result also carries `steps`, the latest `boot:progress` payload of every
+ * host boot step that has started (only the Electron provider fills it). The
+ * host replays those payloads on `did-finish-load`, which races the listener
+ * the same way, and a window replaced after every step finished gets no replay
+ * at all. The renderer folds the pulled steps with the pushed ones. This
+ * handler passes the provider's answer through unchanged.
+ *
  * ## Why it never throws
  *
  * Same contract as `db:health` (`persistence-rpc.handlers.ts`): unavailability
@@ -21,8 +30,8 @@
  * the probe rejects, the renderer cannot learn that the boot finished and the
  * user sits behind a spinner for the rest of the session — a strictly worse
  * outcome than a slightly optimistic answer. So any failure reading the port
- * degrades to `{ readiness: 'ready', phase: 'settled' }`, which dismisses the
- * screen. Failing OPEN is the safe direction here, and only here.
+ * degrades to `{ readiness: 'ready', phase: 'settled', startedAt: Date.now() }`
+ * with no `steps`, which dismisses the screen. Failing OPEN is the safe direction here, and only here.
  */
 
 import { injectable, inject } from 'tsyringe';

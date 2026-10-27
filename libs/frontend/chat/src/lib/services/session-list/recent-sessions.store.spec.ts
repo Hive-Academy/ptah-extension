@@ -1,5 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { ClaudeRpcService, LoggingService, RpcResult } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  LoggingService,
+  RpcResult,
+} from '@ptah-extension/core';
 import {
   SessionId,
   type ChatSessionSummary,
@@ -31,7 +35,9 @@ function ok(sessions: ChatSessionSummary[]): Reply {
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -61,17 +67,27 @@ describe('RecentSessionsStore', () => {
     const next = row('next unpinned', 8);
     const third = row('third unpinned', 7);
     call.mockImplementation(async (_method, params) =>
-      params.pinned ? ok([latestPinned, olderPinned]) : ok([newest, next, third]),
+      params.pinned
+        ? ok([latestPinned, olderPinned])
+        : ok([newest, next, third]),
     );
 
     await store.load('/workspace');
 
     expect(call).toHaveBeenCalledTimes(2);
     expect(call).toHaveBeenCalledWith('session:list', {
-      workspacePath: '/workspace', pinned: true, limit: 3, offset: 0, sort: 'lastActive',
+      workspacePath: '/workspace',
+      pinned: true,
+      limit: 3,
+      offset: 0,
+      sort: 'lastActive',
     });
     expect(call).toHaveBeenCalledWith('session:list', {
-      workspacePath: '/workspace', pinned: false, limit: 3, offset: 0, sort: 'lastActive',
+      workspacePath: '/workspace',
+      pinned: false,
+      limit: 3,
+      offset: 0,
+      sort: 'lastActive',
     });
     expect(store.sessions()).toEqual([newest, next, third]);
     expect(store.confirmed()).toBe(true);
@@ -90,7 +106,9 @@ describe('RecentSessionsStore', () => {
     await store.load('/workspace');
 
     expect(store.sessions()).toEqual([active]);
-    expect(call.mock.calls.every(([, params]) => params.status === undefined)).toBe(true);
+    expect(
+      call.mock.calls.every(([, params]) => params.status === undefined),
+    ).toBe(true);
   });
 
   it('deduplicates no-organization responses and breaks activity ties by ID', async () => {
@@ -159,12 +177,71 @@ describe('RecentSessionsStore', () => {
     await stale;
 
     expect(store.workspacePath()).toBe('/workspace-a');
-    expect(store.sessions().every((item) => item.name === 'current')).toBe(true);
+    expect(store.sessions().every((item) => item.name === 'current')).toBe(
+      true,
+    );
     expect(store.confirmed()).toBe(true);
   });
 
+  it('totals pinned and unpinned sessions on an organization host', async () => {
+    call.mockImplementation(
+      async (_method, params) =>
+        new RpcResult(true, {
+          sessions: [row(params.pinned ? 'pinned' : 'unpinned', 1)],
+          total: params.pinned ? 2 : 40,
+          hasMore: true,
+          organizationAvailable: true,
+        }),
+    );
+
+    expect(store.total()).toBeNull();
+    await store.load('/workspace');
+
+    expect(store.total()).toBe(42);
+  });
+
+  it('does not double the total when the host ignores the pinned filter', async () => {
+    call.mockResolvedValue(
+      new RpcResult(true, {
+        sessions: [row('any', 1)],
+        total: 17,
+        hasMore: true,
+      }),
+    );
+
+    await store.load('/workspace');
+
+    expect(store.total()).toBe(17);
+  });
+
+  it('keeps the total through a same-workspace reload and clears it on failure or switch', async () => {
+    call.mockResolvedValue(ok([row('one', 1)]));
+    await store.load('/workspace');
+    expect(store.total()).toBe(1);
+
+    const pending = deferred<Reply>();
+    call.mockImplementation(() => pending.promise);
+    const reload = store.load('/workspace');
+    expect(store.total()).toBe(1);
+    pending.resolve(new RpcResult<SessionListResult>(false, undefined, 'down'));
+    await reload;
+    expect(store.total()).toBeNull();
+
+    call.mockResolvedValue(ok([row('one', 1)]));
+    await store.load('/workspace');
+    const switched = deferred<Reply>();
+    call.mockImplementation(() => switched.promise);
+    const next = store.load('/other');
+    expect(store.total()).toBeNull();
+    switched.resolve(ok([]));
+    await next;
+    expect(store.total()).toBe(0);
+  });
+
   it('reports RPC failure without confirming history', async () => {
-    call.mockResolvedValue(new RpcResult<SessionListResult>(false, undefined, 'host failure'));
+    call.mockResolvedValue(
+      new RpcResult<SessionListResult>(false, undefined, 'host failure'),
+    );
 
     await store.load('/workspace');
 

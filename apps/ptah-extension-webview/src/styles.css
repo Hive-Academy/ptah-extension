@@ -2567,12 +2567,6 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-theme='lofi'] [data-testid='canvas-hero-new-session'].btn-primary:hover {
   background: oklch(var(--p) / 0.88);
 }
-:root[data-theme='lofi'] ptah-project-setup-card > section {
-  background: oklch(var(--b1));
-  border: 1px solid var(--surface-border-strong);
-  border-radius: var(--rounded-box);
-  box-shadow: none;
-}
 :root[data-theme='lofi'] .electron-tabs.tabs-lifted > .tab {
   --tab-bg: oklch(var(--b1));
 }
@@ -2623,11 +2617,20 @@ END OF ANUBIS DESIGN SYSTEM
   --glass-plate: oklch(var(--b1) / 0.5); /* role plate: local text scrim, fill only */
   --glass-fill: oklch(var(--b1) / 0.44);
   --glass-fill-raised: oklch(var(--b1) / 0.72);
-  --glass-fill-content: oklch(var(--b1) / 0.8);
-  --glass-fill-solid: oklch(var(--b1) / 0.88);
   --glass-fill-overlay: oklch(var(--b1) / 0.9);
   --glass-fill-tile: oklch(var(--b1) / 0.5);
   --glass-fill-input: oklch(var(--b1) / 0.66);
+  /* Scene tint: the theme's own base-100 washed once over the scene layer
+     (::before), so panes stay clear and the scene reads through them. Scene
+     and theme rules set only the alpha; the hatches below set the tint. */
+  --glass-tint-alpha: 0.5;
+  --glass-tint: oklch(var(--b1) / var(--glass-tint-alpha));
+  /* Local text scrim: the reading plane under text-dense regions (transcript
+     column, content cards, chat bubbles). It sits on the tint, so the two
+     combine. It is a separate token from --glass-plate: the plate backs short
+     labels and stays at 0.50, while long-form reading in dark mode needs a
+     denser plane (0.62, see the dark block). */
+  --glass-scrim-text: oklch(var(--b1) / 0.5);
   --glass-hover: oklch(var(--b1) / 0.78);
   --glass-sel: oklch(var(--b1) / 0.94);
   --glass-bubble-user: oklch(var(--b1) / 0.95);
@@ -2661,11 +2664,11 @@ END OF ANUBIS DESIGN SYSTEM
   --glass-plate: oklch(var(--b1) / 0.5);
   --glass-fill: oklch(var(--bc) / 0.06);
   --glass-fill-raised: oklch(var(--bc) / 0.2);
-  --glass-fill-content: oklch(var(--b1) / 0.78);
-  --glass-fill-solid: oklch(var(--b1) / 0.9);
   --glass-fill-overlay: oklch(var(--b2) / 0.88);
   --glass-fill-tile: oklch(var(--b1) / 0.5); /* tiles are local scrims now (were a 4.5% white veil over the 66% pane scrim) */
   --glass-fill-input: oklch(var(--b1) / 0.58);
+  --glass-tint-alpha: 0.7;
+  --glass-scrim-text: oklch(var(--b1) / 0.62);
   --glass-hover: oklch(var(--bc) / 0.1);
   --glass-sel: oklch(var(--bc) / 0.12);
   --glass-bubble-user: oklch(var(--b3) / 0.92);
@@ -2701,16 +2704,23 @@ END OF ANUBIS DESIGN SYSTEM
     --glass-under: oklch(var(--b1) / 0.6);
     --glass-under-bar: oklch(var(--b1) / 0.6);
     --glass-plate: oklch(var(--b1));
+    /* No blur to soften the scene: the panes go near-opaque above, so the
+       tint goes opaque too (a flat base plane) and the reading plane is
+       near-opaque. */
+    --glass-tint: oklch(var(--b1));
+    --glass-scrim-text: oklch(var(--b1) / 0.9);
     --glass-filter: none;
     --glass-filter-overlay: none;
   }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root[data-theme][data-glass='on']:is([data-glass-mode='dark'], [data-glass-mode='light']) {
+    /* The tint is set here, not by scene or theme rules (they set only
+       --glass-tint-alpha), so this opaque value always wins. */
+    --glass-tint: oklch(var(--b1));
+    --glass-scrim-text: oklch(var(--b1));
     --glass-fill: oklch(var(--b1));
     --glass-fill-raised: oklch(var(--b2));
-    --glass-fill-content: oklch(var(--b1));
-    --glass-fill-solid: oklch(var(--b1));
     --glass-fill-overlay: oklch(var(--b1));
     --glass-fill-tile: oklch(var(--b2));
     --glass-plate: oklch(var(--b1));
@@ -2788,11 +2798,41 @@ END OF ANUBIS DESIGN SYSTEM
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: var(--glass-scene, none) center / cover no-repeat;
+  /* Tint first (top layer), scene under it. If the scene fails to decode the
+     tint still paints over the root base colour, so the plane stays readable. */
+  background: linear-gradient(var(--glass-tint), var(--glass-tint)), var(--glass-scene, none) center / cover no-repeat;
 }
 /* per-theme scenes (generated) */
-:root[data-theme='ptah-glass'][data-glass='on'] { --glass-scene: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%232b2e34%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2317191d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%2326292f%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2711%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.85%200%200%200%200%200.87%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27600%27%20rx%3D%27320%27%20ry%3D%27340%27%20fill%3D%27%23b43fc4%27%20opacity%3D%270.85%27%2F%3E%3Cellipse%20cx%3D%27560%27%20cy%3D%27320%27%20rx%3D%27430%27%20ry%3D%27280%27%20fill%3D%27%238a9bd0%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%271000%27%20cy%3D%27610%27%20rx%3D%27380%27%20ry%3D%27170%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27220%27%20rx%3D%27300%27%20ry%3D%27250%27%20fill%3D%27%2314b2d8%27%20opacity%3D%270.95%27%2F%3E%3Cellipse%20cx%3D%271430%27%20cy%3D%27650%27%20rx%3D%27300%27%20ry%3D%27190%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.85%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%2334373d%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2324262b%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E"); }
-:root[data-theme='ptah-glass-light'][data-glass='on'] { --glass-scene: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e9e1fb%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f6edf8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23fde9df%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%275%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27220%27%20rx%3D%27330%27%20ry%3D%27300%27%20fill%3D%27%23b8a3f5%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27620%27%20cy%3D%27360%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23ffd9bd%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27160%27%20rx%3D%27330%27%20ry%3D%27260%27%20fill%3D%27%23a9c8ff%27%20opacity%3D%270.65%27%2F%3E%3Cellipse%20cx%3D%271050%27%20cy%3D%27800%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23ffbf9c%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27180%27%20cy%3D%27820%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23ffb3d0%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.35%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23d7c9f2%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23e6d3ea%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f3ddd8%27%20opacity%3D%270.65%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E"); }
+:root[data-theme='ptah-glass'][data-glass='on'] {
+  --glass-scene-aurora: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%232b2e34%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2317191d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%2326292f%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2711%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.85%200%200%200%200%200.87%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27600%27%20rx%3D%27320%27%20ry%3D%27340%27%20fill%3D%27%23b43fc4%27%20opacity%3D%270.85%27%2F%3E%3Cellipse%20cx%3D%27560%27%20cy%3D%27320%27%20rx%3D%27430%27%20ry%3D%27280%27%20fill%3D%27%238a9bd0%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%271000%27%20cy%3D%27610%27%20rx%3D%27380%27%20ry%3D%27170%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27220%27%20rx%3D%27300%27%20ry%3D%27250%27%20fill%3D%27%2314b2d8%27%20opacity%3D%270.95%27%2F%3E%3Cellipse%20cx%3D%271430%27%20cy%3D%27650%27%20rx%3D%27300%27%20ry%3D%27190%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.85%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%2334373d%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2324262b%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-aurora: 0.70;
+  --glass-scene-ember: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23322b22%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2318191c%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%232b2721%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2721%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.9%200%200%200%200%200.86%200%200%200%200%200.8%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27260%27%20rx%3D%27440%27%20ry%3D%27300%27%20fill%3D%27%23e4b94a%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%271300%27%20cy%3D%27700%27%20rx%3D%27400%27%20ry%3D%27230%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.62%27%2F%3E%3Cellipse%20cx%3D%27900%27%20cy%3D%27110%27%20rx%3D%27380%27%20ry%3D%27200%27%20fill%3D%27%23c0476e%27%20opacity%3D%270.4%27%2F%3E%3Cellipse%20cx%3D%27140%27%20cy%3D%27780%27%20rx%3D%27330%27%20ry%3D%27240%27%20fill%3D%27%238a4b1a%27%20opacity%3D%270.55%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%233b3327%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2327231f%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-ember: 0.62;
+  --glass-scene-tide: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%231f2d37%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2314181d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231b2630%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2731%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.8%200%200%200%200%200.88%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%271300%27%20cy%3D%27700%27%20rx%3D%27420%27%20ry%3D%27240%27%20fill%3D%27%2345d0be%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27250%27%20rx%3D%27480%27%20ry%3D%27320%27%20fill%3D%27%234b5bd6%27%20opacity%3D%270.62%27%2F%3E%3Cellipse%20cx%3D%27700%27%20cy%3D%27860%27%20rx%3D%27420%27%20ry%3D%27200%27%20fill%3D%27%2314b2d8%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%27100%27%20cy%3D%27700%27%20rx%3D%27300%27%20ry%3D%27240%27%20fill%3D%27%231f8f7a%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23233039%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%231b232a%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2314181d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-tide: 0.58;
+  --glass-scene-horizon: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%2326282d%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2317191d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231e2025%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2741%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.88%200%200%200%200%200.88%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27800%27%20cy%3D%27760%27%20rx%3D%27820%27%20ry%3D%27140%27%20fill%3D%27%23e4b94a%27%20opacity%3D%270.85%27%2F%3E%3Cellipse%20cx%3D%27200%27%20cy%3D%27150%27%20rx%3D%27420%27%20ry%3D%27270%27%20fill%3D%27%236a5acd%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27250%27%20rx%3D%27340%27%20ry%3D%27230%27%20fill%3D%27%238a9bd0%27%20opacity%3D%270.24%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.06%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%232c2e34%27%20opacity%3D%270.75%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23202226%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-horizon: 0.50;
+  --glass-scene: var(--glass-scene-aurora);
+  --glass-tint-alpha: var(--glass-tint-alpha-aurora);
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] {
+  --glass-scene-aurora: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e9e1fb%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f6edf8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23fde9df%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%275%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27220%27%20rx%3D%27330%27%20ry%3D%27300%27%20fill%3D%27%23b8a3f5%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27620%27%20cy%3D%27360%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23ffd9bd%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27160%27%20rx%3D%27330%27%20ry%3D%27260%27%20fill%3D%27%23a9c8ff%27%20opacity%3D%270.65%27%2F%3E%3Cellipse%20cx%3D%271050%27%20cy%3D%27800%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23ffbf9c%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27180%27%20cy%3D%27820%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23ffb3d0%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.35%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23d7c9f2%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23e6d3ea%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f3ddd8%27%20opacity%3D%270.65%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-aurora: 0.50;
+  --glass-scene-ember: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23fbf0d8%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f8efe4%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23fbe4d2%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2725%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27200%27%20cy%3D%27200%27%20rx%3D%27400%27%20ry%3D%27300%27%20fill%3D%27%23f2cf7a%27%20opacity%3D%270.72%27%2F%3E%3Cellipse%20cx%3D%271350%27%20cy%3D%27750%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23ffbf9c%27%20opacity%3D%270.72%27%2F%3E%3Cellipse%20cx%3D%27900%27%20cy%3D%27150%27%20rx%3D%27380%27%20ry%3D%27220%27%20fill%3D%27%23f5b3c0%27%20opacity%3D%270.45%27%2F%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27800%27%20rx%3D%27340%27%20ry%3D%27240%27%20fill%3D%27%23ffd9a8%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.3%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23e9d3b0%27%20opacity%3D%270.45%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23f0d4c0%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f7dfd0%27%20opacity%3D%270.6%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-ember: 0.42;
+  --glass-scene-tide: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e0eef2%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23eef4f6%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23e5f1ec%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2735%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%271300%27%20cy%3D%27750%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%238fd6cb%27%20opacity%3D%270.62%27%2F%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27200%27%20rx%3D%27440%27%20ry%3D%27290%27%20fill%3D%27%23a9c8ff%27%20opacity%3D%270.62%27%2F%3E%3Cellipse%20cx%3D%27900%27%20cy%3D%27150%27%20rx%3D%27360%27%20ry%3D%27220%27%20fill%3D%27%23c9b8f5%27%20opacity%3D%270.4%27%2F%3E%3Cellipse%20cx%3D%27200%27%20cy%3D%27800%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23b5ecd0%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.3%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23c8dfe3%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23d3e8e4%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23e2f1ed%27%20opacity%3D%270.65%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-tide: 0.42;
+  --glass-scene-horizon: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e8e4f3%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f3f0f8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23f6f1ee%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2745%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27800%27%20cy%3D%27770%27%20rx%3D%27820%27%20ry%3D%27150%27%20fill%3D%27%23f7d58a%27%20opacity%3D%270.9%27%2F%3E%3Cellipse%20cx%3D%27200%27%20cy%3D%27150%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23b8a3f5%27%20opacity%3D%270.45%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27250%27%20rx%3D%27340%27%20ry%3D%27230%27%20fill%3D%27%23a9b8ff%27%20opacity%3D%270.4%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.3%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23d9d2ea%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23e5ddee%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f1e3dc%27%20opacity%3D%270.65%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E");
+  --glass-tint-alpha-horizon: 0.38;
+  --glass-scene: var(--glass-scene-aurora);
+  --glass-tint-alpha: var(--glass-tint-alpha-aurora);
+}
+:root[data-theme='ptah-glass'][data-glass='on'][data-scene='ember'] { --glass-scene: var(--glass-scene-ember); --glass-tint-alpha: var(--glass-tint-alpha-ember); }
+:root[data-theme='ptah-glass'][data-glass='on'][data-scene='tide'] { --glass-scene: var(--glass-scene-tide); --glass-tint-alpha: var(--glass-tint-alpha-tide); }
+:root[data-theme='ptah-glass'][data-glass='on'][data-scene='horizon'] { --glass-scene: var(--glass-scene-horizon); --glass-tint-alpha: var(--glass-tint-alpha-horizon); }
+:root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='ember'] { --glass-scene: var(--glass-scene-ember); --glass-tint-alpha: var(--glass-tint-alpha-ember); }
+:root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='tide'] { --glass-scene: var(--glass-scene-tide); --glass-tint-alpha: var(--glass-tint-alpha-tide); }
+:root[data-theme='ptah-glass-light'][data-glass='on'][data-scene='horizon'] { --glass-scene: var(--glass-scene-horizon); --glass-tint-alpha: var(--glass-tint-alpha-horizon); }
 :root[data-theme='dark'][data-glass='on'] { --glass-scene: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23242a31%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2314181c%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231f252b%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%273%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.8%200%200%200%200%200.88%200%200%200%200%200.95%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27160%27%20cy%3D%27560%27%20rx%3D%27300%27%20ry%3D%27320%27%20fill%3D%27%236f8aa3%27%20opacity%3D%270.13%27%2F%3E%3Cellipse%20cx%3D%27600%27%20cy%3D%27340%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23b4c4d3%27%20opacity%3D%270.11%27%2F%3E%3Cellipse%20cx%3D%271000%27%20cy%3D%27800%27%20rx%3D%27380%27%20ry%3D%27220%27%20fill%3D%27%23b58a5a%27%20opacity%3D%270.11%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27240%27%20rx%3D%27280%27%20ry%3D%27240%27%20fill%3D%27%237c9bb5%27%20opacity%3D%270.12%27%2F%3E%3Cellipse%20cx%3D%271420%27%20cy%3D%27760%27%20rx%3D%27260%27%20ry%3D%27240%27%20fill%3D%27%23b58a5a%27%20opacity%3D%270.11%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23323a43%27%20opacity%3D%270.7%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23242a31%27%20opacity%3D%270.82%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23181c21%27%20opacity%3D%270.92%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E"); }
 :root[data-theme='nord'][data-glass='on'] { --glass-scene: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e8edf3%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23d3dde8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23e3eaf1%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%274%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27160%27%20cy%3D%27300%27%20rx%3D%27330%27%20ry%3D%27300%27%20fill%3D%27%23a3bad3%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%27620%27%20cy%3D%27350%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23ffffff%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27170%27%20rx%3D%27320%27%20ry%3D%27260%27%20fill%3D%27%239fb8d6%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%271050%27%20cy%3D%27800%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23c8d5e3%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%27180%27%20cy%3D%27820%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23b3c7dc%27%20opacity%3D%270.45%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.4%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23aebdce%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2397a9bf%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%238196af%27%20opacity%3D%270.6%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E"); }
 :root[data-theme='cupcake'][data-glass='on'] { --glass-scene: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23fbeee6%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f9e6ec%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23fdf3e3%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%276%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27240%27%20rx%3D%27330%27%20ry%3D%27300%27%20fill%3D%27%23f5b6c9%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%27620%27%20cy%3D%27360%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23fff1d6%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27170%27%20rx%3D%27320%27%20ry%3D%27260%27%20fill%3D%27%23bfe6dd%27%20opacity%3D%270.6%27%2F%3E%3Cellipse%20cx%3D%271050%27%20cy%3D%27800%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23fbc8a4%27%20opacity%3D%270.65%27%2F%3E%3Cellipse%20cx%3D%27180%27%20cy%3D%27820%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23e8c2e0%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.4%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23f0cfd8%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23ebc4cf%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f3d4c4%27%20opacity%3D%270.6%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E"); }
@@ -2801,6 +2841,29 @@ END OF ANUBIS DESIGN SYSTEM
 
 /* Rare per-theme ink/tint overrides (measured; see NOTES.md). */
 :root[data-theme='dark'][data-glass='on'] { --bc: 95% 0.012 250; }
+/* Per-theme tint alpha, measured over each theme's own scene: the smallest alpha at which the caption ink (--bcm) clears 4.5:1 and
+   body ink 6.2:1 at the single worst pixel, bare and on a chrome pane, at
+   1280 and 900 wide, plus a 0.06 margin, kept inside the 0.38-0.50 light
+   band unless the scene needs more. Only the alpha is set here: the escape
+   hatches own --glass-tint. The mode attribute keeps these at (0,4,0) so they
+   outrank the token blocks above. The ptah-glass pair keeps the base value
+   (dark 0.70, light 0.50). The scene rules set only --glass-scene and
+   --glass-tint-alpha. glass-scrim.spec.ts pins these measured values.
+     nord     needs 0.65 (caption 3.99:1 bare at 0.50) -> 0.72
+     cupcake  needs 0.16                              -> 0.38 (band floor) */
+:root[data-theme='nord'][data-glass='on'][data-glass-mode='light'] { --glass-tint-alpha: 0.72; }
+:root[data-theme='cupcake'][data-glass='on'][data-glass-mode='light'] { --glass-tint-alpha: 0.38; }
+/* dark and dracula keep the 0.70 tint: their caption ink is limited by the
+   chrome pane's own light fill (base-content at 6 %), not by the scene, so no
+   tint alpha fixes it (dark stays under 4.4:1 on a pane even at 0.97). Their
+   glass caption ink is re-derived instead, by the rule of the --bcm block
+   (base-content mixed toward base-100 in OKLCH by the largest fraction that
+   clears the target), against the brightest pixel of the tinted scene and of
+   a pane at 0.70, target 4.6:1. Glass only: the solid --bcm above is unchanged.
+     dark     caption 4.37:1 bare / 3.91:1 pane -> 4.63:1 (mix 36 %, 5.92:1 on base-100)
+     dracula  caption 4.96:1 bare / 4.36:1 pane -> 4.64:1 (mix 37.5 %, 5.75:1 on base-100) */
+:root[data-theme='dark'][data-glass='on'][data-glass-mode='dark'] { --bcm: 69.9176% 0.013402 250.8703; }
+:root[data-theme='dracula'][data-glass='on'][data-glass-mode='dark'] { --bcm: 71.9009% 0.013235 170.6564; }
 
 /* -------------------------------------------------------------------------
    4. Surface roles
@@ -2871,7 +2934,7 @@ END OF ANUBIS DESIGN SYSTEM
 
 /* content: stable reading plane, no blur */
 :root[data-glass='on'] [data-glass-surface='content'] {
-  background: var(--glass-fill-content);
+  background: var(--glass-scrim-text);
   border-radius: var(--glass-radius-inner);
   box-shadow: var(--glass-content-shadow, inset 0 1px 0 var(--glass-glint), var(--glass-shadow));
   color: var(--glass-ink);
@@ -2929,8 +2992,8 @@ END OF ANUBIS DESIGN SYSTEM
    The surface's own z-index does not escape an inline custom-element host
    (the license card host has no display), so the following block sibling
    paints over the panel. Lift the host that directly wraps that surface. */
-:root[data-glass='on'] [data-glass-surface]:has(.popover-panel) { z-index: 30; }
-:root[data-glass='on'] :has(> [data-glass-surface='content']:has(.popover-panel)) {
+:root[data-glass='on'] [data-glass-surface]:has(.popover-panel, .suggestions-panel) { z-index: 30; }
+:root[data-glass='on'] :has(> [data-glass-surface='content']:has(.popover-panel, .suggestions-panel)) {
   position: relative;
   z-index: 30;
 }
@@ -3122,7 +3185,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .tooltip:before { border-radius: 0.75rem; padding: 0.375rem 0.75rem; font-size: 0.75rem; box-shadow: inset 0 0 0 1px var(--glass-line-strong), 0 10px 24px -8px rgb(5 8 14 / 0.5); }
 
 /* chat: near-solid reading planes, never blurred */
-:root[data-glass='on'] .chat-bubble { background: var(--glass-fill-content); border: 1px solid var(--glass-frame, var(--glass-line)); color: var(--glass-ink); border-radius: var(--glass-radius-inner); box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint)); }
+:root[data-glass='on'] .chat-bubble { background: var(--glass-scrim-text); border: 1px solid var(--glass-frame, var(--glass-line)); color: var(--glass-ink); border-radius: var(--glass-radius-inner); box-shadow: var(--glass-raise, inset 0 1px 0 var(--glass-glint)); }
 :root[data-glass='on'] .chat-bubble::before { display: none; }
 :root[data-glass='on'] .chat-start .chat-bubble { border-end-start-radius: 0.375rem; }
 :root[data-glass='on'] .chat-end .chat-bubble { border-end-end-radius: 0.375rem; }
@@ -3329,15 +3392,75 @@ END OF ANUBIS DESIGN SYSTEM
    Shell canvases opt in to a clear backdrop so chrome and bar panes blur the
    scene. Nested reading fills keep bg-surface-0/1 and bg-base-100 (the
    previous-sessions panel, its header, the composer). Role rules below still
-   clear chrome, bar, and overlay. */
+   clear chrome, bar, and overlay. The app root <main> and the orchestra
+   canvas root are root planes too: a solid base-100 there would hide the
+   tinted scene (the canvas root covers the whole centre of the workspace and
+   chat screens). The Electron welcome paints no plane of its own. */
 :root[data-glass='on'] :is(
   .electron-shell-root,
+  ptah-root > main,
+  ptah-orchestra-canvas > .bg-base-100,
   ptah-app-shell > .bg-surface-0,
   ptah-marketplace-shell > .bg-surface-0,
   ptah-thoth-shell > .bg-surface-0
 ) { background-color: transparent; }
 :root[data-glass='on'] .bg-base-200 { background-color: var(--glass-fill-tile); }
 :root[data-glass='on'] .bg-base-300 { background-color: var(--glass-hover); }
+
+/* Composer lists sit over text, so their local scrim is denser than menus.
+   Native wrappers keep positioning/top-layer ownership; the projected panel
+   owns the glass fill and rim. No shared native-popover styling changes. */
+:root[data-glass='on'] [data-composer-overlay] {
+  --glass-composer-overlay-alpha: 0.98;
+  --glass-fill-overlay: oklch(var(--b1) / var(--glass-composer-overlay-alpha));
+}
+:root[data-glass='on'] :is(.popover-panel, .dropdown-panel):has(> [data-composer-overlay]) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+/* Full-strength option descriptions stay readable on selected/hover rows too. */
+:root[data-glass='on'] [data-composer-overlay] ptah-suggestion-option .opacity-70 {
+  opacity: 1;
+}
+/* Keep the selection fill and ink paired, including badges: glass badge
+   tinting and secondary-text opacity must not weaken selected-row contrast.
+   The badge inverts the pair (a solid ink pill), so its 9px text sits on a
+   solid fill rather than an outline. `.badge.badge` outranks Tailwind's
+   hover-variant copy of the glass tone badge rule, emitted later at (0,5,0). */
+:root .suggestions-panel ptah-suggestion-option.suggestion-active {
+  background: oklch(var(--p));
+  color: oklch(var(--pc));
+}
+:root .suggestions-panel ptah-suggestion-option.suggestion-active .opacity-70 {
+  opacity: 1;
+}
+:root .suggestions-panel ptah-suggestion-option.suggestion-active .badge.badge {
+  background: oklch(var(--pc));
+  color: oklch(var(--p));
+  border-color: transparent;
+}
+/* Preserve dark glass's warning appearance; solid themes use full-strength
+   warning ink, and light surfaces use the existing deep warm text token. */
+:root[data-glass='on'][data-glass-mode='dark'] .autopilot-warning {
+  color: oklch(var(--wa) / 0.8);
+}
+:root[data-theme-mode='light'] .autopilot-warning {
+  color: var(--ptah-gold-strong);
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-glass='on'] [data-composer-overlay] {
+    --glass-composer-overlay-alpha: 1;
+  }
+}
+/* The Electron dock already owns a chrome pane. Its flat header/tab strip
+   must transmit that pane instead of covering it with a second canvas. */
+:root[data-glass='on'] .electron-git-dock ptah-git-dock-header > div,
+:root[data-glass='on'] .electron-git-dock .review-shell-tabs > div:first-child,
+:root[data-glass='on'] .electron-git-dock :is([data-testid='changed-file-tree'], [data-testid='review-canvas-list']) {
+  background: transparent;
+}
 
 /* Glass elevation for hand-framed boxes (glass on, any theme). Neutral
    hairline utilities soften to the separator tone (--surface-border), and a
@@ -3410,12 +3533,72 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-theme][data-glass='on'] ptah-chat-session-layout .chat-scroll-content {
   padding-top: 8px;
 }
+/* The transcript column is the one reading plane of a conversation: it carries
+   the local text scrim over the tinted scene. Every other scrim surface inside
+   it (content cards, the answer cards, assistant chat bubbles) goes clear, so
+   no plate stacks on a plate; they keep their padding and bubbles keep their
+   frame. Painted only once a message exists, so an empty transcript draws no
+   empty card. The user bubble keeps --glass-bubble-user, code keeps
+   --glass-code and the composer keeps --glass-fill-input. */
+:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) {
+  background: var(--glass-scrim-text);
+  border-radius: var(--glass-radius);
+  padding-inline: var(--sidebar-spacing-md);
+  padding-bottom: var(--sidebar-spacing-md);
+}
+:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary)) {
+  background: transparent;
+  box-shadow: none;
+}
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root[data-theme][data-glass='on'] .chat-composer-column[data-glass-surface='tile'] {
     box-shadow: none;
   }
   :root[data-theme][data-glass='on'][data-glass-mode='light'] .chat-composer-column[data-glass-surface='tile'] {
     background: var(--glass-fill-tile);
+  }
+}
+
+/* Active composer: while focus is anywhere in the main chat composer, the
+   whole card takes the selected-session frame (below) instead of a ring on
+   the textarea alone: the theme primary (gold in ptah-glass), info in plan
+   mode. Solid themes and the contrast / transparency fallbacks keep a solid
+   1px frame; glass gets the tinted glow on an overlay, so the card keeps its
+   own rim and elevation shadows. Forced colours keep the textarea's own
+   focus outline. */
+.chat-composer-card {
+  --composer-focus-ink: oklch(var(--p));
+}
+.chat-composer-card.chat-composer-card--plan {
+  --composer-focus-ink: oklch(var(--in));
+}
+:root:not([data-glass='on']) .chat-composer-card:focus-within {
+  border-color: var(--composer-focus-ink);
+  box-shadow: inset 0 0 0 1px var(--composer-focus-ink), inset 0 1px 0 var(--surface-highlight), var(--elev-shadow);
+}
+@media (forced-colors: none) {
+  :root[data-glass='on'] .chat-composer-card textarea:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-glass='on'] .chat-composer-card:focus-within {
+    outline: 1px solid var(--composer-focus-ink);
+    outline-offset: -1px;
+  }
+}
+@media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+  :root[data-theme][data-glass='on'] .chat-composer-card:focus-within::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--composer-focus-ink) var(--glass-glow-ring), transparent),
+      inset 0 0 var(--glass-glow-blur) 0 color-mix(in oklch, var(--composer-focus-ink) var(--glass-glow-halo), transparent);
   }
 }
 
@@ -3531,7 +3714,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] [data-glass-surface='bar'] {
   background: transparent;
 }
-:root[data-glass='on'] [data-glass-surface='content'] { background: var(--glass-fill-content); }
+:root[data-glass='on'] [data-glass-surface='content'] { background: var(--glass-scrim-text); }
 /* Assistant answers are a content card with no inset of their own. User
    bubbles already use this padding (.chat-bubble, sidebar scale). Apply it
    only while glass paints the card, so non-glass transcript spacing stays. */

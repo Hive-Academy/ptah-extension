@@ -11,23 +11,23 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
-import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   InspectorShellController,
   PreviousSessionsDialogService,
-  ProjectSetupCardComponent,
   RailTranscriptRetentionCoordinator,
   RecentSessionsStore,
-  SessionRowActionsService,
   TabManagerService,
 } from '@ptah-extension/chat';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
+  SidebarTabComponent,
   StatsTileExpansionState,
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
@@ -44,9 +44,10 @@ import { CanvasInspectorDockComponent, injectCanvasInspectorDockState, isCanvasI
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 import { focusNeighbourCard, restoreBoardFocus } from './canvas-board-focus';
-import { LucideAngularModule, Sparkles, TriangleAlert, X } from 'lucide-angular';
-import { AuroraEffectComponent } from '@ptah-extension/ui';
-import type { ChatSessionSummary } from '@ptah-extension/shared';
+import { LucideAngularModule, RotateCw, TriangleAlert, X } from 'lucide-angular';
+// Referenced only inside the empty board's `@defer` block, so the hero and its
+// vitals molecules load in a lazy chunk (canvas-empty-board.lazy-boundary.spec.ts).
+import { CanvasEmptyBoardComponent } from './canvas-empty-board.component';
 import {
   checkRailGeometry,
   railAnchorScrollTop,
@@ -76,10 +77,9 @@ export interface CanvasBoardNotice {
     CanvasRailComponent,
     CanvasInspectorDockComponent,
     CanvasFocusAreaComponent,
-    ProjectSetupCardComponent,
-    AuroraEffectComponent,
+    CanvasEmptyBoardComponent,
+    SidebarTabComponent,
     NgTemplateOutlet,
-    DatePipe,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -99,9 +99,6 @@ export interface CanvasBoardNotice {
   },
   styles: [
     `
-      :host-context([data-glass='on']) ptah-aurora-effect {
-        display: none;
-      }
       :host-context([data-glass='on']) .canvas-rail-board-layout {
         gap: 8px;
       }
@@ -130,7 +127,10 @@ export interface CanvasBoardNotice {
       <div
         class="canvas-rail-board-layout relative flex h-full min-h-0 min-w-0"
       >
+        <!-- While the board is empty the Rail stays mounted (its instance and
+             scroll survive) but hidden behind the Sessions tab below. -->
         <ptah-canvas-rail
+          [style.display]="railHidden() ? 'none' : null"
           [attr.inert]="compactSheetOpen() ? '' : null" [tiles]="orderedTiles()"
           [workspacePath]="workspacePath()" [states]="railStates()"
           [focusedTabId]="focusedId()" [density]="board().railDensity"
@@ -153,109 +153,55 @@ export interface CanvasBoardNotice {
           (closeRequested)="close($event)"
         />
         @if (orderedTiles().length === 0) {
-          <main
-            class="relative order-first flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
-            [attr.data-glass-surface]="isElectron ? null : 'chrome'"
-            data-testid="canvas-rail-empty-board" aria-labelledby="canvas-rail-empty-board-title"
-          >
-            <ptah-aurora-effect variant="board" [visible]="surfaceActive()" />
+          <!-- The hero is lazy: everything it pulls in (vitals store, rings,
+               stat molecules) stays out of the initial bundle. -->
+          @defer (on immediate) {
+            <ptah-canvas-empty-board
+              [workspacePath]="workspacePath()"
+              [visible]="surfaceActive()"
+              [notice]="notice()"
+              [newSessionBlockReason]="newSessionBlockReason()"
+              (newSessionRequested)="newSession($event)"
+              (noticeDismissed)="noticeDismissed.emit($event)"
+              (previousSessionsRequested)="previousSessions.open()"
+            />
+          } @placeholder {
+            <!-- The notice is the board's: it shows here too, so a condition
+                 raised while the chunk loads is never lost. -->
             <div
-              class="relative z-10 mx-auto w-full max-w-[780px] px-6 pb-[70px] pt-[58px] max-[850px]:px-5 max-[850px]:pt-6"
-              data-testid="canvas-rail-empty-board-content"
+              class="order-first flex min-h-0 min-w-0 flex-1 flex-col"
+              data-testid="canvas-empty-board-placeholder"
             >
               @if (notice()) {
-                <ng-container [ngTemplateOutlet]="noticeTemplate" />
+                <div class="mx-auto w-full max-w-[588px] shrink-0 p-4"><ng-container [ngTemplateOutlet]="noticeTemplate" /></div>
               }
-              <div
-                class="mx-auto flex min-h-[251px] flex-col items-center justify-center text-center"
-              >
-                <span
-                  class="mb-4 flex size-[45px] items-center justify-center rounded-xl border border-[color:var(--surface-border-strong)] bg-surface-3 text-secondary"
-                  aria-hidden="true"
-                  ><lucide-angular [img]="sparklesIcon" class="size-6"
-                /></span>
-                <h1
-                  id="canvas-rail-empty-board-title"
-                  class="font-display text-[29px] font-semibold text-base-content"
-                >
-                  A fresh space to work
-                </h1>
-                <p class="mt-2 text-[13px] text-base-content">
-                  Start a session to explore, build, and make progress.
-                </p>
-                <button
-                  type="button" data-testid="canvas-hero-new-session"
-                  class="btn btn-primary mt-5 min-w-[153px]"
-                  [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
-                  [attr.title]="newSessionBlockReason()"
-                  [attr.aria-describedby]="
-                    newSessionBlockReason()
-                      ? 'canvas-rail-empty-board-reason'
-                      : null
-                  "
-                  (click)="emptyBoardNewSession($event)"
-                >
-                  <span aria-hidden="true">+</span> New session
-                </button>
-                @if (newSessionBlockReason(); as reason) {
-                  <p
-                    id="canvas-rail-empty-board-reason" class="text-xs text-base-content-muted"
-                  >
-                    {{ reason }}
-                  </p>
-                }
-              </div>
-              <div class="mx-auto w-full max-w-[588px]">
-                <ptah-project-setup-card class="block w-full" />
-                @if (
-                  recentSessions.confirmed() && recentSessions.sessions().length
-                ) {
-                  <section class="mt-6" aria-labelledby="canvas-recent-heading">
-                    <h2
-                      id="canvas-recent-heading" class="mb-3 text-sm font-semibold"
-                    >
-                      Recent sessions
-                    </h2>
-                    <div
-                      class="grid grid-cols-3 gap-[9px] max-[850px]:grid-cols-1"
-                    >
-                      @for (
-                        session of recentSessions.sessions().slice(0, 3);
-                        track session.id
-                      ) {
-                        <button
-                          type="button"
-                          class="surface-3 min-h-[84px] min-w-0 rounded-xl p-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-2"
-                          [attr.aria-label]="
-                            'Open ' +
-                            (session.name || 'Untitled session') +
-                            (recentActivity(session.lastActivityAt)
-                              ? ', ' + recentActivity(session.lastActivityAt)
-                              : '')
-                          "
-                          (click)="openRecentSession(session)"
-                        >
-                          <span class="line-clamp-2 text-xs font-semibold">{{
-                            session.name || 'Untitled session'
-                          }}</span>
-                          <span
-                            class="mt-2 block text-xs text-base-content-muted"
-                            [attr.title]="
-                              session.lastActivityAt === null ||
-                              session.lastActivityAt === undefined
-                                ? null
-                                : (session.lastActivityAt | date: 'medium')
-                            "
-                            >{{ recentActivity(session.lastActivityAt) }}</span
-                          >
-                        </button>
-                      }
-                    </div>
-                  </section>
-                }
-              </div>
             </div>
-          </main>
+          } @error {
+            <!-- A failed chunk load is cached by Angular and the module
+                 loader, so a remount would fail again: Reload restarts the
+                 renderer instead (as electron-shell's welcome). -->
+            <div
+              class="order-first flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+              data-testid="canvas-empty-board-error"
+            >
+              @if (notice()) {
+                <div class="w-full max-w-[588px]"><ng-container [ngTemplateOutlet]="noticeTemplate" /></div>
+              }
+              <p class="text-sm text-base-content" role="alert">The workspace overview could not load.</p>
+              <button type="button" class="btn btn-sm btn-primary gap-1.5" (click)="reloadWindow()">
+                <lucide-angular [img]="reloadIcon" class="size-3.5" aria-hidden="true" />
+                Reload
+              </button>
+            </div>
+          }
+          <ptah-sidebar-tab
+            data-sessions-tab
+            label="Sessions"
+            side="right"
+            [isOpen]="emptyRailOpen()"
+            [newCount]="0"
+            (toggled)="emptyRailOpen.set(!emptyRailOpen())"
+          />
         } @else {
           <div
             class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
@@ -322,25 +268,9 @@ export interface CanvasBoardNotice {
         }
         <ng-template #noticeTemplate>
           @if (notice(); as currentNotice) {
-            <div
-              class="surface-3 mx-auto flex min-h-12 w-full items-center gap-3 rounded-lg border border-warning px-3 py-2.5 text-sm text-base-content"
-              [class.max-w-[588px]]="orderedTiles().length === 0"
-              [attr.role]="currentNotice.kind === 'cap' ? 'status' : 'alert'"
-              data-testid="canvas-board-notice"
-            >
-              <lucide-angular
-                [img]="alertIcon" class="size-4 shrink-0"
-                aria-hidden="true"
-              /><span class="flex-1">{{ currentNotice.text }}</span>
-              <button
-                type="button" class="btn btn-ghost btn-xs"
-                aria-label="Dismiss notice" (click)="noticeDismissed.emit(currentNotice.key)"
-              >
-                <lucide-angular
-                  [img]="closeIcon" class="size-3.5"
-                  aria-hidden="true"
-                />
-              </button>
+            <div class="surface-3 mx-auto flex min-h-12 w-full items-center gap-3 rounded-lg border border-warning px-3 py-2.5 text-sm text-base-content" [attr.role]="currentNotice.kind === 'cap' ? 'status' : 'alert'" data-testid="canvas-board-notice">
+              <lucide-angular [img]="alertIcon" class="size-4 shrink-0" aria-hidden="true" /><span class="flex-1">{{ currentNotice.text }}</span>
+              <button type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss notice" (click)="noticeDismissed.emit(currentNotice.key)"><lucide-angular [img]="closeIcon" class="size-3.5" aria-hidden="true" /></button>
             </div>
           }
         </ng-template>
@@ -360,26 +290,7 @@ export interface CanvasBoardNotice {
 })
 export class CanvasRailBoardComponent {
   readonly isElectron = inject(VSCodeService).isElectron;
-  recentActivity(timestamp: number | null | undefined): string {
-    if (timestamp == null) return '';
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return '';
-    const now = new Date();
-    const elapsed = now.getTime() - timestamp;
-    if (elapsed >= 0 && elapsed < 60 * 60_000)
-      return `${Math.max(1, Math.floor(elapsed / 60_000))}m ago`;
-    if (date.toDateString() === now.toDateString() && elapsed >= 0)
-      return `${Math.floor(elapsed / 3_600_000)}h ago`;
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-    return new Intl.DateTimeFormat(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
-    }).format(date);
-  }
-  readonly sparklesIcon = Sparkles;
+  readonly reloadIcon = RotateCw;
   readonly alertIcon = TriangleAlert;
   readonly closeIcon = X;
   readonly sides = ['left', 'right'] as const;
@@ -390,7 +301,6 @@ export class CanvasRailBoardComponent {
   /** The footer or empty board asked for the host's named New session popover. */
   readonly newSessionRequested = output<HTMLElement>();
   readonly recentSessions = inject(RecentSessionsStore);
-  private readonly sessionActions = inject(SessionRowActionsService);
   readonly store = inject(CanvasStore);
   readonly previousSessions = inject(PreviousSessionsDialogService);
   readonly layout = inject(CanvasLayoutService);
@@ -465,6 +375,17 @@ export class CanvasRailBoardComponent {
     ),
   );
   readonly isEmptyBoard = computed(() => this.orderedTiles().length === 0);
+  /**
+   * The Sessions tab of an empty board. Transient: it is never persisted (so
+   * `store.setRailCollapsed` is untouched) and closes again on every change
+   * between empty and populated; the first tile shows the normal Rail with its
+   * persisted collapsed state.
+   */
+  readonly emptyRailOpen = linkedSignal({
+    source: this.isEmptyBoard,
+    computation: () => false,
+  });
+  readonly railHidden = computed(() => this.isEmptyBoard() && !this.emptyRailOpen());
   readonly focusedId = computed(() => {
     const tiles = this.orderedTiles();
     const id = this.store.focusedTabIdFor(this.workspacePath());
@@ -1020,24 +941,9 @@ export class CanvasRailBoardComponent {
   newSession(element: HTMLElement): void {
     this.newSessionRequested.emit(element);
   }
-  /**
-   * The empty-board trigger stays focusable while `aria-disabled`, so its
-   * reason is still read out; activating it then does nothing. A native
-   * button turns Enter and Space into this click, so the guard covers the
-   * keyboard too.
-   */
-  emptyBoardNewSession(event: MouseEvent): void {
-    if (this.newSessionBlockReason()) return;
-    if (event.currentTarget instanceof HTMLElement)
-      this.newSession(event.currentTarget);
-  }
-  async openRecentSession(session: ChatSessionSummary): Promise<void> {
-    try {
-      if ((await this.sessionActions.openSession(session)) === 'opened') return;
-    } catch {
-      // Keep the card and give the same safe announcement as a failed result.
-    }
-    this.announce('Unable to open session. Try again.');
+  /** Retry of the deferred empty board: restarts the renderer (see its `@error`). */
+  reloadWindow(): void {
+    this.host.nativeElement.ownerDocument.defaultView?.location.reload();
   }
   /** Called by the host after its popover added `id` to this board. */
   sessionCreated(id: string): void {

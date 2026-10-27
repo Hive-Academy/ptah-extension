@@ -2,7 +2,8 @@
  * Electron Shell Component
  *
  * Top-level layout for the Electron desktop application.
- * Shows the welcome page or a configuration surface before a workspace opens.
+ * Shows a loading state until the first workspace sync settles, then the
+ * welcome page or a configuration surface before a workspace opens.
  * With a workspace, the main app uses the 3-panel layout.
  *
  * 3-panel layout:
@@ -28,7 +29,7 @@ import {
   afterNextRender,
   Injector,
 } from '@angular/core';
-import { NgComponentOutlet } from '@angular/common';
+import { DOCUMENT, NgComponentOutlet } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import {
   LucideAngularModule,
@@ -40,6 +41,7 @@ import {
   AppWindow,
   Wrench,
   Mic,
+  RotateCw,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -49,7 +51,11 @@ import {
   NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
+// Used only inside `@defer` in the template: the compiler turns this
+// declaration into a dynamic import (lazy chunk). Keep it a declaration of
+// its own and do not use the class anywhere else in this file.
 import { ElectronWelcomeComponent } from './electron-welcome.component';
+import { WorkspaceLoadingStateComponent } from './workspace-loading-state.component';
 import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import {
@@ -73,6 +79,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
   imports: [
     AppShellComponent,
     ElectronWelcomeComponent,
+    WorkspaceLoadingStateComponent,
     WorkspaceSidebarComponent,
     SidebarTabComponent,
     ElectronResizeHandleComponent,
@@ -366,12 +373,59 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         />
       </div>
 
-      <!-- Content: welcome, pre-workspace configuration, or workspace layout. -->
-      @if (
+      <!-- Content: L1 loading until the first workspace sync settles, then
+           welcome, pre-workspace configuration, or workspace layout. -->
+      @if (!layout.workspaceResolved()) {
+        <ptah-workspace-loading-state
+          class="flex-1 min-h-0 ptah-vt-surface"
+          [workspaceName]="layout.pendingWorkspaceName()"
+        />
+      } @else if (
         !layout.hasWorkspaceFolders() &&
         appState.openConfigurationSurface() === null
       ) {
-        <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
+        <!-- Deferred so the welcome, its vitals stores and the
+             @ptah-extension/chat-ui/vitals molecules load as a lazy chunk,
+             out of the initial bundle. The placeholder keeps the same
+             flex-1 surface box, so the layout does not move while the
+             chunk loads. The welcome must not be used outside this block
+             nor re-exported by the chat barrel, or the compiler and esbuild
+             keep it eager (electron-welcome.lazy-boundary.spec.ts). -->
+        @defer (on immediate) {
+          <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
+        } @placeholder {
+          <div
+            class="flex-1 ptah-vt-surface"
+            data-testid="electron-welcome-placeholder"
+            aria-hidden="true"
+          ></div>
+        } @error {
+          <!-- A failed chunk load is cached by Angular and the module
+               loader, so a remount would fail again: Reload restarts the
+               renderer instead. -->
+          <div
+            class="flex-1 ptah-vt-surface flex flex-col items-center justify-center gap-3 p-6 text-center"
+            data-testid="electron-welcome-error"
+            role="alert"
+          >
+            <p class="text-sm text-base-content">
+              The welcome screen could not load.
+            </p>
+            <button
+              type="button"
+              class="btn btn-sm btn-primary gap-1.5"
+              data-testid="electron-welcome-reload"
+              (click)="reloadWindow()"
+            >
+              <lucide-angular
+                [img]="RotateCwIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              Reload
+            </button>
+          </div>
+        }
       } @else if (!layout.hasWorkspaceFolders()) {
         <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
       } @else {
@@ -586,6 +640,14 @@ export class ElectronShellComponent {
   readonly AppWindowIcon = AppWindow;
   readonly WrenchIcon = Wrench;
   readonly MicIcon = Mic;
+  readonly RotateCwIcon = RotateCw;
+
+  private readonly document = inject(DOCUMENT);
+
+  /** Retry of the deferred welcome: restarts the renderer (see `@error`). */
+  protected reloadWindow(): void {
+    this.document.defaultView?.location.reload();
+  }
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 

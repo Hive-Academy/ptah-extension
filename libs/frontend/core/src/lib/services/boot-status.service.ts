@@ -19,8 +19,10 @@
  * throw into the boot path — which means a transition CAN be dropped, and the
  * message is edge-triggered, so nothing re-sends it. Without the watchdog a
  * single lost `database → harness` push strands the user behind the boot screen
- * forever with no in-app recovery. The loop runs only while `warming`, only in
- * Electron, and stops the instant readiness becomes terminal.
+ * forever with no in-app recovery. The loop runs only in Electron, while
+ * `warming`, and then for a bounded window while a host boot step is still
+ * unsettled (see {@link BootStatusService.hostSteps}); it stops once both are
+ * settled.
  *
  * ## Why the initial value is `ready`
  *
@@ -29,6 +31,18 @@
  * hang that host behind a boot screen forever. Every degrade path here —
  * a failed pull, a malformed push, a host that never pushes — therefore leaves
  * the service reporting `ready`, i.e. never blocking.
+ *
+ * ## Host boot steps (TASK_2026_721, component 8)
+ *
+ * {@link BootStatusService.hostSteps} folds the Electron host's three
+ * `boot:progress` steps (`verify`, `restore`, `agents`) from two sources: the
+ * push, which the host replays on `did-finish-load`, and the `steps` field of
+ * the same `boot:getReadiness` pull. The replay has the same race as the
+ * readiness push (it can land before this listener exists) and a window
+ * replaced after every step finished gets no replay at all, so the pull is the
+ * fallback. Both go through one fold that never moves a step backwards, so
+ * the order in which they arrive does not matter. A reload replays steps that
+ * are long `done`; folding them again is a no-op.
  */
 
 import {
@@ -40,12 +54,17 @@ import {
 } from '@angular/core';
 import {
   BOOT_PHASE_VALUES,
+  BOOT_PROGRESS_STEP_IDS,
+  BootProgressPayloadSchema,
   DEFAULT_READINESS_RETRY_AFTER_MS,
   MESSAGE_TYPES,
   isBackendReadiness,
   isBootPhase,
   type BackendReadiness,
   type BootPhase,
+  type BootProgressPayload,
+  type BootProgressStepId,
+  type BootProgressStepState,
   type BootReadinessChangedPayload,
 } from '@ptah-extension/shared';
 
@@ -55,6 +74,14 @@ import { VSCodeService } from './vscode.service';
 
 /** Timeout for the one-shot readiness pull. Short: the answer is in-memory. */
 const READINESS_PULL_TIMEOUT_MS = 5000;
+
+/**
+ * How long the re-pull keeps running for unsettled host steps once readiness
+ * is terminal. Agent adapter initialization is detached and can finish after
+ * the boot reports `ready`; a minute covers it without polling for the life of
+ * the page when a step never settles.
+ */
+const HOST_STEP_PULL_WINDOW_MS = 60_000;
 
 /**
  * The phases during which nothing in the shell is usable yet.
@@ -72,6 +99,27 @@ const READY_DEFAULT: BootReadinessChangedPayload = {
   startedAt: Date.now(),
 };
 
+/** A host boot step as the renderer shows it: `pending` until it starts. */
+export type HostBootStepState = 'pending' | BootProgressStepState;
+
+/** One of the host's three boot steps, folded from `boot:progress`. */
+export interface HostBootStep {
+  readonly stepId: BootProgressStepId;
+  readonly state: HostBootStepState;
+  /** Work done so far; present with {@link count} when the step counts. */
+  readonly done?: number;
+  readonly count?: number;
+  /** Set once the step is `done` or `failed`. */
+  readonly elapsedMs?: number;
+  /** Epoch ms at which the step became active; absent while `pending`. */
+  readonly startedAt?: number;
+}
+
+/** The fold's starting point: every step known, none started. */
+const PENDING_HOST_STEPS: readonly HostBootStep[] = BOOT_PROGRESS_STEP_IDS.map(
+  (stepId) => ({ stepId, state: 'pending' }),
+);
+
 @Injectable({ providedIn: 'root' })
 export class BootStatusService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
@@ -80,9 +128,20 @@ export class BootStatusService implements MessageHandler {
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.BOOT_READINESS_CHANGED,
+    MESSAGE_TYPES.BOOT_PROGRESS,
   ] as const;
 
   private readonly _status = signal<BootReadinessChangedPayload>(READY_DEFAULT);
+
+  private readonly _hostSteps = signal<readonly HostBootStep[] | null>(null);
+
+  /**
+   * The host's three boot steps in order, or `null` until the first valid
+   * `boot:progress` arrives (always `null` outside Electron). A step never
+   * moves backwards: `done` and `failed` stick, and an `active` update never
+   * lowers a step's `done` count.
+   */
+  readonly hostSteps = this._hostSteps.asReadonly();
 
   /** The last well-formed snapshot, from either the push or the pull. */
   readonly status = this._status.asReadonly();
@@ -129,6 +188,9 @@ export class BootStatusService implements MessageHandler {
 
   private watchdog: ReturnType<typeof setInterval> | null = null;
 
+  /** Epoch ms after which unsettled host steps stop being re-pulled. */
+  private stepPullDeadline: number | null = null;
+
   private readonly isElectron: boolean;
 
   constructor() {
@@ -147,8 +209,15 @@ export class BootStatusService implements MessageHandler {
    * A push is always authoritative — it is the host telling us something
    * changed, so it may move the state backwards (a `failed` after a `warming`,
    * for instance). Only the pull is held to the monotonic rule.
+   *
+   * A `boot:progress` push is different: it is replayed and racing the pull,
+   * so it goes through the no-regression step fold.
    */
   handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type === MESSAGE_TYPES.BOOT_PROGRESS) {
+      this.foldHostSteps([message.payload]);
+      return;
+    }
     if (message.type !== MESSAGE_TYPES.BOOT_READINESS_CHANGED) return;
     const snapshot = toReadinessSnapshot(message.payload);
     if (!snapshot) return;
@@ -167,6 +236,9 @@ export class BootStatusService implements MessageHandler {
         { timeout: READINESS_PULL_TIMEOUT_MS },
       );
       if (!result.isSuccess()) return;
+      // The step snapshots fold independently of the readiness rule below:
+      // the step fold is itself monotonic, so a stale pull cannot rewind it.
+      this.foldHostSteps(readPulledSteps(result.data));
       const snapshot = toReadinessSnapshot(result.data);
       if (!snapshot) return;
       // A pull answers a question asked in the past. Adopt it only if it is at
@@ -182,21 +254,71 @@ export class BootStatusService implements MessageHandler {
     }
   }
 
+  /**
+   * Fold step payloads from a push or a pull. Each one is `safeParse`d with
+   * the shared schema; an invalid one is dropped without touching the rest.
+   * The signal is written once, and only when a step actually changed.
+   */
+  private foldHostSteps(payloads: readonly unknown[]): void {
+    let next = this._hostSteps() ?? PENDING_HOST_STEPS;
+    let changed = false;
+    for (const value of payloads) {
+      const parsed = BootProgressPayloadSchema.safeParse(value);
+      if (!parsed.success) continue;
+      const position = BOOT_PROGRESS_STEP_IDS.indexOf(parsed.data.stepId);
+      const current = next[position];
+      if (current === undefined) continue;
+      const merged = mergeHostStep(current, parsed.data);
+      if (merged === current) continue;
+      next = next.map((step, i) => (i === position ? merged : step));
+      changed = true;
+    }
+    if (!changed) return;
+    this._hostSteps.set(next);
+    this.syncWatchdog();
+  }
+
   /** Accept a snapshot and re-arm or retire the watchdog to match it. */
   private adopt(snapshot: BootReadinessChangedPayload): void {
     this.hasSnapshot = true;
     this._status.set(snapshot);
-    if (snapshot.readiness === 'warming') {
+    this.syncWatchdog();
+  }
+
+  /**
+   * Run the re-pull while the boot is `warming`, and afterwards while a known
+   * host step is still `pending` or `active`: a step can settle after
+   * readiness does, and if that push was missed nothing else re-sends it. The
+   * step-only phase is bounded by {@link HOST_STEP_PULL_WINDOW_MS} from the
+   * moment readiness left `warming`.
+   */
+  private syncWatchdog(): void {
+    if (this._status().readiness === 'warming') {
+      this.stepPullDeadline = null;
       this.startWatchdog();
-    } else {
-      this.stopWatchdog();
+      return;
     }
+    const steps = this._hostSteps();
+    const unsettled =
+      steps?.some((s) => s.state === 'pending' || s.state === 'active') ??
+      false;
+    if (!unsettled) {
+      this.stopWatchdog();
+      return;
+    }
+    this.stepPullDeadline ??= Date.now() + HOST_STEP_PULL_WINDOW_MS;
+    if (Date.now() >= this.stepPullDeadline) {
+      this.stopWatchdog();
+      return;
+    }
+    this.startWatchdog();
   }
 
   private startWatchdog(): void {
     if (!this.isElectron || this.watchdog !== null) return;
     this.watchdog = setInterval(() => {
-      void this.pullReadiness();
+      this.syncWatchdog();
+      if (this.watchdog !== null) void this.pullReadiness();
     }, DEFAULT_READINESS_RETRY_AFTER_MS);
   }
 
@@ -205,6 +327,46 @@ export class BootStatusService implements MessageHandler {
     clearInterval(this.watchdog);
     this.watchdog = null;
   }
+}
+
+/**
+ * Apply one validated payload to a step, or return `current` unchanged.
+ *
+ * - A terminal step (`done`, `failed`) keeps its first terminal state, the same
+ *   rule the host publisher applies.
+ * - An `active` update never lowers the `done` count of an `active` step, so a
+ *   pull that was on the wire while a newer tick landed cannot rewind it.
+ */
+function mergeHostStep(
+  current: HostBootStep,
+  payload: BootProgressPayload,
+): HostBootStep {
+  if (current.state === 'done' || current.state === 'failed') return current;
+  if (
+    current.state === 'active' &&
+    payload.state === 'active' &&
+    current.done !== undefined &&
+    (payload.done === undefined || payload.done < current.done)
+  ) {
+    return current;
+  }
+  return {
+    stepId: payload.stepId,
+    state: payload.state,
+    ...(payload.done === undefined || payload.count === undefined
+      ? {}
+      : { done: payload.done, count: payload.count }),
+    ...(payload.elapsedMs === undefined ? {} : { elapsedMs: payload.elapsedMs }),
+    startedAt: payload.startedAt,
+  };
+}
+
+/** The `steps` of a pull result as unvalidated entries; `[]` when absent. */
+function readPulledSteps(value: unknown): readonly unknown[] {
+  if (typeof value !== 'object' || value === null || !('steps' in value)) {
+    return [];
+  }
+  return Array.isArray(value.steps) ? value.steps : [];
 }
 
 /** Terminal states rank above `warming`; everything else compares by phase. */

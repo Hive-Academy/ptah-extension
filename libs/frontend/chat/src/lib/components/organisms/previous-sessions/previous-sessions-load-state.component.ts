@@ -11,6 +11,11 @@
  * focus to the opener after the close renders. No Retry: Angular keeps a
  * failed defer load per template, so only a window reload refetches it.
  *
+ * While loading, four shimmer rows stand in for the session list
+ * (TASK_2026_721, 11d). The copy stays as the dialog's description, read by
+ * screen readers only; the rows are decorative and hold still under
+ * `prefers-reduced-motion`.
+ *
  * Internal to the chat lib; rendered only by the shell's `@loading` and
  * `@error` blocks, and not exported from the barrel.
  */
@@ -27,6 +32,17 @@ import { History, LucideAngularModule, X } from 'lucide-angular';
 import { PreviousSessionsDialogService } from '../../../services/session-list/previous-sessions-dialog.service';
 import { wrapTabWithin } from '../../../utils/focus-wrap.utils';
 
+const SKELETON_ROWS: readonly {
+  readonly id: number;
+  readonly width: string;
+  readonly delay: string;
+}[] = [
+  { id: 0, width: '78%', delay: '0ms' },
+  { id: 1, width: '62%', delay: '120ms' },
+  { id: 2, width: '70%', delay: '240ms' },
+  { id: 3, width: '54%', delay: '360ms' },
+];
+
 @Component({
   selector: 'ptah-previous-sessions-load-state',
   standalone: true,
@@ -36,6 +52,26 @@ import { wrapTabWithin } from '../../../utils/focus-wrap.utils';
     `
       :host {
         display: contents;
+      }
+
+      .psl-shimmer {
+        opacity: 0.55;
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        .psl-shimmer {
+          animation: psl-shimmer 1.4s ease-in-out infinite;
+        }
+      }
+
+      @keyframes psl-shimmer {
+        0%,
+        100% {
+          opacity: 0.35;
+        }
+        50% {
+          opacity: 0.8;
+        }
       }
     `,
   ],
@@ -82,16 +118,33 @@ import { wrapTabWithin } from '../../../utils/focus-wrap.utils';
         </div>
 
         @if (state() === 'loading') {
-          <p
-            id="psl-message"
-            class="flex items-center gap-2 text-sm text-base-content-muted"
+          <div
+            class="flex flex-col gap-3"
+            role="status"
+            aria-busy="true"
+            data-testid="previous-sessions-load-skeleton"
           >
-            <span
-              class="loading loading-spinner loading-xs"
-              aria-hidden="true"
-            ></span>
-            Loading previous sessions...
-          </p>
+            <p id="psl-message" class="sr-only">Loading previous sessions...</p>
+            @for (row of skeletonRows; track row.id) {
+              <div
+                class="psl-shimmer flex items-center gap-3"
+                [style.animation-delay]="row.delay"
+                aria-hidden="true"
+                data-testid="previous-sessions-skeleton-row"
+              >
+                <span
+                  class="w-4 h-4 shrink-0 rounded-full bg-base-content/15"
+                ></span>
+                <span class="flex flex-1 min-w-0 flex-col gap-1.5">
+                  <span
+                    class="h-2.5 rounded-full bg-base-content/15"
+                    [style.width]="row.width"
+                  ></span>
+                  <span class="h-2 w-1/3 rounded-full bg-base-content/10"></span>
+                </span>
+              </div>
+            }
+          </div>
         } @else {
           <p id="psl-message" class="text-sm text-base-content">
             Previous sessions could not load. Close this and reload the window
@@ -112,6 +165,9 @@ export class PreviousSessionsLoadStateComponent {
     viewChild.required<ElementRef<HTMLElement>>('panel');
   private readonly closeButton =
     viewChild.required<ElementRef<HTMLButtonElement>>('closeButton');
+
+  /** Varied widths so the rows read as a list, not a block; staggered pulse. */
+  protected readonly skeletonRows = SKELETON_ROWS;
 
   protected readonly HistoryIcon = History;
   protected readonly XIcon = X;

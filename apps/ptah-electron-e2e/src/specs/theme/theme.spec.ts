@@ -74,9 +74,9 @@ test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 U
     const requests: string[] = [];
     page.on('request', (req) => requests.push(req.url()));
 
-    await rpcBridge.setState({ theme: 'anubis-light' });
+    await rpcBridge.setState({ 'theme-v2': 'anubis-light' });
     await page.evaluate(() => {
-      localStorage.setItem('ptah-theme', 'anubis-light');
+      localStorage.setItem('ptah-theme-v2', 'anubis-light');
     });
     await ui.prepare();
     await page.waitForTimeout(500);
@@ -102,9 +102,9 @@ test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 U
     // channel preload.ts uses) -- theme.service.ts re-reads the
     // authoritative source at construction and would otherwise overwrite
     // data-theme back to the default before this test could observe it.
-    await rpcBridge.setState({ theme: 'dracula' });
+    await rpcBridge.setState({ 'theme-v2': 'dracula' });
     await page.evaluate(() => {
-      localStorage.setItem('ptah-theme', 'dracula');
+      localStorage.setItem('ptah-theme-v2', 'dracula');
     });
     await ui.prepare();
     await page.waitForTimeout(500);

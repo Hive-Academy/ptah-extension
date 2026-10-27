@@ -47,6 +47,7 @@ export {
   type LaneVerdictTone,
 } from './lib/utils/lane-result.utils';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
+export * from './lib/molecules/vitals';
 export {
   BackgroundAgentStripComponent,
   formatAgentElapsed,
@@ -130,8 +131,17 @@ export {
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
 export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
-export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
-export { SetupStatusStore } from './lib/molecules/setup-plugins/setup-status.store';
+export {
+  LAUNCHER_IDS,
+  PROMPT_CATALOGUE,
+  type LauncherId,
+  type PromptCategory,
+  type PromptItem,
+} from './lib/molecules/setup-plugins/prompt-catalogue';
+export {
+  SetupStatusStore,
+  type SetupNextAction,
+} from './lib/molecules/setup-plugins/setup-status.store';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
 export { CodeOutputComponent } from './lib/molecules/tool-execution/code-output.component';
 export { fenceCodeBlock } from './lib/molecules/tool-execution/code-fence';

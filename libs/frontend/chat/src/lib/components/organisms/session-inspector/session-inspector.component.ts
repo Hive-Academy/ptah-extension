@@ -67,6 +67,14 @@ type InspectorFocusSection = 'session' | 'agents' | 'todos';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './session-inspector.component.html',
+  // Glass on: docked, the inspector sits in a chrome pane (the Stats dock),
+  // so it stays clear and the pane's blur shows. The sheet and the 56 px
+  // rail strip (no glass pane behind it) keep their fill.
+  styles: `
+    :host-context([data-glass='on']) aside[data-inspector-pane] {
+      background: transparent;
+    }
+  `,
 })
 export class SessionInspectorComponent {
   private readonly store = inject(SessionInspectorStore);

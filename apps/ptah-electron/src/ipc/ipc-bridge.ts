@@ -31,6 +31,7 @@ import {
   MESSAGE_TYPES,
   type ISdkPermissionHandler,
 } from '@ptah-extension/shared';
+import { isTrustedIpcSender } from './ipc-sender-policy';
 
 const STREAM_FLUSH_INTERVAL_MS = 16;
 
@@ -89,6 +90,8 @@ function messageTypeOf(message: unknown): string | undefined {
  */
 interface ElectronWindowHandle {
   webContents: {
+    /** The window's `webContents.id`; the IPC sender guard compares it to `event.sender.id`. */
+    readonly id: number;
     send(channel: string, ...args: unknown[]): void;
     /** Present on real Electron webContents; absent on lightweight test stubs. */
     isDestroyed?(): boolean;
@@ -96,6 +99,12 @@ interface ElectronWindowHandle {
 }
 
 type GetWindowFn = () => ElectronWindowHandle | null;
+
+/**
+ * The part of an `ipcMain` event the sender guard reads. Both `IpcMainEvent`
+ * and `IpcMainInvokeEvent` satisfy it.
+ */
+type IpcSenderEvent = Pick<IpcMainEvent, 'sender' | 'senderFrame'>;
 
 /**
  * IPC Bridge -- Routes messages between the Angular renderer and the
@@ -126,10 +135,19 @@ export class IpcBridge {
    * {@link resolveWindow}.
    */
   private hasHadWindow = false;
+  /** Sender ids already warned about, so a misbehaving frame logs once. */
+  private readonly warnedSenderIds = new Set<number>();
 
+  /**
+   * @param trustedDocumentPaths - absolute paths of the documents the main
+   *   window may show (renderer and boot shell). Only the main window's top
+   *   frame showing one of them may call the guarded channels; see
+   *   {@link isTrustedIpcSender}.
+   */
   constructor(
     private readonly container: DependencyContainer,
     private readonly getWindow: GetWindowFn,
+    private readonly trustedDocumentPaths: readonly string[],
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
@@ -290,6 +308,45 @@ export class IpcBridge {
   }
 
   /**
+   * Whether an `ipcMain` call comes from the main window's top frame showing
+   * a trusted document. An untrusted call is dropped by the caller; the first
+   * drop per sender id is warned about, without the payload or the URL.
+   */
+  private isTrustedSender(event: IpcSenderEvent, channel: string): boolean {
+    let senderId: number | undefined;
+    let trusted = false;
+    try {
+      senderId = event.sender.id;
+      const frame = event.senderFrame;
+      trusted = isTrustedIpcSender(
+        {
+          webContentsId: senderId,
+          frameUrl: frame?.url,
+          isMainFrame: frame !== null && frame === event.sender.mainFrame,
+        },
+        {
+          webContentsId: this.getWindow()?.webContents.id ?? null,
+          documentPaths: this.trustedDocumentPaths,
+        },
+      );
+    } catch {
+      // degradation-audit: optional-capability - reading a disposed frame or
+      // webContents throws; a sender we cannot identify stays untrusted, so
+      // the call is dropped (fail closed) and the drop is warned about below.
+    }
+    if (trusted) return true;
+    // A sender with no readable id is not remembered, so each such drop warns.
+    if (senderId === undefined || !this.warnedSenderIds.has(senderId)) {
+      if (senderId !== undefined) this.warnedSenderIds.add(senderId);
+      const who = senderId === undefined ? 'unknown' : String(senderId);
+      console.warn(
+        `[IpcBridge] Dropped '${channel}' from webContents ${who}: not the main window's top frame on a trusted document, or its frame is gone (reload). Further drops from it are silent.`,
+      );
+    }
+    return false;
+  }
+
+  /**
    * Setup the main RPC message handler.
    *
    * Listens on the 'rpc' channel for messages from the preload script.
@@ -300,6 +357,7 @@ export class IpcBridge {
    */
   private setupRpcHandler(): void {
     ipcMain.on('rpc', async (event: IpcMainEvent, message: unknown) => {
+      if (!this.isTrustedSender(event, 'rpc')) return;
       try {
         if (!message || typeof message !== 'object') {
           console.warn(
@@ -542,6 +600,12 @@ export class IpcBridge {
    */
   private setupStateHandlers(): void {
     ipcMain.on('get-state', (event: IpcMainEvent) => {
+      // A sync caller blocks until `returnValue` is set, so even a dropped
+      // call must answer — with the empty state, never the stored one.
+      if (!this.isTrustedSender(event, 'get-state')) {
+        event.returnValue = {};
+        return;
+      }
       try {
         const pending = this.pendingWebviewStates.get(
           this.activeStateWorkspace(),
@@ -561,7 +625,8 @@ export class IpcBridge {
         event.returnValue = {};
       }
     });
-    ipcMain.on('set-state', async (_event: IpcMainEvent, state: unknown) => {
+    ipcMain.on('set-state', async (event: IpcMainEvent, state: unknown) => {
+      if (!this.isTrustedSender(event, 'set-state')) return;
       const workspacePath = this.activeStateWorkspace();
       const pending = { state };
       this.pendingWebviewStates.set(workspacePath, pending);
@@ -605,7 +670,12 @@ export class IpcBridge {
   private setupDiagnosticsHandlers(): void {
     ipcMain.handle(
       'diag:cpu-profile',
-      async (_event, durationMs?: number): Promise<string> => {
+      async (event, durationMs?: number): Promise<string> => {
+        // `invoke` always settles: a dropped call rejects instead of
+        // capturing, so the untrusted caller learns nothing but the refusal.
+        if (!this.isTrustedSender(event, 'diag:cpu-profile')) {
+          throw new Error('diag:cpu-profile refused: untrusted sender');
+        }
         const capture = this.container.resolve<{
           captureFor(durationMs?: number): Promise<string>;
         }>(TOKENS.CPU_PROFILE_CAPTURE);

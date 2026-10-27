@@ -226,10 +226,13 @@ describe('BootStatusService', () => {
     expect(service.isBooting()).toBe(false);
   });
 
-  it('declares the boot readiness wire string', () => {
+  it('declares the boot readiness and boot progress wire strings', () => {
     const { service } = configure({ isElectron: true });
 
-    expect(service.handledMessageTypes).toEqual(['boot:readinessChanged']);
+    expect(service.handledMessageTypes).toEqual([
+      'boot:readinessChanged',
+      'boot:progress',
+    ]);
   });
 
   it('derives elapsed time from startedAt', () => {
@@ -431,5 +434,248 @@ describe('BootStatusService', () => {
 
     expect(service.elapsedMs()).toBe(0);
     nowSpy.mockRestore();
+  });
+
+  describe('hostSteps (boot:progress)', () => {
+    function step(
+      stepId: 'verify' | 'restore' | 'agents',
+      state: 'active' | 'done' | 'failed',
+      extra: Record<string, number> = {},
+    ): Record<string, unknown> {
+      return {
+        stepId,
+        index: ['verify', 'restore', 'agents'].indexOf(stepId),
+        total: 3,
+        state,
+        startedAt: 1_000,
+        ...extra,
+      };
+    }
+
+    function progress(service: BootStatusService, payload: unknown): void {
+      service.handleMessage({ type: MESSAGE_TYPES.BOOT_PROGRESS, payload });
+    }
+
+    it('handles the boot:progress message type', () => {
+      const { service } = configure({ isElectron: true });
+
+      expect(service.handledMessageTypes).toContain(
+        MESSAGE_TYPES.BOOT_PROGRESS,
+      );
+    });
+
+    it('is null until the first valid step, then lists all three in order', () => {
+      const { service } = configure({ isElectron: true });
+      expect(service.hostSteps()).toBeNull();
+
+      progress(service, step('restore', 'active', { done: 1, count: 4 }));
+
+      expect(service.hostSteps()).toEqual([
+        { stepId: 'verify', state: 'pending' },
+        {
+          stepId: 'restore',
+          state: 'active',
+          done: 1,
+          count: 4,
+          startedAt: 1_000,
+        },
+        { stepId: 'agents', state: 'pending' },
+      ]);
+    });
+
+    it('folds transitions and never regresses a done step to active', () => {
+      const { service } = configure({ isElectron: true });
+
+      progress(service, step('verify', 'active'));
+      progress(service, step('verify', 'done', { elapsedMs: 300 }));
+      // A replay after a reload, or a stale pull, re-sends an older state.
+      progress(service, step('verify', 'active'));
+      progress(service, step('verify', 'failed', { elapsedMs: 5 }));
+
+      expect(service.hostSteps()?.[0]).toEqual({
+        stepId: 'verify',
+        state: 'done',
+        elapsedMs: 300,
+        startedAt: 1_000,
+      });
+    });
+
+    it('never lowers the count of an active step', () => {
+      const { service } = configure({ isElectron: true });
+
+      progress(service, step('restore', 'active', { done: 3, count: 4 }));
+      progress(service, step('restore', 'active', { done: 1, count: 4 }));
+      expect(service.hostSteps()?.[1]).toMatchObject({ done: 3 });
+
+      progress(service, step('restore', 'active', { done: 4, count: 4 }));
+      expect(service.hostSteps()?.[1]).toMatchObject({ done: 4 });
+    });
+
+    it('drops an invalid payload and keeps the current steps', () => {
+      const { service } = configure({ isElectron: true });
+      progress(service, step('verify', 'active'));
+      const before = service.hostSteps();
+
+      progress(service, { ...step('verify', 'done'), extra: true });
+      progress(service, step('agents', 'active', { done: 5, count: 2 }));
+      progress(service, { stepId: 'unknown', state: 'done' });
+      progress(service, null);
+
+      expect(service.hostSteps()).toBe(before);
+    });
+
+    it('folds the steps of the boot:getReadiness pull (missed replay)', async () => {
+      const rpc: RpcStub = {
+        call: jest.fn().mockResolvedValue(
+          new RpcResult(true, {
+            readiness: 'warming',
+            phase: 'harness',
+            startedAt: 1,
+            steps: [
+              step('verify', 'done', { elapsedMs: 120 }),
+              { stepId: 'restore', state: 'bogus' },
+              step('agents', 'active'),
+            ],
+          }),
+        ),
+      };
+      const { service } = configure({ isElectron: true, rpc });
+
+      await flushMicrotasks();
+
+      expect(service.hostSteps()?.map((s) => s.state)).toEqual([
+        'done',
+        'pending',
+        'active',
+      ]);
+      expect(service.phase()).toBe('harness');
+    });
+
+    it('lets a pull and the push arrive in either order', async () => {
+      let resolvePull: (value: RpcResult<unknown>) => void = () => undefined;
+      const rpc: RpcStub = {
+        call: jest.fn().mockReturnValue(
+          new Promise<RpcResult<unknown>>((resolve) => {
+            resolvePull = resolve;
+          }),
+        ),
+      };
+      const { service } = configure({ isElectron: true, rpc });
+
+      // The push lands while the pull is on the wire with older snapshots.
+      progress(service, step('verify', 'done', { elapsedMs: 90 }));
+      progress(service, step('restore', 'active', { done: 2, count: 4 }));
+      resolvePull(
+        new RpcResult(true, {
+          readiness: 'ready',
+          phase: 'settled',
+          startedAt: 1,
+          steps: [
+            step('verify', 'active'),
+            step('restore', 'active', { done: 1, count: 4 }),
+            step('agents', 'done', { elapsedMs: 10 }),
+          ],
+        }),
+      );
+      await flushMicrotasks();
+
+      expect(service.hostSteps()?.map((s) => s.state)).toEqual([
+        'done',
+        'active',
+        'done',
+      ]);
+      expect(service.hostSteps()?.[1]).toMatchObject({ done: 2 });
+    });
+
+    it('keeps pulling after ready while a step is unsettled, then stops', async () => {
+      jest.useFakeTimers();
+      const readyWith = (agents: 'active' | 'done') =>
+        new RpcResult(true, {
+          readiness: 'ready',
+          phase: 'settled',
+          startedAt: 1,
+          steps: [
+            step('verify', 'done'),
+            step('restore', 'done'),
+            step('agents', agents),
+          ],
+        });
+      const call = jest
+        .fn()
+        .mockResolvedValueOnce(readyWith('active'))
+        .mockResolvedValue(readyWith('done'));
+      const { service } = configure({ isElectron: true, rpc: { call } });
+      await flushMicrotasks();
+      expect(call).toHaveBeenCalledTimes(1);
+      expect(service.hostSteps()?.[2]?.state).toBe('active');
+
+      jest.advanceTimersByTime(2000);
+      await flushMicrotasks();
+      expect(call).toHaveBeenCalledTimes(2);
+      expect(service.hostSteps()?.every((s) => s.state === 'done')).toBe(true);
+
+      jest.advanceTimersByTime(10_000);
+      await flushMicrotasks();
+      expect(call).toHaveBeenCalledTimes(2);
+      jest.useRealTimers();
+    });
+
+    it('stops re-pulling a step that never settles after a bounded window', async () => {
+      jest.useFakeTimers();
+      const call = jest.fn().mockResolvedValue(
+        new RpcResult(true, {
+          readiness: 'ready',
+          phase: 'settled',
+          startedAt: 1,
+          steps: [step('agents', 'active')],
+        }),
+      );
+      configure({ isElectron: true, rpc: { call } });
+      await flushMicrotasks();
+
+      for (let i = 0; i < 31; i++) {
+        jest.advanceTimersByTime(2000);
+        await flushMicrotasks();
+      }
+      const afterWindow = call.mock.calls.length;
+      expect(afterWindow).toBeGreaterThan(1);
+
+      jest.advanceTimersByTime(20_000);
+      await flushMicrotasks();
+      expect(call).toHaveBeenCalledTimes(afterWindow);
+      jest.useRealTimers();
+    });
+
+    it('does not re-pull after ready when no host step is known', async () => {
+      jest.useFakeTimers();
+      const call = jest.fn().mockResolvedValue(
+        new RpcResult(true, { readiness: 'ready', phase: 'settled', startedAt: 1 }),
+      );
+      configure({ isElectron: true, rpc: { call } });
+      await flushMicrotasks();
+
+      jest.advanceTimersByTime(10_000);
+      await flushMicrotasks();
+
+      expect(call).toHaveBeenCalledTimes(1);
+      jest.useRealTimers();
+    });
+
+    it('keeps hostSteps null when the pull carries no steps', async () => {
+      const rpc: RpcStub = {
+        call: jest.fn().mockResolvedValue(
+          new RpcResult(true, {
+            readiness: 'ready',
+            phase: 'settled',
+            startedAt: 1,
+          }),
+        ),
+      };
+      const { service } = configure({ isElectron: true, rpc });
+
+      await flushMicrotasks();
+
+      expect(service.hostSteps()).toBeNull();
+    });
   });
 });
