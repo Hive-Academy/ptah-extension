@@ -1,7 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
-import { CodexAppServerProcess } from './codex-app-server-process';
+import {
+  CodexAppServerProcess,
+  CodexHomeMismatchError,
+  CodexProcessFailureError,
+  CodexRequestRejectedError,
+} from './codex-app-server-process';
+import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime';
 import type {
   CodexExecutionProfile,
@@ -258,6 +264,124 @@ describe('CodexRuntime', () => {
       expect(child.listenerCount('close')).toBe(0);
       expect(child.stdout.listenerCount('data')).toBe(0);
       expect(child.stdin.listenerCount('finish')).toBe(0);
+    }
+  });
+
+  it('preserves the exact open failure and reports its root cause once', async () => {
+    const root = new CodexProtocolError('invalidResult', 'thread/start');
+    const original = new CodexProcessFailureError(
+      'Codex invalid protocol frame',
+      'thread/start',
+      { cause: root },
+    );
+    const request = jest
+      .spyOn(CodexAppServerProcess.prototype, 'request')
+      .mockRejectedValueOnce(original);
+    try {
+      await expect(runtime.open(profile)).rejects.toMatchObject({
+        message: 'Codex context could not be opened',
+        cause: original,
+      });
+      expect(options.logger.error).toHaveBeenCalledTimes(1);
+      expect(options.logger.error).toHaveBeenCalledWith(
+        'Codex context could not be opened',
+        expect.objectContaining({
+          errorClass: 'CodexProcessFailureError',
+          errorMessage: 'Codex invalid protocol frame',
+          failedMethod: 'thread/start',
+          rootCauseClass: 'CodexProtocolError',
+          rootCauseMessage: root.message,
+        }),
+      );
+    } finally {
+      request.mockRestore();
+    }
+  });
+
+  it('does not log JSON parser excerpts from a protocol failure', async () => {
+    const original = new CodexProcessFailureError(
+      'Codex invalid protocol frame',
+      'thread/start',
+      {
+        cause: new SyntaxError('Unexpected PRIVATE_FRAME_SENTINEL'),
+      },
+    );
+    const request = jest
+      .spyOn(CodexAppServerProcess.prototype, 'request')
+      .mockRejectedValueOnce(original);
+    try {
+      await expect(runtime.open(profile)).rejects.toMatchObject({
+        cause: original,
+      });
+      expect(options.logger.error).toHaveBeenCalledWith(
+        'Codex context could not be opened',
+        expect.objectContaining({
+          rootCauseClass: 'SyntaxError',
+          rootCauseMessage: 'Invalid JSON',
+        }),
+      );
+      expect(
+        JSON.stringify(jest.mocked(options.logger.error).mock.calls),
+      ).not.toContain('PRIVATE_FRAME_SENTINEL');
+    } finally {
+      request.mockRestore();
+    }
+  });
+
+  it('keeps the original persistence error instance as cause', async () => {
+    const original = new Error('Storage unavailable');
+    persist.mockRejectedValueOnce(original);
+    const failure: unknown = await runtime
+      .open(profile)
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    if (!(failure instanceof Error)) throw new Error('Expected open failure');
+    expect(failure.cause).toBe(original);
+    expect(failure.message).toBe('Codex context could not be opened');
+    expect(options.logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows the same home mismatch without wrapping', async () => {
+    const original = new CodexHomeMismatchError();
+    const start = jest
+      .spyOn(CodexAppServerProcess.prototype, 'start')
+      .mockRejectedValueOnce(original);
+    try {
+      await expect(runtime.open(profile)).rejects.toBe(original);
+      expect(options.logger.error).toHaveBeenCalledTimes(1);
+    } finally {
+      start.mockRestore();
+    }
+  });
+
+  it('logs a rejected thread/start with its code and no remote payload', async () => {
+    const opening = runtime.open({
+      ...profile,
+      model: 'PRIVATE_REQUEST_SENTINEL',
+    });
+    children[0].failMethod = 'thread/start';
+    children[0].stderr.write(
+      'Authorization: Bearer secret-key\nstartup failed\n',
+    );
+    const failure: unknown = await opening.catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    if (!(failure instanceof Error)) throw new Error('Expected open failure');
+    expect(failure.cause).toBeInstanceOf(CodexRequestRejectedError);
+    expect(options.logger.error).toHaveBeenCalledTimes(1);
+    expect(options.logger.error).toHaveBeenCalledWith(
+      'Codex context could not be opened',
+      expect.objectContaining({
+        errorClass: 'CodexRequestRejectedError',
+        failedMethod: 'thread/start',
+        rpcCode: -1,
+        stderrTail: expect.stringContaining('startup failed'),
+      }),
+    );
+    for (const log of Object.values(options.logger)) {
+      const calls = jest.mocked(log).mock.calls;
+      expect(JSON.stringify(calls)).not.toMatch(
+        /PRIVATE_REQUEST_SENTINEL|secret raw error|secret-key/,
+      );
     }
   });
 

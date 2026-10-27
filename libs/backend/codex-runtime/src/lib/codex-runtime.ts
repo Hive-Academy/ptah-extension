@@ -1,8 +1,10 @@
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { z } from 'zod';
+import { redactCodexDiagnostics } from './codex-stderr-tail';
 import {
   CodexAppServerProcess,
   CodexHomeMismatchError,
+  CodexProcessFailureError,
   CodexRequestRejectedError,
   type CodexAppServerHandlers,
 } from './codex-app-server-process';
@@ -17,6 +19,7 @@ import {
 } from './codex-permission-rule-store';
 import type { CodexBinaryIdentity } from './codex-protocol-manifest';
 import {
+  CodexProtocolError,
   codexNotificationSchemas,
   codexRequestSchemas,
   type CodexRequestParams,
@@ -117,8 +120,41 @@ export class CodexRuntime implements RuntimePort {
       return context;
     } catch (error) {
       await context.close();
+      const method =
+        error instanceof CodexProcessFailureError ||
+        error instanceof CodexRequestRejectedError ||
+        error instanceof CodexProtocolError
+          ? error.method
+          : undefined;
+      let root: unknown = error;
+      const seen = new Set<unknown>();
+      while (
+        root instanceof Error &&
+        root.cause !== undefined &&
+        !seen.has(root)
+      ) {
+        seen.add(root);
+        root = root.cause;
+      }
+      this.options.logger.error('Codex context could not be opened', {
+        errorClass:
+          error instanceof Error ? error.constructor.name : typeof error,
+        errorMessage: diagnosticMessage(error),
+        ...(method ? { failedMethod: redactCodexDiagnostics(method) } : {}),
+        ...(error instanceof CodexRequestRejectedError
+          ? { rpcCode: error.rpcCode }
+          : {}),
+        ...(root !== error
+          ? {
+              rootCauseClass:
+                root instanceof Error ? root.constructor.name : typeof root,
+              rootCauseMessage: diagnosticMessage(root),
+            }
+          : {}),
+        stderrTail: context.stderrTail(2048),
+      });
       if (error instanceof CodexHomeMismatchError) throw error;
-      throw new Error('Codex context could not be opened');
+      throw new Error('Codex context could not be opened', { cause: error });
     }
   }
 
@@ -129,6 +165,14 @@ export class CodexRuntime implements RuntimePort {
     );
     this.rules.dispose();
   }
+}
+
+// JSON parser errors may quote a raw protocol frame. Never send that text to logs.
+function diagnosticMessage(error: unknown): string {
+  if (error instanceof SyntaxError) return 'Invalid JSON';
+  return error instanceof Error
+    ? redactCodexDiagnostics(error.message)
+    : 'Non-Error failure';
 }
 
 interface Subscriber {
@@ -243,7 +287,12 @@ class RuntimeContext implements CodexContext {
           return result.response;
         },
       },
+      options.logger,
     );
+  }
+
+  stderrTail(maxBytes?: number): string {
+    return this.process.stderrTail(maxBytes);
   }
 
   get identity(): CodexThreadIdentity {

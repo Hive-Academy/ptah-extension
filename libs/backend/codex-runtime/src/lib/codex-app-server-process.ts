@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { CodexStderrTail, redactCodexDiagnostics } from './codex-stderr-tail';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import type {
+  CodexRuntimeLogger,
   CodexExecutableSource,
   IProcessSpawner,
 } from './codex-runtime-ports';
@@ -77,8 +79,24 @@ export class CodexHomeMismatchError extends Error {
   }
 }
 
+export class CodexProcessFailureError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly method?: string,
+    options?: ErrorOptions,
+  ) {
+    super(reason, options);
+    this.name = 'CodexProcessFailureError';
+  }
+}
+
 export class CodexAppServerProcess {
   private verifiedHome?: string;
+  private readonly stderr = new CodexStderrTail();
+
+  stderrTail(maxBytes?: number): string {
+    return this.stderr.tail(maxBytes);
+  }
 
   get verifiedCodexHome(): string | undefined {
     return this.verifiedHome;
@@ -107,6 +125,7 @@ export class CodexAppServerProcess {
     private readonly binary: CodexBinaryIdentity,
     private readonly profile: CodexExecutionProfile,
     private readonly handlers: CodexAppServerHandlers,
+    private readonly logger?: CodexRuntimeLogger,
   ) {}
 
   start(signal?: AbortSignal): Promise<void> {
@@ -167,7 +186,7 @@ export class CodexAppServerProcess {
       this.child.stdout?.on('error', this.onError);
       this.child.stdin?.on('error', this.onError);
       this.child.stderr?.on('error', this.onError);
-      this.child.stderr?.resume();
+      this.child.stderr?.on('data', this.onStderr);
       this.abortSignal = signal;
       signal?.addEventListener('abort', this.onAbort, { once: true });
       if (signal?.aborted) this.onAbort();
@@ -202,8 +221,7 @@ export class CodexAppServerProcess {
       this.verifiedHome = this.profile.normalizedHome;
       this.ready = true;
     } catch (error) {
-      if (error instanceof CodexHomeMismatchError) this.failure ??= error;
-      this.fail('Codex initialization failed');
+      this.fail('Codex initialization failed', error, 'initialize');
       throw this.failure;
     }
   }
@@ -231,24 +249,26 @@ export class CodexAppServerProcess {
     validateCodexFrame({ id, method, params });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.fail('Codex request timed out'),
+        () => this.fail('Codex request timed out', undefined, method),
         timeout,
       );
       this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });
-      } catch {
-        this.fail('Codex request write failed');
+      } catch (error) {
+        this.fail('Codex request write failed', error, method);
       }
     });
   }
 
   private readonly onData = (chunk: unknown): void => {
     if (this.closing) return;
+    let method: string | undefined;
     try {
       if (!Buffer.isBuffer(chunk)) throw new Error('Invalid stream chunk');
       let offset = 0;
       while (offset < chunk.length && !this.closing) {
+        method = undefined;
         const newline = chunk.indexOf(10, offset);
         const end = newline < 0 ? chunk.length : newline;
         const length = end - offset;
@@ -263,11 +283,17 @@ export class CodexAppServerProcess {
         const value: unknown = JSON.parse(
           new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         );
+        if (typeof value === 'object' && value !== null) {
+          if ('method' in value && typeof value.method === 'string')
+            method = value.method;
+          else if ('id' in value && typeof value.id === 'number')
+            method = this.pending.get(value.id)?.method;
+        }
         this.receive(value);
         offset = end + 1;
       }
-    } catch {
-      this.fail('Codex invalid protocol frame');
+    } catch (error) {
+      this.fail('Codex invalid protocol frame', error, method);
     }
   };
 
@@ -345,6 +371,12 @@ export class CodexAppServerProcess {
     clearTimeout(pending.timer);
     this.pending.delete(frame.id);
     if ('error' in frame) {
+      this.logger?.debug('Codex request rejected', {
+        reason: 'Codex request rejected',
+        method: redactCodexDiagnostics(pending.method),
+        rpcCode: frame.error.code,
+        stderrTail: this.stderrTail(2048),
+      });
       const race =
         (pending.method === 'turn/steer' ||
           pending.method === 'turn/interrupt') &&
@@ -366,7 +398,7 @@ export class CodexAppServerProcess {
       throw new Error('Approval limit or duplicate');
     const controller = new AbortController();
     const timer = setTimeout(
-      () => this.fail('Codex approval timed out'),
+      () => this.fail('Codex approval timed out', undefined, frame.method),
       300_000,
     );
     const approval = { controller, timer };
@@ -382,7 +414,9 @@ export class CodexAppServerProcess {
         clearTimeout(timer);
         this.approvals.delete(frame.id);
       })
-      .catch(() => this.fail('Codex server request failed'));
+      .catch((error: unknown) =>
+        this.fail('Codex server request failed', error, frame.method),
+      );
   }
 
   private write(frame: unknown, responseMethod?: string): void {
@@ -398,7 +432,7 @@ export class CodexAppServerProcess {
     this.queuedBytes += bytes.length;
     this.child.stdin.write(bytes, (error?: Error | null) => {
       this.queuedBytes = Math.max(0, this.queuedBytes - bytes.length);
-      if (error) this.fail('Codex stdin failed');
+      if (error) this.fail('Codex stdin failed', error, responseMethod);
     });
   }
 
@@ -406,8 +440,12 @@ export class CodexAppServerProcess {
     if (this.closing || this.failure)
       throw this.failure ?? new Error('Codex process closed');
   }
-  private readonly onError = (): void => {
-    this.fail('Codex process failed');
+  private readonly onStderr = (chunk: unknown): void => {
+    if (typeof chunk === 'string' || Buffer.isBuffer(chunk))
+      this.stderr.append(chunk);
+  };
+  private readonly onError = (error: unknown): void => {
+    this.fail('Codex process failed', error);
   };
   private readonly onAbort = (): void => {
     this.fail('Codex process aborted');
@@ -422,8 +460,32 @@ export class CodexAppServerProcess {
     this.finishClose?.();
   };
 
-  private fail(message: string): void {
-    this.failure ??= new Error(message);
+  private fail(message: string, cause?: unknown, method?: string): void {
+    const first = !this.failure;
+    const failedMethod =
+      method ??
+      (cause instanceof CodexProtocolError ||
+      cause instanceof CodexRequestRejectedError
+        ? cause.method
+        : undefined) ??
+      (this.pending.size === 1
+        ? this.pending.values().next().value?.method
+        : undefined);
+    this.failure ??=
+      cause instanceof CodexHomeMismatchError
+        ? cause
+        : new CodexProcessFailureError(message, failedMethod, { cause });
+    if (first)
+      this.logger?.debug('Codex process failure', {
+        reason: message,
+        ...(failedMethod
+          ? { method: redactCodexDiagnostics(failedMethod) }
+          : {}),
+        ...(cause instanceof CodexRequestRejectedError
+          ? { rpcCode: cause.rpcCode }
+          : {}),
+        stderrTail: this.stderrTail(2048),
+      });
     void this.close();
   }
 
@@ -489,6 +551,7 @@ export class CodexAppServerProcess {
     this.child?.stdout?.off('error', this.onError);
     this.child?.stdin?.off('error', this.onError);
     this.child?.stderr?.off('error', this.onError);
+    this.child?.stderr?.off('data', this.onStderr);
     this.queuedBytes = 0;
   }
 }

@@ -1,3 +1,4 @@
+import { CodexProtocolError } from './codex-protocol-validator';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
@@ -10,6 +11,7 @@ import type { CodexBinaryIdentity } from './codex-protocol-manifest';
 import {
   CodexAppServerProcess,
   CodexHomeMismatchError,
+  CodexProcessFailureError,
 } from './codex-app-server-process';
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
@@ -101,6 +103,12 @@ describe('CodexAppServerProcess', () => {
     process,
     'platform',
   );
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
   let child: FakeChild;
   let spawner: IProcessSpawner;
   let runtime: CodexAppServerProcess;
@@ -109,16 +117,24 @@ describe('CodexAppServerProcess', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    jest.clearAllMocks();
     child = new FakeChild();
     spawner = { spawnProcess: jest.fn(() => child) };
     onNotification = jest.fn();
     onRequest = jest.fn<Promise<unknown>, [unknown, AbortSignal]>(async () => ({
       decision: 'decline',
     }));
-    runtime = new CodexAppServerProcess(spawner, executable, binary, profile, {
-      onNotification,
-      onRequest,
-    });
+    runtime = new CodexAppServerProcess(
+      spawner,
+      executable,
+      binary,
+      profile,
+      {
+        onNotification,
+        onRequest,
+      },
+      logger,
+    );
   });
   afterEach(async () => {
     const closing = runtime.close();
@@ -138,6 +154,122 @@ describe('CodexAppServerProcess', () => {
   async function flush(): Promise<void> {
     await jest.advanceTimersByTimeAsync(0);
   }
+
+  it('retains the validator cause and pending method without logging payloads', async () => {
+    await start();
+    const pending = runtime.request('thread/start', {
+      model: 'PRIVATE_REQUEST_SENTINEL',
+    });
+    const failure = pending.catch((error: unknown) => error);
+    child.send({ id: 2, result: { secret: 'PRIVATE_RESPONSE_SENTINEL' } });
+    const error = await failure;
+    expect(error).toBeInstanceOf(CodexProcessFailureError);
+    if (!(error instanceof CodexProcessFailureError))
+      throw new Error('Expected process failure');
+    expect(error.message).toBe('Codex invalid protocol frame');
+    expect(error.method).toBe('thread/start');
+    expect(error.cause).toBeInstanceOf(CodexProtocolError);
+    expect(error.cause).toMatchObject({
+      code: 'invalidResult',
+      method: 'thread/start',
+    });
+    const subsequent = await runtime
+      .request('thread/start', {})
+      .catch((caught: unknown) => caught);
+    expect(subsequent).toBe(error);
+    child.emit('exit', 1, null);
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      'Codex process failure',
+      expect.objectContaining({ method: 'thread/start' }),
+    );
+    expect(JSON.stringify(logger.debug.mock.calls)).not.toMatch(
+      /PRIVATE_REQUEST_SENTINEL|PRIVATE_RESPONSE_SENTINEL/,
+    );
+  });
+
+  it('records the inbound notification method', async () => {
+    await start();
+    const pending = runtime
+      .request('thread/start', {})
+      .catch((error: unknown) => error);
+    child.send({ method: 'thread/started', params: { thread: {} } });
+    expect(await pending).toMatchObject({
+      method: 'thread/started',
+      cause: expect.any(CodexProtocolError),
+    });
+  });
+
+  it('keeps the original handler exception as cause', async () => {
+    await start();
+    const original = new Error('Unexpected notification');
+    onNotification.mockImplementationOnce(() => {
+      throw original;
+    });
+    const pending = runtime
+      .request('thread/start', {})
+      .catch((error: unknown) => error);
+    child.send({
+      method: 'turn/completed',
+      params: {
+        threadId: ids.threadId,
+        turn: { id: 'turn', status: 'completed', items: [] },
+      },
+    });
+    const error = await pending;
+    expect(error).toBeInstanceOf(CodexProcessFailureError);
+    if (!(error instanceof CodexProcessFailureError))
+      throw new Error('Expected process failure');
+    expect(error.cause).toBe(original);
+    expect(error.method).toBe('turn/completed');
+  });
+
+  it('logs rejection code, method and bounded redacted stderr only', async () => {
+    await start();
+    child.stderr.emit('data', 'Bearer secret-bearer\n');
+    child.stderr.emit(
+      'data',
+      Buffer.from(
+        'api_key=secret-api\nAuthorization: secret-auth\nsk-secret-key\n',
+      ),
+    );
+    const pending = runtime.request('thread/start', {
+      model: 'PRIVATE_REQUEST_SENTINEL',
+    });
+    const rejected = expect(pending).rejects.toMatchObject({
+      method: 'thread/start',
+      rpcCode: -32600,
+    });
+    child.send({
+      id: 2,
+      error: { code: -32600, message: 'PRIVATE_RESPONSE_SENTINEL' },
+    });
+    await rejected;
+    expect(logger.debug).toHaveBeenCalledWith(
+      'Codex request rejected',
+      expect.objectContaining({
+        method: 'thread/start',
+        rpcCode: -32600,
+        stderrTail: expect.stringContaining('[REDACTED]'),
+      }),
+    );
+    expect(JSON.stringify(logger.debug.mock.calls)).not.toMatch(
+      /PRIVATE_REQUEST_SENTINEL|PRIVATE_RESPONSE_SENTINEL|secret-bearer|secret-api|secret-auth|sk-secret-key/,
+    );
+    child.stderr.emit(
+      'data',
+      Array.from({ length: 70 }, (_, i) => `line-${i}\n`).join(''),
+    );
+    expect(runtime.stderrTail()).not.toContain('line-0\n');
+    expect(runtime.stderrTail().split('\n').length).toBeLessThanOrEqual(50);
+    child.stderr.emit('data', 'x'.repeat(9000));
+    expect(Buffer.byteLength(runtime.stderrTail())).toBeLessThanOrEqual(8192);
+    expect(Buffer.byteLength(runtime.stderrTail(17))).toBeLessThanOrEqual(17);
+    const closing = runtime.close();
+    child.finish();
+    await closing;
+    expect(child.stderr.listenerCount('data')).toBe(0);
+  });
 
   it('pins before spawning and initializes once with isolated child env and granular capability', async () => {
     const home = process.env['CODEX_HOME'];
