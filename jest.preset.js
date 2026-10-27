@@ -10,7 +10,12 @@ module.exports = {
   // is working in, which reads as UI lag rather than as a test run.
   //
   // Several agent sessions verify on the same machine, and `nx.json` runs one
-  // task at a time, so 2 workers per task is the local cap. CI passes its own
+  // task at a time, so 2 workers per task is the local cap. The verify lock
+  // (scripts/verify-lock.mjs) runs up to 2 checks at once, so the machine-wide
+  // ceiling is 2 x 2 workers. Measured 2026-10-26 (rpc-handlers, 176 suites,
+  // peak working set of the run's process tree): 2 workers 5.3 GB, 3 workers
+  // 6.2 GB. With two runs active the 28 GB host had 4.6 GB free, so 3 workers
+  // per run would not leave room for the Electron app. CI passes its own
   // `--maxWorkers`, which beats this default. The two `apps/ptah-cli` configs
   // that pin `maxWorkers: 1` (pty and e2e, which bind a real console) set it
   // explicitly and so are unaffected by this default.

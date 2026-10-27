@@ -3,8 +3,9 @@
  * and `data-theme` DOM sync effect.
  *
  * Coverage:
- *   - Initial theme: (1) persisted value wins, (2) falls back to VS Code theme
- *     kind when persisted is missing, (3) defaults to 'anubis' otherwise.
+ *   - Initial theme: (1) persisted `theme-v2` value wins, (2) a legacy
+ *     `theme` value is migrated onto the glass pair, (3) falls back to VS Code
+ *     theme kind, (4) defaults to 'ptah-glass' otherwise.
  *   - Invalid persisted theme is rejected.
  *   - `setTheme` updates the signal and persists via `VSCodeService.setState`.
  *   - `toggleTheme` follows the current theme mode.
@@ -15,7 +16,7 @@
 import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from './vscode.service';
-import { DAISYUI_THEMES, ThemeService, type ThemeName } from './theme.service';
+import { DAISYUI_THEMES, ThemeService, type ThemeName, type SceneName } from './theme.service';
 
 interface MockVSCodeService {
   getState: jest.Mock<unknown, [string]>;
@@ -26,13 +27,18 @@ interface MockVSCodeService {
 function createMockVscode(
   options: {
     persisted?: string | undefined;
+    /** Value under the pre-glass `theme` key, which is only ever migrated. */
+    legacy?: string | undefined;
     themeKind?: 'light' | 'dark' | 'high-contrast';
   } = {},
 ): MockVSCodeService {
-  const { persisted, themeKind = 'dark' } = options;
+  const { persisted, legacy, themeKind = 'dark' } = options;
   const persistedStore: Record<string, unknown> = {};
   if (persisted !== undefined) {
-    persistedStore.theme = persisted;
+    persistedStore['theme-v2'] = persisted;
+  }
+  if (legacy !== undefined) {
+    persistedStore['theme'] = legacy;
   }
   return {
     getState: jest.fn((key: string) => persistedStore[key]),
@@ -76,11 +82,82 @@ describe('ThemeService', () => {
     document.documentElement.removeAttribute('data-glass');
     document.documentElement.removeAttribute('data-glass-mode');
     document.documentElement.removeAttribute('data-accent');
+    document.documentElement.removeAttribute('data-scene');
     document.getElementById('ptah-theme-extra')?.remove();
     document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
     localStorage.removeItem('ptah-theme');
+    localStorage.removeItem('ptah-theme-v2');
     localStorage.removeItem('ptah-accent');
+    localStorage.removeItem('ptah-scene');
+    jest.restoreAllMocks();
+  });
+
+  describe('backdrop scenes', () => {
+    it.each([
+      [undefined, undefined, 'aurora'],
+      ['retired', 'invalid', 'aurora'],
+      ['ember', 'tide', 'ember'],
+      ['aurora', 'horizon', 'aurora'],
+      [undefined, 'tide', 'tide'],
+      ['retired', 'horizon', 'horizon'],
+    ])('reads state %s and mirror %s without writing either scene store', (state, hint, expected) => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-scene' ? state : undefined);
+      if (hint) localStorage.setItem('ptah-scene', hint);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      const service = configure(mock);
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.scene()).toBe(expected);
+      expect(mock.setState).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
+      expect(mirrorWrite).not.toHaveBeenCalledWith('ptah-scene', expect.anything());
+      expect(localStorage.getItem('ptah-scene')).toBe(hint ?? null);
+    });
+
+    it('shares the choice across the pair and hides the attribute on every other theme', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const app = TestBed.inject(ApplicationRef);
+      service.setScene('ember');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'ember');
+      expect(localStorage.getItem('ptah-scene')).toBe('ember');
+      for (const { name } of DAISYUI_THEMES) {
+        service.setTheme(name);
+        app.tick();
+        expect(service.scene()).toBe('ember');
+        expect(document.documentElement.getAttribute('data-scene')).toBe(
+          name === 'ptah-glass' || name === 'ptah-glass-light' ? 'ember' : null,
+        );
+      }
+      service.setTheme('ptah-glass');
+      service.setScene('aurora');
+      app.tick();
+      expect(document.documentElement.hasAttribute('data-scene')).toBe(false);
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'aurora');
+      expect(localStorage.getItem('ptah-scene')).toBe('aurora');
+    });
+
+    it('ignores invalid setter input', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const mirrorWrite = jest.spyOn(Storage.prototype, 'setItem');
+      service.setScene('retired' as SceneName);
+      expect(service.scene()).toBe('aurora');
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(mirrorWrite).not.toHaveBeenCalled();
+    });
+
+    it('uses state and still persists user choices when localStorage throws', () => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key) => key === 'ptah-scene' ? 'tide' : undefined);
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+      const service = configure(mock);
+      expect(service.scene()).toBe('tide');
+      expect(() => service.setScene('horizon')).not.toThrow();
+      expect(service.scene()).toBe('horizon');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-scene', 'horizon');
+    });
   });
 
   describe('initial theme resolution', () => {
@@ -89,7 +166,7 @@ describe('ThemeService', () => {
       const service = configure(mock);
 
       expect(service.currentTheme()).toBe('dracula');
-      expect(mock.getState).toHaveBeenCalledWith('theme');
+      expect(mock.getState).toHaveBeenCalledWith('theme-v2');
     });
 
     it('ignores invalid persisted values and falls back to VS Code theme kind', () => {
@@ -131,7 +208,7 @@ describe('ThemeService', () => {
      */
     describe('when vscode state is empty but the localStorage mirror survives', () => {
       it('adopts the mirrored theme instead of repainting to the default', () => {
-        localStorage.setItem('ptah-theme', 'anubis-light');
+        localStorage.setItem('ptah-theme-v2', 'anubis-light');
 
         const service = configure(createMockVscode({ themeKind: 'dark' }));
         TestBed.inject(ApplicationRef).tick();
@@ -144,7 +221,7 @@ describe('ThemeService', () => {
 
       it('adopts a mirrored DEFERRED theme and requests its sheet', () => {
         addDeferredSheetMarker();
-        localStorage.setItem('ptah-theme', 'dracula');
+        localStorage.setItem('ptah-theme-v2', 'dracula');
 
         const service = configure(createMockVscode({ themeKind: 'dark' }));
 
@@ -152,17 +229,22 @@ describe('ThemeService', () => {
         expect(deferredSheetLink()).not.toBeNull();
       });
 
-      it('repairs the authoritative store from the mirror', () => {
-        localStorage.setItem('ptah-theme', 'nord');
+      it('does not write state at boot when only the v2 mirror is present', () => {
+        // Electron state is per workspace and the mirror is origin-wide, so
+        // this is every further workspace's first open. A repair write here
+        // would replace the whole state record from a possibly stale snapshot
+        // (PR #805); the mirror already answers this read and the pre-paint.
+        localStorage.setItem('ptah-theme-v2', 'nord');
         const mock = createMockVscode();
 
-        configure(mock);
+        const service = configure(mock);
 
-        expect(mock.setState).toHaveBeenCalledWith('theme', 'nord');
+        expect(service.currentTheme()).toBe('nord');
+        expect(mock.setState).not.toHaveBeenCalled();
       });
 
       it('ignores an unrecognised mirror value and uses the theme kind', () => {
-        localStorage.setItem('ptah-theme', 'not-a-real-theme');
+        localStorage.setItem('ptah-theme-v2', 'not-a-real-theme');
 
         const service = configure(createMockVscode({ themeKind: 'light' }));
 
@@ -171,7 +253,7 @@ describe('ThemeService', () => {
     });
 
     it('prefers the authoritative vscode state over a stale localStorage mirror', () => {
-      localStorage.setItem('ptah-theme', 'nord');
+      localStorage.setItem('ptah-theme-v2', 'nord');
       const mock = createMockVscode({ persisted: 'dracula' });
 
       const service = configure(mock);
@@ -179,6 +261,137 @@ describe('ThemeService', () => {
       expect(service.currentTheme()).toBe('dracula');
       // Nothing to repair — the authoritative store already answered.
       expect(mock.setState).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * One-time move of upgraded users onto the Ptah glass default. The current
+   * keys are versioned (`theme-v2` / `ptah-theme-v2`); a profile with only the
+   * pre-glass keys is mapped onto the glass pair by lightness, and nothing is
+   * written at boot (a boot write can be lost next to main-process writers,
+   * PR #805, so the migration is re-derived until the user picks a theme).
+   */
+  describe('legacy theme migration', () => {
+    it('maps a legacy dark theme to ptah-glass', () => {
+      const service = configure(createMockVscode({ legacy: 'anubis' }));
+
+      expect(service.currentTheme()).toBe('ptah-glass');
+    });
+
+    it('maps a legacy light theme to ptah-glass-light, regardless of theme kind', () => {
+      const service = configure(
+        createMockVscode({ legacy: 'cupcake', themeKind: 'dark' }),
+      );
+
+      expect(service.currentTheme()).toBe('ptah-glass-light');
+    });
+
+    it('keeps a legacy glass choice', () => {
+      expect(
+        configure(createMockVscode({ legacy: 'ptah-glass-light' })).currentTheme(),
+      ).toBe('ptah-glass-light');
+      TestBed.resetTestingModule();
+      expect(
+        configure(
+          createMockVscode({ legacy: 'ptah-glass', themeKind: 'light' }),
+        ).currentTheme(),
+      ).toBe('ptah-glass');
+    });
+
+    it('migrates from the legacy localStorage mirror when legacy state is gone', () => {
+      localStorage.setItem('ptah-theme', 'dracula');
+
+      const service = configure(createMockVscode({ themeKind: 'light' }));
+
+      expect(service.currentTheme()).toBe('ptah-glass');
+    });
+
+    it('lets a v2 value win over the legacy one, including v2 = anubis', () => {
+      localStorage.setItem('ptah-theme', 'anubis-light');
+      const service = configure(
+        createMockVscode({ persisted: 'anubis', legacy: 'anubis-light' }),
+      );
+
+      expect(service.currentTheme()).toBe('anubis');
+    });
+
+    it('lets a v2 mirror win over legacy state', () => {
+      localStorage.setItem('ptah-theme-v2', 'anubis');
+
+      const service = configure(createMockVscode({ legacy: 'anubis-light' }));
+
+      expect(service.currentTheme()).toBe('anubis');
+    });
+
+    it('writes no state and no v2 mirror at boot on the migration path', () => {
+      localStorage.setItem('ptah-theme', 'dracula');
+      const mock = createMockVscode({ legacy: 'dracula' });
+      addDeferredSheetMarker();
+
+      configure(mock);
+
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(localStorage.getItem('ptah-theme-v2')).toBeNull();
+      // The glass pair is in styles.css: the migrated user never fetches the
+      // deferred sheet for the theme they are migrating away from.
+      expect(deferredSheetLink()).toBeNull();
+    });
+
+    it('takes the v2 mirror over legacy state with no writes (second Electron workspace)', () => {
+      // Workspace B still holds the pre-glass `theme` in its own state; the
+      // user picked nord in workspace A, which wrote the origin-wide mirror.
+      localStorage.setItem('ptah-theme-v2', 'nord');
+      const mock = createMockVscode({ legacy: 'anubis' });
+
+      const service = configure(mock);
+
+      expect(service.currentTheme()).toBe('nord');
+      expect(mock.setState).not.toHaveBeenCalled();
+    });
+
+    it('skips the migration when a v2 state value is present but unknown', () => {
+      // A v2 value means the user already chose after the migration, so the
+      // legacy value must not come back even if this build cannot apply it.
+      const service = configure(
+        createMockVscode({
+          persisted: 'retired-theme',
+          legacy: 'anubis-light',
+          themeKind: 'dark',
+        }),
+      );
+
+      expect(service.currentTheme()).toBe('ptah-glass');
+    });
+
+    it('skips the migration when only an unknown v2 mirror is present', () => {
+      localStorage.setItem('ptah-theme-v2', 'retired-theme');
+      const mock = createMockVscode({ legacy: 'dracula', themeKind: 'light' });
+
+      const service = configure(mock);
+
+      // Theme kind decides, not the dark legacy value.
+      expect(service.currentTheme()).toBe('ptah-glass-light');
+      expect(mock.setState).not.toHaveBeenCalled();
+    });
+
+    it('shadows a choice made in a downgraded build with the older v2 value (accepted)', () => {
+      // v2 = nord was picked before a downgrade; the pre-glass build then
+      // wrote dracula to the legacy keys only. On re-upgrade v2 still wins.
+      // Documented on LEGACY_THEME_STATE_KEY: fixing it needs a boot write.
+      localStorage.setItem('ptah-theme', 'dracula');
+      const service = configure(
+        createMockVscode({ persisted: 'nord', legacy: 'dracula' }),
+      );
+
+      expect(service.currentTheme()).toBe('nord');
+    });
+
+    it('ignores an unknown legacy value and uses the theme kind', () => {
+      const service = configure(
+        createMockVscode({ legacy: 'retired-theme', themeKind: 'light' }),
+      );
+
+      expect(service.currentTheme()).toBe('ptah-glass-light');
     });
   });
 
@@ -245,7 +458,32 @@ describe('ThemeService', () => {
       service.setTheme('synthwave');
 
       expect(service.currentTheme()).toBe('synthwave');
-      expect(mock.setState).toHaveBeenCalledWith('theme', 'synthwave');
+      expect(mock.setState).toHaveBeenCalledWith('theme-v2', 'synthwave');
+    });
+
+    it('writes only the versioned keys and leaves the legacy ones untouched', () => {
+      localStorage.setItem('ptah-theme', 'anubis');
+      const mock = createMockVscode({ legacy: 'anubis' });
+      const service = configure(mock);
+
+      service.setTheme('anubis');
+
+      expect(mock.setState.mock.calls).toEqual([['theme-v2', 'anubis']]);
+      expect(localStorage.getItem('ptah-theme-v2')).toBe('anubis');
+      expect(mock.getState('theme')).toBe('anubis');
+      expect(localStorage.getItem('ptah-theme')).toBe('anubis');
+    });
+
+    it('keeps a post-migration choice of a legacy theme on the next launch', () => {
+      // The migrated user picks anubis again. That choice lives under the
+      // versioned keys now, so the migration must not take it back.
+      const mock = createMockVscode({ legacy: 'dracula' });
+      configure(mock).setTheme('anubis');
+
+      TestBed.resetTestingModule();
+      const next = configure(mock);
+
+      expect(next.currentTheme()).toBe('anubis');
     });
 
     it('accepts every theme declared in DAISYUI_THEMES', () => {
@@ -301,13 +539,13 @@ describe('ThemeService', () => {
 
       service.setTheme('anubis-light');
 
-      expect(localStorage.getItem('ptah-theme')).toBe('anubis-light');
+      expect(localStorage.getItem('ptah-theme-v2')).toBe('anubis-light');
     });
 
     it('re-arms the localStorage mirror from persisted state on construction', () => {
       configure(createMockVscode({ persisted: 'nord' }));
 
-      expect(localStorage.getItem('ptah-theme')).toBe('nord');
+      expect(localStorage.getItem('ptah-theme-v2')).toBe('nord');
     });
 
     it('never inserts the sheet for the two themes bundled in styles.css', () => {

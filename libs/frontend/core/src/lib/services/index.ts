@@ -35,10 +35,8 @@ export {
 } from './claude-rpc.service';
 export { rpcCall, getRpcClient, type RpcCallResult } from './rpc-call.util';
 export { PtahCliStateService } from './ptah-cli-state.service';
-export {
-  ElectronLayoutService,
-  type WorkspaceFolder,
-} from './electron-layout.service';
+export { ElectronLayoutService } from './electron-layout.service';
+export type { WorkspaceFolder } from './electron-layout-persisted-state';
 export {
   AgentDiscoveryFacade,
   type AgentSuggestion,
@@ -55,7 +53,11 @@ export {
   yieldToMacrotask,
   type MacrotaskHandle,
 } from './macrotask-scheduler';
-export { BootStatusService } from './boot-status.service';
+export {
+  BootStatusService,
+  type HostBootStep,
+  type HostBootStepState,
+} from './boot-status.service';
 export {
   BackOfficeActivityService,
   ACTIVITY_RING_CAPACITY,

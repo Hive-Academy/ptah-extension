@@ -24,6 +24,7 @@ import { SessionManager } from './session-manager.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { capFinalizedTree } from './execution-tree-retention';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 import type { StreamingState } from '@ptah-extension/chat-types';
 import {
   HistoryMessageBuilder,
@@ -150,6 +151,7 @@ export class MessageFinalizationService {
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly historyBuilder = inject(HistoryMessageBuilder);
+  private readonly queuedPrompts = inject(QueuedPromptRecord);
 
   /**
    * Finalize the current streaming message
@@ -174,6 +176,9 @@ export class MessageFinalizationService {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
+    // A stopped or failed turn takes its mid-turn prompts with it: none of
+    // them is still queued behind a later peer turn.
+    if (isAborted) this.queuedPrompts.clear(targetTabId);
     const targetTab = tabId
       ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
       : this.tabManager.activeTab();

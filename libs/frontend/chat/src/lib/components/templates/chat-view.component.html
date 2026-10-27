@@ -68,19 +68,21 @@
             (branchRequested)="onBranchRequested($event)"
             (rewindRequested)="onRewindRequested($event)"
             (promptSelected)="handlePromptSelected($event)"
+            (resumeRequested)="handleResumeRequested($event)"
           />
         } @empty {
           <!-- No tab yet (fresh chat): the empty state lives per-transcript, so
                render it here directly until the first tab exists. -->
           <ptah-chat-empty-state
             class="absolute inset-0 flex items-center justify-center"
-            [showProjectSetup]="true"
+            [showReadiness]="true"
             (promptSelected)="handlePromptSelected($event)"
+            (resumeRequested)="handleResumeRequested($event)"
           />
         }
       </div>
 
-      <div sessionControls class="mx-auto flex-shrink-0" style="width: calc(100% - 1.5rem); max-width: var(--chat-content-max-width)">
+      <div sessionControls class="mx-auto flex-shrink-0" style="width: calc(100% - 1.5rem); max-width: var(--chat-content-max-width, 758px)">
       @if (olderHistoryAlert(); as alert) {
         @if (alert.tabId === resolvedTabId()) {
           <div class="px-4 py-2 mx-2 my-1 rounded-md bg-error/10 border border-error/30 text-error text-xs" role="alert">

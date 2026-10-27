@@ -59,6 +59,7 @@ function toStatusWire(status: IndexingStatus): IndexingStatusWire {
     errorMessage: status.errorMessage,
     codeSymbolCount: status.codeSymbolCount,
     memoryChunkCount: status.memoryChunkCount,
+    ...(status.fileCount !== undefined ? { fileCount: status.fileCount } : {}),
     vec: status.vec,
     embedder: status.embedder,
   };

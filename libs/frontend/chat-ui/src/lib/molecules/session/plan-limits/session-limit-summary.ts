@@ -1,4 +1,3 @@
-import type { SessionContextCue } from '../session-stats-view';
 import type { StatsLimitViewModel } from './stats-limit-view-model.types';
 
 export interface SessionLimitSummary {
@@ -42,15 +41,6 @@ export function sessionLimitSummary(vm: StatsLimitViewModel | null): SessionLimi
   if (!first) return { state: 'none', text: null, extra: 0, source: null, fullText: null };
   const extra = ordered.length - 1;
   return { ...first, extra, fullText: extra ? `${first.text} (+${extra} more)` : first.text };
-}
-
-export function inspectorToggleDescription(context: SessionContextCue, summary: SessionLimitSummary, needsYou: number): string {
-  const parts: string[] = [];
-  if (context.hasLive) parts.push(context.known && context.percent !== null
-    ? `Context ${Math.round(context.percent)}%.` : 'Context unknown.');
-  if (summary.fullText) parts.push(`${summary.fullText}.`);
-  if (needsYou > 0) parts.push(`${needsYou} need you.`);
-  return parts.join(' ');
 }
 
 export function limitAwareDot(base: 'need' | 'sel' | null, open: boolean, summary: SessionLimitSummary | null): 'need' | 'err' | 'sel' | null {

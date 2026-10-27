@@ -1,6 +1,7 @@
 import { test } from './_harness/showcase-fixtures';
 import type { Director } from './_harness/director';
 import type { Locator, Page } from '@playwright/test';
+import { visibleNewSessionTrigger } from '../support/new-session-trigger';
 
 /**
  * P6.1 / P1.1 — "Fix / edit code in a single chat" (a single Canvas tile).
@@ -117,9 +118,11 @@ async function exploreTransparency(
   const assistantBubble = tile
     .locator('ptah-message-bubble .chat-start')
     .last();
-  const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]').first();
-  if (await visible(inspectorToggle) && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-    await inspectorToggle.click();
+  // The sidebar's compact rail renders only while the sidebar is closed.
+  const inspectorExpand = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+    .locator('[data-inspector-rail] [data-inspector-expand]').first();
+  if (await visible(inspectorExpand)) {
+    await inspectorExpand.click();
   }
   const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
     .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]').first();
@@ -210,11 +213,12 @@ async function closeStaleTiles(page: Page, director: Director): Promise<void> {
       .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^code-edit$/ }) })
       .first();
     if (!(await staleCard.count())) return;
-    await staleCard.click({ position: { x: 10, y: 40 } });
-    const stale = page.locator('[data-testid="canvas-tile"]').filter({
-      has: page.locator('ptah-canvas-focus-header strong[title]', { hasText: /^code-edit$/ }),
-    }).first();
-    const close = stale.getByRole('button', { name: 'Close session' }).first();
+    // Close session lives in the stale card's own Session actions menu.
+    const menuTrigger = staleCard.getByRole('button', { name: 'Session actions' });
+    if (!(await visible(menuTrigger))) return;
+    await menuTrigger.click({ timeout: 5_000 }).catch(() => undefined);
+    const close = page.getByRole('menu', { name: 'Session actions' })
+      .getByRole('menuitem', { name: 'Close session' });
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);
@@ -232,9 +236,7 @@ async function openSingleTile(
   const tiles = page.locator('[data-testid="canvas-tile"]');
   const startCount = await tiles.count();
 
-  const hero = page.locator('[data-testid="canvas-hero-new-session"]').first();
-  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').first();
-  await director.click((await visible(hero)) ? hero : footerButton);
+  await director.click(await visibleNewSessionTrigger(page));
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
   await director.type(nameInput, TILE_LABEL);

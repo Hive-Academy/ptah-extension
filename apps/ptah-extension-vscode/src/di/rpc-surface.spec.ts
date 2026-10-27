@@ -173,6 +173,7 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'voice:transcribe',
   'workspace:addFolder',
   'workspace:getInfo',
+  'workspace:listRecent',
   'workspace:registerFolder',
   'workspace:removeFolder',
   'workspace:switch',

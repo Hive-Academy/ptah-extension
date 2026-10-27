@@ -118,14 +118,12 @@ export { CompactionNotificationComponent } from '@ptah-extension/chat-ui';
  * @ptah-extension/chat-ui in new code.
  */
 export {
-  PromptSuggestionsComponent,
   SkillShBrowserComponent,
   McpDirectoryBrowserComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/compact-session/compact-session-card.component';
 export * from './molecules/mcp-status-chip.component';
 export * from './molecules/peer-session-send';
-export * from './molecules/setup-plugins/project-setup-card.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
  * @ptah-extension/chat-ui in new code.
@@ -153,7 +151,9 @@ export { LANE_COLUMN_CLASS } from './molecules/execution-header/lane-column';
 export * from './templates/session-embed.component';
 export * from './templates/app-shell.component';
 export * from './templates/electron-shell.component';
-export * from './templates/electron-welcome.component';
+// `ElectronWelcomeComponent` is deliberately not exported: electron-shell
+// loads it inside `@defer`, and a static re-export here would put it (and its
+// vitals stores) back into the initial chunk.
 export * from './file-suggestions/file-tag.component';
 export * from './file-suggestions/unified-suggestions-dropdown.component';
 export * from './atoms/workflow-badge.component';

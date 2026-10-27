@@ -1,6 +1,7 @@
 import { test, expect } from './_harness/docs-fixtures';
 import { shoot, freezeMotion } from './_harness/shooter';
 import { openPreviousSessions } from '../support/perf-session-fixture';
+import { visibleNewSessionTrigger } from '../support/new-session-trigger';
 
 /**
  * Session-surface shots (TASK_2026_260).
@@ -51,13 +52,10 @@ test.describe('docs screenshots — sessions', () => {
     // check otherwise waits out the whole timeout on a never-still element.
     await freezeMotion(page);
     for (let i = 0; i < 2; i++) {
-      // First pass: the empty-board hero. After a tile exists, use the
-      // Rail footer New session button.
-      const add =
-        i === 0
-          ? page.locator('[data-testid="canvas-hero-new-session"]').first()
-          : page.locator('[data-testid="canvas-footer-new-session"]').first();
-      if (!(await add.isVisible().catch(() => false))) break;
+      // The empty-board hero first (it loads in a deferred chunk); after a
+      // tile exists, the Rail footer New session button.
+      const add = await visibleNewSessionTrigger(page).catch(() => null);
+      if (add === null) break;
       await add.click({ force: true });
       const create = page.getByRole('button', { name: 'Create', exact: true });
       if (

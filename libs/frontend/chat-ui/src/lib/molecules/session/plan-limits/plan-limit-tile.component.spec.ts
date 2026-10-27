@@ -160,27 +160,50 @@ describe('PlanLimitTileComponent', () => {
     expect(button(root).textContent).toContain('used · reset Provider API');
   });
 
-  it('renders a status row on one line, without a bar or disclosure', () => {
+  function statusRow(detailLines: readonly string[]): PlanLimitTileModel {
+    return windowTile({
+      id: 'plan-status:none',
+      kind: 'status',
+      label: 'Usage',
+      captionLead: '',
+      captionTail: undefined,
+      caption: '',
+      value: 'Unavailable',
+      resetLine: '',
+      chip: undefined,
+      tone: 'neutral',
+      sourceChips: [],
+      window: undefined,
+      detailLines,
+    });
+  }
+
+  it('renders a status row on one line, without a bar, and discloses the unresolved-account reason', () => {
     const root = render(
-      windowTile({
-        id: 'plan-status:none',
-        kind: 'status',
-        label: 'Usage',
-        value: 'Unavailable',
-        resetLine: 'owner not resolved',
-        chip: undefined,
-        tone: 'neutral',
-        sourceChips: [],
-        window: undefined,
-        detailLines: ['Account not resolved yet.'],
-      }),
+      statusRow(['Account not resolved', 'Account not resolved yet.']),
     );
     const status = root.querySelector('[data-testid="plan-limit-status"]');
 
-    expect(status?.textContent?.trim()).toBe(
-      'Unavailable · owner not resolved',
+    expect(status?.textContent?.trim()).toBe('Unavailable');
+    expect(status?.getAttribute('title')).toBe(
+      'Account not resolved Account not resolved yet.',
     );
-    expect(status?.getAttribute('title')).toBe('Account not resolved yet.');
+    expect(button(root).textContent).not.toMatch(
+      /owner not resolved|unknown account/,
+    );
+    expect(root.querySelector('[role="progressbar"]')).toBeNull();
+    expect(button(root).disabled).toBe(false);
+    expect(button(root).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('renders a status row with no details without a disclosure', () => {
+    const root = render(statusRow([]));
+
+    expect(
+      root
+        .querySelector('[data-testid="plan-limit-status"]')
+        ?.textContent?.trim(),
+    ).toBe('Unavailable');
     expect(root.querySelector('[role="progressbar"]')).toBeNull();
     expect(button(root).disabled).toBe(true);
     expect(button(root).getAttribute('aria-expanded')).toBeNull();
@@ -414,6 +437,16 @@ describe('PlanLimitTileComponent (variant="inspector")', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
+  it('discloses unresolved account details while showing unavailable usage only once', () => {
+    const root = render({ ...statusTile(), value: 'Unavailable', resetLine: '', caption: '', captionLead: '', detailLines: ['Account not resolved'] }, true);
+    const face = byTestId(root, 'plan-limit-tile');
+    expect(face.tagName).toBe('BUTTON');
+    expect(face.textContent?.match(/Unavailable/g)).toHaveLength(1);
+    expect(face.textContent).not.toContain('Plan usage unavailable');
+    expect(face.textContent).not.toMatch(/unknown account|owner not resolved/);
+    expect(byTestId(root, 'plan-limit-panel').textContent).toContain('Account not resolved');
+  });
+
   it('wraps the face and the panel in one card container (AC 7.6)', () => {
     const root = render(windowTile());
     const card = byTestId(root, 'plan-limit-card');
@@ -586,7 +619,7 @@ describe('PlanLimitTileComponent (variant="inspector")', () => {
   });
 
   it.each([
-    ['status', statusTile],
+    ['status without details', () => ({ ...statusTile(), detailLines: [] })],
     ['local-usage', localUsageTile],
   ] as const)(
     'renders a %s card with no button, chevron, aria-expanded or panel (AC 7.6)',

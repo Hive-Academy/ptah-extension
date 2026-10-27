@@ -55,6 +55,20 @@ describe('InspectorDockController', () => {
     expect(dock.slotShown()).toBe(false);
   });
 
+  it('preserves the expanded resize preference through compact presentation', () => {
+    preference.set(448);
+    create();
+    dock.preview(500);
+    shown.set(false);
+    expect(dock.slotShown()).toBe(false);
+    expect(dock.width()).toBe(448);
+    dock.commit();
+    shown.set(true);
+    expect(dock.width()).toBe(448);
+    expect(preference()).toBe(448);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it.each([
     [880, 336],
     [1124, 400],

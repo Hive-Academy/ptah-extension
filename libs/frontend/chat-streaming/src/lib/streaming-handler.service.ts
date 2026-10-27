@@ -27,6 +27,7 @@ import {
   type TurnStateEvent,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { findMessageStartEvent } from '@ptah-extension/chat-execution-tree';
 import { SessionManager } from './session-manager.service';
 import {
   TabState,
@@ -44,6 +45,9 @@ import {
 } from './accumulator-core.service';
 import { TurnStateApplier } from './turn-state-applier.service';
 import { SubagentExecutionStore } from './subagent-execution.store';
+import { buildUserMessageFromStart } from './history-message-builder.service';
+import { insertInboundPeerMessage } from './inbound-peer-message';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 
 /**
  * The per-turn footer fields of one `session:stats` result, taken from the
@@ -97,6 +101,7 @@ export class StreamingHandlerService {
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
   private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly subagentExecution = inject(SubagentExecutionStore);
+  private readonly queuedPrompts = inject(QueuedPromptRecord);
 
   /**
    * Clean up deduplication state for a session.
@@ -144,6 +149,13 @@ export class StreamingHandlerService {
       role: 'user',
     });
     this.publishBoundaryChange(tabId, state);
+    // Sent mid-turn, so it waits in the backend queue — possibly behind a
+    // held peer turn (`recordInboundPeerMessage`).
+    this.queuedPrompts.add(
+      tabId,
+      message.id,
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [],
+    );
   }
 
   /**
@@ -152,6 +164,7 @@ export class StreamingHandlerService {
    * stays split — and later settles — around a prompt the agent never saw.
    */
   removeUserPromptBoundary(tabId: string, messageId: string): void {
+    this.queuedPrompts.remove(tabId, messageId);
     const state = this.findTabStreamingState(tabId);
     if (!state) return;
     if (!this.accumulatorCore.removeUserPromptBoundary(state, messageId)) {
@@ -307,7 +320,7 @@ export class StreamingHandlerService {
       }
 
       if (!primaryTab) {
-        if (this.routeBackgroundEvent(event)) {
+        if (this.routeBackgroundEvent(event, isReplay)) {
           return null;
         }
         if (!this.warnedNoTargetSessions.has(event.sessionId)) {
@@ -460,10 +473,13 @@ export class StreamingHandlerService {
     // on the user `message_start` because `replay-user-messages` is enabled —
     // and stamp it onto the optimistic bubble so fork/rewind anchor on the real
     // id. Live turns only; history replay already carries real uuids as ids.
+    // An inbound peer turn (lane report / completion) is not the user's prompt:
+    // its uuid would land on an unrelated, still-queued bubble.
     if (
       !isReplay &&
       event.eventType === 'message_start' &&
-      (event as MessageStartEvent).role === 'user'
+      (event as MessageStartEvent).role === 'user' &&
+      !(event as MessageStartEvent).inboundPeer
     ) {
       this.tabManager.reconcileUserMessageNativeUuid(
         targetTab.id,
@@ -505,12 +521,27 @@ export class StreamingHandlerService {
         durationMs: result.durationMs,
       };
     }
+    const rootComplete =
+      event.eventType === 'message_complete' && !event.parentToolUseId
+        ? event
+        : null;
+    // A user root's `message_complete` is the SDK's echo of the turn's input,
+    // which ends nothing — only an assistant root may release a queued prompt.
+    const rootCompleteRole = rootComplete
+      ? findMessageStartEvent(state, rootComplete.messageId)?.role
+      : undefined;
+    if (rootComplete && !isReplay && !ephemeralState) {
+      this.recordInboundPeerMessage(
+        targetTab.id,
+        state,
+        rootComplete.messageId,
+      );
+    }
     if (
       result.eventType === 'message_complete' &&
-      !(event as FlatStreamEventUnion & { eventType: 'message_complete' })
-        .parentToolUseId &&
-      (event as FlatStreamEventUnion & { eventType: 'message_complete' })
-        .stopReason !== 'tool_use'
+      rootComplete &&
+      rootComplete.stopReason !== 'tool_use' &&
+      rootCompleteRole !== 'user'
     ) {
       const queuedContent = targetTab.queuedContent;
       if (queuedContent && queuedContent.trim()) {
@@ -537,7 +568,39 @@ export class StreamingHandlerService {
     return null;
   }
 
-  private routeBackgroundEvent(event: FlatStreamEventUnion): boolean {
+  /**
+   * Add a live inbound peer turn (a lane report or lane completion the backend
+   * pushed into this session) to the transcript once its echo is complete.
+   *
+   * Without it the peer turn existed only in history: every reply joined the
+   * previous prompt's turn live and a reload showed a different transcript.
+   * The message is minted by the history builder's own helper, and the
+   * finalized reply then anchors on it (`placeFinalizedTrees`). Workspace-
+   * aware, idempotent by id.
+   */
+  private recordInboundPeerMessage(
+    tabId: string,
+    state: StreamingState,
+    messageId: string,
+  ): void {
+    const start = findMessageStartEvent(state, messageId);
+    if (start?.role !== 'user' || !start.inboundPeer || start.parentToolUseId) {
+      return;
+    }
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab) return;
+    const messages = insertInboundPeerMessage(
+      tab.messages,
+      buildUserMessageFromStart(state, start, tab.claudeSessionId ?? undefined),
+      this.queuedPrompts.queuedAtTail(tabId, tab.messages),
+    );
+    if (messages) this.tabManager.setMessages(tabId, messages);
+  }
+
+  private routeBackgroundEvent(
+    event: FlatStreamEventUnion,
+    isReplay: boolean,
+  ): boolean {
     // A background tab is found BY its session id. With no session on the event
     // there is nothing to look up — report "not routed" and let the caller warn
     // and drop, rather than picking some tab that merely happens to be handy.
@@ -578,6 +641,15 @@ export class StreamingHandlerService {
     // Anything queued is merged into `state` (or replaced by compaction):
     // drop it so a later drain cannot republish it over this write.
     this.batchedUpdate.clearPendingUpdates(tab.id);
+
+    // Lane reports reach backgrounded tabs too.
+    if (
+      !isReplay &&
+      event.eventType === 'message_complete' &&
+      !event.parentToolUseId
+    ) {
+      this.recordInboundPeerMessage(tab.id, state, event.messageId);
+    }
 
     // Streaming state only. A cron- or gateway-triggered turn that starts on a
     // backgrounded tab gets its spinner and `status` from the backend

@@ -84,6 +84,7 @@ describe('Electron artifact notification composition', () => {
     const bridge = new IpcBridge(
       c,
       createMainWindowHandleGetter(() => win),
+      [],
     );
     c.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: new ElectronWebviewManagerAdapter(bridge),
@@ -142,6 +143,7 @@ function makeWindow() {
   return {
     isDestroyed: jest.fn(() => false),
     webContents: {
+      id: 1,
       send: jest.fn<void, [string, ...unknown[]]>(),
       isDestroyed: jest.fn(() => false),
     },
@@ -206,6 +208,7 @@ describe('Electron surface composition — lazy push host and destroyed-window d
     const bridge = new IpcBridge(
       c,
       createMainWindowHandleGetter(() => win),
+      [],
     );
     const adapter = new ElectronWebviewManagerAdapter(bridge);
     c.register(TOKENS.WEBVIEW_MANAGER, { useValue: adapter });
@@ -245,6 +248,7 @@ describe('Electron surface composition — lazy push host and destroyed-window d
     const bridge = new IpcBridge(
       c,
       createMainWindowHandleGetter(() => win),
+      [],
     );
     const adapter = new ElectronWebviewManagerAdapter(bridge);
     c.register(TOKENS.WEBVIEW_MANAGER, { useValue: adapter });

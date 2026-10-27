@@ -22,118 +22,143 @@ const source = readFileSync(
   'utf8',
 );
 
+interface ShellResult {
+  policy: string;
+  metaCount: number;
+  evalBlocked: boolean;
+  inlineExecuted: boolean;
+  violations: Array<{ directive: string; blockedURI: string }>;
+  theme: string;
+  microphone: boolean;
+  microphoneError?: string;
+  camera: boolean;
+  cameraError?: string;
+  clipboardWriteState: string;
+  microphoneState: string;
+  cameraState: string;
+}
+
+/**
+ * Load the patched shell document in a real Electron window with `seedScript`
+ * run first (it stands in for the preload's `window.vscode`), and return what
+ * the probe saw. Each call gets its own fixture directory, pushed onto
+ * `directories` for cleanup.
+ */
+async function probeShell(
+  seedScript: string,
+  directories: string[],
+): Promise<ShellResult> {
+  const directory = mkdtempSync(join(__dirname, '.shell-security-'));
+  directories.push(directory);
+  const html = source
+    .replace('<head>', '<head><script src="./seed.js"></script>')
+    .replace('</body>', '<script src="./probe.js"></script></body>');
+  // Patch TWICE. The second pass must be a no-op: it is the packaging path
+  // running against an already-patched document.
+  const once = secureRendererHtml(html);
+  const twice = secureRendererHtml(once.html);
+  expect(twice.html).toBe(once.html);
+  expect(twice.scripts).toEqual([]);
+  writeFileSync(join(directory, 'index.html'), twice.html);
+  for (const script of once.scripts) {
+    writeFileSync(join(directory, script.fileName), script.content);
+  }
+  writeFileSync(join(directory, 'seed.js'), seedScript);
+  copyFileSync(
+    join(__dirname, 'fixtures/shell-probe.js'),
+    join(directory, 'probe.js'),
+  );
+  buildSync({
+    entryPoints: [join(__dirname, 'permission-policy.ts')],
+    outfile: join(directory, 'permission-policy.cjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+  });
+  const electronDir = join(root, 'node_modules/electron');
+  const executable = join(
+    electronDir,
+    'dist',
+    readFileSync(join(electronDir, 'path.txt'), 'utf8').trim(),
+  );
+  const env = { ...process.env };
+  delete env['ELECTRON_RUN_AS_NODE'];
+  // Match electron-e2e.yml: a hidden Electron window still needs X on Linux.
+  // Never skip this security test when no display is attached.
+  const headlessLinux = process.platform === 'linux' && !env['DISPLAY'];
+  const args = [join(__dirname, 'fixtures/shell-security.cjs'), directory];
+  if (env['CI']) args.push('--no-sandbox', '--disable-dev-shm-usage');
+  const output = await new Promise<string>((resolveOutput, reject) => {
+    const child = spawn(
+      headlessLinux ? 'xvfb-run' : executable,
+      headlessLinux ? ['--auto-servernum', executable, ...args] : args,
+      {
+        env,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`Electron security probe timed out: ${stderr}`));
+    }, 40_000);
+    child.stdout.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+    child.stderr.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0)
+        reject(new Error(`Electron exited ${code}: ${stderr}\n${stdout}`));
+      else resolveOutput(stdout);
+    });
+  });
+  const line = output
+    .split(/\r?\n/)
+    .find((value) => value.startsWith('SHELL_SECURITY_RESULT:'));
+  if (!line) throw new Error(`No Electron security result: ${output}`);
+  return JSON.parse(line.slice('SHELL_SECURITY_RESULT:'.length));
+}
+
 describe('effective Electron shell CSP', () => {
-  let directory: string;
-  let result: {
-    policy: string;
-    metaCount: number;
-    evalBlocked: boolean;
-    inlineExecuted: boolean;
-    violations: Array<{ directive: string; blockedURI: string }>;
-    theme: string;
-    microphone: boolean;
-    microphoneError?: string;
-    camera: boolean;
-    cameraError?: string;
-    clipboardWriteState: string;
-    microphoneState: string;
-    cameraState: string;
-  };
+  const directories: string[] = [];
+  let result: ShellResult;
+  // Seeded with only the pre-glass `theme` key, so the pre-paint script's
+  // legacy-migration tier also has to run under this CSP.
+  let legacyResult: ShellResult;
 
   beforeAll(async () => {
-    directory = mkdtempSync(join(__dirname, '.shell-security-'));
-    const html = source
-      .replace('<head>', '<head><script src="./seed.js"></script>')
-      .replace('</body>', '<script src="./probe.js"></script></body>');
-    // Patch TWICE. The second pass must be a no-op: it is the packaging path
-    // running against an already-patched document.
-    const once = secureRendererHtml(html);
-    const twice = secureRendererHtml(once.html);
-    expect(twice.html).toBe(once.html);
-    expect(twice.scripts).toEqual([]);
-    writeFileSync(join(directory, 'index.html'), twice.html);
-    for (const script of once.scripts) {
-      writeFileSync(join(directory, script.fileName), script.content);
-    }
-    writeFileSync(
-      join(directory, 'seed.js'),
+    // Sequential, not parallel: each probe is a full Electron process.
+    result = await probeShell(
+      "window.vscode = { getState: () => ({ 'theme-v2': 'anubis-light' }) };",
+      directories,
+    );
+    legacyResult = await probeShell(
       "window.vscode = { getState: () => ({ theme: 'anubis-light' }) };",
+      directories,
     );
-    copyFileSync(
-      join(__dirname, 'fixtures/shell-probe.js'),
-      join(directory, 'probe.js'),
-    );
-    buildSync({
-      entryPoints: [join(__dirname, 'permission-policy.ts')],
-      outfile: join(directory, 'permission-policy.cjs'),
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-    });
-    const electronDir = join(root, 'node_modules/electron');
-    const executable = join(
-      electronDir,
-      'dist',
-      readFileSync(join(electronDir, 'path.txt'), 'utf8').trim(),
-    );
-    const env = { ...process.env };
-    delete env['ELECTRON_RUN_AS_NODE'];
-    // Match electron-e2e.yml: a hidden Electron window still needs X on Linux.
-    // Never skip this security test when no display is attached.
-    const headlessLinux = process.platform === 'linux' && !env['DISPLAY'];
-    const args = [join(__dirname, 'fixtures/shell-security.cjs'), directory];
-    if (env['CI']) args.push('--no-sandbox', '--disable-dev-shm-usage');
-    const output = await new Promise<string>((resolveOutput, reject) => {
-      const child = spawn(
-        headlessLinux ? 'xvfb-run' : executable,
-        headlessLinux ? ['--auto-servernum', executable, ...args] : args,
-        {
-          env,
-          windowsHide: true,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      );
-      let stdout = '';
-      let stderr = '';
-      const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error(`Electron security probe timed out: ${stderr}`));
-      }, 40_000);
-      child.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-      child.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-      child.on('error', (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (code !== 0)
-          reject(new Error(`Electron exited ${code}: ${stderr}\n${stdout}`));
-        else resolveOutput(stdout);
-      });
-    });
-    const line = output
-      .split(/\r?\n/)
-      .find((value) => value.startsWith('SHELL_SECURITY_RESULT:'));
-    if (!line) throw new Error(`No Electron security result: ${output}`);
-    result = JSON.parse(line.slice('SHELL_SECURITY_RESULT:'.length));
-  }, 60_000);
+  }, 120_000);
 
   afterAll(() => {
-    if (!directory) return;
-    if (
-      dirname(directory) !== __dirname ||
-      !basename(directory).startsWith('.shell-security-')
-    ) {
-      throw new Error(
-        'Refusing to remove a directory outside this security fixture',
-      );
+    for (const directory of directories) {
+      if (
+        dirname(directory) !== __dirname ||
+        !basename(directory).startsWith('.shell-security-')
+      ) {
+        throw new Error(
+          'Refusing to remove a directory outside this security fixture',
+        );
+      }
+      rmSync(directory, { recursive: true, force: true });
     }
-    rmSync(directory, { recursive: true, force: true });
   });
 
   it('pins every directive in the policy read from the loaded file document', () => {
@@ -179,6 +204,12 @@ describe('effective Electron shell CSP', () => {
       result.violations.some((entry) => entry.directive === 'script-src-elem'),
     ).toBe(true);
     expect(result.theme).toBe('anubis-light');
+  });
+
+  it('runs the legacy-migration tier of the theme bootstrap under the same policy', () => {
+    expect(legacyResult.inlineExecuted).toBe(false);
+    // Legacy light theme, no v2 key: migrated onto the light glass theme.
+    expect(legacyResult.theme).toBe('ptah-glass-light');
   });
 
   it('allows an https image and blocks an http one', () => {

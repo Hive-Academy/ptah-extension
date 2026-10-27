@@ -9,10 +9,7 @@ import {
   viewChild,
 } from '@angular/core';
 import type { SessionAgent } from '@ptah-extension/chat';
-import {
-  AgentAvatarComponent,
-  type AgentKind,
-} from '@ptah-extension/chat-ui';
+import { AgentAvatarComponent, type AgentKind } from '@ptah-extension/chat-ui';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
 import { ChevronRight, LucideAngularModule, Users } from 'lucide-angular';
 import { agentDurationText, agentStatusInk } from './dock-overflow';
@@ -52,20 +49,26 @@ let nextMenuId = 0;
         [attr.aria-label]="triggerLabel()"
         (click)="toggle()"
       >
-        @if (hidden().length === 0) {
-          <lucide-angular [img]="usersIcon" class="h-4 w-4" aria-hidden="true" />
-        } @else {
-          <span class="flex items-center -space-x-1.5" aria-hidden="true">
-            @for (agent of pile(); track agent.key) {
-              <ptah-agent-avatar
-                [kind]="agent.kind"
-                [status]="agent.status"
-                [size]="24"
-                [cliId]="agent.cliId"
-                [agentType]="agent.agentType"
-              />
-            }
-          </span>
+        @if (!compact()) {
+          @if (hidden().length === 0) {
+            <lucide-angular
+              [img]="usersIcon"
+              class="h-4 w-4"
+              aria-hidden="true"
+            />
+          } @else {
+            <span class="flex items-center -space-x-1.5" aria-hidden="true">
+              @for (agent of pile(); track agent.key) {
+                <ptah-agent-avatar
+                  [kind]="agent.kind"
+                  [status]="agent.status"
+                  [size]="24"
+                  [cliId]="agent.cliId"
+                  [agentType]="agent.agentType"
+                />
+              }
+            </span>
+          }
         }
         @if (compact()) {
           <span
@@ -73,7 +76,10 @@ let nextMenuId = 0;
             >{{ agents().length }}</span
           >
         } @else {
-          <span class="whitespace-nowrap">{{ agents().length }} {{ agents().length === 1 ? 'agent' : 'agents' }}</span>
+          <span class="whitespace-nowrap"
+            >{{ agents().length }}
+            {{ agents().length === 1 ? 'agent' : 'agents' }}</span
+          >
           <lucide-angular
             [img]="chevronIcon"
             class="h-3.5 w-3.5"
@@ -127,7 +133,9 @@ let nextMenuId = 0;
               />
               <span class="min-w-0 flex-1 truncate">{{ agent.name }}</span>
               @if (agent.status; as status) {
-                <span class="shrink-0 {{ statusInk(status) }}">{{ status }}</span>
+                <span class="shrink-0 {{ statusInk(status) }}">{{
+                  status
+                }}</span>
               }
               @if (durationOf(agent); as duration) {
                 <span class="shrink-0 tabular-nums text-base-content-muted">{{
@@ -154,12 +162,15 @@ export class AgentDockMenuComponent {
   protected readonly usersIcon = Users;
   protected readonly chevronIcon = ChevronRight;
   private readonly menuUid = `agent-dock-menu-${++nextMenuId}`;
-  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly trigger =
+    viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
   protected readonly pile = computed(() => this.hidden().slice(0, 3));
 
   protected readonly triggerLabel = computed(() => {
-    const parts = [`${this.agents().length} ${this.agents().length === 1 ? 'agent' : 'agents'}`];
+    const parts = [
+      `${this.agents().length} ${this.agents().length === 1 ? 'agent' : 'agents'}`,
+    ];
     let waiting = 0;
     let failed = 0;
     for (const agent of this.hidden()) {
@@ -173,14 +184,17 @@ export class AgentDockMenuComponent {
 
   protected readonly pipClass = computed(() => {
     const hidden = this.hidden();
-    if (hidden.some((agent) => agent.status === 'waiting')) return 'bg-state-need';
-    if (hidden.some((agent) => agent.status === 'failed')) return 'bg-state-err';
+    if (hidden.some((agent) => agent.status === 'waiting'))
+      return 'bg-state-need';
+    if (hidden.some((agent) => agent.status === 'failed'))
+      return 'bg-state-err';
     return null;
   });
 
   protected readonly groups = computed((): readonly MenuGroup[] => {
     const agents = this.agents();
-    const ofKind = (kind: AgentKind) => agents.filter((agent) => agent.kind === kind);
+    const ofKind = (kind: AgentKind) =>
+      agents.filter((agent) => agent.kind === kind);
     const subagents = ofKind('subagent');
     const cli = ofKind('cli');
     const background = ofKind('background');

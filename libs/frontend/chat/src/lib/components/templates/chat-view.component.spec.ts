@@ -418,6 +418,7 @@ function makeHarness(
     release: planLimitsScopeReleaseMock,
   }));
   const planLimitsStub = {
+    load: jest.fn().mockResolvedValue(undefined),
     registerScope: planLimitsRegisterScopeMock,
     snapshot: planLimitsSnapshotSig.asReadonly(),
     now: planLimitsNowSig.asReadonly(),

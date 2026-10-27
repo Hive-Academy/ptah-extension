@@ -44,6 +44,7 @@ export interface HandoffRowError {
       role="listbox"
       [attr.aria-label]="heading()"
       data-testid="handoff-picker"
+      (keydown)="onKeydown($event)"
     >
       <div class="border-b border-base-300 px-2 pt-1.5 pb-2">
         <div class="text-xs font-semibold text-base-content">
@@ -187,6 +188,30 @@ export class HandoffBindingPickerComponent {
   readonly confirmPick = output<GatewayBindingDto>();
   /** The armed confirmation was dismissed. */
   readonly cancelPick = output<void>();
+
+  /**
+   * ArrowDown/ArrowUp (wrapping), Home and End move focus over the enabled
+   * options; a handled key is prevented, so an enclosing menu ignores it.
+   */
+  onKeydown(event: KeyboardEvent): void {
+    const listbox = event.currentTarget;
+    if (!(listbox instanceof HTMLElement)) return;
+    const options = [
+      ...listbox.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)'),
+    ];
+    if (!options.length) return;
+    const current = options.findIndex((option) => option === listbox.ownerDocument.activeElement);
+    let next: number;
+    switch (event.key) {
+      case 'ArrowDown': next = current + 1; break;
+      case 'ArrowUp': next = current < 0 ? -1 : current - 1; break;
+      case 'Home': next = 0; break;
+      case 'End': next = -1; break;
+      default: return;
+    }
+    options[(next + options.length) % options.length].focus();
+    event.preventDefault();
+  }
 
   /** The attach error for a given row, if that row is the one that failed. */
   rowErrorFor(bindingId: string): string | null {

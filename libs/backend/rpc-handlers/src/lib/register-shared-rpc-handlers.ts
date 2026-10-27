@@ -30,6 +30,7 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CliModelListService } from './services/cli-model-list.service';
 import { LaneModelListingAdapter } from './services/lane-model-listing.adapter';
 import { PlanLimitsSnapshotService } from './services/plan-limits-snapshot.service';
+import { RecentWorkspacesService } from './services/recent-workspaces.service';
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
@@ -88,6 +89,10 @@ export function registerSharedRpcHandlers(
   // `provider:getPlanLimits` (whose last scope it remembers) and the push.
   container.registerSingleton(PlanLimitsSnapshotService);
   container.registerSingleton(PlanLimitsBroadcaster);
+  // Recent workspaces (TASK_2026_721). One instance owns the serialised
+  // write chain; it needs only STATE_STORAGE and FILE_SYSTEM_PROVIDER, which
+  // every host binds. Read by `workspace:listRecent`, written on switch.
+  container.registerSingleton(RecentWorkspacesService);
   // Outcome signals (TASK_2026_646 B7). The reader token is not injected:
   // hosts register it in a later batch, and this class resolves it per call.
   container.registerSingleton(AgentOutcomeRpcHandlers);

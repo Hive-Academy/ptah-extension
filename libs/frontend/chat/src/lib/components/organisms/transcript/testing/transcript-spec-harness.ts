@@ -5,6 +5,8 @@ import {
   Output,
   ChangeDetectionStrategy,
   signal,
+  input,
+  output,
   type Signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -73,7 +75,10 @@ export class TranscriptMessageBubbleStub {
   template: '',
 })
 export class TranscriptEmptyStateStub {
-  @Output() promptSelected = new EventEmitter<string>();
+  readonly tabId = input<string | null>(null);
+  readonly showReadiness = input(false);
+  readonly promptSelected = output<string>();
+  readonly resumeRequested = output<string>();
 }
 
 export interface TranscriptTestBedOptions {

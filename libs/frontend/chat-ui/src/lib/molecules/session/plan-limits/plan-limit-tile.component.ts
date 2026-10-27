@@ -125,7 +125,7 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
             class="mt-2 block text-[11px] leading-snug text-base-content-muted break-words"
             [attr.title]="statusTitle()"
             data-testid="plan-limit-status"
-            >{{ t.value }} · {{ t.resetLine }}</span
+            >{{ t.value }}@if (t.resetLine) { · {{ t.resetLine }} }</span
           >
         } @else if (hasBar()) {
           <span
@@ -227,7 +227,7 @@ import type { PlanLimitTileModel } from './stats-limit-view-model.types';
               class="min-w-0 flex-1 text-[11px] text-base-content-muted"
               [attr.title]="statusTitle()"
               data-testid="plan-limit-status"
-              >{{ t.value }} · {{ t.resetLine }}</span
+              >{{ t.value }}@if (t.resetLine) { · {{ t.resetLine }} }</span
             >
           } @else if (hasBar()) {
             <span
@@ -353,7 +353,9 @@ export class PlanLimitTileComponent {
   protected readonly faceClass = computed(() => planRowClass(this.tile().tone));
   protected readonly cardClass = computed(() => planCardClass(this.tile().tone));
   protected readonly expandable = computed(
-    () => this.tile().kind !== 'status' && this.tile().kind !== 'local-usage',
+    () => this.tile().kind === 'status'
+      ? this.tile().detailLines.length > 0
+      : this.tile().kind !== 'local-usage',
   );
   protected readonly statusTitle = computed(() =>
     this.tile().detailLines.join(' '),

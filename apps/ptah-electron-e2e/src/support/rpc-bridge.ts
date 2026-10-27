@@ -93,7 +93,11 @@ export class RpcBridge {
           };
           ipcMain.emit(
             args.channel,
-            { sender: win.webContents } as Electron.IpcMainEvent,
+            {
+              sender: win.webContents,
+              // The IPC sender guard trusts only the main frame of the main window.
+              senderFrame: win.webContents.mainFrame,
+            } as Electron.IpcMainEvent,
             args.payload,
           );
         });
@@ -112,7 +116,11 @@ export class RpcBridge {
         const win = BrowserWindow.getAllWindows()[0];
         ipcMain.emit(
           payload.channel,
-          { sender: win?.webContents, returnValue: undefined } as
+          {
+            sender: win?.webContents,
+            senderFrame: win?.webContents.mainFrame,
+            returnValue: undefined,
+          } as
             | Electron.IpcMainEvent
             | Electron.IpcMainInvokeEvent,
           ...payload.args,
@@ -185,6 +193,7 @@ export class RpcBridge {
       let captured: unknown = undefined;
       const fakeEvent = {
         sender: win?.webContents,
+        senderFrame: win?.webContents.mainFrame,
         get returnValue() {
           return captured;
         },
@@ -206,7 +215,10 @@ export class RpcBridge {
       const win = BrowserWindow.getAllWindows()[0];
       ipcMain.emit(
         'set-state',
-        { sender: win?.webContents } as Electron.IpcMainEvent,
+        {
+          sender: win?.webContents,
+          senderFrame: win?.webContents.mainFrame,
+        } as Electron.IpcMainEvent,
         payload,
       );
     }, state);

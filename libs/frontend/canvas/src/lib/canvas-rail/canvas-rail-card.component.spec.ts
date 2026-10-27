@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ApplicationRef,
   ChangeDetectionStrategy,
   Component,
   Injector,
@@ -12,10 +13,12 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import type { AttentionItem } from '@ptah-extension/core';
+import { LoggingService, type AttentionItem } from '@ptah-extension/core';
 import { By } from '@angular/platform-browser';
 import {
+  ChatStore,
   CompactSessionCardComponent,
+  SendToMessagingComponent,
   SESSION_CARD_ACTIONS,
   SessionOrganizerService,
   SessionRowActionsService,
@@ -186,8 +189,25 @@ class RealRailCardHost {
   readonly lanesRequested = output<void>();
 }
 
+@Component({
+  selector: 'ptah-send-to-messaging',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<button type="button" role="menuitem" data-action="hand-off">Hand off session to…</button>',
+  host: { '[attr.data-tab-id]': 'tabId()' },
+})
+class HandOffStub {
+  readonly tabId = input.required<string>();
+}
+
 describe('CanvasRailCardComponent', () => {
   const focusTile = jest.fn();
+  const running = signal(false);
+  const viewMode = signal<'full' | 'compact'>('full');
+  const activeTabId = signal('a');
+  const toggleTabViewMode = jest.fn();
+  const abortWithConfirmation = jest.fn();
+  const logError = jest.fn();
   const open = jest.fn();
   const sessionId = SessionId.create();
   const available = signal(false);
@@ -209,6 +229,10 @@ describe('CanvasRailCardComponent', () => {
     loaded = false;
     available.set(false);
     tabState.set('idle');
+    running.set(false);
+    viewMode.set('full');
+    activeTabId.set('a');
+    abortWithConfirmation.mockResolvedValue(true);
     TestBed.configureTestingModule({
       imports: [CanvasRailCardComponent],
       providers: [
@@ -216,19 +240,23 @@ describe('CanvasRailCardComponent', () => {
           provide: TabManagerService,
           useValue: {
             findTabByIdAcrossWorkspaces: () => ({
-              tab: { id: 'a', title: 'Alpha', claudeSessionId: persisted ? sessionId : null, workflow },
+              tab: { id: 'a', title: 'Alpha', claudeSessionId: persisted ? sessionId : null, workflow, viewMode: viewMode() },
             }),
+            activeTabId,
+            toggleTabViewMode,
           },
         },
-        { provide: CanvasStore, useValue: { focusTile } },
+        { provide: CanvasStore, useValue: { focusTile, isSessionRunning: (id: string) => id === 'a' && running() } },
+        { provide: ChatStore, useValue: { abortWithConfirmation } },
+        { provide: LoggingService, useValue: { error: logError } },
         { provide: CanvasDetailService, useValue: { open } },
         { provide: SessionOrganizerService, useValue: { available, rowFor, open: organizeOpen, openForSession, close: organizeClose } },
         { provide: SessionRowActionsService, useValue: { rename } },
       ],
     });
     TestBed.overrideComponent(CanvasRailCardComponent, {
-      remove: { imports: [CompactSessionCardComponent] },
-      add: { imports: [CardStub] },
+      remove: { imports: [CompactSessionCardComponent, SendToMessagingComponent] },
+      add: { imports: [CardStub, HandOffStub] },
     });
   });
 
@@ -527,7 +555,7 @@ describe('CanvasRailCardComponent', () => {
     expect(item(host, 'rename').getAttribute('aria-haspopup')).toBe('dialog');
     expect(host.querySelector('[data-action="organize"]')).toBeNull();
     expect(host.querySelector('[data-action="delete"]')).toBeNull();
-    expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down']);
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down', 'toggle-view', 'hand-off', 'close-session']);
   });
 
   it('keeps draft Rename and Organize focusable with the save reason', async () => {
@@ -1013,6 +1041,130 @@ describe('CanvasRailCardComponent', () => {
       expect(host.querySelector('[role="menu"]')).not.toBeNull();
     },
   );
+
+  const menuLabels = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] [role="separator"]')).map(
+      (element) =>
+        element.getAttribute('role') === 'separator'
+          ? '---'
+          : (element.querySelector('span')?.textContent ?? element.textContent)?.trim(),
+    );
+
+  it('lists the session actions in order, with Stop only while this session runs', async () => {
+    const fixture = mount();
+    let host = await openMenu(fixture);
+    expect(menuLabels(host)).toEqual([
+      'Open beside', 'Rename', '---', 'Move up', 'Move down', '---',
+      'Switch to compact view', 'Hand off session to…', '---', 'Close session',
+    ]);
+    expect(host.querySelector('ptah-send-to-messaging')?.getAttribute('data-tab-id')).toBe('a');
+    fixture.componentInstance.closeMenu();
+    fixture.detectChanges();
+    running.set(true);
+    viewMode.set('compact');
+    host = await openMenu(fixture);
+    expect(menuLabels(host)).toEqual([
+      'Open beside', 'Rename', '---', 'Move up', 'Move down', '---',
+      'Switch to full view', 'Hand off session to…', 'Stop session', '---', 'Close session',
+    ]);
+  });
+
+  it("applies view toggle, Stop and Close to this card's tab and returns focus to the trigger", async () => {
+    const fixture = mount();
+    const closed = jest.fn();
+    fixture.componentInstance.closeRequested.subscribe(closed);
+    let host = await openMenu(fixture);
+    item(host, 'toggle-view').click();
+    fixture.detectChanges();
+    expect(toggleTabViewMode).toHaveBeenCalledWith('a');
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger(host));
+    // Another tile is active: Stop focuses this card's tile before aborting.
+    running.set(true);
+    activeTabId.set('b');
+    host = await openMenu(fixture);
+    item(host, 'stop').click();
+    fixture.detectChanges();
+    await settle();
+    expect(focusTile).toHaveBeenCalledWith('a');
+    expect(abortWithConfirmation).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(trigger(host));
+    host = await openMenu(fixture);
+    item(host, 'close-session').click();
+    fixture.detectChanges();
+    expect(closed).toHaveBeenCalledWith('a');
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('logs and announces a failed Stop instead of leaving the rejection unhandled', async () => {
+    running.set(true);
+    const failure = new Error('abort failed');
+    abortWithConfirmation.mockRejectedValueOnce(failure);
+    const fixture = mount();
+    await expect(fixture.componentInstance.stop()).resolves.toBeUndefined();
+    expect(focusTile).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith('CanvasRailCard', 'Could not stop session', failure);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('Could not stop this session.');
+    const live = (fixture.nativeElement as HTMLElement).querySelector('[aria-live="polite"]');
+    expect(live?.textContent).toContain('Could not stop this session.');
+  });
+
+  it('Close session by keyboard leaves focus on the trigger, so the board can move it to a neighbour', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('Close session by pointer returns focus to where it was before the menu opened (the composer)', async () => {
+    const composer = document.createElement('textarea');
+    document.body.appendChild(composer);
+    const fixture = mount();
+    // As in the app, one tick renders the card (the popover's own focus return) before after-render hooks.
+    TestBed.inject(ApplicationRef).attachView(fixture.componentRef.hostView);
+    const closed = jest.fn();
+    fixture.componentInstance.closeRequested.subscribe(closed);
+    const host = fixture.nativeElement as HTMLElement;
+    composer.focus();
+    // A press runs before the trigger takes focus; the click then opens the menu.
+    trigger(host).dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    trigger(host).focus();
+    trigger(host).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    TestBed.tick();
+    expect(closed).toHaveBeenCalledWith('a');
+    expect(document.activeElement).toBe(composer);
+    // A keyboard reopen forgets the earlier press: a later pointer close keeps the trigger.
+    trigger(host).focus();
+    trigger(host).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    item(host, 'close-session').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    TestBed.tick();
+    expect(document.activeElement).toBe(trigger(host));
+    composer.remove();
+  });
+
+  it('leaves arrow keys inside the nested Hand off picker to the picker', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    const listbox = document.createElement('div');
+    listbox.setAttribute('role', 'listbox');
+    const option = document.createElement('button');
+    listbox.appendChild(option);
+    host.querySelector('[role="menu"]')!.appendChild(listbox);
+    option.focus();
+    const event = keydown(option, 'ArrowDown');
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(option);
+  });
 
   it('enables Open beside without a reason (a stale id is never a disabled reason)', async () => {
     const fixture = mount();

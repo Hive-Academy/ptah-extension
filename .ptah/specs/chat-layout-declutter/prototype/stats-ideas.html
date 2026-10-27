@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Sidebar stats ideas</title>
+<style>
+  :root {
+    --bg: #15161c; --panel: #1b1d24; --line: rgba(255,255,255,.08); --text: #e6e6ea;
+    --muted: #8b8d98; --ok: #22c55e; --run: #f5b942; --accent: #e649c5; --info: #4aa3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #0e0f13; color: var(--text);
+    font: 14px/1.4 Inter, "Segoe UI", system-ui, sans-serif; display: flex; gap: 24px; align-items: flex-start; }
+  .col { width: 340px; }
+  .cap { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--accent); margin: 0 0 8px 4px; }
+  .side { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; position: relative; }
+  .title { display: flex; align-items: flex-start; gap: 8px; padding: 12px 12px 4px 16px; }
+  .title h2 { margin: 0; font-size: 15px; font-weight: 600; flex: 1; }
+  .ibtn { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); border: 1px solid transparent; }
+  .status { padding: 0 16px 10px; color: var(--muted); font-size: 13px; }
+  .strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 14px 12px; align-items: center; }
+  .av { width: 30px; height: 30px; border-radius: 50%; background: #262833; display: grid; place-items: center;
+    font-size: 12px; font-weight: 700; position: relative; border: 1px solid var(--line); }
+  .av i { position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--ok); border: 2px solid var(--bg); }
+  .av.run i { background: var(--run); box-shadow: 0 0 0 3px rgba(245,185,66,.25); }
+  .av.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pill-orch { display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; }
+  .pill-orch.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .more { font-size: 12px; color: var(--muted); padding: 4px 8px; border-radius: 999px; border: 1px dashed var(--line); }
+  .sec { border-top: 1px solid var(--line); padding: 12px 16px; }
+  .sec h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 700;
+    display: flex; align-items: center; gap: 6px; }
+  .sec h3 .scope { color: var(--text); letter-spacing: 0; font-size: 12px; text-transform: none; font-weight: 600; }
+  .sec h3 .back { margin-left: auto; color: var(--info); font-weight: 500; letter-spacing: 0; font-size: 12px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats > div { padding: 0 10px; border-left: 1px solid var(--line); }
+  .stats > div:first-child { padding-left: 0; border-left: 0; }
+  .stats .k { font-size: 11px; color: var(--muted); border-bottom: 1px dotted var(--muted); display: inline-block; }
+  .stats .v { font-size: 17px; font-weight: 600; margin-top: 2px; }
+  .stats .s { font-size: 11px; color: var(--muted); }
+  .bar { height: 4px; border-radius: 2px; background: #2a2c36; margin-top: 4px; overflow: hidden; }
+  .bar b { display: block; height: 100%; width: 42%; background: var(--info); }
+  .agent-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+  .ok { color: var(--ok); } .run { color: var(--run); }
+  .link { color: var(--info); font-size: 12px; margin-top: 10px; display: inline-block; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .pop { position: absolute; left: 120px; top: 92px; width: 200px; background: #232530; border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); z-index: 5; font-size: 12px; }
+  .pop::before { content: ""; position: absolute; top: -6px; left: 18px; width: 10px; height: 10px; background: #232530;
+    border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); }
+  td.n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  tr.sel td { background: rgba(230,73,197,.08); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
+  .dot.run { background: var(--run); }
+  .rows { margin: 0 -8px; }
+  .row { display: grid; grid-template-columns: 34px 1fr auto 52px 44px; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 8px; }
+  .row + .row { margin-top: 2px; }
+  .row:hover { background: rgba(255,255,255,.03); }
+  .row .nm { min-width: 0; }
+  .row .nm b { display: block; font-weight: 600; font-size: 13px; }
+  .row .nm small { font-size: 11px; color: var(--muted); }
+  .row .st { font-size: 12px; }
+  .row .n { text-align: right; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .row.sel { background: rgba(230,73,197,.07); box-shadow: inset 2px 0 0 var(--accent); border-radius: 8px 8px 0 0; }
+  .dock { margin: 0 0 4px; padding: 10px 12px 12px 50px; background: rgba(230,73,197,.07);
+    box-shadow: inset 2px 0 0 var(--accent); border-radius: 0 0 8px 8px; font-size: 12px; }
+  .dock .mini { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 8px; }
+  .dock .mini > div { padding: 0 8px; border-left: 1px solid var(--line); }
+  .dock .mini > div:first-child { padding-left: 0; border-left: 0; }
+  .dock .mini .k { font-size: 10.5px; color: var(--muted); }
+  .dock .mini .v { font-size: 13px; font-weight: 600; }
+  .av.lg { width: 32px; height: 32px; }
+  .av.run::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid rgba(245,185,66,.55); }
+  .av.orch { background: #2b2440; }
+  .colhead { display: grid; grid-template-columns: 34px 1fr auto 52px 44px; gap: 8px; padding: 0 8px 4px;
+    font-size: 10.5px; color: var(--muted); letter-spacing: .04em; }
+  .colhead span:nth-child(n+4) { text-align: right; }
+</style>
+</head>
+<body>
+
+<!-- B+: totals + agent rows with dock detail -->
+<div class="col" style="width:380px">
+  <p class="cap">B+ — TOTALS + AGENT ROWS WITH DOCK DETAIL</p>
+  <div class="side">
+    <div class="title"><h2>Reply with the word OK.</h2><span class="ibtn">⇥</span></div>
+    <div class="status">idle</div>
+    <div class="sec" style="border-top:0">
+      <h3>SESSION</h3>
+      <div class="stats">
+        <div><span class="k">Context</span><div class="v">42%</div><div class="bar"><b></b></div></div>
+        <div><span class="k">Tokens</span><div class="v">3.9M</div><div class="s">all agents</div></div>
+        <div><span class="k">Cost</span><div class="v">$1.20</div><div class="s">this session</div></div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>AGENTS <span style="margin-left:auto;letter-spacing:0">1 running · 12</span></h3>
+      <div class="colhead"><span></span><span>Agent</span><span>Status</span><span>Tokens</span><span>Cost</span></div>
+      <div class="rows">
+        <div class="row"><span class="av lg run">⌁<i></i></span>
+          <span class="nm"><b>codex</b><small>CLI lane</small></span><span class="st run">running</span>
+          <span class="n">2.30M</span><span class="n">—</span></div>
+        <div class="row sel"><span class="av lg orch">⌘<i></i></span>
+          <span class="nm"><b>Orchestrator</b><small>Claude · Opus 5.5</small></span><span class="st ok">done</span>
+          <span class="n">1.10M</span><span class="n">$0.80</span></div>
+        <div class="dock">
+          <div class="mini">
+            <div><div class="k">Context</div><div class="v">42%</div></div>
+            <div><div class="k">In / out</div><div class="v">1.05M / 48K</div></div>
+            <div><div class="k">Turns</div><div class="v">14</div></div>
+          </div>
+          <span class="link" style="margin-top:0">Open thread →</span>
+        </div>
+        <div class="row"><span class="av lg">Λ<i></i></span>
+          <span class="nm"><b>antigravity</b><small>CLI lane</small></span><span class="st ok">done</span>
+          <span class="n">410K</span><span class="n">—</span></div>
+        <div class="row"><span class="av lg">P<i></i></span>
+          <span class="nm"><b>pi</b><small>CLI lane</small></span><span class="st ok">done</span>
+          <span class="n">88K</span><span class="n">—</span></div>
+        <div class="row"><span class="av lg">S<i></i></span>
+          <span class="nm"><b>Explore</b><small>subagent</small></span><span class="st ok">done</span>
+          <span class="n">31K</span><span class="n">$0.04</span></div>
+      </div>
+      <div class="muted" style="margin-top:6px">Show 7 more</div>
+    </div>
+    <div class="sec"><h3>TODOS</h3><div class="muted">No todos for this session.</div></div>
+  </div>
+</div>
+
+<!-- A1: orchestrator selected, hover popover floats -->
+<div class="col">
+  <p class="cap">IDEA A — SESSION SELECTED (HOVER = FLOATING)</p>
+  <div class="side">
+    <div class="title"><h2>Reply with the word OK.</h2><span class="ibtn">⇥</span></div>
+    <div class="status">idle · 12 agents</div>
+    <div class="strip">
+      <span class="pill-orch sel"><span class="av">⌘<i></i></span>Orchestrator <span class="ok">done</span></span>
+      <span class="av">P<i></i></span><span class="av">Λ<i></i></span><span class="av run">⌁<i></i></span>
+      <span class="av">P<i></i></span><span class="av">Λ<i></i></span><span class="av">⌁<i></i></span>
+      <span class="more">+5</span>
+    </div>
+    <div class="pop"><b>antigravity</b> · CLI lane<br /><span class="ok">done</span> · 410K tokens<br /><span class="muted">Click to select</span></div>
+    <div class="sec">
+      <h3>STATS <span class="scope">Session</span></h3>
+      <div class="stats">
+        <div><span class="k">Context</span><div class="v">42%</div><div class="bar"><b></b></div></div>
+        <div><span class="k">Tokens</span><div class="v">2.3M</div><div class="s">in + out</div></div>
+        <div><span class="k">Cost</span><div class="v">$1.20</div><div class="s">this session</div></div>
+      </div>
+    </div>
+    <div class="sec"><h3>TODOS</h3><div class="muted">No todos for this session.</div></div>
+    <div class="sec"><h3>GIT</h3><div class="muted">Not a git repository</div></div>
+  </div>
+</div>
+
+<!-- A2: codex selected -->
+<div class="col">
+  <p class="cap">IDEA A — AGENT SELECTED (CODEX)</p>
+  <div class="side">
+    <div class="title"><h2>Reply with the word OK.</h2><span class="ibtn">⇥</span></div>
+    <div class="status">idle · 12 agents</div>
+    <div class="strip">
+      <span class="pill-orch"><span class="av">⌘<i></i></span>Orchestrator <span class="ok">done</span></span>
+      <span class="av">P<i></i></span><span class="av">Λ<i></i></span><span class="av sel">⌁<i></i></span>
+      <span class="av">P<i></i></span><span class="av">Λ<i></i></span><span class="av">⌁<i></i></span>
+      <span class="more">+5</span>
+    </div>
+    <div class="sec">
+      <h3>STATS <span class="scope">codex</span> <span class="badge">CLI lane</span> <span class="ok" style="letter-spacing:0">done</span>
+        <span class="back">← Session</span></h3>
+      <div class="stats">
+        <div><span class="k">Context</span><div class="v">—</div><div class="s">not reported</div></div>
+        <div><span class="k">Tokens</span><div class="v">2.30M</div><div class="s">2.28M in · 19.3K out</div></div>
+        <div><span class="k">Cost</span><div class="v">—</div><div class="s">not reported</div></div>
+      </div>
+      <span class="link">Open thread →</span>
+    </div>
+    <div class="sec"><h3>TODOS</h3><div class="muted">No todos for this session.</div></div>
+    <div class="sec"><h3>GIT</h3><div class="muted">Not a git repository</div></div>
+  </div>
+</div>
+
+<!-- B: totals + table -->
+<div class="col">
+  <p class="cap">IDEA B — TOTALS + AGENT TABLE (FOR COMPARISON)</p>
+  <div class="side">
+    <div class="title"><h2>Reply with the word OK.</h2><span class="ibtn">⇥</span></div>
+    <div class="status">idle</div>
+    <div class="sec" style="border-top:0">
+      <h3>STATS <span class="scope">Session</span></h3>
+      <div class="stats">
+        <div><span class="k">Context</span><div class="v">42%</div><div class="bar"><b></b></div></div>
+        <div><span class="k">Tokens</span><div class="v">2.3M</div><div class="s">in + out</div></div>
+        <div><span class="k">Cost</span><div class="v">$1.20</div><div class="s">this session</div></div>
+      </div>
+    </div>
+    <div class="sec">
+      <h3>AGENTS <span style="margin-left:auto">12</span></h3>
+      <table>
+        <tr><td><span class="dot run"></span>codex</td><td class="run">running</td><td class="n">2.30M</td><td class="n">—</td></tr>
+        <tr class="sel"><td><span class="dot"></span>Orchestrator</td><td class="ok">done</td><td class="n">1.1M</td><td class="n">$0.80</td></tr>
+        <tr><td><span class="dot"></span>antigravity</td><td class="ok">done</td><td class="n">410K</td><td class="n">—</td></tr>
+        <tr><td><span class="dot"></span>pi</td><td class="ok">done</td><td class="n">88K</td><td class="n">—</td></tr>
+        <tr><td colspan="4" class="muted">+ 8 more</td></tr>
+      </table>
+    </div>
+    <div class="sec"><h3>TODOS</h3><div class="muted">No todos for this session.</div></div>
+  </div>
+</div>
+
+</body>
+</html>

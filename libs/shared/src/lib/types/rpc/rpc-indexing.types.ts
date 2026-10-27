@@ -68,6 +68,12 @@ export interface IndexingStatusWire {
    */
   readonly memoryChunkCount?: number;
   /**
+   * Distinct files with at least one code symbol for this workspace.
+   * Optional for backwards-compat, and undefined when the count query fails.
+   * Frontends MUST treat undefined as "unknown", not 0.
+   */
+  readonly fileCount?: number;
+  /**
    * Sqlite-vec availability summary. Optional for backwards-compat —
    * undefined when the backend has not been redeployed.
    */
@@ -85,6 +91,13 @@ export interface IndexingProgressEvent {
   readonly currentLabel: string;
   readonly elapsedMs: number;
   readonly totalKnown: boolean;
+  /**
+   * Files scanned so far in this run. Optional: older backends and the final
+   * `Done` event omit it.
+   */
+  readonly processed?: number;
+  /** Files this run will scan. Optional, paired with `processed`. */
+  readonly total?: number;
 }
 
 export interface IndexingCompleteEvent {

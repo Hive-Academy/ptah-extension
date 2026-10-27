@@ -87,6 +87,29 @@ export function extractHistoryTextForMessage(
   return textParts.map((part) => part.text).join('\n');
 }
 
+/**
+ * The transcript message for one ROOT user `message_start`.
+ *
+ * History replay mints every user message here, and the live path
+ * (`StreamingHandlerService`) mints an inbound peer turn here, so a live peer
+ * message and its reloaded copy carry the same id, text, time and label.
+ */
+export function buildUserMessageFromStart(
+  state: StreamingState,
+  start: MessageStartEvent,
+  sessionId: string | undefined,
+): ExecutionChatMessage {
+  return createExecutionChatMessage({
+    id: start.messageId,
+    role: 'user',
+    rawContent: extractHistoryTextForMessage(state, start.messageId),
+    sessionId,
+    timestamp: start.timestamp,
+    ...(start.imageCount ? { imageCount: start.imageCount } : {}),
+    ...(start.inboundPeer ? { inboundPeer: start.inboundPeer } : {}),
+  });
+}
+
 @Injectable({ providedIn: 'root' })
 export class HistoryMessageBuilder {
   private readonly replayOwners = new Map<string, Set<string>>();
@@ -215,19 +238,11 @@ export class HistoryMessageBuilder {
 
         if (messageStartEvent.role === 'user') {
           messages.push(
-            createExecutionChatMessage({
-              id: messageId,
-              role: 'user',
-              rawContent: extractHistoryTextForMessage(state, messageId),
-              sessionId: options.sessionId,
-              timestamp: messageStartEvent.timestamp,
-              ...(messageStartEvent.imageCount
-                ? { imageCount: messageStartEvent.imageCount }
-                : {}),
-              ...(messageStartEvent.inboundPeer
-                ? { inboundPeer: messageStartEvent.inboundPeer }
-                : {}),
-            }),
+            buildUserMessageFromStart(
+              state,
+              messageStartEvent,
+              options.sessionId,
+            ),
           );
           continue;
         }

@@ -229,7 +229,47 @@
             unverified.
           </p>
         }
-        @if (isCompactionContinuation()) {
+        @if (laneEnvelope()) {
+          <!-- A lane report / completion: a compact heading and the body, not
+               the raw envelope tags. First line only until expanded. -->
+          <p
+            class="text-xs font-semibold mb-1"
+            data-testid="chat-peer-envelope-heading"
+          >
+            {{ laneEnvelopeHeading() }}
+          </p>
+          @if (laneEnvelopeBody(); as body) {
+            <div [id]="laneEnvelopeBodyId()">
+              @if (isLaneEnvelopeExpanded()) {
+                <markdown
+                  [data]="
+                    laneEnvelopeMarkdown() | surfaceMarkdown: surfaceActive()
+                  "
+                  class="prose prose-sm max-w-none [&_*]:text-base-content"
+                />
+              } @else {
+                <p
+                  class="text-sm whitespace-pre-wrap break-words"
+                  data-testid="chat-peer-envelope-first-line"
+                >
+                  {{ body.firstLine }}
+                </p>
+              }
+            </div>
+            @if (body.hasMore) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs mt-1 px-1"
+                data-testid="chat-peer-envelope-toggle"
+                [attr.aria-expanded]="isLaneEnvelopeExpanded()"
+                [attr.aria-controls]="laneEnvelopeBodyId()"
+                (click)="toggleLaneEnvelope()"
+              >
+                {{ isLaneEnvelopeExpanded() ? 'Show less' : 'Show more' }}
+              </button>
+            }
+          }
+        } @else if (isCompactionContinuation()) {
           <button
             type="button"
             class="w-full flex items-center gap-2 text-left hover:bg-base-200/30 rounded transition-colors py-0.5"

@@ -714,7 +714,7 @@ test('records Electron navigation and session motion S1-S8', async ({ ui, electr
       await cards().nth(2).getByRole('button', { name: 'Session actions' }).click();
       expect(await page.getByRole('menuitem', { name: 'Open beside' }).getAttribute('aria-disabled')).not.toBe('true');
       await measure(reduced ? 'S6' : 'S8', `${reduced ? 'reduced-' : ''}split-open-${i + 1}`, () => page.getByRole('menuitem', { name: 'Open beside' }).click(), reduced);
-      await page.locator('[data-testid="rail-pane-container"] [data-pane-side]').first().getByRole('button', { name: 'More session actions' }).click();
+      await page.locator('[data-testid="rail-pane-container"] [data-pane-side]').first().getByRole('button', { name: 'Pane actions' }).click();
       await measure(reduced ? 'S6' : 'S8', `${reduced ? 'reduced-' : ''}split-close-${i + 1}`, () => page.getByRole('menuitem', { name: 'Close split' }).click(), reduced);
     }
   };

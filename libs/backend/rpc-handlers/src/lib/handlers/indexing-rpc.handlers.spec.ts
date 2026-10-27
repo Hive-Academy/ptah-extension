@@ -151,6 +151,29 @@ describe('IndexingRpcHandlers', () => {
       });
     });
 
+    it('passes fileCount through to the wire status', async () => {
+      const { rpcHandler, indexingControl } = buildHandlers();
+      indexingControl.getStatus.mockResolvedValueOnce(
+        makeStatus({ fileCount: 412 }),
+      );
+
+      const result = await rpcHandler.call('indexing:getStatus', {
+        workspaceRoot: '/workspace',
+      });
+
+      expect(result).toMatchObject({ status: { fileCount: 412 } });
+    });
+
+    it('omits fileCount from the wire status when it is unknown', async () => {
+      const { rpcHandler } = buildHandlers();
+
+      const result = (await rpcHandler.call('indexing:getStatus', {
+        workspaceRoot: '/workspace',
+      })) as { status: Record<string, unknown> };
+
+      expect(result.status).not.toHaveProperty('fileCount');
+    });
+
     it('returns empty status when workspaceRoot is missing', async () => {
       const { rpcHandler } = buildHandlers();
       const result = await rpcHandler.call('indexing:getStatus', {});

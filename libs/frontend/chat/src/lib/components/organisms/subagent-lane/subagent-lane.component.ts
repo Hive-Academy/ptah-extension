@@ -54,6 +54,7 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
     <ptah-execution-header
       class="shrink-0"
       kind="subagent"
+      [showStats]="showStats()"
       [label]="label()"
       [live]="live()"
       [peek]="progress()"
@@ -61,11 +62,13 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
       [extraMeta]="meta()"
       [controlsId]="'subagent-lane-details-' + record().parentToolUseId"
     >
-      <ptah-agent-lane-stats
-        executionHeaderStats
-        class="block min-w-0"
-        [stats]="stats()"
-      />
+      @if (showStats()) {
+        <ptah-agent-lane-stats
+          executionHeaderStats
+          class="block min-w-0"
+          [stats]="stats()"
+        />
+      }
       @if (context(); as ctx) {
         <div executionHeaderActions class="flex shrink-0 items-center gap-0.5">
           @if (ctx.entry.canBackground) {
@@ -133,61 +136,61 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
       class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
       data-testid="lane-scroll"
     >
-    <div [class]="columnClass + ' space-y-2 pt-2'">
-      @if (entry()?.truncated || entry()?.spilled) {
-        <p class="text-xs text-base-content-muted">
-          Earlier output trimmed
-          <!-- A loaded history that is still truncated stays truncated — the
+      <div [class]="columnClass + ' space-y-2 pt-2'">
+        @if (entry()?.truncated || entry()?.spilled) {
+          <p class="text-xs text-base-content-muted">
+            Earlier output trimmed
+            <!-- A loaded history that is still truncated stays truncated — the
              same capped history comes back on every fetch — so the button
              must go away once the load settles (PR #751 review 4309313437). -->
-          @if (
-            entry()?.history !== 'loaded' && entry()?.history !== 'loading'
-          ) {
-            —
+            @if (
+              entry()?.history !== 'loaded' && entry()?.history !== 'loading'
+            ) {
+              —
+              <button
+                type="button"
+                class="btn btn-link btn-xs p-0"
+                (click)="loadFullOutput()"
+              >
+                Load full output
+              </button>
+            }
+          </p>
+        }
+        @if ((entry()?.clipped ?? 0) > 0) {
+          <p class="text-xs text-base-content-muted">
+            Some long outputs were shortened
+          </p>
+        }
+        @if (entry()?.history === 'loading') {
+          <p class="text-xs text-base-content-muted">Loading saved output</p>
+        } @else if (entry()?.history === 'error') {
+          <p class="text-xs text-error">
+            Could not load saved output.
             <button
               type="button"
               class="btn btn-link btn-xs p-0"
-              (click)="loadFullOutput()"
+              (click)="retryHistory()"
             >
-              Load full output
+              Retry
             </button>
-          }
-        </p>
-      }
-      @if ((entry()?.clipped ?? 0) > 0) {
-        <p class="text-xs text-base-content-muted">
-          Some long outputs were shortened
-        </p>
-      }
-      @if (entry()?.history === 'loading') {
-        <p class="text-xs text-base-content-muted">Loading saved output</p>
-      } @else if (entry()?.history === 'error') {
-        <p class="text-xs text-error">
-          Could not load saved output.
-          <button
-            type="button"
-            class="btn btn-link btn-xs p-0"
-            (click)="retryHistory()"
-          >
-            Retry
-          </button>
-        </p>
-      } @else if (entry()?.history === 'unresolved') {
-        <p class="text-xs text-base-content-muted">
-          Saved output for this agent could not be linked.
-          <button
-            type="button"
-            class="btn btn-link btn-xs p-0"
-            (click)="retryHistory()"
-          >
-            Retry
-          </button>
-        </p>
-      } @else if (entry()?.history === 'not-found') {
-        <p class="text-xs text-base-content-muted">
-          No saved output for this agent
-        </p>
-      }
+          </p>
+        } @else if (entry()?.history === 'unresolved') {
+          <p class="text-xs text-base-content-muted">
+            Saved output for this agent could not be linked.
+            <button
+              type="button"
+              class="btn btn-link btn-xs p-0"
+              (click)="retryHistory()"
+            >
+              Retry
+            </button>
+          </p>
+        } @else if (entry()?.history === 'not-found') {
+          <p class="text-xs text-base-content-muted">
+            No saved output for this agent
+          </p>
+        }
       </div>
       <ptah-lane-transcript
         [laneId]="key()"
@@ -199,16 +202,16 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
       />
       @if (nodes().length === 0) {
         <div [class]="columnClass">
-        @if (
-          !finishedSummary() &&
-          (!entry() ||
-            entry()?.history === 'idle' ||
-            entry()?.history === 'loaded')
-        ) {
-          <p class="text-xs text-base-content-muted">
-            {{ live() ? 'Starting agent' : 'No output recorded' }}
-          </p>
-        }
+          @if (
+            !finishedSummary() &&
+            (!entry() ||
+              entry()?.history === 'idle' ||
+              entry()?.history === 'loaded')
+          ) {
+            <p class="text-xs text-base-content-muted">
+              {{ live() ? 'Starting agent' : 'No output recorded' }}
+            </p>
+          }
         </div>
       }
     </div>
@@ -221,6 +224,7 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
   `,
 })
 export class SubagentLaneComponent {
+  readonly showStats = input(true);
   readonly record = input.required<SubagentRecord>();
   readonly sessionId = input<string | null>(null);
   readonly getPermissionForTool = input<
