@@ -3424,7 +3424,9 @@ END OF ANUBIS DESIGN SYSTEM
   opacity: 1;
 }
 /* Keep the selection fill and ink paired, including badges: glass badge
-   tinting and secondary-text opacity must not weaken selected-row contrast. */
+   tinting and secondary-text opacity must not weaken selected-row contrast.
+   `.badge.badge` outranks Tailwind's hover-variant copy of the glass tone
+   badge rule, which is emitted later at (0,5,0). */
 :root .suggestions-panel ptah-suggestion-option.suggestion-active {
   background: oklch(var(--p));
   color: oklch(var(--pc));
@@ -3432,7 +3434,7 @@ END OF ANUBIS DESIGN SYSTEM
 :root .suggestions-panel ptah-suggestion-option.suggestion-active .opacity-70 {
   opacity: 1;
 }
-:root .suggestions-panel ptah-suggestion-option.suggestion-active .badge {
+:root .suggestions-panel ptah-suggestion-option.suggestion-active .badge.badge {
   background: transparent;
   color: inherit;
   border-color: currentColor;

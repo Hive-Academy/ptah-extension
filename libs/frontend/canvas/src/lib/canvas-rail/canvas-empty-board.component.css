@@ -1,6 +1,11 @@
 :host-context([data-glass='on']) ptah-aurora-effect {
   display: none;
 }
+/* The aurora is a fixed 570 px absolute layer inside the hero's scroll box;
+   cap it at the box so it never adds scroll height in short windows. */
+ptah-aurora-effect {
+  max-height: 100%;
+}
 /* The hero's scroll box is the size container: the layout follows the board's
    own width, which loses about 400 px when the Sessions tab opens, not the
    window's. `safe center` centres the stage while it fits and starts it at the

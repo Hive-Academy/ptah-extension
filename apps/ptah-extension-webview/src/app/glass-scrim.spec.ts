@@ -24,7 +24,7 @@ describe('composer visual regressions', () => {
     expect(active).toContain('background: oklch(var(--p));');
     expect(active).toContain('color: oklch(var(--pc));');
     expect(block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active \.opacity-70/)).toContain('opacity: 1;');
-    const badge = block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active \.badge/);
+    const badge = block(/:root \.suggestions-panel ptah-suggestion-option\.suggestion-active \.badge\.badge/);
     expect(badge).toContain('background: transparent;');
     expect(badge).toContain('color: inherit;');
   });
