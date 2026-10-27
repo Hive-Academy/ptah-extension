@@ -510,3 +510,33 @@
   `DISABLE_NON_ESSENTIAL_MODEL_CALLS` (Moderate: not confirmed in the current CLI reference).
 - Evidence: the reviewer's remedy was "pinned CLI evidence or removal". Removal is the smaller and safer change.
 - Reversible: yes. A later task can add a key again with pinned CLI evidence.
+
+## D66
+
+- Decision: root cause of every named-run `identity-unproved` refusal (lane and main chat): the
+  bundled CLI 2.1.278 reports a personal login in `accountInfo()` with no `tokenSource` and
+  `subscriptionType` "Claude Max"/"Claude Pro". The old tripwire expected the `claude auth status` words
+  (`claude.ai`, `max`). Fix: one shared predicate `claudePersonalLoginCheck`/`claudePersonalLoginPassed`
+  in agent-sdk, used by both paths (`bugfix-personal-login-report.md`).
+- Review `code-logic-review-personal-login.md` (codex REVISE 6/10). Blocking finding: a foreign
+  `error.name` that passes a regex is mutable data. Fixed by an orchestrator bounded correction: only a
+  fixed set of built-in class names is logged, all other names log `other`. Minor (no explicit
+  `ANTHROPIC_AUTH_TOKEN` test) is recorded, not fixed: the predicate refuses any defined `tokenSource`
+  other than `claude.ai`, and a test covers that case.
+- Evidence: live log `step: personal-login`, `tokenSource: false`, `subscription: other`; decompiled
+  `Ece()`/`WAn()` in `node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe`; `claude auth status`
+  for the profile reports `claude.ai`/`max`.
+- Reversible: yes.
+
+## D67
+
+- Decision: `code-logic-review-personal-login-r2.md` (REVISE 6/10, a double read of `error.name`) is fixed:
+  the name is read once, inside a guard, and only the list's own constant is returned. Review
+  `code-logic-review-personal-login-r3.md` gives REVISE 7/10. Both accessor failures are closed. It has
+  1 Moderate finding: a `Proxy` error with a throwing prototype trap can escape the `instanceof` guards
+  before the adapter's fixed refusal. The revise cap is reached (2 rounds). This is recorded as an open
+  item and is not fixed.
+- Evidence: orchestration rule 4 and the agent-lanes §6 cap. The error sources are trusted in-process SDK
+  and store code. The finding cannot break a lane config or lose data.
+- Later task: harden refusal-code extraction against hostile `Proxy` errors.
+- Reversible: yes.
