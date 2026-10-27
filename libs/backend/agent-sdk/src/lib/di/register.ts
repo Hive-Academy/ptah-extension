@@ -1087,14 +1087,19 @@ export function registerCodexChatServices(
           SDK_TOKENS.SESSION_RUNTIME_IDENTITY_LOOKUP,
         );
       if (!identities) return null;
-      return new CodexChatAdapter({
-        ...ports,
-        logger: c.resolve<Logger>(TOKENS.LOGGER),
-        approvals: c.resolve<SessionApprovalRouter>(
-          SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+      return new CodexChatAdapter(
+        {
+          ...ports,
+          logger: c.resolve<Logger>(TOKENS.LOGGER),
+          approvals: c.resolve<SessionApprovalRouter>(
+            SDK_TOKENS.SESSION_APPROVAL_ROUTER,
+          ),
+          metadata: createCodexChatMetadataPort(identities),
+        },
+        c.resolve<SessionTurnStateRegistry>(
+          SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
         ),
-        metadata: createCodexChatMetadataPort(identities),
-      });
+      );
     }),
   });
 }

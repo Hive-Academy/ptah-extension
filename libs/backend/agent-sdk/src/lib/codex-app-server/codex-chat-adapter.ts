@@ -3,6 +3,7 @@ import {
   type CodexChatSession as Session,
 } from './codex-chat-turn-stream';
 import type { NativeChatAdapter } from './routing-agent-adapter';
+import type { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { randomUUID } from 'node:crypto';
 import type { DependencyContainer } from 'tsyringe';
@@ -156,7 +157,13 @@ export class CodexChatAdapter implements NativeChatAdapter {
   >[0];
   private stats?: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
 
-  constructor(private readonly ports: CodexChatAdapterPorts) {}
+  constructor(
+    private readonly ports: CodexChatAdapterPorts,
+    private readonly turnState: Pick<
+      SessionTurnStateRegistry,
+      'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
+    >,
+  ) {}
   get providerId() {
     return this.ports.info.id;
   }
@@ -508,6 +515,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     if (session.blocked || session.closing)
       throw new CodexChatAdapterError('unavailable', 'turn');
     return streamCodexChatTurn(session, input, {
+      turnState: this.turnState,
       logger: this.ports.logger,
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),
@@ -582,6 +590,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     }
     session.busy = false;
     session.blocked = false;
+    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
     session.abort.abort();
     session.sink.dispose();
     session.closing = this.safe('close', async () => {

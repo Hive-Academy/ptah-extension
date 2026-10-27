@@ -19,6 +19,7 @@ import {
   type CodexChatAdapterPorts,
 } from './codex-chat-adapter';
 import { SessionApprovalRouter } from './session-approval-router';
+import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 
 const id = SessionId.from('11111111-1111-4111-8111-111111111111');
 const tabId = SessionId.from('22222222-2222-4222-8222-222222222222');
@@ -170,7 +171,7 @@ function setup(override = true) {
     }),
   };
   return {
-    adapter: new CodexChatAdapter(ports),
+    adapter: new CodexChatAdapter(ports, new SessionTurnStateRegistry()),
     ports,
     context,
     open,
@@ -229,7 +230,12 @@ describe('CodexChatAdapter', () => {
       jest.mocked(ports.metadata.save).mock.invocationCallOrder[0],
     );
     expect(resolved).toHaveBeenCalledWith(tabId, id);
-    expect(output).toHaveLength(2);
+    expect(output.map((event) => event.eventType)).toEqual([
+      'turn_state',
+      'message_start',
+      'message_complete',
+      'turn_state',
+    ]);
     expect(callbacks.result).toHaveBeenCalledTimes(1);
     // Callbacks are bound to the native turn id from the turn/start receipt.
     expect(ports.callbacks).toHaveBeenCalledWith(

@@ -66,6 +66,45 @@ function setup() {
   };
 }
 describe('CodexChatApprovalSink', () => {
+  it('ends only approvals matching both thread and turn, exactly once', async () => {
+    const { sink, presentation } = setup();
+    const signal = new AbortController().signal;
+    const otherTurn = { ...request, turnId: 'other-turn', requestId: 8 };
+    const otherThread = { ...request, threadId: 'other-thread', requestId: 9 };
+    const first = sink.request(request, signal);
+    const second = sink.request({ ...request, requestId: 10 }, signal);
+    const remainingTurn = sink.request(otherTurn, signal);
+    const remainingThread = sink.request(otherThread, signal);
+
+    sink.endTurn(request.threadId, request.turnId);
+    sink.endTurn(request.threadId, request.turnId);
+
+    await expect(first).resolves.toBe('cancel');
+    await expect(second).resolves.toBe('cancel');
+    expect(presentation.cancelPrompt).toHaveBeenCalledTimes(2);
+    expect(presentation.cancelPrompt).toHaveBeenCalledWith({
+      sessionId: reply.sessionId,
+      requestId: '7',
+      reason: 'turn-ended',
+    });
+    expect(presentation.dismiss).toHaveBeenCalledTimes(2);
+    expect(presentation.dismiss).not.toHaveBeenCalledWith(reply.sessionId, otherTurn);
+    expect(presentation.dismiss).not.toHaveBeenCalledWith(reply.sessionId, otherThread);
+    expect(sink.respond({
+      ...reply,
+      turnId: otherTurn.turnId,
+      requestId: otherTurn.requestId,
+    })).toBe(true);
+    expect(sink.respond({
+      ...reply,
+      threadId: otherThread.threadId,
+      requestId: otherThread.requestId,
+    })).toBe(true);
+    await expect(remainingTurn).resolves.toBe('accept');
+    await expect(remainingThread).resolves.toBe('accept');
+    sink.dispose();
+  });
+
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
   it.each(['accept', 'acceptForSession', 'decline', 'cancel'] as const)(

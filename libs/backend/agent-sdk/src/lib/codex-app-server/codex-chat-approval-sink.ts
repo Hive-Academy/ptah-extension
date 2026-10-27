@@ -225,6 +225,16 @@ export class CodexChatApprovalSink implements ApprovalSink {
     return false;
   }
 
+  endTurn(threadId: string, turnId: string): void {
+    for (const pending of this.pending.values()) {
+      if (
+        pending.request.threadId === threadId &&
+        pending.request.turnId === turnId
+      )
+        pending.settle('cancel', 'turn-ended');
+    }
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const pending of this.pending.values())

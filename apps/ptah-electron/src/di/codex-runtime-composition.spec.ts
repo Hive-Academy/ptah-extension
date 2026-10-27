@@ -29,6 +29,7 @@ import {
   CodexChatAdapter,
   registerCodexChatServices,
   SDK_TOKENS,
+  SessionTurnStateRegistry,
   wireAgentAdapterAliases,
   type CodexChatAdapterPorts,
   resolveCodexNativeBinaryPath,
@@ -386,6 +387,9 @@ function bindingFixture() {
   parent.register(SDK_TOKENS.SDK_PERMISSION_HANDLER, {
     useValue: { handleResponse: jest.fn() },
   });
+  parent.register(SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY, {
+    useValue: new SessionTurnStateRegistry(),
+  });
   registerCodexChatServices(parent);
   wireAgentAdapterAliases(parent);
   return { parent, unsubscribe, legacy, scopeResolver, settingsStore };
@@ -470,7 +474,7 @@ describe('Electron complete Codex binding', () => {
     const adapter = new CodexChatAdapter({
       ...ports,
       profile: async () => ({ profile }),
-    });
+    }, new SessionTurnStateRegistry());
     try {
       await expect(
         adapter.startChatSession({ tabId: 'tab', prompt: 'hello' }),

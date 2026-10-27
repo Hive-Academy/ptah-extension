@@ -16,7 +16,15 @@ import type {
   CodexChatScope,
 } from './codex-chat-adapter';
 import type { CodexChatApprovalSink } from './codex-chat-approval-sink';
-import { CodexChatEvents, tokenUsage } from './codex-chat-events';
+import {
+  CodexChatEvents,
+  tokenUsage,
+  type CodexChatResult,
+} from './codex-chat-events';
+import {
+  toTurnStateEvent,
+  type SessionTurnStateRegistry,
+} from '../helpers/session-turn-state.registry';
 
 export interface CodexChatSession {
   readonly id: SessionId;
@@ -35,6 +43,10 @@ export interface CodexChatSession {
 }
 
 interface CodexChatTurnDependencies {
+  readonly turnState: Pick<
+    SessionTurnStateRegistry,
+    'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
+  >;
   readonly logger: Logger;
   callbacks: CodexChatAdapterPorts['callbacks'];
   stats: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
@@ -60,6 +72,23 @@ export async function* streamCodexChatTurn(
   const abort = () => subscription.abort();
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
+  let terminalStatus: CodexChatResult['status'] | undefined;
+  let turnSettled = false;
+  const settleTurn = () => {
+    if (turnSettled || terminalStatus === undefined) return;
+    turnSettled = true;
+    if (terminalStatus === 'failed') {
+      deps.turnState.recordFailure(session.id, {
+        error: 'unknown',
+        terminalReason: null,
+      });
+      return deps.turnState.settleTurn(session.id);
+    }
+    return deps.turnState.settleTurn(
+      session.id,
+      terminalStatus === 'completed' ? 'completed' : 'aborted_streaming',
+    );
+  };
   let exhausted = false;
   const started = Date.now();
   let events: AsyncIterator<CodexRuntimeEvent> | undefined;
@@ -67,7 +96,7 @@ export async function* streamCodexChatTurn(
   let compactionActive = false;
   let finishCompaction: (() => void) | undefined;
   try {
-    if (session.abort.signal.aborted) throw deps.error('unavailable', 'turn');
+    if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     const eventStream = session.context.events(subscription.signal);
     events = eventStream[Symbol.asyncIterator]();
     const receipt = await session.context.startTurn({
@@ -97,6 +126,7 @@ export async function* streamCodexChatTurn(
       },
       result: async (result) => {
         terminal = true;
+        terminalStatus = result.status;
         await callbacks.result(result);
         const usage = result.usage;
         if (
@@ -134,14 +164,28 @@ export async function* streamCodexChatTurn(
         if (event.type === 'terminal' && event.usage) session.usage = event.usage;
       }
       await projection.settled();
-      for (const mapped of mappedEvents) yield mapped;
+      for (const mapped of mappedEvents) {
+        if (mapped.eventType === 'message_start' && !mapped.parentToolUseId) {
+          const generating = deps.turnState.markGenerating(session.id);
+          if (generating) yield toTurnStateEvent(session.id, generating);
+        }
+        yield mapped;
+        if (mapped.eventType === 'message_complete') {
+          const settled = settleTurn();
+          if (settled) yield toTurnStateEvent(session.id, settled);
+        }
+      }
       if (terminal) return;
     }
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
+    if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
     throw deps.failure(error, 'turn');
   } finally {
     finishCompaction?.();
+    // A consumer can detach between message_complete and its settlement event.
+    if (terminal) settleTurn();
+    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
     const release = () => {
       subscription.abort();
       session.abort.signal.removeEventListener('abort', abort);
@@ -156,12 +200,17 @@ export async function* streamCodexChatTurn(
       session.turnId &&
       events &&
       projection &&
-      !session.closing
+      !session.closing &&
+      !session.abort.signal.aborted
     ) {
       // A detached consumer must not release the latch before the server terminal.
-      void drainInterruptedTurn(session, events, projection, deps).finally(
-        release,
-      );
+      void drainInterruptedTurn(
+        session,
+        events,
+        projection,
+        deps,
+        settleTurn,
+      ).finally(release);
     } else {
       release();
       try {
@@ -180,7 +229,9 @@ async function drainInterruptedTurn(
   events: AsyncIterator<CodexRuntimeEvent>,
   projection: CodexChatEvents,
   deps: CodexChatTurnDependencies,
+  settleTurn: () => ReturnType<SessionTurnStateRegistry['settleTurn']> | undefined,
 ): Promise<void> {
+  let terminal = false;
   try {
     await deps.interrupt(session.id);
     while (!session.abort.signal.aborted) {
@@ -188,7 +239,11 @@ async function drainInterruptedTurn(
       if (next.done) break;
       const mapped = projection.map(next.value);
       await projection.settled();
-      if (mapped.some((event) => event.eventType === 'message_complete')) return;
+      if (mapped.some((event) => event.eventType === 'message_complete')) {
+        settleTurn();
+        terminal = true;
+        return;
+      }
     }
     // Without a terminal, close the context before permitting another turn.
     await deps.close(session);
@@ -206,6 +261,8 @@ async function drainInterruptedTurn(
       );
     }
   } finally {
+    if (!terminal) deps.turnState.forceIdle(session.id, 'aborted_streaming');
+    if (session.turnId) session.sink.endTurn(session.id, session.turnId);
     try {
       await events.return?.();
     } catch (error) {
