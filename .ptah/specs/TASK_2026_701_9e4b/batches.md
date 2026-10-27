@@ -1044,7 +1044,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/plugin-marketplace,@ptah-extension/shared,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui` passes
 - No per-batch review
 
-## Batch 21: Library change feed and catalog config-home signal (F7d + core) — PENDING
+## Batch 21: Library change feed and catalog config-home signal (F7d + core) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1055,7 +1055,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 1, 20
 - Phase: P3 | Phase review: P3 code-logic
 
-### Task 21.1: `LibraryChangeFeed` and `PluginCatalogService.configHome` — PENDING
+### Task 21.1: `LibraryChangeFeed` and `PluginCatalogService.configHome` — COMPLETE
 
 - Files: CREATE `libs/frontend/marketplace/src/lib/services/library-change-feed.ts` (+ spec); MODIFY `libs/frontend/marketplace/src/services.ts`, `apps/ptah-extension-webview/src/app/app.config.ts`, `libs/frontend/core/src/lib/services/plugin-catalog.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1340-1343 (F7d), 1381-1383 (core)
@@ -1069,7 +1069,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/marketplace,@ptah-extension/core,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 22: Library cards and drawer provenance (F6 part 1) — PENDING
+## Batch 22: Library cards and drawer provenance (F6 part 1) — COMPLETE
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1080,7 +1080,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 1, 19
 - Phase: P3 | Phase review: P3 code-logic + visual
 
-### Task 22.1: `ProvenanceBadgeComponent`, `DivergedReasonComponent`, card and drawer — PENDING
+### Task 22.1: `ProvenanceBadgeComponent`, `DivergedReasonComponent`, card and drawer — COMPLETE
 
 - Files: CREATE `libs/frontend/skill-synthesis-ui/src/lib/components/clones/provenance-badge.component.ts` (+ spec), `diverged-reason.component.ts` (+ spec); MODIFY `clone-card.component.ts` (+ spec), `clone-detail-drawer.component.ts` (+ spec), `clone-action-gating.spec.ts` (same folder)
 - Plan reference: implementation-plan.md:1270-1306; design-spec section 5; prototype/library.html

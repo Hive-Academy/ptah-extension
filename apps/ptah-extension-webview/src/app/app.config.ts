@@ -130,7 +130,10 @@ import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/s
 // NARROW barrel on purpose. `MARKETPLACE_COMPONENT` below is deferred, so
 // importing `HarnessHealthStore` from the wide barrel would pull the whole
 // marketplace hub back into the eager graph just to register one push handler.
-import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
+import {
+  HarnessHealthStore,
+  LibraryChangeFeed,
+} from '@ptah-extension/marketplace/services';
 import {
   TaskSessionLinksService,
   TasksStore,
@@ -403,6 +406,14 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: HarnessHealthStore,
+      multi: true,
+    },
+    // Same reason: `library:changed` follows a setup-wizard run or a plugin
+    // install, often before the Marketplace is opened. Registered for both
+    // hosts; the feed ignores the push outside Electron (D3).
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: LibraryChangeFeed,
       multi: true,
     },
     // Boot readiness (TASK_2026_380). Registered for BOTH hosts on purpose:

@@ -19,3 +19,7 @@
  */
 
 export { HarnessHealthStore } from './lib/harness/harness-health.store';
+export {
+  LibraryChangeFeed,
+  type LibraryChange,
+} from './lib/services/library-change-feed';

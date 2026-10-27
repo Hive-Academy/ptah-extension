@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   isOptOutPluginSource,
+  type PluginConfigHomeStatus,
   type PluginConfigState,
   type PluginInfo,
 } from '@ptah-extension/shared';
@@ -101,6 +102,18 @@ export class PluginCatalogService {
   /** The saved enable/disable state, or `null` before this scope's read lands. */
   readonly config = computed<PluginConfigState | null>(
     () => this.current()?.config ?? null,
+  );
+  /**
+   * Where the current harness root's plugin settings live, and whether a choice
+   * is needed (D14), from the same `plugins:get-config` read.
+   *
+   * Read-only and scoped exactly like {@link config}: `null` before this scope's
+   * read lands, from the instant the workspace switches, after a failed read, and
+   * whenever the host sent no notice. Only the Electron host ever sends one, so
+   * VS Code and the CLI always read `null` here.
+   */
+  readonly configHome = computed<PluginConfigHomeStatus | null>(
+    () => this.current()?.configHome ?? null,
   );
   /** True while a read is in flight — including one someone else started. */
   readonly isLoading = this._isLoading.asReadonly();
@@ -217,15 +230,30 @@ export class PluginCatalogService {
         listResult.isSuccess() && listResult.data
           ? listResult.data.plugins
           : [];
-      const config =
+      const withHome =
         configResult.isSuccess() && configResult.data
           ? configResult.data
           : null;
 
-      if (config === null) {
+      if (withHome === null) {
         this._error.set(configResult.error ?? 'Failed to load plugin config');
+        this._snapshot.set({
+          scopeKey,
+          plugins,
+          config: null,
+          configHome: null,
+        });
+        return;
       }
-      this._snapshot.set({ scopeKey, plugins, config });
+      // The notice travels on the config read but is not part of the saved
+      // state, so it is split off: `config()` stays exactly what was saved.
+      const { configHome, ...config } = withHome;
+      this._snapshot.set({
+        scopeKey,
+        plugins,
+        config,
+        configHome: configHome ?? null,
+      });
     } catch (error: unknown) {
       // degradation-audit: reported - the thrown message is published on the
       // `error()` signal, which the plugin status widget, the browser modal
@@ -241,7 +269,12 @@ export class PluginCatalogService {
       // Stamped as loaded-for-this-scope even though it failed, so `isLoaded`
       // means "we asked" and the Retry button is what asks again. Without this
       // every re-mounting widget would re-issue the failing pair.
-      this._snapshot.set({ scopeKey, plugins: [], config: null });
+      this._snapshot.set({
+        scopeKey,
+        plugins: [],
+        config: null,
+        configHome: null,
+      });
     }
   }
 }
@@ -251,6 +284,8 @@ interface CatalogSnapshot {
   scopeKey: string;
   plugins: readonly PluginInfo[];
   config: PluginConfigState | null;
+  /** The D14 notice from the same read; `null` when the host sent none. */
+  configHome: PluginConfigHomeStatus | null;
 }
 
 /**
