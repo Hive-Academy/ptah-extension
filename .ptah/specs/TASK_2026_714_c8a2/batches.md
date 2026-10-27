@@ -2225,6 +2225,126 @@ Assumptions:
   instead of being silently ignored; the apps profile needs native Ptah MCP attachment (parity
   row 39). Main chat never sends `mcpToolProfile`, so the default Electron Codex start passes.
 
+## Batch 8h: P8 fix round 3 (live-test-p8c.md D6, M1, M2) — COMPLETE (code; 8h-2 c02d25f2f; 8h-1,3,4 18ef3fef8; P8 re-review pending)
+
+- Phase: P8 | Phase gate once after 8h: degradation-audit lint, di-lint lint, 4-host typecheck,
+  vscode-core host-attention-ingress test. Phase review: the coordinator's P8 re-review.
+- Recommended executor: CLI lane, implementation capability (Codex: only lane with confirmed
+  room). Fallback: other family same capability -> same family other model -> subagent.
+  Subagent reason: N/A. Review family: implementer Codex, reviewer Claude.
+- Execution mode: parallel (8h-1 and 8h-2 are file-disjoint, same project; one verify after both).
+- Coordinator decision (final): ambient host-assembled keys are STRIPPED with one info log each
+  (names only, never URLs/headers/tokens/values); explicit caller requests stay REJECTED.
+
+### Ambient-key audit (team-leader, read of chat-session.service.ts + chat-slash-command-router.service.ts)
+
+| Key | Set by (ambient source) | Paths | Decision |
+| --- | --- | --- | --- |
+| tabId, workspaceId, projectPath, name, prompt, model, runtime | builder | start/child/handoff/resume | supported |
+| systemPrompt, effort, files, images | renderer options / params | start, resume | supported |
+| enhancedPromptsContent | `resolveEnhancedPromptsContent` | all | supported |
+| permissionLevel | child/handoff `childPermissionLevel` | child, handoff | supported |
+| outputStyleBody | `outputStyleActivation.resolveSessionFields` | start, resume | supported |
+| ptahUiFence | renderer (always true on Electron) | start, resume, slash | supported (8g-1b map) |
+| mcpToolProfile `'coding'` | params | start, resume, slash | supported |
+| mcpServerRunning | `isMcpServerRunning` / `.mcp.json` check | all | strip + `ptah-mcp-not-attached` (existing) |
+| workflowsDisabled | `resolveWorkflowsDisabled()` | start, resume | strip (existing) |
+| includePartialMessages | renderer options | start | strip (existing) |
+| mcpServersOverride `{}` | `buildMcpServersOverride` | start, child, handoff | strip (existing) |
+| mcpServersOverride with entries | `buildMcpServersOverride` merges Smithery + OAuth (ambient) + caller `params.mcpServersOverride` (no current producer) | start, child, handoff | **strip** (8h), info `codex-user-mcp-not-attached` with server names only |
+| thinking | `options.thinking` / `params.thinking` (no current renderer producer) | start, resume | **strip** (8h), info log: Codex reasoning uses native `effort` |
+| outputStyleName | `resolveSessionFields` (flag tier) | start, resume | **strip** (8h), info log: output style not applied on Codex |
+| mcpToolProfile other than `'coding'` | explicit caller (MCP Apps page `'apps'`) | start | reject (CodexChatOptionError) |
+| any other key | none today | - | reject (CodexChatOptionError) |
+
+- Not keys but checked: `providerProfile` only on the claude-sdk branch; slash router config goes to
+  `prepare()` only (no classifier); Codex `executeSlashCommand` supports `/compact` only;
+  `sendMessageToSession` options are files/images only.
+- RISK (recorded, not in this round): Codex adapter `resumeSession` on an id still in its
+  `sessions` map rejects any key except prompt/tabId (`codex-chat-adapter.ts:209-217`,
+  `activeResumeConfig`). chat-session resumes when `hasLiveSessionStream` is false, which includes
+  a live record whose broadcaster loop has exited (`chat-session.service.ts:1587-1595`). That
+  edge would fail with CODEX_RUNTIME_FAILED. Recorded for the P8 re-review / live p8d watch.
+
+### Batch 8h-1: D6 ambient-key strips + real-config spec — COMPLETE (18ef3fef8; reports batch-8h-1-report.md)
+
+- HOLD (coordinator, ~17:45Z): the strip of non-empty `mcpServersOverride` and of
+  `outputStyleName` is ON HOLD pending a user decision (conflicts with parity-inventory.md:39,
+  "apply natively or the turn fails visibly"). Lane 8h-1 was already spawned with the strip; it
+  finishes, but that part is not committed until the coordinator sends the final rule for those
+  two keys. `thinking` strip, M1, audit and the real-config spec scaffolding proceed.
+- FINAL RULE (user decision, 2026-10-27, relayed by the coordinator): non-empty
+  `mcpServersOverride` and `outputStyleName` are stripped AND the chat shows ONE visible,
+  non-error notice per session start/resume ("Codex chat: MCP servers not attached: a, b";
+  "Codex chat: output style 'X' is not applied"), names only, never repeated per turn. This
+  revises parity-inventory.md row 39: the FEATURE fails visibly, not the turn. Carrier: the
+  existing model-substitution notice (`ChatRuntimeProfileService.publishModelSubstitution`, an
+  ordinary assistant message over CHAT_CHUNK, once per prepared execution); no shared contract
+  change, no CHAT_ERROR, session not failed.
+- Lane 8h-1 strips + logs ACCEPTED; notice added in 8h-3 (same lane, resumed).
+
+### Batch 8h-3: visible notice for not-applied Codex inputs — COMPLETE (18ef3fef8; report batch-8h-3-report.md)
+
+- Files: R/session/chat-runtime-profile.service.ts (+ .spec.ts), R/session/chat-session.service.ts
+  (call sites only), R/session/chat-slash-command-router.service.ts (call site only, if renamed),
+  R/session/chat-session.native.spec.ts.
+- Generalize the once-per-execution model notice into one runtime-notice publisher (replace, no
+  second method): model substitution + MCP servers not attached + output style not applied.
+
+### Batch 8h-4: active-record resume applies the option classification — COMPLETE (18ef3fef8; reports batch-8h-4-report.md, -4b, -4c)
+
+- RISK above promoted (coordinator). Files: W/libs/backend/agent-sdk/src/lib/codex-app-server/
+  codex-chat-adapter.ts (+ .spec.ts), R/codex-host/codex-chat-host-ports.ts (+ .spec.ts) for a
+  narrow host classification port. Open-session resume: ambient keys stripped, unreviewed keys
+  rejected (CodexChatOptionError), turn proceeds; no notice (not repeated per turn).
+
+- Files (R = W/libs/backend/rpc-handlers/src/lib/chat/): R/codex-host/codex-chat-profile-options.ts
+  (+ .spec.ts), R/codex-host/codex-chat-host-ports.ts (+ .spec.ts), R/session/chat-session.native.spec.ts.
+- Classifier strips non-empty `mcpServersOverride`, `thinking`, `outputStyleName`; exposes MCP
+  server names (map keys) for the log; `profile()` emits one info log per stripped ambient key.
+- Real-config spec: Smithery and OAuth resolvers return ONE server each; thinking + outputStyleName
+  set as the real services would; assert zero rejected, strips logged without URLs/headers/tokens,
+  native start proceeds; keep the renderer-shaped payload test.
+
+### Batch 8h-2: M1 real chat:start outcome log — COMPLETE (c02d25f2f; reports batch-8h-2-report.md, -2b, -2c)
+
+- Files: W/libs/backend/rpc-handlers/src/lib/handlers/chat-rpc.handlers.ts (+ .spec.ts).
+- `runRpc` logs failure (with errorCode, never the error text payload beyond the code) when the
+  resolved result is `{ success: false }`, `cancelled` when cancelled, success otherwise.
+
+### M2: DEFERRED
+
+- The "api error" label is the shared terminal reason `'api_error'` set by
+  `message-sender.service.ts:554` for CODEX_* failures and rendered by chat-ui
+  (`compact-session-summary.ts:461`); the roster (`session-agent-roster.service.ts:91`) only reads
+  it. A non-API label needs a new terminal reason across shared + chat + chat-ui, more than the
+  roster service + its spec. Later task.
+
+### Batch 8h verification
+
+- `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/agent-sdk,ptah-electron`
+  (ptah-electron added: new `checkOptions` adapter port). Run 1: 2 spec type errors (8h-2b, 8h-4c
+  fixed); run 2: 3 exact-call spec failures (registration debug log, 8h-2c fixed); run 3: all
+  tests + typecheck pass (rpc-handlers 186 suites / 4814 tests); only agent-sdk lint known noise
+  (`session-query-executor.accounts.spec.ts:174,183`).
+- Commits: 8h-2 c02d25f2f; 8h-1,3,4 18ef3fef8 (one commit: the new port and its host
+  implementation must compile together).
+- P8 phase gate (2026-10-27 ~18:37Z, HEAD 18ef3fef8): degradation-audit:lint exit 0; di-lint:lint
+  exit 0; typecheck ptah-electron, ptah-extension-vscode, ptah-cli, ptah-tui 4/4 succeeded;
+  vscode-core test `--testPathPatterns=host-attention-ingress` 1/1 succeeded. ALL PASS.
+- Minor (recorded, not fixed): the publish catch still warns "Model substitution notice failed"
+  (now covers all runtime notices); in codex-chat-adapter.ts the class doc comment sits above the
+  new `TrackedSession` alias. For the P8 re-review.
+
+### Batch 8h deferred
+
+- P14 parity gap: native mapping of user MCP servers (Smithery/OAuth HTTP) into the Codex App
+  Server `mcp_servers` config (parity row 39 stays open).
+- P14 parity gap: output style by name (`outputStyleName`, flag tier) on Codex.
+- P14 parity gap: native apply of a CHANGED model / effort / permissionLevel on an active Codex
+  resume (8h-4b logs `codex-active-resume-options-not-applied` with key names only).
+- M2 label (above). Active-record resume RISK: fixed in 8h-4/8h-4b.
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
