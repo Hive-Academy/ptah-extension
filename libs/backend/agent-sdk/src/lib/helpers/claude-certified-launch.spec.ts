@@ -5,6 +5,7 @@ import type {
 } from '@ptah-extension/auth-providers-tokens';
 import {
   CLAUDE_CERTIFIED_ENV_KEYS,
+  CLAUDE_PERSONAL_ACCOUNT_INFO_SUBSCRIPTIONS,
   CLAUDE_PERSONAL_SUBSCRIPTIONS,
   CLAUDE_SETTINGS_SAFE_ENV_KEYS,
   ClaudeCertifiedLaunchRefusal,
@@ -12,7 +13,10 @@ import {
   buildCertifiedClaudeEnv,
   certifiedEnvDigest,
   certifiedNamedEnv,
+  claudePersonalLoginCheck,
+  claudePersonalLoginPassed,
   claudeSettingsOverride,
+  type ClaudeRunningLoginInfo,
   isCertifiedClaudeEnvKey,
   isClaudeSettingsEnvKeyAllowed,
   type ClaudeActualLaunch,
@@ -286,6 +290,98 @@ describe('allowlist helpers', () => {
     expect(certifiedEnvDigest({ ...env, C: '3' })).not.toBe(
       certifiedEnvDigest(env),
     );
+  });
+});
+
+describe('claudePersonalLoginCheck', () => {
+  const passes = (info: ClaudeRunningLoginInfo): boolean =>
+    claudePersonalLoginPassed(claudePersonalLoginCheck(info));
+
+  // Bundled Claude Code 2.1.278 accountInfo for a claude.ai subscriber: no
+  // tokenSource, no apiKeySource, a display subscription name.
+  const bundled: ClaudeRunningLoginInfo = {
+    subscriptionType: 'Claude Max',
+    apiProvider: 'firstParty',
+  };
+
+  it('lists the accountInfo display names for personal subscriptions', () => {
+    expect(CLAUDE_PERSONAL_ACCOUNT_INFO_SUBSCRIPTIONS).toEqual([
+      'Claude Pro',
+      'Claude Max',
+    ]);
+  });
+
+  it.each<[string, ClaudeRunningLoginInfo]>([
+    ['the bundled CLI Claude Max shape', bundled],
+    ['the bundled CLI Claude Pro shape', { subscriptionType: 'Claude Pro' }],
+    ['apiKeySource none', { ...bundled, apiKeySource: 'none' }],
+    ['tokenSource claude.ai', { ...bundled, tokenSource: 'claude.ai' }],
+    [
+      'the raw auth-status vocabulary',
+      { tokenSource: 'claude.ai', subscriptionType: 'pro' },
+    ],
+    ['raw max', { subscriptionType: 'max', apiProvider: 'firstParty' }],
+  ])('passes %s', (_label, info) => {
+    expect(passes(info)).toBe(true);
+  });
+
+  it.each<[string, ClaudeRunningLoginInfo]>([
+    ['an env OAuth token', { ...bundled, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN' }],
+    [
+      'an fd OAuth token',
+      { ...bundled, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' },
+    ],
+    ['another token source', { ...bundled, tokenSource: 'apiKeyHelper' }],
+    ['an env API key', { ...bundled, apiKeySource: 'ANTHROPIC_API_KEY' }],
+    ['an apiKeyHelper key', { ...bundled, apiKeySource: 'apiKeyHelper' }],
+    ['bedrock', { ...bundled, apiProvider: 'bedrock' }],
+    ['vertex', { ...bundled, apiProvider: 'vertex' }],
+    ['a gateway', { ...bundled, apiProvider: 'gateway' }],
+    ['Claude Team', { ...bundled, subscriptionType: 'Claude Team' }],
+    ['Claude Enterprise', { ...bundled, subscriptionType: 'Claude Enterprise' }],
+    ['Claude API', { ...bundled, subscriptionType: 'Claude API' }],
+    ['raw team', { ...bundled, subscriptionType: 'team' }],
+    ['an unknown word', { ...bundled, subscriptionType: 'Claude Ultra' }],
+    ['a lower-case display name', { ...bundled, subscriptionType: 'claude max' }],
+    ['no subscription', { apiProvider: 'firstParty' }],
+    ['an empty object', {}],
+  ])('refuses %s', (_label, info) => {
+    expect(passes(info)).toBe(false);
+  });
+
+  it.each<[string | undefined, string]>([
+    ['Claude Pro', 'pro'],
+    ['Claude Max', 'max'],
+    ['Claude Team', 'team'],
+    ['Claude Enterprise', 'enterprise'],
+    ['Claude API', 'api'],
+    ['pro', 'pro'],
+    ['max', 'max'],
+    ['team', 'team'],
+    ['enterprise', 'enterprise'],
+    ['someone@example.test', 'other'],
+    [undefined, 'absent'],
+  ])('classifies subscription %s as the fixed word %s', (word, cls) => {
+    expect(claudePersonalLoginCheck({ subscriptionType: word }).subscription).toBe(
+      cls,
+    );
+  });
+
+  it('reports fixed booleans per check, never a value', () => {
+    expect(
+      claudePersonalLoginCheck({
+        tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN',
+        apiKeySource: 'ANTHROPIC_API_KEY',
+        apiProvider: 'bedrock',
+        subscriptionType: 'Claude Team',
+      }),
+    ).toEqual({
+      tokenSource: false,
+      apiKeySource: false,
+      apiProvider: false,
+      subscription: 'team',
+      personalSubscription: false,
+    });
   });
 });
 

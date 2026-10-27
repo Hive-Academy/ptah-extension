@@ -34,6 +34,7 @@ import {
   ClaudeSdkLaneRunner,
   claudeLaneRefusal,
   claudeLaneRefusalCode,
+  claudeLaneForeignErrorClass,
   type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunContext,
 } from './claude-sdk-lane-runner';
@@ -563,6 +564,8 @@ describe('named lane identity proof', () => {
       launch?: ClaudeCertifiedLaunchContext | null;
       info?: Record<string, unknown>;
       boundary?: () => Promise<ClaudeLaunchBoundaryOutcome>;
+      accountInfo?: () => Promise<Record<string, unknown>>;
+      deadlineMs?: number;
     } = {},
   ) {
     const route = {
@@ -598,7 +601,7 @@ describe('named lane identity proof', () => {
     };
     const close = jest.fn();
     const query = {
-      accountInfo: async () => setup.info ?? personalNoEmail,
+      accountInfo: setup.accountInfo ?? (async () => setup.info ?? personalNoEmail),
       close: (): void => close(),
     };
     const queryMock = jest.fn(() => query as ReturnType<QueryFn>);
@@ -612,7 +615,7 @@ describe('named lane identity proof', () => {
     // A long deadline: a refusal must come from the checks, not a timeout.
     const admission = new ClaudeNamedLaneAdmission(
       route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
-      abort, { warn: jest.fn() }, setup.stored, 60_000,
+      abort, { warn: jest.fn() }, setup.stored, setup.deadlineMs ?? 60_000,
     );
     return {
       admission, route, launch, queryFn, queryMock, options, abort, close,
@@ -710,14 +713,56 @@ describe('named lane identity proof', () => {
     expect(f.queryMock).not.toHaveBeenCalled();
   });
 
+  const allPassed = {
+    tokenSource: true, apiKeySource: true, apiProvider: true, subscription: 'max', personalSubscription: true,
+  } as const;
+
+  // The bundled CLI 2.1.278 accountInfo shape for a claude.ai subscriber: no
+  // tokenSource, no apiKeySource, a display subscription name.
+  const bundledCliPersonal = { subscriptionType: 'Claude Max', apiProvider: 'firstParty' };
+
   it.each<[string, Record<string, unknown>]>([
-    ['a console token source', { ...personalNoEmail, tokenSource: 'console' }],
-    ['an apiKeyHelper key source', { ...personalNoEmail, apiKeySource: 'apiKeyHelper' }],
-    ['a team subscription', { ...personalNoEmail, subscriptionType: 'team' }],
-    ['an unknown subscription word', { ...personalNoEmail, subscriptionType: 'future' }],
-    ['no subscription', { tokenSource: 'claude.ai' }],
-    ['a third-party provider', { ...personalNoEmail, apiProvider: 'bedrock' }],
-  ])('trips on %s before any binding or prompt', async (_label, info) => {
+    ['the bundled CLI Claude Max shape', bundledCliPersonal],
+    ['the bundled CLI Claude Pro shape', { subscriptionType: 'Claude Pro' }],
+    ['the bundled CLI shape with apiKeySource none', { ...bundledCliPersonal, apiKeySource: 'none' }],
+    ['the claude.ai token source shape', personalNoEmail],
+  ])('passes the personal-login tripwire for %s', async (_label, info) => {
+    // A different account: the run gets past the tripwire and refuses at the compare.
+    const f = bootstrapFixture({
+      info: { ...info, email: 'other@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-compare' });
+  });
+
+  const refusedSubscription = { personalSubscription: false } as const;
+
+  it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    ['a console token source', { ...personalNoEmail, tokenSource: 'console' }, { tokenSource: false }],
+    ['an env OAuth token source', { ...bundledCliPersonal, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN' }, { tokenSource: false }],
+    [
+      'a file-descriptor OAuth token source',
+      { ...bundledCliPersonal, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' },
+      { tokenSource: false },
+    ],
+    ['an apiKeyHelper key source', { ...personalNoEmail, apiKeySource: 'apiKeyHelper' }, { apiKeySource: false }],
+    ['an env API key source', { ...bundledCliPersonal, apiKeySource: 'ANTHROPIC_API_KEY' }, { apiKeySource: false }],
+    ['a team subscription', { ...personalNoEmail, subscriptionType: 'team' }, { subscription: 'team', ...refusedSubscription }],
+    ['a Claude Team subscription', { ...bundledCliPersonal, subscriptionType: 'Claude Team' }, { subscription: 'team', ...refusedSubscription }],
+    [
+      'a Claude Enterprise subscription',
+      { ...bundledCliPersonal, subscriptionType: 'Claude Enterprise' },
+      { subscription: 'enterprise', ...refusedSubscription },
+    ],
+    ['a Claude API subscription', { ...bundledCliPersonal, subscriptionType: 'Claude API' }, { subscription: 'api', ...refusedSubscription }],
+    ['an unknown subscription word', { ...personalNoEmail, subscriptionType: 'future' }, { subscription: 'other', ...refusedSubscription }],
+    ['no subscription', { tokenSource: 'claude.ai' }, { subscription: 'absent', ...refusedSubscription }],
+    ['no subscription and no token source', { apiProvider: 'firstParty' }, { subscription: 'absent', ...refusedSubscription }],
+    ['a third-party provider', { ...personalNoEmail, apiProvider: 'bedrock' }, { apiProvider: false }],
+    ['a vertex provider on the bundled CLI shape', { ...bundledCliPersonal, apiProvider: 'vertex' }, { apiProvider: false }],
+  ])('trips on %s before any binding or prompt', async (_label, info, failed) => {
     const f = bootstrapFixture({
       info: { ...info, email: 'owner@example.test', organization: 'org' },
     });
@@ -725,6 +770,15 @@ describe('named lane identity proof', () => {
       code: 'identity-unproved',
     });
     expect(f.commitRunBinding).not.toHaveBeenCalled();
+    // The diagnostic names the failed check with fixed words, never a value.
+    const diagnostic = f.admission.launchDiagnostic;
+    expect(diagnostic).toEqual({
+      phase: 'bootstrap', step: 'personal-login',
+      personalLogin: { ...allPassed, ...failed },
+    });
+    expect(JSON.stringify(diagnostic)).not.toMatch(
+      /owner|example|console|apiKeyHelper|bedrock|vertex|future|Claude|CLAUDE_CODE|ANTHROPIC/,
+    );
   });
 
   it('refuses a child signed in to an account other than the certified one', async () => {
@@ -735,6 +789,64 @@ describe('named lane identity proof', () => {
       code: 'identity-unproved',
     });
     expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-compare' });
+  });
+
+  it('names the identity-absent step for a personal login with no email', async () => {
+    const f = bootstrapFixture();
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-absent' });
+  });
+
+  it('names the account-info step and the foreign error class when the child query rejects', async () => {
+    class SdkTransportError extends Error {
+      override name = 'SdkTransportError';
+    }
+    const f = bootstrapFixture({
+      accountInfo: async () => { throw new SdkTransportError('owner@example.test D:/x'); },
+    });
+    const error: unknown = await f.admission.bootstrap(f.queryFn, f.options).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'account-info' });
+    expect(claudeLaneForeignErrorClass(error)).toBe('other');
+    expect(claudeLaneRefusalCode(error)).toBe('identity-unproved');
+  });
+
+  it('records a deadline interrupt when a wait times out', async () => {
+    const f = bootstrapFixture({
+      accountInfo: () => new Promise<never>(() => undefined),
+      deadlineMs: 5,
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.launchDiagnostic).toEqual({
+      phase: 'bootstrap', step: 'account-info', interrupt: 'deadline',
+    });
+  });
+
+  it('reports no foreign class for refusals and a fixed word for odd names', () => {
+    expect(claudeLaneForeignErrorClass(claudeLaneRefusal('busy'))).toBeUndefined();
+    expect(claudeLaneForeignErrorClass('text')).toBe('non-error');
+    expect(claudeLaneForeignErrorClass(Object.assign(new Error('m'), { name: 'a b/c' }))).toBe('other');
+    expect(claudeLaneForeignErrorClass(Object.assign(new Error('m'), { name: 'ownerExampleTest' }))).toBe('other');
+    let reads = 0;
+    const switching = new Error('m');
+    Object.defineProperty(switching, 'name', {
+      get: () => (reads++ === 0 ? 'TypeError' : 'owner@example.test'),
+    });
+    expect(claudeLaneForeignErrorClass(switching)).toBe('TypeError');
+    expect(reads).toBe(1);
+    const throwing = new Error('m');
+    Object.defineProperty(throwing, 'name', {
+      get: () => {
+        throw new Error('owner@example.test');
+      },
+    });
+    expect(claudeLaneForeignErrorClass(throwing)).toBe('other');
+    expect(claudeLaneForeignErrorClass(new TypeError('m'))).toBe('TypeError');
   });
 });
 

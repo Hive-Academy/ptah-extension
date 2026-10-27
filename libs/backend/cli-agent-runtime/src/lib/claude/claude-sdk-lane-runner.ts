@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
-  CLAUDE_PERSONAL_SUBSCRIPTIONS,
   ClaudeCertifiedLaunchRefusal,
   assertCertifiedLaunch,
   claudeIdentityReference,
+  claudePersonalLoginCheck,
+  claudePersonalLoginPassed,
   createNamedAccountPromptGate,
 } from '@ptah-extension/agent-sdk';
 import type {
+  ClaudePersonalLoginCheck,
   SDKUserMessage,
   SessionMetadata,
 } from '@ptah-extension/agent-sdk';
@@ -373,25 +375,75 @@ const INIT_PERSONAL_KEY_SOURCES: ReadonlySet<string> = new Set([
   'oauth',
 ]);
 
+/** Fixed sub-stage words of one named lane run, logged with a refusal. */
+export type ClaudeLaneLaunchStep =
+  | 'boundary'
+  | 'open'
+  | 'route-current'
+  | 'account-info'
+  | 'personal-login'
+  | 'identity-absent'
+  | 'identity-compare'
+  | 'stored-identity'
+  | 'close'
+  | 'init-wait'
+  | 'init-version'
+  | 'init-key-source'
+  | 'resume'
+  | 'commit-binding'
+  | 'binding-check'
+  | 'attach'
+  | 'save-metadata'
+  | 'persist-reference'
+  | 'on-binding'
+  | 'gate';
+
 /**
- * Post-init tripwire: the running child must use a personal claude.ai login.
- * Any other token source, any API key source, a non-first-party provider or a
- * subscription word outside the personal list (unknown words included) fails.
+ * Where a named lane run stopped: the child phase, the last sub-stage reached
+ * and, when a wait was cut short, why. Every field is a fixed word.
  */
-function personalClaudeLogin(info: {
-  tokenSource?: string;
-  apiKeySource?: string;
-  subscriptionType?: string;
-  apiProvider?: string;
-}): boolean {
-  const personal: readonly string[] = CLAUDE_PERSONAL_SUBSCRIPTIONS;
-  return (
-    info.tokenSource === 'claude.ai' &&
-    (info.apiKeySource === undefined || info.apiKeySource === 'none') &&
-    (info.apiProvider === undefined || info.apiProvider === 'firstParty') &&
-    info.subscriptionType !== undefined &&
-    personal.includes(info.subscriptionType)
-  );
+export interface ClaudeLaneLaunchDiagnostic {
+  readonly phase: 'admission' | 'bootstrap' | 'final' | 'turn';
+  readonly step?: ClaudeLaneLaunchStep;
+  readonly interrupt?: 'deadline' | 'abort' | 'epoch';
+  readonly personalLogin?: ClaudePersonalLoginCheck;
+}
+
+/** Built-in error classes a refusal log line may name; `name` is mutable data. */
+const FOREIGN_ERROR_CLASSES = [
+  'Error',
+  'TypeError',
+  'RangeError',
+  'SyntaxError',
+  'ReferenceError',
+  'AbortError',
+  'TimeoutError',
+] as const;
+
+/**
+ * The class of a foreign (non-refusal) error, for a refusal log line.
+ * `undefined` for a lane or certified-launch refusal. Only a built-in class
+ * name from a fixed list is returned, anything else is `other`; the message
+ * is never read. `name` is read once and only the list's own constant is
+ * returned, so an accessor cannot put other text in the log.
+ */
+export function claudeLaneForeignErrorClass(
+  error: unknown,
+): (typeof FOREIGN_ERROR_CLASSES)[number] | 'other' | 'non-error' | undefined {
+  if (
+    error instanceof ClaudeLaneRefusal ||
+    error instanceof ClaudeCertifiedLaunchRefusal
+  )
+    return undefined;
+  if (!(error instanceof Error)) return 'non-error';
+  let name: unknown;
+  try {
+    name = error.name;
+  } catch {
+    // degradation-audit: reported - a throwing `name` accessor logs the fixed word `other`; the refusal code is unchanged.
+    return 'other';
+  }
+  return FOREIGN_ERROR_CLASSES.find((known) => known === name) ?? 'other';
 }
 
 /** Two independent empty gates; only the final query can receive conversation. */
@@ -417,6 +469,10 @@ export class ClaudeNamedLaneAdmission {
    * proving its own children closed. Settlement then retains the reservation.
    */
   private boundaryUnproved = false;
+  private phase: ClaudeLaneLaunchDiagnostic['phase'] = 'admission';
+  private step?: ClaudeLaneLaunchStep;
+  private interrupt?: ClaudeLaneLaunchDiagnostic['interrupt'];
+  private personalLogin?: ClaudePersonalLoginCheck;
   private readonly onAbort = (): void => {
     void this.dispose();
   };
@@ -437,6 +493,18 @@ export class ClaudeNamedLaneAdmission {
     abort.signal.addEventListener('abort', this.onAbort, { once: true });
   }
 
+  /** Where this run stopped; fixed words only, safe for a refusal log line. */
+  get launchDiagnostic(): ClaudeLaneLaunchDiagnostic {
+    return Object.freeze({
+      phase: this.phase,
+      ...(this.step ? { step: this.step } : {}),
+      ...(this.interrupt ? { interrupt: this.interrupt } : {}),
+      ...(this.step === 'personal-login' && this.personalLogin
+        ? { personalLogin: this.personalLogin }
+        : {}),
+    });
+  }
+
   private async wait<T>(pending: Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancel: (() => void) | undefined;
@@ -445,9 +513,13 @@ export class ClaudeNamedLaneAdmission {
       const value = await Promise.race([
         pending,
         new Promise<never>((_resolve, reject) => {
-          cancel = () => reject(claudeLaneRefusal());
+          cancel = () => {
+            this.interrupt ??= 'abort';
+            reject(claudeLaneRefusal());
+          };
           this.abort.signal.addEventListener('abort', cancel, { once: true });
           timer = setTimeout(() => {
+            this.interrupt ??= 'deadline';
             this.abort.abort();
             reject(claudeLaneRefusal());
           }, this.deadlineMs);
@@ -537,6 +609,8 @@ export class ClaudeNamedLaneAdmission {
     options: Options,
     boundary: ClaudeLaunchBoundary,
   ): Promise<void> {
+    this.phase = boundary;
+    this.step = 'boundary';
     this.assertOpen();
     const launch = this.certifiedLaunch();
     try {
@@ -567,12 +641,19 @@ export class ClaudeNamedLaneAdmission {
     this.assertOpen();
     if (!this.child) throw claudeLaneRefusal();
     const launch = this.certifiedLaunch();
+    this.step = 'route-current';
     await this.wait(this.persistence.assertRouteCurrent(this.route));
+    this.step = 'account-info';
     const info = await this.wait(this.child.query.accountInfo());
-    if (!personalClaudeLogin(info)) throw claudeLaneRefusal('identity-unproved');
+    this.step = 'personal-login';
+    this.personalLogin = claudePersonalLoginCheck(info);
+    if (!claudePersonalLoginPassed(this.personalLogin))
+      throw claudeLaneRefusal('identity-unproved');
+    this.step = 'identity-absent';
     const reference = claudeIdentityReference(info.email, info.organization);
     if (!reference) return { kind: 'unknown' };
     // The running child must be the account the launch was certified for.
+    this.step = 'identity-compare';
     if (reference !== launch.identityReference)
       throw claudeLaneRefusal('identity-unproved');
     return { kind: 'known', ownerKey: reference };
@@ -595,8 +676,10 @@ export class ClaudeNamedLaneAdmission {
       if (
         changed.routeFingerprint === this.route.routeFingerprint &&
         changed.authEpoch !== this.route.authEpoch
-      )
+      ) {
+        this.interrupt ??= 'epoch';
         this.abort.abort();
+      }
     });
     if (this.disposed) {
       this.stopEpoch();
@@ -606,18 +689,21 @@ export class ClaudeNamedLaneAdmission {
     await this.checkBoundary(options, 'bootstrap');
     const gate = createNamedAccountPromptGate(this.abort.signal);
     this.gates.push(gate);
+    this.step = 'open';
     const child = this.open(queryFn, gate.prompt, options);
     this.identity = await this.readIdentity();
     // Refuse an unproved identity before any binding is committed or any
     // prompt is sent, including on a fresh lane with no stored binding.
     if (this.identity.kind !== 'known')
       throw claudeLaneRefusal('identity-unproved');
+    this.step = 'stored-identity';
     if (
       this.stored &&
       (this.stored.identity.kind !== 'known' ||
         !this.sameIdentity(this.stored.identity))
     )
       throw claudeLaneRefusal('identity-unproved');
+    this.step = 'close';
     gate.close();
     child.close();
     await this.wait(child.terminated);
@@ -658,6 +744,7 @@ export class ClaudeNamedLaneAdmission {
       [Symbol.asyncIterator]: () => this.admittedTurns(gate.prompt),
     };
     const canUseTool = options.canUseTool;
+    this.step = 'open';
     const child = this.open(queryFn, prompt, {
       ...options,
       canUseTool: (tool, input, context) =>
@@ -677,23 +764,27 @@ export class ClaudeNamedLaneAdmission {
     const buffered: Awaited<ReturnType<typeof child.query.next>>[] = [];
     let sessionId: string | undefined;
     while (!sessionId) {
+      this.step = 'init-wait';
       const next = await this.wait(child.query.next());
       if (next.done || buffered.length >= 64) throw claudeLaneRefusal();
       buffered.push(next);
       if (next.value.type === 'system' && next.value.subtype === 'init') {
         // The running CLI must be the certified version and must report a
         // personal key source (independent of account info), before any task text.
-        if (
-          next.value.claude_code_version !== version ||
-          !INIT_PERSONAL_KEY_SOURCES.has(String(next.value.apiKeySource))
-        )
+        this.step = 'init-version';
+        if (next.value.claude_code_version !== version)
+          throw claudeLaneRefusal('identity-unproved');
+        this.step = 'init-key-source';
+        if (!INIT_PERSONAL_KEY_SOURCES.has(String(next.value.apiKeySource)))
           throw claudeLaneRefusal('identity-unproved');
         sessionId = next.value.session_id;
       }
     }
+    this.step = 'resume';
     if (options.resume && options.resume !== sessionId)
       throw claudeLaneRefusal('conflict');
     if (!this.identity) throw claudeLaneRefusal();
+    this.step = 'commit-binding';
     const binding =
       this.stored ??
       (await this.wait(
@@ -703,6 +794,7 @@ export class ClaudeNamedLaneAdmission {
           this.identity,
         ),
       ));
+    this.step = 'binding-check';
     if (
       binding.provider !== 'claude' ||
       binding.profileId !== this.route.profileId ||
@@ -722,6 +814,7 @@ export class ClaudeNamedLaneAdmission {
         identity: Object.freeze({ ...binding.identity }),
       }),
     });
+    this.step = 'attach';
     const attached = await this.wait(
       this.persistence.attachSdkSession({
         provider: 'claude',
@@ -731,20 +824,24 @@ export class ClaudeNamedLaneAdmission {
       }),
     );
     if (attached.status !== 'attached') throw claudeLaneRefusal('conflict');
+    this.step = 'save-metadata';
     await this.wait(
       this.persistence.saveAccountBound(
         { ...metadata, sessionId },
         this.reference.accountBinding,
       ),
     );
+    this.step = 'persist-reference';
     await this.wait(
       this.persistence.persistReference(this.reference, sessionId),
     );
+    this.step = 'on-binding';
     if (onBinding) await this.wait(onBinding(this.reference, sessionId));
     if (!this.sameIdentity(await this.readIdentity()))
       throw claudeLaneRefusal();
     this.assertOpen();
     this.released = true;
+    this.phase = 'turn';
     const next = () =>
       buffered.length ? Promise.resolve(buffered.shift()!) : child.query.next();
     this.query = new Proxy(child.query, {
@@ -777,6 +874,7 @@ export class ClaudeNamedLaneAdmission {
   ): Promise<void> {
     try {
       await this.validateTurn(!initial);
+      this.step = 'gate';
       const gate = this.gates[this.gates.length - 1];
       if (
         !this.released ||

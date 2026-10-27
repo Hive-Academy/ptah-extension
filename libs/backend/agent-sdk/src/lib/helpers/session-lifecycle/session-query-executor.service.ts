@@ -31,7 +31,9 @@ import type { AccountInfo, QueryFunction } from '../../types/sdk-types/claude-sd
 import type { SessionMetadata } from '../../session-metadata-store';
 import type { NamedAccountQueryHandle } from '../sdk-query-runner.service';
 import { buildNamedAccountBootstrapOptions, namedActualLaunch } from '../sdk-query-options-builder';
-import { CLAUDE_PERSONAL_SUBSCRIPTIONS, ClaudeCertifiedLaunchRefusal, assertCertifiedLaunch } from '../claude-certified-launch';
+import {
+  ClaudeCertifiedLaunchRefusal, assertCertifiedLaunch, claudePersonalLoginCheck, claudePersonalLoginPassed,
+} from '../claude-certified-launch';
 import { claudeIdentityReference } from '../claude-identity-reference';
 import type {
   ISdkPermissionHandler,
@@ -602,18 +604,13 @@ const CERTIFIED_INIT_KEY_SOURCES: ReadonlySet<string> = new Set(['none', 'oauth'
 
 /**
  * Post-init tripwire and identity: the running child must use a personal
- * claude.ai login (no API key source, first-party provider, a personal
- * subscription word) and be the account its launch was certified for. Any
+ * claude.ai login (`claudePersonalLoginCheck`: no API key source, first-party
+ * provider, a personal subscription in the raw or the display vocabulary) and
+ * be the account its launch was certified for. Any
  * mismatch, an unknown identity included, refuses `identity-unproved`.
  */
 function namedIdentity(account: AccountInfo, launch: ClaudeCertifiedLaunchContext): ProviderAccountIdentityEvidence {
-  const personal: readonly string[] = CLAUDE_PERSONAL_SUBSCRIPTIONS;
-  if (account.tokenSource !== 'claude.ai' ||
-      (account.apiKeySource !== undefined && account.apiKeySource !== 'none') ||
-      (account.apiProvider !== undefined && account.apiProvider !== 'firstParty') ||
-      account.subscriptionType === undefined || !personal.includes(account.subscriptionType)) {
-    throw namedAccountRefusal('identity-unproved');
-  }
+  if (!claudePersonalLoginPassed(claudePersonalLoginCheck(account))) throw namedAccountRefusal('identity-unproved');
   const ownerKey = claudeIdentityReference(account.email, account.organization);
   if (ownerKey === null || ownerKey !== launch.identityReference) throw namedAccountRefusal('identity-unproved');
   return { kind: 'known', ownerKey };

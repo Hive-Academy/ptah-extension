@@ -93,6 +93,107 @@ export const CLAUDE_SETTINGS_SAFE_ENV_KEYS = [
 export const CLAUDE_PERSONAL_SUBSCRIPTIONS = ['pro', 'max'] as const;
 
 /**
+ * Subscription display names a running child's `accountInfo()` / init reports
+ * for a personal claude.ai login. The bundled Claude Code CLI (2.1.278) maps
+ * its raw plan word to these names (`Claude Max`, `Claude Pro`, ...), unlike
+ * `claude auth status --json`, which reports the raw words above.
+ */
+export const CLAUDE_PERSONAL_ACCOUNT_INFO_SUBSCRIPTIONS = [
+  'Claude Pro',
+  'Claude Max',
+] as const;
+
+/** Fixed class of a running child's subscription word, safe to log. */
+export type ClaudeLoginSubscriptionClass =
+  | 'pro'
+  | 'max'
+  | 'team'
+  | 'enterprise'
+  | 'api'
+  | 'other'
+  | 'absent';
+
+/** Known raw and display subscription words; any other word is `other`. */
+const SUBSCRIPTION_CLASSES: ReadonlyMap<string, ClaudeLoginSubscriptionClass> =
+  new Map<string, ClaudeLoginSubscriptionClass>([
+    ['pro', 'pro'],
+    ['max', 'max'],
+    ['team', 'team'],
+    ['enterprise', 'enterprise'],
+    ['Claude Pro', 'pro'],
+    ['Claude Max', 'max'],
+    ['Claude Team', 'team'],
+    ['Claude Enterprise', 'enterprise'],
+    ['Claude API', 'api'],
+  ]);
+
+const PERSONAL_LOGIN_SUBSCRIPTIONS: ReadonlySet<string> = new Set<string>([
+  ...CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  ...CLAUDE_PERSONAL_ACCOUNT_INFO_SUBSCRIPTIONS,
+]);
+
+/** The login fields of a running child's `accountInfo()` / init. */
+export interface ClaudeRunningLoginInfo {
+  readonly tokenSource?: string;
+  readonly apiKeySource?: string;
+  readonly subscriptionType?: string;
+  readonly apiProvider?: string;
+}
+
+/**
+ * Which personal-login checks passed for a running child. Fixed booleans, a
+ * fixed subscription class and the personal verdict only: never the account
+ * value itself, so the object may be logged.
+ */
+export interface ClaudePersonalLoginCheck {
+  readonly tokenSource: boolean;
+  readonly apiKeySource: boolean;
+  readonly apiProvider: boolean;
+  readonly subscription: ClaudeLoginSubscriptionClass;
+  readonly personalSubscription: boolean;
+}
+
+/**
+ * Post-init tripwire: classify a running child's login. A personal claude.ai
+ * login reports no token source or `claude.ai` (the bundled CLI omits it for a
+ * claude.ai subscriber), no API key source or `none`, no provider or
+ * `firstParty`, and a personal subscription in either vocabulary. Any other
+ * defined token source (`CLAUDE_CODE_OAUTH_TOKEN`, ...), key source, provider
+ * or subscription word, an absent subscription included, fails its check.
+ */
+export function claudePersonalLoginCheck(
+  info: ClaudeRunningLoginInfo,
+): ClaudePersonalLoginCheck {
+  const subscription = info.subscriptionType;
+  return Object.freeze({
+    tokenSource:
+      info.tokenSource === undefined || info.tokenSource === 'claude.ai',
+    apiKeySource:
+      info.apiKeySource === undefined || info.apiKeySource === 'none',
+    apiProvider:
+      info.apiProvider === undefined || info.apiProvider === 'firstParty',
+    subscription:
+      subscription === undefined
+        ? 'absent'
+        : (SUBSCRIPTION_CLASSES.get(subscription) ?? 'other'),
+    personalSubscription:
+      subscription !== undefined && PERSONAL_LOGIN_SUBSCRIPTIONS.has(subscription),
+  });
+}
+
+/** Whether every personal-login check passed. */
+export function claudePersonalLoginPassed(
+  check: ClaudePersonalLoginCheck,
+): boolean {
+  return (
+    check.tokenSource &&
+    check.apiKeySource &&
+    check.apiProvider &&
+    check.personalSubscription
+  );
+}
+
+/**
  * Run-policy keys the SDK final options may add. They carry no auth, their
  * only allowed value is `'1'`, and they are excluded from the env digest.
  */

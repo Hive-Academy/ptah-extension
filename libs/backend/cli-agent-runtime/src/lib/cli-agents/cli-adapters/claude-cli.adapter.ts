@@ -23,6 +23,7 @@ import {
   ClaudeNamedLaneAdmission,
   claudeLaneRefusal,
   claudeLaneRefusalCode,
+  claudeLaneForeignErrorClass,
   type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunner,
   type ClaudeSdkLaneRunContext,
@@ -128,10 +129,20 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
   async runSdk(input: ClaudeCliCommandOptions): Promise<SdkHandle> {
     const abortController = new AbortController();
     const named = await this.prepareNamed(input, abortController);
+    // Fixed word for the host step a named refusal happened in; the
+    // admission reports its own sub-stage inside `bootstrap` and `launch`.
+    let hostStep:
+      | 'executable'
+      | 'bootstrap'
+      | 'assembly'
+      | 'launch'
+      | 'enqueue'
+      | 'runner' = 'executable';
     try {
       const executable = await this.deps.loader.getCliJsPath();
       if (!executable) throw new Error('Claude executable is unavailable');
       const queryFn = await this.deps.loader.getQueryFunction();
+      hostStep = 'bootstrap';
       if (named)
         await named.bootstrap(
           queryFn,
@@ -142,6 +153,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
             this.deps.processSpawner,
           ),
         );
+      hostStep = 'assembly';
       const defaults = this.deps.defaults();
       const model = input.model || defaults.model || '';
       const effort = await this.resolveEffort(input, model, defaults);
@@ -184,6 +196,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       if (!model) delete options.model;
       if (named) {
         const now = Date.now();
+        hostStep = 'launch';
         await named.launch(
           queryFn,
           options,
@@ -199,8 +212,10 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           },
           input.onAccountBinding,
         );
+        hostStep = 'enqueue';
         await named.enqueue(input.task, input.resumeSessionId, true);
       }
+      hostStep = 'runner';
       // The named query owns its empty gate. The legacy mailbox remains seeded
       // only for ambient runs, including the configured native registry.
       const mailbox = createPromptMailbox(named ? '' : input.task);
@@ -263,9 +278,17 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       }
     } catch (error: unknown) {
       if (named) {
+        // Read before dispose: dispose aborts, and the diagnostic must name
+        // the sub-stage the run stopped in, not the teardown.
+        const diagnostic = named.launchDiagnostic;
         await named.dispose();
         const code = claudeLaneRefusalCode(error);
-        this.logRefusal('launch', code);
+        const errorClass = claudeLaneForeignErrorClass(error);
+        this.logRefusal('launch', code, {
+          hostStep,
+          ...diagnostic,
+          ...(errorClass ? { foreign: errorClass } : {}),
+        });
         throw claudeLaneRefusal(code);
       }
       throw error;
@@ -273,14 +296,20 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
   }
 
   /**
-   * Fixed-text refusal diagnostic: the code and a fixed stage word only. No
-   * path, account value or CLI text is ever logged here.
+   * Fixed-text refusal diagnostic: the code, a fixed stage word and, for the
+   * launch stage, fixed sub-stage words, check booleans and a foreign error's
+   * class name. No path, account value, error message or CLI text is logged.
    */
   private logRefusal(
     stage: 'request' | 'admission' | 'prepare' | 'timeout' | 'launch',
     code: ProviderAccountPortRefusal['code'],
+    detail: Readonly<Record<string, unknown>> = {},
   ): void {
-    this.logger.warn('[ClaudeCliAdapter] Named lane refused', { stage, code });
+    this.logger.warn('[ClaudeCliAdapter] Named lane refused', {
+      stage,
+      code,
+      ...detail,
+    });
   }
 
   private async prepareNamed(

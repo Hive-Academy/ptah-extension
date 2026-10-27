@@ -1101,7 +1101,14 @@ describe('named Claude lane certified launch boundaries', () => {
       });
       expect(f.logger.warn).toHaveBeenCalledWith(
         '[ClaudeCliAdapter] Named lane refused',
-        { stage: 'launch', code: 'unsupported-source' },
+        // Fixed sub-stage words only; a lane refusal carries no foreign class.
+        {
+          stage: 'launch',
+          code: 'unsupported-source',
+          hostStep: 'bootstrap',
+          phase: 'bootstrap',
+          step: 'boundary',
+        },
       );
       expect(f.query).not.toHaveBeenCalled();
       expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
