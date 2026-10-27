@@ -1,12 +1,11 @@
 /**
  * Pure view model of the inspector AGENTS list: one row per agent (the
- * Orchestrator included) with status, tokens and cost, and the cells of the
- * selected row's dock detail. A figure nobody reported renders `—`, never 0.
+ * Orchestrator included) with model, tokens (In / out in the tooltip), cost
+ * and status. A figure nobody reported renders `—`, never 0.
  */
 import {
   AGENT_KIND_LABEL,
   agentAccessibleLabel,
-  formatAgentDuration,
   formatCost,
   formatTokenCount,
   type AgentStatusWord,
@@ -27,26 +26,20 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
   stopped: 'text-base-content-muted',
 };
 
-export interface AgentDetailCell {
-  readonly label: string;
-  readonly value: string;
-  /** Tooltip; `not reported` for an unknown value. */
-  readonly title: string | null;
-}
-
 export interface AgentListRow {
   readonly key: string;
   readonly agent: SessionAgent;
   readonly name: string;
-  /** Second line: the kind (`CLI lane`, `Sub-agent`) or the Orchestrator model. */
+  /** Second line: the model, or the kind (`CLI lane`) when no model is known. */
   readonly secondary: string;
   readonly secondaryTitle: string | null;
   readonly statusText: string;
   readonly statusInk: string;
   readonly tokens: string;
+  /** Tokens tooltip: `In 1.1M · Out 48.0k`; `not reported` when unknown. */
+  readonly tokensTitle: string;
   readonly cost: string;
   readonly usageLabel: string;
-  readonly cells: readonly AgentDetailCell[];
   readonly ariaLabel: string;
   readonly requests: readonly InspectorRequest[];
   readonly tray: TrayAgentContext | null;
@@ -61,8 +54,6 @@ export interface AgentUsageFigures {
   readonly costPartial: boolean;
   /** Estimated lane cost (`~$`) rather than a reported session cost. */
   readonly costEstimated: boolean;
-  readonly contextText: string | null;
-  readonly contextTitle: string | null;
   readonly input: number | null;
   readonly output: number | null;
 }
@@ -73,8 +64,6 @@ export interface AgentRowInput {
   readonly secondaryTitle: string | null;
   readonly usage: AgentUsageFigures;
   readonly durationMs: number | null;
-  /** Orchestrator only: transcript turns. */
-  readonly turns: number | null;
   readonly requests: readonly InspectorRequest[];
   readonly tray: TrayAgentContext | null;
   readonly hasActions: boolean;
@@ -85,7 +74,9 @@ function finite(value: number | null | undefined): value is number {
 }
 
 function tokensText(value: number | null, partial: boolean): string | null {
-  return finite(value) ? `${partial ? '≥ ' : ''}${formatTokenCount(value)}` : null;
+  return finite(value)
+    ? `${partial ? '≥ ' : ''}${formatTokenCount(value)}`
+    : null;
 }
 
 function costText(usage: AgentUsageFigures): string | null {
@@ -93,41 +84,31 @@ function costText(usage: AgentUsageFigures): string | null {
   return `${usage.costPartial ? '≥ ' : ''}${usage.costEstimated ? '~' : ''}${formatCost(usage.cost)}`;
 }
 
-function cell(label: string, value: string | null, title: string | null = null): AgentDetailCell {
-  return value === null
-    ? { label, value: NOT_REPORTED_VALUE, title: NOT_REPORTED_TITLE }
-    : { label, value, title };
-}
-
-/** `1.1M / 48.0k`; one unknown side shows `—`, both unknown is `null`. */
-export function inOutText(input: number | null, output: number | null): string | null {
+/** `In 1.1M · Out 48.0k`; one unknown side shows `—`, both unknown is `null`. */
+export function inOutText(
+  input: number | null,
+  output: number | null,
+): string | null {
   if (!finite(input) && !finite(output)) return null;
   const side = (value: number | null) =>
     finite(value) ? formatTokenCount(value) : NOT_REPORTED_VALUE;
-  return `${side(input)} / ${side(output)}`;
+  return `In ${side(input)} · Out ${side(output)}`;
 }
 
-/**
- * One list row. The dock detail has Context and In / out, plus Turns
- * (Orchestrator) or Duration (other agents) when that figure is known.
- */
+/** One list row. */
 export function agentListRow(input: AgentRowInput): AgentListRow {
   const { agent, usage } = input;
   const tokens = tokensText(usage.tokens, usage.tokensPartial);
   const cost = costText(usage);
-  const cells: AgentDetailCell[] = [
-    cell('Context', usage.contextText, usage.contextTitle),
-    cell('In / out', inOutText(usage.input, usage.output), 'Input and output tokens'),
-  ];
-  if (agent.kind === 'orchestrator') {
-    if (input.turns !== null) cells.push(cell('Turns', String(input.turns)));
-  } else if (input.durationMs !== null) {
-    const duration = formatAgentDuration(input.durationMs);
-    if (duration) cells.push(cell('Duration', duration));
-  }
-  const usageLabel = `${tokens === null ? 'Tokens not reported' : `${tokens} tokens`}; ${
-    cost === null ? 'Cost not reported' : `cost ${cost}`
-  }`;
+  const inOut = inOutText(usage.input, usage.output);
+  const usageLabel = `${
+    tokens === null
+      ? 'Tokens not reported'
+      : `${tokens} tokens${inOut === null ? '' : ` (${inOut})`}`
+  }; ${cost === null ? 'Cost not reported' : `cost ${cost}`}`;
+  // The second line shows a model only when one is known (it has a title).
+  const model =
+    input.secondaryTitle === null ? '' : `Model ${input.secondary}. `;
   const label = agentAccessibleLabel({
     name: agent.name,
     kind: agent.kind,
@@ -141,12 +122,14 @@ export function agentListRow(input: AgentRowInput): AgentListRow {
     secondary: input.secondary,
     secondaryTitle: input.secondaryTitle,
     statusText: agent.status ?? NOT_REPORTED_VALUE,
-    statusInk: agent.status ? STATUS_INK[agent.status] : 'text-base-content-muted',
+    statusInk: agent.status
+      ? STATUS_INK[agent.status]
+      : 'text-base-content-muted',
     tokens: tokens ?? NOT_REPORTED_VALUE,
+    tokensTitle: inOut ?? NOT_REPORTED_TITLE,
     cost: cost ?? NOT_REPORTED_VALUE,
     usageLabel,
-    cells,
-    ariaLabel: `${label}. ${usageLabel}`,
+    ariaLabel: `${label}. ${model}${usageLabel}`,
     requests: input.requests,
     tray: input.tray,
     hasActions: input.hasActions,
@@ -185,7 +168,10 @@ export function orderAgentList(
  * The roster key of a host selection: a sub-agent that moved to the
  * background (or back) keeps its selection; an unknown key is `orchestrator`.
  */
-export function normalizeAgentKey(key: string, keys: readonly string[]): string {
+export function normalizeAgentKey(
+  key: string,
+  keys: readonly string[],
+): string {
   if (keys.includes(key)) return key;
   const alternate = key.startsWith('sub:')
     ? `bg:${key.slice(4)}`

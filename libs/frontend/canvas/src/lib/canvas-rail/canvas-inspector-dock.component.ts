@@ -160,7 +160,9 @@ export function injectCanvasInspectorDockState(sources: {
               </div>
               }
               <!-- The overlay is absolute inside the board's relative layout box, never fixed to the
-                   window: the app top bar and the Git rail must not cover its title row or edge. -->
+                   window: the app top bar and the Git rail must not cover its title row or edge.
+                   The keydown handler yields null, never false, when docked: Angular calls
+                   preventDefault on a false result, which blocked Enter/Space on every button inside. -->
               <aside
                 class="flex h-full max-w-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
                 tabindex="-1"
@@ -171,7 +173,7 @@ export function injectCanvasInspectorDockState(sources: {
                 aria-label="Session details"
                 [class.inset-y-0]="overlay()"
                 (keydown.escape)="closeDock()"
-                (keydown)="overlay() && onSheetKeydown($event)"
+                (keydown)="overlay() ? onSheetKeydown($event) : null"
                 data-inspector-dock
                 [style.width.px]="dock.width()"
               >

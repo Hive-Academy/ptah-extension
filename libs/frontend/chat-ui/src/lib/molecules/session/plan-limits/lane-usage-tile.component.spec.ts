@@ -93,8 +93,11 @@ function laneTile(
     caption: LANE_CAPTION,
     tokensText: '43.4k tokens',
     costLine: 'cost $0.32',
+    tokensValue: '43.4k',
+    costValue: '$0.32',
     summary: '43.4k tokens · cost $0.32 · Near limit · 1 of 2 runs (sonnet)',
     runChip: { tone: 'live', text: 'Live · 1 of 2 running' },
+    runStatusText: 'Running',
     limitChips: [
       {
         chip: {
@@ -531,5 +534,201 @@ describe('LaneUsageTileComponent', () => {
     );
 
     expect(dot?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  describe('inspector variant (compact icons + numbers)', () => {
+    function renderCompact(tile: LaneUsageTileModel, open = false): HTMLElement {
+      TestBed.configureTestingModule({ imports: [LaneUsageTileComponent] });
+      fixture = TestBed.createComponent(LaneUsageTileComponent);
+      fixture.componentRef.setInput('tile', tile);
+      fixture.componentRef.setInput('open', open);
+      fixture.componentRef.setInput('variant', 'inspector');
+      fixture.componentRef.setInput('captionShared', true);
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    /** Text a sighted user sees: screen-reader-only text removed. */
+    function visible(el: Element | null): string {
+      if (!el) return '';
+      const copy = el.cloneNode(true) as Element;
+      copy.querySelectorAll('.sr-only').forEach((node) => node.remove());
+      return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }
+
+    function srOnly(el: Element | null): string {
+      return Array.from(el?.querySelectorAll('.sr-only') ?? [])
+        .map((node) => (node.textContent ?? '').trim())
+        .join(' ');
+    }
+
+    const by = (root: HTMLElement, testId: string): HTMLElement | null =>
+      root.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
+    // The screenshot's lane: one restored, completed Claude run with partial
+    // usage and an unresolved session owner.
+    const restoredClaude = (): LaneUsageTileModel =>
+      buildTile([
+        laneRun({
+          cli: 'ptah-cli',
+          cliLabel: 'Claude',
+          role: null,
+          quotaOwner: undefined,
+          usageTotals: { totalTokens: 2600, costUsd: 0.02, partial: true },
+        }),
+      ]);
+
+    it('shows name, # tokens, coins cost and a status dot with one word', () => {
+      const root = renderCompact(restoredClaude());
+      const row = by(root, 'lane-row-grid');
+
+      expect(visible(by(root, 'lane-name'))).toBe('Claude');
+      expect(by(root, 'lane-name')?.className).toContain('text-[11.5px]');
+      expect(visible(by(root, 'lane-tokens'))).toBe('≥2.6k');
+      expect(visible(by(root, 'lane-cost'))).toBe('≥$0.02');
+      expect(visible(by(root, 'lane-run-chip'))).toBe('Completed');
+      expect(by(root, 'lane-tokens')?.className).toContain('text-[10.5px]');
+      expect(row?.querySelectorAll('lucide-angular[aria-hidden="true"]')).toHaveLength(2);
+      // The chevron keeps its own right slot; the status word truncates before it.
+      expect(face(root).className).toContain('!pr-8');
+      const status = by(root, 'lane-run-chip');
+      expect(status?.className).toContain('min-w-0');
+      expect(status?.className).not.toContain('shrink-0');
+      expect(status?.querySelector('span.truncate')?.textContent?.trim()).toBe('Completed');
+      // No sentence on the face.
+      expect(visible(face(root))).not.toMatch(/tokens|cost|Restored|Limit unavailable|not in totals/);
+    });
+
+    it('keeps the lower bound: visible ≥, "at least" for screen readers, "lower bound" in the tooltip', () => {
+      const root = renderCompact(restoredClaude());
+      const tokens = by(root, 'lane-tokens');
+      const marker = tokens?.querySelector('ptah-lane-bound-value span[aria-hidden="true"]');
+
+      expect(marker?.textContent).toBe('≥');
+      expect(srOnly(tokens)).toContain('Tokens');
+      expect(srOnly(tokens)).toContain('at least');
+      expect(tokens?.getAttribute('title')).toBe('≥2.6k tokens · lower bound');
+      expect(srOnly(by(root, 'lane-cost'))).toContain('at least');
+      expect(by(root, 'lane-cost')?.getAttribute('title')).toBe('cost ≥$0.02');
+    });
+
+    it('moves "Restored · completed" and the usage/limit summary into tooltip and accessible text', () => {
+      const tile = restoredClaude();
+      const root = renderCompact(tile);
+      const status = by(root, 'lane-run-chip');
+
+      expect(status?.getAttribute('title')).toBe('Restored · completed');
+      expect(by(root, 'lane-name')?.getAttribute('title')).toBe(
+        `Claude\n${tile.summary}\nRestored · completed`,
+      );
+      expect(tile.summary).toBe('≥2.6k tokens · cost ≥$0.02 · Limit unavailable');
+      // The summary is part of the button's name, read once: no description repeats it.
+      expect(face(root).getAttribute('aria-label')).toBe(
+        'Claude, at least 2.6k tokens, cost at least $0.02, Limit unavailable, Restored · completed',
+      );
+      expect(face(root).hasAttribute('aria-describedby')).toBe(false);
+      expect(root.querySelector('[data-testid="lane-description"]')).toBeNull();
+    });
+
+    it('names unknown usage and an unshared caption in the button name', () => {
+      TestBed.configureTestingModule({ imports: [LaneUsageTileComponent] });
+      fixture = TestBed.createComponent(LaneUsageTileComponent);
+      fixture.componentRef.setInput('tile', buildTile([laneRun({ quotaOwner: undefined })]));
+      fixture.componentRef.setInput('variant', 'inspector');
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(face(root).getAttribute('aria-label')).toBe(
+        'Codex · review, Usage unavailable, Cost unavailable, Limit unavailable, Restored · completed, lane · not in totals',
+      );
+    });
+
+    it('shows an unknown value as a muted — that reads as unavailable', () => {
+      const root = renderCompact(buildTile([laneRun()]));
+      const tokens = by(root, 'lane-tokens');
+
+      expect(visible(tokens)).toBe('—');
+      expect(srOnly(tokens)).toContain('Usage unavailable');
+      expect(tokens?.getAttribute('title')).toBe('Usage unavailable');
+      expect(srOnly(by(root, 'lane-cost'))).toContain('Cost unavailable');
+    });
+
+    it('marks an alert with its glyph only, the text in tooltip and screen-reader text', () => {
+      const root = renderCompact(laneTile());
+      const alert = by(root, 'lane-limit-chip');
+
+      expect(visible(alert)).toBe('▲');
+      expect(alert?.getAttribute('title')).toBe('Near limit · 1 of 2 runs (sonnet)');
+      expect(srOnly(alert)).toBe('Near limit · 1 of 2 runs (sonnet)');
+      const dot = by(root, 'lane-run-chip')?.querySelector('.motion-safe\\:animate-pulse');
+      expect(dot?.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('open: icon table headers, owner label with the footnote in tooltip, no visible summary', () => {
+      const tile = restoredClaude();
+      const root = renderCompact(tile, true);
+      const panel = by(root, 'lane-usage-panel');
+      const table = by(root, 'lane-run-table');
+      const note = by(root, 'lane-footnote');
+
+      expect(panel?.className).toContain('text-[10.5px]');
+      expect(by(root, 'lane-summary')).toBeNull();
+      expect(table?.className).toContain('text-[10.5px]');
+      // Sized to its content, so the status and Started columns sit together.
+      expect(table?.className).toContain('!w-auto');
+      expect(Array.from(table?.querySelectorAll('th') ?? []).map((th) => srOnly(th) || visible(th))).toEqual([
+        '#',
+        'Tokens',
+        'Cost',
+        'Status',
+        'Started',
+      ]);
+      expect(table?.querySelectorAll('thead lucide-angular')).toHaveLength(3);
+      expect(visible(by(root, 'lane-run-tokens'))).toBe('≥2.6k');
+      expect(by(root, 'lane-run-tokens')?.getAttribute('title')).toBe('≥2.6k tokens · lower bound');
+      expect(srOnly(by(root, 'lane-run-cost'))).toContain('at least');
+
+      const footnote = tile.subgroups[0].footnote;
+      expect(footnote.length).toBeGreaterThan(0);
+      expect(visible(note)).toBe(tile.subgroups[0].ownerLabel);
+      expect(visible(panel)).not.toContain(footnote);
+    });
+
+    it('opens the owner footnote from the keyboard as a visible line; Escape closes it', () => {
+      const tile = restoredClaude();
+      const root = renderCompact(tile, true);
+      const footnote = tile.subgroups[0].footnote;
+      const toggle = by(root, 'lane-footnote-toggle') as HTMLButtonElement;
+
+      expect(toggle.tagName).toBe('BUTTON');
+      expect(toggle.type).toBe('button');
+      expect(toggle.getAttribute('title')).toBe(footnote);
+      expect(toggle.getAttribute('aria-label')).toBe(`${tile.subgroups[0].ownerLabel} details`);
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle.hasAttribute('aria-controls')).toBe(false);
+      expect(by(root, 'lane-footnote-detail')).toBeNull();
+
+      toggle.click();
+      fixture.detectChanges();
+      const detail = by(root, 'lane-footnote-detail');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(toggle.getAttribute('aria-controls')).toBe(detail?.id);
+      expect(visible(detail)).toBe(footnote);
+      expect(detail?.className).toContain('text-[10.5px]');
+      expect(detail?.className).toContain('text-base-content-muted');
+
+      toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(by(root, 'lane-footnote-detail')).toBeNull();
+    });
+
+    it('leaves the strip variant face unchanged', () => {
+      const root = render(laneTile());
+      expect(text(root, 'lane-tokens')).toBe('43.4k tokens');
+      expect(root.querySelector('[data-testid="lane-cost"]')).toBeNull();
+      expect(face(root).hasAttribute('aria-label')).toBe(false);
+      expect(root.querySelector('[data-testid="lane-footnote-toggle"]')).toBeNull();
+    });
   });
 });

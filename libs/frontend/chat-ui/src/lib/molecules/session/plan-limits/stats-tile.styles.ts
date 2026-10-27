@@ -106,6 +106,21 @@ export const LANE_COLLAPSE_TITLE =
 export const LANE_ROW_GRID =
   'grid grid-cols-[minmax(0,1fr)_5.5rem_7rem] items-center gap-x-2';
 
+/**
+ * An ⓘ toggle of the compact Lanes section: a real button (focusable,
+ * `aria-expanded`) that opens its explanation as a visible line, so the text
+ * is reachable from the keyboard, not only through a hover `title`.
+ */
+export const LANE_INFO_BUTTON =
+  'inline-flex h-4 min-w-4 shrink-0 cursor-help items-center justify-center gap-1 rounded-sm text-base-content-muted hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content';
+
+/** A short label that opens its full explanation: dotted underline, as the SESSION stats labels. */
+export const LANE_DETAIL_TOGGLE =
+  'inline-flex min-w-0 cursor-help items-center gap-1 text-[10.5px] text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content';
+
+/** The visible explanation line a lane toggle opens. */
+export const LANE_DETAIL_LINE = 'text-[10.5px] leading-snug text-base-content-muted';
+
 const BADGE_TONE: Readonly<Record<StatsChipTone, string>> = {
   error: 'badge-outline border-error bg-error/15',
   warning: 'badge-outline border-warning bg-warning/15',

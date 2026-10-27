@@ -13,12 +13,12 @@ import {
 
 /** Column template shared by the AGENTS header row and every agent row. */
 export const AGENT_ROW_COLUMNS =
-  'grid-cols-[minmax(0,1fr)_3.25rem_3rem_3rem] gap-x-1.5';
+  'grid-cols-[minmax(0,1fr)_3rem_3.5rem_3rem] gap-x-1.5';
 
 /**
- * One AGENTS row: the provider avatar with its status badge, name and type,
- * status, tokens and cost. A disclosure button: `aria-expanded` reports its
- * dock detail; Enter / Space select it like a click.
+ * One AGENTS row: the provider avatar with its status badge, name and model,
+ * tokens (In / out in the tooltip), cost and status. A click (Enter / Space)
+ * selects the row and opens the agent's thread.
  */
 @Component({
   selector: 'ptah-inspector-agent-row',
@@ -30,11 +30,11 @@ export const AGENT_ROW_COLUMNS =
     @let r = row();
     <button
       type="button"
-      class="grid w-full {{ columns }} items-center px-3 py-1.5 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
+      class="grid w-full {{
+        columns
+      }} items-center py-1.5 pl-3 pr-1 text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-base-content"
       [attr.data-agent-key]="r.key"
       [attr.aria-label]="r.ariaLabel"
-      [attr.aria-expanded]="open()"
-      [attr.aria-controls]="open() ? controls() : null"
       (click)="selected.emit()"
     >
       <span class="flex min-w-0 items-center gap-2">
@@ -43,42 +43,45 @@ export const AGENT_ROW_COLUMNS =
           [status]="r.agent.status"
           [cliId]="r.agent.cliId"
           [agentType]="r.agent.agentType"
-          [size]="28"
+          [size]="24"
         />
         <span class="min-w-0">
-          <span class="block truncate text-xs font-semibold">{{ r.name }}</span>
           <span
-            class="block truncate text-[11px] text-base-content-muted"
+            class="block truncate text-[11.5px] font-semibold"
+            [attr.title]="r.name"
+            >{{ r.name }}</span
+          >
+          <span
+            class="block truncate text-[10.5px] text-base-content-muted"
+            data-testid="agent-row-model"
             [attr.title]="r.secondaryTitle"
             >{{ r.secondary }}</span
           >
         </span>
       </span>
-      <span class="truncate text-[11px] font-medium {{ r.statusInk }}">{{
-        r.statusText
-      }}</span>
       <span
-        class="truncate text-right text-[11px] tabular-nums"
+        class="truncate text-right text-[10.5px] tabular-nums"
         data-testid="agent-row-tokens"
         [class.text-base-content-muted]="r.tokens === dash"
-        [attr.title]="r.tokens === dash ? notReported : null"
+        [attr.title]="r.tokens === dash ? notReported : r.tokensTitle"
         >{{ r.tokens }}</span
       >
       <span
-        class="truncate text-right text-[11px] tabular-nums"
+        class="truncate text-right text-[10.5px] tabular-nums"
         data-testid="agent-row-cost"
         [class.text-base-content-muted]="r.cost === dash"
-        [attr.title]="r.cost === dash ? notReported : null"
+        [attr.title]="r.cost === dash ? notReported : r.cost"
         >{{ r.cost }}</span
+      >
+      <span
+        class="truncate text-right text-[10.5px] font-medium {{ r.statusInk }}"
+        >{{ r.statusText }}</span
       >
     </button>
   `,
 })
 export class InspectorAgentRowComponent {
   readonly row = input.required<AgentListRow>();
-  readonly open = input(false);
-  /** Id of the dock detail this row expands. */
-  readonly controls = input<string | null>(null);
   readonly selected = output<void>();
 
   protected readonly columns = AGENT_ROW_COLUMNS;

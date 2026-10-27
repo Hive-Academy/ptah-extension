@@ -4,10 +4,15 @@
  * records. Same precedence as the lane stats bar: the lane record's stats,
  * then the roster's structured totals, then retained usage segments.
  */
-import type { MonitoredAgent, SubagentRecord } from '@ptah-extension/chat-streaming';
-import { formatTokenCount } from '@ptah-extension/chat-ui';
+import type {
+  MonitoredAgent,
+  SubagentRecord,
+} from '@ptah-extension/chat-streaming';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
-import { cliLaneStats, subagentLaneStats } from '../../../utils/lane-stats.adapters';
+import {
+  cliLaneStats,
+  subagentLaneStats,
+} from '../../../utils/lane-stats.adapters';
 import { usageTotalsFromSegments } from '../../molecules/agent-card/stats-bar.utils';
 import type { AgentUsageFigures } from './inspector-agent-list';
 
@@ -51,7 +56,6 @@ export function laneUsage(
   const tokens =
     stats?.tokens ?? (agent.kind === 'cli' ? usageTotal : sources.trayTokens);
   const partial = stats ? stats.tokensPartial : fallback?.partial === true;
-  const contextTokens = stats?.contextTokens ?? null;
   return {
     usage: {
       tokens,
@@ -59,9 +63,6 @@ export function laneUsage(
       cost: (stats ? stats.cost : usage?.costUsd) ?? null,
       costPartial: stats ? stats.costPartial : fallback?.partial === true,
       costEstimated: true,
-      contextText:
-        contextTokens === null ? null : formatTokenCount(contextTokens),
-      contextTitle: 'Context tokens of the latest request',
       input: subagent?.usage?.input ?? usage?.inputTokens ?? null,
       output: subagent?.usage?.output ?? usage?.outputTokens ?? null,
     },

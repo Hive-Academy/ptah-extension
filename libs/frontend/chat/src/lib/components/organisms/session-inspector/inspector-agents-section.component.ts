@@ -6,7 +6,6 @@ import {
   effect,
   inject,
   input,
-  linkedSignal,
   output,
   signal,
   untracked,
@@ -33,7 +32,6 @@ import {
   trayEntryHasAction,
   type AgentTrayAction,
 } from './inspector-agent-actions-menu.component';
-import { InspectorAgentDockDetailComponent } from './inspector-agent-dock-detail.component';
 import {
   agentKindLine,
   agentListRow,
@@ -52,7 +50,7 @@ const TICK_MS = 1000;
 /** Rows shown before "Show N more". */
 export const AGENTS_VISIBLE_LIMIT = 6;
 
-/** Session input / output token split, for the Orchestrator's dock detail. */
+/** Session input / output token split, for the Orchestrator tokens tooltip. */
 export interface SessionTokenSplit {
   readonly input: number;
   readonly output: number;
@@ -62,13 +60,13 @@ let nextSectionId = 0;
 
 /**
  * AGENTS: one list of every agent of the session (the Orchestrator
- * included) with status, tokens and cost. A click (Enter / Space) selects a
- * row and expands its dock detail in place under it; only the selected row
- * is expanded. Requests and steering stay on their row whatever its status.
+ * included) with model, tokens, cost and status. A click (Enter / Space)
+ * selects a row and opens its thread; a left border marks the selected row.
+ * Requests and steering stay on their row whatever its status.
  *
  * Selection: the host's `selectedAgentKey` (the canvas lane) wins; without
  * one the section keeps its own. `agentSelected` reports a pick (and a
- * normalized key when the host's key left the roster); "Open thread" emits
+ * normalized key when the host's key left the roster); opening a thread emits
  * `laneRequested` with a lane surface, else focuses the owning tab.
  * Durations tick through ONE interval, alive only while an agent runs.
  */
@@ -78,7 +76,6 @@ let nextSectionId = 0;
   imports: [
     AgentSteerInputComponent,
     InspectorAgentActionsMenuComponent,
-    InspectorAgentDockDetailComponent,
     InspectorAgentRowComponent,
     InspectorRequestLinesComponent,
   ],
@@ -99,7 +96,7 @@ let nextSectionId = 0;
         </h3>
         @if (state.status !== 'loading') {
           <span
-            class="text-[11px] tabular-nums text-base-content-muted"
+            class="text-[10.5px] tabular-nums text-base-content-muted"
             data-testid="agents-count"
             >{{ runningCount() }} running · {{ list().length }}</span
           >
@@ -127,18 +124,19 @@ let nextSectionId = 0;
         <p class="px-3 py-2 text-xs text-base-content-muted">No agents yet</p>
       } @else {
         <div
-          class="mt-2 grid {{ columns }} px-3 pb-1 text-[11px] text-base-content-muted"
+          class="mt-2 grid {{
+            columns
+          }} pb-1 pl-3 pr-8 text-[10.5px] text-base-content-muted"
           aria-hidden="true"
         >
-          <span class="pl-9">Agent</span>
-          <span>Status</span>
+          <span class="pl-8">Agent</span>
           <span class="text-right">Tokens</span>
           <span class="text-right">Cost</span>
+          <span class="text-right">Status</span>
         </div>
         <ul [attr.aria-labelledby]="headingId">
           @for (row of visibleRows(); track row.key; let i = $index) {
             @let selected = selectedKey() === row.key;
-            @let open = isOpen(row.key);
             <li
               class="st-r relative transition-colors duration-[120ms]"
               [style.--i]="staggerStart() + 1 + i"
@@ -151,21 +149,13 @@ let nextSectionId = 0;
                   aria-hidden="true"
                 ></span>
               }
-              <ptah-inspector-agent-row
-                [row]="row"
-                [open]="open"
-                [controls]="detailId(row.key)"
-                (selected)="select(row)"
-              />
-              @if (open) {
-                <ptah-inspector-agent-dock-detail
-                  class="block"
-                  [id]="detailId(row.key)"
-                  [name]="row.name"
-                  [cells]="row.cells"
-                  [canOpen]="canOpen(row)"
-                  (openThread)="openThread(row)"
-                >
+              <div class="flex items-center">
+                <ptah-inspector-agent-row
+                  class="min-w-0 flex-1"
+                  [row]="row"
+                  (selected)="select(row)"
+                />
+                <span class="flex w-8 shrink-0 justify-center pr-1">
                   @if (row.tray && row.hasActions) {
                     <ptah-inspector-agent-actions-menu
                       [name]="row.name"
@@ -175,14 +165,14 @@ let nextSectionId = 0;
                       (action)="onAction(row.key, $event)"
                     />
                   }
-                </ptah-inspector-agent-dock-detail>
-              }
+                </span>
+              </div>
               @if (row.requests.length > 0) {
                 <ptah-inspector-request-lines
                   class="mb-2 ml-[52px] mr-3 block"
                   [requests]="row.requests"
                   [ownerName]="row.name"
-                  [ownerKindLabel]="row.secondary"
+                  [ownerKindLabel]="kindLabel(row)"
                   [tabId]="tabId()"
                   [hasLaneSurface]="hasLaneSurface()"
                   (answerRequested)="answerRequested.emit($event)"
@@ -241,7 +231,7 @@ export class InspectorAgentsSectionComponent {
   readonly sessionId = input<string | null>(null);
   readonly agents = input.required<SectionState<InspectorAgentsData>>();
   readonly orchestrator = input<OrchestratorCardModel | null>(null);
-  /** Session input / output tokens, shown in the Orchestrator's dock detail. */
+  /** Session input / output tokens, shown in the Orchestrator tokens tooltip. */
   readonly sessionTokens = input<SessionTokenSplit | null>(null);
   /** A lane surface exists in the host (Rail board), so rows open lanes. */
   readonly hasLaneSurface = input<boolean>(false);
@@ -262,14 +252,6 @@ export class InspectorAgentsSectionComponent {
   protected readonly headingId = `ptah-agents-h-${this.sectionId}`;
 
   private readonly localSelectedKey = signal<string | null>('orchestrator');
-  /**
-   * The selected row the user collapsed. A new selection (from the user or
-   * the host) or another tab clears it.
-   */
-  private readonly collapsedKey = linkedSignal<string, string | null>({
-    source: () => `${this.tabId()}\u0000${this.selectedKey() ?? ''}`,
-    computation: () => null,
-  });
   protected readonly showAll = signal(false);
   protected readonly menuOpenKey = signal<string | null>(null);
   protected readonly steerOpenKey = signal<string | null>(null);
@@ -351,29 +333,25 @@ export class InspectorAgentsSectionComponent {
     });
   }
 
-  protected detailId(key: string): string {
-    return `ptah-agents-${this.sectionId}-detail-${key.replace(/[^\w-]/g, '_')}`;
-  }
-
-  protected isOpen(key: string): boolean {
-    return this.selectedKey() === key && this.collapsedKey() !== key;
-  }
-
-  protected canOpen(row: AgentListRow): boolean {
+  private canOpen(row: AgentListRow): boolean {
     if (this.hasLaneSurface()) return true;
     return row.agent.kind !== 'orchestrator' && row.tray !== null;
   }
 
-  protected select(row: AgentListRow): void {
-    if (this.selectedKey() === row.key) {
-      this.collapsedKey.set(this.collapsedKey() === row.key ? null : row.key);
-      return;
-    }
-    this.localSelectedKey.set(row.key);
-    this.agentSelected.emit(row.key);
+  protected kindLabel(row: AgentListRow): string {
+    return agentKindLine(row.agent);
   }
 
-  protected openThread(row: AgentListRow): void {
+  /** Select the row and open its thread when it has one. */
+  protected select(row: AgentListRow): void {
+    if (this.selectedKey() !== row.key) {
+      this.localSelectedKey.set(row.key);
+      this.agentSelected.emit(row.key);
+    }
+    if (this.canOpen(row)) this.openThread(row);
+  }
+
+  private openThread(row: AgentListRow): void {
     if (this.hasLaneSurface()) {
       this.laneRequested.emit(row.key);
       return;
@@ -442,7 +420,6 @@ export class InspectorAgentsSectionComponent {
     const card = this.orchestrator();
     const split = this.sessionTokens();
     const modelRaw = card?.model ?? null;
-    const percent = card?.contextPercent ?? null;
     return agentListRow({
       agent,
       secondary: modelRaw
@@ -455,13 +432,10 @@ export class InspectorAgentsSectionComponent {
         cost: card?.cost ?? null,
         costPartial: false,
         costEstimated: false,
-        contextText: percent === null ? null : `${Math.round(percent)}%`,
-        contextTitle: 'Share of the context window in use',
         input: split?.input ?? null,
         output: split?.output ?? null,
       },
       durationMs: null,
-      turns: card?.turns ?? null,
       requests: [],
       tray: null,
       hasActions: false,
@@ -493,10 +467,10 @@ export class InspectorAgentsSectionComponent {
     );
     return agentListRow({
       agent,
-      secondary: agentKindLine(agent),
-      secondaryTitle: modelRaw
+      secondary: modelRaw
         ? resolveModelDisplayName(modelRaw, this.modelState.availableModels())
-        : null,
+        : agentKindLine(agent),
+      secondaryTitle: modelRaw ? `${agentKindLine(agent)} · ${modelRaw}` : null,
       usage,
       durationMs: agentRunDurationMs(
         {
@@ -507,7 +481,6 @@ export class InspectorAgentsSectionComponent {
         },
         now,
       ),
-      turns: null,
       requests: row.requests,
       tray,
       hasActions: tray !== null && trayEntryHasAction(tray.entry),

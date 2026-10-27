@@ -451,6 +451,11 @@ describe('buildStatsLimitViewModel', () => {
       const tile = vm.laneTiles[0];
       expect(tile.tokensText).toBe('—');
       expect(tile.costLine).toBe('');
+      expect(tile.tokensValue).toBe('');
+      expect(tile.costValue).toBe('');
+      expect(tile.runChip.text).toBe('Restored · completed');
+      expect(tile.runStatusText).toBe('Completed');
+      expect(vm.subtotal).toMatchObject({ tokensValue: '', costValue: '' });
       expect(tile.subgroups[0].runs[0]).toMatchObject({
         tokensText: '—',
         costText: '—',
@@ -491,10 +496,15 @@ describe('buildStatsLimitViewModel', () => {
         cost: true,
         started: true,
       });
+      // Compact values: an unknown run makes the known sums lower bounds.
+      expect(tile.tokensValue).toBe('≥1.5k');
+      expect(tile.costValue).toBe('≥$0.25');
       expect(vm.subtotal).toEqual({
         id: 'lanes-subtotal',
         caption: 'lane · not in totals',
         tokensText: '≥1.5k tokens known',
+        tokensValue: '≥1.5k',
+        costValue: '≥$0.25',
         summary: '≥$0.25 known cost · 1 lane · 2 runs · 1 cost unknown',
       });
     });

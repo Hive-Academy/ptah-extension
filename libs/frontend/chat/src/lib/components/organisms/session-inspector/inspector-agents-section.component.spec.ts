@@ -2,7 +2,6 @@ import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ModelStateService } from '@ptah-extension/core';
-import { formatAgentDuration } from '@ptah-extension/chat-ui';
 import {
   SessionInspectorStore,
   type InspectorRequest,
@@ -83,7 +82,9 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
         {
           provide: ModelStateService,
           useValue: {
-            availableModels: signal([{ id: 'claude-opus-5-5', name: 'Opus 5.5' }]),
+            availableModels: signal([
+              { id: 'claude-opus-5-5', name: 'Opus 5.5' },
+            ]),
           },
         },
       ],
@@ -101,8 +102,14 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     const fixture = TestBed.createComponent(InspectorAgentsSectionComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
     fixture.componentRef.setInput('orchestrator', CARD);
-    fixture.componentRef.setInput('sessionTokens', { input: 1_050_000, output: 48_000 });
-    fixture.componentRef.setInput('hasLaneSurface', options.laneSurface ?? false);
+    fixture.componentRef.setInput('sessionTokens', {
+      input: 1_050_000,
+      output: 48_000,
+    });
+    fixture.componentRef.setInput(
+      'hasLaneSurface',
+      options.laneSurface ?? false,
+    );
     if (options.selected !== undefined) {
       fixture.componentRef.setInput('selectedAgentKey', options.selected);
     }
@@ -132,7 +139,12 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       agent({ key: 'cli:run', status: 'running', endedAt: null }),
       agent({ key: 'cli:failed', status: 'failed' }),
     ]).nativeElement;
-    expect(keys(el)).toEqual(['cli:run', 'orchestrator', 'cli:done', 'cli:failed']);
+    expect(keys(el)).toEqual([
+      'cli:run',
+      'orchestrator',
+      'cli:done',
+      'cli:failed',
+    ]);
     expect(el.querySelector('h3')?.textContent?.trim()).toBe('AGENTS');
     expect(
       el.querySelector('[data-testid="agents-count"]')?.textContent?.trim(),
@@ -143,9 +155,14 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
 
   it('shows provider avatar, type line, status ink and compact tokens and cost', () => {
     const el: HTMLElement = mount([
-      agent({}, { inputTokens: 2_284_653, outputTokens: 19_323, costUsd: 0.25 }),
+      agent(
+        {},
+        { inputTokens: 2_284_653, outputTokens: 19_323, costUsd: 0.25 },
+      ),
     ]).nativeElement;
-    const row = el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
+    const row = el.querySelector(
+      '[data-agent-key="cli:lane-1"]',
+    ) as HTMLElement;
     expect(row.querySelector('ptah-agent-avatar')).not.toBeNull();
     expect(row.textContent).toContain('CLI lane');
     const status = Array.from(row.querySelectorAll('span')).find(
@@ -153,15 +170,21 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     );
     expect(status?.classList.contains('text-state-done')).toBe(true);
     expect(
-      row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim(),
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.textContent?.trim(),
     ).toBe('2.3M');
     expect(
       row.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim(),
     ).toBe('~$0.25');
-    const orchestrator = el.querySelector('[data-agent-key="orchestrator"]') as HTMLElement;
+    const orchestrator = el.querySelector(
+      '[data-agent-key="orchestrator"]',
+    ) as HTMLElement;
     expect(orchestrator.textContent).toContain('Opus 5.5');
     expect(
-      orchestrator.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim(),
+      orchestrator
+        .querySelector('[data-testid="agent-row-cost"]')
+        ?.textContent?.trim(),
     ).toBe('$0.80');
   });
 
@@ -188,78 +211,100 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
         ],
       }),
     ]).nativeElement;
-    const row = el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
-    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('≥ 12.0k');
-    expect(row.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim()).toBe('≥ ~$0.10');
+    const row = el.querySelector(
+      '[data-agent-key="cli:lane-1"]',
+    ) as HTMLElement;
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.textContent?.trim(),
+    ).toBe('≥ 12.0k');
+    expect(
+      row.querySelector('[data-testid="agent-row-cost"]')?.textContent?.trim(),
+    ).toBe('≥ ~$0.10');
   });
 
-  it('expands the Orchestrator dock detail by default with Context, In / out and Turns', () => {
+  it('marks the Orchestrator row as selected by default with its in / out tooltip', () => {
     const el: HTMLElement = mount([agent()]).nativeElement;
-    const button = el.querySelector('[data-agent-key="orchestrator"]') as HTMLElement;
-    expect(button.getAttribute('aria-expanded')).toBe('true');
-    const details = el.querySelectorAll('[data-testid="agent-dock-detail"]');
-    expect(details).toHaveLength(1);
-    const text = details[0].textContent ?? '';
-    expect(text).toContain('42%');
-    expect(text).toContain('1.1M / 48.0k');
-    expect(text).toContain('Turns');
-    expect(text).toContain('14');
-    expect(button.getAttribute('aria-controls')).toBe(
-      el.querySelector('ptah-inspector-agent-dock-detail')?.id,
-    );
+    const button = el.querySelector(
+      '[data-agent-key="orchestrator"]',
+    ) as HTMLElement;
+    expect(button.closest('li')?.getAttribute('aria-current')).toBe('true');
+    expect(button.hasAttribute('aria-expanded')).toBe(false);
+    expect(
+      button
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.getAttribute('title'),
+    ).toBe('In 1.1M · Out 48.0k');
+    expect(el.textContent).not.toContain('Open thread');
   });
 
-  it('selects one row at a time; a second click collapses it', () => {
-    const fixture = mount([agent({}, { inputTokens: 1200, outputTokens: 300 })]);
+  it('selects one row at a time and opens its thread on click', () => {
+    const fixture = mount(
+      [agent({}, { inputTokens: 1200, outputTokens: 300 })],
+      {
+        laneSurface: true,
+      },
+    );
     const selected = jest.fn();
+    const lane = jest.fn();
     fixture.componentInstance.agentSelected.subscribe(selected);
+    fixture.componentInstance.laneRequested.subscribe(lane);
     const el: HTMLElement = fixture.nativeElement;
-    const lane = el.querySelector<HTMLButtonElement>('[data-agent-key="cli:lane-1"]')!;
-    lane.click();
+    const row = el.querySelector<HTMLButtonElement>(
+      '[data-agent-key="cli:lane-1"]',
+    )!;
+    row.click();
     fixture.detectChanges();
     expect(selected).toHaveBeenCalledWith('cli:lane-1');
-    expect(lane.getAttribute('aria-expanded')).toBe('true');
+    expect(lane).toHaveBeenCalledWith('cli:lane-1');
+    expect(row.closest('li')?.getAttribute('aria-current')).toBe('true');
     expect(
-      el.querySelector('[data-agent-key="orchestrator"]')?.getAttribute('aria-expanded'),
-    ).toBe('false');
-    const detail = el.querySelectorAll('[data-testid="agent-dock-detail"]');
-    expect(detail).toHaveLength(1);
-    expect(detail[0].textContent).toContain('1.2k / 300');
-    expect(detail[0].textContent).toContain('Duration');
-    expect(detail[0].textContent).toContain(formatAgentDuration(5000) ?? '');
-    expect(lane.closest('li')?.getAttribute('aria-current')).toBe('true');
-    lane.click();
-    fixture.detectChanges();
-    expect(lane.getAttribute('aria-expanded')).toBe('false');
-    expect(el.querySelector('[data-testid="agent-dock-detail"]')).toBeNull();
+      el
+        .querySelector('[data-agent-key="orchestrator"]')
+        ?.closest('li')
+        ?.getAttribute('aria-current'),
+    ).toBeNull();
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.getAttribute('title'),
+    ).toBe('In 1.2k · Out 300');
+    row.click();
+    expect(selected).toHaveBeenCalledTimes(1);
+    expect(lane).toHaveBeenCalledTimes(2);
+  });
+
+  it('selects the Orchestrator without a thread request when no lane surface exists', () => {
+    const fixture = mount([agent()], { selected: 'cli:lane-1' });
+    const lane = jest.fn();
+    fixture.componentInstance.laneRequested.subscribe(lane);
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('[data-agent-key="orchestrator"]')!
+      .click();
+    expect(lane).not.toHaveBeenCalled();
   });
 
   it('follows the host selection and reports a key that left the roster', () => {
-    const fixture = mount([agent({ key: 'bg:tool-1', kind: 'background', cliId: null })], {
-      selected: 'sub:tool-1',
-    });
+    const fixture = mount(
+      [agent({ key: 'bg:tool-1', kind: 'background', cliId: null })],
+      {
+        selected: 'sub:tool-1',
+      },
+    );
     const selected = jest.fn();
     fixture.componentInstance.agentSelected.subscribe(selected);
     fixture.detectChanges();
     const el: HTMLElement = fixture.nativeElement;
     expect(
-      el.querySelector('[data-agent-key="bg:tool-1"]')?.getAttribute('aria-expanded'),
+      el
+        .querySelector('[data-agent-key="bg:tool-1"]')
+        ?.closest('li')
+        ?.getAttribute('aria-current'),
     ).toBe('true');
     fixture.componentRef.setInput('selectedAgentKey', 'cli:gone');
     fixture.detectChanges();
     expect(selected).toHaveBeenCalledWith('orchestrator');
-  });
-
-  it('"Open thread" requests the lane with a lane surface', () => {
-    const fixture = mount([agent()], { selected: 'cli:lane-1', laneSurface: true });
-    const lane = jest.fn();
-    fixture.componentInstance.laneRequested.subscribe(lane);
-    const open = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
-      '[data-testid="agent-open-thread"]',
-    );
-    expect(open?.getAttribute('aria-label')).toBe('Open Codex thread');
-    open?.click();
-    expect(lane).toHaveBeenCalledWith('cli:lane-1');
   });
 
   it('shows six rows, then expands in place with "Show N more"', () => {
@@ -269,7 +314,9 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     const fixture = mount(rows);
     const el: HTMLElement = fixture.nativeElement;
     expect(keys(el)).toHaveLength(6);
-    const toggle = el.querySelector<HTMLButtonElement>('[data-testid="agents-show-more"]')!;
+    const toggle = el.querySelector<HTMLButtonElement>(
+      '[data-testid="agents-show-more"]',
+    )!;
     expect(toggle.textContent?.trim()).toBe('Show 4 more');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     toggle.click();
@@ -311,7 +358,7 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
     expect(answered).toHaveBeenCalledWith('question-1');
   });
 
-  it('reuses sub-agent lane usage for context, in / out and the model tooltip', () => {
+  it('reuses sub-agent lane usage for tokens, the in / out tooltip and the model', () => {
     TestBed.overrideProvider(AgentMonitorStore, {
       useValue: {
         agents: signal([]),
@@ -333,15 +380,40 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       },
     });
     const el: HTMLElement = mount(
-      [agent({ key: 'sub:tool-1', kind: 'subagent', cliId: null, name: 'Explore' })],
+      [
+        agent({
+          key: 'sub:tool-1',
+          kind: 'subagent',
+          cliId: null,
+          name: 'Explore',
+        }),
+      ],
       { selected: 'sub:tool-1' },
     ).nativeElement;
-    const row = el.querySelector('[data-agent-key="sub:tool-1"]') as HTMLElement;
-    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('2.4k');
-    expect(row.querySelector('[title="test-model"]')?.textContent?.trim()).toBe('Sub-agent');
-    expect(el.querySelector('[data-testid="agent-dock-detail"]')?.textContent).toContain(
-      '1.2k / 300',
+    const row = el.querySelector(
+      '[data-agent-key="sub:tool-1"]',
+    ) as HTMLElement;
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.textContent?.trim(),
+    ).toBe('2.4k');
+    expect(
+      row.querySelector('[data-testid="agent-row-model"]')?.textContent?.trim(),
+    ).toBe('test-model');
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-model"]')
+        ?.getAttribute('title'),
+    ).toBe('Sub-agent · test-model');
+    expect(row.getAttribute('aria-label')).toContain(
+      'Model test-model. 2.4k tokens (In 1.2k · Out 300)',
     );
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.getAttribute('title'),
+    ).toBe('In 1.2k · Out 300');
   });
 
   it('keeps sub-agent usage after the sub-agent moves to the background', () => {
@@ -378,36 +450,16 @@ describe('InspectorAgentsSectionComponent (B+ agents list)', () => {
       { selected: 'bg:tool-1' },
     ).nativeElement;
     const row = el.querySelector('[data-agent-key="bg:tool-1"]') as HTMLElement;
-    expect(row.querySelector('[data-testid="agent-row-tokens"]')?.textContent?.trim()).toBe('2.4k');
-    expect(el.querySelector('[data-testid="agent-dock-detail"]')?.textContent).toContain(
-      '1.2k / 300',
-    );
-  });
-
-  it('opens a collapsed row again after the host selects another row and returns', () => {
-    const fixture = mount([agent()], { selected: 'cli:lane-1' });
-    const el: HTMLElement = fixture.nativeElement;
-    const lane = () => el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
-    lane().click();
-    fixture.detectChanges();
-    expect(lane().getAttribute('aria-expanded')).toBe('false');
-    fixture.componentRef.setInput('selectedAgentKey', 'orchestrator');
-    fixture.detectChanges();
-    fixture.componentRef.setInput('selectedAgentKey', 'cli:lane-1');
-    fixture.detectChanges();
-    expect(lane().getAttribute('aria-expanded')).toBe('true');
-  });
-
-  it('opens a collapsed row again in another tab', () => {
-    const fixture = mount([agent()], { selected: 'cli:lane-1' });
-    const el: HTMLElement = fixture.nativeElement;
-    const lane = () => el.querySelector('[data-agent-key="cli:lane-1"]') as HTMLElement;
-    lane().click();
-    fixture.detectChanges();
-    expect(lane().getAttribute('aria-expanded')).toBe('false');
-    fixture.componentRef.setInput('tabId', 'tab-2');
-    fixture.detectChanges();
-    expect(lane().getAttribute('aria-expanded')).toBe('true');
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.textContent?.trim(),
+    ).toBe('2.4k');
+    expect(
+      row
+        .querySelector('[data-testid="agent-row-tokens"]')
+        ?.getAttribute('title'),
+    ).toBe('In 1.2k · Out 300');
   });
 
   it('shows no "Show more" when the selected seventh row makes every row visible', () => {

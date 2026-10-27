@@ -223,11 +223,20 @@ export interface LaneUsageTileModel {
   readonly tokensUnknownText?: string;
   readonly costLine: string;
   /**
+   * Known token sum as a bare number for icon + number faces ("≥2.6k");
+   * `≥` when a run is partial or unknown. `''` when no tokens are known.
+   */
+  readonly tokensValue: string;
+  /** Known cost sum as a bare amount ("≥$0.02"), same rules; `''` when unknown. */
+  readonly costValue: string;
+  /**
    * The one muted line of the open panel: known usage (or "Usage
    * unavailable") · the limit state (or "Limit unavailable").
    */
   readonly summary: string;
   readonly runChip: StatsChip;
+  /** The run chip's status word alone ("Completed", "Running", "Quota failure"). */
+  readonly runStatusText: string;
   readonly limitChips: readonly LaneFaceChipModel[];
   readonly tone: StatsTileTone;
   readonly runCount: number;
@@ -238,6 +247,10 @@ export interface LaneSubtotalTileModel {
   readonly id: typeof LANES_SUBTOTAL_TILE_ID;
   readonly caption: string;
   readonly tokensText: string;
+  /** Known token sum as a bare number ("≥2.6k"); `''` when none is known. */
+  readonly tokensValue: string;
+  /** Known cost sum as a bare amount ("≥$0.02"); `''` when none is known. */
+  readonly costValue: string;
   readonly summary: string;
 }
 

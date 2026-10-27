@@ -289,6 +289,23 @@ describe('CanvasInspectorDockComponent', () => {
     expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBeNull();
   });
 
+  it.each(['Enter', ' ', 'Tab'])(
+    'the docked aside never cancels a %p keydown of a button inside it (Enter/Space must still activate it)',
+    async (key) => {
+      const { fixture } = mount();
+      await completeDeferBlocks(fixture);
+      expect(fixture.componentInstance.overlay()).toBe(false);
+      const button = fixture.nativeElement.querySelector(
+        '[data-inspector-dock] [data-agent-select]',
+      ) as HTMLButtonElement;
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+
+      button.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(false);
+    },
+  );
+
   it('carries no session controls in the rail, the dock or the compact sheet', async () => {
     const { fixture } = mount();
     const host: HTMLElement = fixture.nativeElement;

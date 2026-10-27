@@ -59,6 +59,14 @@ import {
 
 export const LANE_EMPTY = { value: '—', usage: 'Usage unavailable', limit: 'Limit unavailable', subtotal: 'Known subtotal' } as const;
 
+/**
+ * Splits a value such as "≥2.6k" into its lower-bound marker and the number,
+ * so a face can show "≥" and still tell a screen reader "at least".
+ */
+export function splitLowerBound(text: string): { readonly atLeast: boolean; readonly value: string } {
+  return text.startsWith('≥') ? { atLeast: true, value: text.slice(1) } : { atLeast: false, value: text };
+}
+
 // ------------------------------------------------------------------ lanes
 
 export function groupLaneRuns(
@@ -140,6 +148,7 @@ export function laneTile(
   const limit = limitChips.length
     ? limitChips.map((face) => face.chip.text).join(' · ')
     : LANE_EMPTY.limit;
+  const runChip = laneRunChip(runs);
   return {
     id: laneTileId(first),
     label: first.role ? `${first.cliLabel} · ${first.role}` : first.cliLabel,
@@ -151,8 +160,15 @@ export function laneTile(
     ...(knownTokens.length > 0 &&
       unknownTokens > 0 && { tokensUnknownText: `+${unknownTokens} unknown` }),
     costLine: cost,
+    tokensValue: knownTokens.length === 0
+      ? ''
+      : `${partial || unknownTokens > 0 ? '≥' : ''}${formatTokenCount(sum(knownTokens))}`,
+    costValue: knownCosts.length === 0
+      ? ''
+      : `${partial || unknownCosts > 0 ? '≥' : ''}${formatCost(sum(knownCosts))}`,
     summary: `${usage} · ${limit}`,
-    runChip: laneRunChip(runs),
+    runChip,
+    runStatusText: laneRunStatusText(runs, runChip),
     limitChips,
     tone: states.includes('at-limit')
       ? 'error'
@@ -672,6 +688,14 @@ function laneRunChip(runs: readonly StatsLimitLaneRun[]): StatsChip {
     : { tone: 'neutral', text: capitalise(word) };
 }
 
+/** The run chip's status word alone, without its "Restored · " / "Live · " context. */
+function laneRunStatusText(runs: readonly StatsLimitLaneRun[], chip: StatsChip): string {
+  if (chip.tone === 'live') return 'Running';
+  if (chip.tone === 'error') return chip.text;
+  const statuses = new Set(runs.map((run) => run.status));
+  return capitalise(statuses.size === 1 ? STATUS_WORDS[runs[0].status] : 'finished');
+}
+
 function runRow(
   run: StatsLimitLaneRun,
   index: number,
@@ -744,9 +768,12 @@ export function subtotalTile(
   const tokens = runs.map(runTokens).filter(isNumber);
   const costs = runs.map(runCost).filter(isNumber);
   const unknownCosts = runs.length - costs.length;
+  const partial = runs.some(run => run.usageTotals?.partial);
   return {
     id: LANES_SUBTOTAL_TILE_ID,
     caption: LANE_CAPTION,
+    tokensValue: tokens.length ? `${tokens.length < runs.length || partial ? '≥' : ''}${formatTokenCount(sum(tokens))}` : '',
+    costValue: costs.length ? `${unknownCosts > 0 || partial ? '≥' : ''}${formatCost(sum(costs))}` : '',
     tokensText: tokens.length ? `${tokens.length < runs.length || runs.some(run => run.usageTotals?.partial) ? '≥' : ''}${formatTokenCount(sum(tokens))} tokens known` : LANE_EMPTY.value,
     summary: !tokens.length && !costs.length ? LANE_EMPTY.usage :
       `${costs.length ? `${unknownCosts > 0 || runs.some(run => run.usageTotals?.partial) ? '≥' : ''}${formatCost(sum(costs))} known cost · ` : ''}${plural(laneCount, 'lane')} · ${plural(runs.length, 'run')} · ${unknownCosts} cost unknown`,

@@ -2357,9 +2357,10 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
   /* ===== Popover/Overlay Backgrounds ===== */
   /* Native popovers should have solid backgrounds. The substring match must not reach NativePopoverComponent's
      trigger wrapper (`popover-trigger`): it drew a square border around every popover trigger in light theme,
-     e.g. the Settings scope badge (TASK_2026_555 Gate V 28). */
+     e.g. the Settings scope badge (TASK_2026_555 Gate V 28). Nor the full-viewport `ptah-popover-layer`:
+     an opaque layer blanked the whole app behind every open menu in light theme. */
   .ptah-native-popover-panel,
-  [class*='popover']:not(.popover-trigger) {
+  [class*='popover']:not(.popover-trigger):not(.ptah-popover-layer) {
     background-color: oklch(var(--b1));
     border: 1px solid oklch(var(--b3));
   }
