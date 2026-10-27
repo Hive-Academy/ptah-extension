@@ -314,18 +314,22 @@ export function sessionStopReply(
 /**
  * The handoff reply. It states `tabOpened` verbatim, so the session-handoff
  * skill can branch on it, and every refusal keeps its code and detail (e.g.
- * the start-timeout detail saying the session may still open late).
+ * the start-timeout detail saying the session may still open late). The ids
+ * of the lanes and child sessions the new session adopted are listed so the
+ * caller can record them in its handoff file.
  */
 export function sessionHandoffReply(
   result: SessionHandoffResult,
 ): SessionToolReply {
   if (result.ok) {
     const where = `"${result.label}" (tab ${result.tabId}) in ${result.cwd}`;
+    const adopted = adoptedLine(result);
     if (result.tabOpened) {
       return {
         isError: false,
         text: joinBlocks(
           `Opened a new session ${where}.`,
+          adopted,
           'tabOpened: true. Tell the user it is open and ask them to close ' +
             'this session. Do no further work here.',
         ),
@@ -335,6 +339,7 @@ export function sessionHandoffReply(
       isError: false,
       text: joinBlocks(
         `Started a new session ${where}.`,
+        adopted,
         'tabOpened: false. No Ptah window took the tab; it is listed in the ' +
           'session sidebar. Tell the user to open it from the session list ' +
           'in the Ptah sessions panel, and to close this session only after ' +
@@ -346,6 +351,22 @@ export function sessionHandoffReply(
     isError: result.refusal === 'session-start-failed',
     text: `${SESSION_HANDOFF_TOOL_NAME} refused (${result.refusal}): ${result.detail}`,
   };
+}
+
+/** `Adopted by the new session: lanes a, b; child sessions c.`, or '' when nothing was adopted. */
+function adoptedLine(
+  result: Extract<SessionHandoffResult, { ok: true }>,
+): string {
+  const parts: string[] = [];
+  if (result.adoptedLanes.length > 0) {
+    parts.push(`lanes ${result.adoptedLanes.join(', ')}`);
+  }
+  if (result.adoptedChildSessions.length > 0) {
+    parts.push(`child sessions ${result.adoptedChildSessions.join(', ')}`);
+  }
+  return parts.length > 0
+    ? `Adopted by the new session: ${parts.join('; ')}.`
+    : '';
 }
 
 /* ---------------------------------------------------------------------------

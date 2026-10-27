@@ -1815,6 +1815,39 @@ export class AgentProcessManager {
   }
 
   /**
+   * Hand every RUNNING lane whose parent is one of `fromIds` to the session
+   * `toSessionId` (`ptah_session_handoff`): its completion signal and its
+   * `ptah_agent_report` calls then reach that session, because both read the
+   * live record's `parentSessionId`. When `toSessionId` is still a tab id,
+   * {@link resolveParentSessionId} later moves the lane to that session's SDK
+   * id like any lane the session spawned itself. Finished lanes keep their
+   * parent: their signal already went out. Returns the adopted agent ids.
+   */
+  adoptLanes(fromIds: readonly string[], toSessionId: string): string[] {
+    const from = new Set(
+      fromIds.map((id) => id.trim()).filter((id) => id.length > 0),
+    );
+    const to = toSessionId.trim();
+    if (from.size === 0 || !to) return [];
+    const adopted: string[] = [];
+    for (const tracked of this.agents.values()) {
+      const parent = tracked.info.parentSessionId;
+      if (tracked.info.status !== 'running' || !parent || !from.has(parent)) {
+        continue;
+      }
+      tracked.info.parentSessionId = to;
+      adopted.push(tracked.info.agentId);
+    }
+    if (adopted.length > 0) {
+      this.logger.info('[AgentProcessManager] Lanes adopted by a new session', {
+        agentIds: adopted,
+        toSessionId: to,
+      });
+    }
+    return adopted;
+  }
+
+  /**
    * Stream events copied out for persistence.
    *
    * The LIVE cap is `MAX_ACCUMULATED_STREAM_EVENTS` (50 000) — the right size

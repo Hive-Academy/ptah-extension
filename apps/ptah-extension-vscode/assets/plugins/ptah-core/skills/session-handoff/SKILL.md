@@ -15,15 +15,17 @@ after `/session-handoff` (for example a context-usage figure) is context only, n
 - Check everything still running once: subagents, CLI agent lanes (`ptah_agent_status`; lane
   mechanics live in the `agent-lanes` skill) and child sessions (`ptah_session_status`). Collect
   the results of those that finished.
-- Do not wait for the rest. Never poll, and never call `ptah_agent_wait` in a loop: a CLI lane
-  pushes its `ptah_agent_report` and an `<agent-lane-completed>` signal with its final status
-  (verdict, exit code, deliverables) into this session when it ends, and a subagent or child
-  session sends its own completion notice. `ptah_agent_wait` also returns after at most 45 s per
-  call, so waiting with it means many paid calls.
+- Do not wait for CLI lanes or child sessions. `ptah_session_handoff` hands every one still
+  running to the new session: from then on their `ptah_agent_report`, `<agent-lane-completed>`
+  signal and completion notice go to the new session, which can also use `ptah_session_status`
+  and `ptah_session_read` on the children. Waiting here only spends paid turns in this full
+  context; `ptah_agent_wait` returns after at most 45 s per call. Never poll.
+- Subagents (Task tool) are the exception: they live inside this session and end with it. Let a
+  foreground subagent finish its step, or record it as lost.
 - Record and continue: anything still running, or waiting on a permission or other outside input
   (for example `awaiting-permission`), is unfinished. Record it under **Background work** in
-  HANDOFF.md (its id, its task, its state, how to read its result: `ptah_agent_read`,
-  `ptah_session_read`), then go on. If its report arrives before you finish, add the result.
+  HANDOFF.md (its id, its task, its state), then go on. If its report arrives before you finish,
+  add the result.
 
 ## 2. Write HANDOFF.md
 
@@ -36,7 +38,8 @@ who has none of this conversation:
 - **In progress**: what is partly done, and in which files.
 - **Open problems and decisions**: blockers, failing checks, questions waiting on the user.
 - **Key files**: absolute paths, one line each on why they matter.
-- **Background work**: anything you could not wait for, and how to check on it.
+- **Background work**: lanes and child sessions still running (id, task, state). The new session
+  receives their reports; it can also read them with `ptah_agent_read` / `ptah_session_read`.
 - **Next steps**: ordered, concrete, with the exact verification commands to run.
 
 Record facts you checked, not intentions. Leave out what the next session can read from the code.
@@ -51,7 +54,9 @@ own budget runs low.
 Call `ptah_session_handoff` exactly once with `handoffPath` (absolute path of HANDOFF.md),
 `prompt` (the continuation prompt) and optionally a short `label`.
 
-On success, read `tabOpened`:
+On success, the result lists the lanes and child sessions the new session adopted. Do not act on
+them here. Any of their signals that still reach this session can be ignored. Then read
+`tabOpened`:
 
 - `true`: tell the user the new session is open (by its label) and ask them to close this one.
 - `false`: tell the user the new session started (by its label) but no tab appeared. They can

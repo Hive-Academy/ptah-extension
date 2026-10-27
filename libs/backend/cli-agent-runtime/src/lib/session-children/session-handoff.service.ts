@@ -8,6 +8,11 @@
  * `SessionChildRegistry`), so it can hand off again later. A child session is
  * refused: its parent supervises its work.
  *
+ * Once the new session is open it adopts the caller's background work: the
+ * caller's running CLI lanes and its child sessions are re-parented to it, so
+ * their completions and reports reach the session that continues the task.
+ * The caller itself is not stopped.
+ *
  * No event subscriptions, so nothing needs disposing. Each start has one
  * deadline timer, cleared when the start settles or the deadline fires. The
  * state is a bounded record of callers that already handed off and the
@@ -34,6 +39,7 @@ import {
 } from '@ptah-extension/shared';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import type { IChildChatSessionHost } from './child-chat-session-host.port';
 import { SessionChildRegistry } from './session-child.registry';
 import { safeErrorKind } from './safe-error-kind';
@@ -93,6 +99,9 @@ export class SessionHandoffService implements ISessionHandoff {
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.OUTPUT_CHANNEL)
     private readonly output: IOutputChannel,
+    /** Holds the caller's CLI lanes, which the new session adopts. */
+    @inject(TOKENS.AGENT_PROCESS_MANAGER)
+    private readonly agents: AgentProcessManager,
     /** Absent in a host without a chat runtime → `chat-runtime-unavailable`. */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly adapter: IAgentAdapter | null = null,
@@ -262,9 +271,12 @@ export class SessionHandoffService implements ISessionHandoff {
       sdkSessionId: record.realSessionId,
       tabId,
     });
+    const adopted = this.adoptWork(record, tabId);
     this.log(
       `${record.tabId} handed off to ${tabId} in ${paths.cwd}` +
-        (outcome.uiAnnounced ? '' : ' (no webview took the tab)'),
+        (outcome.uiAnnounced ? '' : ' (no webview took the tab)') +
+        `; adopted ${adopted.lanes.length} lane(s), ` +
+        `${adopted.childSessions.length} child session(s)`,
     );
     return {
       ok: true,
@@ -273,7 +285,69 @@ export class SessionHandoffService implements ISessionHandoff {
       workspaceRoot: paths.root,
       cwd: paths.cwd,
       tabOpened: outcome.uiAnnounced,
+      adoptedLanes: adopted.lanes,
+      adoptedChildSessions: adopted.childSessions,
     };
+  }
+
+  /**
+   * The new session takes over the caller's background work, so its later
+   * completions and reports reach the session that continues the task, not
+   * the one the user is told to close. The caller is matched by both its tab
+   * id and its SDK id: work records whichever it had when it started.
+   *
+   * - Running CLI lanes get the new tab id as parent (its SDK id when the
+   *   new session already has one); the manager's tab → SDK id remap then
+   *   follows the new session like any lane it spawned itself.
+   * - Child sessions that are live, or ended with a completion still held,
+   *   get the new tab as parent; the recorded parent SDK id is replaced the
+   *   same way, so `ptah_session_*` and held completions answer the new
+   *   session and no longer the caller.
+   *
+   * Lane failures do not stop child adoption: each half is attempted and a
+   * fault is logged by kind. The handoff itself already succeeded.
+   */
+  private adoptWork(
+    caller: CallerRecord,
+    successorTabId: string,
+  ): {
+    readonly lanes: readonly string[];
+    readonly childSessions: readonly string[];
+  } {
+    const fromIds = [caller.tabId, caller.realSessionId].filter(
+      (id): id is string => !!id,
+    );
+    const successorSdkId =
+      this.lifecycle.find(successorTabId)?.realSessionId ?? undefined;
+    let lanes: readonly string[] = [];
+    try {
+      lanes = this.agents.adoptLanes(
+        fromIds,
+        successorSdkId ?? successorTabId,
+      );
+    } catch (error: unknown) {
+      // degradation-audit: reported - the new session is already open; a
+      // fault here leaves the lanes with the caller (today's behaviour) and
+      // the reply lists none, so the caller keeps their ids itself.
+      this.log(`lane adoption faulted: ${safeErrorKind(error)}`);
+    }
+    const childSessions: string[] = [];
+    try {
+      for (const child of this.registry.childrenOf(fromIds)) {
+        if (child.terminalStatus && !child.heldCompletion) continue;
+        const moved = this.registry.reparent(
+          child.childSessionId,
+          successorTabId,
+          successorSdkId,
+        );
+        if (moved) childSessions.push(moved.childSessionId);
+      }
+    } catch (error: unknown) {
+      // degradation-audit: reported - as above; children not yet moved stay
+      // with the caller and are not listed as adopted.
+      this.log(`child session adoption faulted: ${safeErrorKind(error)}`);
+    }
+    return { lanes, childSessions };
   }
 
   /** The caller's cwd and root, both inside an open workspace folder. */

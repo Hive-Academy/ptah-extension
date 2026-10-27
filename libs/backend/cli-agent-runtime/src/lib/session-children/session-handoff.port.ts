@@ -53,6 +53,16 @@ export type SessionHandoffResult =
       readonly cwd: string;
       /** False when no webview took the tab. */
       readonly tabOpened: boolean;
+      /**
+       * Ids of the caller's running CLI lanes that now report to the new
+       * session (completion signal and `ptah_agent_report`).
+       */
+      readonly adoptedLanes: readonly string[];
+      /**
+       * Ids of the caller's child sessions that now belong to the new
+       * session: live ones, plus ended ones whose completion is still held.
+       */
+      readonly adoptedChildSessions: readonly string[];
     }
   | {
       readonly ok: false;

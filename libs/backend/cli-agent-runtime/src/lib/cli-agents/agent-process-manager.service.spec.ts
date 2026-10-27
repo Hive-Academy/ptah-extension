@@ -3573,6 +3573,83 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
+  /** `ptah_session_handoff`: the new session adopts the caller's running lanes. */
+  describe('adoptLanes()', () => {
+    const OLD_TAB = 'aaaaaaaa-bbbb-4ccc-8ddd-333333333333';
+    const OLD_SDK = '11111111-2222-4333-8444-666666666666';
+    const OTHER = '11111111-2222-4333-8444-777777777777';
+    const NEW_TAB = 'aaaaaaaa-bbbb-4ccc-8ddd-444444444444';
+    const NEW_SDK = '11111111-2222-4333-8444-888888888888';
+
+    const spawnWithParent = async (
+      parentSessionId: string | undefined,
+    ): Promise<{ agentId: string; controls: MockSdkHandleControls }> => {
+      const controls = createMockSdkHandle();
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);
+      const result = await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        parentSessionId,
+      });
+      return { agentId: result.agentId, controls };
+    };
+
+    const infoOf = (agentId: string) =>
+      manager.getStatus(agentId) as {
+        parentSessionId?: string;
+        status: string;
+      };
+
+    it('moves running lanes of either caller id to the new session and returns their ids', async () => {
+      const byTab = await spawnWithParent(OLD_TAB);
+      const bySdk = await spawnWithParent(OLD_SDK);
+
+      const adopted = manager.adoptLanes([OLD_TAB, OLD_SDK], NEW_TAB);
+
+      expect(adopted).toEqual([byTab.agentId, bySdk.agentId]);
+      expect(infoOf(byTab.agentId).parentSessionId).toBe(NEW_TAB);
+      expect(infoOf(bySdk.agentId).parentSessionId).toBe(NEW_TAB);
+    });
+
+    it('leaves finished lanes and other sessions’ lanes alone', async () => {
+      const finished = await spawnWithParent(OLD_TAB);
+      finished.controls.resolve(0);
+      await finished.controls.handle.done;
+      for (let i = 0; i < 20; i++) {
+        if (infoOf(finished.agentId).status !== 'running') break;
+        await Promise.resolve();
+      }
+      expect(infoOf(finished.agentId).status).not.toBe('running');
+      const other = await spawnWithParent(OTHER);
+      const orphan = await spawnWithParent(undefined);
+
+      const adopted = manager.adoptLanes([OLD_TAB, OLD_SDK], NEW_TAB);
+
+      expect(adopted).toEqual([]);
+      expect(infoOf(finished.agentId).parentSessionId).toBe(OLD_TAB);
+      expect(infoOf(other.agentId).parentSessionId).toBe(OTHER);
+      expect(infoOf(orphan.agentId).parentSessionId).toBeUndefined();
+    });
+
+    it('ignores blank ids', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+
+      expect(manager.adoptLanes(['', '  '], NEW_TAB)).toEqual([]);
+      expect(manager.adoptLanes([OLD_TAB], ' ')).toEqual([]);
+      expect(infoOf(lane.agentId).parentSessionId).toBe(OLD_TAB);
+    });
+
+    it('lets the tab → SDK id remap follow the new session', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+      manager.adoptLanes([OLD_TAB], NEW_TAB);
+
+      manager.resolveParentSessionId(NEW_TAB, NEW_SDK);
+
+      expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_SDK);
+    });
+  });
+
   /**
    * TASK_2026_323 B1 — the stdout buffer trim.
    *
