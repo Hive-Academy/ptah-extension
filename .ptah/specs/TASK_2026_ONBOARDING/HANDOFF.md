@@ -49,6 +49,15 @@ lines). No decision changes. At the rebase, add the new file to the B5b reuse li
 Also check that the onboarding route does not undo the budget fix by eagerly importing the
 now-deferred views. Ref: `refs/remotes/pr/832-new`.
 
+Head 720c039a (checked against the diff from f2a31263, after the #832 session replied on the PR,
+comment 2026-10-27T19:20Z): `79ae1f6dc` changes the backend plugin and skills-sh RPC handlers and
+`rpc.types.ts` (+39 lines). Re-check the plan's `rpc.types.ts:1253-1256` citation at the rebase.
+`9e25520c2` puts `@defer` into `wizard-view.component.ts` and
+`generation-agent-sidebar.component.ts`. The plan deletes both (deletion rows 1 and 18-19), so this
+is moot. `720c039a7` changes spec fixtures only. No change reaches `rpc-setup*`, `phase.ts`, the
+reused completion files or the barrel. #832 still has batches 21-26: no setup-wizard changes, and
+it will flag it if batch 26 touches `wizard-generation-rpc.handlers.ts`.
+
 ## Background work
 
 None. All lanes and subagents have finished. Their results are in the task folder: codex reviews
