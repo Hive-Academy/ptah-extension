@@ -210,10 +210,9 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
             totalTokens: { input: 0, output: 0 },
             isChildSession: true,
           },
+          { message: input.task, sessionId: input.resumeSessionId },
           input.onAccountBinding,
         );
-        hostStep = 'enqueue';
-        await named.enqueue(input.task, input.resumeSessionId, true);
       }
       hostStep = 'runner';
       // The named query owns its empty gate. The legacy mailbox remains seeded

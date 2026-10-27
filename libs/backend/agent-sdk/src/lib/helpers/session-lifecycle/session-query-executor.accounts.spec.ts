@@ -5,7 +5,7 @@ import type {
   ClaudeLaunchBoundaryOutcome, ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
-import type { AccountInfo, Options, QueryFunction, SDKMessage, SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
+import type { AccountInfo, HookInput, Options, QueryFunction, SDKMessage, SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
 import { SdkQueryRunner } from '../sdk-query-runner.service';
 import { CLAUDE_CERTIFIED_ENV_KEYS, certifiedEnvDigest } from '../claude-certified-launch';
 import { claudeIdentityReference } from '../claude-identity-reference';
@@ -57,6 +57,11 @@ const metadata = { name: 'private title', workspaceId: '/workspace', createdAt: 
   totalCost: 0, totalTokens: { input: 0, output: 0 } };
 const message: SDKUserMessage = { type: 'user', session_id: '', parent_tool_use_id: null,
   message: { role: 'user', content: 'private conversation' } };
+const followUp: SDKUserMessage = { ...message, message: { role: 'user', content: 'later turn' } };
+const toolContext = (signal: AbortSignal) => ({ signal, toolUseID: 'tool', requestId: 'request' });
+const toolHookInput: HookInput = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {},
+  tool_use_id: 'tool', session_id: 'sdk-session-a', transcript_path: '', cwd: '' };
+const denyHook = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } };
 const flush = async () => { for (let index = 0; index < 30; index++) await Promise.resolve(); };
 
 function fixture(settings: { fail?: string; cancel?: string; unproved?: string; unknown?: boolean;
@@ -65,7 +70,12 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   boundary?: { at: ClaudeLaunchBoundary; terminated: boolean }; identityPatch?: Partial<AccountInfo>;
   initPatch?: Record<string, unknown>; finalOptions?: Partial<Options>;
   /** The session's project directory; admission certifies it unless `certifiedCwd` overrides. */
-  projectDir?: string; certifiedCwd?: string } = {}) {
+  projectDir?: string; certifiedCwd?: string;
+  /**
+   * Models CLI 2.1.278 streaming input: the final child reads the first prompt
+   * turn and asks for one tool before it emits `system/init`.
+   */
+  initAfterFirstTurn?: boolean } = {}) {
   const projectDir = settings.projectDir ?? launchContext.cwd;
   const certifiedLaunch = settings.projectDir === undefined && settings.certifiedCwd === undefined
     ? launchContext : { ...launchContext, cwd: settings.certifiedCwd ?? projectDir };
@@ -133,7 +143,9 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
     invalidateAccountRoute: jest.fn(),
   };
   const options: Options[] = [];
+  const preInitTools: string[] = [];
   const reads: Promise<IteratorResult<SDKUserMessage>>[] = [];
+  const iterators: AsyncIterator<SDKUserMessage>[] = [];
   const runner: Pick<SdkQueryRunner, 'invokeNamedQuery'> = {
     invokeNamedQuery: jest.fn((_fn, prompt, queryOptions, observe) => {
       const stage = options.length === 0 ? 'bootstrap' : 'final';
@@ -142,7 +154,9 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
       const terminated = deferred<void>();
       terminations.push(terminated);
       observe?.(terminated.promise);
-      const read = prompt[Symbol.asyncIterator]().next().then((result) => {
+      const iterator = prompt[Symbol.asyncIterator]();
+      iterators.push(iterator);
+      const read = iterator.next().then((result) => {
         if (!result.done) yielded++;
         return result;
       });
@@ -157,7 +171,15 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
           const info = settings.mismatch && stage === 'final' ? { ...account, email: 'different@example.test' } : account;
           return { ...info, ...settings.identityPatch };
         }),
-        next: jest.fn(async () => {
+        next: jest.fn(async (): Promise<IteratorResult<SDKMessage, void>> => {
+          if (settings.initAfterFirstTurn && stage === 'final' && !events.includes('turn-consumed')) {
+            const turn = await read;
+            if (turn.done) return { done: true, value: undefined };
+            events.push('turn-consumed');
+            const decision = await queryOptions.canUseTool?.('Read', {}, { signal: controller.signal,
+              toolUseID: 'pre-init', requestId: 'pre-init' });
+            preInitTools.push(decision?.behavior ?? 'none');
+          }
           await step('init');
           return { done: false as const, value: { type: 'system', subtype: 'init', session_id: 'sdk-session-a',
             claude_code_version: '2.1.310', apiKeySource: 'none', ...settings.initPatch } as SDKMessage };
@@ -174,7 +196,12 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   const log = { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() };
   const flow = new NamedAccountQueryAdmission(runner, admission, persistence, registry, log, controller, 50);
   const queryFn = jest.fn() as QueryFunction;
-  const source = { async *[Symbol.asyncIterator]() { yield message; } };
+  const source = { async *[Symbol.asyncIterator]() {
+    events.push('turn-1');
+    yield message;
+    events.push('turn-2');
+    yield followUp;
+  } };
   const bootstrap = (resume?: string) =>
     flow.bootstrap(queryFn, { kind: 'named', profileId: route.profileId }, projectDir, resume);
   // The builder's named final options: certified executable, env, cwd and sources.
@@ -185,17 +212,32 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
   'tab-a', metadata);
   const run = async (resume?: string) => { await bootstrap(resume); return launch(); };
   return { flow, events, reads, options, registry, persistence, admission, controller, log, bootstrap, launch, run,
-    paused, entered, terminations, runner, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
+    paused, entered, terminations, runner, iterators, preInitTools, yielded: () => yielded, saved: () => saved,
+    epoch: () => epochListener };
+}
+
+/** Refusals after the identity proof release the first turn (D69); nothing else reaches the run. */
+const AFTER_PROOF = new Set(['init', 'registry', 'commit', 'attach', 'metadata', 'current:3', 'final-identity:2']);
+
+/** After a refusal: no later turn was pulled and a tool call is denied. */
+async function expectNoAdmission(f: ReturnType<typeof fixture>): Promise<void> {
+  expect(f.events).not.toContain('turn-2');
+  const permission = f.options[1]?.canUseTool;
+  if (permission) expect(await permission('Read', {}, toolContext(f.controller.signal))).toMatchObject({ behavior: 'deny' });
 }
 
 describe('named SDK bootstrap and final admission', () => {
   afterEach(() => { jest.useRealTimers(); });
 
-  it('closes bootstrap before final launch, then awaits both durable checkpoints before releasing input', async () => {
+  it('closes bootstrap before final launch, then awaits both durable checkpoints before releasing later input', async () => {
     const f = fixture({ pause: 'metadata' });
-    const run = f.run();
+    let resolved = false;
+    const run = f.run().then((query) => { resolved = true; return query; });
     await f.entered.promise;
-    expect(f.yielded()).toBe(0);
+    // Only the first turn is released after the identity proof (D69); no output yet.
+    expect(f.yielded()).toBe(1);
+    expect(f.events).not.toContain('turn-2');
+    expect(resolved).toBe(false);
     expect(f.events.indexOf('bootstrap-close')).toBeLessThan(f.events.indexOf('final'));
     expect(f.events.indexOf('final-identity')).toBeLessThan(f.events.indexOf('registry'));
     expect(f.events.indexOf('registry')).toBeLessThan(f.events.indexOf('commit'));
@@ -208,15 +250,166 @@ describe('named SDK bootstrap and final admission', () => {
     expect(await f.reads[0]).toEqual({ done: true, value: undefined });
     const permission = f.options[1].canUseTool;
     expect(permission).toBeDefined();
-    if (permission) expect(await permission('Read', {}, { signal: f.controller.signal, toolUseID: 'tool', requestId: 'request' })).toMatchObject({ behavior: 'deny' });
+    // After a verified init a tool call waits for admission instead of being denied.
+    let decision: unknown;
+    const held = permission?.('Read', {}, toolContext(f.controller.signal)).then((value) => { decision = value; });
+    await flush();
+    expect(decision).toBeUndefined();
     f.paused.resolve();
     const query = await run;
+    await held;
+    expect(decision).toMatchObject({ behavior: 'allow' });
     await flush();
     expect(f.yielded()).toBe(1);
     expect(f.saved()?.identity.kind).toBe('known');
     expect((await query.next()).value).toMatchObject({ subtype: 'init' });
     await f.flow.dispose();
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the first turn after the identity proof, then admits on init (D69, CLI 2.1.278 order)', async () => {
+    const f = fixture({ initAfterFirstTurn: true, pause: 'commit' });
+    let resolved = false;
+    const run = f.run().then((query) => { resolved = true; return query; });
+    await f.entered.promise;
+    await flush();
+    const at = (name: string) => f.events.indexOf(name);
+    const proof = f.events.indexOf('final-identity');
+    expect(proof).toBeGreaterThan(at('final'));
+    expect(proof).toBeLessThan(at('turn-consumed'));
+    expect(at('turn-consumed')).toBeLessThan(at('init'));
+    expect(at('init')).toBeLessThan(at('commit'));
+    // The pre-init tool call was denied; no later turn and no output before admission.
+    expect(f.preInitTools).toEqual(['deny']);
+    expect(f.yielded()).toBe(1);
+    const later = f.iterators[1].next();
+    await flush();
+    expect(f.events).not.toContain('turn-2');
+    expect(resolved).toBe(false);
+    expect(f.saved()).toBeUndefined();
+    f.paused.resolve();
+    const query = await run;
+    expect(at('commit')).toBeLessThan(at('metadata'));
+    expect((await query.next()).value).toMatchObject({ subtype: 'init' });
+    // The first turn travelled exactly once; the next pull is the later turn.
+    expect(await later).toEqual({ done: false, value: followUp });
+    expect(f.events.filter((event) => event === 'turn-1')).toHaveLength(1);
+    expect(at('turn-2')).toBeGreaterThan(at('metadata'));
+    expect(f.saved()?.identity.kind).toBe('known');
+    await f.flow.dispose();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('consumes no prompt while the same-child identity proof is still pending', async () => {
+    const f = fixture({ pause: 'final-identity:1' });
+    const run = f.run();
+    await f.entered.promise;
+    await flush();
+    expect(f.yielded()).toBe(0);
+    expect(f.events).not.toContain('turn-1');
+    f.paused.resolve();
+    await run;
+    expect(f.yielded()).toBe(1);
+    await f.flow.dispose();
+  });
+
+  it('gates every tool with a PreToolUse hook under bypassPermissions, ahead of caller hooks (F1)', async () => {
+    const callerHook = jest.fn(async () => ({}));
+    const f = fixture({ pause: 'init', finalOptions: { permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [callerHook] }] } } });
+    const run = f.run();
+    await f.entered.promise;
+    const matchers = f.options[1].hooks?.PreToolUse ?? [];
+    expect(matchers).toHaveLength(2);
+    expect(matchers[0].matcher).toBeUndefined();
+    expect(matchers[1].hooks).toEqual([callerHook]);
+    const hook = matchers[0].hooks[0];
+    const signal = new AbortController().signal;
+    // Before a verified init the hook denies, even though the mode auto-approves.
+    expect(await hook(toolHookInput, 'tool', { signal })).toMatchObject(denyHook);
+    f.paused.resolve();
+    await run;
+    // Admitted: no decision, so the caller's permission flow applies.
+    expect(await hook(toolHookInput, 'tool', { signal })).toEqual({});
+    await f.flow.dispose();
+    expect(await hook(toolHookInput, 'tool', { signal })).toMatchObject(denyHook);
+  });
+
+  it('holds a PreToolUse call after init until the binding commits, then gives no decision (F1)', async () => {
+    const f = fixture({ pause: 'metadata', finalOptions: { permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true } });
+    const run = f.run();
+    await f.entered.promise;
+    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
+    let decision: unknown;
+    const held = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal })
+      .then((value) => { decision = value; });
+    await flush();
+    expect(decision).toBeUndefined();
+    f.paused.resolve();
+    await run;
+    await held;
+    expect(decision).toEqual({});
+    await f.flow.dispose();
+  });
+
+  it('denies a held PreToolUse call when the run is aborted before admission (F1)', async () => {
+    const f = fixture({ pause: 'metadata', finalOptions: { permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true } });
+    const run = f.run();
+    await f.entered.promise;
+    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
+    const held = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal });
+    f.controller.abort();
+    expect(await held).toMatchObject(denyHook);
+    f.paused.resolve();
+    expect(await run.then(() => 'returned', () => 'refused')).toBe('refused');
+    expect(f.events).not.toContain('turn-2');
+  });
+
+  it('makes dispose terminal: a held tool is denied and a late identity success admits nothing (F2)', async () => {
+    const f = fixture({ pause: 'final-identity:2' });
+    const run = f.run().then(() => 'returned', () => 'refused');
+    await f.entered.promise;
+    const permission = f.options[1].canUseTool;
+    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
+    let decision: unknown;
+    let hookDecision: unknown;
+    const heldTool = permission?.('Read', {}, toolContext(new AbortController().signal))
+      .then((value) => { decision = value; });
+    const heldHook = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal })
+      .then((value) => { hookDecision = value; });
+    await flush();
+    expect(decision).toBeUndefined();
+    expect(hookDecision).toBeUndefined();
+    const disposing = f.flow.dispose();
+    await heldTool;
+    await heldHook;
+    expect(decision).toMatchObject({ behavior: 'deny' });
+    expect(hookDecision).toMatchObject(denyHook);
+    expect(f.controller.signal.aborted).toBe(true);
+    // The pending identity read now succeeds: nothing is admitted or returned.
+    f.paused.resolve();
+    expect(await run).toBe('refused');
+    await flush();
+    expect(f.events).not.toContain('turn-2');
+    expect(await permission?.('Read', {}, toolContext(new AbortController().signal)))
+      .toMatchObject({ behavior: 'deny' });
+    await disposing;
+  });
+
+  it('refuses when no init arrives before the deadline, with the first turn only and no binding', async () => {
+    const f = fixture({ initAfterFirstTurn: true, pause: 'init' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    await f.entered.promise;
+    await rejected;
+    expect(f.controller.signal.aborted).toBe(true);
+    expect(f.yielded()).toBe(1);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.saved()).toBeUndefined();
+    await expectNoAdmission(f);
+    f.paused.resolve();
+    await f.flow.dispose();
   });
 
   it('bootstraps with the certified env and executable, and no managed settings', async () => {
@@ -317,10 +510,12 @@ describe('named SDK bootstrap and final admission', () => {
     ['another CLI version', { claude_code_version: '9.9.9' }],
     ['an API key source', { apiKeySource: 'ANTHROPIC_API_KEY' }],
   ])('refuses an init message with %s before any binding', async (_name, initPatch) => {
-    const f = fixture({ initPatch });
+    const f = fixture({ initPatch, initAfterFirstTurn: true });
     await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(1);
+    expect(f.saved()).toBeUndefined();
+    await expectNoAdmission(f);
   });
 
   it('accepts an oauth init key source', async () => {
@@ -348,20 +543,22 @@ describe('named SDK bootstrap and final admission', () => {
   });
 
   it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
-    const f = fixture({ fail });
+    const f = fixture({ fail, initAfterFirstTurn: true });
     // A refused registry bind is a real conflict; any other failure is unproved.
     await expect(f.run()).rejects.toMatchObject({ code: fail === 'registry' ? 'conflict' : 'identity-unproved' });
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(AFTER_PROOF.has(fail) ? 1 : 0);
+    await expectNoAdmission(f);
     expect(f.saved()).toBeUndefined();
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(fail === 'admit' ? 0 : 1);
   });
 
   it.each(['lookup', 'admit', 'current', 'boundary', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
-    const f = fixture({ cancel });
+    const f = fixture({ cancel, initAfterFirstTurn: true });
     await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'identity-unproved' });
     await flush();
     await f.flow.dispose();
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(AFTER_PROOF.has(cancel) ? 1 : 0);
+    await expectNoAdmission(f);
     // A cancelled storage promise may finish, but can only persist bound metadata.
     if (f.saved()) expect(f.saved()).toEqual(binding);
     const settlements = jest.mocked(f.admission.releaseReservation).mock.calls.length +
@@ -472,7 +669,8 @@ describe('named SDK bootstrap and final admission', () => {
     await result;
     f.paused.resolve();
     await flush();
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(1);
+    await expectNoAdmission(f);
     expect(f.saved()).toEqual(binding);
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
   });
@@ -500,17 +698,24 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
   afterEach(() => jest.useRealTimers());
 
   it.each(['commit', 'attach', 'metadata', 'final-identity:2'])(
-    'keeps the prompt pending until %s completes', async pause => {
+    'keeps later turns and output pending until %s completes', async pause => {
       const f = fixture({ pause });
-      const pending = f.run();
+      let resolved = false;
+      const pending = f.run().then((query) => { resolved = true; return query; });
       await f.entered.promise;
       await flush();
-      expect(f.yielded()).toBe(0);
+      // The first turn was released after the identity proof (D69); nothing else.
+      expect(f.yielded()).toBe(1);
+      const later = f.iterators[1].next();
+      await flush();
+      expect(f.events).not.toContain('turn-2');
+      expect(resolved).toBe(false);
       expect(f.admission.releaseReservation).not.toHaveBeenCalled();
       f.paused.resolve();
       await pending;
       await flush();
       expect(await f.reads[1]).toEqual({ done: false, value: message });
+      expect(await later).toEqual({ done: false, value: followUp });
       expect(f.saved()).toEqual(binding);
       await f.flow.dispose();
     },
@@ -519,7 +724,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
   it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'final-identity',
     'init', 'commit', 'attach', 'metadata', 'current:3', 'final-identity:2'])(
     'ignores late %s completion after cancellation and settles once', async pause => {
-      const f = fixture({ pause });
+      const f = fixture({ pause, initAfterFirstTurn: true });
       const rejected = expect(f.run(pause === 'lookup' ? 'sdk-session-a' : undefined))
         .rejects.toMatchObject({ code: 'identity-unproved' });
       await f.entered.promise;
@@ -528,7 +733,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
       f.paused.resolve();
       await flush();
       await f.flow.dispose();
-      expect(f.yielded()).toBe(0);
+      expect(f.yielded()).toBe(AFTER_PROOF.has(pause) ? 1 : 0);
+      await expectNoAdmission(f);
       expect(f.admission.releaseReservation).toHaveBeenCalledTimes(pause === 'lookup' ? 0 : 1);
       expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
     },
@@ -539,7 +745,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
       const f = fixture({ changedAtFinalRead: 2, finalIdentity });
       await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
       expect(f.saved()).toEqual(binding);
-      expect(f.yielded()).toBe(0);
+      expect(f.yielded()).toBe(1);
+      await expectNoAdmission(f);
       expect(f.events.filter(event => event === 'final-identity')).toHaveLength(2);
     },
   );
@@ -556,7 +763,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
     await rejected;
     f.paused.resolve();
     await f.flow.dispose();
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(1);
+    await expectNoAdmission(f);
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
   });
 
@@ -569,7 +777,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
     await rejected;
     f.paused.resolve();
     await f.flow.dispose();
-    expect(f.yielded()).toBe(0);
+    expect(f.yielded()).toBe(1);
+    await expectNoAdmission(f);
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
   });

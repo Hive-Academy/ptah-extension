@@ -35,6 +35,7 @@ import {
   ClaudeCertifiedLaunchRefusal, assertCertifiedLaunch, claudePersonalLoginCheck, claudePersonalLoginPassed,
 } from '../claude-certified-launch';
 import { claudeIdentityReference } from '../claude-identity-reference';
+import { withNamedAccountToolGate } from '../named-account-prompt-gate';
 import type {
   ISdkPermissionHandler,
   AuthEnv,
@@ -621,22 +622,47 @@ function sameNamedIdentity(left: ProviderAccountIdentityEvidence, right: Provide
     ? left.ownerKey === right.ownerKey : left.kind === right.kind;
 }
 
-/** An empty gate that does not even pull caller-owned conversation until commit. */
+/**
+ * Holds caller-owned conversation. Nothing is pulled until `releaseFirst`,
+ * which hands over only the first caller turn: CLI 2.1.278 in streaming-input
+ * mode builds `system/init` after that turn (D68, D69). No later turn is pulled
+ * until `commit`, and each later turn passes `approve` first. The first turn
+ * skips `approve`: the same child proved the account right before the release.
+ */
 class NamedQueryGate {
+  private released = false;
   private open = false;
   private closed = false;
-  private wake!: () => void;
-  private readonly ready = new Promise<void>((resolve) => { this.wake = resolve; });
-  commit(): void { if (!this.closed) { this.open = true; this.wake(); } }
-  close(): void { this.closed = true; this.wake(); }
+  private wakeRelease!: () => void;
+  private wakeCommit!: () => void;
+  private readonly releasedFirst = new Promise<void>((resolve) => { this.wakeRelease = resolve; });
+  private readonly committed = new Promise<void>((resolve) => { this.wakeCommit = resolve; });
+  releaseFirst(): void { if (!this.closed) { this.released = true; this.wakeRelease(); } }
+  commit(): void {
+    if (this.closed) return;
+    this.released = true;
+    this.open = true;
+    this.wakeRelease();
+    this.wakeCommit();
+  }
+  close(): void { this.closed = true; this.wakeRelease(); this.wakeCommit(); }
   async *stream(source?: AsyncIterable<SDKUserMessage>, approve?: () => Promise<void>): AsyncIterable<SDKUserMessage> {
-    await this.ready;
-    if (!this.open || this.closed || !source) return;
+    await this.releasedFirst;
+    if (!this.released || this.closed || !source) return;
+    let first = true;
     for await (const message of source) {
       if (this.closed) return;
-      await approve?.();
-      if (this.closed) return;
+      if (!first) {
+        await approve?.();
+        if (this.closed) return;
+      }
       yield message;
+      if (first) {
+        first = false;
+        // Pull no later turn before the run is admitted.
+        await this.committed;
+        if (!this.open || this.closed) return;
+      }
     }
   }
 }
@@ -656,6 +682,11 @@ export class NamedAccountQueryAdmission {
   private readonly gates: NamedQueryGate[] = [];
   private stopEpoch?: () => void;
   private settlement?: Promise<void>;
+  /** Terminal: once set, no step admits the run, returns the query or delegates a tool. */
+  private disposed = false;
+  /** True once the admitted child ended on its own; dispose then leaves the session controller alone. */
+  private childEnded = false;
+  private settleAdmission?: (admitted: boolean) => void;
   private readonly onAbort = (): void => {
     for (const gate of this.gates) gate.close();
     this.closeChild();
@@ -691,7 +722,7 @@ export class NamedAccountQueryAdmission {
           timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
         }),
       ]);
-      if (this.abortController.signal.aborted) throw namedAccountRefusal();
+      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
       return value;
     } finally {
       clearTimeout(timer);
@@ -791,9 +822,16 @@ export class NamedAccountQueryAdmission {
     registerKey: string, metadata: Omit<SessionMetadata, 'sessionId'>): Promise<Query> {
     const gate = new NamedQueryGate();
     this.gates.push(gate);
-    let admitted = false;
-    const canUseTool = options.canUseTool;
+    // One admission check for `canUseTool` and the `PreToolUse` hook: a tool call
+    // is denied until `system/init` is verified. After that it waits for the
+    // admission outcome: allowed once the binding is committed, denied on any
+    // refusal, abort or dispose (the catch below and `dispose` settle it false).
+    let initVerified = false;
+    const admission = new Promise<boolean>((resolve) => { this.settleAdmission = resolve; });
+    const toolAdmitted = async (): Promise<boolean> => initVerified && (await admission) &&
+      !this.disposed && !this.abortController.signal.aborted;
     try {
+      if (this.disposed) throw namedAccountRefusal();
       if (this.abortController.signal.aborted) throw namedAccountRefusal();
       const launch = this.certifiedLaunch;
       if (!launch) throw namedAccountRefusal('identity-unproved');
@@ -801,11 +839,11 @@ export class NamedAccountQueryAdmission {
       this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(source, async () => {
         try { await this.verifyIdentity(); }
         catch (error: unknown) { await this.dispose(); throw namedAccountRefusal(namedRefusalCode(error)); }
-      }), { ...options, canUseTool: (tool, input, context) => admitted && !this.abortController.signal.aborted && canUseTool
-        ? canUseTool(tool, input, context)
-        : Promise.resolve({ behavior: 'deny', message: 'Account admission pending.' }) },
+      }), withNamedAccountToolGate(options, toolAdmitted),
         (termination) => { this.termination = termination; });
       await this.verifyIdentity();
+      // The same child proved the account: hand over the first caller turn only.
+      gate.releaseFirst();
       const query = this.child.sdkQuery;
       const buffered: SDKMessage[] = [];
       let sdkSessionId: string | undefined;
@@ -818,6 +856,7 @@ export class NamedAccountQueryAdmission {
           if (next.value.claude_code_version !== launch.executable.version ||
               !CERTIFIED_INIT_KEY_SOURCES.has(next.value.apiKeySource)) throw namedAccountRefusal('identity-unproved');
           sdkSessionId = next.value.session_id;
+          initVerified = true;
         }
         if (buffered.length > 64) throw namedAccountRefusal();
       }
@@ -839,9 +878,11 @@ export class NamedAccountQueryAdmission {
       if (attached.status !== 'attached') throw namedAccountRefusal('conflict');
       await this.wait(this.persistence.saveAccountBound({ ...metadata, sessionId: sdkSessionId }, binding));
       await this.verifyIdentity();
-      admitted = true;
+      // A dispose during the last read is terminal: never admit after it.
+      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
+      this.settleAdmission?.(true);
       gate.commit();
-      void this.child.terminated.then(() => this.dispose()).catch(() =>
+      void this.child.terminated.then(() => { this.childEnded = true; return this.dispose(); }).catch(() =>
         this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
       // Replay init exactly once to the normal transformer; it remains the owner
       // of stats/session-id callbacks. No control-stage message escapes on failure.
@@ -856,6 +897,7 @@ export class NamedAccountQueryAdmission {
         return typeof value === 'function' ? value.bind(target) : value;
       } });
     } catch (error: unknown) {
+      this.settleAdmission?.(false);
       await this.dispose();
       throw namedAccountRefusal(namedRefusalCode(error));
     }
@@ -874,11 +916,20 @@ export class NamedAccountQueryAdmission {
     catch { this.logger.warn('[SessionLifecycle] Named account child close was not confirmed.'); }
   }
 
+  /**
+   * Terminal, like the lane's dispose: marks the flow disposed, settles admission
+   * false (held and later tool calls are denied), aborts every pending admission
+   * await, then closes the gates and the child. The session controller is left
+   * alone only when the admitted child already ended on its own.
+   */
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.settleAdmission?.(false);
     for (const gate of this.gates) gate.close();
     this.closeChild();
     this.stopEpoch?.();
     this.abortController.signal.removeEventListener('abort', this.onAbort);
+    if (!this.childEnded) this.abortController.abort();
     if (!this.reservation) return;
     if (this.settlement) return this.settlement;
     const reservation = this.reservation;

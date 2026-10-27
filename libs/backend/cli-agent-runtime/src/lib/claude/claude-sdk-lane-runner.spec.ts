@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { EventEmitter } from 'events';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -18,6 +19,7 @@ import {
   certifiedEnvDigest,
   claudeIdentityReference,
   deriveWorkspaceLabel,
+  type HookInput,
   type Options,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
@@ -965,5 +967,290 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
     } as ClaudeAccountNamedRoute, launch: certifiedLaunch('D:/other-account') });
     expect(other.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/other-account');
     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+  });
+});
+
+describe('named lane final child init after the first turn (D68)', () => {
+  type QueryFn = ClaudeSdkLaneRunContext['queryFn'];
+  type Message = Record<string, unknown>;
+  const owner = {
+    tokenSource: 'claude.ai', subscriptionType: 'max', apiProvider: 'firstParty',
+    email: 'owner@example.test', organization: 'org',
+  };
+  const route = {
+    kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+  } as ClaudeAccountNamedRoute;
+  const sessionId = '99999999-2222-4333-8444-555555555555';
+  const init = (overrides: Message = {}): Message => ({
+    type: 'system', subtype: 'init', session_id: sessionId,
+    claude_code_version: '2.1.310', apiKeySource: 'none', ...overrides,
+  });
+  const spawnInput = {
+    command: 'claude', args: [], env: {}, signal: new AbortController().signal,
+  };
+
+  /**
+   * Models CLI 2.1.278 in streaming-input mode: the final child emits
+   * `system/init` only after it consumed the first user message.
+   */
+  function fixture(
+    setup: {
+      init?: Message | null;
+      deadlineMs?: number;
+      yolo?: boolean;
+      /** Holds the binding commit, or the final child's identity proof read. */
+      hold?: 'commit' | 'proof';
+    } = {},
+  ) {
+    const launch = certifiedLaunch();
+    const events: string[] = [];
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => (enter = resolve));
+    let identityReads = 0;
+    const controller = new AbortController();
+    const callerHook = jest.fn(async () => ({}));
+    const binding: ProviderAccountBinding = {
+      version: 1, provider: 'claude', profileId: 'profile', runId: 'run',
+      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+      identity: { kind: 'known', ownerKey: launch.identityReference },
+    };
+    const commitRunBinding = jest.fn(async () => {
+      if (setup.hold === 'commit') {
+        enter();
+        await released;
+      }
+      events.push('commit');
+      return binding;
+    });
+    const attachSdkSession = jest.fn(async () => {
+      events.push('attach');
+      return { status: 'attached' as const };
+    });
+    const persistence: ClaudeLaneAccountPersistence = {
+      available: true,
+      lookupBySdkSession: jest.fn(),
+      validateResume: async () => ({ code: 'ok' }),
+      persistReference: async () => undefined,
+      commitRunBinding,
+      attachSdkSession,
+      saveAccountBound: async () => undefined,
+      assertRouteCurrent: async () => undefined,
+      checkLaunchBoundary: async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true }),
+      onAuthEpochChanged: () => () => undefined,
+    };
+    const admissionPort: ProviderAccountAdmissionPort = {
+      admitClaudeRoute: jest.fn(),
+      releaseReservation: jest.fn(),
+      retainUnresolvedReservation: jest.fn(),
+    };
+    const processes: EventEmitter[] = [];
+    const spawner = {
+      spawn: jest.fn().mockImplementation(() => {
+        const child = new EventEmitter();
+        processes.push(child);
+        return child;
+      }),
+    };
+    const prompts: unknown[] = [];
+    const finalArgs: Parameters<QueryFn>[0][] = [];
+    const queryFn: QueryFn = jest.fn((args: Parameters<QueryFn>[0]) => {
+      const index = finalArgs.push(args) - 1;
+      args.options?.spawnClaudeCodeProcess?.(spawnInput);
+      const child = processes[processes.length - 1];
+      const final = index === 1;
+      const stream: Message[] = [];
+      let consumed = false;
+      const query = {
+        accountInfo: async () => {
+          // Read 1 is the bootstrap child; read 2 is the final child's proof.
+          if (setup.hold === 'proof' && ++identityReads === 2) {
+            enter();
+            await released;
+          } else if (setup.hold !== 'proof') identityReads++;
+          return owner;
+        },
+        close: (): void => {
+          child.emit('exit', 0);
+        },
+        next: async (): Promise<IteratorResult<Message>> => {
+          if (final && !consumed && typeof args.prompt !== 'string') {
+            consumed = true;
+            const first = await args.prompt[Symbol.asyncIterator]().next();
+            if (first.done) return { done: true, value: undefined };
+            prompts.push(first.value);
+            events.push('prompt');
+            if (setup.init !== null) stream.push(setup.init ?? init());
+            stream.push({ type: 'assistant', text: 'early output' });
+          }
+          const value = stream.shift();
+          if (value) return { done: false, value };
+          return new Promise<never>(() => undefined);
+        },
+      };
+      return query as ReturnType<QueryFn>;
+    });
+    const input = optionsInput();
+    input.accountRoute = route;
+    input.launch = launch;
+    input.resumeSessionId = undefined;
+    input.processSpawner = spawner;
+    if (setup.yolo) {
+      input.permissionHandler = permissionHandler('yolo');
+      input.assembly = {
+        ...input.assembly,
+        hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [callerHook] }] },
+      };
+    }
+    const finalOptions = buildClaudeSdkLaneOptions(input);
+    const bootstrapOptions = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), spawner,
+    );
+    const admission = new ClaudeNamedLaneAdmission(
+      route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
+      controller, { warn: jest.fn() }, undefined, setup.deadlineMs ?? 60_000,
+    );
+    const metadata = {
+      name: 'Reviewer', workspaceId: 'D:/workspace', workingDirectory: 'D:/workspace',
+      createdAt: 0, lastActiveAt: 0, totalCost: 0,
+      totalTokens: { input: 0, output: 0 }, isChildSession: true,
+    };
+    const run = async () => {
+      await admission.bootstrap(queryFn, bootstrapOptions);
+      return admission.launch(queryFn, finalOptions, metadata, { message: 'task' });
+    };
+    return {
+      admission, run, events, prompts, finalArgs, commitRunBinding, attachSdkSession,
+      entered, release, controller, callerHook,
+    };
+  }
+
+  const toolHookInput: HookInput = {
+    hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {},
+    tool_use_id: 'tool-1', session_id: sessionId, transcript_path: '', cwd: '',
+  };
+  const denyHook = {
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
+  };
+  const hookOf = (f: ReturnType<typeof fixture>) =>
+    f.finalArgs[1]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it('consumes no prompt while the same-child identity proof is pending', async () => {
+    const f = fixture({ hold: 'proof' });
+    const running = f.run();
+    await f.entered;
+    await settle();
+    expect(f.prompts).toHaveLength(0);
+    expect(f.events).not.toContain('prompt');
+    f.release();
+    await expect(running).resolves.toBeUndefined();
+    expect(f.prompts).toHaveLength(1);
+  });
+
+  it('denies a YOLO PreToolUse call before init is verified, ahead of caller hooks (F1)', async () => {
+    const f = fixture({ init: null, deadlineMs: 200, yolo: true });
+    const running = f.run();
+    await settle();
+    const options = f.finalArgs[1]?.options;
+    expect(options?.permissionMode).toBe('bypassPermissions');
+    const matchers = options?.hooks?.PreToolUse ?? [];
+    expect(matchers).toHaveLength(2);
+    expect(matchers[0].matcher).toBeUndefined();
+    expect(matchers[1].hooks).toEqual([f.callerHook]);
+    const signal = new AbortController().signal;
+    expect(await hookOf(f)?.(toolHookInput, 'tool-1', { signal })).toMatchObject(denyHook);
+    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
+  });
+
+  it('holds a YOLO PreToolUse call after init until the binding commits (F1)', async () => {
+    const f = fixture({ hold: 'commit', yolo: true });
+    const running = f.run();
+    await f.entered;
+    let decision: unknown;
+    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
+      signal: new AbortController().signal,
+    }).then((value) => (decision = value));
+    await settle();
+    expect(decision).toBeUndefined();
+    f.release();
+    await expect(running).resolves.toBeUndefined();
+    await held;
+    // Admitted: no decision, so the caller's permission flow applies.
+    expect(decision).toEqual({});
+    await f.admission.dispose();
+    expect(
+      await hookOf(f)?.(toolHookInput, 'tool-1', { signal: new AbortController().signal }),
+    ).toMatchObject(denyHook);
+  });
+
+  it('denies a held YOLO PreToolUse call when the run is aborted before admission (F1)', async () => {
+    const f = fixture({ hold: 'commit', yolo: true });
+    const running = f.run();
+    await f.entered;
+    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
+      signal: new AbortController().signal,
+    });
+    f.controller.abort();
+    expect(await held).toMatchObject(denyHook);
+    f.release();
+    await expect(running).rejects.toBeDefined();
+    expect(f.attachSdkSession).not.toHaveBeenCalled();
+  });
+
+  it('releases the first turn after the identity proof and passes on init', async () => {
+    const f = fixture();
+    await expect(f.run()).resolves.toBeUndefined();
+    expect(f.prompts).toEqual([
+      expect.objectContaining({ type: 'user', message: { role: 'user', content: 'task' } }),
+    ]);
+    // The binding is committed only after the init that followed the prompt.
+    expect(f.events).toEqual(['prompt', 'commit', 'attach']);
+    // Buffered messages replay to the caller in order, init first.
+    const query = f.admission.query;
+    expect(await query?.next()).toEqual({ done: false, value: init() });
+    expect(await query?.next()).toEqual({
+      done: false, value: { type: 'assistant', text: 'early output' },
+    });
+  });
+
+  it.each<[string, Message]>([
+    ['a different CLI version', init({ claude_code_version: '2.1.278' })],
+    ['a non-personal key source', init({ apiKeySource: 'user' })],
+  ])('refuses %s and forwards nothing', async (_label, message) => {
+    const f = fixture({ init: message });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.admission.query).toBeUndefined();
+  });
+
+  it('refuses when no init arrives before the deadline', async () => {
+    const f = fixture({ init: null, deadlineMs: 50 });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.launchDiagnostic).toMatchObject({
+      phase: 'final', step: 'init-wait', interrupt: 'deadline',
+    });
+    expect(f.prompts).toHaveLength(1);
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.admission.query).toBeUndefined();
+  });
+
+  it('denies a tool call before init is verified', async () => {
+    const f = fixture({ init: null, deadlineMs: 200 });
+    const running = f.run();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const canUseTool = f.finalArgs[1]?.options?.canUseTool;
+    expect(canUseTool).toBeDefined();
+    const context = {
+      signal: new AbortController().signal, toolUseID: 'tool-1', requestId: 'request',
+    };
+    await expect(canUseTool?.('Read', {}, context)).resolves.toEqual({
+      behavior: 'deny', message: 'Account admission pending.',
+    });
+    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
   });
 });

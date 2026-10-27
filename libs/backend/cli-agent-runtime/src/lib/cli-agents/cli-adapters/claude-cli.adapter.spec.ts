@@ -486,6 +486,13 @@ function namedFixture() {
   const initVersion = { value: launch.executable.version };
   // Init `apiKeySource`; `undefined` models a child that omits the field.
   const initKeySource: { value: string | undefined } = { value: 'none' };
+  // CLI 2.1.278 streaming input (D68): the final child emits `system/init`
+  // only after it consumed the first user message.
+  const initAfterFirstTurn = { value: false };
+  // Turns the final child consumed before init, and the permission answers
+  // it got for a tool call made in that window.
+  const turnsBeforeInit = jest.fn();
+  const permissionsBeforeInit: Array<Promise<unknown> | undefined> = [];
   const route = {
     kind: 'named',
     provider: 'claude',
@@ -619,7 +626,24 @@ function namedFixture() {
       organization: 'org',
     }));
     const close = jest.fn(() => process.emit('exit', 0, null));
+    const final = children.length > 0;
+    const canUseTool = options.canUseTool;
     const stream = (async function* () {
+      if (final && initAfterFirstTurn.value) {
+        const turn = await prompt[Symbol.asyncIterator]().next();
+        turnsBeforeInit(turn.value);
+        permissionsBeforeInit.push(
+          canUseTool?.(
+            'fixture',
+            {},
+            {
+              signal: new AbortController().signal,
+              toolUseID: 'pre-init-tool',
+              requestId: 'pre-init-request',
+            },
+          ),
+        );
+      }
       yield {
         type: 'system',
         subtype: 'init',
@@ -656,6 +680,9 @@ function namedFixture() {
     launch,
     initVersion,
     initKeySource,
+    initAfterFirstTurn,
+    turnsBeforeInit,
+    permissionsBeforeInit,
   };
 }
 
@@ -701,6 +728,7 @@ describe('named Claude lane admission', () => {
 
   it('bootstraps without task options and awaits both stores and the receipt callback on a fresh final gate', async () => {
     const f = namedFixture();
+    f.initAfterFirstTurn.value = true;
     let release!: () => void;
     let reached!: () => void;
     const checkpoint = new Promise<void>((resolve) => {
@@ -736,32 +764,46 @@ describe('named Claude lane admission', () => {
     expect(f.persistence.attachSdkSession).toHaveBeenCalledTimes(1);
     expect(f.persistence.saveAccountBound).toHaveBeenCalledTimes(1);
     expect(f.persistence.persistReference).toHaveBeenCalledTimes(1);
-    const yielded = jest.fn();
-    const first = f.children[1].prompt[Symbol.asyncIterator]()
-      .next()
-      .then((value) => {
-        yielded(value);
-        return value;
-      });
-    await Promise.resolve();
-    expect(yielded).not.toHaveBeenCalled();
-    const permission = f.query.mock.calls[1][0].options?.canUseTool;
-    expect(
-      await permission?.(
-        'fixture',
-        {},
-        {
-          signal: new AbortController().signal,
-          toolUseID: 'tool',
-          requestId: 'request',
-        },
-      ),
-    ).toMatchObject({ behavior: 'deny' });
-    release();
-    const handle = await run;
-    expect((await first).value).toMatchObject({
+    // D68: the final child consumed the task (released right after it proved
+    // the account) before it emitted init; the binding followed init.
+    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
+    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
       message: { content: f.input.task },
     });
+    const consumed = f.turnsBeforeInit.mock.invocationCallOrder[0];
+    expect(f.children[1].accountInfo.mock.invocationCallOrder[0]).toBeLessThan(
+      consumed,
+    );
+    expect(
+      f.persistence.commitRunBinding.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(consumed);
+    // A tool call before init is denied; no output reaches the runner yet.
+    expect(f.permissionsBeforeInit).toHaveLength(1);
+    expect(await f.permissionsBeforeInit[0]).toMatchObject({
+      behavior: 'deny',
+    });
+    expect(f.run).not.toHaveBeenCalled();
+    // After init, a tool call waits for the binding instead of running.
+    const permission = f.query.mock.calls[1][0].options?.canUseTool;
+    const settled = jest.fn();
+    const held = permission?.(
+      'fixture',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool',
+        requestId: 'request',
+      },
+    );
+    void held?.then(settled);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).not.toHaveBeenCalled();
+    release();
+    const handle = await run;
+    await held;
+    expect(settled).toHaveBeenCalledTimes(1);
+    // The task travelled once, with the launch; nothing else is queued.
+    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
     expect(handle.accountBinding).toEqual(f.binding);
     expect(handle.accountBindingId).toBe('run');
     expect(f.callbacks).toHaveBeenCalledWith(
@@ -845,15 +887,21 @@ describe('named Claude lane admission', () => {
 
   it('revalidates queued input at consumption and retains an uncertain child exit', async () => {
     const f = namedFixture();
+    f.initAfterFirstTurn.value = true;
     const handle = await f.adapter.runSdk(f.input);
+    // The first turn travelled with the launch, before init (D68).
+    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
+      message: { content: f.input.task },
+    });
     f.children[1].close.mockImplementation(() =>
       f.children[1].process.emit('exit', null, 'SIGKILL'),
     );
     await handle.continue?.('queued');
     f.children[1].accountInfo.mockResolvedValue({
       ...personalLogin,
-        email: 'other@example.test',
+      email: 'other@example.test',
     });
+    // The queued turn is the next one consumed, and it is revalidated.
     await expect(
       f.children[1].prompt[Symbol.asyncIterator]().next(),
     ).rejects.toMatchObject({ code: 'identity-unproved' });

@@ -6,6 +6,7 @@ import {
   claudePersonalLoginCheck,
   claudePersonalLoginPassed,
   createNamedAccountPromptGate,
+  withNamedAccountToolGate,
 } from '@ptah-extension/agent-sdk';
 import type {
   ClaudePersonalLoginCheck,
@@ -386,6 +387,7 @@ export type ClaudeLaneLaunchStep =
   | 'identity-compare'
   | 'stored-identity'
   | 'close'
+  | 'released'
   | 'init-wait'
   | 'init-version'
   | 'init-key-source'
@@ -463,6 +465,8 @@ export class ClaudeNamedLaneAdmission {
   private settlement?: Promise<void>;
   private stopEpoch?: () => void;
   private released = false;
+  /** The first turn `launch` released before init (D68), until consumed. */
+  private releasedTurn?: SDKUserMessage;
   private disposed = false;
   /**
    * True while a boundary check is pending or after one refused without
@@ -714,12 +718,15 @@ export class ClaudeNamedLaneAdmission {
   private async *admittedTurns(
     turns: ReturnType<typeof createNamedAccountPromptGate>['prompt'],
   ): AsyncGenerator<SDKUserMessage> {
-    let initial = true;
     for await (const message of turns) {
       try {
-        await this.validateTurn(!initial);
+        // Only the exact turn `launch` released right after the same child
+        // proved the account skips re-validation (no binding exists yet).
+        // Keyed on the message, not on the iterator, so a fresh iterator
+        // cannot skip validation for a later queued turn.
+        if (message === this.releasedTurn) this.releasedTurn = undefined;
+        else await this.validateTurn();
         this.assertOpen();
-        initial = false;
         yield message;
       } catch (error: unknown) {
         await this.dispose();
@@ -732,6 +739,7 @@ export class ClaudeNamedLaneAdmission {
     queryFn: LaneQueryFunction,
     options: Options,
     metadata: Omit<SessionMetadata, 'sessionId'>,
+    firstTurn: { readonly message: string; readonly sessionId?: string },
     onBinding?: (
       reference: LaneAccountReference,
       sdkSessionId: string,
@@ -743,23 +751,40 @@ export class ClaudeNamedLaneAdmission {
     const prompt: AsyncIterable<SDKUserMessage> = {
       [Symbol.asyncIterator]: () => this.admittedTurns(gate.prompt),
     };
-    const canUseTool = options.canUseTool;
-    this.step = 'open';
-    const child = this.open(queryFn, prompt, {
-      ...options,
-      canUseTool: (tool, input, context) =>
-        this.released &&
-        !this.disposed &&
-        !this.abort.signal.aborted &&
-        canUseTool
-          ? canUseTool(tool, input, context)
-          : Promise.resolve({
-              behavior: 'deny',
-              message: 'Account admission pending.',
-            }),
+    // Settles when the run is released or stopped (dispose aborts).
+    let settleLaunch!: () => void;
+    const launched = new Promise<void>((resolve) => {
+      settleLaunch = resolve;
+      this.abort.signal.addEventListener('abort', () => resolve(), {
+        once: true,
+      });
     });
+    let initVerified = false;
+    this.step = 'open';
+    // One admission check for `canUseTool` and the `PreToolUse` hook: denied
+    // before a verified init; after it, held until the binding; denied on
+    // refusal, abort or dispose (each settles `launched` via the abort).
+    const toolAdmitted = async (): Promise<boolean> => {
+      if (initVerified && !this.released) await launched;
+      return this.released && !this.disposed && !this.abort.signal.aborted;
+    };
+    const child = this.open(
+      queryFn,
+      prompt,
+      withNamedAccountToolGate(options, toolAdmitted),
+    );
     if (!this.sameIdentity(await this.readIdentity()))
       throw claudeLaneRefusal('identity-unproved');
+    // CLI 2.1.278 builds `system/init` in its turn loop, after it picks up a
+    // user message (D68): release the first turn now; nothing is forwarded
+    // and no tool runs until init is verified below.
+    this.step = 'released';
+    this.releasedTurn = this.userTurn(firstTurn.message, firstTurn.sessionId);
+    if (
+      !gate.push(this.releasedTurn) ||
+      !gate.commit()
+    )
+      throw claudeLaneRefusal();
     const version = this.certifiedLaunch().executable.version;
     const buffered: Awaited<ReturnType<typeof child.query.next>>[] = [];
     let sessionId: string | undefined;
@@ -770,7 +795,8 @@ export class ClaudeNamedLaneAdmission {
       buffered.push(next);
       if (next.value.type === 'system' && next.value.subtype === 'init') {
         // The running CLI must be the certified version and must report a
-        // personal key source (independent of account info), before any task text.
+        // personal key source (independent of account info), before any output
+        // is forwarded, any tool runs or the binding is committed.
         this.step = 'init-version';
         if (next.value.claude_code_version !== version)
           throw claudeLaneRefusal('identity-unproved');
@@ -783,6 +809,7 @@ export class ClaudeNamedLaneAdmission {
     this.step = 'resume';
     if (options.resume && options.resume !== sessionId)
       throw claudeLaneRefusal('conflict');
+    initVerified = true;
     if (!this.identity) throw claudeLaneRefusal();
     this.step = 'commit-binding';
     const binding =
@@ -841,6 +868,7 @@ export class ClaudeNamedLaneAdmission {
       throw claudeLaneRefusal();
     this.assertOpen();
     this.released = true;
+    settleLaunch();
     this.phase = 'turn';
     const next = () =>
       buffered.length ? Promise.resolve(buffered.shift()!) : child.query.next();
@@ -867,24 +895,25 @@ export class ClaudeNamedLaneAdmission {
     this.assertOpen();
   }
 
-  async enqueue(
-    message: string,
-    sessionId?: string,
-    initial = false,
-  ): Promise<void> {
+  private userTurn(message: string, sessionId?: string): SDKUserMessage {
+    return {
+      type: 'user',
+      uuid: randomUUID() as SDKUserMessage['uuid'],
+      message: { role: 'user', content: message },
+      parent_tool_use_id: null,
+      ...(sessionId ? { session_id: sessionId } : {}),
+    };
+  }
+
+  /** A later turn; the first turn is released by `launch`. */
+  async enqueue(message: string, sessionId?: string): Promise<void> {
     try {
-      await this.validateTurn(!initial);
+      await this.validateTurn();
       this.step = 'gate';
       const gate = this.gates[this.gates.length - 1];
       if (
         !this.released ||
-        !gate.push({
-          type: 'user',
-          uuid: randomUUID() as SDKUserMessage['uuid'],
-          message: { role: 'user', content: message },
-          parent_tool_use_id: null,
-          ...(sessionId ? { session_id: sessionId } : {}),
-        }) ||
+        !gate.push(this.userTurn(message, sessionId)) ||
         !gate.commit()
       )
         throw claudeLaneRefusal();
