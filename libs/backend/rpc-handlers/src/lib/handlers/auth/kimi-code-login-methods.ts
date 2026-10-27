@@ -27,7 +27,7 @@ export interface KimiCodeLoginMethodsDeps {
   readonly logger: Logger;
   readonly rpcHandler: RpcHandler;
   readonly sentryService: SentryService;
-  readonly sdkAdapter: Pick<SdkAgentAdapter, 'reset'>;
+  readonly sdkAdapter: Pick<SdkAgentAdapter, 'reset' | 'getHealth'>;
   readonly activeProviderResolver: Pick<ActiveProviderResolver, 'resolveActiveAuth'>;
   readonly kimiCodeAuth: Pick<IKimiCodeAuthService, 'clearCache'>;
   readonly kimiCodeLogin: IKimiCodeLoginService;
@@ -99,16 +99,18 @@ export class KimiCodeLoginMethods {
 
   /**
    * A new CLI login changes which credential serves Kimi Code: drop the
-   * cached read and the status payload. Re-initialize the adapter (it may have
-   * failed to configure while signed out) only when Kimi Code is the active
-   * provider: a reset disposes every session, also those of other providers.
+   * cached read and the status payload. Re-initialize the adapter only when
+   * Kimi Code is the active provider AND the adapter is not available (it may
+   * have failed to configure while signed out): a reset disposes every session,
+   * and a healthy adapter reads the new login per request through the proxy.
    */
   private async applySignedIn(): Promise<void> {
     this.deps.kimiCodeAuth.clearCache();
     this.deps.invalidateAuthStatusCache();
     if (
       this.deps.activeProviderResolver.resolveActiveAuth().providerId !==
-      KIMI_CODE_PROVIDER_ENTRY.id
+        KIMI_CODE_PROVIDER_ENTRY.id ||
+      this.deps.sdkAdapter.getHealth().status === 'available'
     ) {
       return;
     }
