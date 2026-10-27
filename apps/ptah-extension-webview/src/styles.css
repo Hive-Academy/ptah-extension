@@ -3557,6 +3557,49 @@ END OF ANUBIS DESIGN SYSTEM
   }
 }
 
+/* Active composer: while focus is anywhere in the main chat composer, the
+   whole card takes the selected-session frame (below) instead of a ring on
+   the textarea alone: the theme primary (gold in ptah-glass), info in plan
+   mode. Solid themes and the contrast / transparency fallbacks keep a solid
+   1px frame; glass gets the tinted glow on an overlay, so the card keeps its
+   own rim and elevation shadows. Forced colours keep the textarea's own
+   focus outline. */
+.chat-composer-card {
+  --composer-focus-ink: oklch(var(--p));
+}
+.chat-composer-card.chat-composer-card--plan {
+  --composer-focus-ink: oklch(var(--in));
+}
+:root:not([data-glass='on']) .chat-composer-card:focus-within {
+  border-color: var(--composer-focus-ink);
+  box-shadow: inset 0 0 0 1px var(--composer-focus-ink), inset 0 1px 0 var(--surface-highlight), var(--elev-shadow);
+}
+@media (forced-colors: none) {
+  :root[data-glass='on'] .chat-composer-card textarea:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root[data-glass='on'] .chat-composer-card:focus-within {
+    outline: 1px solid var(--composer-focus-ink);
+    outline-offset: -1px;
+  }
+}
+@media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+  :root[data-theme][data-glass='on'] .chat-composer-card:focus-within::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklch, var(--composer-focus-ink) var(--glass-glow-ring), transparent),
+      inset 0 0 var(--glass-glow-blur) 0 color-mix(in oklch, var(--composer-focus-ink) var(--glass-glow-halo), transparent);
+  }
+}
+
 /* Selection and status: a tinted glow in place of a solid frame (glass on,
    any theme). The ring is a low-alpha 1px contact edge, the halo a blurred
    shadow of the same ink; strength comes from section 9 (--glass-glow-*,

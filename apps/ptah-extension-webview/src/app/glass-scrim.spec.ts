@@ -29,6 +29,15 @@ describe('composer visual regressions', () => {
     expect(badge).toContain('color: inherit;');
   });
 
+  it('frames the whole composer card in the selected-session ink while focused', () => {
+    expect(block(/\.chat-composer-card\.chat-composer-card--plan/)).toContain('--composer-focus-ink: oklch(var(--in));');
+    expect(block(/:root:not\(\[data-glass='on'\]\) \.chat-composer-card:focus-within/)).toContain('inset 0 0 0 1px var(--composer-focus-ink)');
+    expect(block(/:root\[data-glass='on'\] \.chat-composer-card textarea:focus-visible/)).toContain('outline: none;');
+    const glow = block(/:root\[data-theme\]\[data-glass='on'\] \.chat-composer-card:focus-within::before/);
+    expect(glow).toContain('var(--glass-glow-halo)');
+    expect(glow).toContain('pointer-events: none;');
+  });
+
   it.each(['anubis', 'ptah-glass', 'ptah-glass-light'])('keeps the %s selection palette above 4.5:1', (theme) => {
     const config = source('apps/ptah-extension-webview/tailwind.config.js');
     const palette = new RegExp(`["']?${theme}["']?:\\s*\\{([^}]+)`).exec(config)?.[1] ?? '';

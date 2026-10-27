@@ -656,7 +656,13 @@ describe('ChatInputComponent', () => {
       mockAutopilotState.permissionLevel.set('plan');
       const classes = component.cardClasses();
       expect(classes).toContain('border-info/50');
+      expect(classes).toContain('chat-composer-card--plan');
       expect(classes).not.toContain('border-primary');
+    });
+
+    it('marks the card, not the status line, as the focus frame', () => {
+      expect(component.cardClasses()).toContain('chat-composer-card');
+      expect(component.cardClasses()).not.toContain('chat-composer-card--plan');
     });
 
     it('tints info when agent plan mode is on', () => {

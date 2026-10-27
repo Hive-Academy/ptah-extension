@@ -860,12 +860,12 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * neutral hairline that strengthens on focus-within.
    */
   readonly cardClasses = computed(() => {
-    const base = `chat-composer-column ${COMPOSER_CARD_CLASS}`;
+    const base = `chat-composer-column chat-composer-card ${COMPOSER_CARD_CLASS}`;
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
     ) {
-      return `${base} border-info/50 focus-within:border-info/70`;
+      return `${base} chat-composer-card--plan border-info/50 focus-within:border-info/70`;
     }
     if (this.autopilotState.enabled()) {
       return `${base} border-primary/40 focus-within:border-primary/60`;
