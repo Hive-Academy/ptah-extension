@@ -18,7 +18,7 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
-  it('renders agent selection, source, preview, model, checkpoint and countdown through the real sidebar', () => {
+  it('renders agent selection, source, preview, model, checkpoint and countdown through the real sidebar', async () => {
     const params = convertToParamMap({
       tabId: 'agent',
       workflow: 'setup-agent-generation',
@@ -122,6 +122,11 @@ describe('GenerationWorkflowShellComponent', () => {
     });
     const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
     fixture.detectChanges();
+    // The selection list and next steps load through @defer (on immediate).
+    // whenStable() never settles here (the countdown interval), so let the
+    // deferred imports resolve on a macrotask and render again.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('ptah-generation-agent-sidebar')).not.toBeNull();
     expect(root.textContent).toContain('Select agents');
@@ -149,6 +154,8 @@ describe('GenerationWorkflowShellComponent', () => {
       workspacePath: '/ws',
       guidanceStartDeadline: Date.now() + 5000,
     });
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     fixture.detectChanges();
     expect(root.textContent).toContain('Next steps');
     expect(root.textContent).toMatch(
@@ -298,7 +305,12 @@ describe('GenerationWorkflowShellComponent', () => {
   beforeEach(() =>
     TestBed.configureTestingModule({
       providers: [
-        { provide: SurfaceRouterService, useValue: { navigateToSurface } },
+        {
+          provide: SurfaceRouterService,
+          // currentSurface feeds AppStateManager's root effect, which runs once
+          // whenStable() lets the deferred sidebar blocks load.
+          useValue: { navigateToSurface, currentSurface: signal('chat') },
+        },
       ],
     }),
   );
