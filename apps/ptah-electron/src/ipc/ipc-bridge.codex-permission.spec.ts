@@ -20,6 +20,11 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { IpcBridge } from './ipc-bridge';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const TRUSTED_DOCUMENT = path.resolve('/app/renderer/index.html');
+const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENT).href };
 
 describe('IpcBridge Codex permission ownership', () => {
   let bridge: IpcBridge;
@@ -41,13 +46,25 @@ describe('IpcBridge Codex permission ownership', () => {
       });
     }
     child.registerInstance(Symbol.for('SdkPermissionHandler'), { handleResponse });
-    bridge = new IpcBridge(child, () => null);
+    bridge = new IpcBridge(
+      child,
+      () => ({ webContents: { id: 1, send: jest.fn() } }),
+      [TRUSTED_DOCUMENT],
+    );
     bridge.initialize();
     const rpc = ipcMainListeners.get('rpc');
     if (!rpc) throw new Error('RPC listener was not installed');
     const send = async (response: unknown, field = 'payload') => {
       await rpc(
-        { sender: { isDestroyed: () => false, send: jest.fn() } },
+        {
+          sender: {
+            id: 1,
+            mainFrame: MAIN_FRAME,
+            isDestroyed: () => false,
+            send: jest.fn(),
+          },
+          senderFrame: MAIN_FRAME,
+        },
         { type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE, [field]: response },
       );
       await new Promise((resolve) => setImmediate(resolve));
