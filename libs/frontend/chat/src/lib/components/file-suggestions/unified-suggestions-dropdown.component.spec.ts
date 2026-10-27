@@ -33,6 +33,30 @@ function fileSuggestion(path: string, name: string): SuggestionItem {
   };
 }
 
+function commandSuggestion(name: string): SuggestionItem {
+  return {
+    type: 'command',
+    name,
+    description: 'Orchestrate tasks',
+    scope: 'builtin',
+    icon: File,
+  };
+}
+
+function promptSuggestion(
+  label: string,
+  category: string,
+  text = `/orchestrate ${label}`,
+): SuggestionItem {
+  return {
+    type: 'prompt',
+    label,
+    text,
+    description: 'Plan, implement, review',
+    category,
+  };
+}
+
 @Component({
   standalone: true,
   imports: [UnifiedSuggestionsDropdownComponent],
@@ -41,6 +65,7 @@ function fileSuggestion(path: string, name: string): SuggestionItem {
     <ptah-unified-suggestions-dropdown
       [overlayOrigin]="overlayOrigin"
       [suggestions]="suggestions()"
+      (suggestionSelected)="onSelected($event)"
     />
   `,
 })
@@ -57,6 +82,11 @@ class HostComponent {
     fileSuggestion('/workspace/c.ts', 'c.ts'),
     fileSuggestion('/workspace/d.ts', 'd.ts'),
   ]);
+  readonly selectedItems: SuggestionItem[] = [];
+
+  onSelected(item: SuggestionItem): void {
+    this.selectedItems.push(item);
+  }
 }
 
 describe('UnifiedSuggestionsDropdownComponent', () => {
@@ -82,6 +112,16 @@ describe('UnifiedSuggestionsDropdownComponent', () => {
     fixture.detectChanges();
   });
 
+  it('gives file, command and prompt suggestions a dense overlay surface', () => {
+    for (const suggestion of [fileSuggestion('/a.ts', 'a.ts'), commandSuggestion('help'), promptSuggestion('Plan', 'Planning')]) {
+      host.suggestions.set([suggestion]);
+      fixture.detectChanges();
+      const panel = (fixture.nativeElement as HTMLElement).querySelector('[role="listbox"]');
+      expect(panel?.getAttribute('data-glass-surface')).toBe('overlay');
+      expect(panel?.hasAttribute('data-composer-overlay')).toBe(true);
+    }
+  });
+
   it('resets the active row to the first match when typing narrows the suggestions', () => {
     host.dropdown.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     host.dropdown.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
@@ -94,5 +134,52 @@ describe('UnifiedSuggestionsDropdownComponent', () => {
     fixture.detectChanges();
 
     expect(host.dropdown.activeIndex()).toBe(0);
+  });
+
+  describe('prompt suggestions (TASK_2026_721 B8c2)', () => {
+    it('renders prompts after commands with a divider and category badge', () => {
+      host.suggestions.set([
+        commandSuggestion('orchestrate'),
+        promptSuggestion('Orchestrate a feature', 'Build'),
+        promptSuggestion('Security vulnerability scan', 'Review'),
+      ]);
+      fixture.detectChanges();
+
+      const panel = fixture.nativeElement as HTMLElement;
+      const options = Array.from(
+        panel.querySelectorAll<HTMLElement>('ptah-suggestion-option'),
+      );
+      expect(options.length).toBe(3);
+      expect(options[0]?.textContent).toContain('orchestrate');
+      expect(options[1]?.textContent).toContain('Orchestrate a feature');
+      expect(options[1]?.textContent).toContain('Prompt · Build');
+      expect(options[2]?.textContent).toContain('Prompt · Review');
+
+      const dividers = Array.from(
+        panel.querySelectorAll('[role="presentation"]'),
+      );
+      expect(dividers.length).toBe(1);
+      expect(dividers[0]?.textContent).toContain('Prompts');
+      expect(panel.textContent).toContain('Commands & Prompts');
+    });
+
+    it('emits the prompt item when Enter selects the active prompt row', () => {
+      host.suggestions.set([
+        commandSuggestion('orchestrate'),
+        promptSuggestion('Security vulnerability scan', 'Review'),
+      ]);
+      fixture.detectChanges();
+
+      host.dropdown.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'ArrowDown' }),
+      );
+      expect(host.dropdown.activeIndex()).toBe(1);
+
+      host.dropdown.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(host.selectedItems).toEqual([
+        promptSuggestion('Security vulnerability scan', 'Review'),
+      ]);
+    });
   });
 });

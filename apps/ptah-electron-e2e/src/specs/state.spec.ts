@@ -43,6 +43,10 @@ test.describe('webview state IPC', () => {
     mainWindow,
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
+    // `set-state` replaces the whole state object. On a fresh app the renderer
+    // writes its first route state (`ptahRoute`) after DOMContentLoaded, and if
+    // that lands after our write it erases the marker. Wait for it first.
+    await expect.poll(() => stateJson(rpcBridge)).toContain('ptahRoute');
     const marker = `e2e-${Date.now()}`;
     await rpcBridge.setState({ 'chat.lastSession': marker });
 
@@ -127,7 +131,10 @@ test.describe('webview state IPC', () => {
         };
         ipcMain.emit(
           'set-state',
-          { sender: win?.webContents } as Electron.IpcMainEvent,
+          {
+            sender: win?.webContents,
+            senderFrame: win?.webContents.mainFrame,
+          } as Electron.IpcMainEvent,
           naughty,
         );
         return { threw: false };

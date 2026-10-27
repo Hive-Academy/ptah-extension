@@ -20,6 +20,7 @@ function makeWindow() {
   return {
     isDestroyed: jest.fn(() => false),
     webContents: {
+      id: 42,
       send: jest.fn<void, [string, ...unknown[]]>(),
       isDestroyed: jest.fn(() => false),
     },
@@ -46,6 +47,7 @@ describe('IpcBridge with the production main-window getter', () => {
     const bridge = new IpcBridge(
       makeContainer(),
       createMainWindowHandleGetter(() => win),
+      [],
     );
 
     expect(bridge.hasLiveRenderer()).toBe(true);
@@ -59,7 +61,7 @@ describe('IpcBridge with the production main-window getter', () => {
   it('drops a still-referenced window once the native window is destroyed', () => {
     const win = makeWindow();
     const getWindow = createMainWindowHandleGetter(() => win);
-    const bridge = new IpcBridge(makeContainer(), getWindow);
+    const bridge = new IpcBridge(makeContainer(), getWindow, []);
     const adapter = new ElectronWebviewManagerAdapter(bridge);
 
     expect(bridge.hasLiveRenderer()).toBe(true);
@@ -83,6 +85,7 @@ describe('IpcBridge with the production main-window getter', () => {
     const bridge = new IpcBridge(
       makeContainer(),
       createMainWindowHandleGetter(() => win),
+      [],
     );
 
     expect(bridge.hasLiveRenderer()).toBe(true);
@@ -102,6 +105,7 @@ describe('IpcBridge with the production main-window getter', () => {
     const bridge = new IpcBridge(
       makeContainer(),
       createMainWindowHandleGetter(() => null),
+      [],
     );
 
     expect(bridge.hasLiveRenderer()).toBe(false);
@@ -109,6 +113,12 @@ describe('IpcBridge with the production main-window getter', () => {
       [],
     );
     expect(bridge.sendToRenderer(message)).toBe(false);
+  });
+
+  it('exposes the native webContents id for the IPC sender guard', () => {
+    const win = makeWindow();
+
+    expect(createMainWindowHandleGetter(() => win)()?.webContents.id).toBe(42);
   });
 
   it('keeps an already-created handle aware of native window destruction', () => {

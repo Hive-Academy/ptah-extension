@@ -23,7 +23,9 @@ describe('Electron workspace state readiness gate', () => {
 
     expect(shellLoad).toBeGreaterThanOrEqual(0);
     expect(bootstrap).toBeGreaterThan(shellLoad);
-    expect(shellSource).toContain("default-src 'none'");
+    expect(shellSource).toContain(
+      "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'",
+    );
     expect(shellSource).not.toContain('<script>');
   });
 

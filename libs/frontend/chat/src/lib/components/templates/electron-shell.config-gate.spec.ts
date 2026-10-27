@@ -64,6 +64,8 @@ describe('ElectronShellComponent configuration gate', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
   const layoutStub = {
     hasWorkspaceFolders: signal(false),
+    workspaceResolved: signal(true),
+    pendingWorkspaceName: signal<string | null>(null),
     workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: signal(240),
     editorPanelVisible: signal(false),
@@ -116,6 +118,14 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toHaveLength(1);
     expect(shell().querySelector('ptah-app-shell')).toBeNull();
     expect(shell().querySelector('ptah-electron-welcome')).toBeNull();
+  }
+
+  /** The welcome sits in `@defer (on immediate)`: let the block resolve. */
+  async function renderedWelcome(): Promise<Element | null> {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return shell().querySelector('ptah-electron-welcome');
   }
 
   const closedTabSessionEnderFactory = jest.fn(() => ({}));
@@ -171,8 +181,11 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(closedTabSessionEnderFactory).toHaveBeenCalledTimes(1);
   });
 
-  it('shows only welcome content without a workspace or configuration surface', () => {
-    expect(shell().querySelector('ptah-electron-welcome')).not.toBeNull();
+  it('shows only welcome content without a workspace or configuration surface', async () => {
+    expect(await renderedWelcome()).not.toBeNull();
+    expect(
+      shell().querySelector('[data-testid="electron-welcome-placeholder"]'),
+    ).toBeNull();
     expect(shell().querySelector('router-outlet')).toBeNull();
     expect(shell().querySelector('ptah-app-shell')).toBeNull();
     expect(backButton()).toBeNull();
@@ -300,14 +313,13 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(setupHubEntries()[0].getAttribute('role')).toBe('tab');
   });
 
-  it('returns to welcome after Back to welcome requests chat and configuration settles to null', () => {
+  it('returns to welcome after Back to welcome requests chat and configuration settles to null', async () => {
     showSettings();
     backButton()!.click();
     expect(appStateStub.setCurrentView).toHaveBeenCalledTimes(1);
     expect(appStateStub.setCurrentView).toHaveBeenCalledWith('chat');
     appStateStub.openConfigurationSurface.set(null);
-    fixture.detectChanges();
-    expect(shell().querySelector('ptah-electron-welcome')).not.toBeNull();
+    expect(await renderedWelcome()).not.toBeNull();
     expect(shell().querySelector('router-outlet')).toBeNull();
     expect(backButton()).toBeNull();
   });
@@ -344,14 +356,13 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(backButton()).not.toBeNull();
   });
 
-  it('shows welcome when Setup hub settles on a non-configuration surface without a workspace', () => {
+  it('shows welcome when Setup hub settles on a non-configuration surface without a workspace', async () => {
     appStateStub.openConfigurationSurface.set('setup-hub');
     fixture.detectChanges();
     expectBareOutlet();
     appStateStub.currentView.set('tasks');
     appStateStub.openConfigurationSurface.set(null);
-    fixture.detectChanges();
-    expect(shell().querySelector('ptah-electron-welcome')).not.toBeNull();
+    expect(await renderedWelcome()).not.toBeNull();
     expect(shell().querySelector('router-outlet')).toBeNull();
     expect(backButton()).toBeNull();
   });

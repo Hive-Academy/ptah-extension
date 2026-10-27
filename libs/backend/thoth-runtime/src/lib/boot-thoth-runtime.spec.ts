@@ -489,6 +489,8 @@ describe('bootThothRuntime', () => {
         percent: 50,
         currentLabel: '5/10 files',
         totalKnown: true,
+        processed: 5,
+        total: 10,
       }),
     );
   });

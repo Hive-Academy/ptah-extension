@@ -143,57 +143,69 @@ const LANE_PANEL_CLASS =
               @if (selectedCli(); as agent) {
                 <!-- The main chat shell: the chrome panel, the session layout
                      (column width) and one centered column for every row. -->
-                <div [class]="lanePanelClass" data-glass-surface="chrome" data-testid="lane-panel">
+                <div
+                  [class]="lanePanelClass"
+                  data-glass-surface="chrome"
+                  data-testid="lane-panel"
+                >
                   <ptah-chat-session-layout>
-                  @for (
-                    permission of agent.permissionQueue;
-                    track permission.requestId
-                  ) {
-                    <div
-                      [class]="laneColumnClass + ' mb-2 shrink-0 rounded-box border border-warning/40 bg-warning/10 p-2 text-xs'"
-                    >
-                      <div>Permission: {{ permission.toolName }}</div>
-                      <div class="flex gap-2 mt-1">
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-success"
-                          (click)="
-                            respond(
-                              agent.agentId,
-                              permission.requestId,
-                              'allow'
-                            )
-                          "
-                        >
-                          Allow
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-error btn-outline"
-                          (click)="
-                            respond(agent.agentId, permission.requestId, 'deny')
-                          "
-                        >
-                          Deny
-                        </button>
+                    @for (
+                      permission of agent.permissionQueue;
+                      track permission.requestId
+                    ) {
+                      <div
+                        [class]="
+                          laneColumnClass +
+                          ' mb-2 shrink-0 rounded-box border border-warning/40 bg-warning/10 p-2 text-xs'
+                        "
+                      >
+                        <div>Permission: {{ permission.toolName }}</div>
+                        <div class="flex gap-2 mt-1">
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-success"
+                            (click)="
+                              respond(
+                                agent.agentId,
+                                permission.requestId,
+                                'allow'
+                              )
+                            "
+                          >
+                            Allow
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-error btn-outline"
+                            (click)="
+                              respond(
+                                agent.agentId,
+                                permission.requestId,
+                                'deny'
+                              )
+                            "
+                          >
+                            Deny
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  }
-                  <ptah-agent-card
-                    class="block flex-1 min-h-0"
-                    [agent]="agent"
-                    presentation="flat"
-                    (toggleExpanded)="
-                      monitor.toggleAgentExpanded(agent.agentId)
-                    "
-                  />
-                  <!-- Hides itself when the agent cannot continue; queues
+                    }
+                    <ptah-agent-card
+                      [showStats]="false"
+                      class="block flex-1 min-h-0"
+                      [agent]="agent"
+                      presentation="flat"
+                      (toggleExpanded)="
+                        monitor.toggleAgentExpanded(agent.agentId)
+                      "
+                    />
+                    <!-- Hides itself when the agent cannot continue; queues
                        while it runs (AgentFollowUpQueueService). -->
-                  <ptah-agent-continue-input
-                    [class]="laneColumnClass + ' block flex-shrink-0 pt-2'"
-                    variant="composer"
-                    [agent]="agent"
-                  />
+                    <ptah-agent-continue-input
+                      [class]="laneColumnClass + ' block flex-shrink-0 pt-2'"
+                      variant="composer"
+                      [agent]="agent"
+                    />
                   </ptah-chat-session-layout>
                 </div>
               }
@@ -227,15 +239,22 @@ const LANE_PANEL_CLASS =
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
-          <div [class]="lanePanelClass" data-glass-surface="chrome" data-testid="lane-panel">
+          <div
+            [class]="lanePanelClass"
+            data-glass-surface="chrome"
+            data-testid="lane-panel"
+          >
             <ptah-chat-session-layout>
-            <ptah-subagent-lane
-              class="flex-1"
-              [record]="sub"
-              [sessionId]="sessionId()"
-              [getPermissionForTool]="getPermissionForTool"
-              (permissionResponded)="chatStore.handlePermissionResponse($event)"
-            />
+              <ptah-subagent-lane
+                [showStats]="false"
+                class="flex-1"
+                [record]="sub"
+                [sessionId]="sessionId()"
+                [getPermissionForTool]="getPermissionForTool"
+                (permissionResponded)="
+                  chatStore.handlePermissionResponse($event)
+                "
+              />
             </ptah-chat-session-layout>
           </div>
         }

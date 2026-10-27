@@ -191,12 +191,11 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
 
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
-    // would stop guarding anything. The Rail empty-board section fills the
-    // space behind the dialog; its heading confirms the expected state.
-    await expect(
-      page.getByRole('heading', { name: 'A fresh space to work' }),
-    ).toBeVisible();
+    // would stop guarding anything. The Rail empty-board hero fills the
+    // space behind the dialog; its heading (the workspace name) confirms the
+    // expected state.
     const canvasPanel = page.locator('[data-testid="canvas-rail-empty-board"]');
+    await expect(canvasPanel.getByRole('heading', { level: 1 })).toBeVisible();
     const canvasBox = await canvasPanel.boundingBox();
     const boxBox = await dialog.locator('.modal-box').boundingBox();
     expect(canvasBox, 'the canvas panel has no painted box').not.toBeNull();

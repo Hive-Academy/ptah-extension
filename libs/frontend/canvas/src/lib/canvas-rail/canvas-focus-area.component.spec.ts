@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -13,12 +15,10 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
   TabManagerService,
-  ChatStore,
   StreamPresentationStore,
 } from '@ptah-extension/chat';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
 import type { StreamingState, TabState } from '@ptah-extension/chat-types';
-import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
@@ -31,32 +31,13 @@ const buildTree = jest.fn(() => []);
   selector: 'ptah-canvas-focus-header',
   standalone: true,
   template:
-    '<header>{{ title() }}<span class="branch-chip">{{ branch() }}</span></header>',
+    '<div role="group" aria-label="Pane controls"></div>',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class HeaderStub {
-  readonly tabId = input.required<string>();
-  readonly limitCue = input<unknown>(null);
-  readonly contextRingPercent = input<number | null>(null);
-  readonly toggleDescription = input('');
-  readonly title = input('');
-  readonly state = input('idle');
-  readonly branch = input<string | null>(null);
-  readonly running = input(false);
-  readonly viewMode = input('full');
-  readonly band = input('lg');
-  readonly splitDisplayed = input(false);
-  readonly detailsOpen = input(false);
-  readonly paneFocused = input(true);
-  readonly paneNumber = input<1 | 2 | null>(null);
-  readonly panePlace = input('');
-  readonly stop = output<void>();
-  readonly toggleViewMode = output<void>();
-  readonly closeRequested = output<void>();
   readonly closeSplitRequested = output<void>();
   readonly closePaneRequested = output<void>();
   readonly swapPanesRequested = output<void>();
-  readonly detailsRequested = output<void>();
 }
 @Component({
   selector: 'ptah-canvas-lane-tabs',
@@ -139,7 +120,6 @@ describe('CanvasFocusAreaComponent', () => {
       imports: [CanvasFocusAreaComponent],
       providers: [
         CanvasRenderMetricsService,
-        { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
         {
           provide: TabManagerService,
           useValue: {
@@ -147,10 +127,8 @@ describe('CanvasFocusAreaComponent', () => {
             findTabByIdAcrossWorkspaces: (id: string) => ({
               tab: tabs().get(id),
             }),
-            toggleTabViewMode: jest.fn(),
           },
         },
-        { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
         {
           provide: CanvasDetailService,
           useValue: {
@@ -169,34 +147,33 @@ describe('CanvasFocusAreaComponent', () => {
     return { fixture, lanes, tabs, selectLaneFor };
   }
 
-  it('row 113: forwards pane activity, visual number and place to the header without remounting it', () => {
+  it.each([false, true])('keeps identity and strip out of the chat (split=%s)', split => {
     const { fixture } = mountWithLanes();
-    const header = () => fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
-    const first = header();
-    expect([first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, null, '']);
-    fixture.componentRef.setInput('splitDisplayed', true);
-    fixture.componentRef.setInput('paneFocused', false);
-    fixture.componentRef.setInput('paneNumber', 2);
-    fixture.componentRef.setInput('panePlace', 'Bottom');
+    fixture.componentRef.setInput('splitDisplayed', split);
     fixture.detectChanges();
-    expect(header()).toBe(first);
-    expect([first.splitDisplayed(), first.paneFocused(), first.paneNumber(), first.panePlace()]).toEqual([true, false, 2, 'Bottom']);
+    expect(fixture.nativeElement.querySelector('header')).toBeNull();
+    expect(fixture.debugElement.queryAll(By.directive(TabsStub))).toHaveLength(0);
+    expect(fixture.debugElement.queryAll(By.directive(HeaderStub))).toHaveLength(split ? 1 : 0);
+    expect(fixture.nativeElement.textContent).not.toContain('feature/a');
   });
 
-  it('activates an inactive tab before stopping its session', async () => {
-    const focus = jest.fn();
-    const abort = jest.fn().mockResolvedValue(undefined);
-    const area = Object.create(
-      CanvasFocusAreaComponent.prototype,
-    ) as CanvasFocusAreaComponent;
-    Object.assign(area, {
-      tabs: { activeTabId: () => 'other' },
-      canvasStore: { focusTile: focus },
-      chatStore: { abortWithConfirmation: abort },
-    });
-    await area.stop('selected');
-    expect(focus).toHaveBeenCalledWith('selected');
-    expect(abort).toHaveBeenCalledTimes(1);
+  it('sets the common chat and lane width to 1100px', () => {
+    expect(
+      readFileSync(join(__dirname, 'canvas-focus-area.component.ts'), 'utf8'),
+    ).toMatch(/:host\s*\{\s*--chat-content-max-width: 1100px;/);
+  });
+
+  it('row 113: keeps the split header instance when pane activity changes', () => {
+    const { fixture } = mountWithLanes();
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.detectChanges();
+    const header = () =>
+      fixture.debugElement.query(By.directive(HeaderStub))
+        .componentInstance as HeaderStub;
+    const first = header();
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.detectChanges();
+    expect(header()).toBe(first);
   });
 
   it('keeps one transcript host and header instance across focus swaps', () => {
@@ -209,7 +186,6 @@ describe('CanvasFocusAreaComponent', () => {
       imports: [CanvasFocusAreaComponent],
       providers: [
         CanvasRenderMetricsService,
-        { provide: CanvasStore, useValue: { isSessionRunning: () => false } },
         {
           provide: TabManagerService,
           useValue: {
@@ -218,7 +194,6 @@ describe('CanvasFocusAreaComponent', () => {
             }),
           },
         },
-        { provide: ChatStore, useValue: { abortWithConfirmation: jest.fn() } },
         {
           provide: CanvasDetailService,
           useValue: {
@@ -235,7 +210,9 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('focusedTabId', 'a');
     fixture.detectChanges();
     const header = fixture.nativeElement.querySelector('header');
-    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
+    const view = fixture.debugElement.query(
+      By.directive(ViewStub),
+    ).componentInstance;
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
     ).toHaveLength(1);
@@ -245,7 +222,9 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('focusedTabId', 'b');
     fixture.detectChanges();
     expect(destroyed).toEqual([]);
-    expect(fixture.debugElement.query(By.directive(ViewStub)).componentInstance).toBe(view);
+    expect(
+      fixture.debugElement.query(By.directive(ViewStub)).componentInstance,
+    ).toBe(view);
     expect(fixture.nativeElement.querySelector('header')).toBe(header);
     expect(
       fixture.nativeElement.querySelectorAll('ptah-canvas-lane-view'),
@@ -269,43 +248,45 @@ describe('CanvasFocusAreaComponent', () => {
     fixture.componentRef.setInput('paneFocused', false);
     fixture.componentRef.setInput('splitDisplayed', true);
     fixture.detectChanges();
-    const tabs = fixture.debugElement.query(By.directive(TabsStub)).componentInstance;
-    const view = fixture.debugElement.query(By.directive(ViewStub)).componentInstance;
-    expect(tabs.panelId()).toBe('rail-right-lane-panel');
+    const view = fixture.debugElement.query(
+      By.directive(ViewStub),
+    ).componentInstance;
     expect(view.panelId()).toBe('rail-right-lane-panel');
     expect(view.paneFocused()).toBe(false);
     expect(view.splitDisplayed()).toBe(true);
-    expect(fixture.nativeElement.querySelector('section').hasAttribute('aria-label')).toBe(false);
+    expect(
+      fixture.nativeElement.querySelector('section').hasAttribute('aria-label'),
+    ).toBe(false);
   });
 
   it.each(['left', 'right'] as const)(
-    'forwards every header split action with the stable %s pane id and passes split state to the header',
+    'forwards every pane action with the stable %s pane id',
     (paneId) => {
       const { fixture } = mountWithLanes();
       fixture.componentRef.setInput('paneId', paneId);
       fixture.componentRef.setInput('splitDisplayed', true);
-      fixture.componentRef.setInput('detailsOpen', true);
       fixture.detectChanges();
       const area = fixture.componentInstance;
-      const header = fixture.debugElement.query(By.directive(HeaderStub)).componentInstance as HeaderStub;
-      expect(header.splitDisplayed()).toBe(true);
-      expect(header.detailsOpen()).toBe(true);
+      const header = fixture.debugElement.query(By.directive(HeaderStub))
+        .componentInstance as HeaderStub;
       expect(area.panelId()).toBe(`rail-${paneId}-lane-panel`);
       const received: Array<[string, string]> = [];
-      area.closeSplitRequested.subscribe((id) => received.push(['closeSplit', id]));
-      area.closePaneRequested.subscribe((id) => received.push(['closePane', id]));
-      area.swapPanesRequested.subscribe((id) => received.push(['swapPanes', id]));
-      area.detailsRequested.subscribe((id) => received.push(['details', id]));
-      area.closeRequested.subscribe((id) => received.push(['closeSession', id]));
+      area.closeSplitRequested.subscribe((id) =>
+        received.push(['closeSplit', id]),
+      );
+      area.closePaneRequested.subscribe((id) =>
+        received.push(['closePane', id]),
+      );
+      area.swapPanesRequested.subscribe((id) =>
+        received.push(['swapPanes', id]),
+      );
       header.closeSplitRequested.emit();
       header.closePaneRequested.emit();
       header.swapPanesRequested.emit();
-      header.detailsRequested.emit();
       expect(received).toEqual([
         ['closeSplit', paneId],
         ['closePane', paneId],
         ['swapPanes', paneId],
-        ['details', paneId],
       ]);
       fixture.componentRef.setInput('focusedTabId', 'b');
       fixture.detectChanges();
@@ -314,11 +295,11 @@ describe('CanvasFocusAreaComponent', () => {
     },
   );
 
-  it('passes the focused tab branch into the header', () => {
+  it('keeps the focused tab branch out of chat', () => {
     const { fixture } = mountWithLanes();
     expect(
       fixture.nativeElement.querySelector('.branch-chip')?.textContent,
-    ).toBe('feature/a');
+    ).toBeUndefined();
   });
 
   it('processes one snapshot for the focused view and none for an unfocused tab', () => {
@@ -371,10 +352,6 @@ describe('CanvasFocusAreaComponent', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-canvas-lane-view')?.textContent,
     ).toContain('a:orchestrator');
-    (
-      fixture.debugElement.query(By.directive(TabsStub))
-        .componentInstance as TabsStub
-    ).laneSelected.emit('orchestrator');
-    expect(selectLaneFor).toHaveBeenCalledWith('a', 'orchestrator');
+    expect(selectLaneFor).not.toHaveBeenCalled();
   });
 });

@@ -59,11 +59,11 @@ const BACKGROUND_PUSH_TYPES = [
 ] as const;
 
 interface FakeWindow {
-  webContents: { send: jest.Mock };
+  webContents: { id: number; send: jest.Mock };
 }
 
 function makeWindow(): FakeWindow {
-  return { webContents: { send: jest.fn() } };
+  return { webContents: { id: 1, send: jest.fn() } };
 }
 
 function makeContainer(): DependencyContainer {
@@ -97,7 +97,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
   it.each(BACKGROUND_PUSH_TYPES)(
     'reports %s at debug — not warn — when no window has ever existed',
     (type) => {
-      const bridge = new IpcBridge(makeContainer(), () => null);
+      const bridge = new IpcBridge(makeContainer(), () => null, []);
 
       bridge.sendToRenderer({ type, payload: { any: 'thing' } });
 
@@ -118,6 +118,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
     const bridge = new IpcBridge(
       makeContainer(),
       () => win as unknown as FakeWindow,
+      [],
     );
 
     bridge.sendToRenderer({
@@ -144,6 +145,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
     const bridge = new IpcBridge(
       makeContainer(),
       () => win as unknown as FakeWindow,
+      [],
     );
 
     bridge.sendToRenderer({ type: MESSAGE_TYPES.SWITCH_VIEW, payload: {} });
@@ -163,7 +165,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
   it('applies the same rule to the batched stream path', () => {
     // `flushStreamQueue` had its own copy of the warning; it must not shout at
     // boot either, and it must name what it dropped.
-    const bridge = new IpcBridge(makeContainer(), () => null);
+    const bridge = new IpcBridge(makeContainer(), () => null, []);
 
     bridge.sendToRenderer({
       type: MESSAGE_TYPES.CHAT_CHUNK,

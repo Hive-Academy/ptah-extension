@@ -618,6 +618,35 @@ function statefulSettingsFixtures(
       folders: [...workspaceFolders],
       activeFolder: workspaceFolders[0],
     },
+    // The real host answers the switch that follows getInfo. Electron's
+    // first workspace sync settles `ElectronLayoutService.workspaceResolved`
+    // only after it, and until then the shell shows the L1 loading state
+    // instead of the workspace layout (and its Workspaces toggle).
+    'workspace:switch': { success: true },
+    // With a workspace open, Electron's Accounts section reads its accounts.
+    // An unanswered read keeps the section `aria-busy`, so `waitForSettled`
+    // never passes. No named profiles, no stored selections.
+    'provider:listAccounts': (params: unknown) => {
+      const { provider, workspaceRoot } = params as {
+        provider: string;
+        workspaceRoot: string;
+      };
+      const omitted = (scope: 'main' | 'lane') => ({
+        scope,
+        selection: { kind: 'omitted' },
+        revision: -1,
+      });
+      return {
+        ok: true,
+        snapshot: {
+          provider,
+          workspaceRoot,
+          revision: 0,
+          accounts: [],
+          selections: { main: omitted('main'), lane: omitted('lane') },
+        },
+      };
+    },
     'auth:getAuthStatus': () => ({ ...state.authStatus }),
     'auth:getApiKeyStatus': API_KEY_STATUS_FIXTURE,
     // Each provider carries its recorded check (`lastCheck`), as the host's route read does (28c).
@@ -851,7 +880,7 @@ export async function bootSettings(
     ...overrides,
   });
   await page.addInitScript((t: string) => {
-    localStorage.setItem('ptah-theme', t);
+    localStorage.setItem('ptah-theme-v2', t);
   }, theme);
   // Batch 53.6: the app build's `load` takes 2-3 s here, but on a machine at 100 % CPU it was seen past the 15 s
   // navigation default. Boot is setup, not what these tests measure, so it gets 30 s; every assertion keeps its own.

@@ -177,7 +177,9 @@
     class="absolute inset-0 flex items-center justify-center"
     animate.enter="fade-enter"
     animate.leave="fade-leave"
+    [tabId]="tabId()"
     (promptSelected)="promptSelected.emit($event)"
+    (resumeRequested)="resumeRequested.emit($event)"
   />
 }
 

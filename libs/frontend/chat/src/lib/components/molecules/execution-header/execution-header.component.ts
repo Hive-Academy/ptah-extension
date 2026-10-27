@@ -33,7 +33,9 @@ const META_SEPARATOR = ' · ';
         class="flex min-h-[30px] min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-surface-border pb-1 text-[12px] text-base-content-muted"
         data-test="execution-header-row"
       >
-        <ng-content select="[executionHeaderStats]" />
+        @if (showStats()) {
+          <ng-content select="[executionHeaderStats]" />
+        }
         @if (live() && peek(); as text) {
           <span
             class="min-w-0 flex-1 truncate"
@@ -93,6 +95,7 @@ const META_SEPARATOR = ' · ';
   `,
 })
 export class ExecutionHeaderComponent {
+  readonly showStats = input(true);
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly separator = META_SEPARATOR;
   protected readonly columnClass = LANE_COLUMN_CLASS;

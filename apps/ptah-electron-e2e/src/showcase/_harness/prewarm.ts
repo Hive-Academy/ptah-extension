@@ -29,6 +29,25 @@ import { activeConfigSurface, openConfigSurfaceSilently } from './config-menu';
 /** The persistent Electron top-nav tablist wrapper. */
 const NAV = '.electron-tabs';
 
+/** The no-workspace welcome, and the placeholder of its `@defer` block. */
+const WELCOME = 'ptah-electron-welcome';
+const WELCOME_PLACEHOLDER = '[data-testid="electron-welcome-placeholder"]';
+
+/**
+ * Whether the no-workspace welcome is showing. The welcome loads inside
+ * `@defer`, so while its placeholder is up this waits (bounded) for the chunk;
+ * with no placeholder there is no welcome to wait for and it answers at once.
+ */
+async function welcomeVisible(page: Page): Promise<boolean> {
+  const welcome = page.locator(WELCOME);
+  if ((await page.locator(WELCOME_PLACEHOLDER).count().catch(() => 0)) > 0) {
+    await welcome
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .catch(() => undefined);
+  }
+  return welcome.isVisible().catch(() => false);
+}
+
 /** `title` of the active top-nav tab, captured so pre-warm can restore it. */
 async function activeNavTitle(page: Page): Promise<string | null> {
   const tab = page
@@ -97,7 +116,7 @@ export async function prewarmThoth(
   const originalWelcome =
     !original &&
     !originalConfig &&
-    (await page.locator('ptah-electron-welcome').isVisible().catch(() => false)) &&
+    (await welcomeVisible(page)) &&
     (await page.locator(NAV).count().catch(() => -1)) === 0;
   if (!(await openConfigSurfaceSilently(page, 'thoth'))) return;
   // The shell renders its inner tablist once mounted — memory is always first.

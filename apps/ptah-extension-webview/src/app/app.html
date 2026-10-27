@@ -38,6 +38,7 @@
     [readiness]="bootStatus.readiness()"
     [startedAt]="bootStatus.status().startedAt"
     [detail]="bootStatus.detail()"
+    [hostSteps]="bootStatus.hostSteps()"
   />
   } @else {
   <div class="flex flex-col items-center justify-center h-full gap-3">

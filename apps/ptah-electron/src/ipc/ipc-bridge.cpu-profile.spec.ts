@@ -41,11 +41,21 @@ jest.mock('electron', () => {
 });
 
 import type { DependencyContainer } from 'tsyringe';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { IpcBridge } from './ipc-bridge';
 import {
   TOKENS,
   DEFAULT_CPU_PROFILE_DURATION_MS,
 } from '@ptah-extension/vscode-core';
+
+const TRUSTED_DOCUMENT = path.resolve('/app/renderer/index.html');
+const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENT).href };
+/** The main window's top frame showing the renderer — the trusted sender. */
+const TRUSTED = {
+  sender: { id: 1, mainFrame: MAIN_FRAME },
+  senderFrame: MAIN_FRAME,
+};
 
 interface FakeCapture {
   captureFor: jest.Mock;
@@ -73,7 +83,11 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     ipcMainListeners.clear();
     ipcMainHandlers.clear();
     capture = { captureFor: jest.fn(async () => '/tmp/ptah.cpuprofile') };
-    bridge = new IpcBridge(makeContainer(capture), () => null);
+    bridge = new IpcBridge(
+      makeContainer(capture),
+      () => ({ webContents: { id: 1, send: jest.fn() } }),
+      [TRUSTED_DOCUMENT],
+    );
     bridge.initialize();
   });
 
@@ -86,7 +100,7 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     const handler = ipcMainHandlers.get('diag:cpu-profile');
     expect(handler).toBeDefined();
 
-    await handler?.(undefined, 10_000_000);
+    await handler?.(TRUSTED, 10_000_000);
 
     expect(capture.captureFor).toHaveBeenCalledTimes(1);
     expect(capture.captureFor).toHaveBeenCalledWith(60_000);
@@ -96,7 +110,7 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     const handler = ipcMainHandlers.get('diag:cpu-profile');
     expect(handler).toBeDefined();
 
-    await handler?.(undefined, 10);
+    await handler?.(TRUSTED, 10);
 
     expect(capture.captureFor).toHaveBeenCalledWith(1_000);
   });
@@ -105,7 +119,7 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     const handler = ipcMainHandlers.get('diag:cpu-profile');
     expect(handler).toBeDefined();
 
-    await handler?.(undefined, 'abc');
+    await handler?.(TRUSTED, 'abc');
 
     expect(capture.captureFor).toHaveBeenCalledTimes(1);
     expect(capture.captureFor).toHaveBeenCalledWith(
@@ -117,7 +131,7 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     const handler = ipcMainHandlers.get('diag:cpu-profile');
     expect(handler).toBeDefined();
 
-    await handler?.(undefined, undefined);
+    await handler?.(TRUSTED, undefined);
 
     expect(capture.captureFor).toHaveBeenCalledWith(
       DEFAULT_CPU_PROFILE_DURATION_MS,
@@ -128,8 +142,24 @@ describe('IpcBridge — diag:cpu-profile duration clamping', () => {
     const handler = ipcMainHandlers.get('diag:cpu-profile');
     expect(handler).toBeDefined();
 
-    await handler?.(undefined, 5_000);
+    await handler?.(TRUSTED, 5_000);
 
     expect(capture.captureFor).toHaveBeenCalledWith(5_000);
+  });
+
+  it('rejects a subframe caller without capturing a profile', async () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const handler = ipcMainHandlers.get('diag:cpu-profile');
+    const subframe = { url: MAIN_FRAME.url };
+
+    await expect(
+      handler?.({ ...TRUSTED, senderFrame: subframe }, 5_000),
+    ).rejects.toThrow('untrusted sender');
+
+    expect(capture.captureFor).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 });

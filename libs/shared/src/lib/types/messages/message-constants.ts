@@ -122,6 +122,15 @@ export const MESSAGE_TYPES = {
    * never a progress tick and never one per boot step.
    */
   BOOT_READINESS_CHANGED: 'boot:readinessChanged',
+  /**
+   * Backend to renderer: progress of one host boot step (Electron only).
+   *
+   * A **tick**, unlike `BOOT_READINESS_CHANGED`: a step may emit several
+   * messages as its counts move (coalesced by the host), and the latest one per
+   * step wins. It carries no readiness semantics; readiness stays
+   * edge-triggered on `BOOT_READINESS_CHANGED`.
+   */
+  BOOT_PROGRESS: 'boot:progress',
   RPC_REQUEST: 'rpc:request',
   RPC_CALL: 'rpc:call',
   RPC_RESPONSE: 'rpc:response',

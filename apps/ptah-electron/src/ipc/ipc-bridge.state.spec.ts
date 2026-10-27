@@ -13,7 +13,22 @@ jest.mock('electron', () => ({
 
 import type { DependencyContainer } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { IpcBridge } from './ipc-bridge';
+
+const TRUSTED_DOCUMENT = path.resolve('/app/renderer/index.html');
+const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENT).href };
+/** The main window's top frame showing the renderer — the trusted sender. */
+const TRUSTED = {
+  sender: { id: 1, mainFrame: MAIN_FRAME },
+  senderFrame: MAIN_FRAME,
+};
+/** Same document, another webContents — refused by the sender guard. */
+const UNTRUSTED = {
+  sender: { id: 2, mainFrame: MAIN_FRAME },
+  senderFrame: MAIN_FRAME,
+};
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -29,6 +44,7 @@ describe('IpcBridge webview state', () => {
   let committed: unknown;
   let pendingWrite: ReturnType<typeof deferred>;
   let update: jest.Mock;
+  let storageGet: jest.Mock;
 
   beforeEach(() => {
     listeners.clear();
@@ -39,8 +55,9 @@ describe('IpcBridge webview state', () => {
       await pendingWrite.promise;
       committed = value;
     });
+    storageGet = jest.fn(() => committed);
     const storage = {
-      get: jest.fn(() => committed),
+      get: storageGet,
       update,
       getActiveWorkspacePath: () => workspacePath,
     };
@@ -49,21 +66,25 @@ describe('IpcBridge webview state', () => {
         token === PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE ? storage : {},
       ),
     } as unknown as DependencyContainer;
-    bridge = new IpcBridge(container, () => null);
+    bridge = new IpcBridge(
+      container,
+      () => ({ webContents: { id: 1, send: jest.fn() } }),
+      [TRUSTED_DOCUMENT],
+    );
     bridge.initialize();
   });
 
   afterEach(() => bridge.dispose());
 
-  function getState(): unknown {
-    const event: { returnValue?: unknown } = {};
+  function getState(sender: object = TRUSTED): unknown {
+    const event: { returnValue?: unknown } = { ...sender };
     listeners.get('get-state')?.(event);
     return event.returnValue;
   }
 
   it('serves the latest route during an asynchronous storage write and then the committed route', async () => {
     const next = { ptahRoute: { route: '/setup-hub/new-project' } };
-    const write = listeners.get('set-state')?.({}, next) as Promise<void>;
+    const write = listeners.get('set-state')?.(TRUSTED, next) as Promise<void>;
     expect(getState()).toEqual(next);
     pendingWrite.resolve();
     await write;
@@ -73,12 +94,41 @@ describe('IpcBridge webview state', () => {
 
   it('keeps a pending route scoped to its workspace', async () => {
     const next = { ptahRoute: { route: '/setup-hub/new-project' } };
-    const write = listeners.get('set-state')?.({}, next) as Promise<void>;
+    const write = listeners.get('set-state')?.(TRUSTED, next) as Promise<void>;
     workspacePath = 'workspace-b';
     expect(getState()).toEqual({ ptahRoute: { route: '/chat' } });
     workspacePath = 'workspace-a';
     expect(getState()).toEqual(next);
     pendingWrite.resolve();
     await write;
+  });
+
+  describe('untrusted sender', () => {
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => warn.mockRestore());
+
+    it('answers get-state with {} without reading storage', () => {
+      storageGet.mockClear();
+      expect(getState(UNTRUSTED)).toEqual({});
+      expect(storageGet).not.toHaveBeenCalled();
+    });
+
+    it('drops set-state without writing storage', async () => {
+      await listeners.get('set-state')?.(UNTRUSTED, { stolen: true });
+      expect(update).not.toHaveBeenCalled();
+      expect(getState()).toEqual({ ptahRoute: { route: '/chat' } });
+    });
+
+    it('warns once per sender id, without the payload', async () => {
+      getState(UNTRUSTED);
+      await listeners.get('set-state')?.(UNTRUSTED, { secret: 'x' });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).not.toContain('secret');
+    });
   });
 });

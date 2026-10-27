@@ -8,6 +8,7 @@ import {
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { ModelStateService } from '@ptah-extension/core';
 import { CostBadgeComponent } from '../../atoms/cost-badge.component';
+import { STATS_EMPTY } from '../session/session-stats-view';
 import { formatTokens } from '../session/session-stats-format';
 
 /**
@@ -74,6 +75,8 @@ export interface AgentLaneStatsView {
         <span
           class="text-base-content tabular-nums"
           data-testid="lane-stats-context"
+          [class.text-base-content-muted]="stats().contextTokens === null"
+          [attr.aria-label]="stats().contextTokens === null ? empty.context : null"
           >{{ contextLabel() }}</span
         >
       </span>
@@ -87,6 +90,8 @@ export interface AgentLaneStatsView {
         <span
           class="text-base-content tabular-nums"
           data-testid="lane-stats-tokens"
+          [class.text-base-content-muted]="stats().tokens === null"
+          [attr.aria-label]="stats().tokens === null ? empty.tokens : null"
           >{{ tokensLabel() }}</span
         >
       </span>
@@ -94,8 +99,8 @@ export interface AgentLaneStatsView {
         class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
       >
         <span class="text-[10px] uppercase text-base-content-muted">Cost</span>
-        @if (stats().cost === undefined) {
-          <span class="text-base-content" data-testid="lane-stats-cost">—</span>
+        @if (stats().cost === null || stats().cost === undefined) {
+          <span class="text-base-content-muted" data-testid="lane-stats-cost" [attr.aria-label]="empty.cost" [title]="empty.cost">{{ empty.value }}</span>
         } @else {
           <span data-testid="lane-stats-cost">
             @if (stats().costPartial && stats().cost !== null) {
@@ -125,6 +130,8 @@ export interface AgentLaneStatsView {
 export class AgentLaneStatsComponent {
   private readonly modelState = inject(ModelStateService);
 
+  protected readonly empty = STATS_EMPTY;
+
   readonly stats = input.required<AgentLaneStatsView>();
 
   protected readonly modelName = computed(() => {
@@ -136,12 +143,12 @@ export class AgentLaneStatsComponent {
 
   protected readonly contextLabel = computed(() => {
     const context = this.stats().contextTokens;
-    return context === null ? '—' : formatTokens(context);
+    return context === null ? STATS_EMPTY.value : formatTokens(context);
   });
 
   protected readonly tokensLabel = computed(() => {
     const { tokens, tokensPartial } = this.stats();
-    if (tokens === null) return '—';
+    if (tokens === null) return STATS_EMPTY.value;
     return `${tokensPartial ? '≥ ' : ''}${formatTokens(tokens)}`;
   });
 }

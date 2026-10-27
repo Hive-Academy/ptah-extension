@@ -3,6 +3,7 @@ import {
   runningCheckPids,
 } from '@ptah-extension/vscode-lm-tools';
 import type { BootRefs } from './boot-coordinator';
+import { disposeBootProgress } from './boot-progress-publisher';
 
 /**
  * The `will-quit` sequence, extracted from `main.ts` (TASK_2026_331 B1.T6).
@@ -554,6 +555,8 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
   // still running would otherwise keep writing to services the chain below is
   // about to stop.
   nonFatal('Boot abort', deps.abortBoot);
+  // Synchronous: clears pending progress ticks and the page-load listener.
+  nonFatal('Boot progress dispose', disposeBootProgress);
 
   const bootRunning = deps.isBootRunning();
 

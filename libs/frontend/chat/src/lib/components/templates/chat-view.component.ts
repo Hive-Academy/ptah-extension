@@ -1302,6 +1302,19 @@ export class ChatViewComponent implements OnDestroy {
     });
   }
 
+  /** Uses the same canvas open/focus path as SessionRowActionsService.openSession. */
+  async handleResumeRequested(sessionId: string): Promise<void> {
+    try {
+      if (await this._appState.requestCanvasSession(sessionId)) return;
+    } catch {
+      // Rejected requests use the same fixed-copy error as unsuccessful opens.
+    }
+    this.showActionError(
+      'Could not open the previous session. Please try again.',
+      this.resolvedTabId(),
+    );
+  }
+
   /**
    * Handle prompt selection from empty state - fill chat input.
    * Uses ChatInputComponent.restoreContentToInput which handles focus and auto-resize.

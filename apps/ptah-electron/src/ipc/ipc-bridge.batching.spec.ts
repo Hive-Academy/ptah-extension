@@ -31,8 +31,13 @@ jest.mock('electron', () => {
 });
 
 import type { DependencyContainer } from 'tsyringe';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { IpcBridge } from './ipc-bridge';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+
+const TRUSTED_DOCUMENTS = [path.resolve('/app/renderer/index.html')];
+const MAIN_FRAME = { url: pathToFileURL(TRUSTED_DOCUMENTS[0]).href };
 
 interface SentMessage {
   readonly channel: string;
@@ -40,7 +45,7 @@ interface SentMessage {
 }
 
 interface FakeWindow {
-  webContents: { send: jest.Mock };
+  webContents: { id: number; send: jest.Mock };
   sent: SentMessage[];
 }
 
@@ -48,6 +53,7 @@ function makeWindow(): FakeWindow {
   const sent: SentMessage[] = [];
   return {
     webContents: {
+      id: 1,
       send: jest.fn((channel: string, message: unknown) => {
         sent.push({ channel, message });
       }),
@@ -76,7 +82,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
     ipcMainListeners.clear();
     ipcMainHandlers.clear();
     win = makeWindow();
-    bridge = new IpcBridge(makeContainer(), () => win);
+    bridge = new IpcBridge(makeContainer(), () => win, TRUSTED_DOCUMENTS);
   });
 
   afterEach(() => {
@@ -197,7 +203,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
     bridge.dispose();
     ipcMainListeners.clear();
-    bridge = new IpcBridge(containerStub, () => win);
+    bridge = new IpcBridge(containerStub, () => win, TRUSTED_DOCUMENTS);
     bridge.initialize();
 
     bridge.sendToRenderer({
@@ -216,11 +222,14 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
     const event = {
       sender: {
+        id: 1,
+        mainFrame: MAIN_FRAME,
         isDestroyed: () => false,
         send: jest.fn((channel: string, message: unknown) => {
           win.sent.push({ channel, message });
         }),
       },
+      senderFrame: MAIN_FRAME,
     };
     const rpcMessage = {
       payload: {
@@ -295,16 +304,19 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
     bridge.dispose();
     ipcMainListeners.clear();
-    bridge = new IpcBridge(containerStub, () => win);
+    bridge = new IpcBridge(containerStub, () => win, TRUSTED_DOCUMENTS);
     bridge.initialize();
 
     const rpcListeners = ipcMainListeners.get('rpc') ?? [];
     const sendSpy = jest.fn();
     const event = {
       sender: {
+        id: 1,
+        mainFrame: MAIN_FRAME,
         isDestroyed: () => true,
         send: sendSpy,
       },
+      senderFrame: MAIN_FRAME,
     };
 
     await rpcListeners[0](event, {

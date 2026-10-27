@@ -4,7 +4,10 @@
 
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
+} from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
   IWorkspaceProvider,
@@ -53,6 +56,8 @@ export interface IndexingStatus {
   errorMessage: string | null;
   codeSymbolCount: number;
   memoryChunkCount: number;
+  /** Distinct files with symbols for this workspace; undefined when the count read fails. */
+  fileCount?: number;
   vec: {
     ok: boolean;
     reason?: string;
@@ -151,6 +156,7 @@ export class IndexingControlService {
     const currentSha = await deriveGitHeadSha(workspaceRoot, this.fs);
     const row = this.readRow(fp);
     const counts = this.readRowCounts();
+    const fileCount = this.readFileCount(workspaceRoot);
     const vecSnapshot = this.vecStatus.getStatus();
     const vec = {
       ok: vecSnapshot.available,
@@ -192,6 +198,7 @@ export class IndexingControlService {
         errorMessage: null,
         codeSymbolCount: counts.codeSymbolCount,
         memoryChunkCount: counts.memoryChunkCount,
+        ...(fileCount !== undefined ? { fileCount } : {}),
         vec,
         embedder,
       };
@@ -221,6 +228,7 @@ export class IndexingControlService {
       errorMessage: row.last_error,
       codeSymbolCount: counts.codeSymbolCount,
       memoryChunkCount: counts.memoryChunkCount,
+      ...(fileCount !== undefined ? { fileCount } : {}),
       vec,
       embedder,
     };
@@ -253,6 +261,53 @@ export class IndexingControlService {
       });
     }
     return { codeSymbolCount, memoryChunkCount };
+  }
+
+  /**
+   * Distinct files with at least one symbol for `workspaceRoot`.
+   *
+   * The indexer stores `workspace_root` exactly as its caller passed it, and
+   * the boot run and the user-started run can receive the same folder as
+   * different strings (separator, trailing slash, drive-letter case). The
+   * exact spelling is tried first, as an index seek. Only when it has no rows
+   * are the stored roots scanned (`SELECT DISTINCT` walks the whole index) and
+   * matched through `normalizeWorkspaceRoot`. DISTINCT dedupes a file stored
+   * under two root spellings, except when its `file_path` differs only in
+   * drive-letter case.
+   *
+   * Returns `undefined` when a read fails, so the UI shows "unknown", not 0.
+   */
+  private readFileCount(workspaceRoot: string): number | undefined {
+    try {
+      const exact = this.countFilesUnder([workspaceRoot]);
+      if (exact > 0) return exact;
+      const target = normalizeWorkspaceRoot(workspaceRoot);
+      const roots = (
+        this.sqlite.db
+          .prepare('SELECT DISTINCT workspace_root AS root FROM code_symbols')
+          .all() as Array<{ root: string }>
+      )
+        .map((r) => r.root)
+        .filter((root) => normalizeWorkspaceRoot(root) === target);
+      return roots.length === 0 ? 0 : this.countFilesUnder(roots);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the file count is a display
+      // figure; undefined makes the caption fall back to the project type.
+      this.logger.debug('[indexing-control] code_symbols file count failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  private countFilesUnder(roots: readonly string[]): number {
+    const placeholders = roots.map(() => '?').join(', ');
+    const row = this.sqlite.db
+      .prepare(
+        `SELECT COUNT(DISTINCT file_path) AS n FROM code_symbols WHERE workspace_root IN (${placeholders})`,
+      )
+      .get(...roots) as { n: number } | undefined;
+    return row?.n ?? 0;
   }
 
   /**

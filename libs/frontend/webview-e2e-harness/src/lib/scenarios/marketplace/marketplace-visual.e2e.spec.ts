@@ -343,7 +343,7 @@ test.describe('webview > marketplace > visual parity (theme + compact + dialog)'
     await installHost(page, 'vscode', 'marketplace');
     await installRpcAutoResponder(page, baseMarketplaceFixtures());
     await page.addInitScript(() => {
-      localStorage.setItem('ptah-theme', 'anubis-light');
+      localStorage.setItem('ptah-theme-v2', 'anubis-light');
     });
     await page.goto(fixtureServer.url);
     const shell = page.locator('[data-testid="marketplace-shell"]');
