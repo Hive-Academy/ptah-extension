@@ -8,7 +8,9 @@
  * root registrar.
  */
 import 'reflect-metadata';
-import { resolve } from 'path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'path';
 import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 import {
   SdkAdapterEvents,
@@ -40,6 +42,7 @@ import type {
 } from './session-spawner.port';
 import type { ChildChatSessionStartInput } from './child-chat-session-host.port';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import { SessionHandoffService } from './session-handoff.service';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const PARENT_SDK = '22222222-3333-4444-8555-666666666666';
@@ -1548,5 +1551,99 @@ describe('resolveChildPaths', () => {
       taskFolder: resolve(WORKTREE, 'specs'),
       deliverables: [resolve(WORKTREE, 'specs', 'r.md'), inside],
     });
+  });
+});
+
+/**
+ * Handoff adoption against the REAL registry the spawner reads (review of
+ * f80136b99): the new session has only its tab id (no SDK id yet), so the
+ * cleared parent SDK id must not stop it from owning and draining the child.
+ */
+describe('SessionSpawnerService — after ptah_session_handoff', () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('lets the new session (tab id only) own the child and collect its held completion', async () => {
+    const h = makeHarness();
+    const child = await h.startChild();
+    h.notifier.signalSessionChild.mockResolvedValueOnce({
+      delivered: false,
+      reason: 'parent-session-not-active',
+      envelope: envelope(1),
+    });
+    h.turnEnded(child.childSessionId);
+    await flush();
+    expect(h.registry.get(child.childSessionId)?.heldCompletion).toBeDefined();
+
+    // The handoff awaits real file I/O and a real deadline timer.
+    jest.useRealTimers();
+    dir = mkdtempSync(join(tmpdir(), 'ptah-handoff-adopt-'));
+    const handoffPath = join(dir, 'HANDOFF.md');
+    writeFileSync(handoffPath, '# Handoff\n');
+    const caller = {
+      tabId: PARENT,
+      realSessionId: PARENT_SDK,
+      config: { projectPath: dir, workspaceId: dir, sessionName: 'Parent' },
+      permissionLevel: 'ask',
+      currentModel: '',
+    };
+    let successor = '';
+    const handoffHost = {
+      startChildSession: jest.fn(),
+      startHandoffSession: jest.fn(async (input: { tabId: string }) => {
+        successor = input.tabId;
+        h.active.add(input.tabId);
+        return { started: true as const, uiAnnounced: true };
+      }),
+    };
+    const handoff = new SessionHandoffService(
+      h.registry,
+      {
+        find: (id: string) =>
+          id === PARENT || id === PARENT_SDK ? caller : undefined,
+      } as never,
+      { getWorkspaceFolders: () => [dir] } as never,
+      { appendLine: jest.fn() } as never,
+      { adoptLanes: () => [], settleLaneAdoption: jest.fn() } as never,
+      h.adapter as never,
+      h.containerWith(handoffHost),
+      h.mcpStatus as never,
+    );
+
+    const result = await handoff.handoff({
+      callerSessionId: PARENT,
+      handoffPath,
+      prompt: 'Continue.',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      adoptedChildSessions: [child.childSessionId],
+    });
+    expect(successor).not.toBe('');
+    expect(h.lifecycleIds.has(successor)).toBe(false);
+    // The caller no longer owns the child or its held completion.
+    expect(h.spawner.takeHeldCompletions(PARENT)).toEqual([]);
+    expect(
+      h.spawner.status({
+        callerSessionId: PARENT,
+        childSessionId: child.childSessionId,
+      }),
+    ).toMatchObject({ ok: false, reason: 'not-a-child-of-caller' });
+    // The new session does, by its tab id alone.
+    expect(
+      h.spawner.status({
+        callerSessionId: successor,
+        childSessionId: child.childSessionId,
+      }),
+    ).toMatchObject({
+      ok: true,
+      children: [{ childSessionId: child.childSessionId }],
+    });
+    expect(h.spawner.takeHeldCompletions(successor)).toEqual([envelope(1)]);
+    expect(h.spawner.takeHeldCompletions(successor)).toEqual([]);
   });
 });

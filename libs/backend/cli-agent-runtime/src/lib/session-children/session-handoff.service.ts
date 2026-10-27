@@ -8,10 +8,11 @@
  * `SessionChildRegistry`), so it can hand off again later. A child session is
  * refused: its parent supervises its work.
  *
- * Once the new session is open it adopts the caller's background work: the
- * caller's running CLI lanes and its child sessions are re-parented to it, so
- * their completions and reports reach the session that continues the task.
- * The caller itself is not stopped.
+ * The new session adopts the caller's background work: the caller's running
+ * CLI lanes and its child sessions are re-parented to its tab before the
+ * start is awaited, so their completions and reports reach the session that
+ * continues the task. If the start fails or misses its deadline, the work is
+ * given back to the caller. The caller itself is not stopped.
  *
  * No event subscriptions, so nothing needs disposing. Each start has one
  * deadline timer, cleared when the start settles or the deadline fires. The
@@ -72,6 +73,20 @@ const TIMED_OUT: unique symbol = Symbol('session-handoff-timed-out');
 
 type CallerRecord = NonNullable<ReturnType<SessionLifecycleManager['find']>>;
 type HandoffRefusal = Extract<SessionHandoffResult, { ok: false }>;
+
+/** A child the new session took over, with the parent link it had before. */
+interface AdoptedChild {
+  readonly childSessionId: string;
+  readonly parentSessionId: string;
+  readonly parentSdkSessionId?: string;
+}
+
+/** The caller's work moved to the new tab while its start is pending. */
+interface Adoption {
+  readonly lanes: readonly string[];
+  readonly children: readonly AdoptedChild[];
+  settled: boolean;
+}
 
 /** A caller that handed off: its ids and the tab it handed off to. */
 interface HandedOff {
@@ -187,9 +202,15 @@ export class SessionHandoffService implements ISessionHandoff {
       );
     }
     this.inFlight.add(key);
+    // The new tab id is minted here so the caller's work can be adopted
+    // BEFORE the start is awaited: a lane or child that finishes while the
+    // host starts the session must not signal the caller the user is about
+    // to close. The adoption is provisional until the start settles.
+    const tabId = SessionId.create();
+    const adoption = this.adoptWork(record, tabId);
     // Never rejects; releases the reservation only when the start settles,
     // even after the deadline below has answered the caller.
-    const attempt = this.start(host, request, record, paths)
+    const attempt = this.start(host, request, record, paths, tabId)
       .catch((error: unknown) => {
         // degradation-audit: reported - logged by kind only (its message may
         // quote the prompt) and returned as the closed `session-start-failed`.
@@ -205,12 +226,30 @@ export class SessionHandoffService implements ISessionHandoff {
       SESSION_HANDOFF_START_TIMEOUT_MS,
     );
     if (result === TIMED_OUT) {
+      // The session may still open late, but the caller is told it did not
+      // start, so the caller keeps its work: a late success adopts nothing.
+      this.settleAdoption(adoption, tabId, 'reverted');
       return this.refuse(
         'session-start-failed',
         SESSION_HANDOFF_START_TIMEOUT_DETAIL,
       );
     }
-    return result;
+    if (!result.ok) {
+      this.settleAdoption(adoption, tabId, 'reverted');
+      return result;
+    }
+    this.settleAdoption(adoption, tabId, 'kept');
+    if (adoption.lanes.length > 0 || adoption.children.length > 0) {
+      this.log(
+        `${record.tabId}: the new session adopted ${adoption.lanes.length} ` +
+          `lane(s), ${adoption.children.length} child session(s)`,
+      );
+    }
+    return {
+      ...result,
+      adoptedLanes: adoption.lanes,
+      adoptedChildSessions: adoption.children.map((c) => c.childSessionId),
+    };
   }
 
   private async start(
@@ -218,8 +257,8 @@ export class SessionHandoffService implements ISessionHandoff {
     request: SessionHandoffRequest,
     record: CallerRecord,
     paths: { readonly root: string; readonly cwd: string },
+    tabId: string,
   ): Promise<SessionHandoffResult> {
-    const tabId = SessionId.create();
     const label = truncate(
       request.label?.trim() ||
         `Continued: ${record.config.sessionName?.trim() || 'session'}`,
@@ -271,13 +310,12 @@ export class SessionHandoffService implements ISessionHandoff {
       sdkSessionId: record.realSessionId,
       tabId,
     });
-    const adopted = this.adoptWork(record, tabId);
     this.log(
       `${record.tabId} handed off to ${tabId} in ${paths.cwd}` +
-        (outcome.uiAnnounced ? '' : ' (no webview took the tab)') +
-        `; adopted ${adopted.lanes.length} lane(s), ` +
-        `${adopted.childSessions.length} child session(s)`,
+        (outcome.uiAnnounced ? '' : ' (no webview took the tab)'),
     );
+    // The adopted ids are filled in by `guardAndStart`, which settles the
+    // adoption; a start that outlived its deadline must not report them.
     return {
       ok: true,
       tabId,
@@ -285,8 +323,8 @@ export class SessionHandoffService implements ISessionHandoff {
       workspaceRoot: paths.root,
       cwd: paths.cwd,
       tabOpened: outcome.uiAnnounced,
-      adoptedLanes: adopted.lanes,
-      adoptedChildSessions: adopted.childSessions,
+      adoptedLanes: [],
+      adoptedChildSessions: [],
     };
   }
 
@@ -295,59 +333,97 @@ export class SessionHandoffService implements ISessionHandoff {
    * completions and reports reach the session that continues the task, not
    * the one the user is told to close. The caller is matched by both its tab
    * id and its SDK id: work records whichever it had when it started.
+   * Runs before the start is awaited, so the new session has only its tab id.
    *
-   * - Running CLI lanes get the new tab id as parent (its SDK id when the
-   *   new session already has one); the manager's tab → SDK id remap then
-   *   follows the new session like any lane it spawned itself.
+   * - Running CLI lanes get the new tab id as parent; the manager's tab →
+   *   SDK id remap then follows the new session like any lane it spawned
+   *   itself. Until {@link settleAdoption}, a lane that finishes has its
+   *   completion signal held by the manager.
    * - Child sessions that are live, or ended with a completion still held,
-   *   get the new tab as parent; the recorded parent SDK id is replaced the
-   *   same way, so `ptah_session_*` and held completions answer the new
-   *   session and no longer the caller.
+   *   get the new tab as parent and lose the recorded parent SDK id, so
+   *   readers resolve the new tab's live SDK id. A child that settles while
+   *   the new session is not live yet keeps its completion held, for
+   *   whichever parent it ends up with.
    *
-   * Lane failures do not stop child adoption: each half is attempted and a
-   * fault is logged by kind. The handoff itself already succeeded.
+   * Each half is attempted even if the other faults; a fault is logged by
+   * kind and that half's work stays with the caller.
    */
-  private adoptWork(
-    caller: CallerRecord,
-    successorTabId: string,
-  ): {
-    readonly lanes: readonly string[];
-    readonly childSessions: readonly string[];
-  } {
+  private adoptWork(caller: CallerRecord, successorTabId: string): Adoption {
     const fromIds = [caller.tabId, caller.realSessionId].filter(
       (id): id is string => !!id,
     );
-    const successorSdkId =
-      this.lifecycle.find(successorTabId)?.realSessionId ?? undefined;
     let lanes: readonly string[] = [];
     try {
-      lanes = this.agents.adoptLanes(
-        fromIds,
-        successorSdkId ?? successorTabId,
-      );
+      lanes = this.agents.adoptLanes(fromIds, successorTabId);
     } catch (error: unknown) {
-      // degradation-audit: reported - the new session is already open; a
-      // fault here leaves the lanes with the caller (today's behaviour) and
-      // the reply lists none, so the caller keeps their ids itself.
+      // degradation-audit: reported - the lanes stay with the caller (the
+      // behaviour before adoption existed) and the reply lists none.
       this.log(`lane adoption faulted: ${safeErrorKind(error)}`);
     }
-    const childSessions: string[] = [];
+    const children: AdoptedChild[] = [];
     try {
       for (const child of this.registry.childrenOf(fromIds)) {
         if (child.terminalStatus && !child.heldCompletion) continue;
         const moved = this.registry.reparent(
           child.childSessionId,
           successorTabId,
-          successorSdkId,
+          undefined,
         );
-        if (moved) childSessions.push(moved.childSessionId);
+        if (!moved) continue;
+        children.push({
+          childSessionId: child.childSessionId,
+          parentSessionId: child.parentSessionId,
+          ...(child.parentSdkSessionId
+            ? { parentSdkSessionId: child.parentSdkSessionId }
+            : {}),
+        });
       }
     } catch (error: unknown) {
       // degradation-audit: reported - as above; children not yet moved stay
       // with the caller and are not listed as adopted.
       this.log(`child session adoption faulted: ${safeErrorKind(error)}`);
     }
-    return { lanes, childSessions };
+    return { lanes, children, settled: false };
+  }
+
+  /**
+   * End the provisional adoption once. `kept`: the new session started.
+   * `reverted`: it did not, or not within the deadline, so every lane and
+   * child goes back to the parent it had, and held lane signals reach the
+   * caller. A child's completion held meanwhile is drained by the caller's
+   * next `ptah_session_*` call, including this handoff's own reply.
+   */
+  private settleAdoption(
+    adoption: Adoption,
+    successorTabId: string,
+    outcome: 'kept' | 'reverted',
+  ): void {
+    if (adoption.settled) return;
+    adoption.settled = true;
+    try {
+      this.agents.settleLaneAdoption(adoption.lanes, outcome);
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged by kind; the children are still
+      // settled below.
+      this.log(`lane adoption settle faulted: ${safeErrorKind(error)}`);
+    }
+    if (outcome === 'kept') return;
+    try {
+      for (const child of adoption.children) {
+        // Only undo our own move; a child that moved again since is left.
+        const current = this.registry.get(child.childSessionId);
+        if (current?.parentSessionId !== successorTabId) continue;
+        this.registry.reparent(
+          child.childSessionId,
+          child.parentSessionId,
+          child.parentSdkSessionId,
+        );
+      }
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged by kind; a child left with the
+      // tab that never opened is reachable by its id only.
+      this.log(`child session revert faulted: ${safeErrorKind(error)}`);
+    }
   }
 
   /** The caller's cwd and root, both inside an open workspace folder. */

@@ -89,10 +89,15 @@ function makeHarness() {
       (childId: string, parent: string, parentSdk: string | undefined) =>
         links.reparent(childId, parent, parentSdk),
     ),
+    get: jest.fn((id: string | undefined) => links.get(id)),
   };
   const agents = {
     adoptLanes: jest.fn(
       (_from: readonly string[], _to: string): string[] => [],
+    ),
+    settleLaneAdoption: jest.fn(
+      (_ids: readonly string[], _outcome: 'kept' | 'reverted'): void =>
+        undefined,
     ),
   };
   const workspace = { getWorkspaceFolders: jest.fn(() => [root]) };
@@ -624,6 +629,27 @@ describe('SessionHandoffService', () => {
       expect(jest.getTimerCount()).toBe(0);
     });
 
+    it('gives the work back at the deadline; a late success adopts nothing', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live');
+
+      const { result, settle } = await startHanging(h);
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'reverted',
+      );
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+
+      settle({ started: true, uiAnnounced: true });
+      await flush();
+
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledTimes(1);
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+    });
+
     it('keeps the caller reserved until a late success, then records it', async () => {
       const h = makeHarness();
       const { settle } = await startHanging(h);
@@ -693,7 +719,6 @@ describe('SessionHandoffService', () => {
 
   describe("adopting the caller's background work", () => {
     const OTHER_PARENT = '44444444-5555-4666-8777-888888888888';
-    const SUCCESSOR_SDK = '55555555-6666-4777-8888-999999999999';
 
     it('re-parents running lanes by both caller ids to the new tab and lists them', async () => {
       const h = makeHarness();
@@ -710,31 +735,66 @@ describe('SessionHandoffService', () => {
       expect(result.adoptedLanes).toEqual(['lane-a', 'lane-b']);
     });
 
-    it("hands lanes to the new session's SDK id when it already has one", async () => {
+    it('adopts before the host start is awaited, then keeps the adoption', async () => {
       const h = makeHarness();
-      h.host.startHandoffSession.mockImplementationOnce(async (input) => {
-        h.addRecord({
-          tabId: input.tabId,
-          realSessionId: SUCCESSOR_SDK,
-          config: { projectPath: input.cwd, workspaceId: input.workspaceRoot },
-          permissionLevel: 'ask',
-          currentModel: '',
-        });
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live', { parentSdkSessionId: CALLER_SDK });
+      let parentDuringStart: string | undefined;
+      let lanesAdoptedBeforeStart = false;
+      h.host.startHandoffSession.mockImplementationOnce(async () => {
+        parentDuringStart = h.links.get('child-live')?.parentSessionId;
+        lanesAdoptedBeforeStart = h.agents.adoptLanes.mock.calls.length === 1;
         return { started: true, uiAnnounced: true };
       });
-      addLink(h.links, 'child-live');
 
       const result = await h.service.handoff(h.request());
 
       if (!result.ok) throw new Error('handoff should start');
-      expect(h.agents.adoptLanes).toHaveBeenCalledWith(
-        [CALLER, CALLER_SDK],
-        SUCCESSOR_SDK,
+      expect(parentDuringStart).toBe(result.tabId);
+      expect(lanesAdoptedBeforeStart).toBe(true);
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledTimes(1);
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'kept',
+      );
+      expect(h.links.get('child-live')?.parentSessionId).toBe(result.tabId);
+    });
+
+    it('gives the work back to the caller when the start fails', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live', { parentSdkSessionId: CALLER_SDK });
+      h.host.startHandoffSession.mockResolvedValueOnce({
+        started: false,
+        error: 'boom',
+      });
+
+      const result = await h.service.handoff(h.request());
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'reverted',
       );
       expect(h.links.get('child-live')).toMatchObject({
-        parentSessionId: result.tabId,
-        parentSdkSessionId: SUCCESSOR_SDK,
+        parentSessionId: CALLER,
+        parentSdkSessionId: CALLER_SDK,
       });
+    });
+
+    it('gives the work back to the caller when the host start throws', async () => {
+      const h = makeHarness();
+      addLink(h.links, 'child-live');
+      h.host.startHandoffSession.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await h.service.handoff(h.request());
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith([], 'reverted');
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+      expect(h.links.get('child-live')).not.toHaveProperty(
+        'parentSdkSessionId',
+      );
     });
 
     it('re-parents live children and ended children with a held completion; leaves the rest', async () => {
@@ -786,17 +846,18 @@ describe('SessionHandoffService', () => {
       ).toEqual(['child-by-tab', 'child-by-sdk', 'child-held']);
     });
 
-    it('adopts nothing when the handoff is refused', async () => {
+    it('adopts nothing when the handoff is refused before the start', async () => {
       const h = makeHarness();
       addLink(h.links, 'child-live');
-      h.host.startHandoffSession.mockResolvedValueOnce({
-        started: false,
-        error: 'boom',
+
+      const result = await h.service.handoff(
+        h.request({ handoffPath: 'HANDOFF.md' }),
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'handoff-file-missing',
       });
-
-      const result = await h.service.handoff(h.request());
-
-      expect(result).toMatchObject({ ok: false });
       expect(h.agents.adoptLanes).not.toHaveBeenCalled();
       expect(h.registry.reparent).not.toHaveBeenCalled();
       expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);

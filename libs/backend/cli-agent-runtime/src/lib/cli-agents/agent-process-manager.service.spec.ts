@@ -3648,6 +3648,64 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_SDK);
     });
+
+    const finish = async (lane: {
+      agentId: string;
+      controls: MockSdkHandleControls;
+    }): Promise<void> => {
+      lane.controls.resolve(0);
+      await lane.controls.handle.done;
+      for (let i = 0; i < 20; i++) {
+        if (infoOf(lane.agentId).status !== 'running') break;
+        await Promise.resolve();
+      }
+      expect(infoOf(lane.agentId).status).not.toBe('running');
+    };
+
+    const signalsFor = (agentId: string) =>
+      laneCompletion.signal.mock.calls.filter(
+        ([info]) => info.agentId === agentId,
+      );
+
+    it('holds the completion signal of a lane that ends while the adoption is pending, then sends it to the new session', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+      manager.adoptLanes([OLD_TAB], NEW_TAB);
+
+      await finish(lane);
+      expect(signalsFor(lane.agentId)).toHaveLength(0);
+
+      manager.settleLaneAdoption([lane.agentId], 'kept');
+
+      expect(signalsFor(lane.agentId)).toHaveLength(1);
+      expect(signalsFor(lane.agentId)[0][0].parentSessionId).toBe(NEW_TAB);
+      expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_TAB);
+    });
+
+    it('gives the lane its previous parent back on revert and sends the held signal there', async () => {
+      const lane = await spawnWithParent(OLD_SDK);
+      manager.adoptLanes([OLD_TAB, OLD_SDK], NEW_TAB);
+      await finish(lane);
+
+      manager.settleLaneAdoption([lane.agentId], 'reverted');
+
+      expect(infoOf(lane.agentId).parentSessionId).toBe(OLD_SDK);
+      expect(signalsFor(lane.agentId)).toHaveLength(1);
+      expect(signalsFor(lane.agentId)[0][0].parentSessionId).toBe(OLD_SDK);
+    });
+
+    it('signals normally once settled; a second settle is a no-op', async () => {
+      const lane = await spawnWithParent(OLD_TAB);
+      manager.adoptLanes([OLD_TAB], NEW_TAB);
+      manager.settleLaneAdoption([lane.agentId], 'kept');
+      manager.settleLaneAdoption([lane.agentId], 'reverted');
+
+      expect(infoOf(lane.agentId).parentSessionId).toBe(NEW_TAB);
+      expect(signalsFor(lane.agentId)).toHaveLength(0);
+      await finish(lane);
+
+      expect(signalsFor(lane.agentId)).toHaveLength(1);
+      expect(signalsFor(lane.agentId)[0][0].parentSessionId).toBe(NEW_TAB);
+    });
   });
 
   /**
