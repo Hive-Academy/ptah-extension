@@ -446,6 +446,8 @@ describe('CodexRuntime', () => {
     ).toEqual([{ limit: 100 }, { limit: 100, cursor: '' }]);
   });
 
+  // TASK_2026_714 8j: codex-cli 0.155.1 additive protocol strips unknown keys;
+  // invalid fixtures must violate required fields, types, or value constraints.
   it.each([
     { data: [{ ...catalogModel, isDefault: 'yes' }] },
     {
@@ -456,15 +458,15 @@ describe('CodexRuntime', () => {
         },
       ],
     },
-    { data: [catalogModel], unexpected: 'secret' },
-    { data: [{ ...catalogModel, unexpected: 'secret' }] },
+    { unexpected: 'secret' },
+    { data: [{ ...catalogModel, model: 123, unexpected: 'secret' }] },
   ])(
     'rejects invalid model responses without exposing payloads',
     async (response) => {
       const context = await runtime.open(profile);
       children[0].modelPages = [response];
       await expect(context.listModels()).rejects.toThrow(
-        'Codex model listing failed',
+        new Error('Codex model listing failed'),
       );
       expect(children[0].stdin.writableEnded).toBe(false);
       children[0].modelPages = [{ data: [catalogModel] }];
@@ -1079,7 +1081,8 @@ describe('CodexRuntime', () => {
   it('fails malformed process traffic even while no request is pending', async () => {
     const context = await runtime.open(profile);
     await context.startTurn({ text: 'go' });
-    children[0].send({ method: 'not-a-pinned-method', params: {} });
+    // Unknown methods are ignored, but method/result routing conflicts stay fatal.
+    children[0].send({ method: 'not-a-pinned-method', params: {}, result: {} });
     await flush();
     await expect(context.steer({ text: 'again' })).rejects.toThrow('not ready');
   });

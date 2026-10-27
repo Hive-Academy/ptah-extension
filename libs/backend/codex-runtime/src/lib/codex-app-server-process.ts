@@ -26,6 +26,8 @@ import {
 const FRAME_BYTES = 1024 * 1024;
 const QUEUED_BYTES = 4 * FRAME_BYTES;
 const MAX_PENDING = 128;
+const MAX_BUFFERED_NOTIFICATIONS = 64;
+const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
 type RequestMethod = Exclude<keyof typeof codexRequestSchemas, 'initialize'>;
 type ServerRequest = Extract<
   CodexProtocolFrame,
@@ -108,6 +110,9 @@ export class CodexAppServerProcess {
   private closing = false;
   private closed = false;
   private ready = false;
+  private initializeResponseReceived = false;
+  private readonly bufferedNotifications: Notification[] = [];
+  private readonly unknownNotificationMethods = new Set<string>();
   private failure?: Error;
   private nextId = 0;
   private readonly pending = new Map<number, Pending>();
@@ -220,6 +225,16 @@ export class CodexAppServerProcess {
       this.assertOpen();
       this.verifiedHome = this.profile.normalizedHome;
       this.ready = true;
+      for (const frame of this.bufferedNotifications) {
+        try {
+          this.handlers.onNotification(frame);
+          this.assertOpen();
+        } catch (error) {
+          this.fail('Codex invalid protocol frame', error, frame.method);
+          throw this.failure;
+        }
+      }
+      this.bufferedNotifications.length = 0;
     } catch (error) {
       this.fail('Codex initialization failed', error, 'initialize');
       throw this.failure;
@@ -335,6 +350,28 @@ export class CodexAppServerProcess {
     try {
       frame = validateCodexFrame(value, pending?.method);
     } catch (error) {
+      // unknownMethod is raised only after envelope validation. Requests and
+      // malformed envelopes must retain their existing failure behaviour.
+      if (
+        error instanceof CodexProtocolError &&
+        error.code === 'unknownMethod' &&
+        typeof value === 'object' &&
+        value !== null &&
+        !('id' in value) &&
+        'method' in value &&
+        typeof value.method === 'string'
+      ) {
+        if (
+          !this.unknownNotificationMethods.has(value.method) &&
+          this.unknownNotificationMethods.size < MAX_UNKNOWN_NOTIFICATION_METHODS
+        ) {
+          this.unknownNotificationMethods.add(value.method);
+          this.logger?.debug('Codex unknown notification ignored', {
+            method: redactCodexDiagnostics(value.method),
+          });
+        }
+        return;
+      }
       // Catalog payload drift is request-local. The validator checks the envelope
       // first, so malformed framing still fails closed in onData.
       if (
@@ -360,8 +397,14 @@ export class CodexAppServerProcess {
           throw new Error('Unexpected server request');
         this.dispatchApproval(frame);
       } else {
-        if (!this.ready || frame.method === 'initialized')
+        if (!this.initializeResponseReceived || frame.method === 'initialized')
           throw new Error('Unexpected notification');
+        if (!this.ready) {
+          if (this.bufferedNotifications.length >= MAX_BUFFERED_NOTIFICATIONS)
+            throw new Error('Codex pre-ready notification buffer limit reached');
+          this.bufferedNotifications.push(frame);
+          return;
+        }
         this.handlers.onNotification(frame);
       }
       return;
@@ -390,7 +433,10 @@ export class CodexAppServerProcess {
           race ? 'codexTurnNoLongerActive' : 'codexRequestRejected',
         ),
       );
-    } else pending.resolve(frame.result);
+    } else {
+      if (pending.method === 'initialize') this.initializeResponseReceived = true;
+      pending.resolve(frame.result);
+    }
   }
 
   private dispatchApproval(frame: ServerRequest): void {
@@ -497,6 +543,8 @@ export class CodexAppServerProcess {
     });
     this.closing = true;
     this.ready = false;
+    this.bufferedNotifications.length = 0;
+    this.unknownNotificationMethods.clear();
     const error = this.failure ?? new Error('Codex process closed');
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);

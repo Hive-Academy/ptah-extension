@@ -92,6 +92,14 @@ const initializeResult = {
   userAgent: 'test',
 };
 const ids = { threadId: 'thread', turnId: 'turn' };
+const remoteControlNotification = {
+  method: 'remoteControl/status/changed',
+  params: {
+    installationId: 'installation',
+    serverName: 'server',
+    status: 'connected',
+  },
+};
 const approval = {
   id: 'approval',
   method: 'item/fileChange/requestApproval',
@@ -154,6 +162,192 @@ describe('CodexAppServerProcess', () => {
   async function flush(): Promise<void> {
     await jest.advanceTimersByTimeAsync(0);
   }
+
+  it.each(['same chunk', 'separate chunks'])(
+    'buffers notifications after the initialize response in %s',
+    async (delivery) => {
+      const second = {
+        method: 'item/agentMessage/delta',
+        params: { ...ids, itemId: 'item', delta: 'Hello' },
+      };
+      onNotification.mockImplementation(() => {
+        expect(child.frames.at(-1)).toEqual({ method: 'initialized' });
+      });
+      const starting = runtime.start();
+      const frames = [
+        { id: 1, result: initializeResult },
+        remoteControlNotification,
+        second,
+      ];
+      if (delivery === 'same chunk') {
+        child.stdout.emit(
+          'data',
+          Buffer.from(frames.map((frame) => JSON.stringify(frame) + '\n').join('')),
+        );
+      } else {
+        for (const frame of frames) child.send(frame);
+      }
+      expect(child.frames).toHaveLength(1);
+      expect(onNotification).not.toHaveBeenCalled();
+      await starting;
+      expect(onNotification).toHaveBeenCalledTimes(2);
+      expect(onNotification).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining(remoteControlNotification),
+      );
+      expect(onNotification).toHaveBeenNthCalledWith(2, second);
+      expect(child.stdin.writableEnded).toBe(false);
+    },
+  );
+
+  // Unknown notifications are forward-compatible; only malformed envelopes fail.
+  it('ignores an unknown notification before and after ready and logs it once', async () => {
+    const starting = runtime.start();
+    child.send({ id: 1, result: initializeResult });
+    const notification = {
+      method: 'future/notification',
+      params: { secret: 'PRIVATE_NOTIFICATION_SENTINEL' },
+    };
+    child.send(notification);
+    await starting;
+    child.send(notification);
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      'Codex unknown notification ignored',
+      { method: 'future/notification' },
+    );
+    expect(JSON.stringify(logger.debug.mock.calls)).not.toContain(
+      'PRIVATE_NOTIFICATION_SENTINEL',
+    );
+    const pending = runtime.request('turn/interrupt', ids);
+    child.send({ id: 2, result: {} });
+    await expect(pending).resolves.toEqual({});
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
+  it('also ignores unknown notifications before the initialize response', async () => {
+    const starting = runtime.start();
+    child.send({ method: 'future/notification' });
+    child.send({ id: 1, result: initializeResult });
+    await starting;
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
+  it('bounds unknown-method logging and redacts method names', async () => {
+    await start();
+    child.send({ method: 'future/Bearer secret-token' });
+    for (let index = 0; index < 70; index++) {
+      child.send({ method: `future/notification/${index}` });
+    }
+    child.send({ method: 'future/Bearer secret-token' });
+    expect(logger.debug).toHaveBeenCalledTimes(64);
+    expect(JSON.stringify(logger.debug.mock.calls)).toContain('[REDACTED]');
+    expect(JSON.stringify(logger.debug.mock.calls)).not.toContain('secret-token');
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
+  it.each([approval, { id: 'unknown', method: 'future/request' }])(
+    'rejects a server request before ready: $method',
+    async (frame) => {
+      const starting = runtime.start();
+      child.send({ id: 1, result: initializeResult });
+      child.send(frame);
+      await expect(starting).rejects.toThrow('Codex invalid protocol frame');
+      expect(onRequest).not.toHaveBeenCalled();
+      expect(child.stdin.writableEnded).toBe(true);
+      if (frame === approval) {
+        await expect(starting).rejects.toMatchObject({
+          cause: new Error('Unexpected server request'),
+        });
+      }
+    },
+  );
+
+  it.each(['before response', 'before ready', 'after ready'])(
+    'rejects server initialized notifications %s',
+    async (timing) => {
+      const starting = runtime.start();
+      if (timing !== 'before response')
+        child.send({ id: 1, result: initializeResult });
+      if (timing === 'after ready') await starting;
+      child.send({ method: 'initialized' });
+      const failed =
+        timing === 'after ready'
+          ? runtime.request('turn/interrupt', ids)
+          : starting;
+      await expect(failed).rejects.toMatchObject({
+        cause: new Error('Unexpected notification'),
+      });
+      expect(onNotification).not.toHaveBeenCalled();
+      expect(child.stdin.writableEnded).toBe(true);
+    },
+  );
+
+  it('rejects a valid notification before the initialize response', async () => {
+    const starting = runtime.start();
+    child.send(remoteControlNotification);
+    await expect(starting).rejects.toMatchObject({
+      cause: new Error('Unexpected notification'),
+    });
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
+  it('fails closed when more than 64 notifications arrive before ready', async () => {
+    const starting = runtime.start();
+    child.send({ id: 1, result: initializeResult });
+    for (let index = 0; index < 65; index++)
+      child.send(remoteControlNotification);
+    await expect(starting).rejects.toMatchObject({
+      cause: new Error('Codex pre-ready notification buffer limit reached'),
+    });
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
+  it('flushes exactly 64 buffered notifications without overflowing', async () => {
+    const starting = runtime.start();
+    child.send({ id: 1, result: initializeResult });
+    for (let index = 0; index < 64; index++)
+      child.send(remoteControlNotification);
+    expect(onNotification).not.toHaveBeenCalled();
+    await starting;
+    expect(onNotification).toHaveBeenCalledTimes(64);
+    expect(child.stdin.writableEnded).toBe(false);
+  });
+
+  it('retains a buffered handler failure and discards remaining notifications', async () => {
+    const original = new Error('Handler failed');
+    onNotification.mockImplementationOnce(() => {
+      throw original;
+    });
+    const starting = runtime.start();
+    child.send({ id: 1, result: initializeResult });
+    child.send(remoteControlNotification);
+    child.send(remoteControlNotification);
+    await expect(starting).rejects.toMatchObject({
+      reason: 'Codex invalid protocol frame',
+      method: remoteControlNotification.method,
+      cause: original,
+    });
+    expect(onNotification).toHaveBeenCalledTimes(1);
+    expect(child.stdin.writableEnded).toBe(true);
+  });
+
+  it('discards buffered notifications when home verification fails', async () => {
+    const starting = runtime.start();
+    child.send({
+      id: 1,
+      result: { ...initializeResult, codexHome: '/wrong/home' },
+    });
+    child.send(remoteControlNotification);
+    await expect(starting).rejects.toBeInstanceOf(CodexHomeMismatchError);
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(child.stdin.writableEnded).toBe(true);
+  });
 
   it('retains the validator cause and pending method without logging payloads', async () => {
     await start();
@@ -464,7 +658,7 @@ describe('CodexAppServerProcess', () => {
     'oversize',
     'malformed',
     'invalid-utf8',
-    'unknown-method',
+    'invalid-unknown-notification-envelope',
     'invalid-result',
     'unknown-id',
     'wrong-direction',
@@ -478,9 +672,12 @@ describe('CodexAppServerProcess', () => {
       child.stdout.emit('data', Buffer.from('secret-invalid-json\n'));
     if (kind === 'invalid-utf8')
       child.stdout.emit('data', Buffer.from([0xff, 10]));
-    if (kind === 'unknown-method') child.send({ method: 'secret/unknown' });
+    if (kind === 'invalid-unknown-notification-envelope')
+      // Unknown envelope keys are stripped; conflicting routing fields are invalid.
+      child.send({ method: 'future/notification', result: {} });
     if (kind === 'invalid-result')
-      child.send({ id: 2, result: { secret: 'credential' } });
+      // Extra server-result keys are tolerated; the wrong type still fails.
+      child.send({ id: 2, result: null });
     if (kind === 'unknown-id') child.send({ id: 99, result: {} });
     if (kind === 'wrong-direction')
       child.send({ id: 9, method: 'turn/interrupt', params: ids });
@@ -511,8 +708,14 @@ describe('CodexAppServerProcess', () => {
   it('still fails closed on a malformed catalog response envelope', async () => {
     await start();
     const catalog = runtime.request('model/list', {});
-    child.send({ id: 2, result: {}, unexpected: 'secret' });
+    // Response envelopes cannot carry params, even though unknown keys are stripped.
+    child.send({ id: 2, result: {}, params: { unexpected: 'secret' } });
     await expect(catalog).rejects.toThrow('Codex invalid protocol frame');
+    const failure = await catalog.catch((error: unknown) => error);
+    // Include non-enumerable Error messages and nested causes in the payload check.
+    expect(
+      JSON.stringify(failure, ['message', 'cause', 'code', 'method']),
+    ).not.toContain('secret');
     expect(child.stdin.writableEnded).toBe(true);
   });
 

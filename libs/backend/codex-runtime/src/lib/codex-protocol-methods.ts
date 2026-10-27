@@ -5,6 +5,7 @@ import {
   json,
   object,
   empty,
+  serverEmpty,
   threadId,
   turnIds,
   itemIds,
@@ -23,6 +24,7 @@ import {
   threadOptions,
   threadResult,
   permissions,
+  serverPermissions,
   elicitation,
   usage,
   rateWindow,
@@ -42,7 +44,7 @@ export const codexRequestSchemas = {
         requestAttestation: z.boolean().optional(),
       }),
     }),
-    result: z.strictObject({
+    result: z.object({
       codexHome: string,
       platformFamily: string,
       platformOs: string,
@@ -92,7 +94,7 @@ export const codexRequestSchemas = {
         .nullish(),
       turnTrigger: string.nullish(),
     }),
-    result: z.strictObject({ turn }),
+    result: z.object({ turn }),
   },
   'turn/steer': {
     params: z.strictObject({
@@ -101,19 +103,22 @@ export const codexRequestSchemas = {
       input,
       clientUserMessageId: string.nullish(),
     }),
-    result: z.strictObject({ turnId: string }),
+    result: z.object({ turnId: string }),
   },
-  'turn/interrupt': { params: z.strictObject(turnIds), result: empty },
-  'thread/compact/start': { params: z.strictObject(threadId), result: empty },
+  'turn/interrupt': { params: z.strictObject(turnIds), result: serverEmpty },
+  'thread/compact/start': {
+    params: z.strictObject(threadId),
+    result: serverEmpty,
+  },
   'model/list': {
     params: z.strictObject({
       cursor: string.nullish(),
       includeHidden: z.boolean().nullish(),
       limit: integer.min(0).max(4_294_967_295).nullish(),
     }),
-    result: z.strictObject({
+    result: z.object({
       data: z.array(
-        z.strictObject({
+        z.object({
           id: string,
           model: string,
           displayName: string,
@@ -122,13 +127,13 @@ export const codexRequestSchemas = {
           isDefault: z.boolean(),
           defaultReasoningEffort: string.min(1),
           supportedReasoningEfforts: z.array(
-            z.strictObject({
+            z.object({
               reasoningEffort: string.min(1),
               description: string,
             }),
           ),
           additionalSpeedTiers: z.array(string).optional(),
-          availabilityNux: z.strictObject({ message: string }).nullish(),
+          availabilityNux: z.object({ message: string }).nullish(),
           defaultServiceTier: string.nullish(),
           inputModalities: z
             .array(z.enum(['text', 'image', 'audio']))
@@ -136,14 +141,12 @@ export const codexRequestSchemas = {
           modelSpecialty: string.nullish(),
           multiAgentVersion: z.enum(['disabled', 'v1', 'v2']).nullish(),
           serviceTiers: z
-            .array(
-              z.strictObject({ id: string, name: string, description: string }),
-            )
+            .array(z.object({ id: string, name: string, description: string }))
             .optional(),
           supportsPersonality: z.boolean().optional(),
           upgrade: string.nullish(),
           upgradeInfo: z
-            .strictObject({
+            .object({
               model: string,
               migrationMarkdown: string.nullish(),
               modelLink: string.nullish(),
@@ -158,7 +161,7 @@ export const codexRequestSchemas = {
   },
   'account/rateLimits/read': {
     params: empty.nullish(),
-    result: z.strictObject({
+    result: z.object({
       rateLimits,
       accountId: string.nullish(),
       ordinaryUsageAllowed: z.boolean().nullish(),
@@ -171,7 +174,7 @@ export const codexRequestSchemas = {
 
 export const codexServerRequestSchemas = {
   'item/commandExecution/requestApproval': {
-    params: z.strictObject({
+    params: z.object({
       ...approvalIds,
       approvalId: string.nullish(),
       command: string.nullish(),
@@ -182,21 +185,19 @@ export const codexServerRequestSchemas = {
       reason: string.nullish(),
       proposedExecpolicyAmendment: z.array(string).nullish(),
       networkApprovalContext: z
-        .strictObject({
+        .object({
           host: string,
           protocol: z.enum(['http', 'https', 'socks5Tcp', 'socks5Udp']),
         })
         .nullish(),
       proposedNetworkPolicyAmendments: z
-        .array(
-          z.strictObject({ host: string, action: z.enum(['allow', 'deny']) }),
-        )
+        .array(z.object({ host: string, action: z.enum(['allow', 'deny']) }))
         .nullish(),
     }),
     result: z.strictObject({ decision }),
   },
   'item/fileChange/requestApproval': {
-    params: z.strictObject({
+    params: z.object({
       ...approvalIds,
       grantRoot: string.nullish(),
       reason: string.nullish(),
@@ -204,11 +205,11 @@ export const codexServerRequestSchemas = {
     result: z.strictObject({ decision }),
   },
   'item/permissions/requestApproval': {
-    params: z.strictObject({
+    params: z.object({
       ...approvalIds,
       cwd: string,
       environmentId: string.nullish(),
-      permissions,
+      permissions: serverPermissions,
       reason: string.nullish(),
     }),
     result: z.strictObject({
@@ -218,19 +219,19 @@ export const codexServerRequestSchemas = {
     }),
   },
   'item/tool/requestUserInput': {
-    params: z.strictObject({
+    params: z.object({
       ...itemIds,
       isBlocking: z.boolean(),
       autoResolutionMs: integer.nonnegative().nullish(),
       questions: z.array(
-        z.strictObject({
+        z.object({
           id: string,
           header: string,
           question: string,
           isOther: z.boolean().optional(),
           isSecret: z.boolean().optional(),
           options: z
-            .array(z.strictObject({ label: string, description: string }))
+            .array(z.object({ label: string, description: string }))
             .nullish(),
         }),
       ),
@@ -249,20 +250,19 @@ export const codexServerRequestSchemas = {
   },
 } as const;
 
-// Notification objects permit additional properties in the pinned schema.
-// Keep these separate from the strict request/response contracts.
+// Server notifications strip extensions while retaining their pinned field constraints.
 const notificationStatus = z.discriminatedUnion('type', [
-  z.looseObject({ type: z.literal('notLoaded') }),
-  z.looseObject({ type: z.literal('idle') }),
-  z.looseObject({ type: z.literal('systemError') }),
-  z.looseObject({
+  z.object({ type: z.literal('notLoaded') }),
+  z.object({ type: z.literal('idle') }),
+  z.object({ type: z.literal('systemError') }),
+  z.object({
     type: z.literal('active'),
     activeFlags: z.array(z.enum(['waitingOnApproval', 'waitingOnUserInput'])),
   }),
 ]);
-const notificationRateLimits = rateLimits.loose().extend({
-  primary: rateWindow.loose().nullish(),
-  secondary: rateWindow.loose().nullish(),
+const notificationRateLimits = rateLimits.strip().extend({
+  primary: rateWindow.strip().nullish(),
+  secondary: rateWindow.strip().nullish(),
   planType: z
     .enum([
       'free',
@@ -296,59 +296,59 @@ const notificationRateLimits = rateLimits.loose().extend({
   individualLimit: rateLimits.shape.individualLimit
     .unwrap()
     .unwrap()
-    .loose()
+    .strip()
     .nullish(),
-  credits: rateLimits.shape.credits.unwrap().unwrap().loose().nullish(),
+  credits: rateLimits.shape.credits.unwrap().unwrap().strip().nullish(),
 });
 
 export const codexNotificationSchemas = {
   initialized: empty.optional(),
-  'account/rateLimits/updated': z.looseObject({
+  'account/rateLimits/updated': z.object({
     rateLimits: notificationRateLimits,
   }),
-  'mcpServer/startupStatus/updated': z.looseObject({
+  'mcpServer/startupStatus/updated': z.object({
     name: string,
     status: z.enum(['starting', 'ready', 'failed', 'cancelled']),
     error: string.nullish(),
     failureReason: z.literal('reauthenticationRequired').nullish(),
     threadId: string.nullish(),
   }),
-  'remoteControl/status/changed': z.looseObject({
+  'remoteControl/status/changed': z.object({
     installationId: string,
     serverName: string,
     status: z.enum(['disabled', 'connecting', 'connected', 'errored']),
     environmentId: string.nullish(),
   }),
-  'serverRequest/resolved': z.looseObject({
+  'serverRequest/resolved': z.object({
     ...threadId,
     requestId: z.union([string, integer]),
   }),
-  'thread/started': z.looseObject({
-    thread: thread.loose().extend({ status: notificationStatus }),
+  'thread/started': z.object({
+    thread: thread.strip().extend({ status: notificationStatus }),
   }),
-  'thread/status/changed': z.looseObject({
+  'thread/status/changed': z.object({
     ...threadId,
     status: notificationStatus,
   }),
-  'turn/moderationMetadata': z.looseObject({ ...turnIds, metadata: json }),
-  'item/started': z.strictObject({ ...turnIds, item, startedAtMs: integer }),
-  'item/completed': z.strictObject({
+  'turn/moderationMetadata': z.object({ ...turnIds, metadata: json }),
+  'item/started': z.object({ ...turnIds, item, startedAtMs: integer }),
+  'item/completed': z.object({
     ...turnIds,
     item,
     completedAtMs: integer,
   }),
-  'item/agentMessage/delta': z.strictObject({ ...itemIds, delta: string }),
-  'turn/started': z.strictObject({ ...threadId, turn }),
-  'turn/completed': z.strictObject({ ...threadId, turn }),
-  'thread/tokenUsage/updated': z.strictObject({
+  'item/agentMessage/delta': z.object({ ...itemIds, delta: string }),
+  'turn/started': z.object({ ...threadId, turn }),
+  'turn/completed': z.object({ ...threadId, turn }),
+  'thread/tokenUsage/updated': z.object({
     ...turnIds,
-    tokenUsage: z.strictObject({
+    tokenUsage: z.object({
       last: usage,
       total: usage,
       modelContextWindow: integer.nullish(),
     }),
   }),
-  error: z.strictObject({
+  error: z.object({
     ...turnIds,
     error: turnError,
     willRetry: z.boolean(),

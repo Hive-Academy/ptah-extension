@@ -5,6 +5,7 @@ export const integer = z.number().int();
 export const json = z.json();
 export const object = z.record(string, json);
 export const empty = z.strictObject({});
+export const serverEmpty = z.object({});
 export const threadId = { threadId: string };
 export const turnIds = { ...threadId, turnId: string };
 export const itemIds = { ...turnIds, itemId: string };
@@ -27,6 +28,19 @@ export const approvalPolicy = z.union([
     }),
   }),
 ]);
+// Server data strips extensions; the client variant above remains strict.
+export const serverApprovalPolicy = z.union([
+  z.enum(['untrusted', 'on-request', 'never']),
+  z.object({
+    granular: z.object({
+      mcp_elicitations: z.boolean(),
+      rules: z.boolean(),
+      sandbox_approval: z.boolean(),
+      request_permissions: z.boolean().optional(),
+      skill_approval: z.boolean().optional(),
+    }),
+  }),
+]);
 export const reviewer = z.enum(['user', 'auto_review', 'guardian_subagent']);
 export const sandbox = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('dangerFullAccess') }),
@@ -39,6 +53,25 @@ export const sandbox = z.discriminatedUnion('type', [
     networkAccess: z.enum(['enabled', 'restricted']).optional(),
   }),
   z.strictObject({
+    type: z.literal('workspaceWrite'),
+    networkAccess: z.boolean().optional(),
+    writableRoots: z.array(string).optional(),
+    excludeSlashTmp: z.boolean().optional(),
+    excludeTmpdirEnvVar: z.boolean().optional(),
+  }),
+]);
+// Server data strips extensions; the client variant above remains strict.
+export const serverSandbox = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('dangerFullAccess') }),
+  z.object({
+    type: z.literal('readOnly'),
+    networkAccess: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal('externalSandbox'),
+    networkAccess: z.enum(['enabled', 'restricted']).optional(),
+  }),
+  z.object({
     type: z.literal('workspaceWrite'),
     networkAccess: z.boolean().optional(),
     writableRoots: z.array(string).optional(),
@@ -76,25 +109,56 @@ export const input = z.array(
     z.strictObject({ type: z.literal('mention'), name: string, path: string }),
   ]),
 );
+// Server data strips extensions; the client variant above remains strict.
+const serverTextElement = z.object({
+  byteRange: z.object({
+    start: integer.nonnegative(),
+    end: integer.nonnegative(),
+  }),
+  placeholder: string.nullish(),
+});
+export const serverInput = z.array(
+  z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('text'),
+      text: string,
+      text_elements: z.array(serverTextElement).optional(),
+    }),
+    z.object({
+      type: z.literal('image'),
+      url: string,
+      detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
+    }),
+    z.object({
+      type: z.literal('localImage'),
+      path: string,
+      detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
+    }),
+    z.object({ type: z.literal('audio'), url: string }),
+    z.object({ type: z.literal('localAudio'), path: string }),
+    z.object({ type: z.literal('skill'), name: string, path: string }),
+    z.object({ type: z.literal('mention'), name: string, path: string }),
+  ]),
+);
 export const commandAction = z.discriminatedUnion('type', [
-  z.strictObject({
+  z.object({
     type: z.literal('read'),
     command: string,
     name: string,
     path: string,
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('listFiles'),
     command: string,
     path: string.nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('search'),
     command: string,
     path: string.nullish(),
     query: string.nullish(),
   }),
-  z.strictObject({ type: z.literal('unknown'), command: string }),
+  z.object({ type: z.literal('unknown'), command: string }),
 ]);
 const itemStatus = z.enum(['inProgress', 'completed', 'failed', 'declined']);
 export const functionOutput = z.union([
@@ -115,23 +179,42 @@ export const functionOutput = z.union([
     ]),
   ),
 ]);
+// Server data strips extensions; the client variant above remains strict.
+export const serverFunctionOutput = z.union([
+  string,
+  z.array(
+    z.discriminatedUnion('type', [
+      z.object({ type: z.literal('input_text'), text: string }),
+      z.object({
+        type: z.literal('input_image'),
+        image_url: string,
+        detail: z.enum(['auto', 'low', 'high', 'original']).nullish(),
+      }),
+      z.object({ type: z.literal('input_audio'), audio_url: string }),
+      z.object({
+        type: z.literal('encrypted_content'),
+        encrypted_content: string,
+      }),
+    ]),
+  ),
+]);
 export const item = z.discriminatedUnion('type', [
-  z.strictObject({
+  z.object({
     type: z.literal('userMessage'),
     id: string,
-    content: input,
+    content: serverInput,
     clientId: string.nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('agentMessage'),
     id: string,
     text: string,
     phase: z.enum(['commentary', 'final_answer']).nullish(),
     delivery: z.literal('async').nullish(),
     memoryCitation: z
-      .strictObject({
+      .object({
         entries: z.array(
-          z.strictObject({
+          z.object({
             lineEnd: integer.nonnegative(),
             lineStart: integer.nonnegative(),
             note: string,
@@ -143,14 +226,14 @@ export const item = z.discriminatedUnion('type', [
       .nullish(),
     questions: z.array(object).nullish(),
   }),
-  z.strictObject({ type: z.literal('plan'), id: string, text: string }),
-  z.strictObject({
+  z.object({ type: z.literal('plan'), id: string, text: string }),
+  z.object({
     type: z.literal('reasoning'),
     id: string,
     summary: z.array(string).optional(),
     content: z.array(string).optional(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('commandExecution'),
     id: string,
     command: string,
@@ -172,18 +255,18 @@ export const item = z.discriminatedUnion('type', [
       ])
       .optional(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('fileChange'),
     id: string,
     status: itemStatus,
     changes: z.array(
-      z.strictObject({
+      z.object({
         path: string,
         diff: string,
         kind: z.discriminatedUnion('type', [
-          z.strictObject({ type: z.literal('add') }),
-          z.strictObject({ type: z.literal('delete') }),
-          z.strictObject({
+          z.object({ type: z.literal('add') }),
+          z.object({ type: z.literal('delete') }),
+          z.object({
             type: z.literal('update'),
             move_path: string.nullish(),
           }),
@@ -191,7 +274,7 @@ export const item = z.discriminatedUnion('type', [
       }),
     ),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('mcpToolCall'),
     id: string,
     server: string,
@@ -199,16 +282,16 @@ export const item = z.discriminatedUnion('type', [
     arguments: json,
     status: z.enum(['inProgress', 'completed', 'failed']),
     durationMs: integer.nullish(),
-    error: z.strictObject({ message: string }).nullish(),
+    error: z.object({ message: string }).nullish(),
     result: z
-      .strictObject({
+      .object({
         content: z.array(json),
         structuredContent: json.optional(),
         _meta: json.optional(),
       })
       .nullish(),
     appContext: z
-      .strictObject({
+      .object({
         connectorId: string,
         actionName: string.nullish(),
         appName: string.nullish(),
@@ -220,33 +303,33 @@ export const item = z.discriminatedUnion('type', [
     pluginId: string.nullish(),
     readOnlyHint: z.boolean().nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('webSearch'),
     id: string,
     query: string,
     action: object.nullish(),
     results: z.array(json).nullish(),
   }),
-  z.strictObject({ type: z.literal('imageView'), id: string, path: string }),
-  z.strictObject({
+  z.object({ type: z.literal('imageView'), id: string, path: string }),
+  z.object({
     type: z.literal('sleep'),
     id: string,
     durationMs: integer.nonnegative(),
   }),
-  z.strictObject({ type: z.literal('contextCompaction'), id: string }),
-  z.strictObject({
+  z.object({ type: z.literal('contextCompaction'), id: string }),
+  z.object({
     type: z.literal('hookPrompt'),
     id: string,
-    fragments: z.array(z.strictObject({ hookRunId: string, text: string })),
+    fragments: z.array(z.object({ hookRunId: string, text: string })),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('functionCallOutput'),
     id: string,
     name: string,
     namespace: string.nullish(),
-    output: functionOutput,
+    output: serverFunctionOutput,
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('dynamicToolCall'),
     id: string,
     arguments: json,
@@ -258,14 +341,14 @@ export const item = z.discriminatedUnion('type', [
     contentItems: z
       .array(
         z.discriminatedUnion('type', [
-          z.strictObject({ type: z.literal('inputText'), text: string }),
-          z.strictObject({ type: z.literal('inputImage'), imageUrl: string }),
-          z.strictObject({ type: z.literal('inputAudio'), audioUrl: string }),
+          z.object({ type: z.literal('inputText'), text: string }),
+          z.object({ type: z.literal('inputImage'), imageUrl: string }),
+          z.object({ type: z.literal('inputAudio'), audioUrl: string }),
         ]),
       )
       .nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('collabAgentToolCall'),
     id: string,
     senderThreadId: string,
@@ -284,7 +367,7 @@ export const item = z.discriminatedUnion('type', [
     ]),
     agentsStates: z.record(
       string,
-      z.strictObject({
+      z.object({
         status: z.enum([
           'pendingInit',
           'running',
@@ -301,14 +384,14 @@ export const item = z.discriminatedUnion('type', [
     prompt: string.nullish(),
     reasoningEffort: string.nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('subAgentActivity'),
     id: string,
     agentPath: string,
     agentThreadId: string,
     kind: z.enum(['started', 'interacted', 'interrupted', 'completed']),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('imageGeneration'),
     id: string,
     result: string,
@@ -317,31 +400,31 @@ export const item = z.discriminatedUnion('type', [
     savedPath: string.nullish(),
     transparentBackground: z.boolean().nullish(),
     failure: z
-      .strictObject({
+      .object({
         type: z.literal('usageLimitExceeded'),
         limitId: string,
         resetsAt: integer.nullish(),
       })
       .nullish(),
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('enteredReviewMode'),
     id: string,
     review: string,
   }),
-  z.strictObject({
+  z.object({
     type: z.literal('exitedReviewMode'),
     id: string,
     review: string,
   }),
 ]);
-export const turnError = z.strictObject({
+export const turnError = z.object({
   message: string,
   additionalDetails: string.nullish(),
   codexErrorInfo: z.union([string, object]).nullish(),
   misalignment: object.nullish(),
 });
-export const turn = z.strictObject({
+export const turn = z.object({
   id: string,
   items: z.array(item),
   status: z.enum(['completed', 'interrupted', 'failed', 'inProgress']),
@@ -351,7 +434,7 @@ export const turn = z.strictObject({
   durationMs: integer.nullish(),
   itemsView: z.enum(['notLoaded', 'summary', 'full']).optional(),
 });
-export const thread = z.strictObject({
+export const thread = z.object({
   id: string,
   cliVersion: string,
   createdAt: integer,
@@ -364,14 +447,14 @@ export const thread = z.strictObject({
   sessionId: string,
   source: z.union([
     z.enum(['cli', 'vscode', 'exec', 'appServer', 'unknown']),
-    z.strictObject({ custom: string }),
-    z.strictObject({ subAgent: json }),
+    z.object({ custom: string }),
+    z.object({ subAgent: json }),
   ]),
   status: z.discriminatedUnion('type', [
-    z.strictObject({ type: z.literal('notLoaded') }),
-    z.strictObject({ type: z.literal('idle') }),
-    z.strictObject({ type: z.literal('systemError') }),
-    z.strictObject({
+    z.object({ type: z.literal('notLoaded') }),
+    z.object({ type: z.literal('idle') }),
+    z.object({ type: z.literal('systemError') }),
+    z.object({
       type: z.literal('active'),
       activeFlags: z.array(z.enum(['waitingOnApproval', 'waitingOnUserInput'])),
     }),
@@ -408,14 +491,14 @@ export const threadOptions = {
     .nullish(),
   serviceTier: string.nullish(),
 };
-export const threadResult = z.strictObject({
+export const threadResult = z.object({
   thread,
-  approvalPolicy,
+  approvalPolicy: serverApprovalPolicy,
   approvalsReviewer: reviewer,
   cwd: string,
   model: string,
   modelProvider: string,
-  sandbox,
+  sandbox: serverSandbox,
   instructionSources: z.array(string).optional(),
   reasoningEffort: string.nullish(),
   serviceTier: string.nullish(),
@@ -462,6 +545,49 @@ export const permissions = z.strictObject({
     })
     .nullish(),
 });
+// Server data strips extensions; the client variant above remains strict.
+export const serverPermissions = z.object({
+  network: z.object({ enabled: z.boolean().nullish() }).nullish(),
+  fileSystem: z
+    .object({
+      read: z.array(string).nullish(),
+      write: z.array(string).nullish(),
+      globScanMaxDepth: integer.min(1).nullish(),
+      entries: z
+        .array(
+          z.object({
+            access: z.enum(['read', 'write', 'deny']),
+            path: z.discriminatedUnion('type', [
+              z.object({ type: z.literal('path'), path: string }),
+              z.object({
+                type: z.literal('glob_pattern'),
+                pattern: string,
+              }),
+              z.object({
+                type: z.literal('special'),
+                value: z.discriminatedUnion('kind', [
+                  z.object({ kind: z.literal('root') }),
+                  z.object({ kind: z.literal('minimal') }),
+                  z.object({
+                    kind: z.literal('project_roots'),
+                    subpath: string.nullish(),
+                  }),
+                  z.object({ kind: z.literal('tmpdir') }),
+                  z.object({ kind: z.literal('slash_tmp') }),
+                  z.object({
+                    kind: z.literal('unknown'),
+                    path: string,
+                    subpath: string.nullish(),
+                  }),
+                ]),
+              }),
+            ]),
+          }),
+        )
+        .nullish(),
+    })
+    .nullish(),
+});
 const elicitationBase = {
   ...threadId,
   turnId: string.nullish(),
@@ -470,33 +596,33 @@ const elicitationBase = {
   _meta: json.optional(),
 };
 export const elicitation = z.discriminatedUnion('mode', [
-  z.strictObject({
+  z.object({
     ...elicitationBase,
     mode: z.literal('form'),
-    requestedSchema: z.strictObject({
+    requestedSchema: z.object({
       type: z.literal('object'),
       properties: z.record(string, object),
       required: z.array(string).nullish(),
     }),
   }),
-  z.strictObject({
+  z.object({
     ...elicitationBase,
     mode: z.literal('openai/form'),
     requestedSchema: json,
   }),
-  z.strictObject({
+  z.object({
     ...elicitationBase,
     mode: z.literal('openaiForm'),
     requestedSchema: json,
   }),
-  z.strictObject({
+  z.object({
     ...elicitationBase,
     mode: z.literal('url'),
     elicitationId: string,
     url: string,
   }),
 ]);
-export const usage = z.strictObject({
+export const usage = z.object({
   cachedInputTokens: integer,
   inputTokens: integer,
   outputTokens: integer,
@@ -504,12 +630,12 @@ export const usage = z.strictObject({
   totalTokens: integer,
   cacheWriteInputTokens: integer.optional(),
 });
-export const rateWindow = z.strictObject({
+export const rateWindow = z.object({
   usedPercent: integer,
   resetsAt: integer.nullish(),
   windowDurationMins: integer.nullish(),
 });
-export const rateLimits = z.strictObject({
+export const rateLimits = z.object({
   primary: rateWindow.nullish(),
   secondary: rateWindow.nullish(),
   limitId: string.nullish(),
@@ -519,7 +645,7 @@ export const rateLimits = z.strictObject({
   rateLimitReachedType: string.nullish(),
   spendControlReached: z.boolean().nullish(),
   individualLimit: z
-    .strictObject({
+    .object({
       limit: string,
       remainingPercent: integer,
       resetsAt: integer,
@@ -527,7 +653,7 @@ export const rateLimits = z.strictObject({
     })
     .nullish(),
   credits: z
-    .strictObject({
+    .object({
       balance: string.nullish(),
       hasCredits: z.boolean(),
       unlimited: z.boolean(),
