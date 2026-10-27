@@ -57,6 +57,13 @@ export type SessionInspectorPresentation = 'docked' | 'sheet' | 'embedded';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './session-inspector.component.html',
+  // Glass on: docked, the inspector sits in a chrome pane (the Stats dock),
+  // so it stays clear and the pane's blur shows. The sheet keeps its fill.
+  styles: `
+    :host-context([data-glass='on']) aside {
+      background: transparent;
+    }
+  `,
 })
 export class SessionInspectorComponent {
   private readonly store = inject(SessionInspectorStore);
