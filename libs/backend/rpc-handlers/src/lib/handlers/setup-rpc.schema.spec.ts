@@ -125,7 +125,7 @@ describe('setup-rpc.schema', () => {
       const result = WizardInstallPackAgentsParamsSchema.safeParse({
         source: 'https://example.com/pack',
         agentFiles: ['a.md', 'b.md'],
-        planToken: '2b0f7c1e-8d4a-4c55-9a1b-3f6e2d7c9a10',
+        planToken: '00000000-0000-4000-8000-000000000001',
         decisions: {
           'a.md': { decision: 'replace', revision: 'rev-a' },
           'b.md': { decision: 'keep' },

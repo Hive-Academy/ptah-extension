@@ -1162,7 +1162,7 @@ describe('SetupRpcHandlers', () => {
     it('passes parsed plan params through and returns the plan', async () => {
       const h = makeHarness();
       const plan = {
-        planToken: '2b0f7c1e-8d4a-4c55-9a1b-3f6e2d7c9a10',
+        planToken: '00000000-0000-4000-8000-000000000001',
         target: {
           harnessRoot: WORKSPACE,
           openedFolder: WORKSPACE,
@@ -1216,7 +1216,7 @@ describe('SetupRpcHandlers', () => {
       const params = {
         source: SOURCE,
         agentFiles: ['a.md'],
-        planToken: '2b0f7c1e-8d4a-4c55-9a1b-3f6e2d7c9a10',
+        planToken: '00000000-0000-4000-8000-000000000001',
         decisions: { 'a.md': { decision: 'replace', revision: 'r1' } },
         target: 'harness-root',
       };

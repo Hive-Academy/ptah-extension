@@ -173,7 +173,7 @@ describe('wizard-generation-rpc.schema', () => {
   });
 
   describe('preview decisions (TASK_2026_701 B5)', () => {
-    const TOKEN = '3f2a9c1e-8b7d-4e6f-9a0b-1c2d3e4f5a6b';
+    const TOKEN = '00000000-0000-4000-8000-000000000002';
 
     it('accepts a token, per-agent decisions and a target', () => {
       const result = WizardSubmitSelectionParamsSchema.safeParse({
