@@ -466,3 +466,47 @@
   occurs on the Models & Tiers tab (not a P6 surface), and cannot break a lane config or lose data (orchestration
   rule 4).
 - Reversible: yes.
+
+## D62
+
+- Decision: keep the agent account override as it is today. An explicit `accountSelection` from an agent
+  on `ptah_agent_spawn` (including `ambient`) still wins over the stored workspace lane selection.
+- Source: user decision (session 10, 2026-10-27): "let the agent choose the account as is now". The user
+  wants the focus on why the named lane is refused on the same machine.
+- Evidence: `agent-process-manager.service.ts:573-574`; `agent-spawn-args.schema.ts:108`.
+- Reversible: yes.
+
+## D63
+
+- Decision: named-account runs accept a small, explicit allowlist of non-auth Claude Code feature and
+  tuning `env` keys in user/project/local settings (first case: `ENABLE_TOOL_SEARCH`). Keys that can
+  change the account, credentials, API endpoint, provider or config directory stay refused
+  (`unsupported-source`).
+- Source: user decision (session 10, 2026-10-27), option "Allow safe non-auth keys". Security review
+  required (codex code-logic review on the allowlist diff).
+- Evidence: `bugfix-lane-refusal-report.md` (S3 refusal of `D:\projects\property-hub` settings.local.json,
+  one env key `ENABLE_TOOL_SEARCH`); `claude-certified-launch.ts:407-431` (`claudeSettingsOverride`).
+- Reversible: yes.
+
+## D64
+
+- Decision: codex review `code-logic-review-lane-refusal.md` (REVISE 6/10). Finding 2 (misleading
+  `unsupported-store` text) is fixed: the text now names the account directory or the installed CLI.
+  Finding 1 (a throwing logger could replace the coded refusal) gets no change.
+- Evidence for finding 1: the injected `Logger` is the repo-wide contract, and the code calls it without
+  a guard on every refusal path that existed before this diff. Examples: `claude-sdk-lane-runner.ts`
+  `[ClaudeLane] Child close was not confirmed` inside a catch, and `agent-process-manager.service.ts:585`
+  before `LaneAccountResumeError`. A throwing sink already breaks those paths, so this diff adds no new
+  class of risk. Orchestration rule 4: a Moderate finding that cannot break a lane config or lose data
+  becomes a later task. Later task: decide on a no-throw logger contract for the whole repo.
+- Reversible: yes.
+
+## D65
+
+- Decision: codex review `code-logic-review-env-allowlist.md` (REVISE 6/10). Part A is closed: the
+  `unsupported-store` text covers every producer, and the reviewer accepts D64. Part B: both keys are
+  removed from `CLAUDE_SETTINGS_SAFE_ENV_KEYS`, which now has 16 keys.
+  `USE_BUILTIN_RIPGREP` (Serious: it can select a system executable) and
+  `DISABLE_NON_ESSENTIAL_MODEL_CALLS` (Moderate: not confirmed in the current CLI reference).
+- Evidence: the reviewer's remedy was "pinned CLI evidence or removal". Removal is the smaller and safer change.
+- Reversible: yes. A later task can add a key again with pinned CLI evidence.
