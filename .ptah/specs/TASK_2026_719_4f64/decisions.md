@@ -540,3 +540,15 @@
   and store code. The finding cannot break a lane config or lose data.
 - Later task: harden refusal-code extraction against hostile `Proxy` errors.
 - Reversible: yes.
+
+## D68
+
+- Decision: in the final named-account child, Ptah releases the first user message as soon as the same
+  child proves the account (`accountInfo` personal-login check and identity compare). It then verifies
+  `system/init` (certified CLI version and personal key source) before it forwards any output, allows any
+  tool, or saves the run binding. If the init check fails, the run stops.
+- Source: user decision (session 10, 2026-10-27), option "Send after identity".
+- Evidence: live log `phase: final, step: init-wait, interrupt: deadline` 30 s after the spawn (17:29:16 to
+  17:29:46). In streaming-input mode, CLI 2.1.278 builds `system/init` in the turn loop, so `init` follows the
+  first user message. The old order waited for `init` before it released the gate, and the deadline fired.
+- Reversible: yes.
