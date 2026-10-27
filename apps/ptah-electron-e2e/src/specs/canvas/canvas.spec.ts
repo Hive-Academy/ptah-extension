@@ -35,13 +35,15 @@ async function addRailSessions(page: Page, count: number): Promise<void> {
   }
 }
 
-async function cardAction(page: Page, card: Locator, action: 'Open beside' | 'Move up' | 'Move down'): Promise<void> {
+type CardActionName = 'Open beside' | 'Move up' | 'Move down' | 'Close session';
+
+async function cardAction(page: Page, card: Locator, action: CardActionName): Promise<void> {
   await card.getByRole('button', { name: 'Session actions' }).click();
   await page.getByRole('menuitem', { name: action }).click();
 }
 
 async function headerAction(page: Page, pane: Locator, action: 'Swap panes' | 'Close pane' | 'Close split'): Promise<void> {
-  await pane.getByRole('button', { name: 'More session actions' }).click();
+  await pane.getByRole('button', { name: 'Pane actions' }).click();
   await pane.getByRole('menuitem', { name: action }).click();
 }
 
@@ -145,7 +147,7 @@ test.describe('Canvas Rail', () => {
 });
 
 test.describe('Canvas Rail split focus and reorder', () => {
-  test('Open beside shows two live panes with Details in the pane header, clear of the lane tabs', async ({ ui }) => {
+  test('Open beside shows two live panes with floating controls clear of the sidebar; Details opens from the sidebar rail', async ({ ui }) => {
     await ui.goto('canvas');
     const page = ui.page;
     await openSplit(page);
@@ -154,23 +156,31 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await expect(railBoard(page).locator('ptah-chat-view')).toHaveCount(2);
     await expect(panes(page).first()).toHaveAttribute('aria-label', /^(Left|Top) session: /);
     await expect(paneContainer(page).locator('[data-pane-side][aria-label$=", active"]')).toHaveCount(1);
+    // Split starts with the sidebar on its compact rail, which carries the lane tabs.
+    const sidebarRail = railBoard(page).locator('[data-inspector-rail]');
+    await expect(sidebarRail.locator('ptah-canvas-lane-tabs')).toBeVisible();
+    const railBox = await sidebarRail.boundingBox();
     for (const index of [0, 1]) {
       const pane = panes(page).nth(index);
-      const details = pane.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' });
-      const laneTabs = pane.locator('ptah-canvas-lane-tabs');
-      await expect(details).toBeVisible();
-      const detailsBox = await details.boundingBox();
-      const tabsBox = await laneTabs.boundingBox();
-      expect(detailsBox && tabsBox && detailsBox.y + detailsBox.height <= tabsBox.y + 1).toBe(true);
+      // No header row and no lane strip in a pane: only the floating pane-actions group.
+      await expect(pane.locator('ptah-canvas-lane-tabs')).toHaveCount(0);
+      await pane.hover();
+      const controls = pane.getByRole('group', { name: 'Pane controls' });
+      await expect(controls).toBeVisible();
+      await expect(controls.getByRole('button')).toHaveCount(1);
+      await expect(controls.getByRole('button', { name: 'Pane actions' })).toBeVisible();
+      const controlsBox = await controls.boundingBox();
+      expect(controlsBox && railBox && controlsBox.x + controlsBox.width <= railBox.x + 1).toBe(true);
     }
 
-    const active = paneContainer(page).locator('[data-pane-side][aria-label$=", active"]');
-    await active.locator('ptah-canvas-focus-header').getByRole('button', { name: 'Open details' }).click();
-    const dialog = active.getByRole('dialog', { name: 'Session details' });
+    // The sidebar follows the active pane; in split its expanded form is an overlay dialog.
+    const expand = sidebarRail.locator('[data-inspector-expand]');
+    await expand.click();
+    const dialog = railBoard(page).getByRole('dialog', { name: 'Session details' });
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
-    await expect(active.getByRole('button', { name: 'Open details' })).toBeFocused();
+    await expect(railBoard(page).locator('[data-inspector-rail] [data-inspector-expand]')).toBeFocused();
   });
 
   test('Swap panes changes only the visual order; Close split keeps the active tab in one pane', async ({ ui }) => {
@@ -245,7 +255,37 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await expect(panes(page)).toHaveCount(1);
     await expect(panes(page).first()).not.toHaveAttribute('data-pane-side', activeSide ?? '');
     await expect(railCards(page)).toHaveCount(2);
-    await expect(panes(page).first().getByRole('button', { name: 'More session actions' })).toBeFocused();
+    // The pane's floating controls leave with the split; focus lands on the survivor's
+    // card Session actions button in the Sessions rail, never on body.
+    const focusedCard = railCards(page).filter({ has: page.locator(':focus') });
+    await expect(focusedCard).toHaveCount(1);
+    await expect(focusedCard.getByRole('button', { name: 'Session actions' })).toBeFocused();
+  });
+
+  test("session actions live only in each card's menu and act on that card's session", async ({ ui }) => {
+    await ui.goto('canvas');
+    const page = ui.page;
+    await addRailSessions(page, 2);
+    await railCards(page).first().click();
+    const second = railCards(page).nth(1);
+    const secondId = await second.getAttribute('data-tab-id');
+    // The sidebar keeps stats and its expand/collapse control only.
+    for (const name of ['Close session', 'Stop session', 'Switch to compact view', 'Switch to full view', 'Hand off session']) {
+      await expect(railBoard(page).locator('[data-inspector-rail], [data-inspector-dock]').getByRole('button', { name, exact: true })).toHaveCount(0);
+    }
+    await second.getByRole('button', { name: 'Session actions' }).click();
+    const menu = page.getByRole('menu', { name: 'Session actions' });
+    await expect(menu.getByRole('menuitem', { name: 'Switch to compact view' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Hand off session to…' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Close session' })).toBeVisible();
+    // Idle sessions offer no Stop.
+    await expect(menu.getByRole('menuitem', { name: 'Stop session' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await cardAction(page, second, 'Close session');
+    await expect(railCards(page)).toHaveCount(1);
+    await expect(railBoard(page).locator(`[data-rail-card][data-tab-id="${secondId}"]`)).toHaveCount(0);
+    // Focus moves to the neighbouring card, never to body.
+    await expect(railCards(page).first().locator(':focus')).toHaveCount(1);
   });
 
   test('Move down reorders the Rail cards and announces the new position', async ({ ui }) => {

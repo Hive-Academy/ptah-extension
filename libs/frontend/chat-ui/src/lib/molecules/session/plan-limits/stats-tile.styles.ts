@@ -79,11 +79,63 @@ export function planCardClass(tone: StatsTileTone): string {
   return `block w-full relative overflow-hidden rounded-md border border-surface-border bg-surface-1 border-l-2 ${CARD_ACCENT[tone]}`;
 }
 
-/** Lane row: dashed accent; a neutral lane keeps a visible dash. */
-export function laneRowClass(tone: StatsTileTone): string {
+/**
+ * Lane row: a DaisyUI `collapse collapse-arrow` whose open state the host
+ * owns (`collapse-open` / `collapse-close`, never `:focus`), with the dashed
+ * accent; a neutral lane keeps a visible dash.
+ */
+export function laneCollapseClass(tone: StatsTileTone, open: boolean): string {
   const accent =
     tone === 'neutral' ? 'border-base-content/40' : ROW_ACCENT[tone];
-  return `${ROW_FACE} ${LANE_ROW_FILL} ${accent}`;
+  const state = open ? 'collapse-open' : 'collapse-close';
+  return `collapse collapse-arrow ${state} rounded-sm border-l-2 ${LANE_ROW_FILL} ${accent}`;
+}
+
+/**
+ * The lane row's title: compact padding over DaisyUI's 3.75rem title, and
+ * the arrow moved to the compact row (`!` because DaisyUI's arrow selector
+ * outranks a single utility).
+ */
+export const LANE_COLLAPSE_TITLE =
+  'collapse-title block w-full min-h-0 py-1 pl-1.5 pr-6 text-left cursor-pointer hover:bg-base-content/5 focus-visible:outline-none after:!top-[0.95rem] after:!end-2.5 after:!h-1.5 after:!w-1.5';
+
+/**
+ * The shared grid of the Lanes section: name / usage / status columns with
+ * fixed tracks, so the columns line up across lane rows and the subtotal.
+ */
+export const LANE_ROW_GRID =
+  'grid grid-cols-[minmax(0,1fr)_5.5rem_7rem] items-center gap-x-2';
+
+/**
+ * An ⓘ toggle of the compact Lanes section: a real button (focusable,
+ * `aria-expanded`) that opens its explanation as a visible line, so the text
+ * is reachable from the keyboard, not only through a hover `title`.
+ */
+export const LANE_INFO_BUTTON =
+  'inline-flex h-4 min-w-4 shrink-0 cursor-help items-center justify-center gap-1 rounded-sm text-base-content-muted hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content';
+
+/** A short label that opens its full explanation: dotted underline, as the SESSION stats labels. */
+export const LANE_DETAIL_TOGGLE =
+  'inline-flex min-w-0 cursor-help items-center gap-1 text-[10.5px] text-base-content-muted underline decoration-dotted underline-offset-2 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content';
+
+/** The visible explanation line a lane toggle opens. */
+export const LANE_DETAIL_LINE = 'text-[10.5px] leading-snug text-base-content-muted';
+
+const BADGE_TONE: Readonly<Record<StatsChipTone, string>> = {
+  error: 'badge-outline border-error bg-error/15',
+  warning: 'badge-outline border-warning bg-warning/15',
+  success: 'badge-outline border-success bg-success/15',
+  info: 'badge-outline border-info bg-info/15',
+  live: 'badge-outline border-success bg-success/15',
+  neutral: 'badge-ghost',
+};
+
+/**
+ * A DaisyUI `badge badge-xs` for a status. Tones tint border and fill only;
+ * the text stays `text-base-content` (design §8).
+ */
+export function badgeClass(tone: StatsChipTone): string {
+  return `badge badge-xs gap-1 max-w-full truncate whitespace-nowrap text-base-content ${BADGE_TONE[tone]}`;
 }
 
 /** Usage at or above this percent fills the bar in the warning colour. */

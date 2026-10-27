@@ -368,8 +368,8 @@ function folderName(root: string): string {
 
         <!-- In-card toolbar (design-spec §6.3 order): + -> approval chip ->
              spacer -> model / effort group -> mic -> stop / send -->
-        <div class="flex items-center gap-1 px-2 pr-2.5 pb-2 min-w-0">
-          <div class="flex items-center gap-1 min-w-0 flex-1">
+        <div class="ptah-composer-toolbar flex items-center gap-1 px-2 pr-2.5 pb-2 min-w-0">
+          <div class="ptah-composer-toolbar-start flex items-center gap-1 min-w-0 flex-1">
             <ptah-native-popover
               [isOpen]="attachMenuOpen()"
               [placement]="'top-start'"
@@ -434,7 +434,7 @@ function folderName(root: string): string {
           </div>
 
           <!-- Right: model / effort, voice, stop, send -->
-          <div class="flex items-center gap-1 min-w-0 flex-shrink">
+          <div class="ptah-composer-toolbar-end flex items-center gap-1 min-w-0 flex-shrink">
             <!-- Both existing controls kept (Decision A2-5); below 640 px the
                  effort label hides and its icon trigger stays. -->
             <div
@@ -603,6 +603,18 @@ function folderName(root: string): string {
       @container ptah-composer (max-width: 400px) {
         :host ::ng-deep .ptah-composer-label {
           display: none;
+        }
+        /* Icon-only controls can still exceed a ~200px pane: the start group keeps its
+           content width and the model/send group wraps to its own right-aligned row
+           instead of overlapping it. */
+        .ptah-composer-toolbar {
+          flex-wrap: wrap;
+        }
+        .ptah-composer-toolbar-start {
+          flex-basis: auto;
+        }
+        .ptah-composer-toolbar-end {
+          margin-left: auto;
         }
       }
     `,

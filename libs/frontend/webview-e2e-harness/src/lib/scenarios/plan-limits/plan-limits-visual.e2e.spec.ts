@@ -115,7 +115,7 @@ test.describe('plan limits > session inspector', () => {
         // visible board); the main panel's own chat view stays mounted but hidden.
         const tile = page.locator('ptah-canvas-focus-area');
         const board = page.locator('ptah-canvas-rail-board:visible').first();
-        const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]');
+        const inspectorExpand = board.locator('[data-inspector-rail] [data-inspector-expand]');
 
         for (const message of LIVE_LANE_MESSAGES) {
           await bridge.inject(message);
@@ -128,18 +128,9 @@ test.describe('plan limits > session inspector', () => {
         // closing collapses the panel's inner surface instead of hiding the host.
         await expect(agentPanel.locator('aside')).toHaveClass(/\bw-0\b/);
 
-        if (await inspectorToggle.isVisible()) {
-          if (await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-            await inspectorToggle.click();
-          }
-        } else {
-          // At 440px the board is at least 400px wide, so there is no compact
-          // sheet and the header has no Details toggle. The band is 'sm', where
-          // the side dock starts closed; the Stats tab opens it.
-          const statsTab = board.locator('[data-stats-tab] button');
-          if (await statsTab.getAttribute('aria-expanded') === 'false') {
-            await statsTab.click();
-          }
+        // The sidebar's compact rail renders only while the sidebar is closed.
+        if (await inspectorExpand.isVisible()) {
+          await inspectorExpand.click();
         }
         const inspector = board.locator('ptah-session-inspector:visible').first();
         const stats = inspector.locator('[data-testid="inspector-session-stats"]');

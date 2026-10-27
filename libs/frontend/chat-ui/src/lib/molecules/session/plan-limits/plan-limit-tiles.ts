@@ -42,6 +42,8 @@ import type {
   StatsTileTone,
 } from './stats-limit-view-model.types';
 
+export const PLAN_EMPTY = { usage: 'Plan usage unavailable', account: 'Account not resolved' } as const;
+
 // ----------------------------------------------------------- session plan
 
 export interface SessionPlan {
@@ -71,7 +73,7 @@ export function sessionPlan(
     return {
       ...empty,
       tiles: [
-        unavailableTile('plan-status:none', 'Usage', 'owner not resolved', [
+        unavailableTile('plan-status:none', 'Usage', PLAN_EMPTY.account, [
           "This session's account is not resolved yet; no other account's limits are shown.",
         ]),
       ],
@@ -234,13 +236,13 @@ function unavailableTile(
     id,
     kind: 'status',
     label,
-    captionLead: 'unknown account',
-    caption: 'unknown account',
+    captionLead: '',
+    caption: '',
     value: 'Unavailable',
-    resetLine,
+    resetLine: '',
     tone: 'neutral',
     sourceChips: [],
-    detailLines,
+    detailLines: [resetLine, ...detailLines],
   };
 }
 

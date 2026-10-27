@@ -14,6 +14,30 @@ export function focusRailSelectButton(card: HTMLElement | undefined): void {
     ?.focus();
 }
 
+/** Focus `items[index]`, wrapping a negative or past-the-end index. */
+export function focusMenuItem(items: readonly HTMLElement[], index: number): void {
+  items[(index + items.length) % items.length]?.focus();
+}
+
+/**
+ * Roving focus for a `role="menu"` (the ARIA menu pattern): ArrowDown and
+ * ArrowUp move with wraparound, Home and End jump to the first and last item.
+ * A handled key is prevented; any other key is left alone.
+ */
+export function handleMenuKeydown(event: KeyboardEvent, items: readonly HTMLElement[]): void {
+  const current = items.findIndex((item) => item === item.ownerDocument.activeElement);
+  let next: number;
+  switch (event.key) {
+    case 'ArrowDown': next = current + 1; break;
+    case 'ArrowUp': next = current < 0 ? -1 : current - 1; break;
+    case 'Home': next = 0; break;
+    case 'End': next = -1; break;
+    default: return;
+  }
+  focusMenuItem(items, next);
+  event.preventDefault();
+}
+
 /**
  * Alt+Shift+ArrowUp/Down asks to move the card one place; any other modifier
  * set, or a plain arrow (left to `handleCanvasRailKeydown`), is not a move.

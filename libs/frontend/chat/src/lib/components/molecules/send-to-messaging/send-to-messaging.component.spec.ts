@@ -232,11 +232,12 @@ describe('SendToMessagingComponent', () => {
       expect(h.el.textContent?.trim()).toBe('');
     });
 
-    it('renders the hand-off trigger in Electron', async () => {
+    it('renders the hand-off menu item in Electron', async () => {
       const h = await setup();
       const btn = byTestId(h.el, 'tile-send-to-messaging-btn');
       expect(btn).not.toBeNull();
-      expect(btn?.textContent?.trim()).toBe('Hand off');
+      expect(btn?.getAttribute('role')).toBe('menuitem');
+      expect(btn?.textContent?.trim()).toBe('Hand off session to…');
     });
   });
 
@@ -247,17 +248,19 @@ describe('SendToMessagingComponent', () => {
       });
       const btn = byTestId(h.el, 'tile-send-to-messaging-btn');
       expect(btn).not.toBeNull();
-      expect((btn as HTMLButtonElement).disabled).toBe(true);
-      expect(btn?.parentElement?.getAttribute('title')).toBe(
+      expect(btn?.getAttribute('aria-disabled')).toBe('true');
+      expect(btn?.getAttribute('title')).toBe(
         'Hand off unavailable — no session yet — send a message first',
       );
+      // The reason is visible on the item's second line, not only in a tooltip.
+      expect(btn?.textContent).toContain('no session yet — send a message first');
     });
 
     it('explains an unresolved tab rather than vanishing', async () => {
       const h = await setup({ tabs: [] });
       const btn = byTestId(h.el, 'tile-send-to-messaging-btn');
-      expect((btn as HTMLButtonElement).disabled).toBe(true);
-      expect(btn?.parentElement?.getAttribute('title')).toBe(
+      expect(btn?.getAttribute('aria-disabled')).toBe('true');
+      expect(btn?.getAttribute('title')).toBe(
         'Hand off unavailable — this tile has no chat tab yet',
       );
     });
@@ -265,11 +268,9 @@ describe('SendToMessagingComponent', () => {
     it('enables the trigger and labels the action when a session exists', async () => {
       const h = await setup();
       const btn = byTestId(h.el, 'tile-send-to-messaging-btn');
-      expect((btn as HTMLButtonElement).disabled).toBe(false);
-      expect(btn?.parentElement?.getAttribute('title')).toBe(
-        'Hand off session to…',
-      );
-      expect(btn?.getAttribute('aria-label')).toBe('Hand off session to…');
+      expect(btn?.getAttribute('aria-disabled')).toBeNull();
+      expect(btn?.getAttribute('title')).toBe('Hand off session to…');
+      expect(btn?.textContent?.trim()).toBe('Hand off session to…');
     });
 
     it('does not open the picker while disabled', async () => {
@@ -366,6 +367,40 @@ describe('SendToMessagingComponent', () => {
       const row = byTestId(h.el, 'handoff-row-b-tg') as HTMLButtonElement;
       expect(row.disabled).toBe(false);
       expect(byTestId(h.el, 'handoff-row-offline')).toBeNull();
+    });
+
+    it('roves the enabled options with ArrowDown/ArrowUp, Home and End', async () => {
+      const opsTwo = makeBinding({ id: 'b-tg2', platform: 'telegram', displayName: 'Ops 2' });
+      const h = await setup({
+        bindings: [TELEGRAM_BINDING, DISCORD_BINDING, opsTwo],
+        running: [
+          { platform: 'telegram', running: true },
+          { platform: 'discord', running: false },
+        ],
+      });
+      await openPicker(h);
+      document.body.appendChild(h.el);
+      const first = byTestId(h.el, 'handoff-row-b-tg') as HTMLButtonElement;
+      const last = byTestId(h.el, 'handoff-row-b-tg2') as HTMLButtonElement;
+      const press = (key: string) => {
+        const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+        (document.activeElement ?? first).dispatchEvent(event);
+        return event;
+      };
+      first.focus();
+      // The offline Discord row is disabled, so ArrowDown skips it.
+      expect(press('ArrowDown').defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(last);
+      press('ArrowDown');
+      expect(document.activeElement).toBe(first);
+      press('ArrowUp');
+      expect(document.activeElement).toBe(last);
+      press('Home');
+      expect(document.activeElement).toBe(first);
+      press('End');
+      expect(document.activeElement).toBe(last);
+      expect(press('Tab').defaultPrevented).toBe(false);
+      h.el.remove();
     });
 
     it('closes on the popover closed output (Escape / outside click)', async () => {
@@ -548,11 +583,13 @@ describe('SendToMessagingComponent', () => {
       attachedBinding: { bindingId: 'b-tg', platform: 'telegram' },
     };
 
-    it('shows the attached indicator instead of the trigger', async () => {
+    it('shows the attached resolve-back item instead of the trigger', async () => {
       const h = await setup({ tabs: [attachedTab] });
       expect(byTestId(h.el, 'tile-send-to-messaging-btn')).toBeNull();
       const btn = byTestId(h.el, 'tile-resolve-back-btn');
-      expect(btn?.textContent).toContain('Telegram');
+      expect(btn?.getAttribute('role')).toBe('menuitem');
+      expect(btn?.textContent).toContain('Resolve back to webview');
+      expect(btn?.textContent).toContain('Driven from Telegram · read-only here');
       expect(btn?.getAttribute('title')).toBe(
         'Session is driven from Telegram — resolve it back to the webview',
       );

@@ -7,12 +7,9 @@ import {
   input,
   output,
 } from '@angular/core';
-import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import type { CompactRailState, SessionLimitSummary } from '@ptah-extension/chat-ui';
-import { CanvasStore } from '../canvas.store';
+import { TabManagerService } from '@ptah-extension/chat';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
-import { CanvasLaneTabsComponent } from '../canvas-detail/canvas-lane-tabs.component';
 import { CanvasLaneViewComponent } from '../canvas-detail/canvas-lane-view.component';
 import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
 
@@ -21,7 +18,6 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
   standalone: true,
   imports: [
     CanvasFocusHeaderComponent,
-    CanvasLaneTabsComponent,
     CanvasLaneViewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -30,55 +26,34 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
     `
       /* Glass on (any theme): the pane's own glass shows through the whole column, from
          the title row to the composer (styles.css "Ptah chat column"). */
+      :host {
+        --chat-content-max-width: 1100px;
+      }
       :host-context([data-theme][data-glass='on']) > section {
         background-color: transparent;
       }
     `,
   ],
   template: `
-    <section
-      class="flex h-full min-h-0 flex-col bg-base-100"
-    >
+    <section class="group/pane relative flex h-full min-h-0 flex-col bg-base-100">
       @if (focusedTabId(); as id) {
+        @if (splitDisplayed()) {
         <ptah-canvas-focus-header
-          [tabId]="id"
-          [title]="tab()?.title ?? ''"
-          [state]="state()"
-          [branch]="tab()?.agentOrigin?.branch ?? null"
-          [running]="canvasStore.isSessionRunning(id)"
-          [viewMode]="tab()?.viewMode ?? 'full'"
-          [band]="band()"
-          [splitDisplayed]="splitDisplayed()"
-          [detailsOpen]="detailsOpen()"
-          [limitCue]="limitCue()"
-          [contextRingPercent]="contextRingPercent()"
-          [toggleDescription]="toggleDescription()"
-          [paneFocused]="paneFocused()"
-          [paneNumber]="paneNumber()"
-          [panePlace]="panePlace()"
-          (stop)="stop(id)"
-          (toggleViewMode)="tabs.toggleTabViewMode(id)"
-          (closeRequested)="closeRequested.emit(id)"
+          class="absolute right-2 top-2 z-20 rounded bg-base-100 opacity-0 hover:opacity-100 group-hover/pane:opacity-100 focus-within:opacity-100"
           (closeSplitRequested)="closeSplitRequested.emit(paneId())"
           (closePaneRequested)="closePaneRequested.emit(paneId())"
           (swapPanesRequested)="swapPanesRequested.emit(paneId())"
-          (detailsRequested)="detailsRequested.emit(paneId())"
         />
-        <ptah-canvas-lane-tabs
-          [panelId]="panelId()"
-          [tabId]="id"
-          [laneKey]="detail.laneKeyFor(id)"
-          (laneSelected)="detail.selectLaneFor(id, $event)"
-        />
+        }
         <div class="min-h-0 flex-1">
-            <ptah-canvas-lane-view
-              [panelId]="panelId()"
-              [paneFocused]="paneFocused()"
-              [splitDisplayed]="splitDisplayed()"
-              [tabId]="id"
-              [sessionId]="tab()?.claudeSessionId ?? null"
-              [laneKey]="detail.laneKeyFor(id)"
-            />
+          <ptah-canvas-lane-view
+            [panelId]="panelId()"
+            [paneFocused]="paneFocused()"
+            [splitDisplayed]="splitDisplayed()"
+            [tabId]="id"
+            [sessionId]="tab()?.claudeSessionId ?? null"
+            [laneKey]="detail.laneKeyFor(id)"
+          />
         </div>
       } @else {
         <div
@@ -95,27 +70,13 @@ export class CanvasFocusAreaComponent {
   readonly paneId = input<'left' | 'right'>('left');
   readonly paneFocused = input(true);
   readonly splitDisplayed = input(false);
-  /** Split only: visual position (1 = left/top) and its positional word, for the header marker. */
-  readonly paneNumber = input<1 | 2 | null>(null);
-  readonly panePlace = input('');
-  /** The split Details overlay is open on this pane. */
-  readonly detailsOpen = input(false);
-  readonly limitCue = input<SessionLimitSummary | null>(null);
-  readonly contextRingPercent = input<number | null>(null);
-  readonly toggleDescription = input('');
   readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
-  readonly state = input<CompactRailState>('idle');
-  readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');
-  readonly closeRequested = output<string>();
-  /** Header split actions, forwarded with this pane's stable id. */
+  /** Pane actions, forwarded with this pane's stable id. */
   readonly closeSplitRequested = output<'left' | 'right'>();
   readonly closePaneRequested = output<'left' | 'right'>();
   readonly swapPanesRequested = output<'left' | 'right'>();
-  readonly detailsRequested = output<'left' | 'right'>();
-  readonly canvasStore = inject(CanvasStore);
   readonly tabs = inject(TabManagerService);
   readonly detail = inject(CanvasDetailService);
-  private readonly chatStore = inject(ChatStore);
   private readonly metrics = inject(CanvasRenderMetricsService);
   readonly tab = computed(
     () =>
@@ -134,14 +95,5 @@ export class CanvasFocusAreaComponent {
       }
       this.previousId = id;
     });
-  }
-
-  async stop(id: string): Promise<void> {
-    if (this.tabs.activeTabId() !== id) this.canvasStore.focusTile(id);
-    try {
-      await this.chatStore.abortWithConfirmation();
-    } catch (error) {
-      console.error('Could not stop session', error);
-    }
   }
 }

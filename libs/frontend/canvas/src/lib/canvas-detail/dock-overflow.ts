@@ -40,7 +40,8 @@ const STATUS_INK: Readonly<Record<AgentStatusWord, string>> = {
  */
 export function dockCapacity(width: number): number {
   if (!Number.isFinite(width)) return Number.POSITIVE_INFINITY;
-  const menuWidth = width < COMPACT_BELOW_PX ? MENU_WIDTH_COMPACT_PX : MENU_WIDTH_PX;
+  const menuWidth =
+    width < COMPACT_BELOW_PX ? MENU_WIDTH_COMPACT_PX : MENU_WIDTH_PX;
   const raw = Math.floor(
     (width - DOCK_PADDING_PX - PILL_RESERVE_PX - menuWidth - DIVIDERS_PX) /
       CHIP_STEP_PX,
@@ -53,8 +54,8 @@ export function dockCapacity(width: number): number {
  * `failed`, `running`, then everyone else. Ties keep dock order.
  */
 function overflowRank(agent: SessionAgent, selectedKey: string): number {
-  if (agent.kind === 'orchestrator') return 0;
-  if (agent.key === selectedKey) return 1;
+  if (agent.key === selectedKey) return 0;
+  if (agent.kind === 'orchestrator') return 1;
   switch (agent.status) {
     case 'waiting':
       return 2;
@@ -78,11 +79,16 @@ export function planDockOverflow(
   selectedKey: string,
   capacity: number,
 ): { visible: readonly SessionAgent[]; hidden: readonly SessionAgent[] } {
-  if (agents.length <= DOCK_INLINE_MAX ||!Number.isFinite(capacity)) return { visible: agents, hidden: [] };
+  if (agents.length <= DOCK_INLINE_MAX || !Number.isFinite(capacity))
+    return { visible: agents, hidden: [] };
   const slots = Math.max(0, Math.floor(capacity)) + 1;
   const chosen = new Set(
     agents
-      .map((agent, index) => ({ agent, index, rank: overflowRank(agent, selectedKey) }))
+      .map((agent, index) => ({
+        agent,
+        index,
+        rank: overflowRank(agent, selectedKey),
+      }))
       .sort((a, b) => a.rank - b.rank || a.index - b.index)
       .slice(0, Math.min(slots, agents.length))
       .map((row) => row.agent.key),
@@ -97,16 +103,25 @@ export function planDockOverflow(
 }
 
 /** Running time is `now - startedAt`; a finished run is `endedAt - startedAt`. */
-export function agentDurationMs(agent: SessionAgent, now: number): number | null {
-  return agentRunDurationMs({
-    running: agent.status === 'running',
-    startedAt: agent.startedAt,
-    endedAt: agent.endedAt,
-  }, now);
+export function agentDurationMs(
+  agent: SessionAgent,
+  now: number,
+): number | null {
+  return agentRunDurationMs(
+    {
+      running: agent.status === 'running',
+      startedAt: agent.startedAt,
+      endedAt: agent.endedAt,
+    },
+    now,
+  );
 }
 
 /** Display text for a run, or `null` when there is nothing to show. */
-export function agentDurationText(agent: SessionAgent, now: number): string | null {
+export function agentDurationText(
+  agent: SessionAgent,
+  now: number,
+): string | null {
   const ms = agentDurationMs(agent, now);
   return ms === null ? null : formatAgentDuration(ms);
 }
