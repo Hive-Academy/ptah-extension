@@ -299,9 +299,14 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
       const port = container.resolve(ClaudeCliAdapter).accountBindings;
 
       expect(port).toBeDefined();
-      await expect(port?.persistReference(
-        { accountBinding: binding, accountBindingId: binding.runId }, 'sdk-session-1',
-      )).rejects.toMatchObject({ code: 'release-held' });
+      const reference = { accountBinding: binding, accountBindingId: binding.runId };
+      await expect(port?.persistReference(reference, 'sdk-session-1')).rejects.toMatchObject({
+        name: 'LaneAccountResumeError',
+        code: 'unavailable-storage',
+      });
+      await expect(port?.validateResume(reference)).resolves.toEqual({
+        code: 'unavailable-storage',
+      });
       expect(lookup).not.toHaveBeenCalled();
     });
 
@@ -321,13 +326,14 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
       expect(lookup).toHaveBeenCalledWith({ provider: 'claude', sdkSessionId: 'sdk-session-1' });
     });
 
-    it('(b) refuses a bound named session with release-held until certification', async () => {
-      useAccountService(async () => ({ status: 'bound', binding }));
+    it('(b) refuses a bound named session with unavailable-storage without certified persistence', async () => {
+      const lookup = useAccountService(async () => ({ status: 'bound', binding }));
       const accountBindings = container.resolve(ClaudeCliAdapter).accountBindings;
 
       await expect(
         resolveLaneAccountResume({ ...continueInput, accountBindings }),
-      ).rejects.toMatchObject({ name: 'LaneAccountResumeError', code: 'release-held' });
+      ).rejects.toMatchObject({ name: 'LaneAccountResumeError', code: 'unavailable-storage' });
+      expect(lookup).toHaveBeenCalledTimes(1);
     });
 
     it('(c) refuses unavailable-storage when the account service is missing or fails, without leaking', async () => {
@@ -365,7 +371,7 @@ describe('registerCliAgentRuntimeServices — AgentProcessManager DI smoke', () 
         container.resolve(ClaudeCliAdapter).runSdk({
           task: 'do work', workingDirectory: '/workspace', accountAdmission,
         }),
-      ).rejects.toMatchObject({ code: 'release-held' });
+      ).rejects.toMatchObject({ code: 'unavailable-storage' });
       expect(admitClaudeRoute).not.toHaveBeenCalled();
       expect(lookup).not.toHaveBeenCalled();
     });

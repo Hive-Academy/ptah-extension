@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ClaudeAccountNamedRoute,
+  ClaudeCertifiedLaunchContext,
+} from '@ptah-extension/auth-providers-tokens';
 import type { SessionId } from '@ptah-extension/shared';
 import type {
   AccountInfo,
@@ -249,25 +252,10 @@ describe('account-scoped session quota controls', () => {
     h.probe.dispose();
   });
 
-  it.each([
-    [false, false],
-    [true, false],
-    [false, true],
-    [true, true],
-  ])(
-    'pins model reads under pressure (advance=%s, probing=%s)',
-    async (advance, probing) => {
+  it.each([false, true])(
+    'pins model reads under pressure (advance=%s)',
+    async (advance) => {
       type Dependencies = ConstructorParameters<typeof SdkModelService>;
-      type Installation = Awaited<
-        ReturnType<NonNullable<Dependencies[7]>['findExecutable']>
-      >;
-      let resolve!: (value: Installation) => void;
-      const findExecutable = jest.fn(
-        () =>
-          new Promise<Installation>((done) => {
-            resolve = done;
-          }),
-      );
       const service = new SdkModelService(
         partialMock<Logger>({ debug: jest.fn() }),
         partialMock<Dependencies[1]>({}),
@@ -276,38 +264,37 @@ describe('account-scoped session quota controls', () => {
         partialMock<Dependencies[4]>({}),
         partialMock<Dependencies[5]>({}),
         undefined,
-        { findExecutable },
       );
       const models = [
         { value: 'fixture', displayName: 'Fixture', description: 'Fixture' },
       ];
       let finishProbe!: (value: typeof models) => void;
-      service['probeAccountModels'] = jest.fn(() =>
-        probing
-          ? new Promise<typeof models>((done) => {
-              finishProbe = done;
-            })
-          : Promise.resolve(models),
+      service['probeAccountModels'] = jest.fn(
+        () =>
+          new Promise<typeof models>((done) => {
+            finishProbe = done;
+          }),
       );
-      const installation = partialMock<NonNullable<Installation>>({
-        cliJsPath: '/fixture/cli.js',
-        version: '1.0',
+      // The probe is replaced, so only the cache-key fields are read.
+      const launch = partialMock<ClaudeCertifiedLaunchContext>({
+        executable: partialMock<ClaudeCertifiedLaunchContext['executable']>({
+          sdkExecutablePath: '/fixture/cli.js',
+          version: '1.0',
+        }),
+        envDigest: 'fixture-digest',
       });
-      const pending = service.getSupportedModels(route());
-      if (probing) {
-        resolve(installation);
-        await Promise.resolve();
-        expect(service['probeAccountModels']).toHaveBeenCalledTimes(1);
-      }
+      const pending = service.getSupportedModels(route(), undefined, launch);
+      expect(service['probeAccountModels']).toHaveBeenCalledTimes(1);
       if (advance) service.invalidateAccountRoute(route('a', 2));
       for (let i = 0; i < 140; i++)
         service.invalidateAccountRoute(route(`pressure-${i}`));
       if (advance) {
-        expect(await service.getSupportedModels(route())).toEqual([]);
-        expect(findExecutable).toHaveBeenCalledTimes(1);
+        expect(
+          await service.getSupportedModels(route(), undefined, launch),
+        ).toEqual([]);
+        expect(service['probeAccountModels']).toHaveBeenCalledTimes(1);
       }
-      if (probing) finishProbe(models);
-      else resolve(installation);
+      finishProbe(models);
       expect(await pending).toEqual(advance ? [] : models);
       expect(service['accountEpochs'].size).toBeLessThanOrEqual(128);
       expect(service['activeAccountReads'].size).toBe(0);

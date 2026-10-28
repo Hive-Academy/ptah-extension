@@ -1,13 +1,31 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inject, input, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule, X } from 'lucide-angular';
 import { SettingsSaveFeedbackService } from './settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
 
+/** Delay between clearing the live regions and writing the new message, so a repeated message is re-announced. */
+const ANNOUNCE_DELAY_MS = 50;
+
 /**
  * Renders the Settings save toast (prototype `.toast-msg`, bottom-right) from
- * `SettingsSaveFeedbackService`. Success is `role="status"` (polite); failure and refusal are
- * `role="alert"`. Undo is disabled while any save is in flight (D3); it stays focusable (aria-disabled).
+ * `SettingsSaveFeedbackService`. Undo is disabled while any save is in flight (D3); it stays focusable (aria-disabled).
+ *
+ * Announcements (P6-A1): two `sr-only` live regions are always rendered, outside the toast `@if`, so they exist
+ * empty before the first toast. Success goes to the `role="status"` (polite) region, failure and refusal to the
+ * `role="alert"` region. On every new toast both are cleared and the toned one is filled after
+ * {@link ANNOUNCE_DELAY_MS}; dismissing clears them. The visual card carries no role of its own, so a message
+ * is announced exactly once per toast instance.
  *
  * While a NativeDrawer is open the toast sits at `bottom-28` (112 px) instead of `bottom-6`, so it clears
  * the drawer's pinned footer (Close, Save, Back: 57 px, 105 px when the setup wizard's footer wraps) and
@@ -28,6 +46,20 @@ import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
   imports: [NgTemplateOutlet, LucideAngularModule, SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <div
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      [attr.data-testid]="testId('settings-toast-live-status')"
+    >{{ liveStatus() }}</div>
+    <div
+      class="sr-only"
+      role="alert"
+      aria-atomic="true"
+      [attr.data-testid]="testId('settings-toast-live-alert')"
+    >{{ liveAlert() }}</div>
+
     @if (feedback.toast(); as toast) {
       @if (inline()) {
         <ng-container *ngTemplateOutlet="body; context: { $implicit: toast }" />
@@ -49,8 +81,6 @@ import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
         [class.shadow-lg]="!inline()"
         [class.border-base-content/15]="toast.tone === 'status'"
         [class.border-error/40]="toast.tone === 'alert'"
-        [attr.role]="toast.tone"
-        [attr.aria-live]="toast.tone === 'status' ? 'polite' : 'assertive'"
         [attr.data-testid]="testId('settings-toast')"
       >
         <span class="min-w-0 flex-1" [attr.data-testid]="testId('settings-toast-message')">{{ toast.message }}</span>
@@ -91,7 +121,27 @@ export class SettingsToastComponent {
   private readonly destroyRef = inject(DestroyRef);
   private raisePending = false;
 
+  /** Text of the persistent polite region; empty until {@link ANNOUNCE_DELAY_MS} after a status toast appears. */
+  protected readonly liveStatus = signal('');
+  /** Text of the persistent assertive region; empty until {@link ANNOUNCE_DELAY_MS} after an alert toast appears. */
+  protected readonly liveAlert = signal('');
+  private announceTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
+    effect(() => {
+      // Each new toast object (also a repeat of the same message) clears both regions, then fills the toned one
+      // after a tick, so screen readers see a text change in an element that already existed (P6-A1).
+      const toast = this.feedback.toast();
+      this.clearAnnounceTimer();
+      this.liveStatus.set('');
+      this.liveAlert.set('');
+      if (!toast) return;
+      this.announceTimer = setTimeout(() => {
+        this.announceTimer = null;
+        (toast.tone === 'alert' ? this.liveAlert : this.liveStatus).set(toast.message);
+      }, ANNOUNCE_DELAY_MS);
+    });
+    this.destroyRef.onDestroy(() => this.clearAnnounceTimer());
     effect(() => {
       // Every new message also re-stacks the region.
       this.feedback.toast();
@@ -147,6 +197,12 @@ export class SettingsToastComponent {
   /** Undo a non-open popover's display:none when promotion did not happen, so the toast stays visible in-page. */
   private keepRegionInPlace(region: HTMLElement): void {
     region.style.display = 'block';
+  }
+
+  private clearAnnounceTimer(): void {
+    if (this.announceTimer === null) return;
+    clearTimeout(this.announceTimer);
+    this.announceTimer = null;
   }
 
   protected testId(base: string): string {

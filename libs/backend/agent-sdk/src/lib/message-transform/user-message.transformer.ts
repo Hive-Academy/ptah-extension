@@ -14,7 +14,7 @@ import {
   isInterruptSentinelText,
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
-import { buildBackgroundAgentStartedEvent } from './background-started-event';
+import { takeBackgroundAgentStartedEvent } from './background-started-event';
 import { bindTaskResultToHeldStart } from './task-result-agent-binding';
 import type {
   TransformerState,
@@ -54,6 +54,22 @@ export class UserMessageTransformer {
             toolResultBlock.content,
             helpers,
           );
+          // background_agent_started goes BEFORE the tool_result, the same
+          // load-bearing order as the assistant path (TASK_2026_376 F2): the
+          // webview's tool_result guard reads BackgroundAgentStore, which only
+          // this event populates. Do not reorder these two pushes.
+          const bgEvent = takeBackgroundAgentStartedEvent({
+            toolCallId: toolResultBlock.tool_use_id,
+            content: toolResultBlock.content,
+            messageId,
+            sessionId,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+            state,
+            helpers,
+          });
+          if (bgEvent) {
+            events.push(bgEvent);
+          }
           const toolResultEvent: ToolResultEvent = {
             id: generateEventId(),
             eventType: 'tool_result',
@@ -67,20 +83,6 @@ export class UserMessageTransformer {
             parentToolUseId: parent_tool_use_id ?? undefined,
           };
           events.push(toolResultEvent);
-
-          if (state.hasBackgroundTaskToolUseId(toolResultBlock.tool_use_id)) {
-            const bgEvent = buildBackgroundAgentStartedEvent({
-              toolCallId: toolResultBlock.tool_use_id,
-              content: toolResultBlock.content,
-              messageId,
-              sessionId,
-              parentToolUseId: parent_tool_use_id ?? undefined,
-              state,
-              helpers,
-            });
-            state.removeBackgroundTaskToolUseId(toolResultBlock.tool_use_id);
-            events.push(bgEvent);
-          }
         }
       }
 

@@ -155,8 +155,8 @@ describe('wizard:get-resumable-run registration (TASK_2026_361)', () => {
 describe('provider account methods (TASK_2026_712 Batch 35)', () => {
   const accountMethods: readonly string[] = PROVIDER_ACCOUNT_RPC_METHOD_NAMES;
 
-  it('has ten distinct methods, all in the shared registry', () => {
-    expect(accountMethods).toHaveLength(10);
+  it('has eleven distinct methods, all in the shared registry', () => {
+    expect(accountMethods).toHaveLength(11);
     expect(new Set(accountMethods).size).toBe(accountMethods.length);
     for (const method of accountMethods) {
       expect(RPC_METHOD_NAMES).toContain(method);

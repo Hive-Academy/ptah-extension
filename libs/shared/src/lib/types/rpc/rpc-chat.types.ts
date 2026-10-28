@@ -18,6 +18,34 @@ import type { RpcUserErrorCode } from './rpc-error-codes.types';
 import type { SessionStatsEntry } from './rpc-session.types';
 import type { SessionBudgetState } from '../session-budget.types';
 import type { AgentSessionOpenedPayload } from '../messages/agent-session';
+import type { ProviderAccountSelection } from '../provider-account.types';
+
+/**
+ * Host deadline for a whole renderer-awaited RPC that may run a named Claude
+ * account admission (`chat:start`, `chat:continue` auto-resume, `chat:resume`
+ * activate). The clock starts at handler entry, so the handler's preparation
+ * (MCP and OAuth overrides, profile, prompts) counts against it; the
+ * admission (`NamedAccountQueryAdmission`: route certification, the bootstrap
+ * identity child, the options build and the final child up to the committed
+ * run binding) gets the smaller of this budget and the time left, and refuses
+ * once it passes (D72, D73). Each step also keeps its own per-step deadline.
+ */
+export const NAMED_ACCOUNT_ADMISSION_BUDGET_MS = 90_000;
+
+/**
+ * How long the renderer keeps waiting after the host deadline: the IPC round
+ * trip, the handler's work after admission, and preparation the host cannot
+ * interrupt before it reaches its first deadline check.
+ */
+export const CHAT_ADMISSION_RPC_MARGIN_MS = 30_000;
+
+/**
+ * Renderer timeout for the RPCs above. It is the host deadline plus the
+ * margin, so the host answers (admitted or refused) before the renderer gives
+ * up on the call: `CHAT_ADMISSION_RPC_TIMEOUT_MS > NAMED_ACCOUNT_ADMISSION_BUDGET_MS`.
+ */
+export const CHAT_ADMISSION_RPC_TIMEOUT_MS =
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS + CHAT_ADMISSION_RPC_MARGIN_MS;
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
@@ -111,6 +139,12 @@ export interface ChatStartParams {
    * advanced callers get a uniform extension surface without per-feature RPCs.
    */
   mcpServersOverride?: Record<string, McpHttpServerOverride>;
+  /**
+   * Account route for this run. A missing field keeps the stored or ambient
+   * route; the RPC schema rejects any shape other than `omitted`, `ambient`
+   * or `named` with a profile id.
+   */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:start RPC method */
@@ -165,6 +199,8 @@ export interface ChatContinueParams {
   mcpToolProfile?: McpToolProfile;
   /** Whether the Electron chat client can render `ptah-ui` blocks. */
   ptahUiFence?: boolean;
+  /** Account route for this turn; same contract as `ChatStartParams.accountSelection`. */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:continue RPC method */
@@ -281,6 +317,8 @@ export interface ChatResumeParams {
   historyPage?: { readonly maxEvents: number };
   /** Opt in only for a webview load with an early claim that filters the reply. */
   historyBlockOwners?: true;
+  /** Account route for the resumed run; same contract as `ChatStartParams.accountSelection`. */
+  accountSelection?: ProviderAccountSelection;
 }
 
 /** Response from chat:resume RPC method */

@@ -19,8 +19,17 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import {
+  CHAT_ADMISSION_RPC_TIMEOUT_MS,
+  MESSAGE_TYPES,
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+  SessionId,
+} from '@ptah-extension/shared';
+import {
+  ClaudeRpcService,
+  DEFAULT_RPC_TIMEOUT_MS,
+  RpcResult,
+} from './claude-rpc.service';
 import { VSCodeService } from './vscode.service';
 
 interface PostedRpcMessage {
@@ -246,6 +255,63 @@ describe('ClaudeRpcService', () => {
         service as unknown as { pendingCalls: Map<string, unknown> }
       ).pendingCalls;
       expect(pendingCalls.has(sent.payload.correlationId)).toBe(false);
+    });
+
+    // D72: a named account admission ran 35 s on the host while chat:start
+    // timed out at the 30 s default in the renderer.
+    it('derives the chat admission timeout from the host admission budget', () => {
+      expect(CHAT_ADMISSION_RPC_TIMEOUT_MS).toBeGreaterThan(
+        NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+      );
+      expect(CHAT_ADMISSION_RPC_TIMEOUT_MS).toBeGreaterThan(
+        DEFAULT_RPC_TIMEOUT_MS,
+      );
+    });
+
+    it.each(['chat:start', 'chat:continue', 'chat:resume'] as const)(
+      '%s without an explicit timeout waits the chat admission timeout',
+      async (method) => {
+        jest.useFakeTimers();
+        const call = (): Promise<RpcResult<unknown>> => {
+          if (method === 'chat:start')
+            return service.call(method, { prompt: 'hi', tabId: 'tab-1' });
+          if (method === 'chat:continue')
+            return service.call(method, {
+              prompt: 'hi',
+              sessionId: SessionId.create(),
+              tabId: 'tab-1',
+            });
+          return service.call(method, {
+            sessionId: SessionId.create(),
+            tabId: 'tab-1',
+          });
+        };
+        let settled = false;
+        const pending = call().finally(() => {
+          settled = true;
+        });
+
+        await jest.advanceTimersByTimeAsync(CHAT_ADMISSION_RPC_TIMEOUT_MS - 1);
+        expect(settled).toBe(false);
+        await jest.advanceTimersByTimeAsync(1);
+        const result = await pending;
+        expect(result.error).toBe(`RPC timeout: ${method}`);
+      },
+    );
+
+    it('keeps the default timeout for other methods', async () => {
+      jest.useFakeTimers();
+      let settled = false;
+      const pending = service
+        .call('session:list', { workspacePath: '/tmp' })
+        .finally(() => {
+          settled = true;
+        });
+
+      await jest.advanceTimersByTimeAsync(DEFAULT_RPC_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect((await pending).error).toBe('RPC timeout: session:list');
     });
   });
 

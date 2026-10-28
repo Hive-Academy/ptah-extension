@@ -289,4 +289,38 @@ describe('ProviderConnectionCardComponent', () => {
       expect(query(fixture, 'btn-add-key')).not.toBeNull();
     });
   });
+
+  describe('connected-accounts badge (D41)', () => {
+    const CLAUDE = { providerId: 'claude-cli', providerName: 'Claude (Subscription)', authModality: 'cli' };
+
+    it.each([null, 0])('is hidden for %p', (connectedAccounts) => {
+      const fixture = createComponent({ ...CLAUDE, status: 'connected', positiveProbeEvidence: true, connectedAccounts });
+      expect(query(fixture, 'connected-accounts-badge')).toBeNull();
+    });
+
+    it('shows "N connected" only, as display text (no control, no account detail)', () => {
+      const fixture = createComponent({ ...CLAUDE, status: 'connected', positiveProbeEvidence: true, connectedAccounts: 2 });
+      const badge = query(fixture, 'connected-accounts-badge');
+      expect(badge?.textContent?.trim()).toBe('2 connected');
+      expect(badge?.tagName).toBe('SPAN');
+      expect(badge?.querySelector('a, button')).toBeNull();
+      expect(badge?.className).toContain('badge-ghost');
+    });
+
+    it('follows the input and hides again when it returns to null', () => {
+      const fixture = createComponent({ ...CLAUDE, connectedAccounts: 3 });
+      expect(query(fixture, 'connected-accounts-badge')?.textContent?.trim()).toBe('3 connected');
+      fixture.componentRef.setInput('connectedAccounts', null);
+      fixture.detectChanges();
+      expect(query(fixture, 'connected-accounts-badge')).toBeNull();
+    });
+
+    it('with a badge shown, activating the card still opens the drawer once', () => {
+      const fixture = createComponent({ ...CLAUDE, connectedAccounts: 1 });
+      const details = jest.fn();
+      fixture.componentInstance.detailsRequested.subscribe(details);
+      surface(fixture).click();
+      expect(details).toHaveBeenCalledTimes(1);
+    });
+  });
 });

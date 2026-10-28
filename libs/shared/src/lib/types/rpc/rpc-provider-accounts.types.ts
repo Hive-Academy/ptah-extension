@@ -26,6 +26,7 @@
 import type {
   ProviderAccountActionResult,
   ProviderAccountProvider,
+  ProviderAmbientClaudeStatus,
   ProviderAccountScope,
   ProviderAccountSelection,
   ProviderAccountSummary,
@@ -43,6 +44,7 @@ export const PROVIDER_ACCOUNT_RPC_METHOD_NAMES = [
   'provider:signOutAccount',
   'provider:setAccountSelection',
   'provider:setAccountDefault',
+  'provider:getAmbientClaudeStatus',
 ] as const satisfies readonly (keyof ProviderAccountRpcMethodRegistry)[];
 
 export type ProviderAccountRpcMethodName =
@@ -153,8 +155,7 @@ export type ProviderListAccountsResult = ProviderAccountRpcResult<{
 
 /** Label-only Add. The backend allocates the profile ID and its directory. */
 export interface ProviderAddAccountParams
-  extends ProviderAccountWorkspaceTarget,
-    ProviderAccountWriteRequest {
+  extends ProviderAccountWorkspaceTarget, ProviderAccountWriteRequest {
   readonly label: string;
 }
 export type ProviderAddAccountResult = ProviderAccountRpcResult<
@@ -162,8 +163,7 @@ export type ProviderAddAccountResult = ProviderAccountRpcResult<
 >;
 
 /** Changes the local label only; route identity and bindings are unchanged. */
-export interface ProviderRenameAccountParams
-  extends ProviderAccountProfileWrite {
+export interface ProviderRenameAccountParams extends ProviderAccountProfileWrite {
   readonly workspaceRoot: string;
   readonly label: string;
 }
@@ -172,8 +172,7 @@ export type ProviderRenameAccountResult = ProviderAccountRpcResult<
 >;
 
 /** Removes local metadata only. Running and bound runs are not moved. */
-export interface ProviderRemoveAccountParams
-  extends ProviderAccountProfileWrite {
+export interface ProviderRemoveAccountParams extends ProviderAccountProfileWrite {
   readonly workspaceRoot: string;
 }
 export type ProviderRemoveAccountResult =
@@ -189,18 +188,32 @@ export type ProviderGetAccountStatusResult = ProviderAccountRpcResult<{
   readonly operation?: ProviderAccountOperation;
 }>;
 
-export interface ProviderStartAccountSignInParams
-  extends ProviderAccountProfileWrite {
+export interface ProviderStartAccountSignInParams extends ProviderAccountProfileWrite {
   readonly workspaceRoot: string;
 }
+/**
+ * Manual sign-in script shown when the host cannot open a login console, for
+ * the user to run in their own terminal. It intentionally contains the login
+ * command, the certified working directory, the profile's config directory
+ * and the Claude executable path. It never carries a credential, an email, an
+ * organization or any inherited environment value. It is user-facing content,
+ * distinct from sanitized errors and logs: do not log it or reuse it as
+ * diagnostic text.
+ */
+export interface ProviderAccountSignInFallback {
+  readonly platform: 'win32' | 'posix';
+  readonly script: string;
+}
+
 export type ProviderStartAccountSignInResult = ProviderAccountRpcResult<
   ProviderAccountCommittedWrite & {
     readonly operation: ProviderAccountOperation;
+    /** Present when no login console could be opened for this sign-in. */
+    readonly fallback?: ProviderAccountSignInFallback;
   }
 >;
 
-export interface ProviderCancelAccountSignInParams
-  extends ProviderAccountWriteRequest {
+export interface ProviderCancelAccountSignInParams extends ProviderAccountWriteRequest {
   readonly provider: ProviderAccountProvider;
   readonly workspaceRoot: string;
   readonly profileId: string;
@@ -209,8 +222,7 @@ export interface ProviderCancelAccountSignInParams
 export type ProviderCancelAccountSignInResult =
   ProviderAccountRpcResult<ProviderAccountCommittedWrite>;
 
-export interface ProviderSignOutAccountParams
-  extends ProviderAccountProfileWrite {
+export interface ProviderSignOutAccountParams extends ProviderAccountProfileWrite {
   readonly workspaceRoot: string;
 }
 export type ProviderSignOutAccountResult = ProviderAccountRpcResult<
@@ -221,8 +233,7 @@ export type ProviderSignOutAccountResult = ProviderAccountRpcResult<
 
 /** Sets the future-start selection of one scope only. */
 export interface ProviderSetAccountSelectionParams
-  extends ProviderAccountWorkspaceTarget,
-    ProviderAccountWriteRequest {
+  extends ProviderAccountWorkspaceTarget, ProviderAccountWriteRequest {
   readonly scope: ProviderAccountScope;
   readonly selection: ProviderAccountSelectionWrite;
   /** Scope selection revision the caller saw; `-1` when none was stored. */
@@ -236,8 +247,7 @@ export type ProviderSetAccountSelectionResult =
  * unbound starts only; existing and bound runs are unchanged.
  */
 export interface ProviderSetAccountDefaultParams
-  extends ProviderAccountWorkspaceTarget,
-    ProviderAccountWriteRequest {
+  extends ProviderAccountWorkspaceTarget, ProviderAccountWriteRequest {
   readonly selection: ProviderAccountSelectionWrite;
   readonly expectedSelectionRevisions: Readonly<
     Record<ProviderAccountScope, number>
@@ -245,6 +255,20 @@ export interface ProviderSetAccountDefaultParams
 }
 export type ProviderSetAccountDefaultResult =
   ProviderAccountRpcResult<ProviderAccountCommittedWrite>;
+
+/**
+ * Reads whether the existing Claude login (no named account) is signed in.
+ * The ambient login is host-wide, so no workspace root is taken. `refresh`
+ * bypasses the host's short-lived cache; the host still runs one check at a
+ * time.
+ */
+export interface ProviderGetAmbientClaudeStatusParams {
+  readonly provider: ProviderAccountProvider;
+  readonly refresh?: boolean;
+}
+export type ProviderGetAmbientClaudeStatusResult = ProviderAccountRpcResult<{
+  readonly status: ProviderAmbientClaudeStatus;
+}>;
 
 // ---------------------------------------------------------------------------
 // Registry slice
@@ -296,6 +320,10 @@ export interface ProviderAccountRpcMethodRegistry {
   'provider:setAccountDefault': {
     params: ProviderSetAccountDefaultParams;
     result: ProviderSetAccountDefaultResult;
+  };
+  'provider:getAmbientClaudeStatus': {
+    params: ProviderGetAmbientClaudeStatusParams;
+    result: ProviderGetAmbientClaudeStatusResult;
   };
 }
 

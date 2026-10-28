@@ -32,12 +32,17 @@ describe('connectionKind', () => {
 describe('connectionDrawerTabs', () => {
   const ids = (kind: ConnectionKind) => connectionDrawerTabs(kind).map((tab) => tab.id);
 
-  it.each<ConnectionKind>(['claude-cli', 'api-key', 'oauth', 'local'])(
-    '%s has Overview, Credentials and Models & Tiers, and no Advanced tab',
+  it.each<ConnectionKind>(['api-key', 'oauth', 'local'])(
+    '%s has Overview, Credentials and Models & Tiers, and no Accounts or Advanced tab',
     (kind) => {
       expect(ids(kind)).toEqual(['overview', 'credentials', 'models']);
     },
   );
+
+  it('claude-cli puts Accounts second, after Overview, and has no Advanced tab', () => {
+    expect(ids('claude-cli')).toEqual(['overview', 'accounts', 'credentials', 'models']);
+    expect(connectionDrawerTabs('claude-cli')[1].label).toBe('Accounts');
+  });
 
   it('custom adds the Advanced tab last', () => {
     expect(ids('custom')).toEqual(['overview', 'credentials', 'models', 'advanced']);

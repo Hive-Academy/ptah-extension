@@ -1047,6 +1047,8 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
           workspaceRoot: '/fixture',
           cwd: '/fixture',
           tabOpened: true,
+          adoptedLanes: [],
+          adoptedChildSessions: [],
         }),
       });
     },

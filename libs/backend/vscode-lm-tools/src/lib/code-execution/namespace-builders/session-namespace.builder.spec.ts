@@ -38,6 +38,8 @@ const HANDED_OFF = {
   workspaceRoot: '/repo',
   cwd: '/repo',
   tabOpened: true,
+  adoptedLanes: [],
+  adoptedChildSessions: [],
 } as const;
 
 function harness(overrides: Partial<SessionNamespaceDependencies> = {}) {

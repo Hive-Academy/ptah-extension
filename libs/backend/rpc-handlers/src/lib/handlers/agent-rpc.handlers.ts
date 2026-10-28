@@ -37,6 +37,7 @@ import {
   CopilotPermissionBridge,
   AgentProcessManager,
   AgentContinueError,
+  LaneAccountResumeError,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
   PTAH_CLI_ROLE_DELIVERY,
@@ -334,22 +335,28 @@ function decisionModelRefusal(
 }
 
 /**
+ * The reply text when the runtime refuses a `claude` lane's named account on
+ * continue or resume. Fixed: the thrown text and the refusal code stay in the
+ * host log, so no path, email, secret or CLI output reaches the caller.
+ */
+const LANE_ACCOUNT_REFUSED_ERROR =
+  'The Claude account for this agent was refused. The agent did not run on another account.';
+
+/**
  * The refusal code of a `LaneAccountResumeError` (cli-agent-runtime
- * `lane-resume-gate.ts`), or undefined for any other error. Matched by its
- * fixed name and a code from the provider-account whitelist; anything else is
- * not an account refusal. The class is now on the lib barrel, but the agent-rpc
- * specs mock that barrel without it, so `instanceof` waits for those mocks.
+ * `lane-resume-gate.ts`) for the host log, or undefined for any other error.
+ * The class already narrows its code to the provider-account whitelist; a
+ * code outside it is logged as `unavailable-storage`, the class's own default.
  */
 function laneAccountRefusalCode(
   error: unknown,
 ): Exclude<ProviderAccountResultCode, 'ok'> | undefined {
-  if (!(error instanceof Error) || error.name !== 'LaneAccountResumeError') {
-    return undefined;
-  }
-  const code = 'code' in error ? error.code : undefined;
-  return PROVIDER_ACCOUNT_RESULT_CODES.find(
-    (known): known is Exclude<ProviderAccountResultCode, 'ok'> =>
-      known !== 'ok' && known === code,
+  if (!(error instanceof LaneAccountResumeError)) return undefined;
+  return (
+    PROVIDER_ACCOUNT_RESULT_CODES.find(
+      (known): known is Exclude<ProviderAccountResultCode, 'ok'> =>
+        known !== 'ok' && known === error.code,
+    ) ?? 'unavailable-storage'
   );
 }
 
@@ -367,17 +374,15 @@ function resumeAccountRefusal(
 /**
  * The account selection a `claude` resume forwards into its spawn request,
  * after `resumeAccountRefusal` returned no refusal (so it matches the stored
- * binding). `SpawnAgentRequest` carries omitted or ambient only while named
- * admission is release-held (D7): a restated named selection is not
- * forwarded, and the runtime's resume gate refuses the stored named binding.
+ * binding). A restated named selection is forwarded as-is; the runtime
+ * resumes it on the stored binding without a second binding or lease.
  * Other CLIs have no account bindings and never carry a selection.
  */
 function resumeSpawnAccountSelection(
   cli: CliType,
   selection: ProviderAccountSelection | undefined,
 ): ProviderAccountSelection | undefined {
-  if (cli !== 'claude' || selection === undefined) return undefined;
-  return selection.kind === 'named' ? undefined : selection;
+  return cli === 'claude' ? selection : undefined;
 }
 
 @injectable()
@@ -1319,18 +1324,17 @@ export class AgentRpcHandlers {
         }
         const accountRefusal = laneAccountRefusalCode(error);
         if (accountRefusal) {
-          // Account-scoped `claude` lane continue refused by the resume gate
-          // (TASK_2026_712 D25 F3). Wire code `unknown`, not a resume-fallback
-          // code: a resume would hit the same account gate. The reply is
-          // rebuilt from the whitelisted refusal code only.
+          // A `claude` lane's account was refused on continue (D28). The
+          // dedicated code is not a resume-fallback code: a resume would hit
+          // the same account gate. The refusal code goes to the log only.
           this.logger.warn('RPC: agent:continue account refused', {
             agentId: params.agentId,
             code: accountRefusal,
           });
           return {
             success: false,
-            code: 'unknown',
-            error: `Claude lane account resume refused (${accountRefusal}).`,
+            code: 'account_refused',
+            error: LANE_ACCOUNT_REFUSED_ERROR,
           };
         }
         const errorMessage =
@@ -1363,6 +1367,7 @@ export class AgentRpcHandlers {
         agentId?: string;
         error?: string;
         resumeDecision?: AgentResumeOutcome;
+        code?: 'account_refused';
       }
     >('agent:resumeCliSession', async (params) => {
       try {
@@ -1390,7 +1395,7 @@ export class AgentRpcHandlers {
         // that conflicts with the stored binding is refused here, before the
         // session folder is read or anything is spawned. On `inherit` the
         // runtime resumes on the stored binding, which stays authoritative
-        // and fail-closed (named admission is release-held, D7).
+        // and fail-closed.
         const accountRefusal = await this.resumeAccountRefusal(
           parsed.data.cli,
           parsed.data.cliSessionId,
@@ -1457,13 +1462,17 @@ export class AgentRpcHandlers {
       } catch (error) {
         const laneRefusal = laneAccountRefusalCode(error);
         if (laneRefusal) {
-          // The runtime's resume gate refused the stored binding (D28
-          // follow-up). The reply is rebuilt from the whitelisted code only.
+          // The runtime refused the lane's account (D28). The reply is the
+          // fixed text; the refusal code goes to the log only.
           this.logger.warn('RPC: agent:resumeCliSession account refused', {
             cli: params.cli,
             code: laneRefusal,
           });
-          return { success: false, error: resumeAccountRefusal(laneRefusal) };
+          return {
+            success: false,
+            code: 'account_refused',
+            error: LANE_ACCOUNT_REFUSED_ERROR,
+          };
         }
         const errorMessage =
           error instanceof Error ? error.message : String(error);

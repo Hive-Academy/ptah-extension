@@ -1,0 +1,1330 @@
+diff --git a/libs/backend/agent-sdk/src/lib/helpers/named-account-prompt-gate.ts b/libs/backend/agent-sdk/src/lib/helpers/named-account-prompt-gate.ts
+index 77245306f..5c2202a96 100644
+--- a/libs/backend/agent-sdk/src/lib/helpers/named-account-prompt-gate.ts
++++ b/libs/backend/agent-sdk/src/lib/helpers/named-account-prompt-gate.ts
+@@ -1,4 +1,70 @@
+-import type { SDKUserMessage } from '../types/sdk-types/claude-sdk.types';
++import type {
++  HookCallback,
++  HookJSONOutput,
++  Options,
++  SDKUserMessage,
++} from '../types/sdk-types/claude-sdk.types';
++
++const ADMISSION_PENDING = 'Account admission pending.';
++
++/**
++ * Seconds the CLI waits on one held `PreToolUse` call. Above the whole
++ * admission chain (each awaited step has its own 15 s deadline), so the hold
++ * ends on admission, refusal, abort or dispose, never on the CLI hook timeout.
++ */
++export const NAMED_ACCOUNT_TOOL_HOLD_SECONDS = 600;
++
++const DENY_TOOL: HookJSONOutput = {
++  hookSpecificOutput: {
++    hookEventName: 'PreToolUse',
++    permissionDecision: 'deny',
++    permissionDecisionReason: ADMISSION_PENDING,
++  },
++};
++
++function abortedAsDenied(signal: AbortSignal): Promise<boolean> {
++  return new Promise<boolean>((resolve) => {
++    if (signal.aborted) resolve(false);
++    else signal.addEventListener('abort', () => resolve(false), { once: true });
++  });
++}
++
++/**
++ * Gates every tool call of a named-account child on one admission check.
++ *
++ * `bypassPermissions` (lane YOLO) and allow rules approve a tool before
++ * `canUseTool` is consulted (SDK 0.3.278 `sdk.mjs:209`,
++ * `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED`), so the same `admitted` check also runs
++ * as a `PreToolUse` hook for every tool, ahead of the caller's own hooks.
++ * When admitted the hook gives no decision, so the caller's permission flow
++ * (its hooks, mode and `canUseTool`) still applies; otherwise it denies.
++ * `admitted` must resolve false on refusal, abort and dispose.
++ */
++export function withNamedAccountToolGate(
++  options: Options,
++  admitted: () => Promise<boolean>,
++): Options {
++  const canUseTool = options.canUseTool;
++  const gate: HookCallback = async (_input, _toolUseId, { signal }) =>
++    (await Promise.race([admitted(), abortedAsDenied(signal)])) &&
++    !signal.aborted
++      ? {}
++      : DENY_TOOL;
++  return {
++    ...options,
++    canUseTool: async (tool, input, context) =>
++      canUseTool && (await admitted())
++        ? canUseTool(tool, input, context)
++        : { behavior: 'deny', message: ADMISSION_PENDING },
++    hooks: {
++      ...options.hooks,
++      PreToolUse: [
++        { hooks: [gate], timeout: NAMED_ACCOUNT_TOOL_HOLD_SECONDS },
++        ...(options.hooks?.PreToolUse ?? []),
++      ],
++    },
++  };
++}
+ 
+ export type NamedAccountPromptGateState = 'held' | 'committed' | 'closed';
+ 
+diff --git a/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts b/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts
+index 210e451c3..373d829bd 100644
+--- a/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts
++++ b/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.accounts.spec.ts
+@@ -5,7 +5,7 @@ import type {
+   ClaudeLaunchBoundaryOutcome, ProviderAccountAdmissionPort,
+ } from '@ptah-extension/auth-providers-tokens';
+ import type { ProviderAccountBinding } from '@ptah-extension/shared';
+-import type { AccountInfo, Options, QueryFunction, SDKMessage, SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
++import type { AccountInfo, HookInput, Options, QueryFunction, SDKMessage, SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
+ import { SdkQueryRunner } from '../sdk-query-runner.service';
+ import { CLAUDE_CERTIFIED_ENV_KEYS, certifiedEnvDigest } from '../claude-certified-launch';
+ import { claudeIdentityReference } from '../claude-identity-reference';
+@@ -57,6 +57,11 @@ const metadata = { name: 'private title', workspaceId: '/workspace', createdAt:
+   totalCost: 0, totalTokens: { input: 0, output: 0 } };
+ const message: SDKUserMessage = { type: 'user', session_id: '', parent_tool_use_id: null,
+   message: { role: 'user', content: 'private conversation' } };
++const followUp: SDKUserMessage = { ...message, message: { role: 'user', content: 'later turn' } };
++const toolContext = (signal: AbortSignal) => ({ signal, toolUseID: 'tool', requestId: 'request' });
++const toolHookInput: HookInput = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {},
++  tool_use_id: 'tool', session_id: 'sdk-session-a', transcript_path: '', cwd: '' };
++const denyHook = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } };
+ const flush = async () => { for (let index = 0; index < 30; index++) await Promise.resolve(); };
+ 
+ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; unknown?: boolean;
+@@ -65,7 +70,12 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+   boundary?: { at: ClaudeLaunchBoundary; terminated: boolean }; identityPatch?: Partial<AccountInfo>;
+   initPatch?: Record<string, unknown>; finalOptions?: Partial<Options>;
+   /** The session's project directory; admission certifies it unless `certifiedCwd` overrides. */
+-  projectDir?: string; certifiedCwd?: string } = {}) {
++  projectDir?: string; certifiedCwd?: string;
++  /**
++   * Models CLI 2.1.278 streaming input: the final child reads the first prompt
++   * turn and asks for one tool before it emits `system/init`.
++   */
++  initAfterFirstTurn?: boolean } = {}) {
+   const projectDir = settings.projectDir ?? launchContext.cwd;
+   const certifiedLaunch = settings.projectDir === undefined && settings.certifiedCwd === undefined
+     ? launchContext : { ...launchContext, cwd: settings.certifiedCwd ?? projectDir };
+@@ -133,7 +143,9 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+     invalidateAccountRoute: jest.fn(),
+   };
+   const options: Options[] = [];
++  const preInitTools: string[] = [];
+   const reads: Promise<IteratorResult<SDKUserMessage>>[] = [];
++  const iterators: AsyncIterator<SDKUserMessage>[] = [];
+   const runner: Pick<SdkQueryRunner, 'invokeNamedQuery'> = {
+     invokeNamedQuery: jest.fn((_fn, prompt, queryOptions, observe) => {
+       const stage = options.length === 0 ? 'bootstrap' : 'final';
+@@ -142,7 +154,9 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+       const terminated = deferred<void>();
+       terminations.push(terminated);
+       observe?.(terminated.promise);
+-      const read = prompt[Symbol.asyncIterator]().next().then((result) => {
++      const iterator = prompt[Symbol.asyncIterator]();
++      iterators.push(iterator);
++      const read = iterator.next().then((result) => {
+         if (!result.done) yielded++;
+         return result;
+       });
+@@ -157,7 +171,15 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+           const info = settings.mismatch && stage === 'final' ? { ...account, email: 'different@example.test' } : account;
+           return { ...info, ...settings.identityPatch };
+         }),
+-        next: jest.fn(async () => {
++        next: jest.fn(async (): Promise<IteratorResult<SDKMessage, void>> => {
++          if (settings.initAfterFirstTurn && stage === 'final' && !events.includes('turn-consumed')) {
++            const turn = await read;
++            if (turn.done) return { done: true, value: undefined };
++            events.push('turn-consumed');
++            const decision = await queryOptions.canUseTool?.('Read', {}, { signal: controller.signal,
++              toolUseID: 'pre-init', requestId: 'pre-init' });
++            preInitTools.push(decision?.behavior ?? 'none');
++          }
+           await step('init');
+           return { done: false as const, value: { type: 'system', subtype: 'init', session_id: 'sdk-session-a',
+             claude_code_version: '2.1.310', apiKeySource: 'none', ...settings.initPatch } as SDKMessage };
+@@ -174,7 +196,12 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+   const log = { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() };
+   const flow = new NamedAccountQueryAdmission(runner, admission, persistence, registry, log, controller, 50);
+   const queryFn = jest.fn() as QueryFunction;
+-  const source = { async *[Symbol.asyncIterator]() { yield message; } };
++  const source = { async *[Symbol.asyncIterator]() {
++    events.push('turn-1');
++    yield message;
++    events.push('turn-2');
++    yield followUp;
++  } };
+   const bootstrap = (resume?: string) =>
+     flow.bootstrap(queryFn, { kind: 'named', profileId: route.profileId }, projectDir, resume);
+   // The builder's named final options: certified executable, env, cwd and sources.
+@@ -185,17 +212,32 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string;
+   'tab-a', metadata);
+   const run = async (resume?: string) => { await bootstrap(resume); return launch(); };
+   return { flow, events, reads, options, registry, persistence, admission, controller, log, bootstrap, launch, run,
+-    paused, entered, terminations, runner, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
++    paused, entered, terminations, runner, iterators, preInitTools, yielded: () => yielded, saved: () => saved,
++    epoch: () => epochListener };
++}
++
++/** Refusals after the identity proof release the first turn (D69); nothing else reaches the run. */
++const AFTER_PROOF = new Set(['init', 'registry', 'commit', 'attach', 'metadata', 'current:3', 'final-identity:2']);
++
++/** After a refusal: no later turn was pulled and a tool call is denied. */
++async function expectNoAdmission(f: ReturnType<typeof fixture>): Promise<void> {
++  expect(f.events).not.toContain('turn-2');
++  const permission = f.options[1]?.canUseTool;
++  if (permission) expect(await permission('Read', {}, toolContext(f.controller.signal))).toMatchObject({ behavior: 'deny' });
+ }
+ 
+ describe('named SDK bootstrap and final admission', () => {
+   afterEach(() => { jest.useRealTimers(); });
+ 
+-  it('closes bootstrap before final launch, then awaits both durable checkpoints before releasing input', async () => {
++  it('closes bootstrap before final launch, then awaits both durable checkpoints before releasing later input', async () => {
+     const f = fixture({ pause: 'metadata' });
+-    const run = f.run();
++    let resolved = false;
++    const run = f.run().then((query) => { resolved = true; return query; });
+     await f.entered.promise;
+-    expect(f.yielded()).toBe(0);
++    // Only the first turn is released after the identity proof (D69); no output yet.
++    expect(f.yielded()).toBe(1);
++    expect(f.events).not.toContain('turn-2');
++    expect(resolved).toBe(false);
+     expect(f.events.indexOf('bootstrap-close')).toBeLessThan(f.events.indexOf('final'));
+     expect(f.events.indexOf('final-identity')).toBeLessThan(f.events.indexOf('registry'));
+     expect(f.events.indexOf('registry')).toBeLessThan(f.events.indexOf('commit'));
+@@ -208,9 +250,15 @@ describe('named SDK bootstrap and final admission', () => {
+     expect(await f.reads[0]).toEqual({ done: true, value: undefined });
+     const permission = f.options[1].canUseTool;
+     expect(permission).toBeDefined();
+-    if (permission) expect(await permission('Read', {}, { signal: f.controller.signal, toolUseID: 'tool', requestId: 'request' })).toMatchObject({ behavior: 'deny' });
++    // After a verified init a tool call waits for admission instead of being denied.
++    let decision: unknown;
++    const held = permission?.('Read', {}, toolContext(f.controller.signal)).then((value) => { decision = value; });
++    await flush();
++    expect(decision).toBeUndefined();
+     f.paused.resolve();
+     const query = await run;
++    await held;
++    expect(decision).toMatchObject({ behavior: 'allow' });
+     await flush();
+     expect(f.yielded()).toBe(1);
+     expect(f.saved()?.identity.kind).toBe('known');
+@@ -219,6 +267,151 @@ describe('named SDK bootstrap and final admission', () => {
+     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+   });
+ 
++  it('releases the first turn after the identity proof, then admits on init (D69, CLI 2.1.278 order)', async () => {
++    const f = fixture({ initAfterFirstTurn: true, pause: 'commit' });
++    let resolved = false;
++    const run = f.run().then((query) => { resolved = true; return query; });
++    await f.entered.promise;
++    await flush();
++    const at = (name: string) => f.events.indexOf(name);
++    const proof = f.events.indexOf('final-identity');
++    expect(proof).toBeGreaterThan(at('final'));
++    expect(proof).toBeLessThan(at('turn-consumed'));
++    expect(at('turn-consumed')).toBeLessThan(at('init'));
++    expect(at('init')).toBeLessThan(at('commit'));
++    // The pre-init tool call was denied; no later turn and no output before admission.
++    expect(f.preInitTools).toEqual(['deny']);
++    expect(f.yielded()).toBe(1);
++    const later = f.iterators[1].next();
++    await flush();
++    expect(f.events).not.toContain('turn-2');
++    expect(resolved).toBe(false);
++    expect(f.saved()).toBeUndefined();
++    f.paused.resolve();
++    const query = await run;
++    expect(at('commit')).toBeLessThan(at('metadata'));
++    expect((await query.next()).value).toMatchObject({ subtype: 'init' });
++    // The first turn travelled exactly once; the next pull is the later turn.
++    expect(await later).toEqual({ done: false, value: followUp });
++    expect(f.events.filter((event) => event === 'turn-1')).toHaveLength(1);
++    expect(at('turn-2')).toBeGreaterThan(at('metadata'));
++    expect(f.saved()?.identity.kind).toBe('known');
++    await f.flow.dispose();
++    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
++  });
++
++  it('consumes no prompt while the same-child identity proof is still pending', async () => {
++    const f = fixture({ pause: 'final-identity:1' });
++    const run = f.run();
++    await f.entered.promise;
++    await flush();
++    expect(f.yielded()).toBe(0);
++    expect(f.events).not.toContain('turn-1');
++    f.paused.resolve();
++    await run;
++    expect(f.yielded()).toBe(1);
++    await f.flow.dispose();
++  });
++
++  it('gates every tool with a PreToolUse hook under bypassPermissions, ahead of caller hooks (F1)', async () => {
++    const callerHook = jest.fn(async () => ({}));
++    const f = fixture({ pause: 'init', finalOptions: { permissionMode: 'bypassPermissions',
++      allowDangerouslySkipPermissions: true, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [callerHook] }] } } });
++    const run = f.run();
++    await f.entered.promise;
++    const matchers = f.options[1].hooks?.PreToolUse ?? [];
++    expect(matchers).toHaveLength(2);
++    expect(matchers[0].matcher).toBeUndefined();
++    expect(matchers[1].hooks).toEqual([callerHook]);
++    const hook = matchers[0].hooks[0];
++    const signal = new AbortController().signal;
++    // Before a verified init the hook denies, even though the mode auto-approves.
++    expect(await hook(toolHookInput, 'tool', { signal })).toMatchObject(denyHook);
++    f.paused.resolve();
++    await run;
++    // Admitted: no decision, so the caller's permission flow applies.
++    expect(await hook(toolHookInput, 'tool', { signal })).toEqual({});
++    await f.flow.dispose();
++    expect(await hook(toolHookInput, 'tool', { signal })).toMatchObject(denyHook);
++  });
++
++  it('holds a PreToolUse call after init until the binding commits, then gives no decision (F1)', async () => {
++    const f = fixture({ pause: 'metadata', finalOptions: { permissionMode: 'bypassPermissions',
++      allowDangerouslySkipPermissions: true } });
++    const run = f.run();
++    await f.entered.promise;
++    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
++    let decision: unknown;
++    const held = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal })
++      .then((value) => { decision = value; });
++    await flush();
++    expect(decision).toBeUndefined();
++    f.paused.resolve();
++    await run;
++    await held;
++    expect(decision).toEqual({});
++    await f.flow.dispose();
++  });
++
++  it('denies a held PreToolUse call when the run is aborted before admission (F1)', async () => {
++    const f = fixture({ pause: 'metadata', finalOptions: { permissionMode: 'bypassPermissions',
++      allowDangerouslySkipPermissions: true } });
++    const run = f.run();
++    await f.entered.promise;
++    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
++    const held = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal });
++    f.controller.abort();
++    expect(await held).toMatchObject(denyHook);
++    f.paused.resolve();
++    expect(await run.then(() => 'returned', () => 'refused')).toBe('refused');
++    expect(f.events).not.toContain('turn-2');
++  });
++
++  it('makes dispose terminal: a held tool is denied and a late identity success admits nothing (F2)', async () => {
++    const f = fixture({ pause: 'final-identity:2' });
++    const run = f.run().then(() => 'returned', () => 'refused');
++    await f.entered.promise;
++    const permission = f.options[1].canUseTool;
++    const hook = f.options[1].hooks?.PreToolUse?.[0]?.hooks[0];
++    let decision: unknown;
++    let hookDecision: unknown;
++    const heldTool = permission?.('Read', {}, toolContext(new AbortController().signal))
++      .then((value) => { decision = value; });
++    const heldHook = hook?.(toolHookInput, 'tool', { signal: new AbortController().signal })
++      .then((value) => { hookDecision = value; });
++    await flush();
++    expect(decision).toBeUndefined();
++    expect(hookDecision).toBeUndefined();
++    const disposing = f.flow.dispose();
++    await heldTool;
++    await heldHook;
++    expect(decision).toMatchObject({ behavior: 'deny' });
++    expect(hookDecision).toMatchObject(denyHook);
++    expect(f.controller.signal.aborted).toBe(true);
++    // The pending identity read now succeeds: nothing is admitted or returned.
++    f.paused.resolve();
++    expect(await run).toBe('refused');
++    await flush();
++    expect(f.events).not.toContain('turn-2');
++    expect(await permission?.('Read', {}, toolContext(new AbortController().signal)))
++      .toMatchObject({ behavior: 'deny' });
++    await disposing;
++  });
++
++  it('refuses when no init arrives before the deadline, with the first turn only and no binding', async () => {
++    const f = fixture({ initAfterFirstTurn: true, pause: 'init' });
++    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
++    await f.entered.promise;
++    await rejected;
++    expect(f.controller.signal.aborted).toBe(true);
++    expect(f.yielded()).toBe(1);
++    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
++    expect(f.saved()).toBeUndefined();
++    await expectNoAdmission(f);
++    f.paused.resolve();
++    await f.flow.dispose();
++  });
++
+   it('bootstraps with the certified env and executable, and no managed settings', async () => {
+     const f = fixture();
+     await f.run();
+@@ -317,10 +510,12 @@ describe('named SDK bootstrap and final admission', () => {
+     ['another CLI version', { claude_code_version: '9.9.9' }],
+     ['an API key source', { apiKeySource: 'ANTHROPIC_API_KEY' }],
+   ])('refuses an init message with %s before any binding', async (_name, initPatch) => {
+-    const f = fixture({ initPatch });
++    const f = fixture({ initPatch, initAfterFirstTurn: true });
+     await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(1);
++    expect(f.saved()).toBeUndefined();
++    await expectNoAdmission(f);
+   });
+ 
+   it('accepts an oauth init key source', async () => {
+@@ -348,20 +543,22 @@ describe('named SDK bootstrap and final admission', () => {
+   });
+ 
+   it.each(['admit', 'current', 'bootstrap-identity', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('refuses %s failure without yielding or writing unbound metadata', async (fail) => {
+-    const f = fixture({ fail });
++    const f = fixture({ fail, initAfterFirstTurn: true });
+     // A refused registry bind is a real conflict; any other failure is unproved.
+     await expect(f.run()).rejects.toMatchObject({ code: fail === 'registry' ? 'conflict' : 'identity-unproved' });
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(AFTER_PROOF.has(fail) ? 1 : 0);
++    await expectNoAdmission(f);
+     expect(f.saved()).toBeUndefined();
+     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(fail === 'admit' ? 0 : 1);
+   });
+ 
+   it.each(['lookup', 'admit', 'current', 'boundary', 'bootstrap-identity', 'bootstrap-close', 'final-identity', 'init', 'registry', 'commit', 'attach', 'metadata'])('cancels at %s with closed gates and a single settlement', async (cancel) => {
+-    const f = fixture({ cancel });
++    const f = fixture({ cancel, initAfterFirstTurn: true });
+     await expect(f.run(cancel === 'lookup' ? 'prior-session' : undefined)).rejects.toMatchObject({ code: 'identity-unproved' });
+     await flush();
+     await f.flow.dispose();
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(AFTER_PROOF.has(cancel) ? 1 : 0);
++    await expectNoAdmission(f);
+     // A cancelled storage promise may finish, but can only persist bound metadata.
+     if (f.saved()) expect(f.saved()).toEqual(binding);
+     const settlements = jest.mocked(f.admission.releaseReservation).mock.calls.length +
+@@ -472,7 +669,8 @@ describe('named SDK bootstrap and final admission', () => {
+     await result;
+     f.paused.resolve();
+     await flush();
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(1);
++    await expectNoAdmission(f);
+     expect(f.saved()).toEqual(binding);
+     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+   });
+@@ -500,17 +698,24 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+   afterEach(() => jest.useRealTimers());
+ 
+   it.each(['commit', 'attach', 'metadata', 'final-identity:2'])(
+-    'keeps the prompt pending until %s completes', async pause => {
++    'keeps later turns and output pending until %s completes', async pause => {
+       const f = fixture({ pause });
+-      const pending = f.run();
++      let resolved = false;
++      const pending = f.run().then((query) => { resolved = true; return query; });
+       await f.entered.promise;
+       await flush();
+-      expect(f.yielded()).toBe(0);
++      // The first turn was released after the identity proof (D69); nothing else.
++      expect(f.yielded()).toBe(1);
++      const later = f.iterators[1].next();
++      await flush();
++      expect(f.events).not.toContain('turn-2');
++      expect(resolved).toBe(false);
+       expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+       f.paused.resolve();
+       await pending;
+       await flush();
+       expect(await f.reads[1]).toEqual({ done: false, value: message });
++      expect(await later).toEqual({ done: false, value: followUp });
+       expect(f.saved()).toEqual(binding);
+       await f.flow.dispose();
+     },
+@@ -519,7 +724,7 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+   it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'final-identity',
+     'init', 'commit', 'attach', 'metadata', 'current:3', 'final-identity:2'])(
+     'ignores late %s completion after cancellation and settles once', async pause => {
+-      const f = fixture({ pause });
++      const f = fixture({ pause, initAfterFirstTurn: true });
+       const rejected = expect(f.run(pause === 'lookup' ? 'sdk-session-a' : undefined))
+         .rejects.toMatchObject({ code: 'identity-unproved' });
+       await f.entered.promise;
+@@ -528,7 +733,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+       f.paused.resolve();
+       await flush();
+       await f.flow.dispose();
+-      expect(f.yielded()).toBe(0);
++      expect(f.yielded()).toBe(AFTER_PROOF.has(pause) ? 1 : 0);
++      await expectNoAdmission(f);
+       expect(f.admission.releaseReservation).toHaveBeenCalledTimes(pause === 'lookup' ? 0 : 1);
+       expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+     },
+@@ -539,7 +745,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+       const f = fixture({ changedAtFinalRead: 2, finalIdentity });
+       await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+       expect(f.saved()).toEqual(binding);
+-      expect(f.yielded()).toBe(0);
++      expect(f.yielded()).toBe(1);
++      await expectNoAdmission(f);
+       expect(f.events.filter(event => event === 'final-identity')).toHaveLength(2);
+     },
+   );
+@@ -556,7 +763,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+     await rejected;
+     f.paused.resolve();
+     await f.flow.dispose();
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(1);
++    await expectNoAdmission(f);
+     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+   });
+ 
+@@ -569,7 +777,8 @@ describe('A2 mocked-evidence main admission adversarial matrix', () => {
+     await rejected;
+     f.paused.resolve();
+     await f.flow.dispose();
+-    expect(f.yielded()).toBe(0);
++    expect(f.yielded()).toBe(1);
++    await expectNoAdmission(f);
+     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+   });
+diff --git a/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts b/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts
+index 7b0fc45ab..abeb4546b 100644
+--- a/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts
++++ b/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts
+@@ -35,6 +35,7 @@ import {
+   ClaudeCertifiedLaunchRefusal, assertCertifiedLaunch, claudePersonalLoginCheck, claudePersonalLoginPassed,
+ } from '../claude-certified-launch';
+ import { claudeIdentityReference } from '../claude-identity-reference';
++import { withNamedAccountToolGate } from '../named-account-prompt-gate';
+ import type {
+   ISdkPermissionHandler,
+   AuthEnv,
+@@ -621,22 +622,47 @@ function sameNamedIdentity(left: ProviderAccountIdentityEvidence, right: Provide
+     ? left.ownerKey === right.ownerKey : left.kind === right.kind;
+ }
+ 
+-/** An empty gate that does not even pull caller-owned conversation until commit. */
++/**
++ * Holds caller-owned conversation. Nothing is pulled until `releaseFirst`,
++ * which hands over only the first caller turn: CLI 2.1.278 in streaming-input
++ * mode builds `system/init` after that turn (D68, D69). No later turn is pulled
++ * until `commit`, and each later turn passes `approve` first. The first turn
++ * skips `approve`: the same child proved the account right before the release.
++ */
+ class NamedQueryGate {
++  private released = false;
+   private open = false;
+   private closed = false;
+-  private wake!: () => void;
+-  private readonly ready = new Promise<void>((resolve) => { this.wake = resolve; });
+-  commit(): void { if (!this.closed) { this.open = true; this.wake(); } }
+-  close(): void { this.closed = true; this.wake(); }
++  private wakeRelease!: () => void;
++  private wakeCommit!: () => void;
++  private readonly releasedFirst = new Promise<void>((resolve) => { this.wakeRelease = resolve; });
++  private readonly committed = new Promise<void>((resolve) => { this.wakeCommit = resolve; });
++  releaseFirst(): void { if (!this.closed) { this.released = true; this.wakeRelease(); } }
++  commit(): void {
++    if (this.closed) return;
++    this.released = true;
++    this.open = true;
++    this.wakeRelease();
++    this.wakeCommit();
++  }
++  close(): void { this.closed = true; this.wakeRelease(); this.wakeCommit(); }
+   async *stream(source?: AsyncIterable<SDKUserMessage>, approve?: () => Promise<void>): AsyncIterable<SDKUserMessage> {
+-    await this.ready;
+-    if (!this.open || this.closed || !source) return;
++    await this.releasedFirst;
++    if (!this.released || this.closed || !source) return;
++    let first = true;
+     for await (const message of source) {
+       if (this.closed) return;
+-      await approve?.();
+-      if (this.closed) return;
++      if (!first) {
++        await approve?.();
++        if (this.closed) return;
++      }
+       yield message;
++      if (first) {
++        first = false;
++        // Pull no later turn before the run is admitted.
++        await this.committed;
++        if (!this.open || this.closed) return;
++      }
+     }
+   }
+ }
+@@ -656,6 +682,11 @@ export class NamedAccountQueryAdmission {
+   private readonly gates: NamedQueryGate[] = [];
+   private stopEpoch?: () => void;
+   private settlement?: Promise<void>;
++  /** Terminal: once set, no step admits the run, returns the query or delegates a tool. */
++  private disposed = false;
++  /** True once the admitted child ended on its own; dispose then leaves the session controller alone. */
++  private childEnded = false;
++  private settleAdmission?: (admitted: boolean) => void;
+   private readonly onAbort = (): void => {
+     for (const gate of this.gates) gate.close();
+     this.closeChild();
+@@ -691,7 +722,7 @@ export class NamedAccountQueryAdmission {
+           timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
+         }),
+       ]);
+-      if (this.abortController.signal.aborted) throw namedAccountRefusal();
++      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
+       return value;
+     } finally {
+       clearTimeout(timer);
+@@ -791,9 +822,16 @@ export class NamedAccountQueryAdmission {
+     registerKey: string, metadata: Omit<SessionMetadata, 'sessionId'>): Promise<Query> {
+     const gate = new NamedQueryGate();
+     this.gates.push(gate);
+-    let admitted = false;
+-    const canUseTool = options.canUseTool;
++    // One admission check for `canUseTool` and the `PreToolUse` hook: a tool call
++    // is denied until `system/init` is verified. After that it waits for the
++    // admission outcome: allowed once the binding is committed, denied on any
++    // refusal, abort or dispose (the catch below and `dispose` settle it false).
++    let initVerified = false;
++    const admission = new Promise<boolean>((resolve) => { this.settleAdmission = resolve; });
++    const toolAdmitted = async (): Promise<boolean> => initVerified && (await admission) &&
++      !this.disposed && !this.abortController.signal.aborted;
+     try {
++      if (this.disposed) throw namedAccountRefusal();
+       if (this.abortController.signal.aborted) throw namedAccountRefusal();
+       const launch = this.certifiedLaunch;
+       if (!launch) throw namedAccountRefusal('identity-unproved');
+@@ -801,11 +839,11 @@ export class NamedAccountQueryAdmission {
+       this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(source, async () => {
+         try { await this.verifyIdentity(); }
+         catch (error: unknown) { await this.dispose(); throw namedAccountRefusal(namedRefusalCode(error)); }
+-      }), { ...options, canUseTool: (tool, input, context) => admitted && !this.abortController.signal.aborted && canUseTool
+-        ? canUseTool(tool, input, context)
+-        : Promise.resolve({ behavior: 'deny', message: 'Account admission pending.' }) },
++      }), withNamedAccountToolGate(options, toolAdmitted),
+         (termination) => { this.termination = termination; });
+       await this.verifyIdentity();
++      // The same child proved the account: hand over the first caller turn only.
++      gate.releaseFirst();
+       const query = this.child.sdkQuery;
+       const buffered: SDKMessage[] = [];
+       let sdkSessionId: string | undefined;
+@@ -818,6 +856,7 @@ export class NamedAccountQueryAdmission {
+           if (next.value.claude_code_version !== launch.executable.version ||
+               !CERTIFIED_INIT_KEY_SOURCES.has(next.value.apiKeySource)) throw namedAccountRefusal('identity-unproved');
+           sdkSessionId = next.value.session_id;
++          initVerified = true;
+         }
+         if (buffered.length > 64) throw namedAccountRefusal();
+       }
+@@ -839,9 +878,11 @@ export class NamedAccountQueryAdmission {
+       if (attached.status !== 'attached') throw namedAccountRefusal('conflict');
+       await this.wait(this.persistence.saveAccountBound({ ...metadata, sessionId: sdkSessionId }, binding));
+       await this.verifyIdentity();
+-      admitted = true;
++      // A dispose during the last read is terminal: never admit after it.
++      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
++      this.settleAdmission?.(true);
+       gate.commit();
+-      void this.child.terminated.then(() => this.dispose()).catch(() =>
++      void this.child.terminated.then(() => { this.childEnded = true; return this.dispose(); }).catch(() =>
+         this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
+       // Replay init exactly once to the normal transformer; it remains the owner
+       // of stats/session-id callbacks. No control-stage message escapes on failure.
+@@ -856,6 +897,7 @@ export class NamedAccountQueryAdmission {
+         return typeof value === 'function' ? value.bind(target) : value;
+       } });
+     } catch (error: unknown) {
++      this.settleAdmission?.(false);
+       await this.dispose();
+       throw namedAccountRefusal(namedRefusalCode(error));
+     }
+@@ -874,11 +916,20 @@ export class NamedAccountQueryAdmission {
+     catch { this.logger.warn('[SessionLifecycle] Named account child close was not confirmed.'); }
+   }
+ 
++  /**
++   * Terminal, like the lane's dispose: marks the flow disposed, settles admission
++   * false (held and later tool calls are denied), aborts every pending admission
++   * await, then closes the gates and the child. The session controller is left
++   * alone only when the admitted child already ended on its own.
++   */
+   async dispose(): Promise<void> {
++    this.disposed = true;
++    this.settleAdmission?.(false);
+     for (const gate of this.gates) gate.close();
+     this.closeChild();
+     this.stopEpoch?.();
+     this.abortController.signal.removeEventListener('abort', this.onAbort);
++    if (!this.childEnded) this.abortController.abort();
+     if (!this.reservation) return;
+     if (this.settlement) return this.settlement;
+     const reservation = this.reservation;
+diff --git a/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.spec.ts b/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.spec.ts
+index ab2fbd4fb..7a707caf8 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.spec.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.spec.ts
+@@ -1,4 +1,5 @@
+ import 'reflect-metadata';
++import { EventEmitter } from 'events';
+ import { createMockLogger } from '@ptah-extension/shared/testing';
+ import type { Logger } from '@ptah-extension/vscode-core';
+ import type {
+@@ -18,6 +19,7 @@ import {
+   certifiedEnvDigest,
+   claudeIdentityReference,
+   deriveWorkspaceLabel,
++  type HookInput,
+   type Options,
+   type SdkMessageTransformer,
+   type SdkPermissionHandler,
+@@ -967,3 +969,288 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
+     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+   });
+ });
++
++describe('named lane final child init after the first turn (D68)', () => {
++  type QueryFn = ClaudeSdkLaneRunContext['queryFn'];
++  type Message = Record<string, unknown>;
++  const owner = {
++    tokenSource: 'claude.ai', subscriptionType: 'max', apiProvider: 'firstParty',
++    email: 'owner@example.test', organization: 'org',
++  };
++  const route = {
++    kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
++    canonicalConfigDir: 'D:/accounts/selected',
++    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
++  } as ClaudeAccountNamedRoute;
++  const sessionId = '99999999-2222-4333-8444-555555555555';
++  const init = (overrides: Message = {}): Message => ({
++    type: 'system', subtype: 'init', session_id: sessionId,
++    claude_code_version: '2.1.310', apiKeySource: 'none', ...overrides,
++  });
++  const spawnInput = {
++    command: 'claude', args: [], env: {}, signal: new AbortController().signal,
++  };
++
++  /**
++   * Models CLI 2.1.278 in streaming-input mode: the final child emits
++   * `system/init` only after it consumed the first user message.
++   */
++  function fixture(
++    setup: {
++      init?: Message | null;
++      deadlineMs?: number;
++      yolo?: boolean;
++      /** Holds the binding commit, or the final child's identity proof read. */
++      hold?: 'commit' | 'proof';
++    } = {},
++  ) {
++    const launch = certifiedLaunch();
++    const events: string[] = [];
++    let release!: () => void;
++    const released = new Promise<void>((resolve) => (release = resolve));
++    let enter!: () => void;
++    const entered = new Promise<void>((resolve) => (enter = resolve));
++    let identityReads = 0;
++    const controller = new AbortController();
++    const callerHook = jest.fn(async () => ({}));
++    const binding: ProviderAccountBinding = {
++      version: 1, provider: 'claude', profileId: 'profile', runId: 'run',
++      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
++      identity: { kind: 'known', ownerKey: launch.identityReference },
++    };
++    const commitRunBinding = jest.fn(async () => {
++      if (setup.hold === 'commit') {
++        enter();
++        await released;
++      }
++      events.push('commit');
++      return binding;
++    });
++    const attachSdkSession = jest.fn(async () => {
++      events.push('attach');
++      return { status: 'attached' as const };
++    });
++    const persistence: ClaudeLaneAccountPersistence = {
++      available: true,
++      lookupBySdkSession: jest.fn(),
++      validateResume: async () => ({ code: 'ok' }),
++      persistReference: async () => undefined,
++      commitRunBinding,
++      attachSdkSession,
++      saveAccountBound: async () => undefined,
++      assertRouteCurrent: async () => undefined,
++      checkLaunchBoundary: async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true }),
++      onAuthEpochChanged: () => () => undefined,
++    };
++    const admissionPort: ProviderAccountAdmissionPort = {
++      admitClaudeRoute: jest.fn(),
++      releaseReservation: jest.fn(),
++      retainUnresolvedReservation: jest.fn(),
++    };
++    const processes: EventEmitter[] = [];
++    const spawner = {
++      spawn: jest.fn().mockImplementation(() => {
++        const child = new EventEmitter();
++        processes.push(child);
++        return child;
++      }),
++    };
++    const prompts: unknown[] = [];
++    const finalArgs: Parameters<QueryFn>[0][] = [];
++    const queryFn: QueryFn = jest.fn((args: Parameters<QueryFn>[0]) => {
++      const index = finalArgs.push(args) - 1;
++      args.options?.spawnClaudeCodeProcess?.(spawnInput);
++      const child = processes[processes.length - 1];
++      const final = index === 1;
++      const stream: Message[] = [];
++      let consumed = false;
++      const query = {
++        accountInfo: async () => {
++          // Read 1 is the bootstrap child; read 2 is the final child's proof.
++          if (setup.hold === 'proof' && ++identityReads === 2) {
++            enter();
++            await released;
++          } else if (setup.hold !== 'proof') identityReads++;
++          return owner;
++        },
++        close: (): void => {
++          child.emit('exit', 0);
++        },
++        next: async (): Promise<IteratorResult<Message>> => {
++          if (final && !consumed && typeof args.prompt !== 'string') {
++            consumed = true;
++            const first = await args.prompt[Symbol.asyncIterator]().next();
++            if (first.done) return { done: true, value: undefined };
++            prompts.push(first.value);
++            events.push('prompt');
++            if (setup.init !== null) stream.push(setup.init ?? init());
++            stream.push({ type: 'assistant', text: 'early output' });
++          }
++          const value = stream.shift();
++          if (value) return { done: false, value };
++          return new Promise<never>(() => undefined);
++        },
++      };
++      return query as ReturnType<QueryFn>;
++    });
++    const input = optionsInput();
++    input.accountRoute = route;
++    input.launch = launch;
++    input.resumeSessionId = undefined;
++    input.processSpawner = spawner;
++    if (setup.yolo) {
++      input.permissionHandler = permissionHandler('yolo');
++      input.assembly = {
++        ...input.assembly,
++        hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [callerHook] }] },
++      };
++    }
++    const finalOptions = buildClaudeSdkLaneOptions(input);
++    const bootstrapOptions = buildClaudeLaneBootstrapOptions(
++      route, launch, new AbortController(), spawner,
++    );
++    const admission = new ClaudeNamedLaneAdmission(
++      route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
++      controller, { warn: jest.fn() }, undefined, setup.deadlineMs ?? 60_000,
++    );
++    const metadata = {
++      name: 'Reviewer', workspaceId: 'D:/workspace', workingDirectory: 'D:/workspace',
++      createdAt: 0, lastActiveAt: 0, totalCost: 0,
++      totalTokens: { input: 0, output: 0 }, isChildSession: true,
++    };
++    const run = async () => {
++      await admission.bootstrap(queryFn, bootstrapOptions);
++      return admission.launch(queryFn, finalOptions, metadata, { message: 'task' });
++    };
++    return {
++      admission, run, events, prompts, finalArgs, commitRunBinding, attachSdkSession,
++      entered, release, controller, callerHook,
++    };
++  }
++
++  const toolHookInput: HookInput = {
++    hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {},
++    tool_use_id: 'tool-1', session_id: sessionId, transcript_path: '', cwd: '',
++  };
++  const denyHook = {
++    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
++  };
++  const hookOf = (f: ReturnType<typeof fixture>) =>
++    f.finalArgs[1]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
++  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
++
++  it('consumes no prompt while the same-child identity proof is pending', async () => {
++    const f = fixture({ hold: 'proof' });
++    const running = f.run();
++    await f.entered;
++    await settle();
++    expect(f.prompts).toHaveLength(0);
++    expect(f.events).not.toContain('prompt');
++    f.release();
++    await expect(running).resolves.toBeUndefined();
++    expect(f.prompts).toHaveLength(1);
++  });
++
++  it('denies a YOLO PreToolUse call before init is verified, ahead of caller hooks (F1)', async () => {
++    const f = fixture({ init: null, deadlineMs: 200, yolo: true });
++    const running = f.run();
++    await settle();
++    const options = f.finalArgs[1]?.options;
++    expect(options?.permissionMode).toBe('bypassPermissions');
++    const matchers = options?.hooks?.PreToolUse ?? [];
++    expect(matchers).toHaveLength(2);
++    expect(matchers[0].matcher).toBeUndefined();
++    expect(matchers[1].hooks).toEqual([f.callerHook]);
++    const signal = new AbortController().signal;
++    expect(await hookOf(f)?.(toolHookInput, 'tool-1', { signal })).toMatchObject(denyHook);
++    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
++  });
++
++  it('holds a YOLO PreToolUse call after init until the binding commits (F1)', async () => {
++    const f = fixture({ hold: 'commit', yolo: true });
++    const running = f.run();
++    await f.entered;
++    let decision: unknown;
++    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
++      signal: new AbortController().signal,
++    }).then((value) => (decision = value));
++    await settle();
++    expect(decision).toBeUndefined();
++    f.release();
++    await expect(running).resolves.toBeUndefined();
++    await held;
++    // Admitted: no decision, so the caller's permission flow applies.
++    expect(decision).toEqual({});
++    await f.admission.dispose();
++    expect(
++      await hookOf(f)?.(toolHookInput, 'tool-1', { signal: new AbortController().signal }),
++    ).toMatchObject(denyHook);
++  });
++
++  it('denies a held YOLO PreToolUse call when the run is aborted before admission (F1)', async () => {
++    const f = fixture({ hold: 'commit', yolo: true });
++    const running = f.run();
++    await f.entered;
++    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
++      signal: new AbortController().signal,
++    });
++    f.controller.abort();
++    expect(await held).toMatchObject(denyHook);
++    f.release();
++    await expect(running).rejects.toBeDefined();
++    expect(f.attachSdkSession).not.toHaveBeenCalled();
++  });
++
++  it('releases the first turn after the identity proof and passes on init', async () => {
++    const f = fixture();
++    await expect(f.run()).resolves.toBeUndefined();
++    expect(f.prompts).toEqual([
++      expect.objectContaining({ type: 'user', message: { role: 'user', content: 'task' } }),
++    ]);
++    // The binding is committed only after the init that followed the prompt.
++    expect(f.events).toEqual(['prompt', 'commit', 'attach']);
++    // Buffered messages replay to the caller in order, init first.
++    const query = f.admission.query;
++    expect(await query?.next()).toEqual({ done: false, value: init() });
++    expect(await query?.next()).toEqual({
++      done: false, value: { type: 'assistant', text: 'early output' },
++    });
++  });
++
++  it.each<[string, Message]>([
++    ['a different CLI version', init({ claude_code_version: '2.1.278' })],
++    ['a non-personal key source', init({ apiKeySource: 'user' })],
++  ])('refuses %s and forwards nothing', async (_label, message) => {
++    const f = fixture({ init: message });
++    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
++    expect(f.commitRunBinding).not.toHaveBeenCalled();
++    expect(f.attachSdkSession).not.toHaveBeenCalled();
++    expect(f.admission.query).toBeUndefined();
++  });
++
++  it('refuses when no init arrives before the deadline', async () => {
++    const f = fixture({ init: null, deadlineMs: 50 });
++    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
++    expect(f.admission.launchDiagnostic).toMatchObject({
++      phase: 'final', step: 'init-wait', interrupt: 'deadline',
++    });
++    expect(f.prompts).toHaveLength(1);
++    expect(f.commitRunBinding).not.toHaveBeenCalled();
++    expect(f.admission.query).toBeUndefined();
++  });
++
++  it('denies a tool call before init is verified', async () => {
++    const f = fixture({ init: null, deadlineMs: 200 });
++    const running = f.run();
++    await new Promise((resolve) => setTimeout(resolve, 20));
++    const canUseTool = f.finalArgs[1]?.options?.canUseTool;
++    expect(canUseTool).toBeDefined();
++    const context = {
++      signal: new AbortController().signal, toolUseID: 'tool-1', requestId: 'request',
++    };
++    await expect(canUseTool?.('Read', {}, context)).resolves.toEqual({
++      behavior: 'deny', message: 'Account admission pending.',
++    });
++    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
++  });
++});
+diff --git a/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.ts b/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.ts
+index 43da904ee..edc99efa6 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/claude/claude-sdk-lane-runner.ts
+@@ -6,6 +6,7 @@ import {
+   claudePersonalLoginCheck,
+   claudePersonalLoginPassed,
+   createNamedAccountPromptGate,
++  withNamedAccountToolGate,
+ } from '@ptah-extension/agent-sdk';
+ import type {
+   ClaudePersonalLoginCheck,
+@@ -386,6 +387,7 @@ export type ClaudeLaneLaunchStep =
+   | 'identity-compare'
+   | 'stored-identity'
+   | 'close'
++  | 'released'
+   | 'init-wait'
+   | 'init-version'
+   | 'init-key-source'
+@@ -463,6 +465,8 @@ export class ClaudeNamedLaneAdmission {
+   private settlement?: Promise<void>;
+   private stopEpoch?: () => void;
+   private released = false;
++  /** The first turn `launch` released before init (D68), until consumed. */
++  private releasedTurn?: SDKUserMessage;
+   private disposed = false;
+   /**
+    * True while a boundary check is pending or after one refused without
+@@ -714,12 +718,15 @@ export class ClaudeNamedLaneAdmission {
+   private async *admittedTurns(
+     turns: ReturnType<typeof createNamedAccountPromptGate>['prompt'],
+   ): AsyncGenerator<SDKUserMessage> {
+-    let initial = true;
+     for await (const message of turns) {
+       try {
+-        await this.validateTurn(!initial);
++        // Only the exact turn `launch` released right after the same child
++        // proved the account skips re-validation (no binding exists yet).
++        // Keyed on the message, not on the iterator, so a fresh iterator
++        // cannot skip validation for a later queued turn.
++        if (message === this.releasedTurn) this.releasedTurn = undefined;
++        else await this.validateTurn();
+         this.assertOpen();
+-        initial = false;
+         yield message;
+       } catch (error: unknown) {
+         await this.dispose();
+@@ -732,6 +739,7 @@ export class ClaudeNamedLaneAdmission {
+     queryFn: LaneQueryFunction,
+     options: Options,
+     metadata: Omit<SessionMetadata, 'sessionId'>,
++    firstTurn: { readonly message: string; readonly sessionId?: string },
+     onBinding?: (
+       reference: LaneAccountReference,
+       sdkSessionId: string,
+@@ -743,23 +751,40 @@ export class ClaudeNamedLaneAdmission {
+     const prompt: AsyncIterable<SDKUserMessage> = {
+       [Symbol.asyncIterator]: () => this.admittedTurns(gate.prompt),
+     };
+-    const canUseTool = options.canUseTool;
+-    this.step = 'open';
+-    const child = this.open(queryFn, prompt, {
+-      ...options,
+-      canUseTool: (tool, input, context) =>
+-        this.released &&
+-        !this.disposed &&
+-        !this.abort.signal.aborted &&
+-        canUseTool
+-          ? canUseTool(tool, input, context)
+-          : Promise.resolve({
+-              behavior: 'deny',
+-              message: 'Account admission pending.',
+-            }),
++    // Settles when the run is released or stopped (dispose aborts).
++    let settleLaunch!: () => void;
++    const launched = new Promise<void>((resolve) => {
++      settleLaunch = resolve;
++      this.abort.signal.addEventListener('abort', () => resolve(), {
++        once: true,
++      });
+     });
++    let initVerified = false;
++    this.step = 'open';
++    // One admission check for `canUseTool` and the `PreToolUse` hook: denied
++    // before a verified init; after it, held until the binding; denied on
++    // refusal, abort or dispose (each settles `launched` via the abort).
++    const toolAdmitted = async (): Promise<boolean> => {
++      if (initVerified && !this.released) await launched;
++      return this.released && !this.disposed && !this.abort.signal.aborted;
++    };
++    const child = this.open(
++      queryFn,
++      prompt,
++      withNamedAccountToolGate(options, toolAdmitted),
++    );
+     if (!this.sameIdentity(await this.readIdentity()))
+       throw claudeLaneRefusal('identity-unproved');
++    // CLI 2.1.278 builds `system/init` in its turn loop, after it picks up a
++    // user message (D68): release the first turn now; nothing is forwarded
++    // and no tool runs until init is verified below.
++    this.step = 'released';
++    this.releasedTurn = this.userTurn(firstTurn.message, firstTurn.sessionId);
++    if (
++      !gate.push(this.releasedTurn) ||
++      !gate.commit()
++    )
++      throw claudeLaneRefusal();
+     const version = this.certifiedLaunch().executable.version;
+     const buffered: Awaited<ReturnType<typeof child.query.next>>[] = [];
+     let sessionId: string | undefined;
+@@ -770,7 +795,8 @@ export class ClaudeNamedLaneAdmission {
+       buffered.push(next);
+       if (next.value.type === 'system' && next.value.subtype === 'init') {
+         // The running CLI must be the certified version and must report a
+-        // personal key source (independent of account info), before any task text.
++        // personal key source (independent of account info), before any output
++        // is forwarded, any tool runs or the binding is committed.
+         this.step = 'init-version';
+         if (next.value.claude_code_version !== version)
+           throw claudeLaneRefusal('identity-unproved');
+@@ -783,6 +809,7 @@ export class ClaudeNamedLaneAdmission {
+     this.step = 'resume';
+     if (options.resume && options.resume !== sessionId)
+       throw claudeLaneRefusal('conflict');
++    initVerified = true;
+     if (!this.identity) throw claudeLaneRefusal();
+     this.step = 'commit-binding';
+     const binding =
+@@ -841,6 +868,7 @@ export class ClaudeNamedLaneAdmission {
+       throw claudeLaneRefusal();
+     this.assertOpen();
+     this.released = true;
++    settleLaunch();
+     this.phase = 'turn';
+     const next = () =>
+       buffered.length ? Promise.resolve(buffered.shift()!) : child.query.next();
+@@ -867,24 +895,25 @@ export class ClaudeNamedLaneAdmission {
+     this.assertOpen();
+   }
+ 
+-  async enqueue(
+-    message: string,
+-    sessionId?: string,
+-    initial = false,
+-  ): Promise<void> {
++  private userTurn(message: string, sessionId?: string): SDKUserMessage {
++    return {
++      type: 'user',
++      uuid: randomUUID() as SDKUserMessage['uuid'],
++      message: { role: 'user', content: message },
++      parent_tool_use_id: null,
++      ...(sessionId ? { session_id: sessionId } : {}),
++    };
++  }
++
++  /** A later turn; the first turn is released by `launch`. */
++  async enqueue(message: string, sessionId?: string): Promise<void> {
+     try {
+-      await this.validateTurn(!initial);
++      await this.validateTurn();
+       this.step = 'gate';
+       const gate = this.gates[this.gates.length - 1];
+       if (
+         !this.released ||
+-        !gate.push({
+-          type: 'user',
+-          uuid: randomUUID() as SDKUserMessage['uuid'],
+-          message: { role: 'user', content: message },
+-          parent_tool_use_id: null,
+-          ...(sessionId ? { session_id: sessionId } : {}),
+-        }) ||
++        !gate.push(this.userTurn(message, sessionId)) ||
+         !gate.commit()
+       )
+         throw claudeLaneRefusal();
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts
+index fad7a4fa8..82fc9a202 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts
+@@ -486,6 +486,13 @@ function namedFixture() {
+   const initVersion = { value: launch.executable.version };
+   // Init `apiKeySource`; `undefined` models a child that omits the field.
+   const initKeySource: { value: string | undefined } = { value: 'none' };
++  // CLI 2.1.278 streaming input (D68): the final child emits `system/init`
++  // only after it consumed the first user message.
++  const initAfterFirstTurn = { value: false };
++  // Turns the final child consumed before init, and the permission answers
++  // it got for a tool call made in that window.
++  const turnsBeforeInit = jest.fn();
++  const permissionsBeforeInit: Array<Promise<unknown> | undefined> = [];
+   const route = {
+     kind: 'named',
+     provider: 'claude',
+@@ -619,7 +626,24 @@ function namedFixture() {
+       organization: 'org',
+     }));
+     const close = jest.fn(() => process.emit('exit', 0, null));
++    const final = children.length > 0;
++    const canUseTool = options.canUseTool;
+     const stream = (async function* () {
++      if (final && initAfterFirstTurn.value) {
++        const turn = await prompt[Symbol.asyncIterator]().next();
++        turnsBeforeInit(turn.value);
++        permissionsBeforeInit.push(
++          canUseTool?.(
++            'fixture',
++            {},
++            {
++              signal: new AbortController().signal,
++              toolUseID: 'pre-init-tool',
++              requestId: 'pre-init-request',
++            },
++          ),
++        );
++      }
+       yield {
+         type: 'system',
+         subtype: 'init',
+@@ -656,6 +680,9 @@ function namedFixture() {
+     launch,
+     initVersion,
+     initKeySource,
++    initAfterFirstTurn,
++    turnsBeforeInit,
++    permissionsBeforeInit,
+   };
+ }
+ 
+@@ -701,6 +728,7 @@ describe('named Claude lane admission', () => {
+ 
+   it('bootstraps without task options and awaits both stores and the receipt callback on a fresh final gate', async () => {
+     const f = namedFixture();
++    f.initAfterFirstTurn.value = true;
+     let release!: () => void;
+     let reached!: () => void;
+     const checkpoint = new Promise<void>((resolve) => {
+@@ -736,32 +764,46 @@ describe('named Claude lane admission', () => {
+     expect(f.persistence.attachSdkSession).toHaveBeenCalledTimes(1);
+     expect(f.persistence.saveAccountBound).toHaveBeenCalledTimes(1);
+     expect(f.persistence.persistReference).toHaveBeenCalledTimes(1);
+-    const yielded = jest.fn();
+-    const first = f.children[1].prompt[Symbol.asyncIterator]()
+-      .next()
+-      .then((value) => {
+-        yielded(value);
+-        return value;
+-      });
+-    await Promise.resolve();
+-    expect(yielded).not.toHaveBeenCalled();
+-    const permission = f.query.mock.calls[1][0].options?.canUseTool;
++    // D68: the final child consumed the task (released right after it proved
++    // the account) before it emitted init; the binding followed init.
++    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
++    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
++      message: { content: f.input.task },
++    });
++    const consumed = f.turnsBeforeInit.mock.invocationCallOrder[0];
++    expect(f.children[1].accountInfo.mock.invocationCallOrder[0]).toBeLessThan(
++      consumed,
++    );
+     expect(
+-      await permission?.(
+-        'fixture',
+-        {},
+-        {
+-          signal: new AbortController().signal,
+-          toolUseID: 'tool',
+-          requestId: 'request',
+-        },
+-      ),
+-    ).toMatchObject({ behavior: 'deny' });
++      f.persistence.commitRunBinding.mock.invocationCallOrder[0],
++    ).toBeGreaterThan(consumed);
++    // A tool call before init is denied; no output reaches the runner yet.
++    expect(f.permissionsBeforeInit).toHaveLength(1);
++    expect(await f.permissionsBeforeInit[0]).toMatchObject({
++      behavior: 'deny',
++    });
++    expect(f.run).not.toHaveBeenCalled();
++    // After init, a tool call waits for the binding instead of running.
++    const permission = f.query.mock.calls[1][0].options?.canUseTool;
++    const settled = jest.fn();
++    const held = permission?.(
++      'fixture',
++      {},
++      {
++        signal: new AbortController().signal,
++        toolUseID: 'tool',
++        requestId: 'request',
++      },
++    );
++    void held?.then(settled);
++    await new Promise((resolve) => setImmediate(resolve));
++    expect(settled).not.toHaveBeenCalled();
+     release();
+     const handle = await run;
+-    expect((await first).value).toMatchObject({
+-      message: { content: f.input.task },
+-    });
++    await held;
++    expect(settled).toHaveBeenCalledTimes(1);
++    // The task travelled once, with the launch; nothing else is queued.
++    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
+     expect(handle.accountBinding).toEqual(f.binding);
+     expect(handle.accountBindingId).toBe('run');
+     expect(f.callbacks).toHaveBeenCalledWith(
+@@ -845,15 +887,21 @@ describe('named Claude lane admission', () => {
+ 
+   it('revalidates queued input at consumption and retains an uncertain child exit', async () => {
+     const f = namedFixture();
++    f.initAfterFirstTurn.value = true;
+     const handle = await f.adapter.runSdk(f.input);
++    // The first turn travelled with the launch, before init (D68).
++    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
++      message: { content: f.input.task },
++    });
+     f.children[1].close.mockImplementation(() =>
+       f.children[1].process.emit('exit', null, 'SIGKILL'),
+     );
+     await handle.continue?.('queued');
+     f.children[1].accountInfo.mockResolvedValue({
+       ...personalLogin,
+-        email: 'other@example.test',
++      email: 'other@example.test',
+     });
++    // The queued turn is the next one consumed, and it is revalidated.
+     await expect(
+       f.children[1].prompt[Symbol.asyncIterator]().next(),
+     ).rejects.toMatchObject({ code: 'identity-unproved' });
+diff --git a/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.ts b/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.ts
+index 6ef1ff9f4..976712127 100644
+--- a/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.ts
++++ b/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.ts
+@@ -210,10 +210,9 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
+             totalTokens: { input: 0, output: 0 },
+             isChildSession: true,
+           },
++          { message: input.task, sessionId: input.resumeSessionId },
+           input.onAccountBinding,
+         );
+-        hostStep = 'enqueue';
+-        await named.enqueue(input.task, input.resumeSessionId, true);
+       }
+       hostStep = 'runner';
+       // The named query owns its empty gate. The legacy mailbox remains seeded

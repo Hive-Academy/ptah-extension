@@ -98,11 +98,13 @@ type ClaudeSessionLookupSource = Pick<ProviderAccountService, 'lookupBySdkSessio
 /**
  * Read-only lane binding authority over the host's provider account service
  * (TASK_2026_712 D25 F3). Lookup is authoritative, so a never-bound session
- * (`absent`) resumes ambient. Writes stay held until certification (D7):
- * `validateResume` refuses `release-held` and `persistReference` rejects, so a
- * bound named session cannot resume and nothing is ever persisted here. A
- * missing or failing service maps to `unavailable-storage`; the service's own
- * errors and values are never forwarded.
+ * (`absent`) resumes ambient. This port never writes: named runs need the
+ * certified persistence port (`CLAUDE_LANE_ACCOUNT_PERSISTENCE`, with its
+ * launch-boundary checks), which a certifying host binds. Here
+ * `validateResume` refuses `unavailable-storage` and `persistReference`
+ * rejects with it, so a bound named session cannot resume and nothing is ever
+ * persisted. A missing or failing service also maps to `unavailable-storage`;
+ * the service's own errors and values are never forwarded.
  */
 export function createClaudeLaneReadOnlyBindings(
   source: () => ClaudeSessionLookupSource | null,
@@ -132,10 +134,10 @@ export function createClaudeLaneReadOnlyBindings(
       }
     },
     async validateResume() {
-      return { code: 'release-held' };
+      return { code: 'unavailable-storage' };
     },
     async persistReference() {
-      throw new LaneAccountResumeError('release-held');
+      throw new LaneAccountResumeError('unavailable-storage');
     },
   };
 }
@@ -198,9 +200,11 @@ export function registerCliAgentRuntimeServices(
                   AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
                 )
               : null,
-          // No host registers the full port until certification (D7), so
-          // named admission stays refused; resumes fall back to the
-          // read-only bindings (ambient continues, bound refuses held).
+          // The certified persistence port (with `checkLaunchBoundary`) is
+          // bound only by a certifying host. Where it is absent or null,
+          // named admission refuses before any route or SDK load, and
+          // resumes fall back to the read-only bindings (ambient continues,
+          // bound refuses `unavailable-storage`).
           accountPersistence: () =>
             c.isRegistered(CLAUDE_LANE_ACCOUNT_PERSISTENCE, true)
               ? c.resolve<ClaudeLaneAccountPersistence | null>(

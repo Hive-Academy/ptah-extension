@@ -2,6 +2,7 @@ import {
   Component,
   Input,
   NgModule,
+  type OnInit,
   input,
   output,
   ChangeDetectionStrategy,
@@ -797,6 +798,27 @@ describe('SettingsComponent deferred tabs', () => {
     expect(providersState.redetectClis).toHaveBeenCalledTimes(1);
   });
 
+  // D73 F3: Providers is the boot auth redirect target, so a failed chunk must stay recoverable.
+  it('offers an accessible Reload when the Providers chunk fails to load', async () => {
+    const fixture = create(DeferBlockBehavior.Manual);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const [block] = await fixture.getDeferBlocks();
+    await block.render(DeferBlockState.Error);
+    expect(element.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(element.querySelector('ptah-providers-settings')).toBeNull();
+    const error = element.querySelector('[data-testid="providers-settings-load-error"]');
+    expect(error?.getAttribute('role')).toBe('alert');
+    expect(error?.textContent).toContain('The Providers page could not load.');
+
+    const reload = jest.spyOn(fixture.componentInstance, 'reloadWindow').mockImplementation(() => {
+      // jsdom cannot reload; the call itself is the contract.
+    });
+    element.querySelector<HTMLButtonElement>('[data-testid="providers-settings-reload"]')?.click();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it('shows an aria-busy placeholder until the Orchestration chunk renders, then passes the deep-link target', async () => {
     const fixture = create(DeferBlockBehavior.Manual);
     fixture.componentInstance.setActiveTab('orchestration');
@@ -852,11 +874,12 @@ describe('SettingsComponent deep-linked provider request', () => {
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: '',
   })
-  class ProvidersPageStub {
+  class ProvidersPageStub implements OnInit {
     readonly focusTarget = input<unknown>(null);
     readonly requestedProviderId = input<string>('');
     readonly requestedProviderConsumed = output<string>();
-    constructor() {
+    // ngOnInit, not the constructor: the deferred page is created before its inputs are bound.
+    ngOnInit(): void {
       queueMicrotask(() => {
         const id = this.requestedProviderId();
         if (id) {
@@ -910,6 +933,10 @@ describe('SettingsComponent deep-linked provider request', () => {
     });
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    // The Providers page is a `@defer (on immediate)` block: let its chunk render, then let the
+    // page consume the request (the stub emits from a microtask after it is created).
+    await fixture.whenStable();
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();

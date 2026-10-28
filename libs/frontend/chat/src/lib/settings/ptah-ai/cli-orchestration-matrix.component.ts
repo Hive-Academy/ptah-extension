@@ -55,6 +55,7 @@ import {
 } from '../providers/cli-tier-mapping-modal.component';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
+import { ClaudeLaneAccountCellComponent } from './claude-lane-account-cell.component';
 
 /** Which popover of which row is open; one at a time. */
 type OpenCell = {
@@ -185,6 +186,7 @@ const SAVE_SCOPE = 'global';
     AddCliInstanceModalComponent,
     CliTierMappingModalComponent,
     SurfaceSectionComponent,
+    ClaudeLaneAccountCellComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -340,6 +342,14 @@ const SAVE_SCOPE = 'global';
                         >
                       }
                     </div>
+                    <!-- P6: the Claude lane's account, under its name (wraps there, so long names never push the model/effort cells). -->
+                    @if (
+                      row.kind === 'system' &&
+                      row.cli === 'claude' &&
+                      row.installed
+                    ) {
+                      <ptah-claude-lane-account-cell />
+                    }
                     <!-- Narrow containers (Electron beside the shell sidebar) show the provider and status here instead of their columns. -->
                     <!-- One line in the narrow layout (Electron fold): the badge keeps its size; the provider truncates, full in its title. -->
                     <div

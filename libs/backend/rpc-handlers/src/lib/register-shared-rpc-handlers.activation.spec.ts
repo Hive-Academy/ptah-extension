@@ -343,6 +343,6 @@ describe('activateSessionLifecycleNotifier — provider accounts (TASK_2026_712 
         operationId: 'operation-0001',
         runId: 'run-00001',
       }),
-    ).resolves.toEqual({ code: 'release-held', summary: expect.any(String) });
+    ).resolves.toEqual({ code: 'unavailable-storage', summary: expect.any(String) });
   });
 });

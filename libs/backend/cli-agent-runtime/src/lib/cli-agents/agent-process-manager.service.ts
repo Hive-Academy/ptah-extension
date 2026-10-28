@@ -8,8 +8,13 @@
  * - Graceful shutdown on extension deactivation
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
+import { randomUUID } from 'node:crypto';
 import { injectable, inject } from 'tsyringe';
 import { EventEmitter } from 'eventemitter3';
+import type {
+  ClaudeAccountAdmissionRequest,
+  ClaudeAccountSelectionReader,
+} from '@ptah-extension/auth-providers-tokens';
 import {
   TOKENS,
   Logger,
@@ -38,6 +43,7 @@ import type {
   LaneStopReason,
   OutcomeTaskKind,
   OutcomeRoutingSource,
+  ProviderAccountSelection,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
 import {
@@ -157,6 +163,8 @@ export type AgentContinueErrorCode =
    * `not_found` already takes.
    */
   | 'released'
+  /** A Claude lane's account route was refused; the lane did not run. */
+  | 'account_refused'
   | 'unknown';
 
 /** Why a subprocess was released — carried on the `agent:released` event. */
@@ -170,6 +178,8 @@ export interface AgentRoleStamp {
 
 interface SdkSpawnOptions {
   readonly accountReference?: LaneAccountReference;
+  /** Claude lanes only: the named route to admit; absent means ambient. */
+  readonly accountAdmission?: ClaudeAccountAdmissionRequest;
   readonly accountBindings?: LaneAccountBindingPort;
   readonly expectsMcp?: boolean;
   readonly runSdk: (options: CliCommandOptions) => Promise<SdkHandle>;
@@ -296,6 +306,17 @@ export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
   /**
+   * Lanes adopted by a handoff whose new session is still starting, keyed by
+   * agent id: the parent to restore if the start fails, and whether the
+   * lane's completion signal is being held meanwhile. Entries exist only
+   * between {@link adoptLanes} and {@link settleLaneAdoption}, which the
+   * handoff always calls (start success, refusal, fault or deadline).
+   */
+  private readonly pendingAdoptions = new Map<
+    string,
+    { readonly previousParent: string; signalHeld: boolean }
+  >();
+  /**
    * One tool-call budget guard per running lane (TASK_2026_597, component 16),
    * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
    * {@link releaseLaneGuard} on whichever path ends the lane.
@@ -358,6 +379,14 @@ export class AgentProcessManager {
     private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
     @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
     private readonly instructionFiles?: LaneInstructionFileStore,
+    /**
+     * Stored per-workspace Claude lane selection (TASK_2026_719 B14). Absent
+     * on hosts without account storage: an omitted selection is then ambient.
+     */
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER, {
+      isOptional: true,
+    })
+    private readonly accountSelections?: ClaudeAccountSelectionReader,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -439,6 +468,12 @@ export class AgentProcessManager {
     const workingDirectory =
       request.workingDirectory ?? this.spawnEnvironment.workspaceRoot();
     await this.spawnEnvironment.validateWorkingDirectory(workingDirectory);
+    // Resolved before the preflight so a refused route leaves nothing behind.
+    const accountAdmission = await this.laneAccountAdmission(
+      request,
+      cli,
+      workingDirectory,
+    );
     // AFTER validation, BEFORE the process exists. `workingDirectory` may be a
     // sub-package of a monorepo (E14) — the preflight resolves it to the
     // workspace root, which is where every CLI-discoverable directory lives.
@@ -451,7 +486,15 @@ export class AgentProcessManager {
       ? await this.gateResume(request.task, request.resumeSessionId, cli)
       : undefined;
     return this.doSpawnSdk({
-      accountReference: gated?.accountReference,
+      // Only a real resume keeps the stored run and its reference. A fresh
+      // handoff is a new run, so the old reference is not forwarded (the
+      // binding checkpoint would refuse the new run as `invalid-bound`).
+      accountReference: gated?.resumeSessionId
+        ? gated.accountReference
+        : undefined,
+      accountAdmission:
+        this.boundLaneAdmission(request, cli, gated, workingDirectory) ??
+        accountAdmission,
       accountBindings: adapter.accountBindings,
       resumeDecision: gated?.resumeDecision,
       originalTask: gated?.originalTask,
@@ -469,6 +512,106 @@ export class AgentProcessManager {
       expectsMcp: adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
+  }
+
+  /**
+   * Admission for a Claude lane whose session is bound to a named account
+   * (D27), derived from the authoritative stored binding and the requested
+   * working directory, never from the workspace default.
+   *
+   * - True resume: the stored run is reused, so no second run binding or
+   *   lease is created. The caller's selection is forwarded unchanged
+   *   (`omitted` when absent), so the adapter can refuse an explicit
+   *   selection of another account or of ambient with `conflict`.
+   * - Fresh handoff (context or idle limit): a NEW run on the bound profile.
+   *   No session is resumed, so the adapter has no stored binding to compare
+   *   against; an explicit selection of another account or of ambient is
+   *   refused here with `conflict`.
+   */
+  private boundLaneAdmission(
+    request: SpawnAgentRequest,
+    cli: CliType,
+    gated: GatedResume | undefined,
+    workingDirectory: string,
+  ): ClaudeAccountAdmissionRequest | undefined {
+    const reference = gated?.accountReference;
+    if (cli !== 'claude' || !reference) return undefined;
+    if (gated.resumeSessionId) {
+      return {
+        provider: 'claude',
+        scope: 'lane',
+        selection: request.accountSelection ?? { kind: 'omitted' },
+        operationId: randomUUID(),
+        runId: reference.accountBinding.runId,
+        workingDirectory,
+      };
+    }
+    const profileId = reference.accountBinding.profileId;
+    const selected = request.accountSelection;
+    if (
+      selected?.kind === 'ambient' ||
+      (selected?.kind === 'named' && selected.profileId !== profileId)
+    ) {
+      throw new LaneAccountResumeError('conflict');
+    }
+    return {
+      provider: 'claude',
+      scope: 'lane',
+      selection: { kind: 'named', profileId },
+      operationId: randomUUID(),
+      runId: randomUUID(),
+      workingDirectory,
+    };
+  }
+
+  /**
+   * Account route for a Claude lane (TASK_2026_719 B14). Explicit named is
+   * admitted; explicit ambient is today's route; omitted follows the
+   * workspace's stored lane selection. A resume with no explicit selection
+   * keeps the account stored with its session, so it does not read the stored
+   * workspace selection. No reader means ambient. A reader failure refuses
+   * with `unavailable-storage` and never falls back to ambient. Other CLIs get
+   * no admission.
+   */
+  private async laneAccountAdmission(
+    request: SpawnAgentRequest,
+    cli: CliType,
+    workingDirectory: string,
+  ): Promise<ClaudeAccountAdmissionRequest | undefined> {
+    if (cli !== 'claude') return undefined;
+    const explicit = request.accountSelection;
+    let selection: ProviderAccountSelection | undefined;
+    if (explicit && explicit.kind !== 'omitted') {
+      if (explicit.kind === 'named') selection = explicit;
+    } else if (!request.resumeSessionId && this.accountSelections) {
+      let stored: { readonly profileId: string | null };
+      try {
+        stored = await this.accountSelections.readStoredSelection(
+          this.spawnEnvironment.workspaceRoot(),
+          'lane',
+        );
+      } catch (error: unknown) {
+        // Not swallowed: the spawn is refused. Only the error class name is
+        // logged; store messages can carry paths.
+        this.logger.warn(
+          '[AgentProcessManager] Stored lane account selection unreadable',
+          { errorName: error instanceof Error ? error.name : typeof error },
+        );
+        throw new LaneAccountResumeError('unavailable-storage');
+      }
+      if (stored.profileId !== null) {
+        selection = { kind: 'named', profileId: stored.profileId };
+      }
+    }
+    if (!selection) return undefined;
+    return {
+      provider: 'claude',
+      scope: 'lane',
+      selection,
+      operationId: randomUUID(),
+      runId: randomUUID(),
+      workingDirectory,
+    };
   }
 
   /**
@@ -724,6 +867,10 @@ export class AgentProcessManager {
     try {
       sdkHandle = await runSdk({
       ...options.accountReference,
+      // Claude adapter field (`ClaudeCliCommandOptions`); set for Claude only.
+      ...(options.accountAdmission
+        ? { accountAdmission: options.accountAdmission }
+        : {}),
       onAccountBinding: async (reference, sdkSessionId) => {
         const snapshot = snapshotLaneAccountReference(reference);
         if (!snapshot || !options.accountBindings) throw new LaneAccountResumeError('unavailable-storage');
@@ -1815,6 +1962,72 @@ export class AgentProcessManager {
   }
 
   /**
+   * Hand every RUNNING lane whose parent is one of `fromIds` to the session
+   * `toSessionId` that `ptah_session_handoff` is starting: its completion
+   * signal and its `ptah_agent_report` calls then reach that session,
+   * because both read the live record's `parentSessionId`. While `toSessionId`
+   * is a tab id, {@link resolveParentSessionId} moves the lane to that
+   * session's SDK id like any lane the session spawned itself. Finished lanes
+   * keep their parent: their signal already went out.
+   *
+   * The adoption is provisional until {@link settleLaneAdoption}: the new
+   * session is not live yet, so a lane that finishes meanwhile has its
+   * completion signal held rather than refused as `parent-session-not-active`.
+   * Returns the adopted agent ids.
+   */
+  adoptLanes(fromIds: readonly string[], toSessionId: string): string[] {
+    const from = new Set(
+      fromIds.map((id) => id.trim()).filter((id) => id.length > 0),
+    );
+    const to = toSessionId.trim();
+    if (from.size === 0 || !to) return [];
+    const adopted: string[] = [];
+    for (const tracked of this.agents.values()) {
+      const parent = tracked.info.parentSessionId;
+      if (tracked.info.status !== 'running' || !parent || !from.has(parent)) {
+        continue;
+      }
+      this.pendingAdoptions.set(tracked.info.agentId, {
+        previousParent: parent,
+        signalHeld: false,
+      });
+      tracked.info.parentSessionId = to;
+      adopted.push(tracked.info.agentId);
+    }
+    if (adopted.length > 0) {
+      this.logger.info('[AgentProcessManager] Lanes adopted by a new session', {
+        agentIds: adopted,
+        toSessionId: to,
+      });
+    }
+    return adopted;
+  }
+
+  /**
+   * End a provisional {@link adoptLanes}. `kept`: the new session started,
+   * the lanes stay with it. `reverted`: it did not (or not in time), so each
+   * lane gets its previous parent back. Either way a completion signal held
+   * meanwhile is sent now, to the parent the lane ends up with. Ids that are
+   * not pending are ignored, so a second settle is a no-op.
+   */
+  settleLaneAdoption(
+    agentIds: readonly string[],
+    outcome: 'kept' | 'reverted',
+  ): void {
+    for (const agentId of agentIds) {
+      const pending = this.pendingAdoptions.get(agentId);
+      if (!pending) continue;
+      this.pendingAdoptions.delete(agentId);
+      const tracked = this.agents.get(agentId);
+      if (!tracked) continue;
+      if (outcome === 'reverted') {
+        tracked.info.parentSessionId = pending.previousParent;
+      }
+      if (pending.signalHeld) this.signalLaneCompletion(tracked);
+    }
+  }
+
+  /**
    * Stream events copied out for persistence.
    *
    * The LIVE cap is `MAX_ACCUMULATED_STREAM_EVENTS` (50 000) — the right size
@@ -2783,6 +2996,13 @@ export class AgentProcessManager {
    * ending as the new event it is.
    */
   private signalLaneCompletion(tracked: TrackedAgent): void {
+    const pending = this.pendingAdoptions.get(tracked.info.agentId);
+    if (pending) {
+      // A handoff is still deciding this lane's parent; settleLaneAdoption
+      // sends the signal once it has.
+      pending.signalHeld = true;
+      return;
+    }
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
     void this.laneCompletion.signal(info, {

@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en" data-theme="ptah-glass">
+<head>
+<meta charset="utf-8">
+<title>P6 prototype r1: account selectors in chat and lane forms, calm Accounts tab</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Tokens are the app's own (apps/ptah-extension-webview/tailwind.config.js :225-313). */
+[data-theme=ptah-glass]{--b1:#17191d;--b2:#202329;--b3:#2a2e35;--bc:#f2f2f1;--bm:oklch(90.05% .0071 268.54);--p:#e4b94a;--pc:#1b1403;--err:#ff6b6b;--ink-run:#93bdff;--ink-err:#ff9696;--ink-done:#5fe0a0;--ink-idle:#dcdee3;--edge:rgb(242 242 241/.15);--page:#0e0f12}
+[data-theme=ptah-glass-light]{--b1:#f7f3fd;--b2:#eee8f8;--b3:#e2daf1;--bc:#1e1936;--bm:oklch(46.559% .0614 293.53);--p:#7c5700;--pc:#fff8e6;--err:#cf3a3a;--ink-run:#2449b0;--ink-err:#a31f26;--ink-done:#0f6434;--ink-idle:#5f5878;--edge:rgb(30 25 54/.18);--page:#ffffff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--bc);font:14px/1.5 system-ui,"Segoe UI",sans-serif;padding:24px}
+h1{font-size:16px;margin:0 0 4px}.note{color:var(--bm);font-size:12px;margin:0 0 20px}
+.sec{margin:28px 0 8px;font-size:13px;font-weight:700;border-bottom:1px solid var(--edge);padding-bottom:4px}
+figure{margin:0 0 20px;display:inline-block;vertical-align:top;margin-right:20px}
+figcaption{font-size:11px;color:var(--bm);margin-bottom:4px;max-width:520px}
+.frame{width:var(--w,520px);max-width:100%;background:var(--b1);border:1px solid var(--edge);border-radius:12px;overflow:hidden;position:relative}
+.frame.pop{background:var(--b2);padding:0}
+body.solo{padding:8px}body.solo h1,body.solo .note,body.solo .sec,body.solo figcaption,body.solo figure:not(.on),body.solo .ctl{display:none}
+body.solo figure{display:block;margin:0}body.solo .frame{width:100%}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--bc);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid transparent;border-radius:9999px;background:transparent;cursor:pointer;min-height:32px;padding:0 14px;font-size:13px;font-weight:500;white-space:nowrap}
+.btn-sm{min-height:32px}.btn-xs{min-height:24px;padding:0 10px;font-size:12px}
+.btn-primary{background:var(--p);color:var(--pc);font-weight:600}
+.btn-outline{border-color:var(--bm)}.btn-ghost:hover,.icon:hover{background:var(--b3)}
+.btn-err{color:var(--bc);border-color:var(--err)}
+.btn[disabled],.btn[aria-disabled=true],.sel[aria-disabled=true],.in[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.icon{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:0;border-radius:9999px;background:transparent;cursor:pointer;font-size:16px;line-height:1}
+.sel{width:100%;min-height:32px;border:1px solid var(--bm);border-radius:8px;background:var(--b1);padding:0 8px;font-size:12px}
+.sel[aria-invalid=true]{border-color:var(--err)}
+.lbl{display:block;font-size:11px;font-weight:600;color:var(--bm);margin-bottom:4px}
+.lblrow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:24px;margin-bottom:4px}.lblrow .lbl{margin:0}
+.link{border:0;background:transparent;padding:0 4px;min-height:24px;font-size:11px;font-weight:600;color:var(--bc);text-decoration:underline;cursor:pointer;border-radius:4px}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:9999px;font-size:11px;padding:1px 8px;background:var(--b3);color:var(--bc);line-height:1.4}
+.muted{color:var(--bm)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:9999px;margin-right:6px;flex:none}
+.d-done{background:var(--ink-done)}.d-idle{background:var(--ink-idle)}.d-run{background:var(--ink-run)}.d-err{background:var(--ink-err)}
+.spin{width:12px;height:12px;border:2px solid var(--bm);border-top-color:var(--bc);border-radius:50%;display:inline-block;animation:sp 1s linear infinite;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.dh{display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:space-between;padding:16px 24px 8px}
+.dh h2{font-size:15px;margin:0}
+.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--edge)}
+.tab{padding:8px 12px;font-size:13px;color:var(--bm);border-bottom:2px solid transparent}
+.tab[aria-selected=true]{color:var(--bc);border-color:var(--bc);font-weight:600}
+.body{padding:24px;font-size:14px}
+.stack-6>*+*{margin-top:24px}.stack-3>*+*{margin-top:12px}
+ul.rows{padding:0;margin-bottom:0;list-style:none}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;border:1px solid var(--edge);background:var(--b1);border-radius:1.5rem;padding:12px 16px}
+.row.attn{border-left:4px solid var(--ink-err)}
+.av{width:32px;height:32px;border-radius:9999px;background:var(--b3);display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
+.rm{min-width:0;flex:1 1 9rem}
+.acts{display:flex;align-items:center;gap:4px;flex:none;margin-left:auto}
+.nm{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12px;color:var(--bm)}
+.meta .st{display:inline-flex;align-items:center}
+.hd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.hd h3{margin:0;font-size:15px}
+.in{width:100%;min-height:32px;border:1px solid var(--bm);border-radius:8px;background:var(--b1);padding:0 8px}
+pre.script{margin:0;padding:8px 12px;border:1px solid var(--edge);border-radius:8px;background:var(--b2);font:12px ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--bc)}
+.pop-h{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--edge);font-size:12px;font-weight:700}
+.pop-b{padding:12px;font-size:12px;display:grid;gap:12px}
+.pop-f{display:flex;justify-content:flex-end;gap:6px;padding:8px 12px;border-top:1px solid var(--edge)}
+.toast{margin:12px;display:flex;gap:12px;border:1px solid var(--edge);border-radius:8px;background:var(--b3);padding:10px 16px;font-size:13px}
+.toast.alert{border-color:color-mix(in srgb,var(--err) 40%,transparent)}
+.toast[hidden]{display:none}
+.mrow{display:flex;align-items:center;gap:12px;padding:8px 12px;font-size:12px;border-bottom:1px solid var(--edge);flex-wrap:wrap}
+.cell{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;border-radius:4px;padding:0 4px;min-height:24px;font:12px ui-monospace,monospace;cursor:pointer;text-decoration:none;color:var(--bc)}
+.cell:hover{background:var(--b2)}
+.menu{margin:0 12px 12px;max-width:17rem;border:1px solid var(--edge);border-radius:12px;background:var(--b3);padding:12px;font-size:12px}
+.mi{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:0 8px;border:0;border-radius:8px;background:transparent;text-align:left;cursor:pointer;font-size:12px;color:var(--bc)}
+.mi:hover{background:var(--b2)}.mi[aria-disabled=true]{color:var(--bm);cursor:not-allowed}
+.mi .ck{width:14px;flex:none}
+dialog{padding:16px;display:grid;gap:12px;background:var(--b2);color:var(--bc);border:1px solid var(--edge);border-radius:12px;max-width:20rem}
+dialog::backdrop{background:rgb(0 0 0/.5)}
+dialog h4{margin:0;font-size:14px}
+.modalfix{padding:16px;display:grid;gap:12px;background:var(--b2);border:1px solid var(--edge);border-radius:12px;margin:24px}
+.modalfix h4{margin:0;font-size:14px}
+.ctl{font-size:12px;color:var(--bm);margin:0 0 10px}
+</style>
+</head>
+<body>
+<h1>P6 prototype r1 (TASK_2026_719_4f64, D52)</h1>
+<p class="note">Real ptah-glass tokens. <code>?theme=light</code> for ptah-glass-light. The three "LIVE" frames are interactive (keyboard and pointer); every other frame is a fixture for screenshots. <code>?solo=&lt;key&gt;</code> renders one frame at the full viewport width (real narrow-viewport and zoom capture). Captions are gallery labels, not product copy.</p>
+<div id="app"></div>
+<script>
+const Q=new URLSearchParams(location.search);
+if(Q.get('theme')==='light')document.documentElement.dataset.theme='ptah-glass-light';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let U=0;const uid=p=>p+(++U);
+const LONG='Client Acme Corp production research team shared acct 56';
+const ST={in:['Signed in','d-done'],out:['Not signed in','d-idle'],run:['Signing in…','d-run'],wait:['Waiting for Claude window','d-run'],fail:['Sign-in failed','d-err'],chk:['Checking…','d-run']};
+const chip=c=>`<span class="badge">${c}</span>`;
+const stat=k=>{const[s,d]=ST[k];return `<span class="st">${k==='run'||k==='chk'||k==='wait'?'<span class="spin" aria-hidden="true"></span>':`<span class="dot ${d}" aria-hidden="true"></span>`}${s}</span>`};
+const CHEV='<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>';
+const WARN='<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>';
+const COPY='<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></svg>';
+const LOCK='<svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>';
+
+/* ---------- Accounts list ---------- */
+function row({name,state,used=[],signin,manage=true,check,attn,busy,data=''}){
+  const a=[];
+  if(signin)a.push(`<button class="btn btn-primary btn-sm" ${busy?'aria-disabled="true"':''} ${data}>Sign in</button>`);
+  if(check)a.push(`<button class="btn btn-ghost btn-sm">Check</button>`);
+  if(manage)a.push(`<button class="icon" aria-label="Manage ${esc(name)}" title="Manage" data-manage="${esc(name)}">${CHEV}</button>`);
+  return `<li class="row ${attn?'attn':''}"><span class="av" aria-hidden="true">${esc(name[0].toUpperCase())}</span>
+  <div class="rm"><div class="nm" title="${esc(name)}">${esc(name)}</div><div class="meta">${stat(state)}${used.length?`<span>Used by</span>${used.map(chip).join('')}`:''}</div></div><div class="acts">${a.join('')}</div></li>`}
+const AMB=(s='in',used=['Chat','Lanes'])=>row({name:'Existing Claude login',state:s,used,check:s!=='in',manage:false});
+const list=(rows,{addDisabled,stale}={})=>`<div class="stack-6"><div class="hd"><h3 tabindex="-1">Accounts</h3><span style="display:flex;gap:8px;align-items:center">${stale?`<span class="badge" role="status">${WARN}Out of date</span><button class="btn btn-ghost btn-sm">Try again</button>`:''}<button class="btn btn-outline btn-sm" ${addDisabled?'aria-disabled="true" title="Not available on this host"':''}>Add account</button></span></div><ul class="rows stack-3" aria-label="Claude accounts">${rows.join('')}</ul></div>`;
+const two=()=>[AMB('in',['Chat']),row({name:'Work',state:'in',used:['Lanes']}),row({name:'Personal',state:'out',signin:true})];
+const only=()=>[AMB('in',['Chat','Lanes'])];
+const drawer=(w,inner,toast,key)=>`<div class="frame" style="--w:${w}px"><div class="dh"><h2>Claude (Subscription)</h2><span class="badge">2 connected</span></div><div class="tabs" role="tablist"><span class="tab">Overview</span><span class="tab" role="tab" aria-selected="true">Accounts</span></div><div class="body">${inner}</div>${toast||''}</div>`;
+const toast=(m,a)=>`<div class="toast ${a?'alert':''}" role="${a?'alert':'status'}">${m}</div>`;
+
+/* ---------- Account detail (flat) ---------- */
+const FALLBACK='claude login --profile work\n# paste the code shown in the terminal back into the Claude window';
+function detail({state='in',name='Work',extra='',running=0,resume=false,fallback=false,fbOpen=false}={}){
+  const s=state, locked=s==='run'||s==='wait', signed=s==='in';
+  const rn=uid('rn'),lk=uid('lk'),sc=uid('sc');
+  const primary=signed?`<button class="btn btn-outline btn-sm">Sign out</button>`:locked?`<button class="btn btn-outline btn-sm">Cancel sign-in</button>`:`<button class="btn btn-primary btn-sm">${s==='fail'?'Try again':'Sign in'}</button>`;
+  const badges=[running?`<span class="badge">${running} running</span>`:'',resume?`<span class="badge" title="Runs bound to this account cannot resume until it is signed in again">${WARN}Cannot resume<span class="sr-only">. Runs bound to this account cannot resume until it is signed in again.</span></span>`:''].join('');
+  const fb=fallback?`<button class="btn btn-ghost btn-sm" aria-expanded="${fbOpen}" aria-controls="${sc}">Use terminal</button>`:'';
+  const fbBody=fallback&&fbOpen?`<div id="${sc}" style="display:grid;gap:8px"><div style="display:flex;gap:8px;align-items:flex-start"><pre class="script" tabindex="0" aria-label="Sign-in script" style="flex:1;min-width:0">${esc(FALLBACK)}</pre><button class="icon" aria-label="Copy script" title="Copy script">${COPY}</button></div></div>`:'';
+  return `<div class="stack-6"><div><button class="btn btn-ghost btn-sm" style="margin-left:-12px">← Accounts</button></div>
+  <div style="display:flex;gap:12px;align-items:center"><span class="av" aria-hidden="true">${esc(name[0])}</span><div style="min-width:0"><h3 tabindex="-1" style="margin:0;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(name)}">${esc(name)}</h3><div class="meta">${stat(s)}${badges}</div></div></div>
+  <div><label class="lbl" for="${rn}">Name${locked?` <span title="Locked while sign-in is in progress">${LOCK}</span>`:''}</label><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="${rn}" class="in" style="flex:1 1 10rem" value="${esc(name)}" ${locked?`aria-disabled="true" readonly aria-describedby="${lk}"`:''}>${extra}</div>${locked?`<span id="${lk}" class="sr-only">Locked while sign-in is in progress.</span>`:''}</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">${primary}${fb}<button class="btn btn-ghost btn-sm" ${locked?'aria-disabled="true"':''}>Check status</button></div>${fbBody}
+  <div><button class="btn btn-err btn-sm" ${locked?'aria-disabled="true" aria-describedby="'+lk+'"':''}>Remove account</button></div></div>`}
+const addForm=(val='')=>{const an=uid('an');return `<div class="stack-6"><div class="hd"><h3 tabindex="-1">Accounts</h3></div><form class="stack-3"><div><label class="lbl" for="${an}">Account name</label><input id="${an}" class="in" placeholder="Work" value="${esc(val)}"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" type="button" ${val?'':'aria-disabled="true"'}>Add</button><button class="btn btn-ghost btn-sm" type="button">Cancel</button></div></form></div>`};
+const removeModal=()=>{const t=uid('rt');return `<div class="modalfix" role="alertdialog" aria-modal="true" aria-labelledby="${t}"><h4 id="${t}">Remove Work?</h4><div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-err btn-sm">Remove</button></div></div>`};
+
+/* ---------- Main chat popover ---------- */
+/* opts: [{t,disabled,selected}] ; ambient suffix is part of the t of option 0 */
+function main({opts=null,invalid=false,signin=false,busy=false,save='Save',saveOff=true,t,w=304,provSaved=false}={}){
+  const ma=uid('ma'),pr=uid('pr'),md=uid('md'),inv=uid('inv');
+  const acct=opts?`<div><div class="lblrow"><label class="lbl" for="${ma}">Account</label>${signin?`<button class="link" aria-label="Sign in to the saved account">Sign in</button>`:''}</div><select id="${ma}" class="sel" ${busy?'aria-disabled="true"':''} ${invalid?`aria-invalid="true" aria-describedby="${inv}"`:''}>${opts.map(o=>`<option ${o.selected?'selected':''} ${o.disabled?'disabled':''}>${o.t}</option>`).join('')}</select>${invalid?`<span id="${inv}" class="sr-only">The saved account no longer exists. Choose another account.</span>`:''}</div>`:'';
+  return `<div class="frame pop" style="--w:${w}px"><div class="pop-h"><span>Reassign main agent</span><span class="muted" style="font-weight:400">Check connection &nbsp;×</span></div><div class="pop-b">
+  <div><label class="lbl" for="${pr}">Provider connection</label><select id="${pr}" class="sel" ${busy?'aria-disabled="true"':''}><option>Claude (Subscription)</option></select></div>${acct}
+  <div><label class="lbl" for="${md}">Model selection</label><select id="${md}" class="sel"><option>claude-sonnet-4-5</option></select></div></div>
+  <div class="pop-f"><button class="btn btn-ghost btn-xs">Cancel</button><button class="btn btn-primary btn-xs" ${saveOff?'aria-disabled="true"':''}>${save}</button></div>${t||''}</div>`}
+const O=(t,selected,disabled)=>({t,selected,disabled});
+const AMBT={ok:'Existing Claude login',out:'Existing Claude login (not signed in)',unk:'Existing Claude login (status unknown)'};
+
+/* ---------- Claude CLI lane row ---------- */
+function lane({w=720,acct='Existing Claude login',open=false,none=false,items=null,busy=false,t,mono}={}){
+  const tt=uid('lt');
+  const cell=none?'':`<div style="margin-top:2px;display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span class="muted" style="font-size:11px">Account</span><button class="cell" ${busy?'aria-disabled="true"':''} aria-haspopup="menu" aria-expanded="${open}" aria-label="Claude account: ${esc(acct)}. Change" title="${esc(acct)}"><span style="max-width:11rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${busy?'Saving…':esc(acct)}</span> ▾</button></div>`;
+  const its=items||[{t:'Existing Claude login',c:true},{t:'Work'}];
+  const pop=open?`<div class="menu"><div class="pop-h" style="padding:0 0 6px;border:0"><span id="${tt}">Account</span><button class="icon" aria-label="Close" style="width:24px;height:24px;font-size:14px">×</button></div><div role="menu" aria-labelledby="${tt}">${its.map((i,n)=>`<button class="mi" role="menuitemradio" aria-checked="${!!i.c}" tabindex="${i.c||(!its.some(x=>x.c)&&n===0)?0:-1}" ${i.d?'aria-disabled="true"':''}><span class="ck" aria-hidden="true">${i.c?'●':''}</span>${esc(i.t)}${i.invalid?`<span class="sr-only">. The saved account no longer exists. Choose another account.</span>`:''}</button>`).join('')}</div></div>`:'';
+  return `<div class="frame" style="--w:${w}px"><div class="mrow"><input type="checkbox" checked aria-label="Claude enabled"><div style="min-width:0;flex:1 1 8rem"><b>Claude</b> <span class="muted" style="font-size:11px">SDK</span>${cell}</div><span class="cell">claude-sonnet-4-5 ▾</span><span class="cell">High ▾</span></div>${pop}${t||''}</div>`}
+
+/* ---------- gallery ---------- */
+const S=[]; const add=(sec,cap,html,key)=>S.push({sec,cap,html,key});
+const E=[O(AMBT.ok,true),O('Work')];
+add('Main chat popover','M1 only the existing login: Account select ABSENT',main());
+add('Main chat popover','M2 two or more accounts; unsigned account listed disabled',main({opts:[O(AMBT.ok,true),O('Work'),O('Personal (sign in first)',false,true)]}));
+add('Main chat popover','M3 Work chosen in draft, Save enabled',main({opts:[O(AMBT.ok),O('Work',true)],saveOff:false}));
+add('Main chat popover','M4a saved account signed out: authoritative value kept, Sign in path, no sentence',main({opts:[O(AMBT.ok),O('Work'),O('Personal (not signed in)',true,true)],signin:true}));
+add('Main chat popover','M4b saved account REMOVED (absent id, not a signed-out profile): warning option, aria-invalid, no visible sentence',main({opts:[O(AMBT.ok),O('Work'),O('⚠ Removed account',true,true)],invalid:true}));
+add('Main chat popover','M5 busy: select aria-disabled (stays focusable), Save shows Saving…',main({opts:[O(AMBT.ok),O('Work',true)],busy:true,save:'Saving…',saveOff:false}));
+add('Main chat popover','M6 account write refused: select re-asserts the stored value, one alert toast',main({opts:[O(AMBT.ok,true),O('Work')],t:toast('Could not save the account. Try again.',1)}));
+add('Main chat popover','M7 partial save: provider saved, account failed; Save disabled until the account is changed again',main({opts:[O(AMBT.ok,true),O('Work')],t:toast('Provider saved. Account not saved.',1)}));
+add('Main chat popover','M8 ambient status unknown and checking suffix',main({opts:[O(AMBT.unk,true),O('Work')]}));
+add('Claude CLI lane row','L1 only existing login: Account control ABSENT',lane({none:true}));
+add('Claude CLI lane row','L2 2+ accounts: Account cell under the name',lane({}));
+add('Claude CLI lane row','L3 menu open (arrows move, Enter/click saves and closes)',lane({open:true,w:520}));
+add('Claude CLI lane row','L4a saved account signed out: cell keeps name, item disabled',lane({acct:'Personal (not signed in)',open:true,w:520,items:[{t:'Existing Claude login'},{t:'Work'},{t:'Personal (not signed in)',c:true,d:true}]}));
+add('Claude CLI lane row','L4b saved account REMOVED: cell shows Removed account',lane({acct:'⚠ Removed account',open:true,w:520,items:[{t:'Existing Claude login'},{t:'Work'},{t:'⚠ Removed account',c:true,d:true,invalid:true}]}));
+add('Claude CLI lane row','L5 busy (aria-disabled)',lane({busy:true,acct:'Work'}));
+add('Claude CLI lane row','L6 error toast',lane({acct:'Existing Claude login',t:toast('Could not save the account. Try again.',1)}));
+add('Accounts tab','A1 only existing login',drawer(520,list(only())));
+add('Accounts tab','A2 default, 2+ accounts (24px under the heading row)',drawer(520,list(two())));
+add('Accounts tab','A3 sign-in pending (Manage stays reachable; Sign in disabled)',drawer(520,list([AMB('in',['Chat']),row({name:'Work',state:'in',used:['Lanes']}),row({name:'Personal',state:'run',signin:true,busy:true})])));
+add('Accounts tab','A4 failed and signed-out rows keep Manage; long name truncated',drawer(520,list([AMB(),row({name:LONG,state:'fail',signin:true,attn:true}),row({name:'Personal',state:'out',signin:true})])));
+add('Accounts tab','A5 ambient checking',drawer(520,list([row({name:'Existing Claude login',state:'chk',used:['Chat','Lanes'],manage:false})])));
+add('Accounts tab','A6 add form (Add aria-disabled until a name is typed)',drawer(520,addForm()));
+add('Accounts tab','A7 confirmation = toast',drawer(520,list(two()),toast('Account added')));
+add('Accounts tab','A8 error = alert toast',drawer(520,list(two()),toast('That did not work. Try again.',1)));
+add('Accounts tab','A9 load failure',drawer(520,`<div class="stack-3"><div role="alert" class="row" style="border-color:var(--err)"><span class="rm">Could not load accounts</span><button class="btn btn-outline btn-sm">Try again</button></div></div>`));
+add('Accounts tab','A10 detail: signed in, runs bound',drawer(520,detail({running:2})));
+add('Accounts tab','A11 detail: signed out, bound runs cannot resume',drawer(520,detail({state:'out',name:'Personal',resume:true,running:0})));
+add('Accounts tab','A12 detail: pending - waiting label, Name and Remove locked (aria-disabled), terminal fallback offered',drawer(520,detail({state:'wait',name:'Personal',fallback:true})));
+add('Accounts tab','A13 detail: Name edited shows Save',drawer(520,detail({extra:'<button class="btn btn-primary btn-sm">Save</button>'})));
+add('Accounts tab','A14 remove confirm (real modal dialog in the LIVE frame; static copy here)',drawer(520,detail()+removeModal()));
+add('Accounts tab','A15 detail: long name',drawer(520,detail({name:LONG})));
+add('Accounts tab','A16 stale list: Out of date badge + Try again',drawer(520,list(two(),{stale:true})));
+add('Accounts tab','A17 terminal fallback expanded: script and Copy icon',drawer(520,detail({state:'wait',name:'Personal',fallback:true,fbOpen:true})));
+add('Accounts tab','A18 host without named accounts: Add aria-disabled',drawer(520,list(only(),{addDisabled:true})));
+add('Accounts tab','A19 loading / no workspace (aria-busy list, spinner)',drawer(520,`<div class="stack-6"><div class="hd"><h3 tabindex="-1">Accounts</h3><button class="btn btn-outline btn-sm" aria-disabled="true">Add account</button></div><div class="row" aria-busy="true" role="status"><span class="spin" aria-hidden="true"></span><span class="rm">Loading…</span></div></div>`));
+add('Reflow','R list (real viewport)',drawer(360,list(two())),'r-list');
+add('Reflow','R detail (real viewport)',drawer(360,detail({name:LONG,running:2,resume:true})),'r-detail');
+add('Reflow','R main popover (real viewport)',main({opts:[O(AMBT.ok),O('Work',true),O(LONG,false)],w:360}),'r-main');
+add('Reflow','R lane row, long account name (real viewport)',lane({w:360,acct:LONG}),'r-lane');
+add('Reflow','R lane menu open, long names (real viewport)',lane({w:360,acct:LONG,open:true,items:[{t:'Existing Claude login'},{t:LONG,c:true},{t:'Personal (sign in first)',d:true}]}),'r-lane-open');
+
+/* ---------- LIVE frames ---------- */
+const live=(title,body)=>`<div class="frame" id="${title}" style="--w:520px"></div>`;
+S.push({sec:'LIVE (interactive)',cap:'LIVE-accounts: list -> Add -> detail -> Remove dialog; tab, Enter, Escape work. Toasts announce through persistent live regions.',html:'<div class="frame" id="live-acc" style="--w:520px"></div>',key:'live-acc'});
+S.push({sec:'LIVE (interactive)',cap:'LIVE-main: change Account, Save (provider first, then account). Tick the box to simulate an account-write failure.',html:'<div class="ctl"><label><input type="checkbox" id="live-fail"> simulate account write failure</label></div><div class="frame pop" id="live-main" style="--w:304px"></div>',key:'live-main'});
+S.push({sec:'LIVE (interactive)',cap:'LIVE-lane: open the cell, arrows move focus only, Enter / Space / click saves and closes, Escape closes and returns focus.',html:'<div class="frame" id="live-lane" style="--w:520px"></div>',key:'live-lane'});
+
+let cur='',h='';
+S.forEach((s,i)=>{if(s.sec!==cur){cur=s.sec;h+=`<div class="sec">${cur}</div>`}
+ const id=s.key?s.key:(s.cap.split(' ')[0]);
+ h+=`<figure data-i="${i}" data-id="${id}" ${Q.get('solo')===id?'class="on"':''}><figcaption>${esc(s.cap)}</figcaption>${s.html}</figure>`});
+if(Q.get('solo'))document.body.classList.add('solo');
+document.getElementById('app').innerHTML=h;
+
+/* ---------- live behaviours ---------- */
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+/* Persistent regions: created once so a text change is announced. status = polite, alert = assertive. */
+const mkRegions=host=>{host.insertAdjacentHTML('beforeend','<div class="toast" role="status" hidden data-t="s"></div><div class="toast alert" role="alert" hidden data-t="a"></div>');
+ return (m,a)=>{const el=host.querySelector(`[data-t="${a?'a':'s'}"]`);el.hidden=true;el.textContent='';setTimeout(()=>{el.textContent=m;el.hidden=false},30);clearTimeout(el._t);el._t=setTimeout(()=>{el.hidden=true;el.textContent=''},4000)}};
+
+/* LIVE accounts */
+(function(){
+ const host=document.getElementById('live-acc'); if(!host)return;
+ host.innerHTML='<div class="dh"><h2>Claude (Subscription)</h2><span class="badge">2 connected</span></div><div class="tabs" role="tablist"><span class="tab">Overview</span><span class="tab" role="tab" aria-selected="true">Accounts</span></div><div class="body" id="la-body"></div>';
+ const say=mkRegions(host), body=host.querySelector('#la-body');
+ let accts=[{n:'Work',s:'in',u:['Lanes'],run:2},{n:'Personal',s:'out',u:[],run:0}];
+ let v={k:'list',a:null,fb:false,name:''};
+ const amb=()=>AMB('in',['Chat']);
+ const render=()=>{
+  if(v.k==='list')body.innerHTML=list([amb(),...accts.map(a=>row({name:a.n,state:a.s,used:a.u,signin:a.s!=='in'&&a.s!=='run',busy:a.s==='run'}))]);
+  else if(v.k==='add')body.innerHTML=addForm(v.name);
+  else{const a=accts.find(x=>x.n===v.a);body.innerHTML=detail({state:a.s==='run'?'wait':a.s,name:a.n,running:a.run,resume:a.s!=='in'&&a.run>0,fallback:a.s==='run',fbOpen:v.fb})}
+ };
+ const owns=el=>el&&(el===document.activeElement||el.contains(document.activeElement));
+ const active=()=>host.isConnected&&document.visibilityState==='visible';
+ render();
+ body.addEventListener('click',async e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  if(b.getAttribute('aria-disabled')==='true'){e.preventDefault();return}
+  const t=b.textContent.trim();
+  if(b.dataset.manage){v={k:'detail',a:b.dataset.manage,fb:false};render();body.querySelector('h3').focus();return}
+  if(t==='Add account'){v={k:'add',name:''};render();body.querySelector('input').focus();return}
+  if(t==='Cancel'){v={k:'list'};render();body.querySelector('h3').focus();return}
+  if(t==='← Accounts'){v={k:'list'};render();body.querySelector('h3').focus();return}
+  if(t==='Use terminal'){v.fb=!v.fb;render();body.querySelector('[aria-expanded]').focus();return}
+  if(b.getAttribute('aria-label')==='Copy script'){say('Copied');return}
+  if(t==='Add'){
+   const val=body.querySelector('input').value.trim();
+   if(accts.some(a=>a.n.toLowerCase()===val.toLowerCase())){say('That name is already used.',1);body.querySelector('input').focus();return}
+   b.setAttribute('aria-disabled','true');const form=body.querySelector('form');
+   await delay(500);
+   accts.push({n:val,s:'out',u:[],run:0});say('Account added');
+   /* B-2: open the new account's access controls only if the user is still in the form and the view is active */
+   if(active()&&v.k==='add'&&owns(form)){v={k:'detail',a:val,fb:false};render();body.querySelector('h3').focus()}else{v={k:'list'};render()}
+   return}
+  if(t==='Sign in'||t==='Try again'){
+   const name=v.k==='detail'?v.a:b.closest('li').querySelector('.nm').title;const a=accts.find(x=>x.n===name);
+   a.s='run';render();const wt=body.querySelector('button[aria-disabled="true"],button');
+   if(v.k==='detail')body.querySelector('h3').focus();
+   await delay(1800);a.s='in';a.u=['Lanes'];say('Signed in');
+   const had=owns(body.querySelector('[data-wait]'));render();return}
+  if(t==='Cancel sign-in'){const a=accts.find(x=>x.n===v.a);a.s='out';render();say('Sign-in cancelled');body.querySelector('h3').focus();return}
+  if(t==='Sign out'){const a=accts.find(x=>x.n===v.a);a.s='out';render();say('Signed out');return}
+  if(t==='Check status'){say('Status checked');return}
+  if(t==='Remove account'){
+   const origin=b;let dlg=document.getElementById('live-dlg');if(dlg)dlg.remove();
+   host.insertAdjacentHTML('beforeend',`<dialog id="live-dlg" aria-labelledby="live-dt"><h4 id="live-dt">Remove ${esc(v.a)}?</h4><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-ghost btn-sm" value="cancel" autofocus>Cancel</button><button class="btn btn-err btn-sm" value="remove">Remove</button></div></dialog>`);
+   dlg=document.getElementById('live-dlg');dlg.showModal();
+   dlg.addEventListener('click',async ev=>{const x=ev.target.closest('button');if(!x)return;
+    if(x.value==='cancel'){dlg.close();dlg.remove();origin.focus();return}
+    dlg.close();dlg.remove();await delay(400);
+    accts=accts.filter(a=>a.n!==v.a);say('Account removed');
+    /* B-2: focus moves to the heading only when it was on the removed detail; otherwise it stays */
+    const mine=document.activeElement===origin||document.activeElement===document.body;
+    v={k:'list'};render();if(mine&&active())body.querySelector('h3').focus()});
+   dlg.addEventListener('cancel',()=>{setTimeout(()=>{dlg.remove();origin.focus()},0)});
+   return}
+  if(t==='Save'){say('Name saved');return}
+ });
+ body.addEventListener('input',e=>{if(v.k==='add'){v.name=e.target.value;const add=body.querySelector('form .btn-primary');if(v.name.trim())add.removeAttribute('aria-disabled');else add.setAttribute('aria-disabled','true')}});
+})();
+
+/* LIVE main popover */
+(function(){
+ const host=document.getElementById('live-main'); if(!host)return;
+ let stored='Existing Claude login', draft=stored, busy=false;
+ const say=mkRegions(host);
+ const paint=()=>{host.innerHTML=`<div class="pop-h"><span>Reassign main agent</span><span class="muted" style="font-weight:400">×</span></div><div class="pop-b"><div><label class="lbl" for="lm-p">Provider connection</label><select id="lm-p" class="sel" ${busy?'aria-disabled="true"':''}><option>Claude (Subscription)</option></select></div><div><label class="lbl" for="lm-a">Account</label><select id="lm-a" class="sel" ${busy?'aria-disabled="true"':''}>${['Existing Claude login','Work'].map(o=>`<option ${o===draft?'selected':''}>${o}</option>`).join('')}<option disabled>Personal (sign in first)</option></select></div></div><div class="pop-f"><button class="btn btn-ghost btn-xs">Cancel</button><button id="lm-save" class="btn btn-primary btn-xs" ${draft===stored||busy?'aria-disabled="true"':''}>${busy?'Saving…':'Save'}</button></div><div class="toast" role="status" hidden data-t="s"></div><div class="toast alert" role="alert" hidden data-t="a"></div>`;};
+ paint();
+ const regs=(m,a)=>{const el=host.querySelector(`[data-t="${a?'a':'s'}"]`);el.hidden=true;setTimeout(()=>{el.textContent=m;el.hidden=false},30)};
+ host.addEventListener('change',e=>{if(busy){paint();return}draft=e.target.value;const s=host.querySelector('#lm-save');if(draft!==stored)s.removeAttribute('aria-disabled');else s.setAttribute('aria-disabled','true')});
+ host.addEventListener('click',async e=>{
+  const b=e.target.closest('#lm-save');if(!b||b.getAttribute('aria-disabled')==='true')return;
+  busy=true;paint();host.querySelector('#lm-save').focus();
+  await delay(500);/* provider write first */
+  const fail=document.getElementById('live-fail').checked;
+  await delay(400);/* then provider:setAccountSelection(scope main) */
+  const hadFocus=document.activeElement===host.querySelector('#lm-save');
+  busy=false;
+  if(fail){draft=stored;paint();regs('Provider saved. Account not saved.',1);if(hadFocus)host.querySelector('#lm-a').focus()}
+  else{stored=draft;paint();regs('Chat uses '+stored);if(hadFocus)host.querySelector('#lm-save').focus()}
+ });
+})();
+
+/* LIVE lane cell */
+(function(){
+ const host=document.getElementById('live-lane'); if(!host)return;
+ let stored='Existing Claude login',open=false,busy=false;
+ const say=mkRegions(host);
+ const names=['Existing Claude login','Work'];
+ const paint=()=>{host.querySelectorAll('.mrow,.menu').forEach(n=>n.remove());
+  host.insertAdjacentHTML('afterbegin',`<div class="mrow"><div style="min-width:0;flex:1 1 8rem"><b>Claude</b> <span class="muted" style="font-size:11px">SDK</span><div style="margin-top:2px;display:flex;align-items:center;gap:4px"><span class="muted" style="font-size:11px">Account</span><button id="ll-cell" class="cell" aria-haspopup="menu" aria-expanded="${open}" aria-label="Claude account: ${stored}. Change" ${busy?'aria-disabled="true"':''}><span>${busy?'Saving…':stored}</span> ▾</button></div></div></div>`+
+  (open?`<div class="menu" id="ll-menu"><div class="pop-h" style="padding:0 0 6px;border:0"><span id="ll-t">Account</span><button class="icon" id="ll-x" aria-label="Close" style="width:24px;height:24px;font-size:14px">×</button></div><div role="menu" aria-labelledby="ll-t">${names.map(n=>`<button class="mi" role="menuitemradio" aria-checked="${n===stored}" tabindex="${n===stored?0:-1}"><span class="ck" aria-hidden="true">${n===stored?'●':''}</span>${n}</button>`).join('')}</div></div>`:''))};
+ paint();
+ const close=refocus=>{open=false;paint();if(refocus)host.querySelector('#ll-cell').focus()};
+ host.addEventListener('click',async e=>{
+  if(e.target.closest('#ll-cell')){if(busy)return;open=!open;paint();if(open)host.querySelector('.mi[tabindex="0"]').focus();return}
+  if(e.target.closest('#ll-x')){close(true);return}
+  const mi=e.target.closest('.mi');if(!mi||busy)return;
+  const val=mi.textContent.trim();
+  const hadFocus=host.contains(document.activeElement);
+  if(val===stored){close(true);return}
+  busy=true;open=false;paint();host.querySelector('#ll-cell').focus();
+  await delay(600);stored=val;busy=false;
+  const owned=document.activeElement===host.querySelector('#ll-cell');
+  paint();say('Lanes use '+stored);if(owned)host.querySelector('#ll-cell').focus();
+ });
+ host.addEventListener('keydown',e=>{
+  const items=[...host.querySelectorAll('.mi')];if(!items.length)return;
+  const i=items.indexOf(document.activeElement);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();const n=items[(i+(e.key==='ArrowDown'?1:items.length-1))%items.length];items.forEach(x=>x.tabIndex=-1);n.tabIndex=0;n.focus()}/* moves focus only; does not save */
+  else if(e.key==='Escape'){e.preventDefault();close(true)}
+  else if(e.key==='Home'){e.preventDefault();items[0].focus()}
+  else if(e.key==='End'){e.preventDefault();items[items.length-1].focus()}
+ });
+})();
+</script>
+</body>
+</html>

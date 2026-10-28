@@ -1,12 +1,20 @@
 import { tmpdir } from 'node:os';
 import { SessionId, type AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type {
+  ClaudeAccountRoute,
+  ClaudeAccountNamedRoute,
+  ClaudeCertifiedLaunchContext,
+} from '@ptah-extension/auth-providers-tokens';
 import {
-  applyClaudeAccountRouteEnv,
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
   buildFlagSettingsArg,
   buildSafeEnv,
   buildSessionName,
+  certifiedNamedEnv,
   deriveWorkspaceLabel,
+  type ClaudeActualLaunch,
   type Options,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
@@ -18,26 +26,57 @@ import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
 import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 
-/** Apply account routing last, after every safe-env/auth selector has been assembled. */
+/**
+ * Child env for a lane. Ambient lanes keep the safe env. A named lane gets the
+ * certified env only: no safe-env or auth-env entry reaches it, and a named
+ * route without a certified launch throws `identity-unproved`.
+ */
 export function buildClaudeLaneEnv(
   authEnv: AuthEnv,
-  accountRoute?: Parameters<typeof applyClaudeAccountRouteEnv>[1],
+  accountRoute?: ClaudeAccountRoute,
+  launch?: ClaudeCertifiedLaunchContext,
 ): Record<string, string | undefined> {
-  return applyClaudeAccountRouteEnv(buildSafeEnv(authEnv), accountRoute);
+  if (accountRoute?.kind === 'named')
+    return certifiedNamedEnv(accountRoute, launch);
+  return buildSafeEnv(authEnv);
 }
 
-/** Control-only bootstrap; no workspace, role, resume, hooks or task material. */
+/** The launch values an SDK child would start with, as the certified check reads them. */
+export function claudeActualLaunch(options: Options): ClaudeActualLaunch {
+  const settings = options.settings;
+  return {
+    executablePath: options.pathToClaudeCodeExecutable,
+    env: options.env ?? {},
+    cwd: options.cwd,
+    settingSources: options.settingSources,
+    flagSettings:
+      settings === undefined || typeof settings === 'string'
+        ? settings
+        : JSON.stringify(settings),
+    managedSettings: options.managedSettings,
+    extraArgs: options.extraArgs,
+  };
+}
+
+/**
+ * Control-only bootstrap; no workspace, role, resume, hooks or task material.
+ * The executable is the certified one: it is the CLI JS path only on a
+ * direct-execution installation, and the installation path otherwise.
+ * Throws `ClaudeCertifiedLaunchRefusal` unless the options match the certified
+ * launch in `bootstrap` mode.
+ */
 export function buildClaudeLaneBootstrapOptions(
-  accountRoute: NonNullable<Parameters<typeof buildClaudeLaneEnv>[1]>,
+  accountRoute: ClaudeAccountNamedRoute,
+  launch: ClaudeCertifiedLaunchContext | undefined,
   abortController: AbortController,
   processSpawner: ISdkProcessSpawner,
-  executable?: string,
 ): Options {
-  return {
+  if (!launch) throw new ClaudeCertifiedLaunchRefusal('identity-unproved');
+  const options: Options = {
     cwd: tmpdir(),
     abortController,
-    pathToClaudeCodeExecutable: executable,
-    env: buildClaudeLaneEnv({}, accountRoute),
+    pathToClaudeCodeExecutable: launch.executable.sdkExecutablePath,
+    env: buildClaudeLaneEnv({}, accountRoute, launch),
     systemPrompt: '',
     settingSources: [],
     tools: [],
@@ -49,14 +88,19 @@ export function buildClaudeLaneBootstrapOptions(
       behavior: 'deny',
       message: 'Account admission pending.',
     }),
-    spawnClaudeCodeProcess: (options) => processSpawner.spawn(options, {}),
+    spawnClaudeCodeProcess: (spawnOptions) =>
+      processSpawner.spawn(spawnOptions, {}),
   };
+  assertCertifiedLaunch(launch, claudeActualLaunch(options), 'bootstrap');
+  return options;
 }
 
 export interface ClaudeSdkLaneOptionsInput {
   assembly: PtahSpawnAssembly;
   authEnv: AuthEnv;
-  accountRoute?: Parameters<typeof buildClaudeLaneEnv>[1];
+  accountRoute?: ClaudeAccountRoute;
+  /** Certified launch of a named route; a named route without it throws. */
+  launch?: ClaudeCertifiedLaunchContext;
   abortController: AbortController;
   model: string;
   effort?: Options['effort'];
@@ -73,6 +117,7 @@ export interface ClaudeSdkLaneOptionsInput {
   >;
   logger: Logger;
   processSpawner: ISdkProcessSpawner;
+  /** Ambient executable; a named lane uses the certified one instead. */
   executable?: string;
 }
 
@@ -84,6 +129,7 @@ export function buildClaudeSdkLaneOptions(
     assembly,
     authEnv,
     accountRoute,
+    launch,
     abortController,
     model,
     effort,
@@ -99,6 +145,10 @@ export function buildClaudeSdkLaneOptions(
     processSpawner,
     executable,
   } = input;
+  // First: a named route without a certified launch throws here, before any
+  // other option is assembled.
+  const env = buildClaudeLaneEnv(authEnv, accountRoute, launch);
+  const certified = accountRoute?.kind === 'named' ? launch : undefined;
   const handleChildStderr = (data: string) => {
     if (accountRoute?.kind === 'named') {
       logger.debug('[ClaudeLane] Child diagnostic received.');
@@ -141,7 +191,7 @@ export function buildClaudeSdkLaneOptions(
     abortController,
     model,
     effort: effort || undefined,
-    cwd,
+    cwd: certified ? certified.cwd : cwd,
     systemPrompt:
       assembly.systemPromptMode === 'standalone' && assembly.systemPromptContent
         ? assembly.systemPromptContent
@@ -172,21 +222,22 @@ export function buildClaudeSdkLaneOptions(
         routingId,
       cliAgentResolver,
     ),
-    settingSources:
-      accountRoute?.kind === 'named'
-        ? []
-        : (['user', 'project', 'local'] as const),
+    settingSources: certified
+      ? [...certified.settingSources]
+      : (['user', 'project', 'local'] as const),
     includePartialMessages: true,
     persistSession: true,
     ...(resumeSessionId && { resume: resumeSessionId }),
-    env: buildClaudeLaneEnv(authEnv, accountRoute),
+    env,
     stderr: handleChildStderr,
     spawnClaudeCodeProcess: (spawnOptions) =>
       processSpawner.spawn(spawnOptions, {
         onStderr: handleChildStderr,
       }),
     hooks: assembly.hooks,
-    pathToClaudeCodeExecutable: executable,
+    pathToClaudeCodeExecutable: certified
+      ? certified.executable.sdkExecutablePath
+      : executable,
   };
 }
 

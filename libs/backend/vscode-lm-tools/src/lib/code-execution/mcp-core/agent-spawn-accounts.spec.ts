@@ -237,16 +237,35 @@ describe.each(TRANSPORTS)('agent spawn accounts over %s', (transport) => {
     expect(run.spawnFromSdkHandle).not.toHaveBeenCalled();
   });
 
-  it('refuses a named claude selection before spawn (release-held, D7)', async () => {
+  it('forwards a named claude selection so the runtime admits the account', async () => {
+    const accountSelection = { kind: 'named', profileId: 'profile-0001' };
     const run = await spawnOver(transport, {
       task: 't',
       cli: 'claude',
-      accountSelection: { kind: 'named', profileId: 'profile-0001' },
+      accountSelection,
     });
 
-    expect(isError(run.response)).toBe(true);
-    expect(run.spawn).not.toHaveBeenCalled();
+    expect(isError(run.response)).toBe(false);
+    expect(run.spawn).toHaveBeenCalledTimes(1);
+    expect(run.spawn.mock.calls[0][0]).toMatchObject({
+      cli: 'claude',
+      accountSelection,
+    });
   });
+
+  it.each(ORIGINAL_SEVEN)(
+    'refuses a named selection on cli %s before spawn',
+    async (cli) => {
+      const run = await spawnOver(transport, {
+        task: 't',
+        cli,
+        accountSelection: { kind: 'named', profileId: 'profile-0001' },
+      });
+
+      expect(isError(run.response)).toBe(true);
+      expect(run.spawn).not.toHaveBeenCalled();
+    },
+  );
 
   it('gives ptahCliId precedence over cli: the Ptah CLI registry spawns', async () => {
     const run = await spawnOver(transport, {

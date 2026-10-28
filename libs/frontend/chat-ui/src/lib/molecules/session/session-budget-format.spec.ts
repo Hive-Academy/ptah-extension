@@ -20,6 +20,7 @@ const TOKENS_BUDGET: SessionBudgetState = {
   lowerBound: false,
   revision: 4,
   compactions: 0,
+  autoHandoff: false,
 };
 
 const COST_BUDGET: SessionBudgetState = {
