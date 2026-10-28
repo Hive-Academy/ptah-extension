@@ -179,7 +179,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             <ng-container [ngTemplateOutlet]="expandedCard" />
             <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you" [attr.data-attention-key]="attentionItems()[0].key">
               <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
-              <span class="ml-1 truncate text-base-content-muted" [title]="attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title">{{ attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title }}</span>
+              <span class="ml-1 truncate text-base-content-muted" [title]="attentionText()">{{ attentionText() }}</span>
               @if (attentionItems()[0].kind === 'permission') {
                 <!-- One instance per request, so an open menu or a typed reason never carries over to the next request. -->
                 @for (item of attentionItems().slice(0, 1); track item.key + ':' + item.generation) {
@@ -437,6 +437,11 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly needIcon = CircleAlert;
   readonly attentionAction = output<{item: AttentionItem; actionId: string; reason?: string}>();
   private readonly permissionActions = viewChild(AttentionPermissionActionsComponent);
+  /** A permission shows its redacted input, so Always allow is never chosen without seeing the operation. */
+  readonly attentionText = computed(() => {
+    const item = this.attentionItems()[0];
+    return item ? item.permissionPreview || item.detail || item.context || item.title : '';
+  });
   readonly otherRequests = output<void>();
   readonly firstDisabledReason = computed(() => this.attentionItems()[0]?.actions.find(action => action.disabledReason)?.disabledReason);
   readonly density = input<CompactRailDensity>('comfortable');

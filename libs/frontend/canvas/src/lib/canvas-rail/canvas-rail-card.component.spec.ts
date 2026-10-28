@@ -293,6 +293,7 @@ describe('CanvasRailCardComponent', () => {
     const item: AttentionItem = {
       key: 'permission:full', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
       workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      detail: 'Tool: Bash', permissionPreview: 'Input: npm run test',
       actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
         { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' },
         { id: 'open', label: 'Show in canvas' }],
@@ -303,6 +304,8 @@ describe('CanvasRailCardComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="rail-card-needs-you"] button')]
       .find(candidate => candidate.textContent?.trim() === label);
+    // The operation is visible before Always allow can be chosen.
+    expect(host.querySelector('[data-testid="rail-card-needs-you"]')?.textContent).toContain('Input: npm run test');
     expect(host.dataset['attentionExtra']).toBe('136');
     button('More')!.click(); fixture.detectChanges();
     expect(host.dataset['attentionExtra']).toBe('200');

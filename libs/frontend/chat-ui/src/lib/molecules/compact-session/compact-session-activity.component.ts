@@ -766,7 +766,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
 
       @if (lanes(); as laneData) {
         <div
-          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-hidden border-t border-base-content/10 px-3 py-1"
+          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-t border-base-content/10 px-3 py-1"
           data-zone="lanes"
         >
           <ptah-compact-session-lanes
