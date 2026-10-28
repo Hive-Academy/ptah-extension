@@ -10,6 +10,7 @@ import {
   type SessionCardActions,
   type SessionStartGuard,
   type SessionStopHandler,
+  type DisplayDockState,
 } from '@ptah-extension/chat';
 import { LucideAngularModule } from 'lucide-angular';
 import type { CommandWorkState } from '../model/command-center.store';
@@ -83,6 +84,7 @@ export const LIVE_START_BLOCK_REASON =
             [stopHandler]="stopHandler"
             [cardActions]="cardActions"
             [retainRailTranscript]="true"
+            [displayDock]="displayDock()"
           />
         </div>
       }
@@ -121,6 +123,8 @@ export class CommandLivePanelComponent {
   /** False before the Command Center has a session at all. */
   public readonly hasSession = input(false);
   public readonly reducedMotion = input(false);
+  /** The page's display dock: the embed feeds it and the Display tab shows it. */
+  public readonly displayDock = input<DisplayDockState | null>(null);
   public readonly openLane = output<string>();
   public readonly openSession = output<void>();
 

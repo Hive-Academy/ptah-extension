@@ -1,5 +1,5 @@
 import { Component, input, output, signal } from '@angular/core';
-import { ArtifactStore } from '@ptah-extension/chat';
+import { ArtifactStore, type DisplayDockState } from '@ptah-extension/chat';
 import type { ArtifactRecord } from '@ptah-extension/shared';
 import type { CommandLiveTarget } from './command-live-panel.component';
 import { CommandLivePanelComponent } from './command-live-panel.component';
@@ -17,6 +17,7 @@ export class LivePanelStubComponent {
   public readonly focused = input(true);
   public readonly hasSession = input(false);
   public readonly reducedMotion = input(false);
+  public readonly displayDock = input<DisplayDockState | null>(null);
   public readonly openLane = output<string>();
   public readonly openSession = output<void>();
 }
@@ -29,6 +30,7 @@ export class LivePanelStubComponent {
 })
 export class RailDisplayStubComponent {
   public readonly tabId = input<string | null>(null);
+  public readonly dock = input<DisplayDockState | null>(null);
 }
 
 export function artifactStoreStub(

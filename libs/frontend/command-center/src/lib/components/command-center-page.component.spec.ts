@@ -3,8 +3,10 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DisplayDockState } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { sessionContextCue } from '@ptah-extension/chat-ui';
+import { VSCodeService } from '@ptah-extension/core';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
 import {
   CommandCenterStore,
@@ -24,6 +26,7 @@ import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandNodeDetailComponent } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
 import {
+  LivePanelStubComponent,
   RAIL_STUB_OVERRIDE,
   railStubProviders,
 } from './command-rail.testing';
@@ -1433,6 +1436,101 @@ describe('CommandCenterPageComponent', () => {
       expect(
         fixture.nativeElement.querySelector('ptah-command-work-list'),
       ).not.toBeNull();
+      fixture.destroy();
+    });
+  });
+
+  describe('shared display dock (Electron)', () => {
+    beforeEach(() => {
+      TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+      tabs.set([{ id: 'root-tab' }, { id: 'child-tab' }]);
+    });
+
+    const mountPage = () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const live = fixture.debugElement.query(By.directive(LivePanelStubComponent))
+        .componentInstance as LivePanelStubComponent;
+      const dock = live.displayDock() as DisplayDockState;
+      const settle = () => {
+        fixture.detectChanges();
+        fixture.detectChanges();
+      };
+      const displayTab = () =>
+        fixture.nativeElement.querySelector('[data-testid="rail-tab-display"]') as HTMLElement;
+      return { fixture, live, dock, settle, displayTab };
+    };
+
+    it('keeps the Live embed content-visible while the Display tab shows its dock', () => {
+      const { fixture, live, dock, settle } = mountPage();
+      expect(dock).toBeInstanceOf(DisplayDockState);
+      expect(live.visible()).toBe(true);
+      fixture.componentInstance.activeTab.set('display');
+      settle();
+      expect(live.visible()).toBe(true);
+      const livePanel = fixture.nativeElement.querySelector(
+        '#command-rail-panel-live',
+      ) as HTMLElement;
+      expect(livePanel.hidden).toBe(true);
+      fixture.componentInstance.activeTab.set('work');
+      settle();
+      expect(live.visible()).toBe(false);
+      fixture.destroy();
+    });
+
+    it('switches to the Display tab on a chip open, not on an auto-open', () => {
+      const { fixture, dock, settle } = mountPage();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-a');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('live');
+      dock.openArtifact('root-tab', 'artifact-1');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.openSurface('root-tab', 'surface-a');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.requestFullscreenArtifact('root-tab', 'artifact-1');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.destroy();
+    });
+
+    it('badges displays published while another tab is active until Display is shown', () => {
+      const { fixture, dock, settle, displayTab } = mountPage();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-a');
+      settle();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-b');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('live');
+      expect(displayTab().querySelector('.tab-badge')?.textContent?.trim()).toBe('2');
+      expect(displayTab().getAttribute('aria-label')).toBe('Display, 2 new');
+      fixture.componentInstance.activeTab.set('display');
+      settle();
+      expect(dock.tab('root-tab').open).toBe(true);
+      expect(displayTab().querySelector('.tab-badge')).toBeNull();
+      expect(displayTab().getAttribute('aria-label')).toBeNull();
+      dock.requestAutoOpen('root-tab', 'turn-2', 'surface-c');
+      settle();
+      expect(displayTab().querySelector('.tab-badge')).toBeNull();
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.requestAutoOpen('root-tab', 'turn-2', 'surface-d');
+      settle();
+      expect(displayTab().querySelector('.tab-badge')?.textContent?.trim()).toBe('1');
+      fixture.destroy();
+    });
+
+    it('forgets the dock state of a closed chat tab', () => {
+      const { fixture, dock, settle } = mountPage();
+      const forget = jest.spyOn(dock, 'forgetTab');
+      tabs.set([{ id: 'root-tab' }]);
+      settle();
+      expect(forget).toHaveBeenCalledTimes(1);
+      expect(forget).toHaveBeenCalledWith('child-tab');
       fixture.destroy();
     });
   });

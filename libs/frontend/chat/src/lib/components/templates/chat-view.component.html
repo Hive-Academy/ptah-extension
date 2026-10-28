@@ -214,7 +214,7 @@
 
       </div>
       <!-- Input Area (in normal flow at the bottom). -->
-      @if (dockEnabled) {
+      @if (displaySheetEnabled) {
         @if (resolvedTabId(); as displayTabId) {
           <ptah-display-sheet sessionSheet [tabId]="displayTabId" />
         }
