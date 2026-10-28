@@ -1,0 +1,199 @@
+{
+ "shots": [
+  {
+   "file": "completion-opened__page__dark__wide.png",
+   "iw": 1277,
+   "sw": 1277,
+   "over": [],
+   "extra": [
+    {
+     "tag": "div",
+     "tid": "output-directory",
+     "w": 976,
+     "h": 20,
+     "right": 1122,
+     "sw": 976,
+     "cw": 976,
+     "color": "oklch(0.665099 0.007403 31.091)",
+     "bg": "rgba(0, 0, 0, 0)",
+     "text": "C:\\ptah-e2e-ws\\.claude\\agents"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__page__dark__narrow.png",
+   "iw": 397,
+   "sw": 397,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": [
+    {
+     "tag": "div",
+     "tid": "output-directory",
+     "w": 302,
+     "h": 20,
+     "right": 386,
+     "sw": 302,
+     "cw": 302,
+     "color": "oklch(0.665099 0.007403 31.091)",
+     "bg": "rgba(0, 0, 0, 0)",
+     "text": "C:\\ptah-e2e-ws\\.claude\\agents"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__page__light__wide.png",
+   "iw": 1277,
+   "sw": 1277,
+   "over": [],
+   "extra": [
+    {
+     "tag": "div",
+     "tid": "output-directory",
+     "w": 976,
+     "h": 20,
+     "right": 1122,
+     "sw": 976,
+     "cw": 976,
+     "color": "oklch(0.489552 0.044796 348.479)",
+     "bg": "rgba(0, 0, 0, 0)",
+     "text": "C:\\ptah-e2e-ws\\.claude\\agents"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__page__light__narrow.png",
+   "iw": 397,
+   "sw": 397,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": [
+    {
+     "tag": "div",
+     "tid": "output-directory",
+     "w": 302,
+     "h": 20,
+     "right": 386,
+     "sw": 302,
+     "cw": 302,
+     "color": "oklch(0.489552 0.044796 348.479)",
+     "bg": "rgba(0, 0, 0, 0)",
+     "text": "C:\\ptah-e2e-ws\\.claude\\agents"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__bottom__dark__wide.png",
+   "iw": 1277,
+   "sw": 1277,
+   "over": [],
+   "extra": [
+    {
+     "tag": "button",
+     "tid": null,
+     "w": 192,
+     "h": 64,
+     "right": 730,
+     "sw": 191,
+     "cw": 191,
+     "color": "oklch(0.97607 0.004116 91.4461)",
+     "bg": "oklch(0.54615 0.215208 262.881)",
+     "text": "Close"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__bottom__dark__narrow.png",
+   "iw": 397,
+   "sw": 397,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": [
+    {
+     "tag": "button",
+     "tid": null,
+     "w": 192,
+     "h": 64,
+     "right": 319,
+     "sw": 191,
+     "cw": 191,
+     "color": "oklch(0.97607 0.004116 91.4461)",
+     "bg": "oklch(0.54615 0.215208 262.881)",
+     "text": "Close"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__bottom__light__wide.png",
+   "iw": 1277,
+   "sw": 1277,
+   "over": [],
+   "extra": [
+    {
+     "tag": "button",
+     "tid": null,
+     "w": 192,
+     "h": 64,
+     "right": 730,
+     "sw": 188,
+     "cw": 188,
+     "color": "oklch(0.36 0.078 188.216)",
+     "bg": "oklch(0.85 0.138 181.071)",
+     "text": "Close"
+    }
+   ]
+  },
+  {
+   "file": "completion-opened__bottom__light__narrow.png",
+   "iw": 397,
+   "sw": 397,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": [
+    {
+     "tag": "button",
+     "tid": null,
+     "w": 192,
+     "h": 64,
+     "right": 319,
+     "sw": 188,
+     "cw": 188,
+     "color": "oklch(0.36 0.078 188.216)",
+     "bg": "oklch(0.85 0.138 181.071)",
+     "text": "Close"
+    }
+   ]
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T14:08:44.046Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[ModelStateService] Failed to load models: undefined"
+ ],
+ "notes": [
+  "completion"
+ ]
+}

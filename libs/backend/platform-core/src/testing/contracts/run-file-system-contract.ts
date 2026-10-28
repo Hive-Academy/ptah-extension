@@ -130,6 +130,29 @@ export function runFileSystemContract(
       expect((captured as NodeJS.ErrnoException).code).toBe('EEXIST');
     });
 
+    it('writeFileExclusive creates a free path, then REJECTS with EEXIST on the same path', async () => {
+      // Runs under the exclusive root for the same reason as the directory
+      // claim: the VS Code adapter backs this method with `node:fs`.
+      const target = `${exclusiveRoot}/claim-file.txt`;
+      await expect(
+        provider.writeFileExclusive(target, 'first'),
+      ).resolves.toBeUndefined();
+
+      let captured: unknown;
+      await provider.writeFileExclusive(target, 'second').then(
+        () => {
+          throw new Error(
+            'writeFileExclusive resolved on an existing path — it replaced a file',
+          );
+        },
+        (error: unknown) => {
+          captured = error;
+        },
+      );
+      expect(Object.prototype.toString.call(captured)).toBe('[object Error]');
+      expect((captured as NodeJS.ErrnoException).code).toBe('EEXIST');
+    });
+
     it('delete removes the file so subsequent reads reject', async () => {
       await provider.writeFile('/fs/gone.txt', 'bye');
       await provider.delete('/fs/gone.txt');

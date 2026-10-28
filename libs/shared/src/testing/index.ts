@@ -48,6 +48,12 @@ export {
   makeSurfaceEnvelope,
   makeSurfaceTextInput,
 } from './fixtures/surface';
+export {
+  LIBRARY_AGREEMENT_SCOPE_ROOT,
+  makeLibraryAgreementFixtures,
+  type LibraryAgreementFixture,
+  type LibraryAgreementScenario,
+} from './fixtures/library-agreement';
 export { freezeTime, type FrozenClock } from './time/freeze-time';
 export {
   expectNormalizedPath,

@@ -38,7 +38,7 @@ function targetHealth(
     expected: 0,
     found: 0,
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 1,
     ...overrides,

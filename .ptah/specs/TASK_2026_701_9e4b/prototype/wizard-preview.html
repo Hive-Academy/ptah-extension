@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wizard preview - keep/replace (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Wizard-view preview (Electron)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">A. Wizard-view modal "Preview agent generation" (agent-selection.component.ts, ptah-native-modal lg): target choice, backend warnings, source-file decisions, informational rival-CLI targets, forced keep</h2>
+
+<div class="overlay w-wide" id="ov-wiz">
+  <div class="modal-box w-modal" role="dialog" aria-modal="true" aria-labelledby="wiz-title">
+  <h3 id="wiz-title">Preview agent generation</h3>
+  <p class="muted" style="font-size:12px;margin:2px 0 0">Nothing is written until you confirm.</p>
+  <div data-target-scope data-files>
+    <h4 id="th1">Where should the agents be written?</h4>
+<div role="radiogroup" aria-labelledby="th1">
+  <button type="button" class="target" role="radio" aria-checked="true" tabindex="0" data-target="root">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Project root (recommended)</strong> <span class="badge badge-ghost">Default</span><br><code>D:/work/acme/.claude/agents</code><br><span class="muted">The Library, other CLIs and model settings read this folder.</span></span>
+  </button>
+  <button type="button" class="target" role="radio" aria-checked="false" tabindex="-1" data-target="sub">
+    <span class="radio" aria-hidden="true"></span>
+    <span><strong>Opened folder only</strong><br><code>D:/work/acme/packages/api/.claude/agents</code></span>
+  </button>
+</div>
+<p class="callout-warn" role="alert" data-when-target="sub" hidden>Agents written to the opened folder will not reach other CLIs and will not appear in the Library.</p>
+    <p class="callout-info" role="status" data-reset-note hidden>Target changed. The comparison was run again and every choice is reset to Keep.</p>
+    <div data-loading hidden><p role="status" class="muted" style="font-size:12px">Checking generation targets...</p><div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:40%"></div></div>
+    <div data-view>
+      <p class="tgt-inline"><span class="muted">Writing to</span> <code data-target-line>D:/work/acme/.claude/agents</code></p>
+      <p class="callout-warn" role="alert" data-when-target="sub" hidden>Other CLIs sync agents from a different folder than the one this preview writes to.</p>
+      <div class="bulk" role="group" aria-label="Apply to all differing files"><span class="grow"><strong>4 existing files</strong></span><button type="button" class="btn btn-ghost btn-xs" data-bulk="keep">Keep all</button><button type="button" class="btn btn-ghost btn-xs" data-bulk="replace">Replace all</button></div>
+      <div class="scroll">
+      <h4 style="font-family:'JetBrains Mono',monospace">backend-developer</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/backend-developer.md</code><span class="badge badge-ghost">Exists — may be replaced</span></div><p class="file-note">Agent model: <strong>opus</strong> - from your Library setting (machine).</p><p class="file-note" >Library copy has edits. If you replace, you will need to choose rebase or keep for it in the Library.</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/backend-developer.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/backend-developer.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/backend-developer.md with generated version">Replace with generated</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d2">What changes</button></div><div class="diff" id="d2" hidden><div class="ctx">The generated content is not known until generation runs.</div></div></li></ul><details class="info-block" open><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/backend-developer.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/backend-developer.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/backend-developer.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">frontend-developer</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/frontend-developer.md</code><span class="badge badge-ghost">Exists — may be replaced</span></div><p class="file-note">Agent model: <strong>sonnet</strong> - the Library setting <code>gpt-5</code> is not a Claude model and will be ignored. Using the template model.</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/frontend-developer.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/frontend-developer.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/frontend-developer.md with generated version">Replace with generated</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d4">What changes</button></div><div class="diff" id="d4" hidden><div class="ctx">The generated content is not known until generation runs.</div></div></li></ul><details class="info-block" open><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/frontend-developer.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/frontend-developer.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/frontend-developer.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">tester</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/tester.md</code><span class="badge ">New</span></div><p class="file-note">Agent model: <strong>sonnet</strong> (template).</p></li></ul><details class="info-block" ><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/tester.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/tester.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/tester.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">e2e-tester</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/e2e-tester.md</code><span class="badge ">New</span></div><p class="file-note">Agent model: no model line (the template declares none).</p></li></ul><details class="info-block" ><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/e2e-tester.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/e2e-tester.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/e2e-tester.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">code-reviewer</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/code-reviewer.md</code><span class="badge badge-ghost">Exists — may be replaced</span></div><p class="file-note">Agent model: <strong>sonnet</strong> (template).</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/code-reviewer.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/code-reviewer.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/code-reviewer.md with generated version">Replace with generated</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d10">What changes</button></div><div class="diff" id="d10" hidden><div class="ctx">The generated content is not known until generation runs.</div></div></li></ul><details class="info-block" ><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/code-reviewer.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/code-reviewer.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/code-reviewer.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">planner</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/planner.md</code><span class="badge badge-ghost">Could not read file</span></div><p class="file-note">Agent model: <strong>sonnet</strong> (template).</p><p class="file-note" id="n13">Ptah could not compare this file, so it is treated as different and will be kept. Replace is not available for it.</p><div class="file-actions"><div class="seg locked" role="radiogroup" aria-label="Keep or replace .claude/agents/planner.md" aria-describedby="n13">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/planner.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" aria-disabled="true" tabindex="-1" aria-label="Replace .claude/agents/planner.md with generated version (not available: file could not be read)">Replace with generated</button></div></div></li></ul><details class="info-block" ><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/planner.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/planner.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/planner.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      <h4 style="font-family:'JetBrains Mono',monospace">data-engineer</h4><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/data-engineer.md</code><span class="badge badge-ghost">Exists — may be replaced</span></div><p class="file-note">Agent model: <strong>sonnet</strong> (template).</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/data-engineer.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/data-engineer.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/data-engineer.md with generated version">Replace with generated</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d14">What changes</button></div><div class="diff" id="d14" hidden><div class="ctx">The generated content is not known until generation runs.</div></div></li></ul><details class="info-block" ><summary class="muted" style="cursor:pointer">Also copied for other CLIs (information only; not controlled by Keep or Replace)</summary>
+<div class="info-row"><span class="badge ">definite</span><code>.codex/agents/data-engineer.toml</code></div><div class="info-row"><span class="badge ">definite</span><code>.cursor/agents/data-engineer.md</code></div><div class="info-row"><span class="badge ">conditional</span><code>.gemini/agents/data-engineer.md</code><span class="muted">(if agent sync is enabled for this agent)</span></div></details>
+      </div>
+      <div class="modal-footer"><span class="summary muted" role="status" aria-live="polite" data-summary></span><button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-confirm data-tpl-keep="Confirm Generate" data-tpl-rep="Confirm Generate, replace {n} {files}">Confirm Generate</button></div>
+    </div>
+  </div></div>
+</div>
+<div class="opener-row"><button type="button" class="btn btn-outline btn-sm" data-open="ov-wiz">Open preview dialog</button> <span class="narrow-note">Live: Tab stays inside the dialog, Escape closes it, focus returns to this button. Selecting the other target card reloads the comparison (0.6 s) and resets choices to Keep.</span></div>
+</section>
+<section class="">
+<h2 class="stage-title">A0. Entry button states (preserved)</h2>
+<div class="frame w-modal" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <button class="btn btn-primary btn-sm">Generate 7 Agents</button>
+  <button class="btn btn-primary btn-sm" disabled>Generate 7 Agents</button><span class="muted" style="font-size:12px">disabled while generating, while the preview loads, or with no agent selected</span>
+  <button class="btn btn-ghost btn-sm" disabled>Deselect All</button>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">B. States: loading, preview error (create-only), targets changed since preview</h2>
+<div class="frame w-modal stack">
+  <div class="modal-box" aria-label="Loading state"><h3>Preview agent generation</h3>
+    <p role="status" class="muted" style="font-size:12px">Checking generation targets...</p>
+    <div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:40%"></div>
+    <div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm" disabled aria-busy="true">Confirm Generate</button></div></div>
+
+  <div class="modal-box" aria-label="CLI detection failed"><h3>Preview agent generation</h3>
+    <p class="callout-warn" role="alert">Could not check which CLIs are installed. Rival-CLI copies are not listed, so this list may be incomplete.</p>
+    <p class="tgt-inline"><span class="muted">Writing to</span> <code>D:/work/acme/.claude/agents</code> <span class="muted">(project root)</span></p>
+    <div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Confirm Generate</button></div></div>
+
+  <div class="modal-box" aria-label="Error state"><h3>Preview agent generation</h3>
+    <p class="callout-warn" role="alert">Preview unavailable. You can still generate without a preview. Files that already exist and differ will be kept; only missing files are created.</p>
+    <div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Generate without preview</button></div></div>
+
+  <div class="modal-box" aria-label="Targets changed since preview"><h3>Preview agent generation</h3>
+    <p class="callout-warn" role="alert">Targets changed since preview. Review the new list and confirm again.</p>
+    <ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/backend-developer.md</code><span class="badge badge-ghost">Exists — may be replaced</span></div><p class="file-note">Agent model: <strong>opus</strong> - from your Library setting (machine).</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/backend-developer.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/backend-developer.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/backend-developer.md with generated version">Replace with generated</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d16">What changes</button></div><div class="diff" id="d16" hidden><div class="ctx">The generated content is not known until generation runs.</div></div></li></ul>
+    <div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Confirm Generate</button></div></div>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">C. Host and model-origin copy matrix (single source for HTML and JS strings)</h2>
+<div class="frame w-wide"><table class="tbl" aria-label="Host and model-origin copy matrix">
+<thead><tr><th>Case</th><th>Electron</th><th>VS Code (no Library copy, D3)</th></tr></thead><tbody>
+<tr><td>Applied setting</td><td>Agent model: <strong>opus</strong> - from your Library setting (workspace).</td><td>Agent model: <strong>opus</strong> - from your saved agent-model setting (workspace).</td></tr>
+<tr><td>Ignored override</td><td>Agent model: <strong>sonnet</strong> - the Library setting <code>gpt-5</code> is not a Claude model and will be ignored. Using the template model.</td><td>Agent model: <strong>sonnet</strong> - the saved agent-model setting <code>gpt-5</code> is not a Claude model and will be ignored. Using the template model.</td></tr>
+<tr><td>Template model</td><td colspan="2">Agent model: <strong>sonnet</strong> (template).</td></tr>
+<tr><td>No model line</td><td colspan="2">Agent model: no model line (the template declares none).</td></tr>
+<tr><td>Default-root helper</td><td>The Library, other CLIs and model settings read this folder.</td><td>Other CLIs and model settings read this folder.</td></tr>
+<tr><td>Opened-folder warning (before writing)</td><td>Agents written to the opened folder will not reach other CLIs and will not appear in the Library.</td><td>Agents written to the opened folder will not reach other CLIs.</td></tr>
+<tr><td>Opened-folder notice (after writing)</td><td>These agents are in &lt;relative path&gt;. They will not reach other CLIs and will not appear in the Library.</td><td>These agents are in &lt;relative path&gt;. They will not reach other CLIs.</td></tr>
+<tr><td>Library-edit note</td><td>Library copy has edits. If you replace, you will need to choose rebase or keep for it in the Library.</td><td>not shown</td></tr>
+</tbody></table></div>
+</section>
+</main>
+<script src="assets/proto.js"></script>
+</body></html>

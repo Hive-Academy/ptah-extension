@@ -289,7 +289,7 @@ describe('HarnessReconcilerService — reconcile and verify agree', () => {
     for (const target of second.targets) {
       expect(target.removed).toEqual([]);
       expect(target.writeFailed).toEqual([]);
-      expect(target.overwrittenLocalEdit).toEqual([]);
+      expect(target.keptLocalEdit).toEqual([]);
       expect(target.adopted ?? []).toEqual([]);
     }
   });

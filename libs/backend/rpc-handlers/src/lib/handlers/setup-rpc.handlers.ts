@@ -19,10 +19,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
-import {
-  PLATFORM_TOKENS,
-  AgentPackDownloadService,
-} from '@ptah-extension/platform-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
@@ -56,6 +53,8 @@ import type {
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
   WizardInstallPackAgentsResult,
+  WizardPlanPackInstallParams,
+  WizardPlanPackInstallResult,
 } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
@@ -70,7 +69,15 @@ import {
   WizardInstallPackAgentsParamsSchema,
   WizardListAnalysesParamsSchema,
   WizardLoadAnalysisParamsSchema,
+  WizardPlanPackInstallParamsSchema,
 } from './setup-rpc.schema';
+import { PackInstallService } from './setup/pack-install.service';
+
+/** The pack operations the setup handler delegates to. */
+export type PackInstaller = Pick<
+  PackInstallService,
+  'listPacks' | 'plan' | 'install'
+>;
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -99,6 +106,7 @@ export class SetupRpcHandlers {
     'wizard:list-analyses',
     'wizard:load-analysis',
     'wizard:list-agent-packs',
+    'wizard:plan-pack-install',
     'wizard:install-pack-agents',
   ] as const satisfies readonly RpcMethodName[];
 
@@ -113,6 +121,8 @@ export class SetupRpcHandlers {
     private readonly container: DependencyContainer,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(PackInstallService)
+    private readonly packInstall: PackInstaller,
   ) {}
 
   /**
@@ -173,6 +183,7 @@ export class SetupRpcHandlers {
     this.registerListAnalyses();
     this.registerLoadAnalysis();
     this.registerListAgentPacks();
+    this.registerPlanPackInstall();
     this.registerInstallPackAgents();
 
     this.logger.debug('Setup RPC handlers registered', {
@@ -889,16 +900,6 @@ export class SetupRpcHandlers {
     });
   }
 
-  /** Singleton AgentPackDownloadService — preserves deduplication and cache serialization */
-  private agentPackService: AgentPackDownloadService | null = null;
-
-  private getAgentPackService(): AgentPackDownloadService {
-    if (!this.agentPackService) {
-      this.agentPackService = new AgentPackDownloadService();
-    }
-    return this.agentPackService;
-  }
-
   /**
    * wizard:list-agent-packs - List available community agent packs
    */
@@ -908,63 +909,37 @@ export class SetupRpcHandlers {
       WizardListAgentPacksResult
     >('wizard:list-agent-packs', async () => {
       this.logger.debug('RPC: wizard:list-agent-packs called');
-
-      const packs = await this.getAgentPackService().listCuratedPacks();
-      return { packs };
+      return { packs: await this.packInstall.listPacks() };
     });
   }
 
   /**
-   * wizard:install-pack-agents - Install agents from a community pack
+   * wizard:plan-pack-install - Compare pack files with the destination and
+   * mint a plan token. Writes nothing.
+   */
+  private registerPlanPackInstall(): void {
+    this.rpcHandler.registerMethod<
+      WizardPlanPackInstallParams,
+      WizardPlanPackInstallResult
+    >('wizard:plan-pack-install', (rawParams) =>
+      this.packInstall.plan(
+        this.parse(WizardPlanPackInstallParamsSchema, rawParams),
+      ),
+    );
+  }
+
+  /**
+   * wizard:install-pack-agents - Install pack files under keep/replace guards
    */
   private registerInstallPackAgents(): void {
     this.rpcHandler.registerMethod<
       WizardInstallPackAgentsParams,
       WizardInstallPackAgentsResult
-    >('wizard:install-pack-agents', async (rawParams) => {
-      const params = this.parse(WizardInstallPackAgentsParamsSchema, rawParams);
-      this.logger.debug('RPC: wizard:install-pack-agents called', {
-        source: params.source,
-        agentFileCount: params.agentFiles.length,
-      });
-      const packService = this.getAgentPackService();
-      const curatedPacks = await packService.listCuratedPacks();
-      const isAllowedSource = curatedPacks.some(
-        (pack) => pack.source === params.source,
-      );
-      if (!isAllowedSource) {
-        throw new Error(
-          `Untrusted agent pack source: "${params.source}". Only curated sources are allowed.`,
-        );
-      }
-
-      const workspaceRoot =
-        params?.workspacePath || this.workspaceProvider.getWorkspaceRoot();
-      if (!workspaceRoot) {
-        throw new RpcUserError(
-          'No workspace folder open.',
-          'WORKSPACE_NOT_OPEN',
-        );
-      }
-      if (
-        params?.workspacePath &&
-        !isAuthorizedWorkspace(params.workspacePath, this.workspaceProvider)
-      ) {
-        throw new RpcUserError(
-          'Access denied: workspace path is not an open folder.',
-          'UNAUTHORIZED_WORKSPACE',
-        );
-      }
-
-      const path = await import('path');
-      const targetDir = path.join(workspaceRoot, '.claude', 'agents');
-
-      return packService.downloadAgents(
-        params.source,
-        params.agentFiles,
-        targetDir,
-      );
-    });
+    >('wizard:install-pack-agents', (rawParams) =>
+      this.packInstall.install(
+        this.parse(WizardInstallPackAgentsParamsSchema, rawParams),
+      ),
+    );
   }
 
   /**

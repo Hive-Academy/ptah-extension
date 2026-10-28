@@ -17,6 +17,7 @@ import { provideLocationMocks } from '@angular/common/testing';
 import { Router, provideRouter, type Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import type {
+  CloneSummary,
   ExternalPluginListing,
   HarnessHealth,
   HarnessTargetHealth,
@@ -88,7 +89,7 @@ function target(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 1,
     ...overrides,
@@ -119,6 +120,7 @@ describe('SkillDetailComponent', () => {
     typeof signal<InventorySlice<ExternalPluginListing>>
   >;
   let pendingIds: ReturnType<typeof signal<ReadonlySet<string>>>;
+  let libraryClones: ReturnType<typeof signal<readonly CloneSummary[]>>;
   let health: ReturnType<typeof signal<HarnessHealth | null>>;
   let targets: ReturnType<typeof signal<readonly HarnessTargetHealth[]>>;
   let store: {
@@ -145,6 +147,7 @@ describe('SkillDetailComponent', () => {
       data: [listing()],
     });
     pendingIds = signal<ReadonlySet<string>>(new Set());
+    libraryClones = signal<readonly CloneSummary[]>([]);
     health = signal<HarnessHealth | null>(null);
     targets = signal<readonly HarnessTargetHealth[]>([]);
     store = {
@@ -166,6 +169,7 @@ describe('SkillDetailComponent', () => {
             community: community.asReadonly(),
             marketplaces: marketplaces.asReadonly(),
             pendingIds: pendingIds.asReadonly(),
+            libraryClones: libraryClones.asReadonly(),
             newestSessionStatus: signal(null).asReadonly(),
           },
         },
@@ -265,6 +269,96 @@ describe('SkillDetailComponent', () => {
       expect(byTestId('skill-detail-broken')?.textContent).toContain(
         '/p/skills/x/SKILL.md',
       );
+    });
+  });
+
+  describe('inspector facts (R1-1)', () => {
+    const releaseKit = (): PluginInfo =>
+      plugin({
+        id: 'ptah-release-kit',
+        name: 'Ptah Release Kit',
+        description: 'Release automation.',
+        skillCount: 1,
+        commandCount: 1,
+        agentCount: 1,
+        skillNames: ['release-notes'],
+        commandNames: ['release'],
+        agentNames: ['release-manager'],
+      });
+
+    it('shows version, provenance and contents of a plugin', async () => {
+      plugins.set({ state: 'ready', data: [releaseKit()] });
+      await open({ kind: 'ptah-plugin', id: 'ptah-release-kit' });
+
+      expect(fact('Version')).toBe('Bundled with Ptah');
+      expect(fact('Provenance')).toBe('Plugin: Ptah Release Kit');
+      expect(fact('Contents')).toBe('1 skill · 1 command · 1 agent');
+      const names = byTestId('skill-detail-names');
+      expect(names?.querySelector('summary')?.textContent?.trim()).toBe(
+        'Show names',
+      );
+      expect(names?.textContent).toContain('release-notes');
+      expect(names?.textContent).toContain('release');
+      expect(names?.textContent).toContain('release-manager');
+    });
+
+    it('labels a community skill by its skills.sh source', async () => {
+      await open({ kind: 'community-skill', id: 'deep-research' });
+
+      expect(fact('Provenance')).toBe('skills.sh: owner/skills');
+      expect(fact('Version')).toBe('Not declared');
+      expect(byTestId('skill-detail-names')).toBeNull();
+    });
+
+    it('marks a shadowed agent in the names and says why (F7f)', async () => {
+      plugins.set({ state: 'ready', data: [releaseKit()] });
+      libraryClones.set([
+        {
+          slug: 'release-manager',
+          kind: 'agent',
+          cloneStatus: 'clone',
+          diverged: false,
+          invocationCount: 0,
+          successRate: null,
+          lastEnhancedAt: null,
+          historyCount: 0,
+          pendingSourceHash: null,
+          enhanceMinInvocations: 3,
+          enhanceCooldownUntil: null,
+          provenance: { kind: 'setup-wizard' },
+        },
+      ]);
+      await open({ kind: 'ptah-plugin', id: 'ptah-release-kit' });
+
+      expect(byTestId('skill-detail-shadowed')?.textContent).toContain(
+        'release-manager',
+      );
+      const agents = root().querySelector('[data-names="Agents"]');
+      expect(
+        agents?.querySelector('[data-testid="skill-detail-name-shadowed"]')
+          ?.textContent,
+      ).toBe('Shadowed');
+    });
+
+    it('follows the selected row: opening another item replaces every fact', async () => {
+      plugins.set({ state: 'ready', data: [releaseKit()] });
+      await open({ kind: 'ptah-plugin', id: 'ptah-release-kit' });
+      expect(fact('Kind')).toBe('Ptah plugin');
+      expect(
+        byTestId('skill-detail-description')?.textContent?.trim(),
+      ).toBe('Release automation.');
+
+      await open({ kind: 'marketplace-plugin', id: EXTERNAL_ID });
+
+      expect(fact('Kind')).toBe('Marketplace plugin');
+      expect(fact('Source')).toBe('acme/tools');
+      expect(fact('Provenance')).toBe('Plugin: lint-kit');
+      expect(fact('Installed version')).toBe('1.2.0');
+      expect(fact('Contents')).toBeUndefined();
+      expect(
+        byTestId('skill-detail-description')?.textContent?.trim(),
+      ).toBe('Linting commands.');
+      expect(byTestId('skill-detail-names')).toBeNull();
     });
   });
 

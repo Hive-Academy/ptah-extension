@@ -3,10 +3,27 @@
  */
 
 import 'reflect-metadata';
+
+// The provenance resolver injects the agent-generation origin store token; the
+// agent-generation barrel reaches workspace-intelligence, whose tree-sitter
+// loader evaluates `import.meta.url` at load time (unparseable under ts-jest's
+// CJS transform).
+jest.mock('@ptah-extension/workspace-intelligence', () => ({
+  ProjectType: { Node: 'node', General: 'general', Unknown: 'unknown' },
+  Framework: {},
+  MonorepoType: {},
+  FileType: {},
+  TreeSitterParserService: class TreeSitterParserServiceStub {},
+  WorkspaceAnalyzerService: class WorkspaceAnalyzerServiceStub {},
+  ProjectDetectorService: class ProjectDetectorServiceStub {},
+  FrameworkDetectorService: class FrameworkDetectorServiceStub {},
+  MonorepoDetectorService: class MonorepoDetectorServiceStub {},
+}));
+
 import * as fs from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { container } from 'tsyringe';
+import { container, type DependencyContainer } from 'tsyringe';
 import {
   TOKENS,
   RpcUserError,
@@ -33,6 +50,7 @@ import {
   HarnessStateStore,
   ManagedManifestStore,
   harnessStatePath,
+  resolveHarnessWorkspaceRoot,
   type AgentConsentReader,
 } from '@ptah-extension/harness-sync';
 import type {
@@ -51,7 +69,16 @@ import type {
   AgentModelProvider,
 } from '@ptah-extension/shared';
 import { CliModelListService } from '../services/cli-model-list.service';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
+
+/**
+ * The agent scope the handler addresses for the default folder: the harness
+ * root of `/workspace/project` (B13, 2.5). Absolute, so on Windows it carries
+ * the drive letter.
+ */
+const SCOPE = resolveHarnessWorkspaceRoot('/workspace/project');
 
 function makeLogger() {
   return {
@@ -174,6 +201,9 @@ function makeMirror() {
     // answer the happy path and the failure path is asserted explicitly.
     listClones: jest.fn().mockResolvedValue([]),
     readCloneOrigin: jest.fn().mockResolvedValue(null),
+    // B13: per-row source identity for provenance and the rebase's sourceRef
+    // lookup. `null` = no sidecar, the plugin-less default.
+    readCloneEditState: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -217,7 +247,11 @@ function makeScorecard() {
   };
 }
 
-function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], withScorecard = true) {
+function buildHandlers(
+  workspaceFolders: string[] = ['/workspace/project'],
+  withScorecard = true,
+  configure?: (child: DependencyContainer) => void,
+) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const sentry = makeSentry();
@@ -251,6 +285,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], with
   }
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
   child.registerInstance(SKILL_REPROPAGATION_TOKEN, repropagation);
+  configure?.(child);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -403,8 +438,12 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
   it.each(['agent', 'command'] as const)(
     'listClones reads %s grades using the clone kind',
     async (kind) => {
-      const { rpcHandler, registry, scorecard, store } = buildHandlers();
+      const { rpcHandler, registry, scorecard, store, mirror } = buildHandlers();
       registry.listAll.mockReturnValue([{ ...sampleRow, kind }]);
+      // An agent row is listed only when its clone is in the scoped Library.
+      mirror.listClones.mockResolvedValue([
+        { kind, slug: 'deep-research', orphaned: false },
+      ]);
       scorecard.getInvocationStats.mockReturnValue({
         total: 2, succeeded: 1, failed: 1, distinctContexts: 1,
         invocationCount: 3, successRate: 0.5,
@@ -587,7 +626,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         'skills',
         'deep-research',
       ),
-      workspaceRoot: '/workspace/project',
+      workspaceRoot: SCOPE,
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -624,7 +663,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(mirror.keepClone).toHaveBeenCalledWith({
       kind: 'skill',
       slug: 'deep-research',
-      workspaceRoot: '/workspace/project',
+      workspaceRoot: SCOPE,
     });
     expect(registry.setDiverged).toHaveBeenCalledWith(
       'skill',
@@ -659,7 +698,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'deep-research',
         body: '# edited by the user',
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
       expect(result).toEqual({
         kind: 'skill',
@@ -760,7 +799,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'deep-research',
         body: 'AFTER',
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
         expectedSourceHash,
       });
     });
@@ -991,7 +1030,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join('/data/ptah-skills', 'synthesized-thing'),
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
     });
 
@@ -1015,7 +1054,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'skill',
         slug: 'synthesized-thing',
         sourceDir: join(resolveSkillsRoot(null), 'synthesized-thing'),
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
     });
 
@@ -1040,12 +1079,12 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         kind: 'agent',
         slug: 'backend-developer',
         sourceDir: join(
-          '/workspace/project',
+          SCOPE,
           '.claude',
           'agents',
           'backend-developer.md',
         ),
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
     });
 
@@ -1091,7 +1130,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'commands',
           'orchestrate.md',
         ),
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
     });
 
@@ -1119,7 +1158,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
           'agents',
           'senior-tester.md',
         ),
-        workspaceRoot: '/workspace/project',
+        workspaceRoot: SCOPE,
       });
     });
 
@@ -1237,7 +1276,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       expect(mirror.readCloneOrigin).toHaveBeenCalledWith(
         'skill',
         'deep-research',
-        '/workspace/project',
+        SCOPE,
       );
       expect(mirror.listClones).not.toHaveBeenCalled();
       expect(result.clone?.['orphaned']).toBe(true);
@@ -1922,7 +1961,7 @@ describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
     expect(mirror.listHistory).toHaveBeenCalledWith(
       'skill',
       'deep-research',
-      '/workspace/project',
+      SCOPE,
     );
     expect(result).toEqual({ body: 'SNAPSHOT BODY', ts: TS });
   });
@@ -2902,5 +2941,324 @@ describe('SkillsSynthesisRpcHandlers — preview while skills are paused', () =>
       kind: 'skill', slug: 'deep-research',
     })).rejects.toMatchObject({ errorCode: 'PAUSED' });
     expect(enhancer.generateProposal).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * B13 (TASK_2026_701): Library provenance on the clone surface, and the agent
+ * scope moving to the harness root.
+ */
+describe('SkillsSynthesisRpcHandlers — Library provenance and scope (B13)', () => {
+  const PLUGINS = resolve('/home/.ptah/plugins');
+  const ACME_PATH = join(PLUGINS, 'external', 'acme', 'toolkit', 'toolkit');
+  const BETA_PATH = join(PLUGINS, 'external', 'beta', 'plugins', 'toolkit');
+  const WIZARD_HASH = `sha256:${'a'.repeat(64)}`;
+
+  function row(overrides: Record<string, unknown>) {
+    return {
+      slug: 'api-design',
+      kind: 'skill' as const,
+      userPath: '/home/.ptah/user/skills/api-design',
+      originPluginId: 'toolkit',
+      originVersion: '1.0.0',
+      sourceHash: 'sha256:aaa',
+      cloneStatus: 'clone' as const,
+      diverged: false,
+      historyDir: null,
+      lastEnhancedAt: null,
+      candidateId: null,
+      pendingSourceHash: null,
+      createdAt: 1,
+      updatedAt: 1,
+      ...overrides,
+    };
+  }
+
+  function withSources(options: {
+    descriptors?: Record<string, { sourceRef: string; label: string }>;
+    active?: string[];
+    wizardAgents?: Record<string, string>;
+    loaderThrows?: boolean;
+  }) {
+    const pluginLoader = {
+      getPluginSourceDescriptors: jest.fn(() => {
+        if (options.loaderThrows) throw new Error('loader exploded');
+        return options.descriptors ?? {};
+      }),
+      resolveCurrentPluginPaths: jest.fn(() => options.active ?? []),
+    };
+    const originStore = {
+      read: jest.fn(async () =>
+        Object.fromEntries(
+          Object.entries(options.wizardAgents ?? {}).map(([slug, hash]) => [
+            slug,
+            { hash, writtenAt: 1 },
+          ]),
+        ),
+      ),
+    };
+    return {
+      pluginLoader,
+      originStore,
+      configure: (child: DependencyContainer) => {
+        child.registerInstance(SDK_TOKENS.SDK_PLUGIN_LOADER, pluginLoader);
+        child.registerInstance(AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE, originStore);
+      },
+    };
+  }
+
+  type ListResult = {
+    clones: Array<Record<string, unknown>>;
+    scopeRoot?: string;
+  };
+
+  it('two external plugins with the same basename show their own names', async () => {
+    const sources = withSources({
+      descriptors: {
+        [ACME_PATH]: { sourceRef: 'external:acme/toolkit/toolkit', label: 'Acme Toolkit' },
+        [BETA_PATH]: { sourceRef: 'external:beta/plugins/toolkit', label: 'Beta Toolkit' },
+      },
+      active: [ACME_PATH, BETA_PATH],
+    });
+    const { rpcHandler, registry, mirror } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([
+      row({ slug: 'api-design' }),
+      row({ slug: 'schema-migrate' }),
+    ]);
+    mirror.readCloneEditState.mockImplementation(async (_kind: string, slug: string) => ({
+      exists: true,
+      edited: false,
+      pluginId: 'toolkit',
+      sourceRef:
+        slug === 'api-design'
+          ? 'external:acme/toolkit/toolkit'
+          : 'external:beta/plugins/toolkit',
+      contentDigest: 'sha256:x',
+    }));
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones.map((clone) => clone['provenance'])).toEqual([
+      { kind: 'plugin', pluginId: 'external:acme/toolkit/toolkit', name: 'Acme Toolkit', state: 'active' },
+      { kind: 'plugin', pluginId: 'external:beta/plugins/toolkit', name: 'Beta Toolkit', state: 'active' },
+    ]);
+  });
+
+  it('uninstall of a plugin whose display name differs from its id keeps the display name', async () => {
+    const sources = withSources({ descriptors: {} });
+    const { rpcHandler, registry, mirror } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([
+      row({ kind: 'agent', slug: 'legacy-linter', originPluginId: 'former-helper-plugin' }),
+    ]);
+    mirror.listClones.mockResolvedValue([
+      { kind: 'agent', slug: 'legacy-linter', orphaned: true },
+    ]);
+    mirror.readCloneEditState.mockResolvedValue({
+      exists: true,
+      edited: true,
+      pluginId: 'former-helper-plugin',
+      sourceRef: 'ptah:former-helper-plugin',
+      sourceLabel: 'Former Helper',
+      contentDigest: 'sha256:x',
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones[0]).toMatchObject({
+      orphaned: true,
+      provenance: {
+        kind: 'plugin',
+        pluginId: 'former-helper-plugin',
+        name: 'Former Helper',
+        state: 'uninstalled',
+      },
+    });
+  });
+
+  it('labels a wizard-written agent setup-wizard and names the wizard as the diverged reason', async () => {
+    const sources = withSources({ wizardAgents: { 'backend-developer': WIZARD_HASH } });
+    const { rpcHandler, registry, mirror } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([
+      row({
+        kind: 'agent',
+        slug: 'backend-developer',
+        originPluginId: null,
+        diverged: true,
+        pendingSourceHash: WIZARD_HASH,
+      }),
+    ]);
+    mirror.listClones.mockResolvedValue([
+      { kind: 'agent', slug: 'backend-developer', orphaned: false },
+    ]);
+    mirror.readCloneEditState.mockResolvedValue({
+      exists: true,
+      edited: true,
+      pluginId: null,
+      contentDigest: 'sha256:x',
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones[0]).toMatchObject({
+      provenance: { kind: 'setup-wizard' },
+      divergedReason: { kind: 'setup-wizard' },
+    });
+    expect(sources.originStore.read).toHaveBeenCalledWith(SCOPE);
+  });
+
+  it('a plugin update names the plugin as the diverged reason', async () => {
+    const sources = withSources({
+      descriptors: {
+        [ACME_PATH]: { sourceRef: 'external:acme/toolkit/toolkit', label: 'Acme Toolkit' },
+      },
+      active: [ACME_PATH],
+    });
+    const { rpcHandler, registry, mirror } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([
+      row({ slug: 'api-design', diverged: true, pendingSourceHash: 'sha256:new' }),
+    ]);
+    mirror.readCloneEditState.mockResolvedValue({
+      exists: true,
+      edited: true,
+      pluginId: 'toolkit',
+      sourceRef: 'external:acme/toolkit/toolkit',
+      contentDigest: 'sha256:x',
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones[0]['divergedReason']).toEqual({
+      kind: 'plugin',
+      pluginName: 'Acme Toolkit',
+    });
+  });
+
+  it('omits provenance when the resolver cannot read the sources; the listing still succeeds', async () => {
+    const sources = withSources({ loaderThrows: true });
+    const { rpcHandler, registry } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([row({})]);
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones).toHaveLength(1);
+    expect(result.clones[0]).not.toHaveProperty('provenance');
+    expect(result.clones[0]).not.toHaveProperty('divergedReason');
+  });
+
+  it('omits provenance for one row whose sidecar is unreadable, not for the others', async () => {
+    const sources = withSources({});
+    const { rpcHandler, registry, mirror } = buildHandlers(undefined, true, sources.configure);
+    registry.listAll.mockReturnValue([
+      row({ slug: 'broken', originPluginId: null }),
+      row({ slug: 'fine', originPluginId: null }),
+    ]);
+    mirror.readCloneEditState.mockImplementation(async (_kind: string, slug: string) => {
+      if (slug === 'broken') throw new Error('EACCES');
+      return null;
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones[0]).not.toHaveProperty('provenance');
+    expect(result.clones[1]['provenance']).toEqual({ kind: 'workspace' });
+  });
+
+  it('getClone carries the same provenance as the list', async () => {
+    const sources = withSources({ wizardAgents: { 'backend-developer': WIZARD_HASH } });
+    const { rpcHandler, registry } = buildHandlers(undefined, true, sources.configure);
+    registry.getBySlug.mockReturnValue(
+      row({ kind: 'agent', slug: 'backend-developer', originPluginId: null }),
+    );
+
+    const result = (await rpcHandler.call('skillSynthesis:getClone', {
+      kind: 'agent',
+      slug: 'backend-developer',
+    })) as { clone: Record<string, unknown> | null };
+
+    expect(result.clone?.['provenance']).toEqual({ kind: 'setup-wizard' });
+  });
+
+  it('A-rows: lists only agent rows whose clone is in the scoped Library', async () => {
+    const { rpcHandler, registry, mirror } = buildHandlers();
+    registry.listAll.mockReturnValue([
+      row({ kind: 'agent', slug: 'mine', originPluginId: null }),
+      row({ kind: 'agent', slug: 'other-workspace', originPluginId: null }),
+      row({ kind: 'skill', slug: 'shared-skill' }),
+    ]);
+    mirror.listClones.mockResolvedValue([{ kind: 'agent', slug: 'mine', orphaned: false }]);
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones.map((clone) => clone['slug'])).toEqual(['mine', 'shared-skill']);
+  });
+
+  it('A-rows: keeps every row when the scoped listing cannot be read', async () => {
+    const { rpcHandler, registry, mirror } = buildHandlers();
+    registry.listAll.mockReturnValue([
+      row({ kind: 'agent', slug: 'mine', originPluginId: null }),
+    ]);
+    mirror.listClones.mockRejectedValue(new Error('sidecar read failed'));
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+    expect(result.clones.map((clone) => clone['slug'])).toEqual(['mine']);
+  });
+
+  describe('sub-folder workspace', () => {
+    let repo: string;
+    let subFolder: string;
+
+    beforeEach(() => {
+      repo = fs.mkdtempSync(join(tmpdir(), 'b13-scope-'));
+      fs.mkdirSync(join(repo, '.git'));
+      subFolder = join(repo, 'packages', 'app');
+      fs.mkdirSync(subFolder, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(repo, { recursive: true, force: true });
+    });
+
+    it('lists the harness-root agents and returns scopeRoot equal to the broadcast root', async () => {
+      const { rpcHandler, mirror } = buildHandlers([subFolder]);
+
+      const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+
+      const harnessRoot = resolveHarnessWorkspaceRoot(subFolder);
+      expect(harnessRoot).toBe(resolve(repo));
+      // `library:changed` carries `resolveHarnessWorkspaceRoot(workspace)`.
+      expect(result.scopeRoot).toBe(harnessRoot);
+      expect(mirror.listClones).toHaveBeenCalledWith(harnessRoot);
+    });
+
+    it('rebases an agent clone from the harness-root agents folder', async () => {
+      const { rpcHandler, registry, mirror } = buildHandlers([subFolder]);
+      registry.getBySlug.mockReturnValue(
+        row({ kind: 'agent', slug: 'reviewer', originPluginId: null }),
+      );
+      mirror.rebaseClone.mockResolvedValue({
+        kind: 'agent',
+        slug: 'reviewer',
+        sourceHash: 'sha256:new',
+        snapshotPath: null,
+        failed: false,
+      });
+
+      await rpcHandler.call('skillSynthesis:rebaseClone', { kind: 'agent', slug: 'reviewer' });
+
+      const harnessRoot = resolve(repo);
+      expect(mirror.rebaseClone).toHaveBeenCalledWith({
+        kind: 'agent',
+        slug: 'reviewer',
+        sourceDir: join(harnessRoot, '.claude', 'agents', 'reviewer.md'),
+        workspaceRoot: harnessRoot,
+      });
+    });
+  });
+
+  it('omits scopeRoot with no folder open', async () => {
+    const { rpcHandler } = buildHandlers([]);
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as ListResult;
+    expect(result).not.toHaveProperty('scopeRoot');
   });
 });

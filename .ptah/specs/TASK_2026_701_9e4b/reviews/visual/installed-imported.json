@@ -1,0 +1,275 @@
+{
+ "shots": [
+  {
+   "file": "installed-imported__page__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis",
+   "extra": [
+    {
+     "w": 912,
+     "right": 1216,
+     "sw": 911,
+     "cw": 911,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.16)",
+     "text": "Plugin settings saved in packages/app-a now apply to the whole repository. Dismi"
+    },
+    {
+     "w": 51,
+     "right": 364,
+     "sw": 50,
+     "cw": 50,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Dismiss"
+    },
+    {
+     "w": 119,
+     "right": 1135,
+     "sw": 118,
+     "cw": 118,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Ptah Core Tools"
+    },
+    {
+     "w": 105,
+     "right": 1132,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "skills.sh: acme/skills"
+    },
+    {
+     "w": 80,
+     "right": 1132,
+     "sw": 79,
+     "cw": 79,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Workspace file"
+    },
+    {
+     "w": 97,
+     "right": 1132,
+     "sw": 95,
+     "cw": 95,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: dotnet-test"
+    }
+   ]
+  },
+  {
+   "file": "installed-imported__page__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis",
+   "extra": [
+    {
+     "w": 296,
+     "right": 416,
+     "sw": 295,
+     "cw": 295,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.16)",
+     "text": "Plugin settings saved in packages/app-a now apply to the whole repository. Dismi"
+    },
+    {
+     "w": 51,
+     "right": 294,
+     "sw": 50,
+     "cw": 50,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Dismiss"
+    },
+    {
+     "w": 105,
+     "right": 335,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Ptah Core Tools"
+    },
+    {
+     "w": 105,
+     "right": 332,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "skills.sh: acme/skills"
+    },
+    {
+     "w": 80,
+     "right": 332,
+     "sw": 79,
+     "cw": 79,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Workspace file"
+    },
+    {
+     "w": 97,
+     "right": 332,
+     "sw": 95,
+     "cw": 95,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: dotnet-test"
+    }
+   ]
+  },
+  {
+   "file": "installed-imported__page__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis-light",
+   "extra": [
+    {
+     "w": 1096,
+     "right": 1216,
+     "sw": 1095,
+     "cw": 1095,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.16)",
+     "text": "Plugin settings saved in packages/app-a now apply to the whole repository. Dismi"
+    },
+    {
+     "w": 54,
+     "right": 182,
+     "sw": 50,
+     "cw": 50,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Dismiss"
+    },
+    {
+     "w": 119,
+     "right": 1132,
+     "sw": 118,
+     "cw": 118,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Ptah Core Tools"
+    },
+    {
+     "w": 105,
+     "right": 1129,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "skills.sh: acme/skills"
+    },
+    {
+     "w": 80,
+     "right": 1129,
+     "sw": 79,
+     "cw": 79,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Workspace file"
+    },
+    {
+     "w": 97,
+     "right": 1129,
+     "sw": 95,
+     "cw": 95,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: dotnet-test"
+    }
+   ]
+  },
+  {
+   "file": "installed-imported__page__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis-light",
+   "extra": [
+    {
+     "w": 296,
+     "right": 416,
+     "sw": 295,
+     "cw": 295,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.16)",
+     "text": "Plugin settings saved in packages/app-a now apply to the whole repository. Dismi"
+    },
+    {
+     "w": 54,
+     "right": 295,
+     "sw": 50,
+     "cw": 50,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Dismiss"
+    },
+    {
+     "w": 105,
+     "right": 332,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Ptah Core Tools"
+    },
+    {
+     "w": 105,
+     "right": 329,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "skills.sh: acme/skills"
+    },
+    {
+     "w": 80,
+     "right": 329,
+     "sw": 79,
+     "cw": 79,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Workspace file"
+    },
+    {
+     "w": 97,
+     "right": 329,
+     "sw": 95,
+     "cw": 95,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: dotnet-test"
+    }
+   ]
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T03:30:16.705Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[2026-10-28T03:30:16.782Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined",
+  "[ModelStateService] Failed to load models: undefined",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "TimeoutError: Transition was aborted because of timeout in DOM update",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN"
+ ]
+}

@@ -139,6 +139,7 @@ import {
   registerAgentGenerationServices,
   type AgentTemplate,
   type UserLayerMirrorService,
+  type WizardAgentOriginStore,
 } from '@ptah-extension/agent-generation';
 import {
   HARNESS_SYNC_TOKENS,
@@ -158,10 +159,13 @@ import {
   type HarnessTargetId,
   type WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import { GenerationRunSupervisor } from './wizard-generation-run.supervisor';
+import { GenerationPreviewService } from './wizard-generation/generation-preview.service';
+import { GenerationLibraryPassService } from './wizard-generation/generation-library-pass.service';
 
 // ---------------------------------------------------------------------------
 // Fixture
@@ -213,6 +217,8 @@ function nodeFileSystem() {
       await fsp.mkdir(path.dirname(p), { recursive: true });
       await fsp.writeFile(p, content, 'utf8');
     },
+    writeFileExclusive: (p: string, content: string) =>
+      fsp.writeFile(p, content, { encoding: 'utf8', flag: 'wx' }),
     createDirectory: async (p: string) => {
       await fsp.mkdir(p, { recursive: true });
     },
@@ -371,6 +377,7 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
         };
         await mirror.mirrorAll(sources);
         await mirror.reconcileAll(sources);
+        return 'refreshed';
       },
     },
   });
@@ -387,6 +394,33 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
     },
   });
   const rpcHandler = createMockRpcHandler();
+  const checkpoints = new GenerationCheckpointService(logger, container);
+  // The production preview service over the registered origin store.
+  const originStore = container.resolve<WizardAgentOriginStore>(
+    AGENT_GENERATION_TOKENS.AGENT_ORIGIN_STORE,
+  );
+  // Optional capabilities by token, as tsyringe's `isOptional` resolves them.
+  const optional = <T>(token: symbol): T | undefined =>
+    container.isRegistered(token, true) ? container.resolve<T>(token) : undefined;
+  const previews = new GenerationPreviewService(
+    logger,
+    checkpoints,
+    originStore,
+    optional(HARNESS_SYNC_TOKENS.RECONCILER),
+    optional(HARNESS_SYNC_TOKENS.SOURCE_RESOLVER),
+    optional(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE),
+    optional(HARNESS_SYNC_TOKENS.PROPAGATION),
+    optional(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE),
+    optional(AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE),
+    optional(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS),
+  );
+  const libraryPass = new GenerationLibraryPassService(
+    logger,
+    originStore,
+    optional(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE),
+    optional(HARNESS_SYNC_TOKENS.PROPAGATION),
+    optional(AGENT_GENERATION_TOKENS.USER_LAYER_MIRROR_SERVICE),
+  );
   const handlers = new WizardGenerationRpcHandlers(
     logger,
     rpcHandler as unknown as RpcHandler,
@@ -399,8 +433,11 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
     }) as unknown as IWorkspaceProvider,
     container,
     createMockSentryService() as unknown as SentryService,
-    new GenerationCheckpointService(logger, container),
+    checkpoints,
     new GenerationRunSupervisor(logger),
+    previews,
+    originStore,
+    libraryPass,
   );
   handlers.register();
 

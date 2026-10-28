@@ -16,6 +16,13 @@ import { join } from 'path';
  */
 export interface PluginSkillInfo {
   pluginId: string;
+  /**
+   * The skill's directory name under `<plugin>/skills/`. This is the id the
+   * plugin config's `disabledSkillIds` and the plugin loader use; it can
+   * differ from `skillName`.
+   */
+  skillId: string;
+  /** The frontmatter `name`, shown to the model. */
   skillName: string;
   description: string;
 }
@@ -59,6 +66,7 @@ export function discoverPluginSkills(pluginPaths: string[]): PluginSkillInfo[] {
       if (name) {
         skills.push({
           pluginId,
+          skillId: entry,
           skillName: name,
           description: description || name,
         });

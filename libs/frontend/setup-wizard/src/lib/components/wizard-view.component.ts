@@ -111,6 +111,11 @@ import { PromptEnhancementComponent } from './prompt-enhancement.component';
           data-testid="wizard-step"
           [attr.data-step]="currentStep()"
         >
+          <!--
+            Every step after 'welcome' renders inside @defer (on immediate):
+            it loads as soon as the step is current, but its code (and the
+            stores only it uses) stays out of the initial bundle budget.
+          -->
           @switch (currentStep()) {
             @case ('welcome') {
               <ptah-wizard-landing />
@@ -122,22 +127,34 @@ import { PromptEnhancementComponent } from './prompt-enhancement.component';
               </details>
             }
             @case ('scan') {
-              <ptah-scan-progress />
+              @defer (on immediate) {
+                <ptah-scan-progress />
+              }
             }
             @case ('analysis') {
-              <ptah-analysis-results />
+              @defer (on immediate) {
+                <ptah-analysis-results />
+              }
             }
             @case ('selection') {
-              <ptah-agent-selection />
+              @defer (on immediate) {
+                <ptah-agent-selection />
+              }
             }
             @case ('enhance') {
-              <ptah-prompt-enhancement />
+              @defer (on immediate) {
+                <ptah-prompt-enhancement />
+              }
             }
             @case ('generation') {
-              <ptah-generation-progress />
+              @defer (on immediate) {
+                <ptah-generation-progress />
+              }
             }
             @case ('completion') {
-              <ptah-completion />
+              @defer (on immediate) {
+                <ptah-completion />
+              }
             }
           }
         </div>

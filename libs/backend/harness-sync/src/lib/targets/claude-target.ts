@@ -56,6 +56,10 @@ import type {
   IHarnessTarget,
 } from './harness-target.port';
 import { isQuarantineEntry } from '../quarantine/quarantine';
+import {
+  prepareOwnedOverwrite,
+  publishFailureReason,
+} from './artifact-retirement';
 import { isMigratableLink } from './link-ownership';
 import { createMcpFacet } from './mcp/mcp-facet.registry';
 import type { IHarnessMcpFacet } from './mcp/mcp-facet.port';
@@ -182,6 +186,7 @@ export class ClaudeTarget implements IHarnessTarget {
     );
 
     const writes: HarnessPlanWrite[] = [];
+    const keptLocalEdit: string[] = [];
     let unchanged = 0;
 
     for (const skill of desired.skills) {
@@ -212,6 +217,12 @@ export class ClaudeTarget implements IHarnessTarget {
         unchanged++;
         continue;
       }
+      if (outcome === 'kept') {
+        // The owned entry stays exactly as the manifest has it, old hash
+        // included, so the next pass finds the same edit and keeps it again.
+        keptLocalEdit.push(relPath);
+        continue;
+      }
       writes.push({
         relPath,
         kind: 'skill',
@@ -219,7 +230,6 @@ export class ClaudeTarget implements IHarnessTarget {
         hash: skill.contentHash,
         isDirectory: true,
         reason: outcome.reason,
-        overwritesLocalEdit: outcome.overwritesLocalEdit,
       });
     }
 
@@ -248,6 +258,12 @@ export class ClaudeTarget implements IHarnessTarget {
         unchanged++;
         continue;
       }
+      if (outcome === 'kept') {
+        // The owned entry stays exactly as the manifest has it, old hash
+        // included, so the next pass finds the same edit and keeps it again.
+        keptLocalEdit.push(relPath);
+        continue;
+      }
       writes.push({
         relPath,
         kind: 'command',
@@ -255,7 +271,6 @@ export class ClaudeTarget implements IHarnessTarget {
         hash: command.contentHash,
         isDirectory: false,
         reason: outcome.reason,
-        overwritesLocalEdit: outcome.overwritesLocalEdit,
       });
     }
 
@@ -296,6 +311,7 @@ export class ClaudeTarget implements IHarnessTarget {
       collisions: desired.collisions,
       migrations,
       adopted,
+      keptLocalEdit: [...keptLocalEdit, ...mcpPlan.keptLocalEdit],
       baseEntries,
       unchanged: unchanged + mcpPlan.unchanged,
       expected: desiredRel.size + mcpPlan.expected,
@@ -323,7 +339,7 @@ export class ClaudeTarget implements IHarnessTarget {
       written: {},
       removed: [],
       writeFailed: [],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
     };
 
     // Junctions first: a desired slug whose copy is about to be written must
@@ -360,33 +376,7 @@ export class ClaudeTarget implements IHarnessTarget {
 
     for (const write of plan.writes) {
       if (write.kind === 'mcp') continue;
-      const absolute = toAbsolute(workspaceRoot, write.relPath);
-      try {
-        if (write.isDirectory) {
-          await copyDirectory(write.source, absolute);
-        } else {
-          await copySingleFile(
-            write.source,
-            absolute,
-            join(workspaceRoot, ...COMMANDS_REL.split('/')),
-          );
-        }
-        // Recorded ONLY after the write succeeded: a manifest entry for a file
-        // that is not on disk is exactly the record corruption E21 forbids.
-        result.written[write.relPath] = managedEntry(
-          write.hash,
-          write.source,
-          write.kind,
-        );
-        if (write.overwritesLocalEdit) {
-          result.overwrittenLocalEdit.push(write.relPath);
-        }
-      } catch (error: unknown) {
-        result.writeFailed.push({
-          relPath: write.relPath,
-          reason: describeError(error),
-        });
-      }
+      await this.applyWrite(write, workspaceRoot, plan.baseEntries, result);
     }
 
     await applyMcpFacet(
@@ -411,6 +401,71 @@ export class ClaudeTarget implements IHarnessTarget {
     }
 
     return result;
+  }
+
+  /**
+   * Write one skill or command copy without losing a save the user made after
+   * the plan (TASK_2026_701 P1 review A1; D8).
+   *
+   * The plan only schedules an `update` for an owned copy that still held what
+   * Ptah wrote, but editor saves are not serialized by the workspace lock, so
+   * the plan is not trusted for that. The owned copy is detached into history
+   * and decided on there, exactly as `WorkspaceHarnessTarget.applyWrite` does:
+   * Ptah's own bytes are discarded, an edit saved since the plan is put back
+   * and reported kept (its manifest entry keeps the old hash because nothing
+   * lands in `written`), and the replacement is published with an EXCLUSIVE
+   * create. A `create` is exclusive too, so a file or directory the user put at
+   * a path the plan saw empty is never replaced.
+   */
+  private async applyWrite(
+    write: HarnessPlanWrite,
+    workspaceRoot: string,
+    baseEntries: ManagedEntries,
+    result: HarnessApplyResult,
+  ): Promise<void> {
+    const owned = baseEntries[write.relPath];
+    if (write.reason === 'update' && owned !== undefined) {
+      const gate = await prepareOwnedOverwrite({
+        workspaceRoot,
+        relPath: write.relPath,
+        isDirectory: write.isDirectory,
+        ownedHash: owned.hash,
+      });
+      if (gate.kind === 'failed') {
+        result.writeFailed.push({ relPath: write.relPath, reason: gate.reason });
+        return;
+      }
+      if (gate.kind === 'kept-local-edit') {
+        result.keptLocalEdit.push(write.relPath);
+        return;
+      }
+    }
+
+    const absolute = toAbsolute(workspaceRoot, write.relPath);
+    try {
+      if (write.isDirectory) {
+        await copyDirectory(write.source, absolute);
+      } else {
+        await copySingleFile(
+          write.source,
+          absolute,
+          join(workspaceRoot, ...COMMANDS_REL.split('/')),
+          true,
+        );
+      }
+      // Recorded ONLY after the write succeeded: a manifest entry for a file
+      // that is not on disk is exactly the record corruption E21 forbids.
+      result.written[write.relPath] = managedEntry(
+        write.hash,
+        write.source,
+        write.kind,
+      );
+    } catch (error: unknown) {
+      result.writeFailed.push({
+        relPath: write.relPath,
+        reason: publishFailureReason(write.relPath, error),
+      });
+    }
   }
 
   /**
@@ -457,10 +512,15 @@ export class ClaudeTarget implements IHarnessTarget {
    * Ownership + drift decision for one entry.
    *
    * Returns `'foreign'` when the path exists and Ptah cannot prove it wrote it,
-   * `'unchanged'` when the on-disk hash already equals the desired hash, and a
-   * write descriptor otherwise.
+   * `'unchanged'` when the on-disk hash already equals the desired hash,
+   * `'kept'` when an owned copy no longer holds what Ptah wrote, and a write
+   * descriptor otherwise.
    *
-   * Two rules here are about NOT destroying the user's work:
+   * Three rules here are about NOT destroying the user's work:
+   *
+   * - **A hand-edited owned copy is kept** (D8). It is never written over, and
+   *   its manifest entry keeps the old hash, so every later pass reaches the
+   *   same answer until the user chooses to replace it.
    *
    * - **A symlink is unlinked only when it points into a declared source root.**
    *   A leftover `SkillJunctionService` junction resolves inside `~/.ptah/**`
@@ -484,9 +544,7 @@ export class ClaudeTarget implements IHarnessTarget {
     sourceRoots: readonly string[],
     hashOptions: ContentHashOptions,
   ): Promise<
-    | 'foreign'
-    | 'unchanged'
-    | { reason: 'create' | 'update'; overwritesLocalEdit: boolean }
+    'foreign' | 'unchanged' | 'kept' | { reason: 'create' | 'update' }
   > {
     throwIfPassAborted(hashOptions.signal);
     const absolute = toAbsolute(workspaceRoot, relPath);
@@ -497,11 +555,11 @@ export class ClaudeTarget implements IHarnessTarget {
       if (!migrations.some((m) => m.path === absolute)) {
         migrations.push({ kind: 'unlink-junction', path: absolute });
       }
-      return { reason: 'create', overwritesLocalEdit: false };
+      return { reason: 'create' };
     }
 
     if (stat === null) {
-      return { reason: 'create', overwritesLocalEdit: false };
+      return { reason: 'create' };
     }
 
     const actual = await hashOnDisk(absolute);
@@ -513,11 +571,9 @@ export class ClaudeTarget implements IHarnessTarget {
     }
 
     if (actual === desiredHash) return 'unchanged';
+    if (actual !== null && actual !== owned.hash) return 'kept';
 
-    return {
-      reason: 'update',
-      overwritesLocalEdit: actual !== null && actual !== owned.hash,
-    };
+    return { reason: 'update' };
   }
 
   /**

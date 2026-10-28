@@ -1,0 +1,79 @@
+{
+ "shots": [
+  {
+   "file": "library-pointer__page__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis",
+   "extra": [
+    {
+     "w": 845,
+     "right": 1185,
+     "sw": 843,
+     "cw": 843,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.1)",
+     "text": "This repository has plugin settings that need a choice. Open Skills & Plugins"
+    }
+   ]
+  },
+  {
+   "file": "library-pointer__page__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis",
+   "extra": [
+    {
+     "w": 309,
+     "right": 389,
+     "sw": 307,
+     "cw": 307,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.1)",
+     "text": "This repository has plugin settings that need a choice. Open Skills & Plugins"
+    }
+   ]
+  },
+  {
+   "file": "library-pointer__page__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis-light",
+   "extra": [
+    {
+     "w": 845,
+     "right": 1185,
+     "sw": 843,
+     "cw": 843,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.1)",
+     "text": "This repository has plugin settings that need a choice. Open Skills & Plugins"
+    }
+   ]
+  },
+  {
+   "file": "library-pointer__page__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis-light",
+   "extra": [
+    {
+     "w": 309,
+     "right": 389,
+     "sw": 307,
+     "cw": 307,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.1)",
+     "text": "This repository has plugin settings that need a choice. Open Skills & Plugins"
+    }
+   ]
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T03:30:37.921Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined",
+  "[ModelStateService] Failed to load models: undefined",
+  "Angular Error: TypeError: Cannot read properties of undefined (reading 'length')\n    at SkillSpecsControlComponent_Template (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-RQPA2KIE.js:18919:51)\n    at executeTemplate (file:///D:/p"
+ ],
+ "html": "Skills\n\nManage your Skills, Agents and Commands Library.\n\nSkills\nChecking…\n\nPausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.\n\nCould not read whether Skills is paused.\n\nSkill telemetry\n\nRecords skill use even while Skills is paused.\n\nCould not read the telemetry setting.\n\nYour active skills, agents and commands. Thoth improves them from recorded usage — metrics stay hidden until an entry actually runs.\n\nRefresh\n\nThis repository has plugin settings that need a choice.\nOpen Skills & Plugins\n\n"
+}

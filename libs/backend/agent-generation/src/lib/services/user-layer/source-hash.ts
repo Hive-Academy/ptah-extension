@@ -66,13 +66,22 @@ async function collectFiles(
   }
 }
 
+/**
+ * The source hash of one file's text, exactly as {@link computeSourceHash}
+ * computes it for a file path. Lets a writer hash the bytes it is about to
+ * publish instead of re-reading a source that may change in between.
+ */
+export function contentSourceHash(content: string): string {
+  return `sha256:${sha256Hex(normalizeCrlf(content))}`;
+}
+
 export async function computeSourceHash(
   rootDir: string,
   signal?: CollectFilesResult,
 ): Promise<string> {
   const stats = await stat(rootDir);
   if (stats.isFile()) {
-    return `sha256:${await hashFile(rootDir)}`;
+    return contentSourceHash(await readFile(rootDir, 'utf8'));
   }
 
   const fileHashes = new Map<string, string>();

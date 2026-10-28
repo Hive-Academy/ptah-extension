@@ -65,9 +65,9 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'update:mark-downloaded',
 ];
 
-const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) =>
-  [...entry.methods],
-).sort();
+const manifestMethods = RPC_HANDLER_MANIFEST.flatMap((entry) => [
+  ...entry.methods,
+]).sort();
 const liveMethodNames = new Set<string>(manifestMethods);
 export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] =
   EXPECTED_ABSENT_METHOD_NAMES.filter((name) => liveMethodNames.has(name));
@@ -76,7 +76,9 @@ describe('CLI RPC surface', () => {
   const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
 
   it('serves artifact methods with the optional store absent', () => {
-    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
+    );
   });
 
   it('serves bound guidance and generation recovery methods', () => {
@@ -88,6 +90,27 @@ describe('CLI RPC surface', () => {
         'wizard:get-generation-run-state',
       ]),
     );
+  });
+
+  it('serves the community pack install plan (TASK_2026_701 B8)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'wizard:plan-pack-install',
+        'wizard:install-pack-agents',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('wizard:plan-pack-install');
+  });
+
+  it('serves the plugin kept-item and config-home methods (TASK_2026_701 B12)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'plugins:replace-kept-items',
+        'plugins:resolve-config-home',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('plugins:replace-kept-items');
+    expect(surface.excluded).not.toContain('plugins:resolve-config-home');
   });
 
   it('excludes exactly the live webview-only surface methods', () => {

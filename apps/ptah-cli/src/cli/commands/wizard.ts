@@ -14,6 +14,14 @@
  *                                    progress + stream + completion frames to
  *                                    stdout — there is no double-emit because
  *                                    this command does NOT re-forward them.
+ *                                    CLI runs are create-only (no preview
+ *                                    token, A20): when the completion payload
+ *                                    reports agents whose existing file was
+ *                                    left as the user's (`kept` or
+ *                                    `changed-since-preview`), the command
+ *                                    emits one `wizard.files.kept`
+ *                                    notification listing each file and the
+ *                                    reason, before the exit decision.
  *
  *   cancel <session-id>              RPC `wizard:cancel { saveProgress: true }`
  *                                    Idempotent — handler returns
@@ -55,6 +63,8 @@ import type {
   WizardSubmitSelectionResponse,
   WizardCancelResponse,
   WizardRetryItemResponse,
+  FileOutcome,
+  GenerationAgentOutcome,
   GenerationCompletePayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
@@ -244,6 +254,18 @@ async function runSubmitSelection(
       return ExitCode.GeneralError;
     }
 
+    const keptFiles = collectKeptFiles(completionPayload);
+    if (keptFiles.length > 0) {
+      await formatter.writeNotification('wizard.files.kept', {
+        outputDirectory: completionPayload.outputDirectory,
+        keptCount: keptFiles.filter((f) => f.status === 'kept').length,
+        changedSincePreviewCount: keptFiles.filter(
+          (f) => f.status === 'changed-since-preview',
+        ).length,
+        files: keptFiles,
+      });
+    }
+
     if (!completionPayload.success) {
       await formatter.writeNotification('task.error', {
         ptah_code: 'generation_failed',
@@ -256,6 +278,53 @@ async function runSubmitSelection(
 
     return ExitCode.Success;
   });
+}
+
+/** An agent file the run left as the user's, and why it was not written. */
+export interface WizardKeptFile {
+  agentId: string;
+  path: string;
+  status: Extract<FileOutcome, 'kept' | 'changed-since-preview'>;
+  reason: string;
+}
+
+/**
+ * List the agents whose existing file the run did not replace, in payload
+ * order. Rows come from `agents`, so the counts printed with them always
+ * equal the rows. A payload from an older host without `agents` yields none.
+ */
+export function collectKeptFiles(
+  payload: GenerationCompletePayload,
+): WizardKeptFile[] {
+  const agents: readonly GenerationAgentOutcome[] = Array.isArray(
+    payload.agents,
+  )
+    ? payload.agents
+    : [];
+  const kept: WizardKeptFile[] = [];
+  for (const agent of agents) {
+    if (agent.status !== 'kept' && agent.status !== 'changed-since-preview') {
+      continue;
+    }
+    kept.push({
+      agentId: agent.agentId,
+      path: agent.filePath,
+      status: agent.status,
+      reason: keptReason(agent.status, agent.error),
+    });
+  }
+  return kept;
+}
+
+function keptReason(
+  status: WizardKeptFile['status'],
+  detail: string | undefined,
+): string {
+  const base =
+    status === 'kept'
+      ? 'existing file kept as yours; CLI wizard runs only create new files'
+      : 'file changed after the preview, so it was kept';
+  return detail && detail.trim().length > 0 ? `${base} (${detail})` : base;
 }
 
 /**

@@ -200,6 +200,15 @@ export interface AuthLoginOutputPayload {
   readonly line: string;
 }
 
+/** Payload for MESSAGE_TYPES.LIBRARY_CHANGED ('library:changed'). */
+export interface LibraryChangedPayload {
+  /** Harness root whose Library the pass refreshed. */
+  workspaceRoot: string;
+  status: 'updated' | 'failed';
+  /** Why the pass ran, e.g. `setup-wizard` or a plugin id. */
+  reasons: string[];
+}
+
 /**
  * Payload for MESSAGE_TYPES.AUTH_KIMI_CODE_LOGIN_STATUS
  * ('auth:kimiCodeLoginStatus'): the current in-app Kimi Code sign-in snapshot.
@@ -460,6 +469,7 @@ export interface MessagePayloadMap {
   'git:turnChangeSet': GitTurnChangeSetPayload;
   'git:operationOutput': GitOperationOutputPayload;
   'file:content-changed': FileContentChangedPayload;
+  'library:changed': LibraryChangedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;
   'chat:switchSession:response': MessageResponse;

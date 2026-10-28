@@ -1,12 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { ThemeService, VSCodeService } from '@ptah-extension/core';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
   MultiPhaseAnalysisResponse,
+  WizardInstallPackAgentsResult,
+  WizardPlanPackInstallResult,
   WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
 import { AgentSelectionComponent } from './agent-selection.component';
+import { PackInstallStore } from '../services/pack-install.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 
@@ -55,6 +59,54 @@ const preview: WizardPreviewGenerationResponse = {
   warning: 'Some provider paths could not be checked',
 };
 
+const targetInfo = {
+  harnessRoot: '/repo',
+  openedFolder: '/repo/packages/api',
+  chosen: 'harness-root' as const,
+  openedIsHarnessRoot: false,
+};
+
+/** A current host's preview: token, target, rival status and revisions. */
+function decisionPreview(
+  revision = 'rev-a',
+  chosen: 'harness-root' | 'opened-folder' = 'harness-root',
+  token = 'token-1',
+): WizardPreviewGenerationResponse {
+  return {
+    previewToken: token,
+    target: { ...targetInfo, chosen },
+    rivalStatus:
+      chosen === 'opened-folder' ? 'opened-folder-elsewhere' : 'listed',
+    agents: [
+      {
+        agentId: 'a',
+        files: [
+          {
+            relPath: '.claude/agents/a.md',
+            target: 'claude',
+            certainty: 'definite',
+            willOverwrite: true,
+            localState: 'exists',
+            revision,
+          },
+        ],
+      },
+      {
+        agentId: 'b',
+        files: [
+          {
+            relPath: '.claude/agents/b.md',
+            target: 'claude',
+            certainty: 'definite',
+            willOverwrite: true,
+            localState: 'unreadable',
+          },
+        ],
+      },
+    ],
+  };
+}
+
 // jsdom lacks the native dialog methods; preserve the open attribute like the NativeModal specs.
 beforeAll(() => {
   HTMLDialogElement.prototype.showModal = function () {
@@ -79,11 +131,7 @@ describe('AgentSelectionComponent', () => {
   >;
   let communityPacks: ReturnType<typeof signal<AgentPackInfoDto[]>>;
   let communityPacksLoading: ReturnType<typeof signal<boolean>>;
-  let installedCommunityAgentCount: ReturnType<typeof signal<number>>;
   let expandedPackSource: ReturnType<typeof signal<string | null>>;
-  let agentInstallStatus: ReturnType<
-    typeof signal<Record<string, 'idle' | 'installing' | 'installed' | 'error'>>
-  >;
 
   beforeEach(async () => {
     recommendations = signal<AgentRecommendation[]>([]);
@@ -94,11 +142,7 @@ describe('AgentSelectionComponent', () => {
     );
     communityPacks = signal<AgentPackInfoDto[]>([]);
     communityPacksLoading = signal(false);
-    installedCommunityAgentCount = signal(0);
     expandedPackSource = signal<string | null>(null);
-    agentInstallStatus = signal<
-      Record<string, 'idle' | 'installing' | 'installed' | 'error'>
-    >({});
 
     mockStateService = {
       recommendations: recommendations.asReadonly(),
@@ -107,9 +151,7 @@ describe('AgentSelectionComponent', () => {
       multiPhaseResult: multiPhaseResult.asReadonly(),
       communityPacks: communityPacks.asReadonly(),
       communityPacksLoading: communityPacksLoading.asReadonly(),
-      installedCommunityAgentCount: installedCommunityAgentCount.asReadonly(),
       expandedPackSource: expandedPackSource.asReadonly(),
-      agentInstallStatus: agentInstallStatus.asReadonly(),
       toggleAgentRecommendationSelection: jest.fn((agentId: string) => {
         const next = { ...selectedAgentsMap() };
         next[agentId] = !next[agentId];
@@ -129,14 +171,6 @@ describe('AgentSelectionComponent', () => {
       setCommunityPacksLoading: jest.fn((loading: boolean) =>
         communityPacksLoading.set(loading),
       ),
-      setAgentInstallStatus: jest.fn(
-        (
-          key: string,
-          status: 'idle' | 'installing' | 'installed' | 'error',
-        ) => {
-          agentInstallStatus.set({ ...agentInstallStatus(), [key]: status });
-        },
-      ),
       toggleExpandedPack: jest.fn((source: string) => {
         expandedPackSource.set(expandedPackSource() === source ? null : source);
       }),
@@ -146,6 +180,7 @@ describe('AgentSelectionComponent', () => {
       previewGeneration: jest.fn().mockResolvedValue(preview),
       submitAgentSelection: jest.fn().mockResolvedValue({ success: true }),
       listAgentPacks: jest.fn().mockResolvedValue([]),
+      planPackInstall: jest.fn(),
       installPackAgents: jest.fn().mockResolvedValue({
         success: true,
         agentsDownloaded: 1,
@@ -158,6 +193,8 @@ describe('AgentSelectionComponent', () => {
       providers: [
         { provide: SetupWizardStateService, useValue: mockStateService },
         { provide: WizardRpcService, useValue: mockRpcService },
+        { provide: VSCodeService, useValue: { isElectron: true } },
+        { provide: ThemeService, useValue: { isDarkMode: signal(true) } },
       ],
     }).compileComponents();
 
@@ -165,6 +202,19 @@ describe('AgentSelectionComponent', () => {
     component = fixture.componentInstance;
     fixture.detectChanges();
   });
+
+  /**
+   * Renders until the deferred dialogs have loaded: the first pass fires the
+   * `@defer` trigger, later passes render the loaded block and let its
+   * effects (the prompt's plan call) settle.
+   */
+  async function settle(): Promise<void> {
+    for (let pass = 0; pass < 3; pass++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+  }
 
   it('should create', () => {
     expect(component).toBeTruthy();
@@ -346,6 +396,9 @@ describe('AgentSelectionComponent', () => {
           },
         ],
         mockMultiPhase.analysisDir,
+        // An older host sends no token or target; an existing file it cannot
+        // classify is forced Keep, so no Replace is sent.
+        { fileDecisions: {} },
       );
     });
 
@@ -434,7 +487,8 @@ describe('AgentSelectionComponent', () => {
 
       await component['onGenerateAgents']();
       const first = component['onConfirmPreview']();
-      await Promise.resolve();
+      // Let the confirm-time re-preview settle so the submit is in flight.
+      await new Promise((r) => setTimeout(r, 0));
       const second = component['onConfirmPreview']();
 
       // Generation now starts only after preview confirmation.
@@ -443,9 +497,9 @@ describe('AgentSelectionComponent', () => {
       resolve({ success: true });
       await Promise.all([first, second]);
     });
-    it('lists definite files, overwrite markers, conditional files with conditions, and warning separately', async () => {
+    it('renders the preview modal with state badges, conditional files and the warning', async () => {
       await component['onGenerateAgents']();
-      fixture.detectChanges();
+      await settle();
       const dialog: HTMLDialogElement =
         fixture.nativeElement.querySelector('dialog');
       expect(dialog.open).toBe(true);
@@ -453,22 +507,16 @@ describe('AgentSelectionComponent', () => {
         'Preview agent generation',
       );
       expect(dialog.textContent).toContain('.claude/agents/a.md');
-      // Assert the full marker so mangled wording fails this regression. The
-      // marker is a warning badge (solid fill, warning-content text) so it
-      // stays >= 4.5:1 in the light theme.
+      // An older host sends no localState: an existing file is forced Keep.
       expect(
         dialog
-          .querySelector('section > ul .badge-warning')
+          .querySelector('[data-testid="file-state-badge"]')
           ?.textContent?.trim(),
-      ).toBe('will overwrite');
+      ).toBe('Could not read file');
       expect(dialog.textContent).toContain(preview.warning);
       const conditional = dialog.querySelector(
         '[data-testid="conditional-files"]',
       );
-      // Assert the conditional overwrite wording.
-      expect(
-        conditional?.querySelector('.badge-warning')?.textContent?.trim(),
-      ).toBe('will overwrite if written');
       // No warning sentence in the modal uses bare text-warning (2.46:1 on
       // the light theme's base-100).
       expect(dialog.querySelector('.text-warning')).toBeNull();
@@ -478,19 +526,22 @@ describe('AgentSelectionComponent', () => {
       );
       expect(conditional?.textContent).toContain('.codex/agents/a.toml');
       expect(conditional?.textContent).not.toContain('.claude/agents/a.md');
-      expect(mockRpcService.previewGeneration).toHaveBeenCalledWith(['a']);
+      expect(mockRpcService.previewGeneration).toHaveBeenCalledWith(
+        ['a'],
+        undefined,
+      );
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
     });
 
     it('cancels the preview without submitting and keeps selection', async () => {
       await component['onGenerateAgents']();
-      fixture.detectChanges();
+      await settle();
       const cancel: HTMLButtonElement = fixture.nativeElement.querySelector(
         '[modal-footer] button',
       );
       cancel.click();
-      fixture.detectChanges();
-      expect(component['previewOpen']()).toBe(false);
+      await settle();
+      expect(component['preview'].isOpen()).toBe(false);
       expect(selectedAgentsMap()).toEqual({ a: true });
       await component['onConfirmPreview']();
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
@@ -520,7 +571,7 @@ describe('AgentSelectionComponent', () => {
         changed,
       );
       await component['onConfirmPreview']();
-      fixture.detectChanges();
+      await settle();
       expect(
         fixture.nativeElement.querySelector('dialog').textContent,
       ).toContain('Targets changed since preview');
@@ -548,7 +599,7 @@ describe('AgentSelectionComponent', () => {
         ],
       });
       await component['onConfirmPreview']();
-      expect(component['targetsChanged']()).toBe(true);
+      expect(component['preview'].changed()).toBe(true);
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
     });
 
@@ -561,7 +612,7 @@ describe('AgentSelectionComponent', () => {
         );
         if (stage === 'initial') await component['onGenerateAgents']();
         else await component['onConfirmPreview']();
-        fixture.detectChanges();
+        await settle();
         const dialog: HTMLDialogElement =
           fixture.nativeElement.querySelector('dialog');
         expect(dialog.textContent).toContain('Preview unavailable');
@@ -575,8 +626,130 @@ describe('AgentSelectionComponent', () => {
         generate?.click();
         await fixture.whenStable();
         expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+        // Generate without preview sends no token and no decisions.
+        expect(
+          (mockRpcService.submitAgentSelection as jest.Mock).mock.calls[0],
+        ).toHaveLength(2);
       },
     );
+
+    it.each(['preview', 'confirm'])(
+      'keeps the chosen opened-folder target when generating without preview after a %s failure (B1)',
+      async (stage) => {
+        const rpc = mockRpcService.previewGeneration as jest.Mock;
+        rpc.mockResolvedValueOnce(decisionPreview('rev-a'));
+        await component['onGenerateAgents']();
+        if (stage === 'preview') {
+          rpc.mockRejectedValueOnce(new Error('preview offline'));
+          await component['changeTarget']('opened-folder');
+        } else {
+          rpc.mockResolvedValueOnce(decisionPreview('rev-a', 'opened-folder'));
+          await component['changeTarget']('opened-folder');
+          rpc.mockRejectedValueOnce(new Error('preview offline'));
+          await component['onConfirmPreview']();
+        }
+        expect(component['preview'].error()).toBe('Preview unavailable');
+        expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+
+        await component['onConfirmPreview']();
+        const call = (mockRpcService.submitAgentSelection as jest.Mock).mock
+          .calls[0];
+        // No token and no Replace: create-only, but at the chosen root.
+        expect(call[2]).toEqual({ fileDecisions: {}, target: 'opened-folder' });
+      },
+    );
+
+    it('submits the fresh token, the Replace with its revision and the target', async () => {
+      (mockRpcService.previewGeneration as jest.Mock)
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'harness-root', 't1'))
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'harness-root', 't2'));
+      await component['onGenerateAgents']();
+      component['setRowDecision']({ id: 'a', decision: 'replace' });
+      component['setRowDecision']({ id: 'b', decision: 'replace' });
+      await component['onConfirmPreview']();
+
+      const call = (mockRpcService.submitAgentSelection as jest.Mock).mock
+        .calls[0];
+      expect(call[2]).toEqual({
+        previewToken: 't2',
+        fileDecisions: { a: { decision: 'replace', revision: 'rev-a' } },
+        target: 'harness-root',
+      });
+    });
+
+    it('asks for another review when a replaced file changed since the preview (exists A -> exists B)', async () => {
+      (mockRpcService.previewGeneration as jest.Mock)
+        .mockResolvedValueOnce(decisionPreview('rev-a'))
+        .mockResolvedValueOnce(decisionPreview('rev-b'));
+      await component['onGenerateAgents']();
+      component['setRowDecision']({ id: 'a', decision: 'replace' });
+      await component['onConfirmPreview']();
+
+      expect(component['preview'].changed()).toBe(true);
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+      expect(
+        component['preview'].decisions()?.rows.find((row) => row.id === 'a')
+          ?.decision,
+      ).toBe('keep');
+    });
+
+    it('re-runs the comparison for another target and resets every choice to Keep', async () => {
+      (mockRpcService.previewGeneration as jest.Mock)
+        .mockResolvedValueOnce(decisionPreview('rev-a'))
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'opened-folder'));
+      await component['onGenerateAgents']();
+      component['setRowDecision']({ id: 'a', decision: 'replace' });
+      await component['changeTarget']('opened-folder');
+      await settle();
+
+      expect(mockRpcService.previewGeneration).toHaveBeenLastCalledWith(
+        ['a'],
+        'opened-folder',
+      );
+      const snapshot = component['preview'].decisions();
+      expect(snapshot?.target).toBe('opened-folder');
+      expect(snapshot?.rows.every((row) => row.decision === 'keep')).toBe(true);
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="target-reset-status"]')
+          ?.textContent?.trim(),
+      ).toBe(
+        'Target changed. The comparison was run again and every choice is reset to Keep.',
+      );
+    });
+
+    it('re-previews with choices reset and the target kept after preview-required', async () => {
+      (mockRpcService.previewGeneration as jest.Mock)
+        .mockResolvedValueOnce(decisionPreview('rev-a'))
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'opened-folder'))
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'opened-folder'))
+        .mockResolvedValueOnce(decisionPreview('rev-a', 'opened-folder', 't9'));
+      (mockRpcService.submitAgentSelection as jest.Mock).mockResolvedValueOnce({
+        success: false,
+        rejection: { reason: 'preview-required' },
+      });
+      await component['onGenerateAgents']();
+      await component['changeTarget']('opened-folder');
+      component['setRowDecision']({ id: 'a', decision: 'replace' });
+      await component['onConfirmPreview']();
+
+      expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
+      expect(component['preview'].isOpen()).toBe(true);
+      expect(component['preview'].changed()).toBe(true);
+      expect(component['errorMessage']()).toBeNull();
+      expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
+        'generation',
+      );
+      expect(mockRpcService.previewGeneration).toHaveBeenLastCalledWith(
+        ['a'],
+        'opened-folder',
+      );
+      expect(
+        component['preview']
+          .decisions()
+          ?.rows.every((row) => row.decision === 'keep'),
+      ).toBe(true);
+    });
 
     it('ignores a pending re-preview after cancellation', async () => {
       await component['onGenerateAgents']();
@@ -587,11 +760,11 @@ describe('AgentSelectionComponent', () => {
         }),
       );
       const confirm = component['onConfirmPreview']();
-      component['cancelPreview']();
+      component['preview'].cancel();
       resolve(preview);
       await confirm;
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
-      expect(component['previewOpen']()).toBe(false);
+      expect(component['preview'].isOpen()).toBe(false);
     });
 
     it('compares definite paths as a set regardless of ordering or conditional changes', async () => {
@@ -643,35 +816,321 @@ describe('AgentSelectionComponent', () => {
       expect(component['isPackExpanded'](pack.source)).toBe(true);
     });
 
-    it('should install a single agent and mark it installed', async () => {
-      await component['onInstallAgent'](pack.source, 'agent-one.md');
+    const packPlan = (
+      chosen: 'harness-root' | 'opened-folder' = 'harness-root',
+    ): WizardPlanPackInstallResult => ({
+      planToken: 'plan-1',
+      target: { ...targetInfo, chosen },
+      files: [
+        {
+          file: 'agent-one.md',
+          state: 'differs',
+          revision: 'rev-1',
+          localText: 'a',
+          incomingText: 'b',
+        },
+      ],
+    });
 
+    async function openPackTab(): Promise<void> {
+      communityPacks.set([pack]);
+      component['activeTab'].set('community');
+      expandedPackSource.set(pack.source);
+      fixture.detectChanges();
+    }
+
+    const button = (testId: string): HTMLButtonElement =>
+      fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
+
+    it('opens the install prompt for a single agent and installs with the plan', async () => {
+      (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+        packPlan(),
+      );
+      await openPackTab();
+      component['onInstallAgent'](pack.source, 'agent-one.md');
+      await settle();
+
+      expect(mockRpcService.planPackInstall).toHaveBeenCalledWith(
+        pack.source,
+        ['agent-one.md'],
+        undefined,
+      );
+      expect(mockRpcService.installPackAgents).not.toHaveBeenCalled();
+      const prompt: HTMLDialogElement =
+        fixture.nativeElement.querySelector('ptah-pack-install-prompt dialog');
+      expect(prompt.open).toBe(true);
+      expect(prompt.textContent).toContain(
+        'Install agent-one.md from "Example Pack"?',
+      );
+
+      button('pack-confirm').click();
+      await settle();
       expect(mockRpcService.installPackAgents).toHaveBeenCalledWith(
         pack.source,
         ['agent-one.md'],
+        { planToken: 'plan-1', decisions: {}, target: 'harness-root' },
       );
       expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
         'installed',
       );
     });
 
-    it('should mark an agent errored when install throws', async () => {
-      (mockRpcService.installPackAgents as jest.Mock).mockRejectedValue(
-        new Error('network down'),
+    it('opens the same prompt from Install All and Choose location', async () => {
+      (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+        packPlan(),
       );
-      await component['onInstallAgent'](pack.source, 'agent-one.md');
+      await openPackTab();
+      button('pack-install-all').click();
+      await settle();
+      expect(fixture.nativeElement.textContent).toContain(
+        'Install community pack "Example Pack"?',
+      );
+      expect(component['packRequest']()?.scope).toBe('pack');
+
+      component['packRequest'].set(null);
+      fixture.detectChanges();
+      button('pack-choose-location').click();
+      await settle();
+      expect(component['packRequest']()?.files).toEqual(['agent-one.md']);
+      expect(mockRpcService.planPackInstall).toHaveBeenCalledTimes(2);
+    });
+
+    it('shows a kept file as Kept, never as Installed', async () => {
+      (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+        packPlan(),
+      );
+      (mockRpcService.installPackAgents as jest.Mock).mockResolvedValue({
+        success: true,
+        agentsDownloaded: 0,
+        fromCache: false,
+        files: [{ file: 'agent-one.md', outcome: 'kept' }],
+      });
+      await openPackTab();
+      component['onInstallAgent'](pack.source, 'agent-one.md');
+      await settle();
+      button('pack-confirm').click();
+      await settle();
+
+      expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
+        'kept',
+      );
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="pack-agent-kept"]')
+          ?.textContent?.trim(),
+      ).toBe('Kept');
+      expect(fixture.nativeElement.textContent).toContain(
+        'Your file was not changed. Origin stays Workspace file.',
+      );
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="pack-result"]')
+          ?.textContent,
+      ).toContain('1 Kept (your file)');
+    });
+
+    it('marks a failed file with its reason and retries through the prompt', async () => {
+      (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+        packPlan(),
+      );
+      (mockRpcService.installPackAgents as jest.Mock).mockResolvedValue({
+        success: false,
+        agentsDownloaded: 0,
+        fromCache: false,
+        error: 'Could not write agent-one.md',
+        files: [{ file: 'agent-one.md', outcome: 'failed' }],
+      });
+      await openPackTab();
+      component['onInstallAgent'](pack.source, 'agent-one.md');
+      await settle();
+      button('pack-confirm').click();
+      await settle();
 
       expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
         'error',
       );
+      expect(
+        fixture.nativeElement.querySelector(
+          '[data-testid="pack-agent-failure"]',
+        )?.textContent,
+      ).toContain('The install could not be completed. Try again.');
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Could not write agent-one.md',
+      );
+
+      const retry: HTMLButtonElement = Array.from(
+        fixture.nativeElement.querySelectorAll(
+          'button',
+        ) as NodeListOf<HTMLButtonElement>,
+      ).find(
+        (node) => node.textContent?.trim() === 'Retry',
+      ) as HTMLButtonElement;
+      retry.click();
+      await settle();
+      expect(component['packRequest']()).toEqual(
+        expect.objectContaining({ scope: 'file', files: ['agent-one.md'] }),
+      );
+      // A retry starts every choice on Keep: nothing is replaced unasked.
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="keep-segment"]')
+          ?.getAttribute('aria-checked'),
+      ).toBe('true');
     });
 
-    it('should report when all pack agents are installed', () => {
+    it('shows the opened-folder notice and remembers the target for the next prompt', async () => {
+      (mockRpcService.planPackInstall as jest.Mock)
+        .mockResolvedValueOnce(packPlan())
+        .mockResolvedValueOnce(packPlan('opened-folder'));
+      await openPackTab();
+      component['onInstallAgent'](pack.source, 'agent-one.md');
+      await settle();
+      button('target-opened').click();
+      await settle();
+      button('pack-confirm').click();
+      await settle();
+
+      expect(
+        fixture.nativeElement
+          .querySelector('[data-testid="pack-opened-folder-notice"]')
+          ?.textContent?.trim(),
+      ).toBe(
+        'These agents are in packages/api/.claude/agents. They will not reach other CLIs and will not appear in the Library.',
+      );
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="pack-install-to"]')
+          ?.textContent,
+      ).toContain('(opened folder only)');
+    });
+
+    it('should report when all pack agents are installed', async () => {
       expect(component['allPackAgentsInstalled'](pack)).toBe(false);
-      agentInstallStatus.set({
-        [`${pack.source}::agent-one.md`]: 'installed',
+      await TestBed.inject(PackInstallStore).install('wizard', {
+        request: {
+          source: pack.source,
+          packName: pack.name,
+          files: ['agent-one.md'],
+          scope: 'file',
+          target: null,
+        },
+        plan: packPlan(),
+        decisions: {},
       });
       expect(component['allPackAgentsInstalled'](pack)).toBe(true);
+      expect(component['installedCommunityCount']()).toBe(1);
+    });
+
+    describe('install outlives the component (B2, B4)', () => {
+      function pendingInstall(): (
+        result: WizardInstallPackAgentsResult,
+      ) => void {
+        let resolve!: (result: WizardInstallPackAgentsResult) => void;
+        (mockRpcService.installPackAgents as jest.Mock).mockReturnValueOnce(
+          new Promise<WizardInstallPackAgentsResult>((r) => {
+            resolve = r;
+          }),
+        );
+        return (result) => resolve(result);
+      }
+
+      async function confirmThenDestroy(): Promise<
+        (result: WizardInstallPackAgentsResult) => void
+      > {
+        (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+          packPlan(),
+        );
+        const finish = pendingInstall();
+        await openPackTab();
+        component['onInstallAgent'](pack.source, 'agent-one.md');
+        await settle();
+        button('pack-confirm').click();
+        await settle();
+        expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
+          'installing',
+        );
+        fixture.destroy();
+        return finish;
+      }
+
+      async function recreate(): Promise<void> {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        fixture = TestBed.createComponent(AgentSelectionComponent);
+        component = fixture.componentInstance;
+        component['activeTab'].set('community');
+        fixture.detectChanges();
+      }
+
+      it('reaches a terminal success while destroyed and restores it', async () => {
+        const finish = await confirmThenDestroy();
+        finish({
+          success: true,
+          agentsDownloaded: 1,
+          fromCache: false,
+          files: [{ file: 'agent-one.md', outcome: 'written' }],
+        });
+        await recreate();
+
+        const store = TestBed.inject(PackInstallStore);
+        expect(store.fileState('wizard', pack.source, 'agent-one.md')).toBe(
+          'installed',
+        );
+        expect(store.isInstalling('wizard')).toBe(false);
+        expect(
+          fixture.nativeElement.querySelector('[data-testid="pack-result"]')
+            ?.textContent,
+        ).toContain('Installed');
+        expect(component['installedCommunityCount']()).toBe(1);
+      });
+
+      it('reaches a terminal failure while destroyed, restores it safely and leaves Retry usable', async () => {
+        const finish = await confirmThenDestroy();
+        finish({
+          success: false,
+          agentsDownloaded: 0,
+          fromCache: false,
+          error: 'token=sk-live-SECRET <script>alert(1)</script>',
+        });
+        await recreate();
+
+        expect(component['getAgentStatus'](pack.source, 'agent-one.md')).toBe(
+          'error',
+        );
+        const text: string = fixture.nativeElement.textContent;
+        expect(text).toContain(
+          'The install could not be completed. Try again.',
+        );
+        expect(text).not.toContain('sk-live');
+        expect(fixture.nativeElement.innerHTML).not.toContain('script');
+        expect(button('pack-install-all').disabled).toBe(false);
+        expect(button('pack-choose-location').disabled).toBe(false);
+
+        // A new prompt after re-creation starts on Keep: no stored consent.
+        (mockRpcService.planPackInstall as jest.Mock).mockResolvedValue(
+          packPlan(),
+        );
+        component['onInstallAgent'](pack.source, 'agent-one.md');
+        await settle();
+        expect(
+          fixture.nativeElement
+            .querySelector('[data-testid="keep-segment"]')
+            ?.getAttribute('aria-checked'),
+        ).toBe('true');
+      });
+
+      it('restores Kept after re-creation', async () => {
+        const finish = await confirmThenDestroy();
+        finish({
+          success: true,
+          agentsDownloaded: 0,
+          fromCache: false,
+          files: [{ file: 'agent-one.md', outcome: 'changed-since-preview' }],
+        });
+        await recreate();
+        expect(
+          fixture.nativeElement
+            .querySelector('[data-testid="pack-agent-kept"]')
+            ?.textContent?.trim(),
+        ).toBe('Kept');
+      });
     });
   });
 

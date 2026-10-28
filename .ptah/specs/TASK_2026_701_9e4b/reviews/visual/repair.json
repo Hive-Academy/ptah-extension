@@ -1,0 +1,300 @@
+{
+ "shots": [
+  {
+   "file": "repair__report__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis",
+   "over": [],
+   "extra": null
+  },
+  {
+   "file": "repair__report__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": null
+  },
+  {
+   "file": "repair__report__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis-light",
+   "over": [],
+   "extra": null
+  },
+  {
+   "file": "repair__report__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis-light",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": null
+  },
+  {
+   "file": "repair__prompt__dark__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "theme": "anubis",
+   "over": [],
+   "extra": [
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "repair__prompt__dark__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "theme": "anubis",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": [
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "repair__prompt__light__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "theme": "anubis-light",
+   "over": [],
+   "extra": [
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 620,
+     "right": 943,
+     "sw": 619,
+     "cw": 619,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "repair__prompt__light__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "theme": "anubis-light",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": [
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 306,
+     "right": 346,
+     "sw": 304,
+     "cw": 304,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "repair__prompt-result__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis",
+   "over": [],
+   "extra": []
+  },
+  {
+   "file": "repair__prompt-result__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": []
+  },
+  {
+   "file": "repair__prompt-result__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis-light",
+   "over": [],
+   "extra": []
+  },
+  {
+   "file": "repair__prompt-result__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis-light",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": []
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T03:33:55.399Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined",
+  "[ModelStateService] Failed to load models: undefined",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "TimeoutError: Transition was aborted because of timeout in DOM update",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN"
+ ],
+ "reportHtml": "Installed .NET Test 1.2.0 (3 files)\nDismiss\nWritten\n3\nKept\n3\nShadowed\n0\nSkipped\n0\nKept (your files were not changed)\n.claude/skills/dotnet-test/SKILL.md\nKept\n.codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrapping-behaviour-at-narrow-widths.md\nKept\n.claude/skills/dotnet-test/bin.dat\nCould not read file\n\nPtah could not compare this file, so it was kept. Replace is not available for it.\n\nReview and replace…"
+}

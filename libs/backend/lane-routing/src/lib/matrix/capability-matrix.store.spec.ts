@@ -101,6 +101,10 @@ class MemoryFiles implements IFileSystemProvider {
     return unsupported('createDirectoryExclusive');
   }
 
+  writeFileExclusive(_path: string, _content: string): Promise<void> {
+    return unsupported('writeFileExclusive');
+  }
+
   copy(
     _source: string,
     _destination: string,

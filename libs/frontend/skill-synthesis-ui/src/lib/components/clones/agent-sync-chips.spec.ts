@@ -26,7 +26,7 @@ function target(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     localEdit: [],
     agentsInSync: [],

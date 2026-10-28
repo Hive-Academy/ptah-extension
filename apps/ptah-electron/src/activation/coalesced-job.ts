@@ -34,6 +34,10 @@
  * - **An optional `admit` gate can hold a batch after its window closes**
  *   (TASK_2026_437 C14 c). The batch stays pending while held, so requests that
  *   arrive during the hold join it; see {@link CoalescedJobOptions.admit}.
+ * - **Every request learns what happened to ITS batch** (TASK_2026_701 A24):
+ *   `ran` with the run's result, `skipped` when the gate declined that batch,
+ *   or `threw`. The outcome travels on the batch's own promise, so a request
+ *   can never be answered with an older or a newer batch's result.
  *
  * ## Why trailing and not leading
  *
@@ -72,7 +76,19 @@ export interface CoalescedJobBatch<TPayload> {
   payload: TPayload;
 }
 
-export interface CoalescedJobOptions<TPayload> {
+/**
+ * What happened to the batch a request joined (TASK_2026_701 A24).
+ *
+ * - `ran` — the batch was admitted and its run resolved with `result`.
+ * - `skipped` — the admission gate answered `'skip'` for this batch; nothing ran.
+ * - `threw` — the run rejected; the error already went to `onError`.
+ */
+export type CoalescedOutcome<TResult> =
+  | { kind: 'ran'; result: TResult }
+  | { kind: 'skipped' }
+  | { kind: 'threw' };
+
+export interface CoalescedJobOptions<TPayload, TResult = void> {
   /**
    * How long a batch collects requests before it is allowed to run.
    *
@@ -84,10 +100,11 @@ export interface CoalescedJobOptions<TPayload> {
   /**
    * The work. MUST be effectively non-fatal — a rejection is caught, reported
    * through {@link CoalescedJobOptions.onError} and never propagated to the
-   * requesters, because every caller of this in the activation path is itself
-   * declared non-fatal.
+   * requesters (they receive `{kind:'threw'}`), because every caller of this in
+   * the activation path is itself declared non-fatal. A resolved value reaches
+   * every request of the batch as `{kind:'ran', result}`.
    */
-  run: (batch: CoalescedJobBatch<TPayload>) => Promise<void>;
+  run: (batch: CoalescedJobBatch<TPayload>) => Promise<TResult>;
   /** Reporting hook for a rejected run. Defaults to a `console.warn`. */
   onError?: (error: unknown, batch: CoalescedJobBatch<TPayload>) => void;
   /**
@@ -100,8 +117,8 @@ export interface CoalescedJobOptions<TPayload> {
    * `admit` is asked again with the grown reason list, so a reason that must
    * not wait can release a batch that was held for the others.
    *
-   * Resolve `'run'` to run the batch, `'skip'` to settle its requesters without
-   * running it. A rejection is reported through `onError` and the batch runs
+   * Resolve `'run'` to run the batch, `'skip'` to settle its requesters with
+   * `{kind:'skipped'}` without running it. A rejection is reported through `onError` and the batch runs
    * (fail open: a broken gate must not stop the work).
    */
   admit?: (request: CoalescedJobAdmission) => Promise<'run' | 'skip'>;
@@ -116,14 +133,20 @@ export interface CoalescedJobAdmission {
   signal: AbortSignal;
 }
 
-export interface CoalescedJob<TPayload> {
+export interface CoalescedJob<TPayload, TResult = void> {
   /**
    * Ask for a run of `key`, naming the trigger.
    *
-   * Resolves when the batch this request joined has finished running (or
-   * failed). Never rejects.
+   * Resolves when the batch this request joined has settled, with THAT batch's
+   * outcome — shared by every request merged into it. A request that arrives
+   * while a run is in flight joins the next batch and gets the next batch's
+   * outcome. Never rejects.
    */
-  request(key: string, reason: string, payload: TPayload): Promise<void>;
+  request(
+    key: string,
+    reason: string,
+    payload: TPayload,
+  ): Promise<CoalescedOutcome<TResult>>;
   /**
    * The reasons currently waiting for a run of `key`.
    *
@@ -132,12 +155,12 @@ export interface CoalescedJob<TPayload> {
   pendingReasons(key: string): readonly string[];
 }
 
-interface PendingBatch<TPayload> {
+interface PendingBatch<TPayload, TResult> {
   reasons: string[];
   seen: Set<string>;
   payload: TPayload;
-  promise: Promise<void>;
-  settle: () => void;
+  promise: Promise<CoalescedOutcome<TResult>>;
+  settle: (outcome: CoalescedOutcome<TResult>) => void;
   /** Set while `admit` is being awaited for this batch. */
   admission: AbortController | undefined;
 }
@@ -149,9 +172,9 @@ function defaultOnError(error: unknown, key: string, reasons: string[]): void {
   );
 }
 
-export function createCoalescedJob<TPayload>(
-  options: CoalescedJobOptions<TPayload>,
-): CoalescedJob<TPayload> {
+export function createCoalescedJob<TPayload, TResult = void>(
+  options: CoalescedJobOptions<TPayload, TResult>,
+): CoalescedJob<TPayload, TResult> {
   const { windowMs, run } = options;
 
   /**
@@ -161,7 +184,7 @@ export function createCoalescedJob<TPayload>(
    * lets a late joiner attach to a batch that is already queued behind an
    * in-flight run instead of starting a third pass.
    */
-  const pending = new Map<string, PendingBatch<TPayload>>();
+  const pending = new Map<string, PendingBatch<TPayload, TResult>>();
 
   /** The tail of the per-key run chain; absent when nothing is queued. */
   const chains = new Map<string, Promise<void>>();
@@ -169,7 +192,7 @@ export function createCoalescedJob<TPayload>(
   const reportError = (
     error: unknown,
     key: string,
-    batch: PendingBatch<TPayload>,
+    batch: PendingBatch<TPayload, TResult>,
   ): void => {
     if (options.onError !== undefined) {
       options.onError(error, {
@@ -188,7 +211,7 @@ export function createCoalescedJob<TPayload>(
    */
   const admitBatch = async (
     key: string,
-    batch: PendingBatch<TPayload>,
+    batch: PendingBatch<TPayload, TResult>,
   ): Promise<'run' | 'skip'> => {
     const admit = options.admit;
     if (admit === undefined) return 'run';
@@ -231,16 +254,19 @@ export function createCoalescedJob<TPayload>(
         payload: batch.payload,
       };
       if (verdict === 'skip') {
-        batch.settle();
+        batch.settle({ kind: 'skipped' });
         return;
       }
+      // Settled on every path: the run's own rejection is caught here, and a
+      // rejection is the only way `run` can leave this block.
+      let outcome: CoalescedOutcome<TResult>;
       try {
-        await run(described);
+        outcome = { kind: 'ran', result: await run(described) };
       } catch (error: unknown) {
         reportError(error, key, batch);
-      } finally {
-        batch.settle();
+        outcome = { kind: 'threw' };
       }
+      batch.settle(outcome);
     });
 
     chains.set(key, link);
@@ -252,7 +278,11 @@ export function createCoalescedJob<TPayload>(
   };
 
   return {
-    request(key: string, reason: string, payload: TPayload): Promise<void> {
+    request(
+      key: string,
+      reason: string,
+      payload: TPayload,
+    ): Promise<CoalescedOutcome<TResult>> {
       const existing = pending.get(key);
       if (existing !== undefined) {
         if (!existing.seen.has(reason)) {
@@ -265,8 +295,9 @@ export function createCoalescedJob<TPayload>(
         return existing.promise;
       }
 
-      let settle: () => void = () => undefined;
-      const promise = new Promise<void>((resolve) => {
+      let settle: (outcome: CoalescedOutcome<TResult>) => void = () =>
+        undefined;
+      const promise = new Promise<CoalescedOutcome<TResult>>((resolve) => {
         settle = resolve;
       });
       pending.set(key, {

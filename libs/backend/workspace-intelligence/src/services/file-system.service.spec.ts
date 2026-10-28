@@ -27,6 +27,7 @@ describe('FileSystemService', () => {
       delete: jest.fn(),
       createDirectory: jest.fn(),
       createDirectoryExclusive: jest.fn(),
+      writeFileExclusive: jest.fn(),
       copy: jest.fn(),
       findFiles: jest.fn(),
       createFileWatcher: jest.fn(),

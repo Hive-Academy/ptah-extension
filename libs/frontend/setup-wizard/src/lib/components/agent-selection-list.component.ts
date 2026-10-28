@@ -9,17 +9,31 @@ import {
   untracked,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import type {
   AgentRecommendation,
+  FileDecision,
+  GenerationTargetChoice,
   SetupGenerationTabBinding,
   WizardPreviewGenerationResponse,
 } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { findBoundGenerationTab } from '../services/bound-generation-tab';
+import type { BoundAgentDecisions } from '../services/wizard-rpc.service';
 import { AgentPreviewDialogComponent } from './agent-preview-dialog.component';
+import type { PreviewRowDecision } from './agent-preview-dialog.component';
+import {
+  buildWizardRows,
+  decisionCounts,
+  decisionEntries,
+  nextSnapshot,
+  setAllDecisions,
+  setDecision,
+  targetsSignature,
+  type DecisionSnapshot,
+} from './preview-decisions/preview-decisions.state';
 import { CommunityPacksPanelComponent } from './community-packs-panel.component';
 import { GenerationModelPickerComponent } from './generation-model-picker.component';
 import { GenerationSourceStatusComponent } from './generation-source-status.component';
@@ -155,23 +169,29 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
         class="btn btn-sm w-full"
         [class.btn-primary]="primary()"
         [class.btn-outline]="!primary()"
-        [disabled]="
-          !selected().size || store.isBound() || loading() || previewOpen()
-        "
+        [disabled]="!selected().size || store.isBound() || loading()"
         (click)="openPreview()"
       >
         Generate {{ selected().size }} agents
       </button>
-      <ptah-agent-preview-dialog
-        [open]="previewOpen()"
-        [loading]="previewLoading()"
-        [preview]="preview()"
-        [changed]="targetsChanged()"
-        [error]="previewError()"
-        [model]="store.model()"
-        (dismissed)="closePreview()"
-        (confirm)="confirmPreview()"
-      />
+      <!-- Lazy chunk: the dialog loads on first open, outside the initial bundle. -->
+      @defer (when previewOpen()) {
+        <ptah-agent-preview-dialog
+          [open]="previewOpen()"
+          [loading]="previewLoading()"
+          [preview]="preview()"
+          [snapshot]="decisions()"
+          [changed]="targetsChanged()"
+          [error]="previewError()"
+          [model]="store.model()"
+          [isElectron]="isElectron"
+          (dismissed)="closePreview()"
+          (confirm)="confirmPreview()"
+          (decisionChange)="setRowDecision($event)"
+          (applyAll)="setAllRowDecisions($event)"
+          (targetChange)="changeTarget($event)"
+        />
+      }
     </section>
   `,
 })
@@ -183,6 +203,7 @@ export class AgentSelectionListComponent {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly tabs = inject(TabManagerService);
   private readonly launcher = inject(GenerationWorkflowLauncherService);
+  protected readonly isElectron = inject(VSCodeService).isElectron;
   protected readonly catalogMode = computed(
     () => !this.state.multiPhaseResult(),
   );
@@ -196,6 +217,10 @@ export class AgentSelectionListComponent {
   protected readonly preview = signal<WizardPreviewGenerationResponse | null>(
     null,
   );
+  /** Keep/replace state of the open preview (shared helper, F1). */
+  protected readonly decisions = signal<DecisionSnapshot | null>(null);
+  /** Root the user picked in the dialog; null = the host's default. */
+  private readonly targetChoice = signal<GenerationTargetChoice | null>(null);
   protected readonly targetsChanged = signal(false);
   protected readonly startError = signal(false);
   protected readonly categories = [
@@ -285,11 +310,18 @@ export class AgentSelectionListComponent {
     );
   }
 
-  protected async openPreview(): Promise<void> {
+  /**
+   * Open the dialog with a fresh comparison; every existing file starts on
+   * Keep. `keepTarget` preserves the chosen root when the server asks for
+   * another review (preview-required).
+   */
+  protected async openPreview(keepTarget = false): Promise<void> {
     if (!this.selected().size || this.store.isBound()) return;
     this.previewOpen.set(true);
     this.targetsChanged.set(false);
     this.preview.set(null);
+    this.decisions.set(null);
+    if (!keepTarget) this.targetChoice.set(null);
     await this.loadPreview(false);
   }
 
@@ -304,42 +336,75 @@ export class AgentSelectionListComponent {
     await this.loadPreview(true);
   }
 
+  protected setRowDecision(change: PreviewRowDecision): void {
+    if (this.previewLoading()) return;
+    this.decisions.update((current) =>
+      current ? setDecision(current, change.id, change.decision) : current,
+    );
+  }
+
+  protected setAllRowDecisions(decision: FileDecision): void {
+    if (this.previewLoading()) return;
+    this.decisions.update((current) =>
+      current ? setAllDecisions(current, decision) : current,
+    );
+  }
+
+  /** A different root re-runs the comparison; every choice resets to Keep. */
+  protected async changeTarget(choice: GenerationTargetChoice): Promise<void> {
+    if (this.previewLoading() || choice === this.targetChoice()) return;
+    this.targetChoice.set(choice);
+    this.targetsChanged.set(false);
+    await this.loadPreview(false);
+  }
+
   private async loadPreview(submit: boolean): Promise<void> {
     const sequence = ++this.previewSequence;
     const previous = this.preview();
+    const previousDecisions = this.decisions();
+    const target = this.targetChoice();
     this.previewLoading.set(true);
     this.previewError.set(false);
     try {
       const result = await this.rpc.call(
         'wizard:preview-generation',
-        { selectedAgentIds: [...this.selected()], tabBinding: this.binding() },
+        {
+          selectedAgentIds: [...this.selected()],
+          tabBinding: this.binding(),
+          ...(target ? { target } : {}),
+        },
         { timeout: 10_000 },
       );
       if (sequence !== this.previewSequence) return;
       if (!result.isSuccess() || !result.data)
         throw new Error('Preview unavailable');
-      this.preview.set(result.data);
-      if (
-        submit &&
-        previous &&
-        this.definiteTargets(previous) !== this.definiteTargets(result.data)
-      ) {
+      const fresh = result.data;
+      const next = nextSnapshot(
+        previousDecisions,
+        buildWizardRows(fresh),
+        fresh.target?.chosen ?? target,
+      );
+      this.preview.set(fresh);
+      this.decisions.set(next);
+      if (!submit) return;
+      if (previous && this.needsReview(previous, fresh, previousDecisions, next)) {
         this.targetsChanged.set(true);
         return;
       }
-      if (submit) {
-        this.closePreview();
-        this.startError.set(false);
-        await this.store.startAgents([...this.selected()]);
-        if (this.store.rejection()?.reason === 'preview-required')
-          await this.openPreview();
-        else if (
-          this.store.state() === 'idle' &&
-          !this.store.chatTurnRejection() &&
-          !this.store.rejection()
-        )
-          this.startError.set(true);
-      }
+      this.closePreview();
+      this.startError.set(false);
+      await this.store.startAgents(
+        [...this.selected()],
+        this.submitDecisions(fresh, next),
+      );
+      if (this.store.rejection()?.reason === 'preview-required')
+        await this.openPreview(true);
+      else if (
+        this.store.state() === 'idle' &&
+        !this.store.chatTurnRejection() &&
+        !this.store.rejection()
+      )
+        this.startError.set(true);
     } catch {
       if (sequence === this.previewSequence) this.previewError.set(true);
     } finally {
@@ -347,17 +412,34 @@ export class AgentSelectionListComponent {
     }
   }
 
-  private definiteTargets(value: WizardPreviewGenerationResponse): string {
-    return value.agents
-      .flatMap((agent) =>
-        agent.files
-          .filter((file) => file.certainty === 'definite')
-          .map(
-            (file) => `${file.target}:${file.relPath}:${file.willOverwrite}`,
-          ),
-      )
-      .sort()
-      .join('|');
+  /**
+   * The confirm-time re-preview differs from what the user reviewed: other
+   * definite targets, another root, or a Replace that no longer applies
+   * because the file changed (its revision moved, so it is back on Keep).
+   */
+  private needsReview(
+    previous: WizardPreviewGenerationResponse,
+    fresh: WizardPreviewGenerationResponse,
+    before: DecisionSnapshot | null,
+    after: DecisionSnapshot,
+  ): boolean {
+    if (targetsSignature(previous) !== targetsSignature(fresh)) return true;
+    if (after.status !== null) return true;
+    const replacedBefore = before ? decisionCounts(before.rows).toReplace : 0;
+    return decisionCounts(after.rows).toReplace < replacedBefore;
+  }
+
+  private submitDecisions(
+    fresh: WizardPreviewGenerationResponse,
+    snapshot: DecisionSnapshot,
+  ): BoundAgentDecisions {
+    return {
+      fileDecisions: decisionEntries(snapshot.rows),
+      ...(fresh.previewToken !== undefined
+        ? { previewToken: fresh.previewToken }
+        : {}),
+      ...(snapshot.target !== null ? { target: snapshot.target } : {}),
+    };
   }
 
   protected ownerInWorkspace(): boolean {

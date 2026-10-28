@@ -211,6 +211,23 @@ describe('HarnessRepairBlockedParamsSchema', () => {
     ).toThrow();
   });
 
+  it('strips a client-supplied expectedDigest — approval digests are server-side only (A30)', () => {
+    const parsed = HarnessRepairBlockedParamsSchema.parse({
+      paths: [
+        {
+          target: 'claude',
+          relPath: '.claude/skills/alpha',
+          expectedDigest: 'a'.repeat(64),
+        },
+      ],
+    });
+
+    expect(parsed.paths).toEqual([
+      { target: 'claude', relPath: '.claude/skills/alpha' },
+    ]);
+    expect(parsed.paths[0]).not.toHaveProperty('expectedDigest');
+  });
+
   it('rejects a traversal segment', () => {
     expect(() =>
       HarnessRepairBlockedParamsSchema.parse(path('.claude/skills/../../etc')),

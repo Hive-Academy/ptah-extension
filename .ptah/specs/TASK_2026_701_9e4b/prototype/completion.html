@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Completion step (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Completion step (Electron; VS Code variant shown)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">A. completion.component.ts - mixed outcome: every processed agent has a row, counters add up (3 + 2 + 1 + 1 + 0 = 7)</h2>
+<div class="frame w-modal">
+  <h1 style="font-size:18px;margin:0 0 4px">Agents generated</h1>
+  <p class="muted" style="margin:0 0 8px;font-size:13px">7 agents processed in <code>D:/work/acme/.claude/agents</code>.</p>
+  <div class="outcomes" role="list"><div class="outcome" role="listitem"><b>3</b>Written</div><div class="outcome" role="listitem"><b>2</b>Kept (your file)</div><div class="outcome" role="listitem"><b>1</b>Already current</div><div class="outcome" role="listitem"><b>1</b>Changed since preview (kept)</div><div class="outcome" role="listitem"><b>0</b>Failed</div></div>
+  <details open><summary style="cursor:pointer;font-size:12px">Per-file results</summary><ul class="files" style="margin-top:6px"><li class="file"><div class="file-head"><code class="grow">.claude/agents/tester.md</code><span class="badge ">Written</span></div></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/e2e-tester.md</code><span class="badge ">Written</span></div></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/backend-developer.md</code><span class="badge ">Written</span></div><p class="file-note">You chose Replace. The Library copy now differs from its new source.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/frontend-developer.md</code><span class="badge ">Kept (your file)</span></div><p class="file-note">Kept: not regenerated (no content was generated for it).</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/planner.md</code><span class="badge ">Kept (your file)</span></div><p class="file-note">Ptah could not read this file, so it was kept and not regenerated.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/code-reviewer.md</code><span class="badge ">Already current</span></div><p class="file-note">You chose Replace. The generated content matched the file on disk.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/data-engineer.md</code><span class="badge badge-ghost">Changed since preview (kept)</span></div><p class="file-note">The file changed after you reviewed it, so Ptah left it alone and did not regenerate it.</p></li></ul></details>
+  <div class="callout-info" role="status" style="margin-top:10px"><strong>1 Library copy now differs from its new source:</strong> backend-developer. Choose rebase or keep for it in the Library.<div style="margin-top:6px"><button class="btn btn-outline btn-xs">Open the Library</button></div></div>
+  <div class="callout-info" role="status"><strong>About grades.</strong> New agents show "No grade" in the Library. A grade appears after a task that uses the agent has been reviewed. Generating the file alone does not produce one.</div>
+  <div class="callout-warn" role="alert">The Library may not show the new agents until its next refresh. Your files were written.</div>
+  <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary btn-sm">Open the Library</button><button class="btn btn-ghost btn-sm">Done</button></div></div>
+</section>
+<section class="">
+<h2 class="stage-title">B. Variants - all kept or current, failed write, opened-folder target, VS Code</h2>
+<div class="frame w-modal stack">
+  <div class="modal-box"><h3>Nothing new was written</h3><p style="font-size:12px;margin:4px 0">All 7 agents were kept or already current. No new agents were added. Existing grades are unchanged.</p><div class="outcomes" role="list"><div class="outcome" role="listitem"><b>5</b>Kept (your file)</div><div class="outcome" role="listitem"><b>2</b>Already current</div><div class="outcome" role="listitem"><b>0</b>Written</div></div></div>
+  <div class="modal-box"><h3>Some files could not be written</h3><div class="outcomes" role="list"><div class="outcome" role="listitem"><b>4</b>Written</div><div class="outcome" role="listitem"><b>1</b>Kept (your file)</div><div class="outcome" role="listitem"><b>1</b>Already current</div><div class="outcome" role="listitem"><b>0</b>Changed since preview (kept)</div><div class="outcome" role="listitem"><b>1</b>Failed</div></div><div class="callout-err" role="alert"><strong>1 failed.</strong> .claude/agents/tester.md: permission denied. This file was not changed. It is not counted as kept or written.</div><button class="btn btn-outline btn-xs">Retry tester</button><p class="hint">A retry never offers Replace for a kept file.</p></div>
+  <div class="modal-box"><h3>Agents generated in the opened folder (Electron)</h3><p class="callout-warn" role="alert">These agents are in <code>packages/api/.claude/agents</code>. They will not reach other CLIs and will not appear in the Library.</p><p class="hint">No grade copy, no diverged naming, no Open the Library button for this target.</p></div>
+  <div class="modal-box"><h3>VS Code host (same layout; no Library copy)</h3><div class="outcomes" role="list"><div class="outcome" role="listitem"><b>3</b>Written</div><div class="outcome" role="listitem"><b>2</b>Kept (your file)</div><div class="outcome" role="listitem"><b>1</b>Already current</div><div class="outcome" role="listitem"><b>1</b>Changed since preview (kept)</div><div class="outcome" role="listitem"><b>0</b>Failed</div></div><p class="callout-warn" role="alert">These agents are in <code>packages/api/.claude/agents</code>. They will not reach other CLIs.</p><p class="hint">No diverged naming, grade copy, stale-Library notice or Open the Library button (D3).</p></div>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">C. agent-next-steps.component.ts (generation sidebar width) - mixed outcome with the full outcome contract and grade copy</h2>
+<div class="frame w-sidebar"><h2 style="font-size:15px;margin:0 0 6px">Next steps</h2><div class="outcomes" style="grid-template-columns:1fr 1fr"><div class="outcome"><b>3</b>Written</div><div class="outcome"><b>2</b>Kept (your file)</div><div class="outcome"><b>1</b>Already current</div><div class="outcome"><b>1</b>Changed since preview (kept)</div><div class="outcome"><b>0</b>Failed</div></div>
+ <details open><summary style="cursor:pointer;font-size:12px">Per-file results</summary><ul class="files" style="margin-top:6px"><li class="file"><div class="file-head"><code class="grow">.claude/agents/tester.md</code><span class="badge ">Written</span></div></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/e2e-tester.md</code><span class="badge ">Written</span></div></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/backend-developer.md</code><span class="badge ">Written</span></div><p class="file-note">You chose Replace. The Library copy now differs from its new source.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/frontend-developer.md</code><span class="badge ">Kept (your file)</span></div><p class="file-note">Kept: not regenerated (no content was generated for it).</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/planner.md</code><span class="badge ">Kept (your file)</span></div><p class="file-note">Ptah could not read this file, so it was kept and not regenerated.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/code-reviewer.md</code><span class="badge ">Already current</span></div><p class="file-note">You chose Replace. The generated content matched the file on disk.</p></li>
+<li class="file"><div class="file-head"><code class="grow">.claude/agents/data-engineer.md</code><span class="badge badge-ghost">Changed since preview (kept)</span></div><p class="file-note">The file changed after you reviewed it, so Ptah left it alone and did not regenerate it.</p></li></ul></details>
+ <div class="callout-info" role="status"><strong>1 Library copy differs from its new source:</strong> backend-developer. Choose rebase or keep in the Library.</div>
+ <div class="callout-info" role="status"><strong>About grades.</strong> New agents show "No grade" in the Library. A grade appears after a task that uses the agent has been reviewed. Generating the file alone does not produce one.</div>
+ <div class="callout-warn" role="alert">The Library may not show the new agents until its next refresh. Your files were written.</div>
+ <button class="btn btn-primary btn-sm">Open the Library</button></div>
+</section>
+<section class="">
+<h2 class="stage-title">D. Sidebar variants - all kept or current; failed write</h2>
+<div class="stack"><div class="frame w-sidebar"><h2 style="font-size:15px;margin:0 0 6px">Next steps</h2><h3 style="font-size:14px;margin:0">Nothing new was written</h3><p style="font-size:12px;margin:4px 0">All 7 agents were kept or already current. No new agents were added. Existing grades are unchanged.</p>
+ <div class="outcomes" style="grid-template-columns:1fr 1fr"><div class="outcome"><b>5</b>Kept (your file)</div><div class="outcome"><b>2</b>Already current</div><div class="outcome"><b>0</b>Written</div><div class="outcome"><b>0</b>Changed since preview (kept)</div></div></div><div class="frame w-sidebar"><h2 style="font-size:15px;margin:0 0 6px">Next steps</h2><div class="outcomes" style="grid-template-columns:1fr 1fr"><div class="outcome"><b>4</b>Written</div><div class="outcome"><b>1</b>Failed</div></div>
+ <div class="callout-err" role="alert"><strong>1 failed.</strong> .claude/agents/tester.md: permission denied. This file was not changed. It is not counted as kept or written.</div><button class="btn btn-outline btn-xs">Retry tester</button>
+ <div class="callout-info" role="status" style="margin-top:8px"><strong>About grades.</strong> New agents show "No grade" in the Library. A grade appears after a task that uses the agent has been reviewed. Generating the file alone does not produce one.</div></div></div>
+</section>
+</main>
+<script src="assets/proto.js"></script>
+</body></html>

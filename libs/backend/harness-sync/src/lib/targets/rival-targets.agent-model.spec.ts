@@ -131,7 +131,7 @@ describe('rival targets — agent model reconciliation', () => {
     expect(copy).not.toContain('model-one');
     expect(
       result.targets.find((target) => target.target === 'codex')
-        ?.overwrittenLocalEdit,
+        ?.keptLocalEdit,
     ).toEqual([]);
   });
 
@@ -162,7 +162,7 @@ describe('rival targets — agent model reconciliation', () => {
     expect(readFileSync(join(ws, copyRel), 'utf-8')).toBe(legacyCopy);
     expect(
       result.targets.find((target) => target.target === 'codex')
-        ?.overwrittenLocalEdit,
+        ?.keptLocalEdit,
     ).toEqual([]);
   });
 });

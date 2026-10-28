@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_701_9e4b
-status: backlog
+status: in_progress
 type: FEATURE
 title: Align setup-wizard agent generation with the skills Library and enhancements
 depends_on:

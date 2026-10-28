@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Library (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Library (Electron only; VS Code has no Library UI, D3)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">A. Library tabs: one fixture shared with the Marketplace page (active, shadowed, kept, plugin-update diverged, turned off, orphaned, legacy and workspace files)</h2>
+<div class="w-wide">
+  <div class="tabs" role="tablist" aria-label="Library kinds">
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-skill">Skills</button>
+    <button class="tab" role="tab" aria-selected="true" aria-controls="p-agent">Agents</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-cmd">Commands</button>
+  </div>
+  <div id="p-skill" role="tabpanel" hidden><div class="cards"><article class="card" aria-label="tailwind-v4, skills.sh: acme/skills">
+  <p class="name">tailwind-v4</p>
+  <div class="meta"><span class="badge badge-prov">skills.sh: acme/skills</span><span class="badge ">In sync</span></div>
+  <p class="why">Your SKILL.md differs from the skills.sh version and was kept (1 file kept).</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Community skill</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="api-design, Plugin: Acme Toolkit">
+  <p class="name">api-design</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge ">In sync</span></div>
+  <p class="why">The Codex copy was edited since Ptah wrote it and was kept.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="release-notes, Plugin: Ptah Release Kit">
+  <p class="name">release-notes</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Ptah Release Kit</span><span class="badge ">In sync</span></div>
+  
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill (in effect)</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="release-notes, Plugin: Acme Toolkit, shadowed">
+  <p class="name">release-notes</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge badge-ghost">Shadowed</span></div>
+  <p class="why">Shadowed by "Ptah Release Kit". Installed but never takes effect.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill (not in effect)</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article></div></div>
+  <div id="p-cmd" role="tabpanel" hidden><div class="cards"><article class="card" aria-label="ship, Workspace file">
+  <p class="name">ship</p>
+  <div class="meta"><span class="badge badge-prov">Workspace file</span><span class="badge ">In sync</span></div>
+  <p class="why">Your file is the source. The Acme Toolkit command with this name was kept off.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Command</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="release, Plugin: Ptah Release Kit">
+  <p class="name">release</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Ptah Release Kit</span><span class="badge ">In sync</span></div>
+  
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Command</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article></div></div>
+  <div id="p-agent" role="tabpanel">
+    <p class="callout-info" role="status" aria-live="polite">Library updated: 2 agents added by the setup wizard.</p>
+    <div class="cards"><article class="card" aria-label="backend-developer, Setup wizard, diverged">
+  <p class="name">backend-developer</p>
+  <div class="meta"><span class="badge badge-prov">Setup wizard</span><span class="badge badge-warning">Diverged</span></div>
+  <p class="why">Source regenerated by the setup wizard. Your edits are kept in the Library copy.</p>
+  <div class="metrics"><div><div class="k">Grade</div>B+ (4 reviews)</div><div><div class="k">Claude model</div>opus</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button><button class="btn btn-ghost btn-xs">Rebase onto new source</button><button class="btn btn-ghost btn-xs">Keep my copy</button></div></article><article class="card" aria-label="tester, Setup wizard">
+  <p class="name">tester</p>
+  <div class="meta"><span class="badge badge-prov">Setup wizard</span><span class="badge ">In sync</span></div>
+  
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>sonnet</div></div>
+  <p class="hint" style="margin:0">A grade appears after a task that uses this agent has been reviewed.</p>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="frontend-developer, Setup wizard">
+  <p class="name">frontend-developer</p>
+  <div class="meta"><span class="badge badge-prov">Setup wizard</span><span class="badge ">In sync</span></div>
+  <p class="why">Your file was kept by the last generation. Origin stays Setup wizard.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>sonnet</div></div>
+  <p class="hint" style="margin:0">A grade appears after a task that uses this agent has been reviewed.</p>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="planner, Setup wizard">
+  <p class="name">planner</p>
+  <div class="meta"><span class="badge badge-prov">Setup wizard</span><span class="badge ">In sync</span></div>
+  <p class="why">The file could not be read for comparison and was kept.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>sonnet</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="architect, Workspace file">
+  <p class="name">architect</p>
+  <div class="meta"><span class="badge badge-prov">Workspace file</span><span class="badge ">In sync</span></div>
+  <p class="why">Your own file is the source. The Acme Toolkit agent with this name was not installed (kept: your file).</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>sonnet</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="reviewer, Plugin: Acme Toolkit, diverged">
+  <p class="name">reviewer</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge badge-warning">Diverged</span></div>
+  <p class="why">Source updated by the plugin Acme Toolkit. Your edits are kept in the Library copy.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>from template</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button><button class="btn btn-ghost btn-xs">Rebase onto new source</button><button class="btn btn-ghost btn-xs">Keep my copy</button></div></article><article class="card" aria-label="docs-writer, Workspace file">
+  <p class="name">docs-writer</p>
+  <div class="meta"><span class="badge badge-prov">Workspace file</span><span class="badge ">In sync</span></div>
+  <p class="why">Kept pack file: your file was not replaced by the acme-agents pack.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>sonnet</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="helper-agent, Plugin: Old Helper, plugin turned off">
+  <p class="name">helper-agent</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Old Helper</span><span class="badge badge-ghost">Plugin turned off</span></div>
+  <p class="why">The plugin "Old Helper" is turned off. Your edits are kept here.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>from template</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="legacy-linter, Plugin: Former Helper, orphaned">
+  <p class="name">legacy-linter</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Former Helper</span><span class="badge badge-warning">Orphaned</span></div>
+  <p class="why">The plugin "Former Helper" is no longer installed. Your edits are kept here.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Claude model</div>from template</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article></div>
+  </div></div>
+  <p class="narrow-note w-wide" style="margin-top:8px">All three tabs are populated from the same fixture as the Marketplace page. The Skills and Commands tabs are the hidden panels: press the tab buttons. For the screenshots, <code>library-skills-*.png</code> shows the Skills tab.</p>
+</section>
+<section class="">
+<h2 class="stage-title">A2. Skills tab (same fixture): community source, plugin, shadowed</h2>
+<div class="w-wide"><div class="cards"><article class="card" aria-label="tailwind-v4, skills.sh: acme/skills">
+  <p class="name">tailwind-v4</p>
+  <div class="meta"><span class="badge badge-prov">skills.sh: acme/skills</span><span class="badge ">In sync</span></div>
+  <p class="why">Your SKILL.md differs from the skills.sh version and was kept (1 file kept).</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Community skill</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="api-design, Plugin: Acme Toolkit">
+  <p class="name">api-design</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge ">In sync</span></div>
+  <p class="why">The Codex copy was edited since Ptah wrote it and was kept.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="release-notes, Plugin: Ptah Release Kit">
+  <p class="name">release-notes</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Ptah Release Kit</span><span class="badge ">In sync</span></div>
+  
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill (in effect)</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article><article class="card" aria-label="release-notes, Plugin: Acme Toolkit, shadowed">
+  <p class="name">release-notes</p>
+  <div class="meta"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge badge-ghost">Shadowed</span></div>
+  <p class="why">Shadowed by "Ptah Release Kit". Installed but never takes effect.</p>
+  <div class="metrics"><div><div class="k">Grade</div><span class="muted">No grade</span></div><div><div class="k">Kind</div>Skill (not in effect)</div></div>
+  
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-ghost btn-xs">Open</button></div></article></div></div>
+</section>
+<section class="">
+<h2 class="stage-title">B. Deterministic provenance mapping (requirements 3.9-3.11, 8.8)</h2>
+<div class="frame w-wide"><table class="tbl" aria-label="Provenance mapping"><thead><tr><th>How the item came to be</th><th>Recorded origin</th><th>Label</th></tr></thead><tbody>
+<tr><td>Written by setup wizard generation</td><td>wizard marker written with the file</td><td>Setup wizard</td></tr>
+<tr><td>Wizard file the user later edited by hand</td><td>unchanged (Diverged is a separate badge)</td><td>Setup wizard</td></tr>
+<tr><td>Wizard file kept at generation, or already current</td><td>prior origin retained</td><td>Prior label (Setup wizard if it had one, otherwise Workspace file)</td></tr>
+<tr><td>Mirrored or installed from a plugin (enabled or external)</td><td>plugin marker with plugin name</td><td>Plugin: &lt;name&gt;</td></tr>
+<tr><td>Plugin turned off / uninstalled</td><td>marker kept</td><td>Plugin: &lt;name&gt; plus "Plugin turned off" / "Orphaned"</td></tr>
+<tr><td>Installed by skills.sh</td><td>skills.sh marker with owner/repo</td><td>skills.sh: &lt;owner/repo&gt;</td></tr>
+<tr><td>Legacy file with no marker, hand-made file, file Ptah did not create</td><td>none</td><td>Workspace file</td></tr>
+<tr><td>Community pack file written by the pack install</td><td>none (pack files are plain agent files)</td><td>Workspace file</td></tr>
+<tr><td>Community pack file kept (user's own file stays)</td><td>prior origin retained</td><td>Workspace file (or its prior label)</td></tr>
+</tbody></table><p class="hint">The label is derived only from the recorded origin marker, never from the file name or location.</p></div>
+</section>
+<section class="">
+<h2 class="stage-title">C. Empty, loading and error states</h2>
+<div class="w-wide stack">
+  <div class="frame"><div class="empty"><p style="margin:0 0 8px" class="muted">No agents in your Library yet. Agents arrive from the setup wizard, from files in <code>.claude/agents</code>, or from plugins that ship agents.</p><button class="btn btn-primary btn-xs">Open setup wizard</button></div></div>
+  <div class="frame"><p role="status" class="muted" style="margin:0 0 6px;font-size:12px">Loading your Library...</p><div class="cards"><div class="card"><div class="skel" style="width:60%"></div><div class="skel" style="width:40%"></div><div class="skel"></div></div><div class="card"><div class="skel" style="width:50%"></div><div class="skel" style="width:30%"></div><div class="skel"></div></div></div></div>
+  <div class="frame"><p class="callout-err" role="alert" style="margin:0"><strong>Could not refresh the Library.</strong> The agents on disk are unchanged. It will update on the next refresh.</p></div>
+  <div class="frame"><p class="callout-err" role="alert" style="margin:0"><strong>Could not save the model setting.</strong> The agent model is still the previous value (permission denied). Press Save again to retry.</p></div>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">D. Detail drawer - diverged by wizard, with Claude model editor</h2>
+<div class="frame w-modal"><aside class="modal-box" aria-labelledby="dr-t" style="max-width:420px">
+  <h3 id="dr-t" style="font-family:'JetBrains Mono',monospace">backend-developer</h3>
+  <div class="meta" style="display:flex;gap:6px;margin:6px 0 8px"><span class="badge badge-prov">Setup wizard</span><span class="badge badge-warning">Diverged</span></div>
+  <dl class="kv" style="margin-bottom:10px"><dt>Origin</dt><dd>Setup wizard - written to <code>.claude/agents/backend-developer.md</code></dd><dt>Reason</dt><dd>Source regenerated by the setup wizard</dd></dl>
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"><button class="btn btn-primary btn-sm">Review changes and rebase</button><button class="btn btn-ghost btn-sm">Keep my copy</button></div>
+  <h4>Claude model</h4>
+  <div class="field"><label for="mdl">Model for this agent</label>
+   <select id="mdl" aria-describedby="mdl-h"><option>opus</option><option>sonnet</option><option>haiku</option><option>Use template model</option></select>
+   <p class="hint" id="mdl-h">The setup wizard writes this model into the agent file the next time it generates this agent. This is the same setting the wizard preview shows.</p>
+   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="btn btn-outline btn-xs">Save for this workspace</button><button class="btn btn-ghost btn-xs">Save for this machine</button></div></div></aside></div>
+</section>
+</main>
+<script src="assets/proto.js"></script>
+</body></html>

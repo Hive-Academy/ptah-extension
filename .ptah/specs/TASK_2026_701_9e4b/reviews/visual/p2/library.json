@@ -1,0 +1,538 @@
+{
+ "shots": [
+  {
+   "file": "library__list__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 434,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 896,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 464,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 527,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.925095 0.00705001 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.09)",
+     "text": "Orphaned"
+    }
+   ]
+  },
+  {
+   "file": "library__list__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-thoth-shell[]432",
+    "div[]432",
+    "aside[thoth-section-nav]432"
+   ],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 174,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 208,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 204,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 267,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.925095 0.00705001 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.09)",
+     "text": "Orphaned"
+    }
+   ]
+  },
+  {
+   "file": "library__list__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 434,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 896,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 464,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 527,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.09)",
+     "text": "Orphaned"
+    }
+   ]
+  },
+  {
+   "file": "library__list__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-thoth-shell[]432",
+    "div[]432",
+    "aside[thoth-section-nav]432"
+   ],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 174,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 208,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 204,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 267,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.09)",
+     "text": "Orphaned"
+    }
+   ]
+  },
+  {
+   "file": "library__drawer__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 434,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 896,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 464,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 527,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.925095 0.00705001 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.09)",
+     "text": "Orphaned"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 601,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    }
+   ]
+  },
+  {
+   "file": "library__drawer__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-thoth-shell[]432",
+    "div[]432",
+    "aside[thoth-section-nav]432"
+   ],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 174,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 208,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 204,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 267,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.925095 0.00705001 88.6451)",
+     "bg": "oklch(0.704871 0.186721 47.6044 / 0.09)",
+     "text": "Orphaned"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 89,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.5)",
+     "text": "Setup wizard"
+    }
+   ]
+  },
+  {
+   "file": "library__drawer__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 434,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 896,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 464,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 527,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.09)",
+     "text": "Orphaned"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 601,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    }
+   ]
+  },
+  {
+   "file": "library__drawer__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-thoth-shell[]432",
+    "div[]432",
+    "aside[thoth-section-nav]432"
+   ],
+   "extra": [
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 174,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 106,
+     "h": 16,
+     "right": 208,
+     "sw": 104,
+     "cw": 104,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Acme Toolkit"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 102,
+     "h": 16,
+     "right": 204,
+     "sw": 100,
+     "cw": 100,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Plugin: Gone Plugin"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-plugin-state",
+     "w": 57,
+     "h": 16,
+     "right": 267,
+     "sw": 55,
+     "cw": 55,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.72 0.18 55 / 0.09)",
+     "text": "Orphaned"
+    },
+    {
+     "tag": "span",
+     "tid": "provenance-badge",
+     "w": 72,
+     "h": 16,
+     "right": 89,
+     "sw": 70,
+     "cw": 70,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.5)",
+     "text": "Setup wizard"
+    }
+   ]
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T14:20:07.964Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[2026-10-28T14:20:08.039Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined"
+ ],
+ "notes": [
+  "<ptah-native-card _ngcontent-ng-c3897033400=\"\" density=\"compact\" data-testid=\"clone-card\" _nghost-ng-c560470926=\"\"><div _ngcontent-ng-c560470926=\"\" class=\"relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg-base-200/40 border-base-300 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content focus-visible:outline-offset-2 hover:bg-base-200/70 hover:border-base-content/20\" role=\"button\" tabindex=\"0\" aria-label=\"Open details for helper-agent, Setup wizard\" data-tone=\"neutral\"><span _ngcontent-ng-c560470926=\"\" data-testid=\"native-card-spine\" aria-hidden=\"true\" class=\"absolute inset-y-0 left-0 w-1 bg-base-content/30\"></span><!--container--><div _ngcontent-ng-c560470926=\"\" data-testid=\"native-card-inner\" class=\"flex min-w-0 flex-col gap-2 p-3 pl-5\"><div _ngcontent-ng-c3897033400=\"\" card-header=\"\" class=\"flex items-start justify-between gap-3\"><div _ngcontent-ng-c3897033400=\"\" class=\"min-w-0\"><p _ngcontent-ng-c3897033400=\"\" class=\"truncate font-mono text-sm font-medium\"> helper-agent </p><p _ngcontent-ng-c3897033400=\"\" data-testid=\"clone-card-meta\" class=\"mt-1 flex flex-wrap items-center gap-1.5 text-[11px]\"><ptah-provenance-badge _ngcontent-ng-c3897033400=\"\" class=\"contents\"><span data-testid=\"provenance-badge\" class=\"badge badge-sm border bg-base-300 text-base-content border-[color:var(--surface-border-strong)]\" title=\"Origin: Setup wizard\">Setup wizard</span><!--container--></ptah-provenance-badge><span",
+  "DIV: Light  Dark  Glass Primary accentBackdropAuroraEmberTideHorizon || ASIDE:Thoth\n\nAgentic platform\n\nMemory\n0\nfacts\nAll curated\nSkills\nUnavailable\nSchedules || DIALOG: Restore  Cancel  Restore close || DIALOG: Update provider copies in this workspace?  Cancel close || DIV:helper-agent\n\nSetup wizard\nclone\n·\nagent\n\n×\n\nNever invoked yet — usage metrics a",
+  "drawer:<ptah-clone-detail-drawer><ptah-native-drawer widthclass=\"w-full max-w-3xl\" _nghost-ng-c2215664921=\"\"><div _ngcontent-ng-c2215664921=\"\" popover=\"manual\" data-testid=\"native-drawer-root\" class=\"ptah-drawer-layer fixed inset-0 z-50 flex\"><div _ngcontent-ng-c2215664921=\"\" data-testid=\"native-drawer-bac|helper-agent\n\nSetup wizard\nclone\n·\nagent\n\n×\n\nNever invoked yet — usage metrics appear after its first recorded run.\n\nActions\nEnhance now\nNeeds 3 recorded runs before an enhancement can be proposed — t"
+ ]
+}

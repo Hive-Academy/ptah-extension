@@ -83,10 +83,13 @@ type AgentBinding = {
       </div>
     }
     @if (!store.isBound()) {
-      <ptah-agent-selection-list
-        [binding]="binding()"
-        [primary]="!handoff.pending()"
-      />
+      <!-- Deferred: the list, packs panel and their stores stay out of the initial bundle. -->
+      @defer (on immediate) {
+        <ptah-agent-selection-list
+          [binding]="binding()"
+          [primary]="!handoff.pending()"
+        />
+      }
     }
     @if (store.rejection(); as rejection) {
       <div class="alert alert-warning text-sm" role="alert">
@@ -170,22 +173,24 @@ type AgentBinding = {
       </p>
     }
     @if (showNextSteps()) {
-      <ptah-agent-next-steps
-        [pending]="!!handoff.pending()"
-        [remainingSeconds]="remainingSeconds()"
-        [previewModel]="guidancePreviewModel()"
-        [previewProvider]="guidancePreviewProvider()"
-        [manualRecovery]="
-          handoff.outcome() === 'manual-recovery' ||
-          !hasVerifiedResults() ||
-          store.state() === 'failed'
-        "
-        [skipped]="handoff.outcome() === 'skipped'"
-        [started]="handoff.outcome() === 'started'"
-        (startNow)="handoff.startNow()"
-        (continue)="handoff.manualContinue(binding().workspacePath)"
-        (skip)="handoff.skip()"
-      />
+      @defer (on immediate) {
+        <ptah-agent-next-steps
+          [pending]="!!handoff.pending()"
+          [remainingSeconds]="remainingSeconds()"
+          [previewModel]="guidancePreviewModel()"
+          [previewProvider]="guidancePreviewProvider()"
+          [manualRecovery]="
+            handoff.outcome() === 'manual-recovery' ||
+            !hasVerifiedResults() ||
+            store.state() === 'failed'
+          "
+          [skipped]="handoff.outcome() === 'skipped'"
+          [started]="handoff.outcome() === 'started'"
+          (startNow)="handoff.startNow()"
+          (continue)="handoff.manualContinue(binding().workspacePath)"
+          (skip)="handoff.skip()"
+        />
+      }
     }
   `,
 })
