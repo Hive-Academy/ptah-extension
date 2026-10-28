@@ -58,7 +58,7 @@ function setup() {
     { provide: AgentMonitorStore, useValue: {} },
     { provide: SessionManager, useValue: {} },
   ] });
-  return { service: TestBed.inject(StreamingHandlerService), tabs, applier };
+  return { service: TestBed.inject(StreamingHandlerService), tabs, applier, tabManager };
 }
 function terminal(revision: number): TurnStateEvent {
   return {
@@ -142,6 +142,41 @@ describe('StreamingHandlerService queue release', () => {
       ).toEqual([{ tabId: id, content: 'next prompt' }]);
     },
   );
+
+  it('does not release at a terminal the tab rejected while a newer turn streams', () => {
+    const h = setup();
+    h.tabs.update((tabs) => tabs.map((tab) => ({
+      ...tab, lastTurnStateRevision: 5, lastTurnStateSessionId: sid,
+    })));
+    h.applier.apply.mockImplementation(() => undefined);
+    expect(h.service.processStreamEvent(terminal(3), id)).toBeNull();
+    expect(h.tabs()[0].queuedContent).toBe('next prompt');
+  });
+
+  it('does not release at a healed lower-revision terminal of the same session', () => {
+    const h = setup();
+    h.tabs.update((tabs) => tabs.map((tab) => ({
+      ...tab, lastTurnStateRevision: 5, lastTurnStateSessionId: sid,
+    })));
+    // The real heal path writes the lower revision and sets `loaded`.
+    expect(h.service.processStreamEvent(terminal(3), id)).toBeNull();
+  });
+
+  it('does not release while the tab is still in the streaming set', () => {
+    const h = setup();
+    h.tabManager.isTabStreaming.mockReturnValue(true);
+    expect(h.service.processStreamEvent(terminal(1), id)).toBeNull();
+  });
+
+  it('does not release when the tab status is not idle after the terminal', () => {
+    const h = setup();
+    h.applier.apply.mockImplementation((event: TurnStateEvent) => {
+      h.tabs.update((tabs) => tabs.map((tab) => ({
+        ...tab, status: 'streaming', lastTurnStateRevision: event.revision,
+      })));
+    });
+    expect(h.service.processStreamEvent(terminal(1), id)).toBeNull();
+  });
 
   it('keeps stats from releasing while the turn is still streaming', () => {
     const h = setup();

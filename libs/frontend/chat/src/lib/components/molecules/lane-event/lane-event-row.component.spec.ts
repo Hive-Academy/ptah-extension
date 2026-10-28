@@ -106,6 +106,27 @@ describe('LaneEventRowComponent', () => {
     expect(element.querySelector<HTMLButtonElement>('[data-testid="lane-event-rewind"]')!.disabled).toBe(true);
   });
 
+  it('keeps the invisible action overlay from taking pointer events until hover or focus', () => {
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', row);
+    fixture.detectChanges();
+    const actions = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="lane-event-actions"]')!;
+    for (const name of ['opacity-0', 'pointer-events-none', 'group-hover:pointer-events-auto', 'group-focus-within:pointer-events-auto']) {
+      expect(actions.classList.contains(name)).toBe(true);
+    }
+    expect(actions.classList.contains('pointer-events-auto')).toBe(false);
+  });
+
+  it('shows a no-deliverable completion as incomplete with the warning tone', () => {
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', { ...row, events: [{ ...row.events[2], verdict: 'no-deliverable' }] });
+    fixture.detectChanges();
+    const chip = (fixture.nativeElement as HTMLElement).querySelector('[data-testid="lane-event-chip"]')!;
+    expect(chip.textContent).toContain('Incomplete · no deliverable');
+    expect(chip.textContent).not.toContain('Completed');
+    expect(chip.classList.contains('text-state-need')).toBe(true);
+  });
+
   it('disables expansion when a single report reveals nothing more', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', { ...row, events: [{ kind: 'report', body: 'One line', timestamp: 1, messageId: 'single' }] });

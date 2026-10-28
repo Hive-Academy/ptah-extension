@@ -108,10 +108,13 @@ export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEven
   const verdict = (completed?.verdict ?? '').toLowerCase();
   const timedOut = status === 'timeout' || status === 'timed out';
   const failed = verdict === 'failed' || ['failed', 'error', 'stopped', 'killed', 'cancelled'].includes(status);
-  const unverified = verdict === 'unverified' || verdict === 'no-deliverable';
+  const unverified = verdict === 'unverified';
+  // The producer says a no-deliverable lane is NOT done (lane-completion-envelope.ts).
+  const noDeliverable = verdict === 'no-deliverable';
   const chip: LaneEventChip = timedOut
     ? { label: 'Timed out', tone: 'err', icon: TriangleAlert }
     : failed ? { label: 'Failed', tone: 'err', icon: X }
+    : completed && noDeliverable ? { label: 'Incomplete · no deliverable', tone: 'need', icon: TriangleAlert }
     : completed ? { label: unverified ? 'Completed · unverified' : 'Completed', tone: unverified ? 'need' : 'done', icon: unverified ? CircleHelp : Check }
     : { label: 'Running', tone: 'run', icon: LoaderCircle };
 

@@ -26,7 +26,7 @@
       </span>
       <time class="ml-auto shrink-0 text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
-    <div class="absolute right-0 top-0 flex items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+    <div data-testid="lane-event-actions" class="pointer-events-none absolute right-0 top-0 flex items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
       <button type="button" class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
         title="Branch conversation from here" aria-label="Branch conversation from this message"
         data-testid="lane-event-branch" (click)="branchRequested.emit(lastMessageId())">

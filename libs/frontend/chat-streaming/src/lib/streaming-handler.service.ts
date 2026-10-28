@@ -266,16 +266,25 @@ export class StreamingHandlerService {
         // start chat:continue in the same event delivery stack, before Angular
         // can render an idle-only budget banner.
         const queueFlushes = terminalTargets.flatMap(
-          ({ tabId: targetTabId, revision }) => {
+          ({ tabId: targetTabId, revision, sessionId }) => {
             const tab =
               this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
-            // No busy check here: this terminal is the tab's newest state, and
-            // its finalized tree clears only in a later microtask, so the
-            // tree would read as busy and hold the prompt forever.
+            // A healed terminal (a lower revision of the same session) is a
+            // backend revision regression, so a newer turn may still run.
+            const healed =
+              revision !== undefined &&
+              sessionId === event.sessionId &&
+              event.revision < revision;
+            // Not `isTabBusy`: the finalized tree clears only in a later
+            // microtask, so `streamingState` would read as busy and hold the
+            // prompt forever (D2). Status and the streaming set are already
+            // final here.
             if (
               !tab ||
               tab.lastTurnStateRevision !== event.revision ||
-              revision === event.revision
+              revision === event.revision ||
+              healed ||
+              !this.isTabSettled(tab)
             ) {
               return [];
             }
@@ -407,28 +416,25 @@ export class StreamingHandlerService {
   ): ReadonlyArray<{
     readonly tabId: string;
     readonly revision: number | undefined;
+    readonly sessionId: string | undefined;
   }> {
+    const target = (tab: TabState) => ({
+      tabId: tab.id,
+      revision: tab.lastTurnStateRevision,
+      sessionId: tab.lastTurnStateSessionId,
+    });
     if (tabId) {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      return tab
-        ? [{ tabId: tab.id, revision: tab.lastTurnStateRevision }]
-        : [];
+      return tab ? [target(tab)] : [];
     }
 
     const sessionId = SessionId.safeParse(event.sessionId);
     if (!sessionId) return [];
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
-    if (tabs.length > 0) {
-      return tabs.map((tab) => ({
-        tabId: tab.id,
-        revision: tab.lastTurnStateRevision,
-      }));
-    }
+    if (tabs.length > 0) return tabs.map(target);
     const background =
       this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
-    return background
-      ? [{ tabId: background.id, revision: background.lastTurnStateRevision }]
-      : [];
+    return background ? [target(background)] : [];
   }
 
   /**
@@ -824,6 +830,16 @@ export class StreamingHandlerService {
       tab.status === 'resuming' ||
       hasUnsettledTree ||
       this.tabManager.isTabStreaming(tab.id)
+    );
+  }
+
+  /** A terminal turn_state left the tab idle and no newer turn streams. */
+  private isTabSettled(tab: TabState): boolean {
+    return (
+      (tab.status === 'loaded' ||
+        tab.status === 'awaiting-background' ||
+        tab.status === 'sleeping') &&
+      !this.tabManager.isTabStreaming(tab.id)
     );
   }
 

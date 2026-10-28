@@ -80,12 +80,14 @@ describe('deriveLaneEventPresentation', () => {
     expect(result.files).toEqual([]);
   });
 
-  it('labels only unverified and no-deliverable verdicts as unverified', () => {
-    for (const verdict of ['unverified', 'no-deliverable']) {
-      const result = deriveLaneEventPresentation(row({ events: [{ kind: 'completed', verdict, body: envelope(['Deliverables: none were declared at spawn, so nothing was checked.']), timestamp: 2, messageId: 'c' }] }));
-      expect(result.chip.label).toBe('Completed · unverified');
-      expect(result.stats.some(stat => stat.label === 'Verdict' || stat.label === 'Deliverables')).toBe(false);
-    }
+  it.each([
+    ['unverified', 'Completed · unverified'],
+    ['no-deliverable', 'Incomplete · no deliverable'],
+  ])('labels the %s verdict as %s with the warning tone', (verdict, label) => {
+    const result = deriveLaneEventPresentation(row({ events: [{ kind: 'completed', verdict, body: envelope(['Deliverables: none were declared at spawn, so nothing was checked.']), timestamp: 2, messageId: 'c' }] }));
+    expect(result.chip.label).toBe(label);
+    expect(result.chip.tone).toBe('need');
+    expect(result.stats.some(stat => stat.label === 'Verdict' || stat.label === 'Deliverables')).toBe(false);
   });
 
   it('shows concise failure and timeout status with only nonzero exit', () => {
