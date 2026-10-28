@@ -2895,7 +2895,7 @@ Edge cases:
   Specs: exact frames, secret absent from logs/identity store/errors, refusal before spawn.
 - Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/agent-sdk`.
 
-### Batch 8l-1c: Ptah MCP attached natively to Codex chat — PENDING
+### Batch 8l-1c: Ptah MCP attached natively to Codex chat — COMPLETE (b959b58d9; report batch-8l-1c-report.md)
 
 - Files: W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url.ts (+ spec),
   cli-adapters/index.ts (export the session builder and `CODEX_PTAH_TOOL_TIMEOUT_SEC`),
