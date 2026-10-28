@@ -2,8 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { AttentionActionDispatcher, type AttentionActionOutcome, AppStateManager, LoggingService,
   ATTENTION_LANE_OPENER, NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService, attentionConditionKey } from '@ptah-extension/core';
 import { AgentPermissionResponder } from './agent-permission-responder';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { APPROVAL_DECISION_ACTIONS, ChatAttentionSourceService } from './chat-attention-source.service';
+import { ChatAttentionSourceService } from './chat-attention-source.service';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
 import type { PermissionResponse } from '@ptah-extension/shared';
 
@@ -16,7 +15,6 @@ function isPermissionDecision(value: string): value is PermissionResponse['decis
 export class ChatAttentionActionDispatcherService implements AttentionActionDispatcher {
   private readonly source = inject(ChatAttentionSourceService);
   private readonly responder = inject(AgentPermissionResponder);
-  private readonly permissions = inject(PermissionHandlerService);
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(NOTIFICATION_FOCUS_ROUTER, { optional: true });
   private readonly laneOpener = inject(ATTENTION_LANE_OPENER, { optional: true });
@@ -37,7 +35,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
       this.unavailable(action?.disabledReason ?? 'Action unavailable');
       return { kind: 'unavailable', reason: action?.disabledReason ?? 'Action unavailable' };
     }
-    if (live?.target.kind === 'permission' && ['allow', 'always_allow', 'deny', 'deny_with_message', 'cancel'].includes(actionId) &&
+    if (live?.target.kind === 'permission' && ['allow', 'always_allow', 'deny', 'deny_with_message'].includes(actionId) &&
       !this.responder.isSessionPending(live.target.request.id)) {
       this.unavailable('Already answered');
       return { kind: 'stale' };
@@ -78,13 +76,6 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
           }
         }
         return true;
-      }
-      if (target.kind === 'permission' && target.request.allowedDecisions) {
-        // Native requests answer only with their own decisions; no message or edited input.
-        const native = APPROVAL_DECISION_ACTIONS.find(candidate => candidate.id === actionId);
-        if (!native) return this.unavailable('Action unavailable');
-        return this.permissions.handleApprovalDecision(target.request.id, native.decision, target.tabId)
-          || this.unavailable('Action unavailable');
       }
       if (!isPermissionDecision(actionId)) return this.unavailable('Action unavailable');
       if (target.kind === 'question') return this.unavailable('Action unavailable');

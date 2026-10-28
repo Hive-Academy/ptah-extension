@@ -6,7 +6,6 @@
  */
 
 import type { PermissionLevel } from './model-autopilot.types';
-import type { SessionApprovalDecision } from './session-runtime.types';
 import type { QuestionItem } from '../type-guards/guards';
 
 /**
@@ -29,9 +28,6 @@ export const UNKNOWN_AGENT_TOOL_CALL_ID = '__unknown__' as const;
  * The MCP server creates this when Claude CLI invokes the approval_prompt tool.
  */
 export interface PermissionRequest {
-  /** Present only for Codex requests; absent means the existing Claude prompt. */
-  readonly allowedDecisions?: readonly SessionApprovalDecision[];
-
   /** Unique request ID (UUID) */
   readonly id: string;
 

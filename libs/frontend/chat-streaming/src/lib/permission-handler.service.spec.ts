@@ -19,6 +19,7 @@ import { signal, computed } from '@angular/core';
 import {
   MESSAGE_TYPES,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  parsePermissionRequest,
   type PermissionRequest,
   type AskUserQuestionRequest,
 } from '@ptah-extension/shared';
@@ -156,68 +157,39 @@ describe('PermissionHandlerService', () => {
     });
   });
 
-  describe('native approval decisions (allowedDecisions)', () => {
-    it.each([
-      ['accept', 'allow'],
-      ['acceptForSession', 'always_allow'],
-      ['decline', 'deny_with_message'],
-      ['cancel', 'deny'],
-    ] as const)('posts %s as the %s wire decision', (decision, wire) => {
-      service.handlePermissionRequest(
-        makePermissionRequest({
-          allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
-        }),
-      );
-      expect(service.handleApprovalDecision('req-1', decision, 'tab-1')).toBe(true);
-      expect(vscodePostMessage).toHaveBeenCalledWith({
-        type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
-        response: { id: 'req-1', decision: wire },
-      });
-      expect(service.permissionRequests()).toEqual([]);
-    });
-
-    it('rejects a decision the request does not allow', () => {
-      service.handlePermissionRequest(
-        makePermissionRequest({ allowedDecisions: ['accept', 'decline'] }),
-      );
-      expect(service.handleApprovalDecision('req-1', 'acceptForSession')).toBe(false);
-      expect(service.handlePermissionResponse({ id: 'req-1', decision: 'always_allow' })).toBe(false);
-      expect(vscodePostMessage).not.toHaveBeenCalled();
-      expect(service.permissionRequests()).toHaveLength(1);
-    });
-
-    it('rejects edited input or a message for a native request', () => {
-      service.handlePermissionRequest(
-        makePermissionRequest({ allowedDecisions: ['accept', 'decline'] }),
-      );
-      expect(
-        service.handlePermissionResponse({ id: 'req-1', decision: 'allow', modifiedInput: { command: 'rm' } }),
-      ).toBe(false);
-      expect(
-        service.handlePermissionResponse({ id: 'req-1', decision: 'deny_with_message', reason: 'no' }),
-      ).toBe(false);
-      expect(vscodePostMessage).not.toHaveBeenCalled();
-    });
-
-    it('refuses native decisions for a Claude request (no allowedDecisions)', () => {
-      service.handlePermissionRequest(makePermissionRequest());
-      expect(service.handleApprovalDecision('req-1', 'accept')).toBe(false);
-      expect(vscodePostMessage).not.toHaveBeenCalled();
-    });
-
-    it('leaves Claude responses with input and messages unchanged', () => {
-      service.handlePermissionRequest(makePermissionRequest());
-      expect(
-        service.handlePermissionResponse({ id: 'req-1', decision: 'deny_with_message', reason: 'use ls' }),
-      ).toBe(true);
-      expect(vscodePostMessage).toHaveBeenCalledWith({
-        type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
-        response: { id: 'req-1', decision: 'deny_with_message', reason: 'use ls' },
-      });
-    });
-  });
-
   describe('handlePermissionResponse', () => {
+    it('answers a parser-produced request with Claude decisions', () => {
+      const wire = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
+        toolName: 'Bash',
+        toolInput: { command: 'ls' },
+        timestamp: 1,
+        description: 'List files',
+        timeoutAt: 0,
+        allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
+      };
+      const answers = [
+        { decision: 'allow' as const, modifiedInput: { command: 'ls -la' } },
+        { decision: 'always_allow' as const },
+        { decision: 'deny_with_message' as const, reason: 'use ls' },
+        { decision: 'deny' as const },
+      ];
+      const posted: unknown[] = [];
+      for (const answer of answers) {
+        const request = parsePermissionRequest(wire);
+        if (!request) throw new Error('parser rejected the permission payload');
+        expect(request).not.toHaveProperty('allowedDecisions');
+        service.handlePermissionRequest(request);
+        expect(service.handlePermissionResponse({ id: request.id, ...answer }, 'tab-1')).toBe(true);
+        posted.push({ id: request.id, ...answer });
+      }
+      expect(vscodePostMessage.mock.calls.map((call) => call[0])).toEqual(
+        posted.map((response) => ({ type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE, response })),
+      );
+      expect(service.permissionRequests()).toEqual([]);
+      expect(service.consumeHardDenyToolUseIds('tab-1').has(UNKNOWN_AGENT_TOOL_CALL_ID)).toBe(true);
+    });
+
     it.each(['allow', 'deny'] as const)('posts the same SDK response for a tab-less decision: %s', decision => {
       service.handlePermissionRequest(makePermissionRequest({ tabId: undefined, sessionId: undefined }));
       expect(service.handlePermissionResponse({ id: 'req-1', decision })).toBe(true);

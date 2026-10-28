@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { CommandCenterVoiceSessionService, TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
-import type { AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
+import { parsePermissionRequest, type AskUserQuestionRequest, type PermissionRequest } from '@ptah-extension/shared';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 
 describe('ChatAttentionSourceService', () => {
@@ -122,26 +122,28 @@ describe('ChatAttentionSourceService', () => {
     expect(upsert.mock.lastCall?.[0].actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
   });
 
-  it('renders exactly the allowed native decisions and no message control', () => {
+  it('offers Claude actions for a request the shared parser produces', () => {
     TestBed.inject(ChatAttentionSourceService);
-    permissions.set([{ id: 'codex-1', toolName: 'Bash', toolInput: { command: 'ls' }, timestamp: 1,
-      timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1',
-      allowedDecisions: ['cancel', 'accept', 'decline'] }]);
+    const request = parsePermissionRequest({
+      id: '550e8400-e29b-41d4-a716-446655440000',
+      toolName: 'Bash',
+      toolInput: { command: 'ls' },
+      timestamp: 1,
+      description: 'List files',
+      timeoutAt: 0,
+      allowedDecisions: ['cancel', 'accept', 'decline'],
+    });
+    if (!request) throw new Error('parser rejected the permission payload');
+    expect(request).not.toHaveProperty('allowedDecisions');
+    permissions.set([request]);
     TestBed.tick();
-    const item = upsert.mock.lastCall?.[0];
-    expect(item?.actions.map(action => [action.id, action.label])).toEqual([
-      ['allow', 'Accept'], ['deny', 'Decline'], ['cancel', 'Cancel'], ['open', 'Show in canvas'],
+    expect(upsert.mock.lastCall?.[0].actions.map(action => [action.id, action.label])).toEqual([
+      ['allow', 'Allow'],
+      ['always_allow', 'Always allow'],
+      ['deny', 'Deny'],
+      ['deny_with_message', 'Deny with message'],
+      ['open', 'Show in canvas'],
     ]);
-    expect(item?.actions.some(action => action.id === 'deny_with_message' || action.id === 'always_allow')).toBe(false);
-  });
-
-  it('labels all four native decisions', () => {
-    TestBed.inject(ChatAttentionSourceService);
-    permissions.set([{ id: 'codex-2', toolName: 'Bash', toolInput: {}, timestamp: 1, timeoutAt: 0,
-      description: '', tabId: 'tab-1', allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'] }]);
-    TestBed.tick();
-    expect(upsert.mock.lastCall?.[0].actions.map(action => action.label)).toEqual(
-      ['Accept', 'Accept for session', 'Decline', 'Cancel', 'Show in canvas']);
   });
 
   it('keeps session unavailable ahead of unknown tool for a tabless lane', () => {

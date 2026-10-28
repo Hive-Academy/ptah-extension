@@ -4,25 +4,8 @@ import { CommandCenterVoiceSessionService, TabManagerService, workspaceLabelFrom
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
 import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
 import { attentionRequestKey } from '@ptah-extension/shared';
-import type { AgentPermissionRequest, AskUserQuestionRequest, PermissionRequest, SessionApprovalDecision } from '@ptah-extension/shared';
+import type { AgentPermissionRequest, AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
 import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
-
-/**
- * Actions for a native (Codex) request, in display order. Accept and decline
- * reuse the `allow`/`deny` ids so the shared action row shows them as the
- * primary pair; the dispatcher resolves every id through this table, never
- * through the Claude decision vocabulary.
- */
-export const APPROVAL_DECISION_ACTIONS: readonly {
-  readonly decision: SessionApprovalDecision;
-  readonly id: string;
-  readonly label: string;
-}[] = [
-  { decision: 'accept', id: 'allow', label: 'Accept' },
-  { decision: 'acceptForSession', id: 'always_allow', label: 'Accept for session' },
-  { decision: 'decline', id: 'deny', label: 'Decline' },
-  { decision: 'cancel', id: 'cancel', label: 'Cancel' },
-];
 
 export type ChatAttentionRequest =
   | { kind: 'permission'; request: PermissionRequest; tabId?: string }
@@ -203,15 +186,12 @@ export class ChatAttentionSourceService {
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
     const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
     const open = !!resolvedSessionId && (surfaceOwned || (!!owner && !surfaceMode));
-    const allowed = target.kind === 'permission' ? target.request.allowedDecisions : undefined;
-    const actions: AttentionItem['actions'][number][] = allowed
-      ? APPROVAL_DECISION_ACTIONS.filter(action => allowed.includes(action.decision)).map(({ id, label }) => ({ id, label }))
-      : kind === 'question'
+    const actions: AttentionItem['actions'][number][] = kind === 'question'
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
       : [{ id: 'allow', label: 'Allow', ...(kind !== 'permission' && (!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
           ...(kind === 'permission' ? [{ id: 'always_allow', label: 'Always allow' }] : []),
           { id: 'deny', label: 'Deny', ...(kind !== 'permission' && !tabId && { disabledReason: 'Session unavailable' }) }];
-    if (kind === 'permission' && !allowed) actions.push({ id: 'deny_with_message', label: 'Deny with message' });
+    if (kind === 'permission') actions.push({ id: 'deny_with_message', label: 'Deny with message' });
     actions.push({ id: 'open', label: surfaceOwned || surfaceMode ? 'Open' : 'Show in canvas',
       ...(!open && { disabledReason: 'Session unavailable' }) });
     const item: AttentionItem = {

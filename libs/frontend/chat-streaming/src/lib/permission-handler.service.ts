@@ -27,25 +27,9 @@ import {
 import {
   type AskUserQuestionRequest,
   type AskUserQuestionResponse,
-  type SessionApprovalDecision,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
-
-/**
- * Wire form of a native (Codex) approval decision. `PermissionResponse` keeps
- * the Claude vocabulary, so the host maps it back: decline denies and lets the
- * turn continue (`deny_with_message`, no reason), cancel denies and stops it
- * (`deny`). The Electron IPC owner must mirror this table.
- */
-const APPROVAL_RESPONSE_DECISION: Readonly<
-  Record<SessionApprovalDecision, PermissionResponse['decision']>
-> = {
-  accept: 'allow',
-  acceptForSession: 'always_allow',
-  decline: 'deny_with_message',
-  cancel: 'deny',
-};
 
 @Injectable({ providedIn: 'root' })
 export class PermissionHandlerService {
@@ -447,16 +431,6 @@ export class PermissionHandlerService {
   handlePermissionResponse(response: PermissionResponse, tabId?: string): boolean {
     const pending = this._permissionRequests().find(request => request.id === response.id);
     if (!pending) return false;
-    // A native request accepts only its own decisions, never edited input or a message.
-    if (
-      pending.allowedDecisions &&
-      (response.modifiedInput !== undefined ||
-        response.reason !== undefined ||
-        !pending.allowedDecisions.some(
-          (decision) => APPROVAL_RESPONSE_DECISION[decision] === response.decision,
-        ))
-    )
-      return false;
     this.vscodeService.postMessage({
       type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,
@@ -494,24 +468,6 @@ export class PermissionHandlerService {
       this.bumpRoutingTargetRevision();
     }
     return true;
-  }
-
-  /**
-   * Answer a native (Codex) request with one of its `allowedDecisions`.
-   * Returns false when the request is gone, carries no `allowedDecisions`
-   * (a Claude prompt), or does not allow `decision`.
-   */
-  handleApprovalDecision(
-    requestId: string,
-    decision: SessionApprovalDecision,
-    tabId?: string,
-  ): boolean {
-    const pending = this._permissionRequests().find(request => request.id === requestId);
-    if (!pending?.allowedDecisions?.includes(decision)) return false;
-    return this.handlePermissionResponse(
-      { id: requestId, decision: APPROVAL_RESPONSE_DECISION[decision] },
-      tabId,
-    );
   }
 
   /**
