@@ -1,7 +1,7 @@
-# HANDOFF - TASK_2026_701_9e4b (session 8)
+# HANDOFF - TASK_2026_701_9e4b (session 11)
 
-Session 8 ended 2026-10-26 (token budget). Nothing is pushed. One Batch 19 subagent may still be
-running (see Background work).
+Session 11 ended 2026-10-28 (token budget, 43M). Draft PR #832 is open. Origin head is
+`30818d87e`. The P3 fix round is DONE BUT UNCOMMITTED in the worktree (see "In progress").
 
 ## Goal
 
@@ -11,110 +11,104 @@ refresh + provenance labels, Library edits vs. regeneration, explicit shared mod
 prompt rubric alignment, "No grade" expectation, Marketplace plugin skills/agents in the same
 flow. Electron first; visual reviews in Electron only, dark + light.
 
+The user revamps the setup-wizard UI separately. Do NOT add setup-wizard UI work beyond CI fixes.
+Obey D34 (onboarding-session constraint, see decisions.md).
+
 ## Location
 
 - Worktree: `D:\projects\ptah-extension\.claude-worktrees\wizard-library-alignment`
-- Branch: `feat/wizard-library-alignment`, base `38d9cc427`. Local only: no push, no PR yet.
+- Branch: `feat/wizard-library-alignment` (tracks origin). PR: https://github.com/Hive-Academy/ptah-extension/pull/832 (draft)
 - Task folder T: `<worktree>\.ptah\specs\TASK_2026_701_9e4b`
-- `node_modules` in the worktree is a junction to the main checkout (D17). Never `npm install`
-  there. Before `git worktree remove`, run `cmd /c rmdir node_modules`.
+- `node_modules` is a junction to the main checkout (D17). Never `npm install` there.
 
 ## Workflow state (orchestration skill, FEATURE, Full, approval mode `lane-review`)
 
-Gates 1, 1.7, 2: APPROVED. User decisions D3, D6-D11 are final; do not ask again.
-Executors: Claude subagents. Reviewers: codex lanes (review family codex, implementer family Claude).
-Accepted pre-existing failures: `ptah-extension-webview:lint` (D19), `@ptah-extension/agent-sdk:lint`
-(D21), degradation-audit flag `apps/ptah-electron/src/ipc/ipc-bridge.ts:324`.
+Gates 1, 1.7, 2: APPROVED. User decisions D3, D6-D11, D36, D37 final; do not ask again.
+Executors: Claude subagents. Reviewers: CLI lanes (`ptah_agent_spawn`: omit `taskKind`/
+`routingSource`; codex cannot run git, give it patch files).
+Lane limits at session end: codex Weekly 93% (resets 2026-11-02 08:07 UTC) - use it sparingly;
+opencode AT LIMIT (monthly, resets 2026-11-04); Glm (ptah-cli `pc-355b645d-35af-4974-84cf-9cf961ea0164`,
+Ollama Cloud, a non-Claude family) worked well for the style review.
 
-## Done in session 8 (verified)
+Accepted pre-existing failures: `ptah-extension-webview:lint` (D19, circular dep
+`app.routes.ts:224`), `@ptah-extension/agent-sdk:lint` (D21), `@ptah-extension/core:lint` (D35),
+audit flag `apps/ptah-electron/src/ipc/ipc-bridge.ts:324`. GitGuardian incidents 39165257 /
+39165258 on old commits: the user must mark them false positive in the dashboard.
 
-Commits (on top of `ac227e30f` Batch 17):
-- `74501c8d2 fix(cli,platform-core,rpc-handlers,agent-generation): p2 backend fixes` (A1-A4, S1, S2;
-  report `T/reports/p2-fix-round-backend-report.md`).
-- `be9f73ef8 fix(setup-wizard): p2 frontend fixes` (B1, B2/B4, B5, S1, M1; plus a stale
-  `completion.component.spec.ts` expectation fixed for B5 safe copy; Batch 17 SHA added in batches.md).
-- `dcbfee9ac` merge of `origin/main` (no file overlap; brings the 2-slot memory-gated verify lock,
-  CLAUDE.md verify rules updated).
-- `6bba1367a fix(platform-core,agent-generation): serialize Ptah destination writes` (A2 closure:
-  `libs/backend/platform-core/src/utils/destination-write-lock.ts`, used by
-  `file-writer.service.ts` and `agent-pack-download.service.ts`; report `T/reports/p2-a2-completion-report.md`).
+## Done in session 11
 
-Verification:
-- Combined verify before the commits (15 projects incl. all hosts): `92 tasks: 90 succeeded, 2 failed`
-  = D19 webview lint + setup-wizard completion spec (then fixed; setup-wizard test re-run passed).
-- After A2: `npm run verify -- -p @ptah-extension/platform-core,@ptah-extension/agent-generation,@ptah-extension/rpc-handlers,ptah-cli,ptah-electron,ptah-extension-vscode,ptah-tui`
-  -> `68 tasks: 68 succeeded`. NOTE: an earlier run of the same command showed 10 false failures
-  because the Bash background limit (600 s) killed it; run long verifies in the background with
-  `timeout: 3600000`.
+| Item | Result |
+| --- | --- |
+| CI on `82cb4b699` | `checks` and `webview-e2e` PASS; webview initial total 3.87 MB < 4.00 MB (D38). Budget unchanged |
+| `c9ffaae68` Batch 24 | consent local-files section, install counters, `KeptItemsRepairPromptComponent`; verify 5/6, only D19 lint. Pushed |
+| `30818d87e` Batch 25 | installed view provenance/contents/shadow, multi-word search, `PluginConfigHomeNoticeComponent`; verify 5/6, only D19 lint. Pushed |
+| Keep-alive | `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`: 55/55 PASS (on 30818d87e; the fix round started during the run, so run it again) |
+| P3 code-logic review | codex, REVISE 5/10, `T/reviews/p3-code-logic-review.md` (L1 Blocking, L2 Blocking, L3 Serious; all spot-checked, confirmed). codex session `01a17f50-afc3-7d02-86da-200f99e20969` |
+| P3 style review | Glm, REVISE 7/10, `T/reviews/p3-code-style-review.md` (S1 Serious, S2/S3 Moderate, S4/S5 Minor). Glm session `4dfe0eea-f37e-4e90-97a9-b27340eda2be` |
+| Decisions | D38-D42 added in decisions.md (D39 repair prompt only for no-dialog families; D40 raw errors; D41 open gaps; D42 fix-round scope) |
+| Batches 24, 25 | marked COMPLETE in `T/batches.md` |
 
-Reviews (codex):
-- `T/reviews/p2-fix-rereview.md`: REVISE 6/10, 10 of 11 FIXED, A2 PARTIAL -> closed by 6bba1367a.
-- `T/reviews/p2-a2-rereview.md`: A2 FIXED, `Verdict: APPROVED — 8/10`, no new defects. **P2 is closed.**
-- decisions.md: D33 added (uncommitted) for this round.
+## In progress - P3 fix round (uncommitted, subagents finished)
 
-## In progress (uncommitted, do not lose)
+Reports: `T/reports/p3-fix-backend-report.md`, `T/reports/p3-fix-frontend-report.md`.
 
-**Batch 19 (P3, backend-developer subagent)**: Tasks 19.1 + 19.2 per `T/batches.md` "## Batch 19".
-Uncommitted files at session end:
-- M `apps/ptah-cli/src/di/container.smoke.spec.ts`, `apps/ptah-electron/src/di/container.smoke.spec.ts`,
-  `apps/ptah-extension-vscode/src/di/container.smoke.spec.ts`
-- M `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts` (+ spec),
-  `libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts`
-- NEW `libs/backend/rpc-handlers/src/lib/handlers/marketplace/`, `.../handlers/skill-synthesis/`
-The subagent was waiting on its own verify run; its report `T/reports/batch-19-report.md` did NOT
-exist yet. Completeness and compile state are UNKNOWN until that report exists.
+- Backend (L1, S1, S2): new `libs/backend/rpc-handlers/src/lib/handlers/marketplace/plugin-local-items.service.ts`
+  (+ spec) holds the local-item helpers; `plugin-rpc.handlers.ts` 1514 -> 1294 lines; external
+  confirm runs a final awaited Library pass after replacements and reports it; one kind->reason map.
+  Also changed: `marketplace-local-items.service.ts`, `plugin-rpc.handlers.spec.ts`,
+  `register-shared-rpc-handlers.ts`. Subagent verify: first run failed `rpc-handlers:test` (ESM in
+  new spec), fixed; re-run of rpc-handlers lint+test 2/2 PASS. NOT yet verified by the orchestrator.
+  CHECK: whether the new DI service needs the host DI guard specs (`container.smoke.spec.ts`,
+  `expected-resolvable.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`) updated.
+- Frontend (L2, L3, D41c): `marketplace-inventory.store.ts` listens to `LibraryChangeFeed`, reloads
+  requested slices, `libraryPassFailed` root-scoped; new child
+  `pages/skills/installed-library-stale-notice.component.ts` (NO spec file - add one or confirm it is
+  covered by the page spec); config-home notice passes `libraryPass: 'failed'`; consent dialog and
+  repair prompt show fixed copy (sentinel-path specs). Subagent verify 5/6, only D19 lint.
+  Subagent choices to confirm: notice text "The Library may be out of date until its next refresh."
+  with `role="status"`; repair prompt keeps host text for replies with an `errorCode`.
+- Deferred (record in PR body as later tasks): style S3 (two Zod idioms), S4, S5; D41 (a) kept-file
+  notes need a backend read RPC, (b) turned-off-copy footer; six older raw-error sites in
+  `external-marketplaces.component.ts` (load/add/remove/browse/plan/uninstall, pre-date this task);
+  `external-marketplaces.component.ts` split (D40).
 
-Other uncommitted task files: `T/decisions.md` (D33), `T/reviews/p2-a2-rereview.md`. Patch files
-`T/reviews/*.patch` are reviewer inputs; do not commit them.
+## Uncommitted / never commit
 
-## Open items
-
-- Deferred to TASK-P2-FOLLOWUP (D32): B3, B6, B7, B8, completion rows in parity-inventory.md, and the
-  frontend notes: raw error `console.warn` in setup-wizard; proposed removal of
-  `SetupWizardStateService.agentInstallStatus`/`setAgentInstallStatus` (needs user approval);
-  `completion.component.ts:159-160` still renders raw `completion().errors`.
-- D22 still open for the user: `~/.ptah/harness/state.json` `agentSyncEnabled: false`.
-- D31: the Electron visual review needs the user to start the app (or allow `dev`).
-
-## Background work
-
-- Batch 19 backend-developer subagent (Agent tool, background, started ~17:35 UTC). It belongs to the
-  previous session and cannot be resumed from a new session. Check: does `T/reports/batch-19-report.md`
-  exist? If not, treat Batch 19 as partial (see Next step 1).
-- No codex lane is running. Last codex session ids: `01a1791e-abff-7bd1-97a0-ee18de8b839a` (P2
-  re-review), `01a17947-c8d2-7a21-9f0c-d728d9ae1125` (A2 re-check). Resume often starts fresh when the
-  history is over 60k tokens; give full instructions.
-
-## Lanes
-
-codex: room (weekly 36% at 2026-10-26, resets 2026-11-02). opencode: AT LIMIT until 2026-11-04.
-`ptah_agent_spawn` rejects `taskKind`/`routingSource`: omit them. Codex reviewers cannot run git:
-give them patch files. Lane signals from other worktrees (chat-layout-declutter, etc.) are NOT this task.
+- Commit with the fix round: the code files above, `T/decisions.md`, `T/HANDOFF.md`,
+  `T/reports/p3-fix-*.md`, `T/reviews/p3-code-logic-review.md`, `T/reviews/p3-code-style-review.md`.
+- Never commit: `T/reviews/*.patch`, `T/tmp/`.
 
 ## Next steps
 
-1. Batch 19: if `T/reports/batch-19-report.md` exists, read it. If not, start a fresh
-   backend-developer subagent to audit the uncommitted Batch 19 files against Tasks 19.1/19.2 in
-   `T/batches.md`, finish what is missing, and write that report (must not touch libs/frontend or
-   the A2 lock files). Then verify (background, `timeout: 3600000`):
-   `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli > /tmp/b19.log 2>&1; echo "exit $?"; sed 's/\x1b\[[0-9;]*m//g' /tmp/b19.log | grep -E "Running target|tasks:|✖|error TS" | head -20`
-2. Commit Batch 19 in the foreground with explicit paths (scope `rpc-handlers` plus `electron`/`cli`
-   as needed per `.commitlintrc.json`), include `T/decisions.md`, `T/reviews/p2-a2-rereview.md`,
-   `T/reports/batch-19-report.md`, this HANDOFF.md; mark Batch 19 COMPLETE with SHA in batches.md.
-   End message with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-3. Batches 20 -> 21 -> 22/23 -> 24/25 in order per `T/batches.md` (20 backend; 21-25 frontend;
-   22 depends on 19 only). Each: subagent, its batch verify command, commit.
-4. P3 phase review: one codex code-logic review on the P3 diff (patch file) + style review for the
-   new RPCs (Batch 20). One fix round, one short re-review.
-5. P4 (Batch 26) + codex logic review. Then the combined Electron visual review (D31, D15: F7i
-   notice states, F6 link; dark, light, ~400px) — needs the user to start Electron.
-6. Team-leader MODE 3, then push + `gh pr create` in the background against `main` (title < 70
-   chars, `## Summary` + `## Test plan` with real results, end with the Claude Code line). Watch CI
-   and reviews; fix confirmed findings. No merge, force push or worktree removal.
+1. Read this file, then `T/decisions.md` D34-D42, then both `T/reports/p3-fix-*.md`.
+2. Verify the fix round yourself (one run, background, timeout 3600000):
+   `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/marketplace,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-extension-webview > /tmp/p3fix.log 2>&1; echo "exit $?"; sed 's/\x1b\[[0-9;]*m//g' /tmp/p3fix.log | grep -E "Running target|tasks:|✖|error TS|FAIL" | head -30`
+   Only `ptah-extension-webview:lint` (D19) may fail. Then the keep-alive:
+   `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`
+3. Make a fix patch (`git diff > T/reviews/p3-fix-diff.patch` plus the untracked new files, e.g.
+   `git add -N <new files>` first, or `git diff --no-index /dev/null <file>`). Resume the codex
+   reviewer (`resume_session_id 01a17f50-afc3-7d02-86da-200f99e20969`, cli codex) for ONE short
+   re-review of L1-L3 + D41c, deliverable `reviews/p3-fix-rereview.md`. If codex is at its limit,
+   use Glm (resume `4dfe0eea-...` for S1/S2) and record the reason. Record the verdict in decisions.md.
+4. Commit in the foreground with explicit paths (scopes from `.commitlintrc.json`, e.g.
+   `fix(rpc-handlers,marketplace): ...`), then push in the background. Watch `gh pr checks 832`.
+5. Batch 26 (generation prompt rubric, `libs/backend/agent-generation`, `T/batches.md` "Batch 26")
+   with a backend-developer subagent, its verify, a codex (or other non-Claude) logic review. If it
+   touches `wizard-generation-rpc.handlers.ts`, flag it in the PR body (D34).
+6. Electron visual review (D31, D15; dark, light, ~400 px): F6 pointer, F7i states, provenance
+   badge, consent local-files section, repair prompt, config-home notice, Library stale notice,
+   setup-wizard steps after the @defer/entry change. The user must start Electron.
+7. Team-leader MODE 3. Update the PR body (`gh pr edit 832 --body-file <worktree>\.ptah\tmp\pr-701-body.md`):
+   Batches 20-26, the bundle fix and the `@ptah-extension/setup-wizard/app` entry (D34 mention),
+   D39-D42, deferred items, actual verify results. Mark ready only when the user agrees.
 
-Rules for every lane and subagent: scoped `npm run verify -- -p ...` only, one run, output
-filtered; never workspace-wide; never build/serve/dev/e2e/package; Electron first; keep every host
-compiling; executors never commit/push or edit batches.md/task.md/decisions.md; never git
-stash/restore/checkout/reset/clean; specs never write outside a temp or mocked root; never
-`npm install` in the worktree. Parallel executors in one lib run only their own specs; the
-orchestrator runs the combined verify.
+## Rules for every lane and subagent
+
+Scoped `npm run verify -- -p ...` only, one run, output filtered, long runs in background with
+timeout 3600000; never workspace-wide; never build/serve/dev/e2e/package (except a build the user
+approves); Electron first; keep every host compiling; executors never commit/push or edit
+batches.md/task.md/decisions.md/HANDOFF.md; never git stash/restore/checkout/reset/clean; never
+`npm install` in the worktree. Commit in the foreground with explicit paths and
+`.commitlintrc.json` scopes (`plugin-marketplace` is not a scope); push in the background. Do not
+commit while a subagent edits files (lint-staged). No merge to main, force push, history rewrite or
+worktree removal.

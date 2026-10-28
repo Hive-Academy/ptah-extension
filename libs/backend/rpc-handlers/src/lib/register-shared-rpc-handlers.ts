@@ -44,6 +44,7 @@ import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.hand
 import { LocalItemApprovals } from './handlers/marketplace/local-item-approvals';
 import { InstallLocalItemsService } from './handlers/marketplace/install-local-items.service';
 import { MarketplaceLocalItemsService } from './handlers/marketplace/marketplace-local-items.service';
+import { PluginLocalItemsService } from './handlers/marketplace/plugin-local-items.service';
 import { CloneRebaseService } from './handlers/skill-synthesis/clone-rebase.service';
 import { CloneProvenanceResolver } from './handlers/skill-synthesis/clone-provenance.resolver';
 
@@ -100,6 +101,8 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(InstallLocalItemsService);
   // Finds and registers the local items an install plan or kept report offers.
   container.registerSingleton(MarketplaceLocalItemsService);
+  // The plugin RPCs' local-item steps (plan, confirm, save); stateless.
+  container.registerSingleton(PluginLocalItemsService);
   // Library provenance (B13); stateless, reads the live sources per listing.
   container.registerSingleton(CloneProvenanceResolver);
   container.registerSingleton(

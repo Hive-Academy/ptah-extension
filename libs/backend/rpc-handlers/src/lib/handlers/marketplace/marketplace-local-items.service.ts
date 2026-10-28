@@ -347,7 +347,11 @@ function cloneRelPath(kind: SkillCloneKind, slug: string): string {
   }
 }
 
-function keptReasonFor(kind: ExternalLocalItemKind): KeptItemReason {
+/**
+ * Why a local item that stays in place is kept: the one kind -> reason map,
+ * shared with the external confirm's plan report.
+ */
+export function keptReasonFor(kind: ExternalLocalItemKind): KeptItemReason {
   switch (kind) {
     case 'unowned':
       return 'unowned';

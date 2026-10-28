@@ -239,19 +239,21 @@ describe('ExternalConsentDialogComponent', () => {
 
   it('renders an error without dismissing the dialog', () => {
     render(makePlan());
-    fixture.componentRef.setInput('errorMessage', 'consent token expired');
+    fixture.componentRef.setInput('installFailed', true);
     fixture.detectChanges();
 
     expect(dialog()).toBeTruthy();
-    expect(dialog()?.textContent).toContain('consent token expired');
+    const alert = host.querySelector('[data-testid="external-consent-error"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Install failed. Ptah removes what it wrote for this install where it ' +
+        'can. Check the files listed in the install report, then retry.',
+    );
   });
 
   it('shows a failed confirm as "Install failed" with "Retry install"', () => {
     render(makePlan());
-    fixture.componentRef.setInput(
-      'errorMessage',
-      'Could not write .claude/skills/db-review/SKILL.md (permission denied).',
-    );
+    fixture.componentRef.setInput('installFailed', true);
     fixture.detectChanges();
 
     const alert = host.querySelector('[role="alert"]');
@@ -260,6 +262,14 @@ describe('ExternalConsentDialogComponent', () => {
       'Ptah removes what it wrote for this install where it can.',
     );
     expect(confirmButton()?.textContent?.trim()).toBe('Retry install');
+  });
+
+  it('shows no failure before a failed confirm', () => {
+    render(makePlan());
+    expect(
+      host.querySelector('[data-testid="external-consent-error"]'),
+    ).toBeNull();
+    expect(confirmButton()?.textContent?.trim()).toBe('Install .NET Test');
   });
 
   // ── Local files this install would replace (design 3.3) ────────────────────
@@ -342,7 +352,7 @@ describe('ExternalConsentDialogComponent', () => {
 
     it('sits after the shadowed block and before the error', () => {
       render(acmePlan());
-      fixture.componentRef.setInput('errorMessage', 'write failed.');
+      fixture.componentRef.setInput('installFailed', true);
       fixture.detectChanges();
       const text = dialog()?.textContent ?? '';
       const shadowed = text.indexOf('Some skills will not take effect');

@@ -7,7 +7,11 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  PluginCatalogService,
+  WorkspaceScopeService,
+} from '@ptah-extension/core';
 import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import type {
   PluginConfigHomeCandidate,
@@ -150,7 +154,8 @@ export function configHomeFailure(action: ConfigHomeAction): string {
  * Reads `PluginCatalogService.configHome` and renders nothing when it is
  * `null`. A button calls `plugins:resolve-config-home` and then reloads the
  * catalogue through the inventory's plugins slice; every button is disabled
- * while a call runs. A failure is emitted as fixed copy through `failed` for
+ * while a call runs. The answer's `libraryPass` goes to the inventory, whose
+ * failed-pass state drives the page's C10 notice. A failure is emitted as fixed copy through `failed` for
  * the page's config-change failure state (`actionError`); `failed(null)`
  * clears it when the next call starts.
  */
@@ -197,6 +202,7 @@ export class PluginConfigHomeNoticeComponent {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly catalog = inject(PluginCatalogService);
   private readonly inventory = inject(MarketplaceInventoryStore);
+  private readonly scope = inject(WorkspaceScopeService);
 
   /** Fixed failure copy for the page's `actionError`, or `null` to clear it. */
   public readonly failed = output<string | null>();
@@ -224,6 +230,7 @@ export class PluginConfigHomeNoticeComponent {
   private async resolve(action: ConfigHomeAction): Promise<void> {
     this.busyKey.set(action.key);
     this.failed.emit(null);
+    const workspace = this.scope.generation();
     let ok: boolean;
     try {
       const result = await this.rpc.call(
@@ -232,9 +239,14 @@ export class PluginConfigHomeNoticeComponent {
         { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS },
       );
       ok = result.isSuccess();
-      // The catalogue carries the new status; a failed reload shows as the
-      // plugins group's own load error.
-      if (ok) await this.inventory.reload('plugins');
+      if (result.isSuccess()) {
+        // C10: an adopt whose files were written but whose Library pass
+        // failed. Recorded before the reload so the page says so at once.
+        this.inventory.recordLibraryPass(result.data.libraryPass, workspace);
+        // The catalogue carries the new status; a failed reload shows as the
+        // plugins group's own load error.
+        await this.inventory.reload('plugins');
+      }
     } catch {
       // degradation-audit: reported — fixed copy in the page's actionError.
       ok = false;

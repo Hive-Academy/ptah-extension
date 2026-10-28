@@ -23,11 +23,15 @@ function ok<T>(data: T) {
   };
 }
 
-function fail(error: string) {
+/** An absolute local path that must never reach the rendered prompt. */
+const SENTINEL_PATH = 'C:\\Users\\secret\\x';
+
+function fail(error: string, errorCode?: string) {
   return {
     success: false,
     data: undefined,
     error,
+    ...(errorCode === undefined ? {} : { errorCode }),
     isSuccess: (): boolean => false,
   };
 }
@@ -290,7 +294,10 @@ describe('KeptItemsRepairPromptComponent', () => {
 
   it('keeps the prompt open with the choices after a failed call', async () => {
     rpcMock.call.mockResolvedValue(
-      fail('Some of these items can no longer be replaced from here.'),
+      fail(
+        'Some of these items can no longer be replaced from here.',
+        'INVALID_PARAMS',
+      ),
     );
     render('plugin-agent');
     const closed = jest.fn();
@@ -306,6 +313,22 @@ describe('KeptItemsRepairPromptComponent', () => {
     );
     expect(component.replaceCount()).toBe(1);
     expect(confirmButton()?.disabled).toBe(false);
+  });
+
+  it('never renders a raw host failure (no error code), only fixed copy', async () => {
+    rpcMock.call.mockResolvedValue(
+      fail(`EACCES: permission denied, open '${SENTINEL_PATH}'`),
+    );
+    render('plugin-agent');
+    component.setAll('replace');
+    fixture.detectChanges();
+    confirmButton()?.click();
+    await settle();
+    const alert = host.querySelector('[role="alert"]')?.textContent ?? '';
+    expect(alert).toContain('the replace request did not complete.');
+    expect(host.textContent).not.toContain(SENTINEL_PATH);
+    expect(host.textContent).not.toContain('secret');
+    expect(host.textContent).not.toContain('EACCES');
   });
 
   it('uses fixed copy for a thrown transport error', async () => {

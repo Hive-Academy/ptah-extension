@@ -132,6 +132,7 @@ import { EXTERNAL_PLUGIN_MCP_TOKEN } from './external-plugin-mcp.service';
 import { LocalItemApprovals } from './marketplace/local-item-approvals';
 import type { InstallLocalItemsService } from './marketplace/install-local-items.service';
 import type { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
+import { PluginLocalItemsService } from './marketplace/plugin-local-items.service';
 
 /** The workspace folder every handler in this suite sees as open. */
 const WORKSPACE_ROOT = 'C:\\ws';
@@ -480,6 +481,18 @@ function makeHarness(
   const localItems = createMockLocalItems();
   const installLocalItems = createMockInstallLocalItems();
   const approvals = new LocalItemApprovals();
+  // The real local-item steps over the mocked collaborators, so every
+  // plan / confirm / save case below exercises the code the handler delegates to.
+  const pluginLocalItems = new PluginLocalItemsService(
+    logger as unknown as Logger,
+    sentry as unknown as SentryService,
+    pluginLoader as unknown as PluginLoaderService,
+    externalInstaller as unknown as ConstructorParameters<
+      typeof PluginLocalItemsService
+    >[3],
+    localItems as unknown as MarketplaceLocalItemsService,
+    installLocalItems as unknown as InstallLocalItemsService,
+  );
 
   const handlers = new PluginRpcHandlers(
     logger as unknown as Logger,
@@ -499,7 +512,7 @@ function makeHarness(
       typeof PluginRpcHandlers
     >[9],
     container,
-    localItems as unknown as MarketplaceLocalItemsService,
+    pluginLocalItems,
     installLocalItems as unknown as InstallLocalItemsService,
     approvals,
   );
@@ -1899,6 +1912,98 @@ describe('PluginRpcHandlers — harness root, config home and local items (TASK_
       expect('planLocalItems' in response.result).toBe(false);
     });
 
+    /** An apply report that replaced {@link ITEM_EDITED}. */
+    function replacedEdited() {
+      return {
+        replaced: [
+          {
+            approvalId: ITEM_EDITED.approvalId,
+            family: 'external' as const,
+            target: 'claude',
+            relPath: ITEM_EDITED.relPath,
+            reason: 'owned-edited' as const,
+          },
+        ],
+        kept: [],
+        unknown: [],
+      };
+    }
+
+    it('runs a final awaited Library pass after the replacements and reports that pass', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED]),
+      );
+      h.installLocalItems.apply.mockResolvedValue(replacedEdited());
+      // The activation pass fails, the final one succeeds: the response must
+      // carry the final pass, the one that saw the replaced bytes.
+      h.harnessPropagation.propagateWithReport
+        .mockResolvedValueOnce({ health: makeHealth(), userLayer: 'failed' })
+        .mockResolvedValueOnce({
+          health: makeHealth(),
+          userLayer: 'refreshed',
+        });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { replaced?: ExternalLocalItem[]; libraryPass?: string };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { [ITEM_EDITED.approvalId]: 'replace' },
+      });
+
+      const passes = h.harnessPropagation.propagateWithReport;
+      expect(passes).toHaveBeenCalledTimes(2);
+      expect(passes).toHaveBeenLastCalledWith(
+        HARNESS_ROOT,
+        'plugins:install-external',
+        {},
+      );
+      // install -> activation pass -> replace -> final pass.
+      const applyOrder = h.installLocalItems.apply.mock.invocationCallOrder[0];
+      expect(
+        h.externalInstaller.confirmInstall.mock.invocationCallOrder[0],
+      ).toBeLessThan(passes.mock.invocationCallOrder[0]);
+      expect(passes.mock.invocationCallOrder[0]).toBeLessThan(applyOrder);
+      expect(applyOrder).toBeLessThan(passes.mock.invocationCallOrder[1]);
+      expect(response.status).toBe('installed');
+      expect(response.result.replaced).toEqual([ITEM_EDITED]);
+      expect(response.result.libraryPass).toBe('updated');
+    });
+
+    it('a failed final pass after a replacement keeps the install and reports libraryPass failed', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED]),
+      );
+      h.installLocalItems.apply.mockResolvedValue(replacedEdited());
+      h.harnessPropagation.propagateWithReport
+        .mockResolvedValueOnce({
+          health: makeHealth(),
+          userLayer: 'refreshed',
+        })
+        .mockRejectedValueOnce(new Error('mirror failed'));
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { replaced?: ExternalLocalItem[]; libraryPass?: string };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { [ITEM_EDITED.approvalId]: 'replace' },
+      });
+
+      expect(h.harnessPropagation.propagateWithReport).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe('installed');
+      expect(response.result.replaced).toEqual([ITEM_EDITED]);
+      expect(response.result.libraryPass).toBe('failed');
+    });
+
     it('applies nothing when every decision is keep', async () => {
       const h = makeHarness();
       h.externalInstaller.confirmInstall.mockResolvedValue(
@@ -1917,6 +2022,8 @@ describe('PluginRpcHandlers — harness root, config home and local items (TASK_
       );
 
       expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+      // No replacement: the activation pass is the only one.
+      expect(h.harnessPropagation.propagateWithReport).toHaveBeenCalledTimes(1);
       expect(response.result.kept).toEqual([
         {
           approvalId: ITEM_EDITED.approvalId,

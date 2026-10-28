@@ -9,7 +9,11 @@
 
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService, PluginCatalogService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  PluginCatalogService,
+  WorkspaceScopeService,
+} from '@ptah-extension/core';
 import type {
   PluginConfigHomeCandidate,
   PluginConfigHomeStatus,
@@ -60,7 +64,9 @@ function status(
 @Component({
   standalone: true,
   imports: [PluginConfigHomeNoticeComponent],
-  template: `<ptah-plugin-config-home-notice (failed)="failures.push($event)" />`,
+  template: `<ptah-plugin-config-home-notice
+    (failed)="failures.push($event)"
+  />`,
 })
 class HostComponent {
   public readonly failures: (string | null)[] = [];
@@ -71,6 +77,8 @@ describe('PluginConfigHomeNoticeComponent', () => {
   let configHome: ReturnType<typeof signal<PluginConfigHomeStatus | null>>;
   let call: jest.Mock;
   let reload: jest.Mock;
+  let recordLibraryPass: jest.Mock;
+  let generation: ReturnType<typeof signal<number>>;
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const notices = (): HTMLElement[] =>
@@ -95,6 +103,8 @@ describe('PluginConfigHomeNoticeComponent', () => {
     configHome = signal<PluginConfigHomeStatus | null>(null);
     call = jest.fn().mockResolvedValue(ok({}));
     reload = jest.fn().mockResolvedValue(undefined);
+    recordLibraryPass = jest.fn();
+    generation = signal(4);
     TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
@@ -103,7 +113,14 @@ describe('PluginConfigHomeNoticeComponent', () => {
           provide: PluginCatalogService,
           useValue: { configHome: configHome.asReadonly() },
         },
-        { provide: MarketplaceInventoryStore, useValue: { reload } },
+        {
+          provide: MarketplaceInventoryStore,
+          useValue: { reload, recordLibraryPass },
+        },
+        {
+          provide: WorkspaceScopeService,
+          useValue: { generation: generation.asReadonly() },
+        },
       ],
     });
     fixture = TestBed.createComponent(HostComponent);
@@ -205,6 +222,35 @@ describe('PluginConfigHomeNoticeComponent', () => {
     expect(fixture.componentInstance.failures).toEqual([null]);
   });
 
+  it('hands an adopt answer of libraryPass failed to the inventory (C10) before the reload', async () => {
+    call.mockResolvedValue(ok({ libraryPass: 'failed' }));
+    configHome.set(status('differs', [candidate('C:\\repo\\web')]));
+    fixture.detectChanges();
+
+    buttons()[0].click();
+    // The workspace the call started under is the one recorded, even when the
+    // generation moves before the answer lands (the store then drops it).
+    generation.set(5);
+    await settle();
+
+    expect(recordLibraryPass).toHaveBeenCalledWith('failed', 4);
+    expect(recordLibraryPass.mock.invocationCallOrder[0]).toBeLessThan(
+      reload.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('records nothing when the call fails', async () => {
+    call.mockResolvedValue(fail('C:\\Users\\secret\\x'));
+    configHome.set(status('differs', [candidate('C:\\repo\\web')]));
+    fixture.detectChanges();
+
+    buttons()[0].click();
+    await settle();
+
+    expect(recordLibraryPass).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.failures.at(-1)).not.toContain('secret');
+  });
+
   it('disables every button and marks the notice busy while the call runs', async () => {
     let answer!: (value: unknown) => void;
     call.mockReturnValue(new Promise((resolve) => (answer = resolve)));
@@ -230,21 +276,24 @@ describe('PluginConfigHomeNoticeComponent', () => {
   it.each([
     ['a failed result', () => Promise.resolve(fail('EACCES: C:\\repo\\x'))],
     ['a thrown error', () => Promise.reject(new Error('socket hang up'))],
-  ])('emits fixed failure copy for %s and does not reload', async (_, answer) => {
-    call.mockImplementation(answer);
-    configHome.set(status('differs', [candidate('C:\\repo\\web')]));
-    fixture.detectChanges();
+  ])(
+    'emits fixed failure copy for %s and does not reload',
+    async (_, answer) => {
+      call.mockImplementation(answer);
+      configHome.set(status('differs', [candidate('C:\\repo\\web')]));
+      fixture.detectChanges();
 
-    buttons()[0].click();
-    await settle();
+      buttons()[0].click();
+      await settle();
 
-    expect(fixture.componentInstance.failures).toEqual([
-      null,
-      'Could not use the plugin settings from web. Try again.',
-    ]);
-    expect(reload).not.toHaveBeenCalled();
-    expect(buttons().every((b) => !b.disabled)).toBe(true);
-  });
+      expect(fixture.componentInstance.failures).toEqual([
+        null,
+        'Could not use the plugin settings from web. Try again.',
+      ]);
+      expect(reload).not.toHaveBeenCalled();
+      expect(buttons().every((b) => !b.disabled)).toBe(true);
+    },
+  );
 
   describe('relativeFolder', () => {
     it.each([

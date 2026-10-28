@@ -659,7 +659,7 @@ describe('ExternalMarketplacesComponent', () => {
       expect(dialog?.textContent).toContain('no longer valid');
       // Being asked again is the protocol working, not a failure — so nothing
       // renders in the error slot.
-      expect(component.consentError()).toBeNull();
+      expect(component.consentFailed()).toBe(false);
       expect(component.lastInstall()).toBeNull();
 
       // Confirming the fresh plan carries the NEW token, never the stale one.
@@ -690,10 +690,70 @@ describe('ExternalMarketplacesComponent', () => {
       await clickInstall();
       await clickConfirm();
 
-      expect(component.consentError()).toBe('consent token expired');
+      expect(component.consentFailed()).toBe(true);
       expect(component.pendingPlan()).not.toBeNull();
       expect(query('[data-testid="external-consent"]')).toBeTruthy();
       expect(component.lastInstall()).toBeNull();
+    });
+
+    describe('failure text never reaches the dialog (D40, P3 L3)', () => {
+      /** An absolute local path that must never be rendered. */
+      const SENTINEL = 'C:\\Users\\secret\\x';
+
+      const consentAfter = (second: () => unknown): void => {
+        setResponder('plugins:install-external', () =>
+          installCalls().length > 1
+            ? second()
+            : ok({
+                status: 'consent-required',
+                reason: 'not-yet-approved',
+                plan: makePlan(),
+              }),
+        );
+      };
+
+      const expectFixedCopyOnly = (): void => {
+        const dialog = query('[data-testid="external-consent"]');
+        expect(dialog).toBeTruthy();
+        const text = dialog?.textContent ?? '';
+        expect(text).toContain('Install failed.');
+        expect(text.replace(/\s+/g, ' ')).toContain(
+          'Check the files listed in the install report, then retry.',
+        );
+        expect(text).not.toContain(SENTINEL);
+        expect(text).not.toContain('secret');
+        expect(text).not.toContain('EACCES');
+        expect(
+          query<HTMLButtonElement>(
+            '[data-testid="external-consent-confirm"]',
+          )?.textContent?.trim(),
+        ).toBe('Retry install');
+      };
+
+      it('for a failed RPC envelope', async () => {
+        consentAfter(() =>
+          fail(`EACCES: permission denied, open '${SENTINEL}\\SKILL.md'`),
+        );
+        await createAndBrowse();
+        await clickInstall();
+        await clickConfirm();
+
+        expectFixedCopyOnly();
+      });
+
+      it('for a thrown error', async () => {
+        consentAfter(() => {
+          throw new Error(
+            `ENOSPC: no space left on device, write '${SENTINEL}'`,
+          );
+        });
+        await createAndBrowse();
+        await clickInstall();
+        await clickConfirm();
+
+        expectFixedCopyOnly();
+        expect(component.consentFailed()).toBe(true);
+      });
     });
 
     describe('local items and the kept-items repair route', () => {

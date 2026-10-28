@@ -28,6 +28,9 @@ import type {
 /** Keep segment label for a file on disk. */
 export const KEEP_FILE_LABEL = 'Keep my file';
 
+/** Fixed reason when the replace call failed without a deliberate refusal. */
+const REPLACE_FAILED_COPY = 'the replace request did not complete.';
+
 /** C10 copy after a successful write whose Library refresh failed. */
 export const LIBRARY_STALE_NOTE =
   'The Library may be out of date until its next refresh. The files were installed.';
@@ -656,8 +659,14 @@ export class KeptItemsRepairPromptComponent {
       );
       if (this.destroyed) return;
       if (!response.isSuccess()) {
+        // Only a deliberate refusal (an `RpcUserError`, which carries an
+        // `errorCode`) is written as user copy. Any other failure text is the
+        // raw exception (filesystem paths, OS detail) and stays in the host
+        // log; the prompt shows fixed copy instead.
         this.errorMessage.set(
-          response.error ?? 'the replace request did not complete.',
+          response.errorCode !== undefined && response.error
+            ? response.error
+            : REPLACE_FAILED_COPY,
         );
         return;
       }
@@ -666,7 +675,7 @@ export class KeptItemsRepairPromptComponent {
     } catch {
       // A thrown transport error carries no user-facing text; fixed copy only.
       if (this.destroyed) return;
-      this.errorMessage.set('the replace request did not complete.');
+      this.errorMessage.set(REPLACE_FAILED_COPY);
     } finally {
       if (!this.destroyed) this.busy.set(false);
     }

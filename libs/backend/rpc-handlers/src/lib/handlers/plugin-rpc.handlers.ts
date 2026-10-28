@@ -61,7 +61,6 @@ import {
   ExternalPluginInstallerService,
   ExternalPluginStateStore,
   MarketplaceRegistryService,
-  PLUGIN_INSTALL_PLAN_TTL_MS,
   PLUGIN_MARKETPLACE_TOKENS,
   PluginMarketplaceError,
   type ConfirmedExternalInstall,
@@ -77,12 +76,9 @@ import type {
   PluginConfigStateWithHome,
   PluginSkillEntry,
   ExternalConsentReason,
-  ExternalInstallPlan,
   ExternalInstallResponse,
-  ExternalLocalItem,
   FileDecision,
   KeptItem,
-  KeptItemReason,
   LibraryPassStatus,
   LocalItemFamily,
   PluginsReplaceKeptItemsResult,
@@ -104,11 +100,8 @@ import {
   ResolveConfigHomeParamsSchema,
 } from './plugin-rpc.schema';
 import { LocalItemApprovals } from './marketplace/local-item-approvals';
-import {
-  InstallLocalItemsService,
-  type ApplyLocalItemsReport,
-} from './marketplace/install-local-items.service';
-import { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
+import { InstallLocalItemsService } from './marketplace/install-local-items.service';
+import { PluginLocalItemsService } from './marketplace/plugin-local-items.service';
 
 /**
  * The families whose kept reports `plugins:replace-kept-items` may act on: the
@@ -229,9 +222,9 @@ export class PluginRpcHandlers {
     private readonly externalState: ExternalPluginStateStore,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     container: DependencyContainer,
-    /** Finds and registers the local items a plan or kept report offers. */
-    @inject(MarketplaceLocalItemsService)
-    private readonly localItems: MarketplaceLocalItemsService,
+    /** The local-item steps of a plan, a confirm and a save (A17). */
+    @inject(PluginLocalItemsService)
+    private readonly localItems: PluginLocalItemsService,
     /** Applies replace decisions, each through its own family's route. */
     @inject(InstallLocalItemsService)
     private readonly installLocalItems: InstallLocalItemsService,
@@ -491,15 +484,13 @@ export class PluginRpcHandlers {
         const kept =
           harnessRoot === undefined
             ? []
-            : await this.keptForEnabledPlugins(
+            : await this.localItems.keptForSave({
                 harnessRoot,
-                newlyEnabledPluginIds(
-                  existingConfig,
-                  enabledPluginIds,
-                  disabledPluginIds,
-                ),
-                pass.health,
-              );
+                previous: existingConfig,
+                enabledPluginIds,
+                disabledPluginIds,
+                health: pass.health,
+              });
 
         this.logger.debug('RPC: plugins:save-config success', {
           enabledCount: enabledPluginIds.length,
@@ -663,8 +654,10 @@ export class PluginRpcHandlers {
    * Local items (B12): the plan lists what stands where the plugin would land,
    * each under a server-issued `approvalId`. After a SUCCESSFUL confirm and
    * activation, the ids the user chose to replace — and only ids this plan
-   * issued — are applied through `InstallLocalItemsService`. A failed confirm
-   * throws before that step, so a failure never carries a kept report.
+   * issued — are applied through `PluginLocalItemsService`. When any item was
+   * replaced, one more awaited pass runs and is the `libraryPass` reported.
+   * A failed confirm throws before that step, so a failure never carries a
+   * kept report.
    */
   private registerInstallExternal(): void {
     this.rpcHandler.registerMethod<
@@ -724,11 +717,24 @@ export class PluginRpcHandlers {
           harnessRoot,
         );
         const collisions = activation.collisions;
-        const localReport = await this.applyPlanDecisions(
+        const localReport = await this.localItems.applyPlanDecisions(
           harnessRoot,
           planLocalItems,
           parsed.localItemDecisions ?? {},
         );
+        // A replaced item changes a source the Library mirrors (an agent, a
+        // clone) or a target copy AFTER the activation pass, so one more
+        // awaited full pass brings both up to date and is the one reported.
+        // The install stays a success when it fails (`libraryPass: 'failed'`).
+        const libraryPass =
+          localReport.replaced.length === 0
+            ? activation.libraryPass
+            : (
+                await this.reconcileHarness(
+                  harnessRoot,
+                  'plugins:install-external',
+                )
+              ).libraryPass;
 
         this.logger.debug('RPC: plugins:install-external installed', {
           pluginId: result.pluginId,
@@ -751,7 +757,7 @@ export class PluginRpcHandlers {
             mcpWarnings: mcp.warnings,
             kept: localReport.kept,
             replaced: localReport.replaced,
-            libraryPass: activation.libraryPass,
+            libraryPass,
           },
         };
       });
@@ -874,7 +880,10 @@ export class PluginRpcHandlers {
     reason: ExternalConsentReason,
   ): Promise<ExternalInstallResponse> {
     const plan = await this.externalInstaller.planInstall(source, plugin);
-    const localItems = await this.planLocalItems(plan);
+    const localItems = await this.localItems.planForInstall(
+      this.harnessRoot(),
+      plan,
+    );
     return {
       status: 'consent-required',
       reason,
@@ -884,125 +893,6 @@ export class PluginRpcHandlers {
         ...(localItems.length > 0 ? { localItems } : {}),
       },
     };
-  }
-
-  /**
-   * The local items standing where `plan` would land, registered for approval
-   * with the consent token's lifetime and attached to the pending plan
-   * (A-plan), so the confirm acts only on ids this plan issued.
-   *
-   * Never fails the plan: without a list the dialog offers no replace, and
-   * the reconciler's own keep rule still leaves every edited file in place.
-   */
-  private async planLocalItems(
-    plan: ExternalInstallPlan,
-  ): Promise<ExternalLocalItem[]> {
-    const harnessRoot = this.harnessRoot();
-    if (harnessRoot === undefined) return [];
-    try {
-      const slugs = this.externalInstaller.planItemSlugs(plan.consentToken) ?? {
-        skills: plan.skills,
-        commands: [],
-        agents: [],
-      };
-      const items = await this.localItems.planLocalItems({
-        family: 'external',
-        harnessRoot,
-        sourceRef: plan.pluginId,
-        slugs,
-        ttlMs: PLUGIN_INSTALL_PLAN_TTL_MS,
-      });
-      this.externalInstaller.attachLocalItems(plan.consentToken, items);
-      return items;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - the plan is still shown and
-      // installable; with no list the dialog offers no replace and every
-      // local item stays the user's (B9 keep). Logged for diagnosis.
-      this.logger.warn(
-        'RPC: plugins:install-external local items unavailable',
-        {
-          pluginId: plan.pluginId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return [];
-    }
-  }
-
-  /**
-   * Apply the confirm's replace decisions to the plan's own items. A decision
-   * naming an id the plan did not issue is ignored; a missing decision is
-   * keep. Items left in place are reported as kept with their reason.
-   */
-  private async applyPlanDecisions(
-    harnessRoot: string | undefined,
-    planItems: readonly ExternalLocalItem[],
-    decisions: Readonly<Record<string, FileDecision>>,
-  ): Promise<{ kept: KeptItem[]; replaced: ExternalLocalItem[] }> {
-    const replaceIds = planItems
-      .filter((item) => decisions[item.approvalId] === 'replace')
-      .map((item) => item.approvalId);
-    const report =
-      harnessRoot === undefined || replaceIds.length === 0
-        ? emptyApplyReport()
-        : await this.applyLocalItems({
-            family: 'external',
-            harnessRoot,
-            approvalIds: replaceIds,
-          });
-
-    const replacedIds = new Set(report.replaced.map((item) => item.approvalId));
-    const reported = new Map<string, KeptItem>(
-      report.kept.map((item) => [item.approvalId, item]),
-    );
-    const unknown = new Set(report.unknown);
-    const kept: KeptItem[] = [];
-    for (const item of planItems) {
-      if (replacedIds.has(item.approvalId)) continue;
-      const fromApply = reported.get(item.approvalId);
-      if (fromApply !== undefined) {
-        kept.push(fromApply);
-        continue;
-      }
-      kept.push({
-        approvalId: item.approvalId,
-        family: item.family,
-        ...(item.target !== undefined ? { target: item.target } : {}),
-        relPath: item.relPath,
-        // A replace whose approval was gone by the time it ran (expired or
-        // evicted) no longer matches what the user approved.
-        reason: unknown.has(item.approvalId)
-          ? 'changed-since-approval'
-          : keptReasonForKind(item.kind),
-      });
-    }
-    return {
-      kept,
-      replaced: planItems.filter((item) => replacedIds.has(item.approvalId)),
-    };
-  }
-
-  /**
-   * `InstallLocalItemsService.apply` reports per item and is not expected to
-   * throw; if it does, every requested item is reported kept rather than
-   * failing an action whose primary write already succeeded.
-   */
-  private async applyLocalItems(request: {
-    family: LocalItemFamily;
-    harnessRoot: string;
-    approvalIds: readonly string[];
-  }): Promise<ApplyLocalItemsReport> {
-    try {
-      return await this.installLocalItems.apply(request);
-    } catch (error: unknown) {
-      const normalized =
-        error instanceof Error ? error : new Error(String(error));
-      this.logger.error('RPC: plugins local-item replace failed', normalized);
-      this.sentryService.captureException(normalized, {
-        errorSource: 'PluginRpcHandlers.applyLocalItems',
-      });
-      return emptyApplyReport();
-    }
   }
 
   /**
@@ -1244,53 +1134,6 @@ export class PluginRpcHandlers {
     });
   }
 
-  /**
-   * The kept report for plugins a save just turned on: their destinations
-   * the pass left as the user's (`plugin-enable`) and the workspace agents
-   * that shadow their agents (`plugin-agent`). Never fails the save.
-   */
-  private async keptForEnabledPlugins(
-    harnessRoot: string,
-    pluginIds: readonly string[],
-    health: HarnessHealth | null,
-  ): Promise<KeptItem[]> {
-    if (pluginIds.length === 0) return [];
-    try {
-      const plugins = this.pluginLoader
-        .getAvailablePlugins()
-        .filter((plugin) => pluginIds.includes(plugin.id));
-      const descriptors = Object.values(
-        this.pluginLoader.getPluginSourceDescriptors(),
-      );
-      const kept: KeptItem[] = [];
-      for (const plugin of plugins) {
-        kept.push(
-          ...(await this.localItems.keptReport({
-            harnessRoot,
-            sourceRef: sourceRefFor(plugin, descriptors),
-            slugs: {
-              skills: plugin.skillNames ?? [],
-              commands: plugin.commandNames ?? [],
-              agents: plugin.agentNames ?? [],
-            },
-            health,
-            fileFamily: 'plugin-enable',
-            agentFamily: 'plugin-agent',
-          })),
-        );
-      }
-      return kept;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - the save succeeded; without
-      // a report nothing is offered for replace and every kept item stays
-      // the user's. Logged for diagnosis.
-      this.logger.warn('RPC: plugins:save-config kept report unavailable', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-  }
-
   /** Harness root of the open folder (8.1), or undefined with none open. */
   private harnessRoot(): string | undefined {
     const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
@@ -1448,67 +1291,4 @@ export class PluginRpcHandlers {
       throw normalized;
     }
   }
-}
-
-/** An apply report in which nothing ran. */
-function emptyApplyReport(): ApplyLocalItemsReport {
-  return { replaced: [], kept: [], unknown: [] };
-}
-
-/** Why a plan item the user chose to keep is kept. */
-function keptReasonForKind(kind: ExternalLocalItem['kind']): KeptItemReason {
-  switch (kind) {
-    case 'unowned':
-      return 'unowned';
-    case 'unreadable':
-      return 'unreadable';
-    case 'agent-source':
-      return 'shadowed';
-    case 'owned-edited':
-    case 'library-clone':
-      return 'owned-edited';
-  }
-}
-
-/**
- * The plugins a save turns on: newly enabled bundled or external ids, and
- * harness plugins taken off the denylist. Only these can bring new items.
- */
-function newlyEnabledPluginIds(
-  previous: { enabledPluginIds: string[]; disabledPluginIds?: string[] },
-  enabledPluginIds: readonly string[],
-  disabledPluginIds: readonly string[] | undefined,
-): string[] {
-  const before = new Set(previous.enabledPluginIds);
-  const ids = enabledPluginIds.filter((id) => !before.has(id));
-  if (disabledPluginIds !== undefined) {
-    const stillDisabled = new Set(disabledPluginIds);
-    ids.push(
-      ...(previous.disabledPluginIds ?? []).filter(
-        (id) => !stillDisabled.has(id),
-      ),
-    );
-  }
-  return [...new Set(ids)];
-}
-
-/**
- * The durable source identity (A28) of `plugin`, matched against the live
- * descriptors by every ref shape a plugin id maps to; `ptah:<id>` when none
- * is described.
- */
-function sourceRefFor(
-  plugin: PluginInfo,
-  descriptors: ReadonlyArray<{ sourceRef: string }>,
-): string {
-  const candidates = new Set([
-    plugin.id,
-    `ptah:${plugin.id}`,
-    `harness:${plugin.id}`,
-    `skills-sh:${plugin.id}`,
-  ]);
-  return (
-    descriptors.find((descriptor) => candidates.has(descriptor.sourceRef))
-      ?.sourceRef ?? `ptah:${plugin.id}`
-  );
 }

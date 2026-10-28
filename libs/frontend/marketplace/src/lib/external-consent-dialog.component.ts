@@ -455,12 +455,16 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
             </section>
           }
 
-          @if (errorMessage()) {
-            <div class="alert alert-error alert-sm py-1 px-2" role="alert">
+          @if (installFailed()) {
+            <div
+              class="alert alert-error alert-sm py-1 px-2"
+              role="alert"
+              data-testid="external-consent-error"
+            >
               <span class="text-xs">
-                <strong>Install failed.</strong> {{ errorMessage() }} Ptah
-                removes what it wrote for this install where it can. Check the
-                files listed in the install report, then retry.
+                <strong>Install failed.</strong> Ptah removes what it wrote for
+                this install where it can. Check the files listed in the install
+                report, then retry.
               </span>
             </div>
           }
@@ -512,8 +516,11 @@ export class ExternalConsentDialogComponent {
   public readonly reason = input<ExternalConsentReason>('not-yet-approved');
   /** True while the parent's authorized second call is in flight. */
   public readonly busy = input(false);
-  /** Failure from the second call, rendered without dismissing the dialog. */
-  public readonly errorMessage = input<string | null>(null);
+  /**
+   * The second call failed: fixed copy without dismissing the dialog. No
+   * reason is passed in, so host error text cannot reach the dialog.
+   */
+  public readonly installFailed = input(false);
 
   /**
    * User authorized the install — the parent echoes back `plan.consentToken`
@@ -591,7 +598,7 @@ export class ExternalConsentDialogComponent {
    * "Retry install" after a failed confirm.
    */
   public readonly confirmText = computed(() => {
-    if (this.errorMessage()) return 'Retry install';
+    if (this.installFailed()) return 'Retry install';
     const verb = this.isUpgrade() ? 'Update' : 'Install';
     const base = `${verb} ${this.plan().displayName}`;
     const n = this.replaceCount();

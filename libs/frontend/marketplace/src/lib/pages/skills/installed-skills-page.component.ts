@@ -48,6 +48,7 @@ import {
   type InstalledSkillRow,
   type InstalledSkillSlices,
 } from './installed-skill-rows';
+import { InstalledLibraryStaleNoticeComponent } from './installed-library-stale-notice.component';
 import { PluginConfigHomeNoticeComponent } from './plugin-config-home-notice.component';
 import { SkillsSectionHeaderComponent } from './skills-section-header.component';
 
@@ -110,6 +111,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
     DockedInspectorComponent,
     SkillsSectionHeaderComponent,
     PluginConfigHomeNoticeComponent,
+    InstalledLibraryStaleNoticeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -137,6 +139,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
           <ptah-plugin-config-home-notice
             (failed)="setPageError('plugins', $event)"
           />
+          <ptah-installed-library-stale-notice />
         }
 
         <label

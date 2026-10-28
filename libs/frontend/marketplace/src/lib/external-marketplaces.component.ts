@@ -457,7 +457,7 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
         [plan]="plan"
         [reason]="pendingReason()"
         [busy]="isConfirming()"
-        [errorMessage]="consentError()"
+        [installFailed]="consentFailed()"
         (confirmed)="confirmInstall($event)"
         (cancelled)="cancelInstall()"
       />
@@ -563,8 +563,11 @@ export class ExternalMarketplacesComponent implements OnInit {
     signal<ExternalConsentReason>('not-yet-approved');
   /** True while the authorized (token-carrying) second call is in flight. */
   public readonly isConfirming = signal(false);
-  /** Error rendered inside the dialog, without dismissing it. */
-  public readonly consentError = signal<string | null>(null);
+  /**
+   * The authorized call failed. The dialog shows fixed copy and stays open;
+   * the host's error text (which can carry local paths) is never shown.
+   */
+  public readonly consentFailed = signal(false);
   /** Listing ids with a first (plan) call in flight. */
   public readonly installingIds = signal<Set<string>>(new Set());
   public readonly uninstallingIds = signal<Set<string>>(new Set());
@@ -808,7 +811,7 @@ export class ExternalMarketplacesComponent implements OnInit {
       return;
     }
     addToSet(this.installingIds, listing.id);
-    this.consentError.set(null);
+    this.consentFailed.set(false);
     this.browseError.set(null);
     try {
       const result = await this.rpc.call(
@@ -862,7 +865,7 @@ export class ExternalMarketplacesComponent implements OnInit {
     const plan = this.pendingPlan();
     if (plan === null || this.isConfirming()) return;
     this.isConfirming.set(true);
-    this.consentError.set(null);
+    this.consentFailed.set(false);
     try {
       // An expired token makes the backend re-plan (a fresh download) before
       // it answers, so the confirm call gets the full install budget too.
@@ -880,9 +883,9 @@ export class ExternalMarketplacesComponent implements OnInit {
       );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
-        this.consentError.set(
-          result.error ?? `Failed to install ${plan.displayName}`,
-        );
+        // degradation-audit: reported — fixed copy in the dialog; the host
+        // logged the original error.
+        this.consentFailed.set(true);
         return;
       }
       if (result.data.status === 'consent-required') {
@@ -896,11 +899,11 @@ export class ExternalMarketplacesComponent implements OnInit {
       }
       this.pendingPlan.set(null);
       await this.applyInstalled(result.data.result, plan.source);
-    } catch (error: unknown) {
+    } catch {
+      // degradation-audit: reported — fixed copy in the dialog; a thrown
+      // transport error carries no user-facing text.
       if (this.destroyed) return;
-      this.consentError.set(
-        messageOf(error, `Failed to install ${plan.displayName}`),
-      );
+      this.consentFailed.set(true);
     } finally {
       if (!this.destroyed) this.isConfirming.set(false);
     }
@@ -910,7 +913,7 @@ export class ExternalMarketplacesComponent implements OnInit {
   public cancelInstall(): void {
     this.pendingPlan.set(null);
     this.pendingReason.set('not-yet-approved');
-    this.consentError.set(null);
+    this.consentFailed.set(false);
   }
 
   /**
