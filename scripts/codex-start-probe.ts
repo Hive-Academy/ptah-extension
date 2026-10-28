@@ -2,11 +2,13 @@
  * npx ts-node --transpile-only -P scripts/codex-start-probe.tsconfig.json -r tsconfig-paths/register scripts/codex-start-probe.ts
  * npx ts-node --transpile-only -P scripts/codex-start-probe.tsconfig.json -r tsconfig-paths/register scripts/codex-start-probe.ts --no-user-mcp
  * Optional: --codex <absolute native binary> --cwd <directory> --model <model-id>
+ * --mcp: attach a `ptah_probe` http server (unbound loopback port, fake secret header) through
+ * the thread config; report its startup status and whether new rollout files hold the secret.
  */
 import 'reflect-metadata';
 import { ChildProcess, spawn, execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -64,11 +66,12 @@ async function step<T>(name: string, action: () => T | Promise<T>): Promise<T> {
 }
 
 function options() {
-  const result = { codex: '', cwd: process.cwd(), model: 'gpt-6.1-sol', noUserMcp: false };
+  const result = { codex: '', cwd: process.cwd(), model: 'gpt-6.1-sol', noUserMcp: false, mcp: false };
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === '--no-user-mcp') { result.noUserMcp = true; continue; }
+    if (flag === '--mcp') { result.mcp = true; continue; }
     if (flag !== '--codex' && flag !== '--cwd' && flag !== '--model') throw new Error('Unsupported probe option');
     const value = args[++i];
     if (!value || value.startsWith('--')) throw new Error('Missing probe option value');
@@ -133,6 +136,58 @@ function processHandle(child: ChildProcess, whenSpawned: Promise<number | null>)
   };
 }
 
+const PROBE_SERVER = 'ptah_probe';
+const mcpStatuses = new Map<string, string[]>();
+
+/** The runtime drops `mcpServer/startupStatus/updated`; read it from the raw JSON-RPC lines. */
+function tapMcpStatus(child: ChildProcess): void {
+  let buffer = '';
+  child.stdout?.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8');
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.includes('mcpServer/startupStatus/updated')) continue;
+      const message: unknown = JSON.parse(line);
+      if (typeof message !== 'object' || message === null || !('params' in message)) continue;
+      const params = message.params;
+      if (typeof params !== 'object' || params === null || !('name' in params) || !('status' in params)) continue;
+      const name = String(params.name);
+      mcpStatuses.set(name, [...(mcpStatuses.get(name) ?? []), String(params.status)]);
+    }
+  });
+}
+
+async function probeStatus(timeoutMs: number): Promise<string[]> {
+  const deadline = Date.now() + timeoutMs;
+  const settled = (states: string[] | undefined) => states?.some((s) => s !== 'starting') ?? false;
+  while (!settled(mcpStatuses.get(PROBE_SERVER)) && Date.now() < deadline)
+    await new Promise((done) => setTimeout(done, 200));
+  return mcpStatuses.get(PROBE_SERVER) ?? [];
+}
+
+function rolloutScan(directory: string, since: number, needle: string): { files: number; hits: number } {
+  const result = { files: 0, hits: 0 };
+  let entries: string[];
+  try { entries = readdirSync(directory); }
+  catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return result;
+    throw error;
+  }
+  for (const entry of entries) {
+    const path = join(directory, entry);
+    const stats = statSync(path);
+    if (stats.isDirectory()) {
+      const nested = rolloutScan(path, since, needle);
+      result.files += nested.files; result.hits += nested.hits;
+    } else if (stats.mtimeMs >= since) {
+      result.files++;
+      if (readFileSync(path, 'utf8').includes(needle)) result.hits++;
+    }
+  }
+  return result;
+}
+
 function spawner(overrides: string[]): IProcessSpawner {
   return { spawnProcess(request) {
     try {
@@ -153,6 +208,7 @@ function spawner(overrides: string[]): IProcessSpawner {
       cwd: request.cwd, env: request.env, detached: request.detached,
       windowsHide: true, stdio: 'pipe', shell: false,
     });
+    tapMcpStatus(child);
     const whenSpawned = new Promise<number | null>((done) => {
       child.once('spawn', () => done(child.pid ?? null));
       child.once('error', () => done(null));
@@ -166,8 +222,12 @@ async function main(): Promise<void> {
   let runtime: CodexRuntime | undefined;
   let context: CodexContext | undefined;
   let threadPrefix: string | undefined;
+  let probeMcp = false;
+  let home = '';
+  const secret = `ptah-probe-secret-${randomUUID()}`;
   try {
     const args = await step('parse options', options);
+    probeMcp = args.mcp;
     const path = await step('resolve executable', () => executable(args.codex));
     const { pin, binary } = await step('verify pin', async () => {
       const pin = findCodexExecutablePin(process.platform, process.arch);
@@ -184,7 +244,7 @@ async function main(): Promise<void> {
     });
     const profile = await step('build profile', () => {
       const cwd = resolve(args.cwd);
-      const home = process.env.CODEX_HOME ?? join(homedir(), '.codex');
+      home = process.env.CODEX_HOME ?? join(homedir(), '.codex');
       const entries: CodexExecutionProfileInput['paths']['entries'] = {};
       for (const path of [cwd, resolve(cwd, home)]) {
         try { entries[path] = { kind: statSync(path).isDirectory() ? 'directory' : 'file', realpath: realpathSync(path) }; }
@@ -197,7 +257,10 @@ async function main(): Promise<void> {
         paths: { platform: process.platform === 'win32' ? 'win32' : 'posix', baseDirectory: cwd, entries },
         session: { contextId: randomUUID(), consumer: 'chat', providerId: 'codex',
           workspaceId: cwd, cwd, normalizedHome: home, model: args.model, permissionLevel: 'ask',
-          systemPrompt: 'You are Ptah, a coding assistant.', mcpServers: [] },
+          systemPrompt: 'You are Ptah, a coding assistant.',
+          mcpServers: args.mcp ? [{ name: PROBE_SERVER, transport: 'http',
+            url: 'http://127.0.0.1:9/session/probe/workspace/probe',
+            headerReferences: { 'X-Ptah-Probe': 'probe.header' }, toolTimeoutSec: 960 }] : [] },
       });
     });
     const overrides = args.noUserMcp
@@ -221,12 +284,25 @@ async function main(): Promise<void> {
       } },
     });
     runtime = openedRuntime;
-    context = await step('open = initialize + thread/start', () => openedRuntime.open(profile));
+    context = await step('open = initialize + thread/start', () =>
+      openedRuntime.open(profile, undefined, new Map([['probe.header', secret]])));
     threadPrefix = context.identity.threadId.slice(0, 8);
+    if (args.mcp) {
+      const states = await probeStatus(15000);
+      print(`MCP ${PROBE_SERVER} startupStatus=${JSON.stringify(states)} (empty = thread config NOT applied)`);
+      print(`MCP all servers=${JSON.stringify(Object.fromEntries(mcpStatuses))}`);
+      if (states.length === 0) process.exitCode = 1;
+    }
   } finally {
     await step('close', async () => {
       try { await context?.close(); } finally { await runtime?.close(); }
     });
+  }
+  if (probeMcp && home) {
+    // No turn runs, so Codex may not write a rollout yet; scan every file it changed.
+    const scan = rolloutScan(home, started, secret);
+    print(`CODEX_HOME files-since-start=${scan.files} files-with-secret=${scan.hits}`);
+    if (scan.hits > 0) process.exitCode = 1;
   }
   if (!process.exitCode) print(`OK thread=${threadPrefix} elapsedMs=${Date.now() - started}`);
 }
