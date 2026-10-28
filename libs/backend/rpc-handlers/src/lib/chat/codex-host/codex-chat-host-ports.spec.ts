@@ -13,6 +13,8 @@ import {
   SessionId,
   MESSAGE_TYPES,
   attentionRequestKey,
+  parsePermissionRequest,
+  UUID_REGEX,
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import {
@@ -24,6 +26,9 @@ import { CodexChatOptionError } from './codex-chat-profile-options';
 import { ChatRuntimeProfileService } from '../session/chat-runtime-profile.service';
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
+  presentCodexApproval: jest.requireActual<
+    typeof import('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation')
+  >('../../../../../agent-sdk/src/lib/codex-app-server/codex-tool-presentation').presentCodexApproval,
   PTAH_UI_HINT: jest.requireActual<
     typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
   >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT,
@@ -337,6 +342,8 @@ describe('Codex chat host ports', () => {
       threadId: id,
       turnId: 'turn',
       requestId: 5,
+      toolId: 'native-item-5',
+      expiresAt: 1_900_000_000_000,
       kind: 'command',
       normalizedHome: workspace,
       workspaceId: workspace,
@@ -345,6 +352,26 @@ describe('Codex chat host ports', () => {
       details: { command: 'pwd' },
     };
   }
+  it.each([false, true])('presents a renderer-valid approval (session fallback tab: %s)', (fallback) => {
+    const h = harness();
+    const tabId = '33333333-3333-4333-8333-333333333333';
+    h.deps.tabId = () => fallback ? id : tabId;
+    const approval = request();
+    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+    const payload = h.broadcastMessage.mock.calls[0][1];
+    expect(parsePermissionRequest(payload)).not.toBeNull();
+    expect(payload.id).toMatch(UUID_REGEX);
+    expect(payload).toMatchObject({
+      sessionId: id,
+      toolName: 'Bash',
+      toolInput: { command: 'pwd' },
+      toolUseId: approval.toolId,
+      timeoutAt: approval.expiresAt,
+      description: expect.stringContaining('pwd'),
+    });
+    if (fallback) expect(payload).not.toHaveProperty('tabId');
+    else expect(payload.tabId).toBe(tabId);
+  });
   it.each([
     ['allow', 'accept'],
     ['always_allow', 'acceptForSession'],
@@ -414,7 +441,29 @@ describe('Codex chat host ports', () => {
       expect.objectContaining({ kind: 'codex', response: expect.objectContaining({ decision: 'decline' }) }),
     );
     expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+    expect(h.resolveAttention).toHaveBeenCalledWith(
+      attentionRequestKey('permission', wireId),
+      h.broadcastMessage.mock.calls[0][1].timestamp,
+    );
     expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+  });
+  it('does not decline a replacement when the previous delivery fails later', async () => {
+    const h = harness();
+    let rejectDelivery: ((reason: Error) => void) | undefined;
+    h.broadcastMessage.mockReturnValueOnce(new Promise<void>((_resolve, reject) => {
+      rejectDelivery = reject;
+    }));
+    const approval = request();
+    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+    h.ports.presentation.present(id, approval, ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+    const replacement = h.broadcastMessage.mock.calls[1][1];
+    rejectDelivery?.(new Error('window closed'));
+    await Promise.resolve();
+    expect(h.respond).not.toHaveBeenCalled();
+    expect(h.resolveAttention).toHaveBeenCalledTimes(1);
+    expect(h.ports.handlePermissionResponse({ id: replacement.id, decision: 'allow' })).toBe(true);
+    expect(h.respond).toHaveBeenCalledTimes(1);
+    expect(h.resolveAttention).toHaveBeenCalledTimes(2);
   });
   it('accepts equivalent resume workspace spelling and preserves the caller path', async () => {
     const h = harness();
@@ -487,10 +536,7 @@ describe('Codex chat host ports', () => {
       });
       expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
       h.ports.presentation.dismiss(id, request());
-      expect(h.broadcastMessage).toHaveBeenLastCalledWith(
-        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
-        { id: wireId, sessionId: id, toolName: 'command' },
-      );
+      expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
       expect(h.resolveAttention).toHaveBeenCalledTimes(1);
     });
 
@@ -502,15 +548,44 @@ describe('Codex chat host ports', () => {
       expect(h.resolveAttention).toHaveBeenCalledTimes(1);
     });
 
-    it('releases the observed notice when the prompt is cancelled', () => {
-      const { h, noticeKey, timestamp } = presented();
+    it.each(['turn-ended', 'disposed'] as const)('releases once for cancel then dismiss (%s)', (reason) => {
+      const { h, wireId, noticeKey, timestamp } = presented();
       h.ports.presentation.cancelPrompt({
         sessionId: id,
         requestId: '5',
-        reason: 'turn-ended',
+        reason,
       });
+      h.ports.presentation.dismiss(id, request());
+      expect(h.broadcastMessage).toHaveBeenCalledTimes(2);
+      expect(h.broadcastMessage).toHaveBeenLastCalledWith(
+        MESSAGE_TYPES.PERMISSION_PROMPT_CANCELLED,
+        { sessionId: id, requestId: wireId, reason },
+      );
       expect(h.resolveAttention).toHaveBeenCalledTimes(1);
       expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+      expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+      expect(h.respond).not.toHaveBeenCalled();
+    });
+
+    it('replaces the wire identity and releases the previous presentation', () => {
+      const { h, wireId, noticeKey, timestamp } = presented();
+      h.ports.presentation.present(id, request(), ['deny', 'allowOnce', 'allowWithInput', 'alwaysAllow']);
+      const replacement = h.broadcastMessage.mock.calls[1][1];
+      expect(replacement.id).toMatch(UUID_REGEX);
+      expect(replacement.id).not.toBe(wireId);
+      expect(h.resolveAttention).toHaveBeenCalledWith(noticeKey, timestamp);
+      expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(false);
+      expect(h.respond).not.toHaveBeenCalled();
+      h.ports.presentation.dismiss(id, request());
+      expect(h.broadcastMessage).toHaveBeenLastCalledWith(
+        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+        { id: replacement.id, sessionId: id, toolName: 'command' },
+      );
+      expect(h.resolveAttention).toHaveBeenCalledTimes(2);
+      expect(h.resolveAttention).toHaveBeenLastCalledWith(
+        attentionRequestKey('permission', replacement.id), replacement.timestamp,
+      );
+      expect(h.ports.handlePermissionResponse({ id: replacement.id, decision: 'allow' })).toBe(false);
     });
 
     it('releases nothing for an unknown response id', () => {

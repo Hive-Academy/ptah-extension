@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { PTAH_UI_HINT } from '@ptah-extension/agent-sdk';
+import { PTAH_UI_HINT, presentCodexApproval } from '@ptah-extension/agent-sdk';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
@@ -103,8 +103,14 @@ export function createCodexChatHostPorts(
   const service = profiles(deps);
   const pending = new Map<
     string,
-    { sessionId: SessionId; request: CodexApprovalRequest; timestamp: number }
+    {
+      sessionId: SessionId;
+      request: CodexApprovalRequest;
+      timestamp: number;
+      correlationKey: string;
+    }
   >();
+  const wireIds = new Map<string, string>();
   const failed = (reason: unknown) => {
     deps.logger.error(
       'Codex chat presentation failed.',
@@ -125,10 +131,10 @@ export function createCodexChatHostPorts(
     const entry = pending.get(id);
     if (!entry) return;
     pending.delete(id);
+    wireIds.delete(entry.correlationKey);
     release(id, entry.timestamp);
   };
-  // The UI wire carries only a string id. Encode the full correlation to avoid
-  // collisions between different processes, sessions and reused native ids.
+  // Keep native correlation separate from the renderer's UUID wire identity.
   const key = (sessionId: SessionId, request: CodexApprovalRequest) =>
     JSON.stringify([
       sessionId,
@@ -281,21 +287,22 @@ export function createCodexChatHostPorts(
     },
     presentation: {
       present(sessionId, request) {
-        const id = key(sessionId, request);
+        const correlationKey = key(sessionId, request);
+        const previousId = wireIds.get(correlationKey);
+        if (previousId) settle(previousId);
+        const id = randomUUID();
         const timestamp = Date.now();
-        // A re-presented request is a new generation; release the previous notice.
-        settle(id);
-        pending.set(id, { sessionId, request, timestamp });
+        pending.set(id, { sessionId, request, timestamp, correlationKey });
+        wireIds.set(correlationKey, id);
+        const tabId = deps.tabId(sessionId);
         const payload: PermissionRequest = {
           id,
           sessionId,
-          tabId: deps.tabId(sessionId),
-          toolName: request.toolName ?? request.kind,
+          ...(tabId === sessionId ? {} : { tabId }),
+          ...presentCodexApproval(request),
           toolUseId: request.toolId,
-          toolInput: request.details,
-          description: request.message,
           timestamp,
-          timeoutAt: 0,
+          timeoutAt: request.expiresAt ?? 0,
           allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
         };
         // Direct manager call: its attention observer raises the host notice.
@@ -323,7 +330,8 @@ export function createCodexChatHostPorts(
           });
       },
       dismiss(sessionId, request) {
-        const id = key(sessionId, request);
+        const id = wireIds.get(key(sessionId, request));
+        if (!id) return;
         settle(id);
         send(MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
           id,
