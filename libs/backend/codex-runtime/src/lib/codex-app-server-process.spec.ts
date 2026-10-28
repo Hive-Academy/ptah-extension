@@ -746,12 +746,84 @@ describe('CodexAppServerProcess', () => {
     expect(child.stdin.writableEnded).toBe(false);
   });
 
-  it('times out the handshake at ten seconds and never retries', async () => {
-    const rejected = expect(runtime.start()).rejects.toThrow('timed out');
-    jest.advanceTimersByTime(10_000);
+  it('accepts an initialize response after fifteen seconds and logs the verified start once', async () => {
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      OPENAI_API_KEY: 'private-env-value',
+    });
+    const starting = runtime.start();
+    jest.advanceTimersByTime(15_000);
+    child.send({ id: 1, result: initializeResult });
+    await starting;
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith('Codex process started', {
+      binaryPath: '/bin/codex',
+      pinnedVersion: '0.165.0',
+      pinStatus: 'ok',
+      startupDurationMs: 15_000,
+    });
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(
+      'private-env-value',
+    );
+  });
+
+  it('times out the handshake at sixty seconds with the original error and one bounded diagnostic log', async () => {
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      OPENAI_API_KEY: 'private-env-value',
+    });
+    const starting = runtime.start();
+    let settled = false;
+    void starting.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    child.stderr.emit('data', 'Bearer secret-bearer\n');
+    await jest.advanceTimersByTimeAsync(59_999);
+    expect(settled).toBe(false);
+    expect(logger.warn).not.toHaveBeenCalled();
+    const rejected = expect(starting).rejects.toMatchObject({
+      name: 'CodexProcessFailureError',
+      reason: 'Codex request timed out',
+      method: 'initialize',
+    });
+    jest.advanceTimersByTime(1);
     await rejected;
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith('Codex process failure', {
+      reason: 'Codex request timed out',
+      method: 'initialize',
+      elapsedMs: 60_000,
+      timeoutMs: 60_000,
+      stderrTail: expect.stringContaining('Bearer [REDACTED]'),
+    });
+    expect(
+      Buffer.byteLength(logger.warn.mock.calls[0][1].stderrTail),
+    ).toBeLessThanOrEqual(2048);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(
+      /secret-bearer|private-env-value/,
+    );
     expect(child.frames).toHaveLength(1);
     expect(spawner.spawnProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a slow handshake promptly without waiting for its timeout', async () => {
+    const controller = new AbortController();
+    const starting = runtime.start(controller.signal);
+    jest.advanceTimersByTime(5_000);
+    const rejected = expect(starting).rejects.toMatchObject({
+      name: 'CodexProcessFailureError',
+      reason: 'Codex process aborted',
+      method: 'initialize',
+    });
+    controller.abort();
+    await rejected;
+    expect(child.stdin.writableEnded).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('times out ordinary requests at thirty seconds and rejects every pending request', async () => {

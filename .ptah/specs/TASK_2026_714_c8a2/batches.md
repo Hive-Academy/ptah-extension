@@ -3465,3 +3465,34 @@ Phase review: code-logic.
 | S0/S1 gap spikes run before P11/P12, not at the end | All spikes last | Subagent mapping and revert depend on observed frames (AS7-2, AS7-3) | Yes |
 | A removal phase may exceed the 6-file cap by staging several verified batches into one commit | One commit per batch | User decision: each removal is its own commit with its proof | Yes |
 | Old P11 (evidence-blocked history/file history/subagent controls) is replaced by P11-P13 | Keep blocked | User principle "native first" + research-codex-gaps.md | Yes |
+
+## Round 8n: p8g live-test blocker (Codex initialize timeout) — COMPLETE (commit: the "batch 8n-1" commit on this branch)
+
+Source: `live-test-p8g.md` GAP-1 (blocker) and GAP-2. The bundled 357 MB codex.exe 0.165.0 takes
+12.6-13.6 s to start from D: on the user's machine, but the 10 s `initialize` timer was armed
+right after spawn, so every Codex open failed.
+
+### Batch 8n-1: initialize handshake budget and start-up diagnostics — COMPLETE
+
+- Executor: codex CLI lane (gpt-6-sol), agent 617717de, session 01a18481-e58c-7ab3-bee7-24647d6947fc.
+  Report: `batch-8n-1-report.md`.
+- Task 8n-1.1 — COMPLETE: `codex-app-server-process.ts`: `INITIALIZE_TIMEOUT_MS = 60_000`
+  (covers OS start-up), `REQUEST_TIMEOUT_MS = 30_000`. The pin check is computed once. One info
+  log per successful start (`Codex process started`: binaryPath, pinnedVersion, pinStatus,
+  startupDurationMs). On an initialize timeout, the existing `Codex process failure` log moves
+  to warn and adds elapsedMs and timeoutMs to the bounded, redacted stderr tail.
+- Task 8n-1.2 — COMPLETE: `codex-app-server-process.spec.ts`: a 15 s handshake succeeds; still
+  pending at 59_999 ms, rejects at 60_000 ms with the same error; abort at 5 s rejects at once;
+  env and Bearer values never logged.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/cli-agent-runtime,
+  @ptah-extension/gateway-chat-bridge` PASS (9/9 tasks; tests: codex-runtime 956/956,
+  cli-agent-runtime 2725 passed + 1 skipped, gateway-chat-bridge 133/133). No Electron file
+  changed, so the host typecheck step does not apply.
+- Review: `code-logic-review.md` § Batch 8n-1 — APPROVED 8/10 (implementer OpenAI, reviewer
+  Anthropic). 0 Blocking, 0 Serious.
+- Recorded, not fixed (fix-round rule; neither can break a lane config or lose data):
+  M1 stderr tail now at warn, relies on pattern redaction (`codex-app-server-process.ts:557-565`);
+  M2 a throwing logger in the start log would fail a healthy start (`:247-252`);
+  m1 `Date.now()` instead of the Clock port; m3 no spec that a failed start emits no start log
+  or that non-initialize timeouts stay at debug.
+- Open: a live Electron re-run (p8h) must confirm a Codex open succeeds on the bundled binary.

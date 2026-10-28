@@ -28,6 +28,9 @@ const QUEUED_BYTES = 4 * FRAME_BYTES;
 const MAX_PENDING = 128;
 const MAX_BUFFERED_NOTIFICATIONS = 64;
 const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
+// Includes OS process start-up before the initialize response arrives.
+const INITIALIZE_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 type RequestMethod = Exclude<keyof typeof codexRequestSchemas, 'initialize'>;
 type ServerRequest = Extract<
   CodexProtocolFrame,
@@ -122,6 +125,7 @@ export class CodexAppServerProcess {
   private queuedBytes = 0;
   private killTimer?: Timer;
   private abortSignal?: AbortSignal;
+  private spawnStartedAt?: number;
 
   constructor(
     private readonly spawner: IProcessSpawner,
@@ -142,12 +146,17 @@ export class CodexAppServerProcess {
     try {
       this.assertOpen();
       if (signal?.aborted) throw new Error('Codex process aborted');
+      const pinVerification = verifyCodexBinary(
+        this.binary,
+        this.executable.expectedManifestRow,
+      );
       if (
         this.binary.executablePath !== this.executable.resolvedPath ||
-        verifyCodexBinary(this.binary, this.executable.expectedManifestRow)
-          .status !== 'ok'
+        pinVerification.status !== 'ok'
       )
         throw new Error('Codex executable pin mismatch');
+      const spawnStartedAt = Date.now();
+      this.spawnStartedAt = spawnStartedAt;
       this.child = this.spawner.spawnProcess({
         command: this.executable.resolvedPath,
         args: ['app-server'],
@@ -206,9 +215,10 @@ export class CodexAppServerProcess {
             // The pinned schema requires true, including for granular approval policy.
             capabilities: { experimentalApi: true },
           },
-          10_000,
+          INITIALIZE_TIMEOUT_MS,
         ),
       );
+      const startupDurationMs = Date.now() - spawnStartedAt;
       try {
         if (
           normalizeCodexHomeKey(initialized.codexHome, this.binary.platform) !==
@@ -235,6 +245,12 @@ export class CodexAppServerProcess {
         }
       }
       this.bufferedNotifications.length = 0;
+      this.logger?.info('Codex process started', {
+        binaryPath: this.executable.resolvedPath,
+        pinnedVersion: this.executable.expectedManifestRow.pinnedVersion,
+        pinStatus: pinVerification.status,
+        startupDurationMs,
+      });
     } catch (error) {
       this.fail('Codex initialization failed', error, 'initialize');
       throw this.failure;
@@ -247,7 +263,7 @@ export class CodexAppServerProcess {
   ): Promise<CodexRequestResult<M>> {
     this.assertOpen();
     if (!this.ready) throw new Error('Codex process not initialized');
-    const result = await this.sendRequest(method, params, 30_000);
+    const result = await this.sendRequest(method, params, REQUEST_TIMEOUT_MS);
     return validateCodexResult(method, result);
   }
 
@@ -521,8 +537,13 @@ export class CodexAppServerProcess {
       cause instanceof CodexHomeMismatchError
         ? cause
         : new CodexProcessFailureError(message, failedMethod, { cause });
-    if (first)
-      this.logger?.debug('Codex process failure', {
+    if (first) {
+      const spawnStartedAt = this.spawnStartedAt;
+      const initializeTimeout =
+        message === 'Codex request timed out' &&
+        failedMethod === 'initialize' &&
+        spawnStartedAt !== undefined;
+      const metadata = {
         reason: message,
         ...(failedMethod
           ? { method: redactCodexDiagnostics(failedMethod) }
@@ -530,8 +551,18 @@ export class CodexAppServerProcess {
         ...(cause instanceof CodexRequestRejectedError
           ? { rpcCode: cause.rpcCode }
           : {}),
+        ...(initializeTimeout && spawnStartedAt !== undefined
+          ? {
+              elapsedMs: Date.now() - spawnStartedAt,
+              timeoutMs: INITIALIZE_TIMEOUT_MS,
+            }
+          : {}),
         stderrTail: this.stderrTail(2048),
-      });
+      };
+      if (initializeTimeout)
+        this.logger?.warn('Codex process failure', metadata);
+      else this.logger?.debug('Codex process failure', metadata);
+    }
     void this.close();
   }
 
