@@ -1345,12 +1345,14 @@ describe('SessionLifecycleManager', () => {
   });
 });
 
-
 describe('SessionLifecycleManager turn identity accessors', () => {
   it('drains displaced ids once and wakes the stream', async () => {
     const h = makeHarness();
     const tab = 'displaced-result' as SessionId;
-    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
     const rec = h.manager.find(tab);
     if (!rec) throw new Error('Missing registration');
     const wake = jest.fn();
@@ -1367,28 +1369,54 @@ describe('SessionLifecycleManager turn identity accessors', () => {
   it('keeps P for its own result when an autonomous result arrives before P echo', async () => {
     const h = makeHarness();
     const tab = 'autonomous-result' as SessionId;
-    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
     const rec = h.manager.find(tab);
     if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
     rec.currentTurnClientMessageId = 'P';
-    rec.awaitingEcho = { message: { uuid: 'p-echo' }, clientMessageId: 'P' } as never;
+    rec.awaitingEcho = {
+      message: { uuid: 'p-echo' },
+      clientMessageId: 'P',
+    } as never;
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
     expect(rec.currentTurnClientMessageId).toBe('P');
     expect(rec.resultCount).toBe(1);
-    rec.turnInFlight = true;
-    h.manager.onResultTurnTerminal(tab);
-    expect(rec.turnInFlight).toBe(true);
     rec.awaitingEcho = null;
     expect(h.manager.takeResultClientMessageId(tab)).toBe('P');
-    h.manager.onResultTurnTerminal(tab);
-    expect(rec.turnInFlight).toBe(false);
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+  });
+
+  it('takes the id at the result when the CLI does not echo user messages', async () => {
+    const h = makeHarness();
+    const tab = 'no-echo-result' as SessionId;
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = false;
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = {
+      message: { uuid: 'p-echo' },
+      clientMessageId: 'P',
+    } as never;
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('P');
+    rec.turnInFlight = true;
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
   });
 
   it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {
     const h = makeHarness();
     const tab = 'identity-tab' as SessionId;
-    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
     const rec = h.manager.find(tab);
     if (!rec) throw new Error('Missing registration');
     const realId = 'identity-real' as SessionId;
@@ -1406,21 +1434,29 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     expect(rec.interruptAwaitingResult).toBe(false);
     expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
-    expect(h.manager.takeResultClientMessageId('missing' as SessionId)).toBeNull();
-    expect(h.manager.takeInterruptRetirement('missing' as SessionId)).toBeNull();
+    expect(
+      h.manager.takeResultClientMessageId('missing' as SessionId),
+    ).toBeNull();
+    expect(
+      h.manager.takeInterruptRetirement('missing' as SessionId),
+    ).toBeNull();
   });
 });
-
 
 describe('SessionLifecycleManager queue identity on interrupt', () => {
   it('forwards client ids and preserves held entry references on a successful interrupt', async () => {
     const h = makeHarness();
     const tab = 'interrupt-identity' as SessionId;
-    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    await h.manager.executeQuery({
+      sessionId: tab,
+      sessionConfig: createSessionConfig(),
+    });
     const rec = h.manager.find(tab);
     if (!rec) throw new Error('Missing registration');
     rec.turnInFlight = true;
-    await h.manager.sendMessage(tab, 'held', undefined, undefined, { clientMessageId: 'held-id' });
+    await h.manager.sendMessage(tab, 'held', undefined, undefined, {
+      clientMessageId: 'held-id',
+    });
     const held = rec.messageQueue[0];
     expect(held.clientMessageId).toBe('held-id');
     expect(held.message.message.content).toBe('held');

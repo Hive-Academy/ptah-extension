@@ -89,6 +89,11 @@ export interface SessionRecord {
   /** Wakes the flat-event stream while its SDK iterator is parked. */
   retirementWake?: (() => void) | null;
   resultCount?: number;
+  /**
+   * True when the CLI echoes each user message (`--replay-user-messages`, set
+   * only with file checkpointing). Without echoes no result may wait for one.
+   */
+  echoesUserMessages?: boolean;
   interruptAwaitingResult: boolean;
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;

@@ -2190,7 +2190,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private releaseTurnOnResult(sessionId: SessionId): () => void {
     return () => {
-      this.sessionLifecycle.onResultTurnTerminal(sessionId);
+      this.sessionLifecycle.onTurnTerminal(sessionId);
     };
   }
 }

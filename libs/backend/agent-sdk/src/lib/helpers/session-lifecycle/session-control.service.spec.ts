@@ -175,6 +175,19 @@ describe('SessionControl.interruptCurrentTurn', () => {
     expect(rec.interruptRetirement).toBeNull();
     expect(terminal).not.toHaveBeenCalled();
   });
+
+  it('arms the late-result guard for an in-flight turn without a client id', async () => {
+    const terminal = jest.fn();
+    const h = makeHarness(null, terminal);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
+    rec.turnInFlight = true;
+    rec.currentTurnClientMessageId = null;
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
+    expect(rec.interruptAwaitingResult).toBe(true);
+    expect(rec.interruptRetirement).toBeNull();
+    expect(terminal).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('SessionControl.endSessionIfTokenMatches', () => {

@@ -1151,6 +1151,7 @@ export class SessionQueryExecutor {
       },
       resolveCapacityRoute(effectiveAuthEnv),
     );
+    rec.echoesUserMessages = enableFileCheckpointing ?? true;
     const selection = (sessionConfig as { accountSelection?: ProviderAccountSelection } | undefined)?.accountSelection;
     let named: NamedAccountQueryAdmission | undefined;
     let namedQueryFn: QueryFunction | undefined;

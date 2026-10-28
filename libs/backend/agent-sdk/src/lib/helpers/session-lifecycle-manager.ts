@@ -478,8 +478,12 @@ export class SessionLifecycleManager {
       rec.interruptAwaitingResult = false;
       return null;
     }
-    // The result before the yielded prompt's echo closes an autonomous turn.
-    if (rec.awaitingEcho !== null) return null;
+    // With echoes on, a result before the yielded prompt's echo closes an
+    // autonomous turn. Without echoes there is nothing to wait for. If an
+    // expected echo never arrives, the next yield retires the id (displaced).
+    if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {
+      return null;
+    }
     const id = rec.currentTurnClientMessageId;
     rec.currentTurnClientMessageId = null;
     return id;
@@ -515,13 +519,6 @@ export class SessionLifecycleManager {
     const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
     this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
-  }
-
-  /** An autonomous result must not release a yielded prompt before its echo. */
-  onResultTurnTerminal(sessionId: SessionId): void {
-    const rec = this._registry.find(sessionId as string);
-    if (rec?.awaitingEcho && rec.currentTurnClientMessageId !== null) return;
-    this.onTurnTerminal(sessionId);
   }
 
   /**
