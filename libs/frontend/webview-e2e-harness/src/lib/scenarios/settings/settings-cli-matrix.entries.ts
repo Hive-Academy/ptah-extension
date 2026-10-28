@@ -958,7 +958,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
       }
       await expectCall(page, before, 'ptahCli:testConnection', { id: GLM_ID });
       await expect(
-        row.locator('[data-testid="cli-matrix-test-result"]'),
+        page.locator('[data-testid="settings-toast-message"]'),
       ).toHaveText('Test passed.');
     },
   },

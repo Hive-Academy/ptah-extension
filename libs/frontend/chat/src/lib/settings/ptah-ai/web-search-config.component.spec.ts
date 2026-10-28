@@ -234,7 +234,7 @@ describe('WebSearchConfigComponent', () => {
       expect(checkbox('serper').checked).toBe(false);
       expect(component.isSelected('serper')).toBe(false);
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save the web search providers.', canUndo: false });
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search providers.');
+      expect(queryTestId('settings-web-search-error')).toBeNull();
     });
 
     it('treats success:false from the host as a failed write', async () => {
@@ -319,7 +319,7 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(component.activeKeyProvider()).toBe('serper');
-      expect(byTestId('settings-web-search-key-error').textContent?.trim()).toBe('Could not save the Serper API key.');
+      expect(queryTestId('settings-web-search-key-error')).toBeNull();
       expect(byTestId('settings-web-search-key-status-serper').textContent).toContain('No key');
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save the Serper API key.', canUndo: false });
     });
@@ -395,11 +395,11 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(byTestId('settings-web-search-key-status-tavily').textContent).toContain('Key set');
-      expect(byTestId('settings-web-search-clear-error-tavily').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(queryTestId('settings-web-search-clear-error-tavily')).toBeNull();
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not clear the Tavily API key.', canUndo: false });
     });
 
-    it('shows a failed clear inside the open confirm group as an alert, and a retry or Cancel drops it (FM-5)', async () => {
+    it('keeps the confirm group open after a failed clear and reports it only in the toast (FM-5)', async () => {
       responses['webSearch:deleteApiKey'] = () => fail('Could not delete key');
       await render();
       byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
@@ -407,18 +407,10 @@ describe('WebSearchConfigComponent', () => {
       byTestId<HTMLButtonElement>('settings-web-search-clear-confirm-tavily').click();
       await settle();
 
-      const group = byTestId('settings-web-search-clear-group-tavily');
-      const error = byTestId('settings-web-search-clear-error-tavily');
-      expect(group.contains(error)).toBe(true);
-      expect(error.getAttribute('role')).toBe('alert');
-      expect(error.classList).toContain('text-base-content');
-      expect(queryTestId('settings-web-search-error')).toBeNull();
-
-      byTestId<HTMLButtonElement>('settings-web-search-clear-cancel-tavily').click();
-      await settle();
-      byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
-      await settle();
+      expect(queryTestId('settings-web-search-clear-group-tavily')).not.toBeNull();
       expect(queryTestId('settings-web-search-clear-error-tavily')).toBeNull();
+      expect(queryTestId('settings-web-search-error')).toBeNull();
+      expect(feedback.toast()?.tone).toBe('alert');
     });
 
     it('stops the Esc keydown at the confirm, so an enclosing overlay does not also close', async () => {
@@ -511,7 +503,7 @@ describe('WebSearchConfigComponent', () => {
       await render();
       checkbox('serper').click();
       await settle();
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search providers.');
+      expect(queryTestId('settings-web-search-error')).toBeNull();
       expect(feedback.toast()?.message).toBe('Could not save the web search providers.');
       expect(visibleText()).not.toContain('host detail');
     });
@@ -520,7 +512,7 @@ describe('WebSearchConfigComponent', () => {
       responses['webSearch:setConfig'] = respond;
       await render();
       await moveSlider(10);
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search max results.');
+      expect(queryTestId('settings-web-search-error')).toBeNull();
       expect(feedback.toast()?.message).toBe('Could not save the web search max results.');
       expect(visibleText()).not.toContain('host detail');
     });
@@ -531,7 +523,7 @@ describe('WebSearchConfigComponent', () => {
       await typeKey('exa', 'some-key');
       byTestId<HTMLButtonElement>('settings-web-search-key-save').click();
       await settle();
-      expect(byTestId('settings-web-search-key-error').textContent?.trim()).toBe('Could not save the Exa API key.');
+      expect(queryTestId('settings-web-search-key-error')).toBeNull();
       expect(feedback.toast()?.message).toBe('Could not save the Exa API key.');
       expect(visibleText()).not.toContain('host detail');
     });
@@ -544,7 +536,7 @@ describe('WebSearchConfigComponent', () => {
       await settle();
       byTestId<HTMLButtonElement>('settings-web-search-clear-confirm-tavily').click();
       await settle();
-      expect(byTestId('settings-web-search-clear-error-tavily').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(queryTestId('settings-web-search-clear-error-tavily')).toBeNull();
       expect(feedback.toast()?.message).toBe('Could not clear the Tavily API key.');
       expect(visibleText()).not.toContain('host detail');
     });
@@ -557,7 +549,8 @@ describe('WebSearchConfigComponent', () => {
       await render();
       byTestId<HTMLButtonElement>('settings-web-search-test').click();
       await settle();
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('The connection check failed.');
+      expect(queryTestId('settings-web-search-error')).toBeNull();
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'The connection check failed.', canUndo: false });
       expect(visibleText()).not.toContain('host detail');
     });
 

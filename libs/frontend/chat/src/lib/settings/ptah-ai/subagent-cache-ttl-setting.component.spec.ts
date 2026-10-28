@@ -45,10 +45,13 @@ class StateStub {
   env: SubagentPromptCacheTtlEnvOverride | undefined = undefined;
   next: 'saved' | 'rejected' | 'unconfirmed' = 'saved';
   readable = true;
+  /** The host accepts the write but keeps its old value (read-back mismatch). */
+  ignoresWrite = false;
   readonly saveSettings = jest.fn(
     async (patch: { orchestration?: Orchestration }, _context: unknown) => {
       const value = patch.orchestration?.subagentPromptCacheTtl;
-      if (this.next !== 'rejected' && value !== undefined) this.host = value;
+      if (this.next !== 'rejected' && !this.ignoresWrite && value !== undefined)
+        this.host = value;
       this.reread();
       const status =
         this.next === 'saved'
@@ -208,15 +211,34 @@ describe('SubagentCacheTtlSettingComponent', () => {
     expect(isDisabledControl(select())).toBe(false);
   });
 
-  it('shows the re-read value and says it is unchanged when nothing was written', async () => {
+  it('shows the re-read value and reports the failure only in the toast when nothing was written', async () => {
     state.next = 'rejected';
     choose('5m');
     await flush();
     expect(select()?.value).toBe('auto');
-    expect(error()).toBe(
-      'Could not save the subagent prompt-cache TTL. The saved setting is unchanged.',
+    expect(error()).toBeNull();
+    expect(feedback.toast()).toEqual(
+      expect.objectContaining({
+        tone: 'alert',
+        message: expect.stringContaining(
+          'Could not save Subagent prompt-cache TTL.',
+        ),
+      }),
     );
-    expect(feedback.toast()?.tone).toBe('alert');
+  });
+
+  it('announces an alert when a saved write reads back a different value', async () => {
+    state.ignoresWrite = true;
+    choose('1h');
+    await flush();
+    expect(select()?.value).toBe('auto');
+    expect(error()).toBeNull();
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save the subagent prompt-cache TTL. The saved setting is unchanged.',
+      canUndo: false,
+    });
   });
 
   it('shows no value and takes no writes when the outcome is unknown, until a re-read succeeds', async () => {
@@ -225,8 +247,10 @@ describe('SubagentCacheTtlSettingComponent', () => {
     await flush();
     expect(select()?.value).toBe('');
     expect(isDisabledControl(select())).toBe(true);
-    expect(error()).toContain(
-      'Could not confirm whether the subagent prompt-cache TTL was saved',
+    expect(error()).toBeNull();
+    expect(feedback.toast()?.tone).toBe('alert');
+    expect(feedback.toast()?.message).toContain(
+      'Could not save Subagent prompt-cache TTL.',
     );
     state.saveSettings.mockClear();
     await fixture.componentInstance.select({

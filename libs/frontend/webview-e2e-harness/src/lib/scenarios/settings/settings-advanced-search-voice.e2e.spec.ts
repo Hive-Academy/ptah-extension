@@ -287,7 +287,6 @@ for (const host of HOSTS) {
         await select.selectOption('small.en');
         await expectFailedWrite(page, 'Could not save the voice configuration.');
         await expect(select).toHaveValue('base.en');
-        await expect(page.locator('[data-testid="local-stt-panel-error"]')).toContainText('Could not save the voice configuration.');
       });
       await dismissToast(page);
       await closeDrawers(page).catch(() => undefined);

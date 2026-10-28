@@ -61,7 +61,6 @@ const NO_SELECTION: ActiveOutputStyleState = {
       [invalid]="invalid()"
       [active]="active()"
       [failedOperation]="failedOperation()"
-      [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
       [usingFallback]="usingFallback()"
       [saving]="saving()"
@@ -81,7 +80,6 @@ class HostComponent {
   readonly invalid = signal<readonly InvalidOutputStyle[]>([]);
   readonly active = signal<ActiveOutputStyleState>(NO_SELECTION);
   readonly failedOperation = signal<OutputStyleFailedOperation | null>(null);
-  readonly parityWrittenPath = signal<string | null>(null);
   readonly parityWarning = signal<string | null>(null);
   readonly emitted: OutputStyleSelectionRequest[] = [];
 }
@@ -317,36 +315,30 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('confirms the written file by name on success', () => {
-    host.parityWrittenPath.set('.claude/settings.local.json');
-    fixture.detectChanges();
-
-    expect(text()).toContain('Saved to');
-    expect(text()).toContain('.claude/settings.local.json');
-  });
-
   it('renders no absolute host path anywhere (Req 7.6)', () => {
     parityCheckbox().click();
-    host.parityWrittenPath.set('~/.claude/settings.json');
     fixture.detectChanges();
 
     expect(text()).not.toMatch(/[A-Za-z]:[\\/]/);
   });
 
-  it.each<[OutputStyleFailedOperation, string]>([
-    ['list', 'Could not read the output styles.'],
-    ['activate', 'Could not change the active output style.'],
-    ['save', 'Could not save the output style.'],
-    ['delete', 'Could not delete the output style.'],
-    ['open', 'Could not open that output style.'],
-    ['copy', 'Could not copy the output style to the project.'],
-  ])('names the failed %s operation with its fixed sentence in role="alert" (Moderate 4, D15)', (operation, sentence) => {
-    host.failedOperation.set(operation);
+  it('shows a failed list read with its fixed sentence in role="alert" (Moderate 4, D15)', () => {
+    host.failedOperation.set('list');
     fixture.detectChanges();
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain(sentence);
+    expect(alert?.textContent).toContain('Could not read the output styles.');
   });
+
+  it.each<OutputStyleFailedOperation>(['activate', 'save', 'delete', 'open', 'copy'])(
+    'leaves a failed %s write to the page toast: no inline alert',
+    (operation) => {
+      host.failedOperation.set(operation);
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+    },
+  );
 
   describe('same-selection guard (Moderate 6)', () => {
     it('clicking the already-active radio emits nothing', () => {

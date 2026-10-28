@@ -15,6 +15,7 @@ import type { ConnectionKind } from './connection-kind';
 import type { DrawerWriteOutcome } from './drawer-write';
 import { KEY_UNREADABLE_TEXT } from '../provider-connection-card.state';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 
 export type VerifyDraftFn = (params: AuthVerifyDraftConnectionParams) => Promise<AuthVerifyDraftConnectionResult>;
 export type CancelDraftFn = (params: AuthCancelDraftVerificationParams) => Promise<AuthCancelDraftVerificationResult>;
@@ -255,14 +256,6 @@ let PROBE_COUNTER = 0;
           }
         }
       }
-      @if (copyMessage(); as message) {
-        <p role="status" class="text-xs text-base-content-muted">{{ message }}</p>
-      }
-      @if (commitView(); as feedback) {
-        <p [attr.role]="feedback.alert ? 'alert' : 'status'" class="flex items-start gap-1.5 text-xs text-base-content" data-testid="credentials-commit">
-          <span [class]="feedback.dot" aria-hidden="true"></span> {{ feedback.text }}
-        </p>
-      }
 
       <!-- The stored-key block: the whole view of a key connection, and the optional fallback key of a
            sign-in connection that also takes one (Kimi Code). -->
@@ -339,10 +332,13 @@ let PROBE_COUNTER = 0;
             @if (setupMissing(); as missing) {
               <p class="text-xs text-base-content-muted" data-testid="credentials-setup-missing">{{ missing }}</p>
             }
-            <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
-              @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
-              {{ probeText() }}
-            </p>
+            <!-- Progress and the "check first" hint stay here; the check's result is the page toast. -->
+            @if (probeText(); as text) {
+              <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
+                @if (probeState() === 'checking') { <span class="h-2 w-2 shrink-0 rounded-full bg-base-content-muted" aria-hidden="true"></span> }
+                {{ text }}
+              </p>
+            }
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
                 (click)="verify()" data-testid="credentials-verify">{{ probeState() === 'checking' ? 'Checking…' : 'Check key' }}</button>
@@ -421,7 +417,9 @@ export class CredentialsTabComponent {
   protected readonly keyVisible = signal(false);
   protected readonly probeState = signal<ProbeState>('idle');
   protected readonly probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
-  protected readonly copyMessage = signal<string | null>(null);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
+  /** The outcome already said, so a re-render of the same one is not announced twice. */
+  private announcedCommit: CredentialsCommit | null = null;
   /** The write this tab started, so its outcome is read from `commit` (D15: never "Saved" after a failure). */
   private readonly pendingWrite = signal<'replace' | 'delete' | 'sign-out' | null>(null);
   private probeId: string | null = null;
@@ -489,27 +487,12 @@ export class CredentialsTabComponent {
   });
   protected readonly canSave = computed(() => this.probeState() === 'verified' && !!this.keyDraft().trim() && !this.busy()
     && this.probeResult()?.probeId === this.probeId && this.setupMissing() === null);
+  /** Inline only while checking, or before a check ran; a check's result goes to the page toast. */
   protected readonly probeText = computed(() => {
-    const result = this.probeResult();
-    const latency = result?.latencyMs !== null && result?.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
     switch (this.probeState()) {
       case 'checking': return 'Checking the key…';
-      case 'verified': return `Key verified${latency}. Save it to replace the stored key.`;
-      case 'failed': return `Check failed${latency}: ${PROBE_FAILURE_COPY[result?.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY.unclassified} Nothing was saved.`;
-      default: return 'Check the key before saving it.';
-    }
-  });
-  protected readonly probeDot = computed(() =>
-    `h-2 w-2 shrink-0 rounded-full ${this.probeState() === 'verified' ? 'bg-success' : this.probeState() === 'failed' ? 'bg-error' : 'bg-base-content-muted'}`);
-  protected readonly commitView = computed(() => {
-    const commit = this.commit();
-    if (!this.pendingWrite() || !commit || commit.status === 'idle') return null;
-    const dot = (tone: string) => `mt-1 h-2 w-2 shrink-0 rounded-full ${tone}`;
-    switch (commit.status) {
-      case 'saving': return { text: 'Saving…', dot: dot('bg-base-content-muted'), alert: false };
-      case 'saved': return { text: this.savedText(), dot: dot('bg-success'), alert: false };
-      case 'unconfirmed': return { text: `Save not confirmed. ${commit.message ?? ''}`.trim(), dot: dot('bg-warning'), alert: true };
-      default: return { text: `Not saved. ${commit.message ?? ''}`.trim(), dot: dot('bg-error'), alert: true };
+      case 'idle': return 'Check the key before saving it.';
+      default: return null;
     }
   });
 
@@ -524,6 +507,17 @@ export class CredentialsTabComponent {
     // A saved Replace closes the form and drops the key.
     effect(() => {
       if (this.commit()?.status === 'saved' && this.pendingWrite() === 'replace') untracked(() => this.resetReplace());
+    });
+    // This tab's own write ends: its outcome is the page toast (D15: never "Saved" after a failure).
+    effect(() => {
+      const commit = this.commit(), write = this.pendingWrite();
+      if (!write || !commit || commit === this.announcedCommit) return;
+      if (commit.status === 'idle' || commit.status === 'saving') return;
+      this.announcedCommit = commit;
+      untracked(() => {
+        if (commit.status === 'saved') this.feedback.announce(this.savedText(), 'status');
+        else this.feedback.announce(`${commit.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${commit.message ?? ''}`.trim(), 'alert');
+      });
     });
     inject(DestroyRef).onDestroy(() => this.resetReplace());
   }
@@ -560,13 +554,11 @@ export class CredentialsTabComponent {
     };
     void this.verifyDraftConnection()(params).then((result) => {
       if (this.probeId !== probeId || result.probeId !== probeId) return;
-      this.probeResult.set(result);
-      this.probeState.set(result.outcome === 'verified' ? 'verified' : 'failed');
+      this.settleProbe(result);
     }).catch(() => {
       if (this.probeId !== probeId) return;
-      this.probeResult.set({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null,
+      this.settleProbe({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null,
         modelUsed: null, checkedAt: new Date().toISOString() });
-      this.probeState.set('failed');
     });
   }
 
@@ -592,10 +584,22 @@ export class CredentialsTabComponent {
   protected async copy(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
-      this.copyMessage.set(`Copied "${text}".`);
+      this.feedback.announce(`Copied "${text}".`, 'status');
     } catch {
-      this.copyMessage.set('Copy is not available here. Select the command and copy it.');
+      this.feedback.announce('Copy is not available here. Select the command and copy it.', 'alert');
     }
+  }
+
+  /** Records a check's result (it gates Save) and says it in the page toast. */
+  private settleProbe(result: AuthVerifyDraftConnectionResult): void {
+    this.probeResult.set(result);
+    const verified = result.outcome === 'verified';
+    this.probeState.set(verified ? 'verified' : 'failed');
+    const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
+    this.feedback.announce(verified
+      ? `Key verified${latency}. Save it to replace the stored key.`
+      : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY.unclassified} Nothing was saved.`,
+    verified ? 'status' : 'alert');
   }
 
   private savedText(): string {

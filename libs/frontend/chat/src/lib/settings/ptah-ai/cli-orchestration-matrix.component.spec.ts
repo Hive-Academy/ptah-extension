@@ -740,8 +740,11 @@ describe('CliOrchestrationMatrixComponent', () => {
         q<HTMLButtonElement>('[data-testid="cli-matrix-install-pi"]')?.click();
         fixture.detectChanges();
       }
-      const note = () =>
-        q('[data-testid="cli-install-redetect-note"]')?.textContent?.trim();
+      /** The guide's outcome is announced through the page toast, never inline. */
+      const note = () => {
+        expect(q('[data-testid="cli-install-redetect-note"]')).toBeNull();
+        return feedback.toast()?.message;
+      };
 
       it('closes the guide and focuses the row once the CLI is found', async () => {
         state.onRedetect = () =>
@@ -781,6 +784,7 @@ describe('CliOrchestrationMatrixComponent', () => {
         expect(note()).toBe(
           'Still not found. Check the step above, then try again.',
         );
+        expect(feedback.toast()?.tone).toBe('status');
       });
 
       it('says detection failed when the re-read fails', async () => {
@@ -796,6 +800,7 @@ describe('CliOrchestrationMatrixComponent', () => {
         )?.click();
         await flush();
         expect(note()).toBe('Detection failed. Try again.');
+        expect(feedback.toast()?.tone).toBe('alert');
       });
 
       it('decides on its own detection result, not the shared section an overlapping re-detect replaced', async () => {
@@ -1223,15 +1228,21 @@ describe('CliOrchestrationMatrixComponent', () => {
   });
 
   describe('Test (#52, RUX-11)', () => {
-    it('tests the instance and shows the latency inline', async () => {
+    const inlineResult = () =>
+      row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]') ??
+      null;
+
+    it('tests the instance, announces the latency in the toast, and keeps it in the status badge', async () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
       expect(state.testCliConnection).toHaveBeenCalledWith('glm-1');
-      expect(
-        row('glm-1')
-          ?.querySelector('[data-testid="cli-matrix-test-result"]')
-          ?.textContent?.trim(),
-      ).toBe('Test passed in 112ms.');
+      expect(inlineResult()).toBeNull();
+      expect(feedback.toast()).toEqual({
+        tone: 'status',
+        message: 'Test passed in 112ms.',
+        canUndo: false,
+      });
+      expect(statusOf('glm-1')).toContain('112ms');
     });
 
     it("M1: a failure is a fixed sentence, followed only by the state's own fixed reason", async () => {
@@ -1243,10 +1254,12 @@ describe('CliOrchestrationMatrixComponent', () => {
       };
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      const result = () =>
-        row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]');
-      expect(result()?.textContent?.trim()).toBe('The connection test failed.');
-      expect(result()?.getAttribute('role')).toBe('alert');
+      expect(inlineResult()).toBeNull();
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'The connection test failed.',
+        canUndo: false,
+      });
       expect(statusOf('glm-1')).toBe('Ready');
       state.testResult = {
         id: 'glm-1',
@@ -1256,15 +1269,15 @@ describe('CliOrchestrationMatrixComponent', () => {
       };
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(result()?.textContent?.trim()).toBe(
+      expect(feedback.toast()?.message).toBe(
         'The connection test failed. The provider did not respond.',
       );
     });
 
-    it('S1: a failed or timed-out run never shows the earlier pass, and nothing shows while it runs', async () => {
+    it('S1: a failed or timed-out run never reports the earlier pass', async () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(row('glm-1')?.textContent).toContain('Test passed in 112ms.');
+      expect(feedback.toast()?.message).toBe('Test passed in 112ms.');
       let fail: () => void = () => undefined;
       state.testCliConnection.mockImplementationOnce(async () => {
         // The real state drops the previous result when a run starts.
@@ -1280,27 +1293,15 @@ describe('CliOrchestrationMatrixComponent', () => {
       });
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       fixture.detectChanges();
-      expect(
-        row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]'),
-      ).toBeNull();
       expect(statusOf('glm-1')).toBe('Ready');
       fail();
       await flush();
-      expect(
-        row('glm-1')
-          ?.querySelector('[data-testid="cli-matrix-test-result"]')
-          ?.textContent?.trim(),
-      ).toBe('The test could not run. Try again.');
-      expect(row('glm-1')?.textContent).not.toContain('Test passed');
-    });
-
-    it('V36-2: the Test result line is 12 px (text-xs)', async () => {
-      q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
-      await flush();
-      expect(
-        row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')
-          ?.className,
-      ).toContain('text-xs');
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'The test could not run. Try again.',
+        canUndo: false,
+      });
+      expect(row('glm-1')?.textContent).not.toContain('112ms');
     });
 
     it('says when the test itself could not run', async () => {
@@ -1313,10 +1314,8 @@ describe('CliOrchestrationMatrixComponent', () => {
       });
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(
-        row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')
-          ?.textContent,
-      ).toContain('could not run');
+      expect(inlineResult()).toBeNull();
+      expect(feedback.toast()?.message).toContain('could not run');
     });
 
     it("M4 / Minor 2: a create runs the new instance's Test; from the empty-state button focus moves to its first action", async () => {

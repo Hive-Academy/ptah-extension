@@ -18,6 +18,7 @@ import {
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
 import { ChatStore } from '../../services/chat.store';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { LicenseStatusCardComponent } from './license-status-card.component';
 
 /**
@@ -76,8 +77,10 @@ describe('LicenseStatusCardComponent', () => {
   let component: LicenseStatusCardComponent;
   let element: HTMLElement;
   let rpc: MockRpcService;
+  /** Activation and log-out outcomes go to the page toast. */
+  let announce: jest.Mock;
 
-  beforeEach(() => { rpc = createMockRpcService(); });
+  beforeEach(() => { rpc = createMockRpcService(); announce = jest.fn(); });
   afterEach(() => { fixture?.destroy(); TestBed.resetTestingModule(); });
 
   /** Renders the card with the given ChatStore license status. */
@@ -89,6 +92,7 @@ describe('LicenseStatusCardComponent', () => {
       providers: [
         { provide: ClaudeRpcService, useValue: rpc },
         { provide: ChatStore, useValue: { licenseStatus: signal(licenseStatusValue) } },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
       ],
     }).overrideComponent(LicenseStatusCardComponent, {
       remove: { imports: [NativePopoverComponent] },
@@ -301,9 +305,8 @@ describe('LicenseStatusCardComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(element.querySelector('[data-testid="logout-confirm"]')).not.toBeNull();
-    const error = element.querySelector('[data-testid="logout-error"]');
-    expect(error?.getAttribute('role')).toBe('alert');
-    expect(error?.textContent?.trim()).toBe('Could not log out.');
+    expect(element.querySelector('[data-testid="logout-error"]')).toBeNull();
+    expect(announce).toHaveBeenCalledWith('Could not log out.', 'alert');
     expect(element.textContent).not.toContain('host detail');
   });
 
@@ -315,32 +318,29 @@ describe('LicenseStatusCardComponent', () => {
     const error = element.querySelector('[data-testid="membership-key-error"]');
     expect(error?.getAttribute('role')).toBe('alert');
     expect(error?.textContent).toContain('Invalid format');
+    expect(announce).not.toHaveBeenCalled();
   });
 
-  it('verifies a well-formed key via license:setKey and shows the success line only from the result', async () => {
+  it('verifies a well-formed key via license:setKey and announces success only from the result', async () => {
     rpc.call.mockResolvedValue(rpcSuccess({ success: true, tier: 'builders', plan: { name: 'Builders' } }));
     await render(status());
     await openKeyPopover();
     await activate(VALID_KEY);
     expect(rpc.call).toHaveBeenCalledWith('license:setKey', { licenseKey: VALID_KEY });
-    const success = element.querySelector('[data-testid="membership-key-success"]');
-    expect(success?.getAttribute('role')).toBe('status');
-    expect(success?.textContent).toContain(
-      'Membership activated! Plan: Builders. Reloading...',
-    );
+    expect(announce).toHaveBeenCalledWith('Membership activated! Plan: Builders. Reloading...', 'status');
+    expect(element.querySelector('[data-testid="membership-key-success"]')).toBeNull();
     expect(element.querySelector('[data-testid="membership-key-error"]')).toBeNull();
   });
 
-  it.each(HOST_FAILURES)('shows a fixed sentence inline when key activation fails with %s', async (_case, arrange) => {
+  it.each(HOST_FAILURES)('announces a fixed sentence when key activation fails with %s', async (_case, arrange) => {
     arrange(rpc.call);
     await render(status());
     await openKeyPopover();
     await activate(VALID_KEY);
-    const error = element.querySelector('[data-testid="membership-key-error"]');
-    expect(error?.getAttribute('role')).toBe('alert');
-    expect(error?.textContent?.trim()).toBe('Could not activate the membership key.');
+    expect(announce).toHaveBeenCalledWith('Could not activate the membership key.', 'alert');
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(element.querySelector('[data-testid="membership-key-error"]')).toBeNull();
     expect(element.textContent).not.toContain('host detail');
-    expect(element.querySelector('[data-testid="membership-key-success"]')).toBeNull();
   });
 
   it('never persists a typed key after the popover closes', async () => {

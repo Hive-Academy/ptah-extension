@@ -216,7 +216,7 @@ describe('OrchestrationSettingsComponent', () => {
     }
   });
 
-  it('shows commit feedback naming saved, unsaved and unconfirmed fields', async () => {
+  it('shows no inline commit panel: the TTL save reports through the page toast', async () => {
     state.commit.set({
       ...idle,
       status: 'unconfirmed',
@@ -225,12 +225,8 @@ describe('OrchestrationSettingsComponent', () => {
       unconfirmed: ['Key'],
     });
     await render();
-    const feedback = element.querySelector(
-      '[data-testid="providers-commit-feedback"]',
-    );
-    expect(feedback?.getAttribute('role')).toBe('status');
-    expect(feedback?.textContent).toContain('Saved: CLI instance.');
-    expect(feedback?.textContent).toContain('Not saved: Tier.');
-    expect(feedback?.textContent).toContain('Save not confirmed: Key.');
+    expect(
+      element.querySelector('[data-testid="providers-commit-feedback"]'),
+    ).toBeNull();
   });
 });

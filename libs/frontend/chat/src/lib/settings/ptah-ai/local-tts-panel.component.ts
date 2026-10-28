@@ -353,6 +353,7 @@ export class LocalTtsPanelComponent implements OnInit {
   readonly isLoadingVoices = signal(true);
   readonly isTtsDownloading = signal(false);
   readonly isPreviewing = signal(false);
+  /** The voice-list load failure only; write, download and preview outcomes go to the page toast. */
   readonly errorMessage = signal<string | null>(null);
 
   /** True when the custom id/path passes basic shape validation. */
@@ -545,24 +546,20 @@ export class LocalTtsPanelComponent implements OnInit {
     modelSource?: ModelSource;
     customModel?: string;
   }): Promise<WriteResult> {
-    this.errorMessage.set(null);
     try {
       const result = await this.rpc.call('voice:setTtsConfig', params);
       if (result.isSuccess() && result.data.ok) {
         this.changed.emit();
         return { ok: true };
       }
-      this.errorMessage.set(SAVE_FAILED_MESSAGE);
       return { ok: false, message: SAVE_FAILED_MESSAGE };
     } catch {
-      this.errorMessage.set(SAVE_FAILED_MESSAGE);
       return { ok: false, message: SAVE_FAILED_MESSAGE };
     }
   }
 
   async downloadTtsModel(): Promise<void> {
     if (this.isTtsDownloading()) return;
-    this.errorMessage.set(null);
     this.downloadProgress.reset();
     this.isTtsDownloading.set(true);
     try {
@@ -574,10 +571,11 @@ export class LocalTtsPanelComponent implements OnInit {
       if (result.isSuccess() && result.data.ok) {
         this.changed.emit();
       } else {
-        this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
+        this.feedback.announce(DOWNLOAD_FAILED_MESSAGE, 'alert');
       }
     } catch {
-      this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
+      // degradation-audit: reported - a thrown download gets the same fixed alert toast.
+      this.feedback.announce(DOWNLOAD_FAILED_MESSAGE, 'alert');
     } finally {
       this.isTtsDownloading.set(false);
       this.downloadProgress.reset();
@@ -586,7 +584,6 @@ export class LocalTtsPanelComponent implements OnInit {
 
   async previewVoice(): Promise<void> {
     if (this.isPreviewing()) return;
-    this.errorMessage.set(null);
     this.isPreviewing.set(true);
     try {
       const result = await this.rpc.call(
@@ -597,10 +594,11 @@ export class LocalTtsPanelComponent implements OnInit {
       if (result.isSuccess() && result.data.ok) {
         await this.playAudio(result.data.audioBase64, result.data.mimeType);
       } else {
-        this.errorMessage.set(PREVIEW_FAILED_MESSAGE);
+        this.feedback.announce(PREVIEW_FAILED_MESSAGE, 'alert');
       }
     } catch {
-      this.errorMessage.set(PREVIEW_FAILED_MESSAGE);
+      // degradation-audit: reported - a thrown preview gets the same fixed alert toast.
+      this.feedback.announce(PREVIEW_FAILED_MESSAGE, 'alert');
     } finally {
       this.isPreviewing.set(false);
     }

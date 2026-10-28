@@ -606,7 +606,7 @@ for (const host of HOSTS) {
       await key.fill('crsr_e2e_secret_value');
       await save.click();
       await expect(
-        popover.locator('[data-testid="cursor-credential-outcome"]'),
+        page.locator('[data-testid="settings-toast-message"]'),
       ).toContainText('The key was not saved.');
       await expect(key).toBeFocused();
       await expect(key).toHaveValue('crsr_e2e_secret_value');

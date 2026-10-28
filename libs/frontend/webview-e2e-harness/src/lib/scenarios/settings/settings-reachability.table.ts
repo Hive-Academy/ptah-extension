@@ -1201,7 +1201,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             id: 'sovereigneg',
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toBeVisible();
         },
       ),
@@ -1231,7 +1231,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           await expect(save).toBeDisabled();
           await panel.locator('[data-testid="advanced-check"]').click();
           await expect(
-            panel.locator('[data-testid="advanced-probe"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Endpoint verified');
           await save.click();
           await expectCall(page, before, 'provider:updateCustomEntry', {
@@ -1239,7 +1239,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             changes: { modelsEndpoint: '/v2/models' },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Endpoint saved.');
           if (entry) entry['modelsEndpoint'] = stored;
         },
@@ -1266,7 +1266,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             changes: { helpUrl: 'https://docs.example.internal/ai' },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Help URL saved.');
         },
       ),
@@ -1302,7 +1302,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
             },
           });
           await expect(
-            panel.locator('[data-testid="advanced-commit"]'),
+            page.locator('[data-testid="settings-toast-message"]'),
           ).toContainText('Pricing saved.');
         },
       ),
@@ -1513,13 +1513,13 @@ const regressedUx: readonly ReachabilityEntry[] = [
         await key.fill(INVALID_PROBE_KEY);
         await page.locator('[data-testid="credentials-verify"]').click();
         await expect(
-          page.locator('[data-testid="credentials-probe"]'),
+          page.locator('[data-testid="settings-toast-message"]'),
         ).toContainText('Nothing was saved');
         await expect(save).toBeDisabled();
         await key.fill('sk-e2e-replacement');
         await page.locator('[data-testid="credentials-verify"]').click();
         await expect(
-          page.locator('[data-testid="credentials-probe"]'),
+          page.locator('[data-testid="settings-toast-message"]'),
         ).toContainText('Key verified');
         await expect(save).toBeEnabled();
       } finally {

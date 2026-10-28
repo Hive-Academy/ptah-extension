@@ -31,6 +31,7 @@ const MODALITY: Readonly<Record<string, string>> = {
 };
 /** Model select value that swaps the select for an inline model-ID field (#35). */
 const MANUAL = '__manual__';
+const PROVIDER_SAVED = 'Main agent provider saved.';
 const SELECT = 'select select-bordered select-sm min-h-8 w-full border-base-content-muted bg-base-100 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 /** The disabled Save keeps a visible shape and a muted, readable label (native `disabled` semantics unchanged). */
@@ -145,9 +146,6 @@ interface AccountIntent {
                   <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content ' + focusRing" [disabled]="busy()" (click)="resetProvider()">Cancel provider change</button>
                 </div>
               </div>
-            }
-            @if (providerOutcome(); as outcome) {
-              <p [attr.role]="outcome.alert ? 'alert' : 'status'" class="text-base-content" data-testid="main-agent-provider-outcome">{{ outcome.text }}</p>
             }
           </div>
 
@@ -385,13 +383,12 @@ export class MainAgentReassignPopoverComponent {
         : `New main-agent requests keep using ${name}. Saving the provider ${ends}`,
     };
   });
-  protected readonly providerOutcome = computed(() => {
-    const outcome = this.outcome();
-    if (!outcome || outcome.status === 'idle') return null;
-    if (outcome.status === 'saving') return { text: 'Saving…', alert: false };
-    if (outcome.status === 'saved') return { text: 'Main agent provider saved.', alert: false };
-    return { text: `${outcome.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${outcome.message ?? ''}`.trim(), alert: true };
-  });
+  /** The provider write's own outcome as page-toast copy; `null` while it runs (Save already says "Saving…"). */
+  private providerFeedback(outcome: DrawerWriteOutcome): { message: string; tone: 'status' | 'alert' } | null {
+    if (outcome.status === 'idle' || outcome.status === 'saving') return null;
+    if (outcome.status === 'saved') return { message: PROVIDER_SAVED, tone: 'status' };
+    return { message: `${outcome.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${outcome.message ?? ''}`.trim(), tone: 'alert' };
+  }
 
   protected readonly currentModel = computed(() => this.state.model().data?.model ?? '');
   protected readonly selectedModel = computed(() => this.modelDraft() ?? this.currentModel());
@@ -508,7 +505,7 @@ export class MainAgentReassignPopoverComponent {
     // Re-fit after every state that changes the popover's height (Gate V 28: the confirm ran off screen).
     afterRenderEffect(() => {
       if (!this.open()) return;
-      this.pendingProvider(); this.providerConfirmed(); this.providerOutcome(); this.manual(); this.catalogue(); this.targetReady();
+      this.pendingProvider(); this.providerConfirmed(); this.manual(); this.catalogue(); this.targetReady();
       untracked(() => this.fitToViewport());
     });
   }
@@ -635,11 +632,15 @@ export class MainAgentReassignPopoverComponent {
     if (!this.saveReady() || this.busy() || (writesSettings && !target)) return;
     const intent = this.captureAccountIntent();
     const saveButton = this.saveButton();
+    const followUp = intent !== null || (target !== null && (this.modelChanged() || this.effortChanged()));
     this.saving.set(true);
     try {
       if (pending && target) {
         await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context), (outcome) => {
           if (session === this.session) this.outcome.set(outcome);
+          // The toast outlives the popover. A saved provider is said by the write that follows it, when one does.
+          const said = this.providerFeedback(outcome);
+          if (said && (said.tone === 'alert' || !followUp)) this.feedback.announce(said.message, said.tone);
         });
         this.refreshContextIfBlocked();
         if (session !== this.session || this.outcome()?.status !== 'saved') return;
@@ -651,8 +652,11 @@ export class MainAgentReassignPopoverComponent {
       const accounts = this.accounts;
       if (intent && accounts) {
         // A closed or reopened popover drops the intent: nothing more is written.
-        if (session !== this.session || !this.open()) return;
         const providerSaved = pending !== null;
+        if (session !== this.session || !this.open()) {
+          if (providerSaved) this.feedback.announce(PROVIDER_SAVED, 'status');
+          return;
+        }
         // No await between the check and the call: the service's call-time snapshot read is the checked one.
         const outcome: ProviderAccountActionOutcome = !providerSaved || this.intentHolds(intent)
           ? await accounts.setSelection('claude', 'main', intent.choice)
@@ -676,14 +680,15 @@ export class MainAgentReassignPopoverComponent {
         }
         if (live) this.accountDraft.set(null);
         if (!live || !(this.modelChanged() || this.effortChanged())) {
-          if (feedback) this.feedback.announce(feedback.message, feedback.tone);
+          if (feedback) this.feedback.announce(providerSaved ? `${PROVIDER_SAVED} ${feedback.message}` : feedback.message, feedback.tone);
+          else if (providerSaved) this.feedback.announce(PROVIDER_SAVED, 'status');
           if (!live) return;
         } else {
           accountSaved = feedback?.message ?? null;
         }
       }
       if (target && (this.modelChanged() || this.effortChanged())) {
-        const result = await this.saveModelAndEffort(target, accountSaved);
+        const result = await this.saveModelAndEffort(target, accountSaved, pending !== null);
         if (session !== this.session || result !== 'saved') return;
         this.modelDraft.set(null);
         this.effortDraft.set(null);
@@ -732,7 +737,7 @@ export class MainAgentReassignPopoverComponent {
   }
 
   /** The drafted model and effort in one write; Undo writes the stored values back (none when no model was stored). */
-  private async saveModelAndEffort(applyTo: SettingScope, accountSaved: string | null): Promise<SettingsSaveResult | null> {
+  private async saveModelAndEffort(applyTo: SettingScope, accountSaved: string | null, providerSaved: boolean): Promise<SettingsSaveResult | null> {
     const context = this.context;
     if (!context) return null;
     const model = this.modelChanged() ? this.selectedModel() : null;
@@ -742,7 +747,11 @@ export class MainAgentReassignPopoverComponent {
     const result = await this.feedback.save({
       label, scope: applyTo,
       // P6-A2: a saved account rides on this toast, so its Undo (model and effort only) survives.
-      ...(accountSaved ? { successMessage: `Saved ${label} to ${this.scopeLabels[applyTo]}. ${accountSaved}.` } : {}),
+      // A provider saved just before rides on it too (its own inline outcome moved to the toast).
+      ...(accountSaved || providerSaved ? {
+        successMessage: [providerSaved ? PROVIDER_SAVED : '', `Saved ${label} to ${this.scopeLabels[applyTo]}.`, accountSaved ? `${accountSaved}.` : '']
+          .filter(Boolean).join(' '),
+      } : {}),
       write: () => this.state.saveSettings(this.patch(model, effort, applyTo), context),
       undo: model !== null && !previousModel ? null
         : () => this.state.saveSettings(this.patch(model !== null ? previousModel : null, effort !== null ? previousEffort : null, applyTo), context),

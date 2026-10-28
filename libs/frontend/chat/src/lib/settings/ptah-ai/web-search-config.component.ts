@@ -225,13 +225,6 @@ function providerLabel(provider: ProviderId): string {
                           <a [href]="opt.signupUrl" target="_blank" rel="noopener noreferrer"
                             class="link underline text-base-content">Get a key</a>
                         </p>
-                        @if (keyError(); as message) {
-                          <p role="alert" class="flex items-center gap-1.5 text-xs text-base-content"
-                            data-testid="settings-web-search-key-error">
-                            <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
-                            {{ message }}
-                          </p>
-                        }
                         <div class="flex gap-2">
                           <button type="button" class="btn btn-primary btn-sm"
                             [ptahBusyDisabled]="!apiKeyInput().trim() || saving()" (click)="saveApiKey()"
@@ -266,13 +259,6 @@ function providerLabel(provider: ProviderId): string {
                       <p class="text-xs text-base-content">
                         Clear the stored {{ opt.label }} key from this machine? Searches through {{ opt.label }} stop until a key is added.
                       </p>
-                      @if (clearError(); as message) {
-                        <p role="alert" class="flex items-center gap-1.5 text-xs text-base-content"
-                          [attr.data-testid]="'settings-web-search-clear-error-' + opt.value">
-                          <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
-                          {{ message }}
-                        </p>
-                      }
                       <div class="flex gap-2">
                         <button type="button" class="btn btn-outline btn-sm border-error text-base-content"
                           [ptahBusyDisabled]="saving()" (click)="deleteApiKey(opt.value)"
@@ -331,10 +317,7 @@ export class WebSearchConfigComponent implements OnInit {
   readonly activeKeyProvider = signal<ProviderId | null>(null);
   readonly apiKeyInput = signal('');
   readonly keyVisible = signal(false);
-  readonly keyError = signal<string | null>(null);
   readonly confirmingClear = signal<ProviderId | null>(null);
-  /** A failed Clear's fixed sentence, shown inside the open inline confirm (F1). */
-  readonly clearError = signal<string | null>(null);
   readonly maxResults = signal(5);
   readonly isTesting = signal(false);
   readonly isSavingKey = signal(false);
@@ -457,7 +440,6 @@ export class WebSearchConfigComponent implements OnInit {
     this.activeKeyProvider.set(provider);
     this.apiKeyInput.set('');
     this.keyVisible.set(false);
-    this.keyError.set(null);
     this.confirmingClear.set(null);
   }
 
@@ -466,12 +448,10 @@ export class WebSearchConfigComponent implements OnInit {
     this.activeKeyProvider.set(null);
     this.apiKeyInput.set('');
     this.keyVisible.set(false);
-    this.keyError.set(null);
   }
 
   onApiKeyInput(event: Event): void {
     this.apiKeyInput.set((event.target as HTMLInputElement).value);
-    this.keyError.set(null);
   }
 
   /** Saves the key typed in the open popover (S-explicit, no Undo). The popover closes only on success. */
@@ -481,7 +461,6 @@ export class WebSearchConfigComponent implements OnInit {
     if (!provider || !apiKey || this.saving()) return;
 
     this.isSavingKey.set(true);
-    this.keyError.set(null);
     try {
       await this.feedback.saveGeneric({
         label: `${providerLabel(provider)} API key`,
@@ -491,8 +470,6 @@ export class WebSearchConfigComponent implements OnInit {
             this.apiKeyConfigured.update((prev) => ({ ...prev, [provider]: true }));
             this.testResult.set(null);
             this.closeKeyEditor();
-          } else {
-            this.keyError.set(result.message);
           }
           return result;
         },
@@ -505,7 +482,6 @@ export class WebSearchConfigComponent implements OnInit {
 
   /** Opens the row's inline Clear confirm; a failure from an earlier attempt is dropped. */
   requestClear(provider: ProviderId): void {
-    this.clearError.set(null);
     this.confirmingClear.set(provider);
   }
 
@@ -517,7 +493,6 @@ export class WebSearchConfigComponent implements OnInit {
     if (this.confirmingClear() !== provider) return;
     event?.stopPropagation();
     this.confirmingClear.set(null);
-    this.clearError.set(null);
     this.host.nativeElement
       .querySelector<HTMLButtonElement>(`[data-testid="settings-web-search-clear-btn-${provider}"]`)
       ?.focus();
@@ -526,7 +501,6 @@ export class WebSearchConfigComponent implements OnInit {
   /** Clears a provider's key after the inline confirm (S-confirm, no Undo). */
   async deleteApiKey(provider: ProviderId): Promise<void> {
     this.errorMessage.set(null);
-    this.clearError.set(null);
 
     await this.feedback.saveGeneric({
       label: `removal of the ${providerLabel(provider)} API key`,
@@ -536,10 +510,8 @@ export class WebSearchConfigComponent implements OnInit {
           this.confirmingClear.set(null);
           this.apiKeyConfigured.update((prev) => ({ ...prev, [provider]: false }));
           this.testResult.set(null);
-        } else {
-          // FM-5: the confirm stays open, so the failure is shown inside it.
-          this.clearError.set(result.message);
         }
+        // FM-5: a failed Clear keeps the confirm open; the toast names the failure.
         return result;
       },
       undo: null,
@@ -563,11 +535,11 @@ export class WebSearchConfigComponent implements OnInit {
           results: result.data.results,
         });
       } else {
-        this.errorMessage.set(TEST_FAILED);
+        this.feedback.announce(TEST_FAILED, 'alert');
       }
     } catch {
-      // A thrown transport error gets the same fixed sentence.
-      this.errorMessage.set(TEST_FAILED);
+      // degradation-audit: reported - a thrown transport error gets the same fixed alert toast.
+      this.feedback.announce(TEST_FAILED, 'alert');
     } finally {
       this.isTesting.set(false);
     }
@@ -645,7 +617,7 @@ export class WebSearchConfigComponent implements OnInit {
     }
   }
 
-  /** `webSearch:setConfig`; a failure shows `failedMessage` in the card's inline alert (V8) and toast. */
+  /** `webSearch:setConfig`; a failure returns `failedMessage` for the toast (V8). */
   private async saveConfig(
     params: { providers?: string[]; maxResults?: number },
     failedMessage: string,
@@ -657,7 +629,6 @@ export class WebSearchConfigComponent implements OnInit {
     } catch {
       // A thrown transport error is reported like a refused write.
     }
-    this.errorMessage.set(failedMessage);
     return { ok: false, message: failedMessage };
   }
 }

@@ -24,6 +24,7 @@ import {
   type ProvidersConnectionDraft,
   type ProvidersEditContext,
   type ProvidersExternalAuthAction,
+  type ProvidersSettingsCommit,
 } from '@ptah-extension/core';
 import type {
   SettingScope,
@@ -60,6 +61,7 @@ import type {
 import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 // Rendered only inside `@defer`, so it stays out of the eager settings bundle.
 import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
@@ -447,41 +449,15 @@ const CONTROL =
             Sign-in could not be checked. Retry the named provider action.
           </p>
         }
-        @if (feedback()) {
-          <p role="status">{{ feedback() }}</p>
-        }
-        @if (state.commit().status !== 'idle') {
-          <div
-            role="status"
-            class="rounded-md bg-base-100 p-3 space-y-1 break-words"
-            data-testid="providers-commit-feedback"
-          >
-            @if (saving()) {
-              <p>Saving…</p>
-            }
-            @if (state.commit().saved.length) {
-              <p>Saved: {{ state.commit().saved.join(', ') }}.</p>
-            }
-            @if (state.commit().unsaved.length) {
-              <p>Not saved: {{ state.commit().unsaved.join(', ') }}.</p>
-            }
-            @if (state.commit().unconfirmed.length) {
-              <p>
-                Save not confirmed: {{ state.commit().unconfirmed.join(', ') }}.
-                Check effective values before retrying.
-              </p>
-            }
-            <p>{{ state.commit().message }}</p>
-          </div>
-        }
       </div>
     </div>
     @if (drawerConnection(); as connection) {
       <!-- Mounted only while open: the usage reads run only then, and the drawer restores focus on destroy.
            Deferred into its own chunk: the settings route is eager and at its initial-bundle budget. -->
       @defer (on immediate) {
-        <!-- z-[60]: the drawer stacks above the page save toast (fixed, z-50, bottom-right), which would
-             otherwise cover the drawer's footer Close. The Models & Tiers tab repeats that feedback inline. -->
+        <!-- z-[60]: keeps the drawer above in-page content. The page toast is a top-layer popover that re-raises
+             above the drawer and moves to bottom-28 while it is open, so it clears the drawer's footer. The
+             Models & Tiers tab repeats that feedback inline (its focus trap is outside the page toast). -->
         <div class="relative z-[60]">
           <ptah-connection-detail-drawer
             [connection]="connection"
@@ -700,7 +676,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly clearTarget = signal<'nearest' | 'all-above-global'>(
     'nearest',
   );
-  protected readonly feedback = signal<string | null>(null);
+  /** The page toast: this page's own outcomes (setup, clear override) go there, never inline. */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private focusedTarget: ProvidersSettingsFocusTarget | null = null;
   private lastInputFocus: ProvidersSettingsFocusTarget | null = null;
   private clearContext: ProvidersEditContext | null = null;
@@ -1303,7 +1280,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardProviderId.set(providerId);
     this.wizardSession.update((session) => session + 1);
     this.wizardCommitState.set('idle');
-    this.feedback.set(null);
     this.wizardOpen.set(true);
   }
   readonly verifyDraftConnection = async (
@@ -1331,11 +1307,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.wizardCommitState.set(confirmed ? 'saved' : 'failed');
     // m2 (Providers 21-28 review): a new or re-set connection must be visible; old filter text could hide it.
     if (confirmed) this.filter.set('');
-    this.feedback.set(
-      confirmed
-        ? 'Connection settings saved and refreshed.'
-        : 'Some connection settings were not confirmed. Review the saved and unsaved fields below.',
-    );
+    // One toast for the whole commit: the fields it saved, did not save and could not confirm.
+    if (confirmed) this.feedback.announce('Connection settings saved and refreshed.', 'status');
+    else this.feedback.announce(['Some connection settings were not confirmed.', commitSummary(this.state.commit())]
+      .filter(Boolean).join(' '), 'alert');
   }
   protected selectWizardProvider(providerId: string): void {
     this.selectedWizardProvider.set(providerId);
@@ -1365,11 +1340,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.consumeDeepLink();
     this.wizardOpen.set(false);
     this.wizardContext.set(null);
-    this.feedback.set(
-      this.wizardCommitState() === 'saved'
-        ? 'Connection settings saved.'
-        : 'Setup closed. External sign-in, if completed, remains available.',
-    );
+    // A saved setup already said so when it committed.
+    if (this.wizardCommitState() !== 'saved')
+      this.feedback.announce('Setup closed. External sign-in, if completed, remains available.', 'status');
     void this.state.cancelVerification().catch((error: unknown) => {
       const errorType =
         error instanceof Error ? error.constructor.name : typeof error;
@@ -1434,6 +1407,20 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       this.clearTarget(),
       this.clearContext,
     );
-    if (this.state.commit().status === 'saved') this.clearKey.set(null);
+    const commit = this.state.commit();
+    if (commit.status === 'saved') this.clearKey.set(null);
+    const summary = commitSummary(commit);
+    if (summary) this.feedback.announce(summary, commit.status === 'saved' ? 'status' : 'alert');
   }
+}
+
+/** One commit as one toast sentence: "Saved: a. Not saved: b. Save not confirmed: c. Check … {message}". */
+function commitSummary(commit: ProvidersSettingsCommit): string {
+  const parts: string[] = [];
+  if (commit.saved.length) parts.push(`Saved: ${commit.saved.join(', ')}.`);
+  if (commit.unsaved.length) parts.push(`Not saved: ${commit.unsaved.join(', ')}.`);
+  if (commit.unconfirmed.length)
+    parts.push(`Save not confirmed: ${commit.unconfirmed.join(', ')}. Check effective values before retrying.`);
+  if (commit.message) parts.push(commit.message);
+  return parts.join(' ');
 }

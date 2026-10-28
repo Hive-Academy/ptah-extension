@@ -353,9 +353,9 @@ describe('MainAgentReassignPopoverComponent', () => {
       await save();
       expect(state.activateConnection).toHaveBeenCalledWith('second', 'workspace', CONTEXT);
       expect(state.saveSettings).not.toHaveBeenCalled();
-      expect(query('main-agent-provider-outcome')?.textContent?.trim()).toBe('Main agent provider saved.');
-      expect(document.body.textContent).not.toContain('Undo');
-      expect(feedback.toast()).toBeNull();
+      // The outcome is the page toast now, never inline; a provider change offers no Undo.
+      expect(query('main-agent-provider-outcome')).toBeNull();
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Main agent provider saved.', canUndo: false });
       expect(fixture.componentInstance.closed).toBe(1);
     });
 
@@ -380,6 +380,8 @@ describe('MainAgentReassignPopoverComponent', () => {
       await save();
       expect(order).toEqual(['provider', 'model']);
       expect(state.saveSettings).toHaveBeenCalledWith({ model: { model: 'model-b', applyTo: 'workspace' } }, CONTEXT);
+      // One toast names both writes: the provider's own outcome rides on the model save.
+      expect(feedback.toast()?.message).toBe('Main agent provider saved. Saved main agent model to This workspace.');
       expect(fixture.componentInstance.closed).toBe(1);
     });
 
@@ -417,11 +419,11 @@ describe('MainAgentReassignPopoverComponent', () => {
       choose('main-agent-model', 'model-b');
       buttonNamed('Use for main agent')?.click(); fixture.detectChanges();
       await save();
-      expect(query('main-agent-provider-outcome')?.textContent).toContain('Not saved. Another save is in progress.');
+      expect(feedback.toast()?.message).toContain('Not saved. Another save is in progress.');
       state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', message: 'Could not save.' }); return true; });
       await save();
-      expect(query('main-agent-provider-outcome')?.textContent).toContain('Not saved. Could not save.');
-      expect(query('main-agent-provider-outcome')?.getAttribute('role')).toBe('alert');
+      expect(feedback.toast()).toMatchObject({ tone: 'alert', message: 'Not saved. Could not save.' });
+      expect(query('main-agent-provider-outcome')).toBeNull();
       expect(state.saveSettings).not.toHaveBeenCalled();
       expect(fixture.componentInstance.closed).toBe(0);
     });
@@ -897,6 +899,8 @@ describe('MainAgentReassignPopoverComponent: Account (P6 MP)', () => {
       expect(accounts.setSelection).toHaveBeenCalledWith('claude', 'main', { kind: 'named', profileId: 'p-home' });
       expect(accounts.seen[0]).toBe(clickTime);
       expect(state.activateConnection.mock.invocationCallOrder[0]).toBeLessThan(accounts.setSelection.mock.invocationCallOrder[0]);
+      // One toast for both writes.
+      expect(announced()).toEqual(['status: Main agent provider saved. Chat uses Home']);
       expect(fixture.componentInstance.closed).toBe(1);
     });
 

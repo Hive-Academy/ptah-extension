@@ -17,11 +17,11 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
  * and `SettingsSaveFeedbackService` (toast + Undo) instead of a private `agent:setConfig` call, and the commit's
  * read-back replaces the private `agent:getConfig` read:
  * - `saved`: the re-read value is shown.
- * - nothing written (`failed`, `partial`, `blocked`): the re-read value is shown with "… The saved setting is unchanged."
- *   when it is not the requested one.
+ * - nothing written (`failed`, `partial`, `blocked`): the re-read value is shown; the toast names the failure.
  * - outcome unknown (`unconfirmed`), or no readable value after the write: the toggle shows no value (indeterminate) and
  *   takes no writes until "Check saved setting again" (`state.refreshOrchestration()`) reads it.
- * The checkbox never shows a value that was not read back (D15).
+ * The checkbox never shows a value that was not read back (D15). Outcomes are reported only in the page toast:
+ * `save()` names a failed or unconfirmed write, and a saved write whose read-back differs is announced as an alert.
  */
 @Component({
   selector: 'ptah-copilot-auto-approve-toggle',
@@ -37,9 +37,7 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
           [ptahBusyDisabled]="saving() || needsRecheck() || feedback.saving()"
           (change)="toggle($event)" aria-label="Auto-approve Copilot tool calls" data-testid="copilot-auto-approve" />
       </label>
-      @if (error(); as message) {
-        <p class="text-xs text-base-content" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
-      } @else if (saved() === null) {
+      @if (saved() === null) {
         <p class="text-xs text-base-content-muted" role="status" data-testid="copilot-auto-approve-unloaded">The saved setting could not be read.</p>
       }
       @if (needsRecheck()) {
@@ -61,7 +59,6 @@ export class CopilotAutoApproveToggleComponent {
   });
   /** True while this toggle's write or re-read runs; the toggle is disabled meanwhile. */
   protected readonly saving = signal(false);
-  protected readonly error = signal<string | null>(null);
   /** A write's outcome is unknown: no value is shown and no write is taken until a re-read succeeds. */
   protected readonly unconfirmed = signal(false);
   protected readonly needsRecheck = computed(() => this.unconfirmed() || this.saved() === null);
@@ -75,12 +72,11 @@ export class CopilotAutoApproveToggleComponent {
     if (saved === null || this.saving() || this.unconfirmed() || !context) return;
     const next = !saved;
     this.saving.set(true);
-    this.error.set(null);
     try {
       // The state method's own answer: `refused` (another save in flight, nothing written), `started` (the commit
       // describes this write), `threw` (the command broke: its outcome is unknown), `skipped` (never called).
       const result: { attempt: 'skipped' | 'threw' | 'refused' | 'started' } = { attempt: 'skipped' };
-      await this.feedback.save({
+      const outcome = await this.feedback.save({
         label: 'Copilot auto-approve', scope: 'global',
         write: async () => {
           result.attempt = 'threw';
@@ -90,8 +86,8 @@ export class CopilotAutoApproveToggleComponent {
         },
         undo: () => this.state.saveSettings({ orchestration: { copilotAutoApprove: saved } }, context),
       });
-      if (result.attempt === 'started') this.settle(next);
-      else if (result.attempt === 'threw') this.markUnconfirmed();
+      if (result.attempt === 'started') this.settle(next, outcome === 'saved');
+      else if (result.attempt === 'threw') this.unconfirmed.set(true);
     } finally {
       this.saving.set(false);
     }
@@ -105,26 +101,23 @@ export class CopilotAutoApproveToggleComponent {
       await this.state.refreshOrchestration();
       if (this.state.orchestration().status === 'ready' && this.saved() !== null) {
         this.unconfirmed.set(false);
-        this.error.set(null);
       } else {
-        this.markUnconfirmed();
+        this.unconfirmed.set(true);
       }
     } finally {
       this.saving.set(false);
     }
   }
 
-  private settle(requested: boolean): void {
+  /** `toastSaid`: the toast reported this write as saved, so a read-back mismatch needs its own alert. */
+  private settle(requested: boolean, toastSaid: boolean): void {
     const commit = this.state.commit();
     if (commit.status === 'unconfirmed' || this.saved() === null) {
-      this.markUnconfirmed();
+      this.unconfirmed.set(true);
+      // The toast said "Saved", but nothing was read back: correct it.
+      if (toastSaid) this.feedback.announce(NOT_CONFIRMED, 'alert');
       return;
     }
-    if (this.saved() !== requested) this.error.set(NOT_SAVED);
-  }
-
-  private markUnconfirmed(): void {
-    this.unconfirmed.set(true);
-    this.error.set(NOT_CONFIRMED);
+    if (toastSaid && this.saved() !== requested) this.feedback.announce(NOT_SAVED, 'alert');
   }
 }

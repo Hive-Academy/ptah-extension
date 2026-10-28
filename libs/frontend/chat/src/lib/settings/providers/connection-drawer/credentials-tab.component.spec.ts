@@ -6,6 +6,7 @@ import {
 } from './credentials-tab.component';
 import type { ConnectionKind } from './connection-kind';
 import { isDisabledControl } from '../../feedback/busy-disabled.testing';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 
 const connection = (overrides: Partial<ProvidersConnection> = {}): ProvidersConnection => ({
   id: 'requesty', name: 'Requesty', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
@@ -61,11 +62,18 @@ describe('CredentialsTabComponent', () => {
   let fixture: ComponentFixture<CredentialsTabComponent>;
   let element: HTMLElement;
   let probe: ProbeHost;
+  /** The page toast (`SettingsSaveFeedbackService.announce`): every outcome this tab says lands here. */
+  let announce: jest.Mock<void, [string, 'status' | 'alert']>;
+  const announced = () => announce.mock.calls.map(([message, tone]) => `${tone}: ${message}`);
 
   beforeEach(() => {
     probe = new ProbeHost();
+    announce = jest.fn();
     rendered = false;
-    TestBed.configureTestingModule({ imports: [CredentialsTabComponent] });
+    TestBed.configureTestingModule({
+      imports: [CredentialsTabComponent],
+      providers: [{ provide: SettingsSaveFeedbackService, useValue: { announce } }],
+    });
     fixture = TestBed.createComponent(CredentialsTabComponent);
     element = fixture.nativeElement as HTMLElement;
     fixture.componentRef.setInput('verifyDraftConnection', probe.verify);
@@ -187,7 +195,9 @@ describe('CredentialsTabComponent', () => {
       expect(query('credentials-probe')?.textContent).toContain('Checking');
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       probe.settle(); await flush();
-      expect(query('credentials-probe')?.textContent).toContain('Key verified (92ms)');
+      // The result is the page toast; the inline line holds only progress and the hint.
+      expect(announced()).toEqual(['status: Key verified (92ms). Save it to replace the stored key.']);
+      expect(query('credentials-probe')).toBeNull();
       query('credentials-save')?.click();
       expect(replace).toHaveBeenCalledWith({ key: 'sk-new', probeId: probe.calls[0].probeId });
     });
@@ -199,7 +209,9 @@ describe('CredentialsTabComponent', () => {
       query('credentials-verify')?.click(); fixture.detectChanges();
       probe.settle({ outcome: 'failed', reason: 'credential-rejected', latencyMs: 80, detail: 'host detail must not show' });
       await flush();
-      const text = query('credentials-probe')?.textContent ?? '';
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce.mock.calls[0][1]).toBe('alert');
+      const text = announce.mock.calls[0][0];
       expect(text).toContain('Check failed (80ms)');
       expect(text).toContain('The provider rejected this key.');
       expect(text).toContain('Nothing was saved.');
@@ -222,7 +234,7 @@ describe('CredentialsTabComponent', () => {
       typeKey('sk-new');
       probe.verify.mockImplementationOnce(async () => { throw new Error('rpc down'); });
       query('credentials-verify')?.click(); await flush();
-      expect(query('credentials-probe')?.textContent).toContain('Check failed');
+      expect(announced()[0]).toContain('alert: Check failed');
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
     });
 
@@ -246,18 +258,20 @@ describe('CredentialsTabComponent', () => {
       query('credentials-verify')?.click(); fixture.detectChanges();
       probe.settle(); await flush();
       query('credentials-save')?.click();
+      announce.mockClear();
       render({ commit: { status: 'saving', message: null } satisfies CredentialsCommit });
-      expect(query('credentials-commit')?.textContent).toContain('Saving…');
+      // No inline "Saving…": Save is disabled meanwhile and the toast says the result.
+      expect(query('credentials-commit')).toBeNull();
+      expect(announce).not.toHaveBeenCalled();
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       render({ commit: { status: 'failed', message: 'Connection credential could not be saved.' } });
-      expect(query('credentials-commit')?.textContent).toContain('Not saved. Connection credential could not be saved.');
-      expect(query('credentials-commit')?.textContent).not.toContain('replaced');
-      expect(query('credentials-commit')?.getAttribute('role')).toBe('alert');
+      expect(announced()).toEqual(['alert: Not saved. Connection credential could not be saved.']);
       expect(query('credentials-new-key')).not.toBeNull();
       render({ commit: { status: 'unconfirmed', message: null } });
-      expect(query('credentials-commit')?.textContent).toContain('Save not confirmed');
+      expect(announced()[1]).toBe('alert: Save not confirmed.');
       render({ commit: { status: 'saved', message: null } });
-      expect(query('credentials-commit')?.textContent).toContain('Key replaced.');
+      expect(announced()[2]).toBe('status: Key replaced.');
+      expect(announce).toHaveBeenCalledTimes(3);
       expect(query('credentials-new-key')).toBeNull();
     });
   });
@@ -299,7 +313,7 @@ describe('CredentialsTabComponent', () => {
       expect(deleted).toHaveBeenCalledTimes(1);
       expect(query('credentials-delete-confirm')).toBeNull();
       render({ commit: { status: 'saved', message: null } });
-      expect(query('credentials-commit')?.textContent).toContain('Stored key deleted.');
+      expect(announced()).toEqual(['status: Stored key deleted.']);
     });
 
     it('no active-driver warning for an inactive connection; Cancel deletes nothing', () => {
@@ -352,6 +366,7 @@ describe('CredentialsTabComponent', () => {
     expect(query('credentials-cli')?.textContent).toContain('npm install -g @anthropic-ai/claude-code');
     query('credentials-copy-login')?.click(); await flush();
     expect(writeText).toHaveBeenCalledWith('claude login');
+    expect(announced()).toEqual(['status: Copied "claude login".']);
     query('credentials-cli-check')?.click();
     expect(action).toHaveBeenCalledWith('cli-check');
   });

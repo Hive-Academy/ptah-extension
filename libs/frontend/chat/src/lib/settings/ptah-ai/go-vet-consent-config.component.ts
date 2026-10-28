@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -15,7 +14,6 @@ import {
 import {
   AlertCircle,
   AlertTriangle,
-  CheckCircle,
   LucideAngularModule,
   ShieldCheck,
 } from 'lucide-angular';
@@ -25,6 +23,7 @@ import type {
   DiagnosticsGoVetConsentSetError,
   GoVetConsentStaleReasonDto,
 } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 /** Why a stored consent no longer holds (User Decision 25), in the user's words. */
 const STALE_REASON_TEXT: Record<GoVetConsentStaleReasonDto, string> = {
@@ -52,7 +51,6 @@ const SET_ERROR_TEXT: Record<DiagnosticsGoVetConsentSetError, string> = {
 const TRANSPORT_SET_ERROR =
   'Could not reach the app host. The card shows what is stored now.';
 const LOAD_ERROR = 'Could not read the go vet setting for this workspace.';
-const SUCCESS_MESSAGE_MS = 3000;
 
 /**
  * "Run `go vet` for this workspace" (TASK_2026_559 Batch 37b2, O2 §5.1).
@@ -64,7 +62,9 @@ const SUCCESS_MESSAGE_MS = 3000;
  * opens an explicit confirmation that names the exact workspace root; the SET
  * carries that displayed root as `workspaceRoot` so the host can refuse a
  * stale view (`workspace-changed`). The toggle is optimistic and reverts on any
- * failure; every failure also re-reads the host state. A `stale` consent
+ * failure; every failure also re-reads the host state. The on/off result and
+ * every SET failure are announced through the page toast; only the load
+ * failure stays in the card. A `stale` consent
  * (folder moved or replaced, Go binary changed) is shown with its reason and is
  * never shown as on. Renders nothing while support is unknown or when the host
  * answers `supported: false`.
@@ -225,19 +225,6 @@ const SUCCESS_MESSAGE_MS = 3000;
                 </span>
               </p>
             }
-            @if (successMessage(); as message) {
-              <p
-                class="flex items-start gap-1 text-xs text-base-content"
-                data-testid="go-vet-consent-success"
-              >
-                <lucide-angular
-                  [img]="CheckCircleIcon"
-                  class="w-3.5 h-3.5 shrink-0 text-success"
-                  aria-hidden="true"
-                />
-                <span>{{ message }}</span>
-              </p>
-            }
           </div>
 
           @if (errorMessage(); as message) {
@@ -315,11 +302,11 @@ export class GoVetConsentConfigComponent {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly scope = inject(WorkspaceScopeService);
   private readonly injector = inject(Injector);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
 
   readonly ShieldCheckIcon = ShieldCheck;
   readonly AlertCircleIcon = AlertCircle;
   readonly AlertTriangleIcon = AlertTriangle;
-  readonly CheckCircleIcon = CheckCircle;
 
   /** Last applied GET answer; `null` until the first one arrives. */
   readonly consent = signal<DiagnosticsGoVetConsentGetResult | null>(null);
@@ -333,8 +320,8 @@ export class GoVetConsentConfigComponent {
   private confirmingToken: string | undefined;
   /** Toggle position while a SET is in flight; `null` shows the host state. */
   readonly optimisticEnabled = signal<boolean | null>(null);
+  /** The load failure only; on/off results and SET failures go to the page toast. */
   readonly errorMessage = signal<string | null>(null);
-  readonly successMessage = signal<string | null>(null);
 
   private readonly toggleRef =
     viewChild<ElementRef<HTMLInputElement>>('toggle');
@@ -388,7 +375,6 @@ export class GoVetConsentConfigComponent {
   );
 
   private getSeq = 0;
-  private successTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     effect(() => {
@@ -397,11 +383,9 @@ export class GoVetConsentConfigComponent {
         // A new workspace: nothing shown for the previous one still applies.
         this.confirmingRoot.set(null);
         this.errorMessage.set(null);
-        this.clearSuccess();
         void this.load();
       });
     });
-    inject(DestroyRef).onDestroy(() => this.clearSuccess());
   }
 
   /** GET; applied only if no newer GET started and the scope is unchanged. */
@@ -475,7 +459,6 @@ export class GoVetConsentConfigComponent {
 
   private openConfirm(root: string): void {
     this.errorMessage.set(null);
-    this.clearSuccess();
     this.confirmingToken = this.consent()?.confirmToken;
     this.confirmingRoot.set(root);
     afterNextRender(() => this.cancelButtonRef()?.nativeElement.focus(), {
@@ -497,7 +480,6 @@ export class GoVetConsentConfigComponent {
   ): Promise<void> {
     const key = this.scope.scopeKey();
     this.errorMessage.set(null);
-    this.clearSuccess();
     this.saving.set(true);
     this.optimisticEnabled.set(enabled);
     try {
@@ -530,7 +512,7 @@ export class GoVetConsentConfigComponent {
   /** Revert (by dropping the optimistic value) and re-read the host state. */
   private fail(message: string): void {
     this.optimisticEnabled.set(null);
-    this.errorMessage.set(message);
+    this.feedback.announce(message, 'alert');
     void this.load();
   }
 
@@ -549,22 +531,11 @@ export class GoVetConsentConfigComponent {
           : {}),
       });
     }
-    this.successMessage.set(
+    this.feedback.announce(
       state === 'on'
         ? 'go vet is on for this workspace.'
         : 'go vet is off for this workspace.',
+      'status',
     );
-    this.successTimer = setTimeout(() => {
-      this.successTimer = null;
-      this.successMessage.set(null);
-    }, SUCCESS_MESSAGE_MS);
-  }
-
-  private clearSuccess(): void {
-    if (this.successTimer !== null) {
-      clearTimeout(this.successTimer);
-      this.successTimer = null;
-    }
-    this.successMessage.set(null);
   }
 }

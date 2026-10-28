@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -6,6 +7,10 @@ import {
   type AdvancedSettingGroupId,
 } from '@ptah-extension/shared';
 import { AdvancedSettingsGroupComponent } from './advanced-settings-group.component';
+import {
+  SettingsSaveFeedbackService,
+  type SettingsGenericSaveRequest,
+} from '../feedback/settings-save-feedback.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -34,6 +39,19 @@ describe('AdvancedSettingsGroupComponent', () => {
   let stored: Record<string, unknown>;
   let readFails: boolean;
   let writeReply: () => Promise<RpcReply>;
+  /** A `saveGeneric` stand-in that runs the write and keeps what the page toast would say, and its Undo. */
+  let toast: string | null = null;
+  let lastUndo: SettingsGenericSaveRequest['undo'] = null;
+  const toastMessage = () => toast;
+  const feedback = {
+    saving: signal(false),
+    saveGeneric: jest.fn(async (request: SettingsGenericSaveRequest) => {
+      const result = await request.write();
+      toast = result.ok ? `Saved ${request.label}.` : result.message;
+      lastUndo = result.ok ? request.undo : null;
+      return result.ok ? 'saved' : 'failed';
+    }),
+  };
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -77,6 +95,9 @@ describe('AdvancedSettingsGroupComponent', () => {
   }
 
   beforeEach(() => {
+    toast = null;
+    lastUndo = null;
+    feedback.saveGeneric.mockClear();
     jest.clearAllMocks();
     stored = { ...DEFAULTS };
     readFails = false;
@@ -104,7 +125,10 @@ describe('AdvancedSettingsGroupComponent', () => {
     );
     TestBed.configureTestingModule({
       imports: [AdvancedSettingsGroupComponent],
-      providers: [{ provide: VSCodeService, useValue: {} }],
+      providers: [
+        { provide: VSCodeService, useValue: {} },
+        { provide: SettingsSaveFeedbackService, useValue: feedback },
+      ],
     });
   });
 
@@ -289,9 +313,25 @@ describe('AdvancedSettingsGroupComponent', () => {
         { key: 'memory.retention.processedDays', value: 30 },
       ]);
       expect(
-        byTestId('advanced-group-memory-upkeep-status')?.textContent,
-      ).toContain('Saved Keep processed records for.');
+        toastMessage(),
+        ).toContain('Saved Keep processed records for.');
       expect(field('memory.retention.processedDays').value).toBe('30');
+      expect(
+        byTestId('advanced-group-memory-upkeep-status'),
+      ).toBeNull();
+    });
+
+    it('the toast Undo writes the previous read-back value back', async () => {
+      await create('memory-upkeep');
+      const previous = stored['memory.retention.processedDays'];
+      await enter('memory.retention.processedDays', '30');
+      expect(lastUndo).not.toBeNull();
+      await lastUndo?.();
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'memory.retention.processedDays', value: 30 },
+        { key: 'memory.retention.processedDays', value: previous },
+      ]);
     });
 
     it('accepts grouped digits', async () => {
@@ -383,8 +423,8 @@ describe('AdvancedSettingsGroupComponent', () => {
       ]);
       expect(box.checked).toBe(false);
       expect(
-        byTestId('advanced-group-codex-agents-status')?.textContent,
-      ).toContain('Saved Codex web search.');
+        toastMessage(),
+        ).toContain('Saved Codex web search.');
     });
 
     it('the text beside the toggle follows the read-back value', async () => {
@@ -428,8 +468,8 @@ describe('AdvancedSettingsGroupComponent', () => {
       await settle();
       expect(box.checked).toBe(true);
       expect(
-        byTestId('advanced-group-workspace-harness-status')?.textContent,
-      ).toContain(
+        toastMessage(),
+        ).toContain(
         'Could not save Manage .gitignore. The saved setting is unchanged.',
       );
     });
@@ -455,8 +495,8 @@ describe('AdvancedSettingsGroupComponent', () => {
         byTestId('advanced-setting-cron.maxConcurrentJobs-error')?.textContent,
       ).toContain(fixed);
       expect(
-        byTestId('advanced-group-scheduled-jobs-status')?.textContent,
-      ).toContain(fixed);
+        toastMessage(),
+        ).toContain(fixed);
       expect(field('cron.maxConcurrentJobs').value).toBe('8');
       expect(stored['cron.maxConcurrentJobs']).toBe(
         DEFAULTS['cron.maxConcurrentJobs'],

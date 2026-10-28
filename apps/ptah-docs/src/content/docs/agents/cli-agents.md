@@ -37,7 +37,7 @@ When a parent agent asks Ptah to "spawn a CLI helper" without specifying which, 
 2. `codex`
 3. `copilot`
 
-You can override the default in **Settings → CLI Agents → Preferred CLI**.
+You can override the default in **Settings → Providers → CLI Agents → Preferred order**.
 
 ## The agent-lanes skill
 

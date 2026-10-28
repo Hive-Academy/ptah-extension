@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
-  computed,
   inject,
 } from '@angular/core';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
@@ -20,7 +19,8 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
  * Codex agents, background query limits; TASK_2026_658) in one viewport-deferred chunk. The CLI matrix and the
  * background model roles moved to the Providers tab (`AgentsRoutingSettingsComponent`), with their deep links.
  *
- * The commit-feedback panel stays: the TTL writes through the shared state's `commit()`.
+ * No inline commit panel: the TTL, this tab's only `commit()` writer, reports through the page toast
+ * (`SettingsSaveFeedbackService.save`).
  */
 @Component({
   selector: 'ptah-orchestration-settings',
@@ -71,39 +71,11 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
           data-testid="orchestration-advanced-placeholder"
         ></div>
       }
-
-      @if (state.commit().status !== 'idle') {
-        <div
-          role="status"
-          class="rounded-md bg-base-100 p-3 space-y-1 break-words"
-          data-testid="providers-commit-feedback"
-        >
-          @if (saving()) {
-            <p>Saving…</p>
-          }
-          @if (state.commit().saved.length) {
-            <p>Saved: {{ state.commit().saved.join(', ') }}.</p>
-          }
-          @if (state.commit().unsaved.length) {
-            <p>Not saved: {{ state.commit().unsaved.join(', ') }}.</p>
-          }
-          @if (state.commit().unconfirmed.length) {
-            <p>
-              Save not confirmed: {{ state.commit().unconfirmed.join(', ') }}.
-              Check effective values before retrying.
-            </p>
-          }
-          <p>{{ state.commit().message }}</p>
-        </div>
-      }
     </div>
   `,
 })
 export class OrchestrationSettingsComponent implements OnInit {
-  protected readonly state = inject(ProvidersSettingsStateService);
-  protected readonly saving = computed(
-    () => this.state.commit().status === 'saving',
-  );
+  private readonly state = inject(ProvidersSettingsStateService);
 
   ngOnInit(): void {
     void this.state.open();

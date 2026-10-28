@@ -55,11 +55,6 @@ const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium 
 const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
 const SAVE_SCOPE = 'global';
-const TIMEOUT_NOT_SAVED =
-  'Could not save the enhancement time limit. The limit shown is the saved one.';
-/** The save never ran: another change was still saving (Gate V 36 re-check N-2). */
-const TIMEOUT_REFUSED =
-  'The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.';
 // Matches the ENHANCE_TIMEOUT_* values in file-settings-keys.ts.
 const TIMEOUT_MIN_SEC = 15;
 const TIMEOUT_MAX_SEC = 600;
@@ -479,15 +474,6 @@ const TIMEOUT_DEFAULT_SEC = 120;
                       {{ err }}
                     </p>
                   }
-                  @if (timeoutSaveError(); as message) {
-                    <p
-                      class="text-xs text-base-content"
-                      role="alert"
-                      data-testid="timeout-save-error"
-                    >
-                      {{ message }}
-                    </p>
-                  }
                 </div>
               }
             </section>
@@ -574,7 +560,6 @@ export class ProviderConsumerAssignmentsComponent {
   /** Draft seed only; editTimeout() seeds it from the backend value. */
   protected readonly timeoutDraftSec = signal<number>(0);
   /** Set only by this editor's own save when its write did not save (a fixed sentence, never host text). */
-  protected readonly timeoutSaveError = signal<string | null>(null);
 
   private readonly timeoutInputRef =
     viewChild<ElementRef<HTMLInputElement>>('timeoutInput');
@@ -783,7 +768,6 @@ export class ProviderConsumerAssignmentsComponent {
 
   protected editTimeout(): void {
     if (this.timeoutMeta() === null) return;
-    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set(this.timeoutEffectiveSec());
     this.isEditingTimeout.set(true);
     afterNextRender(() => this.timeoutInputRef()?.nativeElement.focus(), {
@@ -793,19 +777,17 @@ export class ProviderConsumerAssignmentsComponent {
 
   protected cancelTimeoutEdit(): void {
     this.isEditingTimeout.set(false);
-    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set(this.timeoutEffectiveSec());
   }
 
   protected onTimeoutInput(event: Event): void {
-    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set((event.target as HTMLInputElement).valueAsNumber);
   }
 
   /**
    * Saves the limit with Undo through `SettingsSaveFeedbackService` (D2; the toast names a failure). "Saved" comes from
    * this write's own result (accepted and its commit `saved`), never from an earlier commit (D15). A write that was
-   * refused, failed or threw keeps the editor open on the saved limit with a fixed sentence (Gate V 36, S-1).
+   * refused, failed or threw keeps the editor open on the saved limit; the toast alone says why (Gate V 36, S-1).
    */
   protected async saveTimeout(): Promise<void> {
     if (this.isTimeoutSaveDisabled()) return;
@@ -815,7 +797,6 @@ export class ProviderConsumerAssignmentsComponent {
       scopeKey: '',
       activePath: null,
     };
-    this.timeoutSaveError.set(null);
     const result = await this.feedback.save({
       label: 'enhancement time limit',
       scope: SAVE_SCOPE,
@@ -832,9 +813,6 @@ export class ProviderConsumerAssignmentsComponent {
     // The binding may not change (the same value as before the edit), so the input is reset directly.
     const input = this.timeoutInputRef()?.nativeElement;
     if (input) input.value = String(savedSec);
-    this.timeoutSaveError.set(
-      result === 'refused' ? TIMEOUT_REFUSED : TIMEOUT_NOT_SAVED,
-    );
   }
 
   /** One limit write; `timeoutSaved` follows only this write's own confirmed save. */

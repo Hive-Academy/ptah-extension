@@ -6,6 +6,7 @@ import { validateProviderBaseUrl, type AuthVerifyDraftConnectionParams, type Aut
 import type { CancelDraftFn, VerifyDraftFn } from './credentials-tab.component';
 import { runDrawerWrite, type DrawerWriteOutcome } from './drawer-write';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 
 /** Verbatim (plan :662-664): pricing has no runtime reader (`provider-registry.ts:703-718`). */
 export const PRICING_NOTE = 'Stored for your reference; Ptah does not use it for cost estimates yet.';
@@ -86,10 +87,13 @@ export function parsePricing(input: string, output: string): { readonly ok: true
               [value]="keyDraft()" (input)="keyDraft.set(value($event)); abandonProbe()" data-testid="advanced-check-key" />
             <p class="text-xs text-base-content-muted">The stored key can only be checked against the saved address. It is used for this check only and is not saved.</p>
           }
-          <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="advanced-probe">
-            @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
-            {{ probeText() }}
-          </p>
+          <!-- Progress and the "check first" hint stay here; the check's result is the page toast. -->
+          @if (probeText(); as text) {
+            <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="advanced-probe">
+              @if (probeState() === 'checking') { <span class="h-2 w-2 shrink-0 rounded-full bg-base-content-muted" aria-hidden="true"></span> }
+              {{ text }}
+            </p>
+          }
           <div class="flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline btn-sm" [disabled]="!canCheck()" (click)="check()"
               data-testid="advanced-check">{{ probeState() === 'checking' ? 'Checking…' : 'Check endpoint' }}</button>
@@ -153,16 +157,12 @@ export function parsePricing(input: string, output: string): { readonly ok: true
           </div>
         }
       }
-      @if (outcomeView(); as feedback) {
-        <p [attr.role]="feedback.alert ? 'alert' : 'status'" class="flex items-start gap-1.5 text-xs text-base-content" data-testid="advanced-commit">
-          <span [class]="feedback.dot" aria-hidden="true"></span> {{ feedback.text }}
-        </p>
-      }
     </div>
   `,
 })
 export class AdvancedTabComponent {
   private readonly state = inject(ProvidersSettingsStateService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   readonly connection = input.required<ProvidersConnection>();
   /** This connection drives the main agent: it cannot be deleted. */
   readonly isDriver = input(false);
@@ -183,7 +183,6 @@ export class AdvancedTabComponent {
   protected readonly probeState = signal<ProbeState>('idle');
   protected readonly probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
   private readonly outcome = signal<DrawerWriteOutcome | null>(null);
-  private readonly section = signal<Section | null>(null);
   private probeId: string | null = null;
   private readonly connectionId = computed(() => this.connection().id);
 
@@ -207,27 +206,12 @@ export class AdvancedTabComponent {
     && (this.baseUrlChanged() || this.modelsEndpointChanged()) && (!this.baseUrlChanged() || !!this.keyDraft().trim()));
   protected readonly canSaveEndpoint = computed(() => !this.busy() && this.probeState() === 'verified'
     && this.probeResult()?.probeId === this.probeId && (this.baseUrlChanged() || this.modelsEndpointChanged()));
+  /** Inline only while checking, or before a check ran; a check's result goes to the page toast. */
   protected readonly probeText = computed(() => {
-    const result = this.probeResult();
-    const latency = result?.latencyMs !== null && result?.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
     switch (this.probeState()) {
       case 'checking': return 'Checking the endpoint…';
-      case 'verified': return `Endpoint verified${latency}. Save it to apply.`;
-      case 'failed': return `Check failed${latency}: ${PROBE_FAILURE_COPY[result?.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`;
-      default: return 'A changed base URL or models endpoint is saved only after a passing check.';
-    }
-  });
-  protected readonly probeDot = computed(() =>
-    `h-2 w-2 shrink-0 rounded-full ${this.probeState() === 'verified' ? 'bg-success' : this.probeState() === 'failed' ? 'bg-error' : 'bg-base-content-muted'}`);
-  protected readonly outcomeView = computed(() => {
-    const outcome = this.outcome(), section = this.section();
-    if (!outcome || !section || outcome.status === 'idle') return null;
-    const dot = (tone: string) => `mt-1 h-2 w-2 shrink-0 rounded-full ${tone}`;
-    switch (outcome.status) {
-      case 'saving': return { text: 'Saving…', dot: dot('bg-base-content-muted'), alert: false };
-      case 'saved': return { text: SAVED_TEXT[section], dot: dot('bg-success'), alert: false };
-      case 'unconfirmed': return { text: `Save not confirmed. ${outcome.message ?? ''}`.trim(), dot: dot('bg-warning'), alert: true };
-      default: return { text: `Not saved. ${outcome.message ?? ''}`.trim(), dot: dot('bg-error'), alert: true };
+      case 'idle': return 'A changed base URL or models endpoint is saved only after a passing check.';
+      default: return null;
     }
   });
 
@@ -255,14 +239,24 @@ export class AdvancedTabComponent {
     };
     void this.verifyDraftConnection()(params).then((result) => {
       if (this.probeId !== probeId || result.probeId !== probeId) return;
-      this.probeResult.set(result);
-      this.probeState.set(result.outcome === 'verified' ? 'verified' : 'failed');
+      this.settleProbe(result);
     }).catch(() => {
       if (this.probeId !== probeId) return;
-      this.probeResult.set({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null, modelUsed: null,
+      this.settleProbe({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null, modelUsed: null,
         checkedAt: new Date().toISOString() });
-      this.probeState.set('failed');
     });
+  }
+
+  /** Records a check's result (it gates Save endpoint) and says it in the page toast. */
+  private settleProbe(result: AuthVerifyDraftConnectionResult): void {
+    this.probeResult.set(result);
+    const verified = result.outcome === 'verified';
+    this.probeState.set(verified ? 'verified' : 'failed');
+    const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
+    this.feedback.announce(verified
+      ? `Endpoint verified${latency}. Save it to apply.`
+      : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`,
+    verified ? 'status' : 'alert');
   }
 
   protected saveEndpoint(): Promise<void> {
@@ -311,11 +305,15 @@ export class AdvancedTabComponent {
   private async write(section: Section, run: Parameters<typeof runDrawerWrite>[1], onSaved: () => void): Promise<void> {
     if (this.busy()) return;
     const id = this.connectionId();
-    this.section.set(section);
     await runDrawerWrite(this.state, run, (outcome) => {
       if (this.connectionId() !== id) return;
       this.outcome.set(outcome);
       if (outcome.status === 'saved') onSaved();
+      // The outcome is the page toast; Save stays disabled while it runs, so "Saving…" is not repeated.
+      if (outcome.status === 'saved') this.feedback.announce(SAVED_TEXT[section], 'status');
+      else if (outcome.status !== 'idle' && outcome.status !== 'saving') {
+        this.feedback.announce(`${outcome.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${outcome.message ?? ''}`.trim(), 'alert');
+      }
     });
   }
 
@@ -333,6 +331,5 @@ export class AdvancedTabComponent {
     this.keyDraft.set('');
     this.confirmingDelete.set(false);
     this.outcome.set(null);
-    this.section.set(null);
   }
 }

@@ -301,6 +301,7 @@ export async function confirmWrite(page: Page, trigger: string, confirm: string,
   const confirmButton = page.locator(`[data-testid="${confirm}"]`);
   await visibleEnabled(confirmButton);
   await confirmButton.click();
-  await expect(page.locator('[data-testid="credentials-commit"]')).toBeVisible();
+  // The write's outcome is announced through the page toast.
+  await expect(page.locator('[data-testid="settings-toast-message"]')).toBeVisible();
   await expect.poll(() => state.calls.slice(before).find((call) => call.method === method)?.params).toEqual(params);
 }

@@ -9,6 +9,7 @@ import {
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import {
   LANE_GUARD_DEFAULTS,
@@ -44,7 +45,8 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
  * Lane guards (`agentOrchestration.laneToolCall*`). Loads and saves through
  * `agent:getConfig` / `agent:setConfig`. An invalid value, including a stop
  * that is not greater than steer, is never written. A host rejection is shown
- * as the backend returned it.
+ * next to its field as the backend returned it; every save outcome (with Undo)
+ * is reported in the page toast (`SettingsSaveFeedbackService.saveGeneric`).
  */
 @Component({
   selector: 'ptah-lane-guards-settings',
@@ -126,7 +128,7 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
                       fieldMessage(field.key) ? 'true' : null
                     "
                     [attr.aria-describedby]="describedBy(field)"
-                    [ptahBusyDisabled]="busy()"
+                    [ptahBusyDisabled]="busy() || feedback.saving()"
                     (input)="edit(field.key, $event)"
                     (change)="commit(field.key)"
                     [attr.data-testid]="field.testId"
@@ -158,20 +160,13 @@ function draftsFrom(values: LaneGuardValues): Record<LaneGuardKey, string> {
         }
       }
 
-      <p
-        role="status"
-        aria-live="polite"
-        class="min-h-4 text-base-content-muted"
-        data-testid="lane-guards-status"
-      >
-        {{ status() }}
-      </p>
     </ptah-surface-section>
   `,
 })
 export class LaneGuardsSettingsComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly logger = inject(LoggingService);
+  protected readonly feedback = inject(SettingsSaveFeedbackService);
 
   protected readonly focusRing = FOCUS;
   protected readonly fields = LANE_GUARD_FIELDS;
@@ -181,7 +176,6 @@ export class LaneGuardsSettingsComponent implements OnInit {
     ...EMPTY_DRAFTS,
   });
   protected readonly busy = signal(false);
-  protected readonly status = signal('');
   private readonly saved = signal<LaneGuardValues>({ ...LANE_GUARD_DEFAULTS });
   /** Host rejection text, keyed by the field the host named or the one committed. */
   private readonly rejected = signal<Partial<Record<LaneGuardKey, string>>>({});
@@ -220,17 +214,53 @@ export class LaneGuardsSettingsComponent implements OnInit {
       delete next[key];
       return next;
     });
-    this.status.set('');
   }
 
+  /**
+   * Saves one committed field through the page toast with Undo (the previous values are known). A host rejection
+   * stays next to the field it names; the toast carries the outcome.
+   */
   protected async commit(key: LaneGuardKey): Promise<void> {
     const payload = laneGuardWrite(key, this.drafts(), this.saved());
-    if (!payload || this.busy()) return;
+    if (!payload || this.busy() || this.feedback.saving()) return;
     const label =
       LANE_GUARD_FIELDS.find((field) => field.key === key)?.label ??
       'Lane guard';
+    const saved = this.saved();
+    const previous: Partial<LaneGuardValues> = {};
+    for (const written of Object.keys(payload) as LaneGuardKey[]) {
+      previous[written] = saved[written];
+    }
     this.busy.set(true);
-    this.status.set('Saving…');
+    try {
+      await this.feedback.saveGeneric({
+        label,
+        write: () => this.write(payload, key, label),
+        undo: async () => {
+          const result = await this.write(previous, key, label);
+          if (result.ok) {
+            this.drafts.update((drafts) => {
+              const next = { ...drafts };
+              for (const [field, value] of Object.entries(previous)) {
+                next[field as LaneGuardKey] = String(value);
+              }
+              return next;
+            });
+          }
+          return result;
+        },
+      });
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** One `agent:setConfig` write; a rejection is kept next to the field the host named, or the committed one. */
+  private async write(
+    payload: Partial<LaneGuardValues>,
+    key: LaneGuardKey,
+    label: string,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     this.rejected.update((rejected) => {
       const next = { ...rejected };
       for (const written of Object.keys(payload) as LaneGuardKey[]) {
@@ -238,34 +268,29 @@ export class LaneGuardsSettingsComponent implements OnInit {
       }
       return next;
     });
+    const fallback = `Could not save ${label}. The saved setting is unchanged.`;
     try {
       const result = await this.rpc.call('agent:setConfig', payload, {
         timeout: RPC_TIMEOUT_MS,
       });
       if (result.isSuccess() && result.data.success) {
         this.saved.update((saved) => ({ ...saved, ...payload }));
-        this.status.set(`Saved ${label}.`);
-        return;
+        return { ok: true };
       }
       const backend =
-        (result.isSuccess() ? result.data.error : result.error) ??
-        `Could not save ${label}. The saved setting is unchanged.`;
+        (result.isSuccess() ? result.data.error : result.error) ?? fallback;
       const named = laneGuardKeyInError(backend) ?? key;
       this.rejected.update((rejected) => ({ ...rejected, [named]: backend }));
-      this.status.set(backend);
+      return { ok: false, message: backend };
     } catch (error: unknown) {
       this.logger.warn('LaneGuardsSettings', 'agent:setConfig failed', error);
-      const message = `Could not save ${label}. The saved setting is unchanged.`;
-      this.rejected.update((rejected) => ({ ...rejected, [key]: message }));
-      this.status.set(message);
-    } finally {
-      this.busy.set(false);
+      this.rejected.update((rejected) => ({ ...rejected, [key]: fallback }));
+      return { ok: false, message: fallback };
     }
   }
 
   protected async reload(): Promise<void> {
     this.load.set('loading');
-    this.status.set('');
     try {
       const result = await this.rpc.call('agent:getConfig', undefined, {
         timeout: RPC_TIMEOUT_MS,

@@ -6,6 +6,7 @@ import {
 import type { AuthVerifyDraftConnectionParams, AuthVerifyDraftConnectionResult } from '@ptah-extension/shared';
 import { AdvancedTabComponent, PRICING_NOTE, parsePricing } from './advanced-tab.component';
 import { isDisabledControl } from '../../feedback/busy-disabled.testing';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
 const CONTEXT = { scopeKey: 'workspace', activePath: '/workspace' };
@@ -63,11 +64,22 @@ describe('AdvancedTabComponent', () => {
   let element: HTMLElement;
   let state: StateStub;
   let probe: ProbeHost;
+  /** The page toast (`SettingsSaveFeedbackService.announce`): every outcome this tab says lands here. */
+  let announce: jest.Mock<void, [string, 'status' | 'alert']>;
+  const announced = () => announce.mock.calls.map(([message, tone]) => `${tone}: ${message}`);
+  const last = () => announced().at(-1);
 
   beforeEach(() => {
     state = new StateStub();
     probe = new ProbeHost();
-    TestBed.configureTestingModule({ imports: [AdvancedTabComponent], providers: [{ provide: ProvidersSettingsStateService, useValue: state }] });
+    announce = jest.fn();
+    TestBed.configureTestingModule({
+      imports: [AdvancedTabComponent],
+      providers: [
+        { provide: ProvidersSettingsStateService, useValue: state },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
+      ],
+    });
     fixture = TestBed.createComponent(AdvancedTabComponent);
     element = fixture.nativeElement as HTMLElement;
     fixture.componentRef.setInput('verifyDraftConnection', probe.verify);
@@ -114,10 +126,11 @@ describe('AdvancedTabComponent', () => {
       expect(probe.calls[0]).toMatchObject({ providerId: 'sovereigneg', authMode: 'custom', baseUrl: 'https://gateway.example/v1',
         credential: { kind: 'stored' } });
       probe.settle(); await flush();
-      expect(query('advanced-probe')?.textContent).toContain('Endpoint verified (42ms)');
+      expect(last()).toBe('status: Endpoint verified (42ms). Save it to apply.');
+      expect(query('advanced-probe')).toBeNull();
       query('advanced-save-endpoint')?.click(); await flush();
       expect(state.updateCustomEntryEndpoint).toHaveBeenCalledWith('sovereigneg', { modelsEndpoint: '/v2/models' }, probe.calls[0].probeId, CONTEXT);
-      expect(query('advanced-commit')?.textContent).toContain('Endpoint saved.');
+      expect(last()).toBe('status: Endpoint saved.');
     });
 
     it('a changed base URL needs a typed key for its check; the key is for the check only', async () => {
@@ -140,7 +153,7 @@ describe('AdvancedTabComponent', () => {
       query('advanced-check')?.click(); fixture.detectChanges();
       probe.settle(); await flush();
       query('advanced-save-endpoint')?.click(); await flush();
-      expect(query('advanced-commit')?.textContent).toContain('Endpoint saved.');
+      expect(last()).toBe('status: Endpoint saved.');
       expect(state.refreshConnectionSetup).not.toHaveBeenCalled();
     });
 
@@ -149,7 +162,9 @@ describe('AdvancedTabComponent', () => {
       query('advanced-check')?.click(); fixture.detectChanges();
       probe.settle({ outcome: 'failed', reason: 'unreachable', latencyMs: 3000, detail: 'raw host detail' });
       await flush();
-      const text = query('advanced-probe')?.textContent ?? '';
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(announce.mock.calls[0][1]).toBe('alert');
+      const text = announce.mock.calls[0][0];
       expect(text).toContain('Check failed (3000ms)');
       expect(text).toContain('Nothing was saved.');
       expect(text).not.toContain('raw host detail');
@@ -175,7 +190,7 @@ describe('AdvancedTabComponent', () => {
     type('advanced-help-url', 'https://docs.example/new');
     query('advanced-save-help')?.click(); await flush();
     expect(state.updateCustomEntryFields).toHaveBeenCalledWith('sovereigneg', { helpUrl: 'https://docs.example/new' }, CONTEXT);
-    expect(query('advanced-commit')?.textContent).toContain('Help URL saved.');
+    expect(last()).toBe('status: Help URL saved.');
   });
 
   it('pricing saves both prices, clears with both empty, and refuses a half-filled pair', async () => {
@@ -223,11 +238,8 @@ describe('AdvancedTabComponent', () => {
       expect(query('advanced-delete-blocked')).toBeNull();
       query('advanced-delete')?.click(); fixture.detectChanges();
       query('advanced-delete-confirm-button')?.click(); await flush();
-      const feedback = query('advanced-commit');
-      expect(feedback?.getAttribute('role')).toBe('alert');
-      expect(feedback?.textContent?.trim()).toBe('Not saved. Switch the main agent first.');
-      expect(feedback?.textContent).not.toContain('Connection deleted.');
-      expect(feedback?.textContent).not.toContain('runs the main agent');
+      expect(announced()).toEqual(['alert: Not saved. Switch the main agent first.']);
+      expect(query('advanced-commit')).toBeNull();
       // The connection is still shown, with its Delete action.
       expect(query('advanced-delete')).not.toBeNull();
     });
@@ -239,11 +251,11 @@ describe('AdvancedTabComponent', () => {
       });
       query('advanced-delete')?.click(); fixture.detectChanges();
       query('advanced-delete-confirm-button')?.click(); await flush();
-      expect(query('advanced-commit')?.textContent).toContain('Not saved. Switch the main agent first.');
+      expect(last()).toBe('alert: Not saved. Switch the main agent first.');
       state.updateCustomEntryFields.mockImplementationOnce(async () => false);
       type('advanced-help-url', 'https://docs.example/other');
       query('advanced-save-help')?.click(); await flush();
-      expect(query('advanced-commit')?.textContent).toContain('Another save is in progress');
+      expect(last()).toContain('alert: Not saved. Another save is in progress');
     });
   });
 
@@ -252,13 +264,13 @@ describe('AdvancedTabComponent', () => {
     state.updateCustomEntryFields.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
     type('advanced-help-url', 'https://docs.example/new');
     query('advanced-save-help')?.click(); fixture.detectChanges();
-    expect(query('advanced-commit')?.textContent).toContain('Saving…');
+    // No inline "Saving…": Save is disabled while it runs.
+    expect(query('advanced-commit')).toBeNull();
     fixture.componentRef.setInput('connection', { ...SOVEREIGNEG(), id: 'other-gateway', name: 'other-gateway' });
     fixture.detectChanges();
-    expect(query('advanced-commit')).toBeNull();
     state.commit.set({ ...idle, status: 'saved' });
     finish(true); await flush();
-    expect(query('advanced-commit')).toBeNull();
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('the check key is dropped on destroy and a running check is cancelled', () => {
