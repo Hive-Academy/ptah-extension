@@ -12,7 +12,7 @@ import { claudeIdentityReference } from '../claude-identity-reference';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  NamedAccountQueryAdmission, SessionQueryExecutor, type NamedAccountPersistencePort,
+  NamedAccountQueryAdmission, SessionQueryExecutor, namedRefusalReason, type NamedAccountPersistencePort,
 } from './session-query-executor.service';
 
 function deferred<T>() {
@@ -403,8 +403,9 @@ describe('named SDK bootstrap and final admission', () => {
     await disposing;
   });
 
-  it('refuses when no init arrives before the deadline, with the first turn only and no binding', async () => {
-    const f = fixture({ initAfterFirstTurn: true, pause: 'init' });
+  // D76: the wait for init is bounded by the admission end, not the per-step deadline.
+  it('refuses when no init arrives before the admission end, with the first turn only and no binding', async () => {
+    const f = fixture({ initAfterFirstTurn: true, pause: 'init', budgetMs: 200 });
     const rejected = expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
     await f.entered.promise;
     await rejected;
@@ -682,6 +683,64 @@ describe('named SDK bootstrap and final admission', () => {
   });
 
   // D73 F2: a step that settles after the end (no timer fired yet) never admits.
+  // D76: the CLI emits its first message only after its MCP servers connect.
+  it('admits when the first stream message is slower than the step limit but inside the budget', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'init', deadlineMs: 15_000, budgetMs: 60_000 });
+    let settled = false;
+    const run = f.run().finally(() => { settled = true; });
+    await f.entered.promise;
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(settled).toBe(false);
+    expect(f.controller.signal.aborted).toBe(false);
+    f.paused.resolve();
+    await expect(run).resolves.toBeDefined();
+    expect(f.persistence.attachSdkSession).toHaveBeenCalledTimes(1);
+    expect(f.controller.signal.aborted).toBe(false);
+    await f.flow.dispose();
+  });
+
+  it('refuses with reason expired when the first stream message outlasts the budget', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'init', deadlineMs: 15_000, budgetMs: 20_000 });
+    let settled = false;
+    const refusal = f.run().then(() => undefined, (error: unknown) => error).finally(() => { settled = true; });
+    await f.entered.promise;
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(5_000);
+    const error = await refusal;
+    expect(error).toEqual({ code: 'identity-unproved', summary: 'Named account admission could not be completed.' });
+    expect(namedRefusalReason(error)).toBe('expired');
+    expect(f.controller.signal.aborted).toBe(true);
+    f.paused.resolve();
+    await flush();
+    await f.flow.dispose();
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    await expectNoAdmission(f);
+  });
+
+  it('keeps the step limit for other steps and refuses them with reason step-timeout', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'commit', deadlineMs: 15_000, budgetMs: 60_000 });
+    const refusal = f.run().then(() => undefined, (error: unknown) => error);
+    await f.entered.promise;
+    await jest.advanceTimersByTimeAsync(15_000);
+    const error = await refusal;
+    expect(error).toMatchObject({ code: 'identity-unproved' });
+    expect(namedRefusalReason(error)).toBe('step-timeout');
+    f.paused.resolve();
+    await flush();
+    await f.flow.dispose();
+  });
+
+  it('carries the refusing step as the reason without changing the public refusal', async () => {
+    const f = fixture({ resumeUnknown: true });
+    const error = await f.run('prior-session').then(() => undefined, (failure: unknown) => failure);
+    expect(error).toEqual({ code: 'identity-unproved', summary: 'Named account admission could not be completed.' });
+    expect(namedRefusalReason(error)).toBe('resume-unproven');
+  });
+
   it('refuses when the budget expired while a step was already resolving', async () => {
     jest.useFakeTimers();
     const f = fixture({ pause: 'commit', deadlineMs: 60_000, budgetMs: 1_000 });

@@ -88,6 +88,8 @@ import {
   selectHistoryPage,
 } from '@ptah-extension/shared';
 
+import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
+
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
 import type { ChatPtahCliService } from '../ptah-cli/chat-ptah-cli.service';
@@ -228,6 +230,14 @@ interface SdkSessionLaunch {
  */
 function namedAdmissionDeadline(): number {
   return Date.now() + NAMED_ACCOUNT_ADMISSION_BUDGET_MS;
+}
+
+/** The refusal the SDK admission gives once the deadline passed (same code and copy). */
+function namedPreparationRefusal(): ProviderAccountPortRefusal {
+  return {
+    code: 'identity-unproved',
+    summary: 'Named account admission could not be completed.',
+  };
 }
 
 /** What `chat:resume` needs from the session budget (N7). */
@@ -455,6 +465,46 @@ export class ChatSessionService {
       });
     }
     return this.oauthOverrideResolver;
+  }
+
+  /**
+   * Bound a NAMED launch's pre-admission preparation (MCP/OAuth overrides,
+   * prompts, provider profile, output style) by the handler-entry deadline
+   * (D76 item 3). Once the deadline passes the caller gets the admission's own
+   * refusal instead of an answer after the renderer gave up. The abandoned
+   * preparation keeps running and is observed so it can never reject unhandled.
+   * Ambient launches (no selection or no deadline) await `prepare` unchanged.
+   */
+  private async withinNamedAdmissionDeadline<T>(
+    named: boolean,
+    deadline: number | undefined,
+    prepare: () => Promise<T>,
+  ): Promise<T> {
+    if (!named || deadline === undefined) return prepare();
+    // The timer alone cannot bound the race: once the deadline has passed, a
+    // preparation that settles through microtasks wins against a zero-delay
+    // timer. The clock decides before preparation starts and after it wins.
+    if (Date.now() >= deadline) throw namedPreparationRefusal();
+    const preparation = prepare();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadlinePassed = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        preparation.catch(() => {
+          this.logger.warn(
+            '[RPC] named launch preparation failed after the admission deadline',
+          );
+        });
+        reject(namedPreparationRefusal());
+      }, Math.max(0, deadline - Date.now()));
+    });
+    try {
+      const prepared = await Promise.race([preparation, deadlinePassed]);
+      // Finished, but after the deadline: discard the result and refuse.
+      if (Date.now() >= deadline) throw namedPreparationRefusal();
+      return prepared;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -894,52 +944,71 @@ export class ChatSessionService {
    */
   private async launchSdkSession(input: SdkSessionLaunch): Promise<void> {
     const { logLabel, tabId, workspaceId, projectPath, options } = input;
-
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspaceId);
-
-    this.logger.info(`[ptah.main] ${logLabel} - prompt config`, {
-      hasEnhancedPrompts: !!enhancedPromptsContent,
-      enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-    });
-
     const files = options?.files ?? [];
-    if (files.length > 0) {
-      this.logger.debug(`RPC: ${logLabel} received files`, {
-        tabId,
-        fileCount: files.length,
-        files,
-      });
-    }
     const images = options?.images ?? [];
-    const mcpServersOverride = await this.buildMcpServersOverride(
-      input.mcpServersOverride,
+
+    const {
+      enhancedPromptsContent,
+      mcpServersOverride,
+      currentModel,
+      providerProfile,
+      outputStyle,
+    } = await this.withinNamedAdmissionDeadline(
+      !!input.accountSelection,
+      input.admissionDeadline,
+      async () => {
+        const enhancedPromptsContent =
+          await this.sdkContext.resolveEnhancedPromptsContent(workspaceId);
+
+        this.logger.info(`[ptah.main] ${logLabel} - prompt config`, {
+          hasEnhancedPrompts: !!enhancedPromptsContent,
+          enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+        });
+
+        if (files.length > 0) {
+          this.logger.debug(`RPC: ${logLabel} received files`, {
+            tabId,
+            fileCount: files.length,
+            files,
+          });
+        }
+        const mcpServersOverride = await this.buildMcpServersOverride(
+          input.mcpServersOverride,
+        );
+        // Checked after the last await before the profile read, so both see the
+        // same provider.
+        const currentModel =
+          options?.model ||
+          this.workspaceProviderProfileResolver.resolveStoredModel(
+            workspaceId,
+            this.modelSettings.selectedModel.get(),
+          );
+        // Resolve an isolated per-workspace provider profile so a session in
+        // workspace A runs against A's provider even when a different workspace's
+        // provider is currently the process-global active one. `undefined` only
+        // when the shared auth env serves this same provider; a mismatch throws
+        // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
+        const providerProfile =
+          await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+            workspaceId,
+            currentModel,
+          );
+        // Output-style activation, resolved fresh for THIS session (Req 5.6).
+        // Spreads to at most one field — `outputStyleName` for the flag tier or
+        // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
+        // both (R3 / Req 5.3).
+        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+          workspaceRoot: workspaceId,
+        });
+        return {
+          enhancedPromptsContent,
+          mcpServersOverride,
+          currentModel,
+          providerProfile,
+          outputStyle,
+        };
+      },
     );
-    // Checked after the last await before the profile read, so both see the
-    // same provider.
-    const currentModel =
-      options?.model ||
-      this.workspaceProviderProfileResolver.resolveStoredModel(
-        workspaceId,
-        this.modelSettings.selectedModel.get(),
-      );
-    // Resolve an isolated per-workspace provider profile so a session in
-    // workspace A runs against A's provider even when a different workspace's
-    // provider is currently the process-global active one. `undefined` only
-    // when the shared auth env serves this same provider; a mismatch throws
-    // AuthRequiredError, which each caller result-shapes as AUTH_REQUIRED.
-    const providerProfile =
-      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-        workspaceId,
-        currentModel,
-      );
-    // Output-style activation, resolved fresh for THIS session (Req 5.6).
-    // Spreads to at most one field — `outputStyleName` for the flag tier or
-    // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
-    // both (R3 / Req 5.3).
-    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-      workspaceRoot: workspaceId,
-    });
     const stream = await this.sdkAdapter.startChatSession({
       tabId,
       workspaceId,
@@ -1650,8 +1719,13 @@ export class ChatSessionService {
       sessionId,
     });
 
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+    // Named resumes bound their preparation by the handler-entry deadline (D76).
+    const named = !!accountSelection;
+    const enhancedPromptsContent = await this.withinNamedAdmissionDeadline(
+      named,
+      params.admissionDeadline,
+      () => this.sdkContext.resolveEnhancedPromptsContent(workspacePath),
+    );
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -1670,20 +1744,25 @@ export class ChatSessionService {
       // against the session's own workspace provider, not whichever provider
       // is globally active after a workspace switch. Throws AuthRequiredError
       // (→ AUTH_REQUIRED below) rather than resume on another provider.
-      const providerProfile =
-        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-          workspacePath,
-          currentModel,
+      //
+      // Output style is re-resolved for the resumed turn rather than carried
+      // over from the original start: the provider or the style may have
+      // changed since, and Req 5.6 forbids caching the decision across sessions.
+      const { providerProfile, outputStyle } =
+        await this.withinNamedAdmissionDeadline(
+          named,
+          params.admissionDeadline,
+          async () => ({
+            providerProfile:
+              await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+                workspacePath,
+                currentModel,
+              ),
+            outputStyle: await this.outputStyleActivation.resolveSessionFields({
+              workspaceRoot: workspacePath,
+            }),
+          }),
         );
-
-      // Re-resolved for the resumed turn rather than carried over from the
-      // original start: the provider or the style may have changed since, and
-      // Req 5.6 forbids caching the decision across sessions.
-      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
-        {
-          workspaceRoot: workspacePath,
-        },
-      );
 
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         projectPath: workspacePath,

@@ -32,6 +32,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { ProviderAccountBinding, SessionId } from '@ptah-extension/shared';
+import { NAMED_ACCOUNT_ADMISSION_BUDGET_MS } from '@ptah-extension/shared';
 import { SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
@@ -908,4 +909,174 @@ describe('host passes authoritative source IDs (D22)', () => {
       expect(h.accounts.selection).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('named admission deadline from handler entry (D76)', () => {
+  const T0 = 1_800_000_000_000;
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  it('forwards the handler-entry deadline unchanged to a named start although time advanced during preparation', async () => {
+    const h = harness();
+    let now = T0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    h.context.resolveEnhancedPromptsContent.mockImplementation(async () => {
+      now = T0 + 5_000;
+      return undefined;
+    });
+    h.provider.resolveProviderProfileForWorkspace.mockImplementation(async () => {
+      now = T0 + 9_000;
+      return undefined;
+    });
+
+    expect(
+      await h.service.startSession({
+        tabId: TAB,
+        workspacePath: ROOT,
+        accountSelection: named(ORIGINAL),
+      }),
+    ).toEqual({ success: true });
+    expect(h.sdk.startChatSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountSelection: named(ORIGINAL),
+        admissionDeadline: T0 + NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+      }),
+    );
+  });
+
+  it('passes no deadline to an ambient start', async () => {
+    const h = harness();
+    await h.service.startSession({
+      tabId: TAB,
+      workspacePath: ROOT,
+      accountSelection: { kind: 'ambient' },
+    });
+    expect(h.sdk.startChatSession).toHaveBeenCalledTimes(1);
+    expect(h.sdk.startChatSession.mock.calls[0][0]).not.toHaveProperty(
+      'admissionDeadline',
+    );
+  });
+
+  it('forwards the chat:continue entry deadline unchanged to the named resume', async () => {
+    const h = harness(true);
+    let now = T0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    h.context.resolveEnhancedPromptsContent.mockImplementation(async () => {
+      now = T0 + 7_000;
+      return undefined;
+    });
+
+    await h.service.continueSession(continueParams());
+    expect(h.sdk.resumeSession).toHaveBeenCalledWith(
+      SESSION,
+      expect.objectContaining({
+        admissionDeadline: T0 + NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+      }),
+    );
+  });
+
+  it('refuses a named start with the admission refusal when preparation outlasts the deadline, without calling the adapter', async () => {
+    jest.useFakeTimers({ now: T0 });
+    const h = harness();
+    // Preparation that never finishes inside the operation budget.
+    h.context.resolveEnhancedPromptsContent.mockReturnValue(
+      new Promise<undefined>(() => undefined),
+    );
+
+    const result = h.service.startSession({
+      tabId: TAB,
+      workspacePath: ROOT,
+      accountSelection: named(ORIGINAL),
+    });
+    await jest.advanceTimersByTimeAsync(NAMED_ACCOUNT_ADMISSION_BUDGET_MS);
+
+    expect(await result).toEqual({
+      success: false,
+      error: 'Named account admission could not be completed.',
+      accountRefusal: {
+        code: 'identity-unproved',
+        summary: 'Named account admission could not be completed.',
+      },
+    });
+    expect(h.sdk.startChatSession).not.toHaveBeenCalled();
+    expect(h.broadcaster.streamEventsToWebview).not.toHaveBeenCalled();
+  });
+
+  const PREPARATION_REFUSED = {
+    success: false,
+    error: 'Named account admission could not be completed.',
+    accountRefusal: {
+      code: 'identity-unproved',
+      summary: 'Named account admission could not be completed.',
+    },
+  };
+
+  it('refuses a named start whose preparation resolves after the deadline before any timer runs, without calling the adapter', async () => {
+    const h = harness();
+    let now = T0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    // The clock passes the deadline while preparation settles through
+    // microtasks only, so the deadline timer never gets a turn first.
+    h.context.resolveEnhancedPromptsContent.mockImplementation(async () => {
+      now = T0 + NAMED_ACCOUNT_ADMISSION_BUDGET_MS + 1;
+      return undefined;
+    });
+
+    expect(
+      await h.service.startSession({
+        tabId: TAB,
+        workspacePath: ROOT,
+        accountSelection: named(ORIGINAL),
+      }),
+    ).toEqual(PREPARATION_REFUSED);
+    expect(h.sdk.startChatSession).not.toHaveBeenCalled();
+    expect(h.broadcaster.streamEventsToWebview).not.toHaveBeenCalled();
+  });
+
+  it('refuses a named start without starting preparation when the deadline already passed', async () => {
+    const h = harness();
+    let calls = 0;
+    // Handler entry reads T0; every later reading is past the deadline.
+    jest
+      .spyOn(Date, 'now')
+      .mockImplementation(() =>
+        calls++ === 0 ? T0 : T0 + NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+      );
+
+    expect(
+      await h.service.startSession({
+        tabId: TAB,
+        workspacePath: ROOT,
+        accountSelection: named(ORIGINAL),
+      }),
+    ).toEqual(PREPARATION_REFUSED);
+    expect(h.context.resolveEnhancedPromptsContent).not.toHaveBeenCalled();
+    expect(h.sdk.startChatSession).not.toHaveBeenCalled();
+  });
+
+  it('does not bound an ambient start by the named deadline', async () => {
+    jest.useFakeTimers({ now: T0 });
+    const h = harness();
+    let finish!: () => void;
+    h.context.resolveEnhancedPromptsContent.mockReturnValue(
+      new Promise<undefined>((resolve) => {
+        finish = () => resolve(undefined);
+      }),
+    );
+
+    const result = h.service.startSession({
+      tabId: TAB,
+      workspacePath: ROOT,
+      accountSelection: { kind: 'ambient' },
+    });
+    await jest.advanceTimersByTimeAsync(NAMED_ACCOUNT_ADMISSION_BUDGET_MS + 1);
+    finish();
+    jest.useRealTimers();
+
+    expect(await result).toEqual({ success: true });
+    expect(h.sdk.startChatSession).toHaveBeenCalledTimes(1);
+  });
 });

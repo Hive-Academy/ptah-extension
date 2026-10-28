@@ -1046,6 +1046,130 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
     });
+
+    // TASK_2026_719 D75 (a) — a set-up that failed for the previous workspace
+    // (API-key route, no key) left the adapter not initialized, and a switch
+    // to a workspace with a usable route never retried it.
+    describe('set-up retry while not initialized (TASK_2026_719 D75)', () => {
+      async function makeFailedAdapter(): Promise<AdapterHarness> {
+        const h = makeAdapter({ workspaceRoot: '/ws/a' });
+        h.authManager.configureAuthentication.mockResolvedValueOnce({
+          configured: false,
+          details: [],
+          errorMessage: 'No Anthropic API key configured',
+        });
+        await expect(h.adapter.initialize()).resolves.toBe(false);
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+        return h;
+      }
+
+      it('retries the set-up once when a folder is open after the switch', async () => {
+        const h = await makeFailedAdapter();
+        h.authManager.resolveActiveAuth.mockReturnValue({
+          authMethod: 'claudeCli',
+          providerId: 'anthropic',
+        });
+
+        h.workspaceProvider.__state.setFolders(['/ws/b']);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+        expect(h.authManager.configureAuthentication).toHaveBeenLastCalledWith(
+          'claudeCli',
+        );
+        expect(h.adapter.getHealth().status).toBe('available');
+      });
+
+      it('does not retry when the switch leaves zero folders open', async () => {
+        const h = await makeFailedAdapter();
+
+        h.workspaceProvider.__state.setFolders([]);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+        expect(h.adapter.getHealth().status).toBe('error');
+      });
+
+      it('a failed retry leaves the adapter not initialized with its error', async () => {
+        const h = await makeFailedAdapter();
+        h.authManager.configureAuthentication.mockResolvedValueOnce({
+          configured: false,
+          details: [],
+          errorMessage: 'still no key',
+        });
+
+        h.workspaceProvider.__state.setFolders(['/ws/b']);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+        const health = h.adapter.getHealth();
+        expect(health.status).toBe('error');
+        expect(health.errorMessage).toBe('still no key');
+      });
+
+      // D76 finding 1: the retry must not join a pass that captured A's route.
+      it('runs a fresh pass for B when a switch lands while A is still initializing and A fails', async () => {
+        const h = makeAdapter({ workspaceRoot: '/ws/a' });
+        let finishA: (result: {
+          configured: boolean;
+          details: string[];
+          errorMessage?: string;
+        }) => void = () => undefined;
+        h.authManager.configureAuthentication.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishA = resolve;
+            }),
+        );
+        const passA = h.adapter.initialize();
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+        h.authManager.resolveActiveAuth.mockReturnValue({
+          authMethod: 'claudeCli',
+          providerId: 'anthropic',
+        });
+        h.workspaceProvider.__state.setFolders(['/ws/b']);
+        await flush();
+        // Still waiting on A: the retry has not started a second pass.
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+
+        finishA({
+          configured: false,
+          details: [],
+          errorMessage: 'No Anthropic API key configured',
+        });
+        await expect(passA).resolves.toBe(false);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(2);
+        expect(h.authManager.configureAuthentication).toHaveBeenLastCalledWith(
+          'claudeCli',
+        );
+        expect(h.adapter.getHealth().status).toBe('available');
+      });
+
+      // D76 finding 2: the freeze rule is rechecked when the queued retry runs.
+      it('does not retry when the last folder closes before the queued retry runs', async () => {
+        const h = await makeFailedAdapter();
+
+        h.workspaceProvider.__state.setFolders(['/ws/b']);
+        h.workspaceProvider.__state.setFolders([]);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+        expect(h.adapter.getHealth().status).toBe('error');
+      });
+
+      it('an initialized adapter does not re-run the set-up on a same-provider switch', async () => {
+        const h = makeAdapter({ workspaceRoot: '/ws/a' });
+        await h.adapter.initialize();
+
+        h.workspaceProvider.__state.setFolders(['/ws/b']);
+        await flush();
+
+        expect(h.authManager.configureAuthentication).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('workspace-scoped auth change (applyWorkspaceAuthChange)', () => {

@@ -475,6 +475,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private handleWorkspaceChanged(): void {
     if (!this.initialized) {
+      this.retryInitializeForWorkspace();
       return;
     }
 
@@ -536,6 +537,65 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.warn(
         '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
         err instanceof Error ? err : new Error(String(err)),
+      );
+    });
+  }
+
+  /**
+   * A set-up that failed for the previous workspace (for example an API-key
+   * route with no key stored) leaves the adapter not initialized. Without this
+   * retry a switch to a workspace whose route is usable kept every chat start
+   * failing with `AuthRequiredError` until a restart.
+   *
+   * The zero-folders rule above holds here too: with no folder open the
+   * resolver falls through to the global default, so nothing is attempted.
+   * The retry runs through `queueAdapterPass`, behind any reset or config
+   * re-initialization. A pass already in flight captured the PREVIOUS
+   * workspace's auth route, so the retry never joins it: it drains it first,
+   * then acts for the route that is current now. If that pass succeeded, the
+   * route change is reconciled through `reconfigureAuthIfChanged()` like any
+   * initialized switch; otherwise exactly one fresh pass runs. The folder
+   * count is checked again right before that, because the last folder can
+   * close while the retry waits in the queue. A failed retry leaves the
+   * adapter not initialized with the health error the failed pass recorded,
+   * which `notInitializedError()` surfaces.
+   */
+  private retryInitializeForWorkspace(): void {
+    if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+      return;
+    }
+    void this.queueAdapterPass(async () => {
+      // Each awaited pass is one that something else started; this drains
+      // them, it never starts one. It ends once no pass is in flight.
+      while (this.initInFlight !== null) {
+        // degradation-audit: reported - the drained pass belongs to its own
+        // caller, which receives its result or rejection; this retry only
+        // waits for it to settle.
+        await this.initInFlight.catch(() => false);
+      }
+      if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+        this.logger.debug(
+          '[SdkAgentAdapter] Last folder closed before the set-up retry ran — keeping the current auth configuration',
+        );
+        return;
+      }
+      if (this.initialized) {
+        await this.reconfigureAuthIfChanged();
+        return;
+      }
+      this.logger.info(
+        '[SdkAgentAdapter] Workspace changed while not initialized — retrying set-up for the new workspace',
+      );
+      const ok = await this.initialize();
+      if (!ok) {
+        this.logger.warn(
+          '[SdkAgentAdapter] Set-up retry after workspace change did not initialize the adapter',
+        );
+      }
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Set-up retry after workspace change failed',
+        error instanceof Error ? error : new Error(String(error)),
       );
     });
   }
