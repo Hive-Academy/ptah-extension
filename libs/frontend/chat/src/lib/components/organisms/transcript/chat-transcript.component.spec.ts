@@ -88,6 +88,7 @@ import {
   type SessionCardActions,
 } from '../../../tokens/session-context.token';
 import { STREAM_PRESENTATION_RECORDS_ENABLED } from '../../../services/stream-presentation-store.service';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import {
   createExecutionNode,
   createExecutionChatMessage,
@@ -1547,7 +1548,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
 
   it('opens a known cli lane in the monitor, expands it once, and clears the notice', () => {
     configure();
-    const agents = signal([{ agentId: 'agent-1', expanded: false, status: 'running' as const,
+    const agents = signal([{ agentId: 'agent-1', parentSessionId: 'session-1', expanded: false, status: 'running' as const,
       model: null, usageTotals: null, startedAt: 0, completedAt: undefined }]);
     const toggleAgentExpanded = jest.fn((agentId: string) => {
       agents.update((current) => current.map((agent) =>
@@ -1564,7 +1565,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     t.descendantActions()?.openLane('cli:agent-1');
     fixture.detectChanges();
 
-    expect(requestPanelOpen).toHaveBeenCalledWith('tab-1');
+    expect(requestPanelOpen).toHaveBeenCalledWith(null);
     expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
     expect(agents()[0].expanded).toBe(true);
     expect(t.notice()).toBe('');
@@ -1574,6 +1575,37 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     t.descendantActions()?.openLane('cli:agent-1');
     expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
     expect(requestPanelOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not open a CLI agent from another session', () => {
+    configure();
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [{ agentId: 'agent-1', parentSessionId: 'session-2' }], requestPanelOpen },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+    expect(requestPanelOpen).not.toHaveBeenCalled();
+    expect(t.notice()).toBe('This agent is not available in this conversation.');
+  });
+
+  it('shows a notice when the Electron dock cannot render a CLI card', () => {
+    configure();
+    const requestPanelOpen = jest.fn();
+    const toggleAgentExpanded = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [{ agentId: 'agent-1', parentSessionId: 'session-1', expanded: false }], requestPanelOpen, toggleAgentExpanded },
+    });
+    TestBed.overrideProvider(DisplayDockState, { useValue: new DisplayDockState() });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+    expect(requestPanelOpen).not.toHaveBeenCalled();
+    expect(toggleAgentExpanded).not.toHaveBeenCalled();
+    expect(t.notice()).toBe('Open this lane from the Agents panel.');
   });
 
   it('an agent gone from the open conversation closes the view, restores the transcript and announces', () => {

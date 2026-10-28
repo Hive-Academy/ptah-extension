@@ -399,6 +399,13 @@ describe('CanvasRailCardComponent', () => {
     expect(open).toHaveBeenCalledWith('a', 'orchestrator');
   });
 
+  it('routes a CLI turn-chip key through the Rail action to detail.open', () => {
+    const fixture = mount();
+    const actions = (fixture.debugElement.children[0].componentInstance as CardStub).actions;
+    actions?.openLane('cli:agent-1');
+    expect(open).toHaveBeenCalledWith('a', 'cli:agent-1');
+  });
+
   it('forwards repeated stale actions and rerenders the live notice; Enter focuses the session', async () => {
     const fixture = mount();
     const live = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[aria-live="polite"]')!;

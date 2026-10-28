@@ -32,10 +32,12 @@ import type { TabViewMode } from '@ptah-extension/chat-types';
 import { DOCUMENT } from '@angular/common';
 import {
   SESSION_CARD_ACTIONS,
+  SESSION_CONTEXT,
   SESSION_FOCUSED,
   type SessionCardActions,
 } from '../../../tokens/session-context.token';
 import { parseLaneKey } from '../../molecules/compact-session/compact-lane-rows';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import {
@@ -306,6 +308,8 @@ export class ChatTranscriptComponent {
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly laneMonitor = inject(AgentMonitorStore, { optional: true });
+  private readonly sessionContext = inject(SESSION_CONTEXT, { optional: true });
+  private readonly displayDock = inject(DisplayDockState, { optional: true });
   private readonly presentationRecordsEnabled = inject(
     STREAM_PRESENTATION_RECORDS_ENABLED,
   );
@@ -977,16 +981,21 @@ export class ChatTranscriptComponent {
   private openSubagentLane(key: string): void {
     const lane = parseLaneKey(key);
     if (lane?.kind === 'cli') {
-      const agent = this.laneMonitor?.agents().find((item) => item.agentId === lane.id);
+      const agent = this.laneMonitor?.agents().find((item) =>
+        item.agentId === lane.id && item.parentSessionId === this.sessionId());
       if (!agent) {
         this.subagentNotice.set(
           'This agent is not available in this conversation.',
         );
         return;
       }
+      if (this.displayDock) {
+        this.subagentNotice.set('Open this lane from the Agents panel.');
+        return;
+      }
       this.subagentNotice.set('');
       if (!agent.expanded) this.laneMonitor?.toggleAgentExpanded(lane.id);
-      this.laneMonitor?.requestPanelOpen(this.tabId());
+      this.laneMonitor?.requestPanelOpen(this.sessionContext?.() ?? null);
       return;
     }
     const target =

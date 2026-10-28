@@ -24,7 +24,6 @@
         [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
         [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
         <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" />{{ chip().label }}
-        @if (chip().title) { <span class="sr-only">{{ chip().title }}</span> }
       </span>
       <time class="ml-auto shrink-0 text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
