@@ -196,7 +196,7 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
     <!-- Lazy: the drawer and the panels it hosts load the first time a Details button is used. -->
     @defer (when drawerDirection() !== null) {
       <ptah-voice-details-drawer [(direction)]="drawerDirection" [config]="config()"
-        (closed)="drawerDirection.set(null)" (changed)="reloadConfig()" />
+        (closed)="drawerDirection.set(null)" (changed)="reloadAll()" />
     }
   `,
 })
@@ -276,8 +276,13 @@ export class VoiceConfigComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
-    await Promise.all([this.loadProviders(), this.reloadConfig()]);
+    await this.reloadAll();
     this.isLoading.set(false);
+  }
+
+  /** Provider availability depends on the stored key, so a panel save re-reads both. */
+  async reloadAll(): Promise<void> {
+    await Promise.all([this.loadProviders(), this.reloadConfig()]);
   }
 
   async loadProviders(): Promise<void> {

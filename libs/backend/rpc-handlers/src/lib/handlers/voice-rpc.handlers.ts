@@ -120,7 +120,7 @@ function downloadPercent(evt: VoiceDownloadEvent): number | null {
 /** ElevenLabs config defaults — mirror the adapter defaults (voice-providers). */
 const EL_DEFAULT_TTS_MODEL_ID = 'eleven_multilingual_v2';
 const EL_DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
-const EL_DEFAULT_STT_MODEL_ID = 'scribe_v1';
+const EL_DEFAULT_STT_MODEL_ID = 'scribe_v2';
 const EL_VOICE_ID_KEY = 'voice.elevenlabs.voiceId';
 const EL_TTS_MODEL_KEY = 'voice.elevenlabs.ttsModelId';
 const EL_OUTPUT_FORMAT_KEY = 'voice.elevenlabs.outputFormat';
@@ -666,7 +666,12 @@ export class VoiceRpcHandlers {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const category = isVoiceProviderError(error) ? error.category : undefined;
-      this.logger.warn('[voice] listVoices failed', { providerId, category });
+      // A VoiceProviderError message is sanitized (category + HTTP status only).
+      this.logger.warn('[voice] listVoices failed', {
+        providerId,
+        category,
+        ...(category ? { error: message } : {}),
+      });
       return { ok: false, error: message, category };
     }
   }
@@ -816,9 +821,11 @@ export class VoiceRpcHandlers {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const category = isVoiceProviderError(error) ? error.category : undefined;
+      // A VoiceProviderError message is sanitized (category + HTTP status only, never key or body).
       this.logger.warn('[voice] testConnection failed', {
         providerId: parsed.data.providerId,
         category,
+        ...(category ? { error: message } : {}),
       });
       return { ok: false, error: message, category };
     }

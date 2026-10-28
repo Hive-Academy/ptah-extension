@@ -30,6 +30,17 @@ export const TRANSCRIBE_TIMEOUT_MS = 30_000;
 export const LIST_TIMEOUT_MS = 10_000;
 export const TEST_TIMEOUT_MS = 10_000;
 
+/**
+ * A valid but scoped key that lacks the endpoint's permission: the current `detail.code`, or the
+ * legacy `detail.status` older responses carry.
+ */
+const INSUFFICIENT_PERMISSIONS_CODE = 'insufficient_permissions';
+const MISSING_PERMISSIONS_STATUS = 'missing_permissions';
+const MISSING_PERMISSIONS_MESSAGE =
+  'The ElevenLabs API key is missing a permission this request needs.';
+const MISSING_PERMISSIONS_REMEDIATION =
+  'Enable Text to Speech, Speech to Text and Voices (read) for this key in the ElevenLabs dashboard.';
+
 const RE_ENTER_KEY_REMEDIATION =
   'Re-enter your ElevenLabs API key in Voice settings.';
 
@@ -66,6 +77,17 @@ export function mapElevenLabsError(input: {
   }
 
   if (status === 401 || status === 403) {
+    if (
+      detail?.code === INSUFFICIENT_PERMISSIONS_CODE ||
+      detail?.status === MISSING_PERMISSIONS_STATUS
+    ) {
+      return new VoiceProviderError(
+        'auth',
+        PROVIDER_ID,
+        MISSING_PERMISSIONS_MESSAGE,
+        MISSING_PERMISSIONS_REMEDIATION,
+      );
+    }
     if (detail?.status === 'quota_exceeded') {
       return new VoiceProviderError(
         'quota',
@@ -193,14 +215,26 @@ export class ElevenLabsClient {
    */
   async testConnection(apiKeyOverride?: string): Promise<void> {
     const key = this.resolveKey(apiKeyOverride);
-    await this.fetchOk(
-      '/v1/user',
-      {
-        method: 'GET',
-        headers: { 'xi-api-key': key, accept: 'application/json' },
-      },
-      TEST_TIMEOUT_MS,
-    );
+    try {
+      await this.fetchOk(
+        '/v1/user',
+        {
+          method: 'GET',
+          headers: { 'xi-api-key': key, accept: 'application/json' },
+        },
+        TEST_TIMEOUT_MS,
+      );
+    } catch (error: unknown) {
+      // A scoped key without `user_read` is still a key ElevenLabs recognised:
+      // only the account read is refused, so the probe passes.
+      if (
+        error instanceof VoiceProviderError &&
+        error.message === MISSING_PERMISSIONS_MESSAGE
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   /** The stored plaintext key, or throw `auth` when unconfigured/undecryptable. */
