@@ -190,9 +190,8 @@ for (const host of HOSTS) {
         apiKey: '',
       });
       await expectClosedToOpener(page, modal);
-      await expect(toastMessage(page)).toContainText(
-        'Saved Ptah CLI instance Llama-Local',
-      );
+      // M4: a create runs the new instance's Test at once and its named result replaces the save toast.
+      await expect(toastMessage(page)).toHaveText('Llama-Local: Test passed.');
       await expect(
         page.locator('[data-testid^="cli-matrix-row-created-"]'),
       ).toContainText('Llama-Local');

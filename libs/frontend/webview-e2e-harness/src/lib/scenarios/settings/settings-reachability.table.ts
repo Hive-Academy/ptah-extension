@@ -58,6 +58,7 @@ import {
   throughVariantBoot,
   setupThroughDrawer,
   visibleEnabled,
+  restoreStoredKey,
   withAuthStatus,
 } from './settings-drawer.reach';
 
@@ -1162,6 +1163,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
         );
       } finally {
         await closeConnectionDrawer(page);
+        await restoreStoredKey(page, 'kimi-code');
       }
     },
   },

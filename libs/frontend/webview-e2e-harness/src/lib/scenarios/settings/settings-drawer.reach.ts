@@ -192,6 +192,12 @@ export async function withAuthStatus(page: Page, change: Partial<ReturnType<type
   }
 }
 
+/** Puts back a third-party key that `auth:deleteStoredKey` removed, so later entries of a shared session still see it. */
+export async function restoreStoredKey(page: Page, providerId: string): Promise<void> {
+  getFixtureState(page).deletedKeys.delete(providerId);
+  await remountProviders(page);
+}
+
 /**
  * Providers tab, then the scope badge of `field` (its full name, `data-field`, D16); returns its open
  * popover. Batch 23: the badge replaced the always-visible scope strip.
