@@ -71,3 +71,22 @@ export function toSpokenText(
     .trimEnd();
   return `${bounded}${CUE}`;
 }
+
+/** Longest reply excerpt shown as a caption when the reply is not spoken. */
+export const REPLY_EXCERPT_MAX_CHARS = 160;
+
+/**
+ * First prose sentence of an assistant reply, for the stage caption when no
+ * speech plays. Code, diffs, tool output and secrets are dropped as for speech.
+ */
+export function replyExcerpt(
+  text: string,
+  max = REPLY_EXCERPT_MAX_CHARS,
+): string {
+  const prose = toSpokenText(text, 'reply');
+  if (!prose) return '';
+  const end = prose.search(/[.!?؟۔](?:\s|$)/u);
+  const sentence = (end < 0 ? prose : prose.slice(0, end + 1)).trim();
+  if (sentence.length <= max) return sentence;
+  return `${sentence.slice(0, max - 1).trimEnd()}…`;
+}

@@ -59,6 +59,11 @@ const clamp = (value: number, low: number, high: number): number =>
 export const SCENE_LABEL_CANDIDATE_LIMIT = 4 + 7 * 16 * 4;
 export const CHILD_ORBIT_RADIUS = 70;
 
+/** Root medallion radius: 96px across on wide stages, 80px below 600px. */
+export function rootRadiusFor(width: number): number {
+  return (width < 600 ? 80 : 96) / 2;
+}
+
 export function orbitRadii(
   rect: SceneRect,
   many: boolean,
@@ -158,7 +163,7 @@ export function layoutScene(
   const right = rect ? rect.x + rect.width - 8 : viewport.width - 14;
   const top = rect ? rect.y + 6 : 66;
   const bottom = rect ? rect.y + rect.height - 6 : viewport.height - 42;
-  const rootRadius = (viewport.width < 600 ? 124 : 154) / 2;
+  const rootRadius = rootRadiusFor(viewport.width);
   const placed: {
     node: CommandWorkNode;
     x: number;

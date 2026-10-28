@@ -6,6 +6,11 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
+/* Glass on: the plate attribute supplies a local text scrim; drop the flat drop shadow. */
+:host-context([data-glass='on']) .command-plate {
+  box-shadow: none;
+}
+
 .plate-title {
   width: 100%;
   justify-content: center;

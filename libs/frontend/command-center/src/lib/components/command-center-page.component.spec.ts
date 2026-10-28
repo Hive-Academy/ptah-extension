@@ -1,12 +1,15 @@
 import { Component, computed, input, output, signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { sessionContextCue } from '@ptah-extension/chat-ui';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
-import { CommandCenterStore } from '../model/command-center.store';
+import {
+  CommandCenterStore,
+  type CommandWorkNode,
+} from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandSceneComponent } from '../scene/command-scene.component';
@@ -20,6 +23,10 @@ import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandNodeDetailComponent } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
+import {
+  RAIL_STUB_OVERRIDE,
+  railStubProviders,
+} from './command-rail.testing';
 
 @Component({ selector: 'ptah-command-scene', standalone: true, template: '' })
 class SceneStubComponent {
@@ -37,10 +44,17 @@ class SceneStubComponent {
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reservedBottom = input(62);
   public readonly reservedTop = input(72);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
+}
+
+/** The work list lives behind the rail's Work tab; Live is the default tab. */
+function openWorkTab(fixture: ComponentFixture<CommandCenterPageComponent>): void {
+  fixture.componentInstance.activeTab.set('work');
+  fixture.detectChanges();
 }
 
 describe('CommandCenterPageComponent', () => {
@@ -113,7 +127,6 @@ describe('CommandCenterPageComponent', () => {
       store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
     ),
     recordWriteFailure,
-    latestReply: signal<string | null>(null),
     turnAbortable: signal(false),
     shownSessionStatus: computed(() => store.sessionStatus()),
     darkMode: signal(true),
@@ -168,6 +181,7 @@ describe('CommandCenterPageComponent', () => {
     recordWriteFailure.set(null);
     store.setProjection('root:session', nodes, []);
     store.select(null);
+    store.clearCaption();
     store.setProvider({
       transcription: false,
       synthesis: false,
@@ -181,15 +195,16 @@ describe('CommandCenterPageComponent', () => {
           provide: TabManagerService,
           useValue: { commandCenterRecordWriteFailure: recordWriteFailure },
         },
+        ...railStubProviders(),
       ],
     });
     TestBed.overrideComponent(CommandCenterPageComponent, {
       remove: {
-        imports: [CommandSceneComponent],
+        imports: [CommandSceneComponent, ...RAIL_STUB_OVERRIDE.remove],
         providers: [CommandCenterPageController, CommandCenterStore],
       },
       add: {
-        imports: [SceneStubComponent],
+        imports: [SceneStubComponent, ...RAIL_STUB_OVERRIDE.add],
         providers: [
           { provide: CommandCenterPageController, useValue: controller },
           { provide: CommandCenterStore, useValue: store },
@@ -385,6 +400,7 @@ describe('CommandCenterPageComponent', () => {
   it('passes the controller clock to the overlay and work list', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    openWorkTab(fixture);
     const overlay = fixture.debugElement.query(
       By.directive(CommandOverlayComponent),
     ).componentInstance as CommandOverlayComponent;
@@ -403,6 +419,7 @@ describe('CommandCenterPageComponent', () => {
   it('passes scene overflow counts to the work list and clears them without a scene', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    openWorkTab(fixture);
     const scene = fixture.debugElement.query(By.directive(SceneStubComponent))
       .componentInstance as SceneStubComponent;
     const list = fixture.debugElement.query(
@@ -538,9 +555,16 @@ describe('CommandCenterPageComponent', () => {
     const workList = styles.match(/^\.work-list-region\s*\{([^}]*)\}/m)?.[1];
     const workListHost = styles.match(/^\.work-list-region > ptah-command-work-list\s*\{([^}]*)\}/m)?.[1];
     const narrow = styles.split('@container (max-width: 720px)')[1];
+    const panel = styles.match(/^\.rail-panel\s*\{([^}]*)\}/m)?.[1];
     expect(rail).toContain('display: flex');
     expect(rail).toContain('flex-direction: column');
-    expect(rail).toContain('overflow-y: auto');
+    // The rail clips; only its panels scroll, so the tabs and pending card stay put.
+    expect(rail).toContain('min-height: 0');
+    expect(rail).toContain('overflow: hidden');
+    expect(rail).not.toContain('overflow-y: auto');
+    expect(panel).toContain('flex: 1 1 auto');
+    expect(panel).toContain('min-height: 0');
+    expect(panel).toContain('overflow-y: auto');
     expect(workList).toContain('display: flex');
     expect(workList).toContain('flex-direction: column');
     expect(workList).toContain('flex: 1 1 auto');
@@ -834,6 +858,7 @@ describe('CommandCenterPageComponent', () => {
   it('places the controls in a dock and shows a selected-node summary', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    openWorkTab(fixture);
     expect(fixture.nativeElement.className).toContain('overflow-y-auto');
     expect(fixture.nativeElement.className).toContain('min-h-0');
     const dock = fixture.nativeElement.querySelector(
@@ -925,6 +950,7 @@ describe('CommandCenterPageComponent', () => {
   it('selects a pinned node and unpins when a work list row is selected', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    openWorkTab(fixture);
     const overlay = fixture.debugElement.query(
       By.directive(CommandOverlayComponent),
     ).componentInstance as CommandOverlayComponent;
@@ -945,6 +971,7 @@ describe('CommandCenterPageComponent', () => {
   it('keeps the work list and text controls in list-only mode', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
+    openWorkTab(fixture);
     const scene = fixture.debugElement.query(By.directive(SceneStubComponent))
       .componentInstance as SceneStubComponent;
     scene.canvasUnavailable.emit(true);
@@ -1161,5 +1188,252 @@ describe('CommandCenterPageComponent', () => {
       'Status',
     );
     fixture.destroy();
+  });
+
+  describe('rail tabs and stage caption', () => {
+    const liveTarget = (
+      fixture: ComponentFixture<CommandCenterPageComponent>,
+    ): string | null | undefined =>
+      (
+        fixture.nativeElement.querySelector(
+          '[data-testid="live-target"]',
+        ) as HTMLElement | null
+      )?.textContent?.trim();
+
+    it('opens on the Live tab for the root tab and drops the hint', () => {
+      tabs.set([{ id: 'root-tab' }]);
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const tabsEl = [
+        ...fixture.nativeElement.querySelectorAll('[role="tab"]'),
+      ] as HTMLElement[];
+      expect(tabsEl.map((tab) => tab.textContent?.trim())).toEqual([
+        'Live',
+        'Work',
+        'Stats',
+        'Display',
+      ]);
+      expect(tabsEl[0].getAttribute('aria-selected')).toBe('true');
+      expect(liveTarget(fixture)).toBe('root-tab');
+      expect(fixture.nativeElement.querySelector('ptah-command-work-list')).toBeNull();
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Select a sphere for status',
+      );
+      expect(
+        fixture.nativeElement
+          .querySelector('aside.rail')
+          ?.getAttribute('data-glass-surface'),
+      ).toBe('chrome');
+      fixture.destroy();
+    });
+
+    it('keeps pending input above the tabs', () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const pending = fixture.nativeElement.querySelector(
+        'ptah-command-pending-input',
+      ) as HTMLElement;
+      const tablist = fixture.nativeElement.querySelector(
+        '[role="tablist"]',
+      ) as HTMLElement;
+      expect(
+        pending.compareDocumentPosition(tablist) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      fixture.destroy();
+    });
+
+    it('streams a live child tab, the root tab for SDK agents, and nothing for a persisted child', () => {
+      const withAgents: CommandWorkNode[] = [
+        ...nodes,
+        {
+          id: 'child:live',
+          kind: 'child',
+          parentId: 'root:session',
+          label: 'Live child',
+          providerId: null,
+          state: 'running',
+          tabId: 'child-tab',
+        },
+        {
+          id: 'sdk:root:a1',
+          kind: 'agent',
+          agentKind: 'sdk',
+          parentId: 'root:session',
+          label: 'Researcher',
+          providerId: null,
+          state: 'running',
+        },
+        {
+          id: 'sdk:child:a2',
+          kind: 'agent',
+          agentKind: 'sdk',
+          parentId: 'child:live',
+          label: 'Nested',
+          providerId: null,
+          state: 'running',
+        },
+      ];
+      projection.set({ nodes: withAgents, edges: [] });
+      store.setProjection('root:session', withAgents, []);
+      tabs.set([{ id: 'root-tab' }, { id: 'child-tab' }]);
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      store.select('child:live');
+      fixture.detectChanges();
+      expect(liveTarget(fixture)).toBe('child-tab');
+      store.select('sdk:root:a1');
+      fixture.detectChanges();
+      expect(liveTarget(fixture)).toBe('root-tab');
+      store.select('sdk:child:a2');
+      fixture.detectChanges();
+      expect(liveTarget(fixture)).toBe('child-tab');
+      store.select('child:one');
+      fixture.detectChanges();
+      expect(fixture.componentInstance.liveTarget().tabId).toBeNull();
+      fixture.destroy();
+    });
+
+    it('treats a child whose tab is no longer open as having no session data', () => {
+      const withChild: CommandWorkNode[] = [
+        ...nodes,
+        {
+          id: 'child:closed',
+          kind: 'child',
+          parentId: 'root:session',
+          label: 'Finished child',
+          providerId: null,
+          state: 'completed',
+          tabId: 'closed-tab',
+          task: 'Wrote the report.',
+        },
+      ];
+      projection.set({ nodes: withChild, edges: [] });
+      store.setProjection('root:session', withChild, []);
+      tabs.set([{ id: 'root-tab' }]);
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      store.select('child:closed');
+      fixture.detectChanges();
+      expect(fixture.componentInstance.liveTarget()).toEqual({
+        tabId: null,
+        state: 'completed',
+        summary: 'Wrote the report.',
+      });
+      fixture.componentInstance.activeTab.set('stats');
+      fixture.detectChanges();
+      const panel = fixture.nativeElement.querySelector(
+        '#command-rail-panel-stats',
+      ) as HTMLElement;
+      expect(panel.textContent).toContain('No session data for this agent.');
+      expect(panel.textContent).not.toContain('Stats appear after the first turn.');
+      fixture.destroy();
+    });
+
+    it('marks every rail panel focusable and controls only panels in the DOM', () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      for (const key of ['live', 'work', 'stats', 'display'] as const) {
+        fixture.componentInstance.activeTab.set(key);
+        fixture.detectChanges();
+        const panels = [
+          ...fixture.nativeElement.querySelectorAll('[role="tabpanel"]'),
+        ] as HTMLElement[];
+        for (const panel of panels) {
+          expect(panel.getAttribute('tabindex')).toBe('0');
+          expect(panel.getAttribute('aria-labelledby')).toBeTruthy();
+        }
+        const controlled = [
+          ...fixture.nativeElement.querySelectorAll('[role="tab"][aria-controls]'),
+        ] as HTMLElement[];
+        for (const tab of controlled) {
+          expect(
+            fixture.nativeElement.querySelector(
+              '#' + tab.getAttribute('aria-controls'),
+            ),
+          ).not.toBeNull();
+        }
+      }
+      fixture.destroy();
+    });
+
+    it('selects the agent a session card asks for', () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      fixture.componentInstance.openLane('one');
+      expect(store.selectedId()).toBe('child:one');
+      fixture.componentInstance.openLane('missing');
+      expect(store.selectedId()).toBe('child:one');
+      fixture.destroy();
+    });
+
+    it('shows the stats empty state, then the stats summary for the live tab', () => {
+      tabs.set([{ id: 'root-tab' }]);
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      fixture.componentInstance.activeTab.set('stats');
+      fixture.detectChanges();
+      const panel = fixture.nativeElement.querySelector(
+        '#command-rail-panel-stats',
+      ) as HTMLElement;
+      expect(panel.getAttribute('role')).toBe('tabpanel');
+      expect(panel.getAttribute('aria-labelledby')).toBe(
+        'command-rail-tab-stats',
+      );
+      expect(panel.textContent).toContain('Stats appear after the first turn.');
+      tabs.set([
+        {
+          id: 'root-tab',
+          sessionStats: {
+            sessionId: 'root',
+            model: null,
+            totalCost: 0.5,
+            tokens: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 },
+            tokenCount: 2,
+            messageCount: 1,
+            agentSessionCount: 0,
+            durationMs: 1000,
+            status: 'ok',
+          },
+        },
+      ]);
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('ptah-session-stats-summary'),
+      ).not.toBeNull();
+      fixture.destroy();
+    });
+
+    it('shows the spoken caption, else a muted hint for the hovered sphere', () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const strip = (): HTMLElement | null =>
+        fixture.nativeElement.querySelector('[data-testid="caption-strip"]');
+      expect(strip()).toBeNull();
+      hoveredNodeId.set('child:one');
+      fixture.detectChanges();
+      expect(strip()?.textContent).toContain('Selected: Child · running');
+      store.setCaption('agent', 'Two agents are running.');
+      fixture.detectChanges();
+      expect(strip()?.textContent).toContain('Two agents are running.');
+      expect(strip()?.getAttribute('aria-hidden')).toBe('true');
+      store.clearCaption('fade');
+      fixture.detectChanges();
+      expect(strip()?.classList).toContain('leaving');
+      expect(strip()?.textContent).toContain('Two agents are running.');
+      fixture.destroy();
+    });
+
+    it('moves to the Work tab before focusing a row from the overlay', () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      fixture.componentInstance.focusWorkRow('child:one');
+      expect(fixture.componentInstance.activeTab()).toBe('work');
+      fixture.detectChanges();
+      expect(
+        fixture.nativeElement.querySelector('ptah-command-work-list'),
+      ).not.toBeNull();
+      fixture.destroy();
+    });
   });
 });

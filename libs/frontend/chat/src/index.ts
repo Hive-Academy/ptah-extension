@@ -45,6 +45,7 @@ export { StreamPresentationStore } from './lib/services/stream-presentation-stor
 export type { SessionCardActions } from './lib/tokens/session-context.token';
 
 export { RAIL_TRANSCRIPT_RETENTION } from './lib/tokens/session-context.token';
+export { SESSION_READ_ONLY } from './lib/tokens/session-context.token';
 export { RAIL_MIN_CONTENT_WIDTH } from './lib/components/templates/chat-view.component';
 export { RailTranscriptRetentionCoordinator } from './lib/services/rail-transcript-retention-coordinator.service';
 export {

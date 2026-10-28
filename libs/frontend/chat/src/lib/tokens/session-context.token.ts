@@ -68,6 +68,14 @@ export const SESSION_CARD_ACTIONS = new InjectionToken<SessionCardActions>(
   'SESSION_CARD_ACTIONS',
 );
 
+/**
+ * Opts a hosted chat view into read-only mode: no composer, so the host
+ * cannot start, queue or stop a turn from it. Absent means false.
+ */
+export const SESSION_READ_ONLY = new InjectionToken<boolean>(
+  'SESSION_READ_ONLY',
+);
+
 /** Opts a contextual Rail host into four-tab transcript retention. */
 export const RAIL_TRANSCRIPT_RETENTION = new InjectionToken<boolean>(
   'RAIL_TRANSCRIPT_RETENTION',

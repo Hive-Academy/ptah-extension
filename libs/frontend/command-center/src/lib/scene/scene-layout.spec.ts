@@ -1,6 +1,7 @@
 import type { CommandWorkNode } from '../model/command-center.store';
 import {
   layoutScene,
+  rootRadiusFor,
   SCENE_LABEL_CANDIDATE_LIMIT,
   type SceneRect,
 } from './scene-layout';
@@ -41,6 +42,21 @@ const measure = jest.fn((_nodeId: string, text: string) => ({
 
 describe('layoutScene', () => {
   beforeEach(() => measure.mockClear());
+
+  it.each([
+    [1440, 48],
+    [600, 48],
+    [599, 40],
+    [360, 40],
+  ])('draws the root medallion at the compact size for %ipx', (width, radius) => {
+    expect(rootRadiusFor(width)).toBe(radius);
+    const result = layoutScene(
+      { nodes: [root, node('cli:a')], edges: [] },
+      { width, height: 600 },
+      measure,
+    );
+    expect(result.nodes[0]).toMatchObject({ kind: 'root', radius });
+  });
 
   it.each([
     [1440, 900, 82],

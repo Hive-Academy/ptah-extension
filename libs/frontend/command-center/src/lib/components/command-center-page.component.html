@@ -106,6 +106,7 @@
                 [inputLevel]="page.store.inputLevel()"
                 [outputLevel]="page.store.outputLevel()"
                 [reservedTop]="statsBandHeight()"
+                [reservedBottom]="captionReserve"
                 (selection)="page.store.select($event)"
                 (hoveredNodeId)="page.hoveredNodeId.set($event)"
                 (canvasUnavailable)="page.canvasUnavailable.set($event)"
@@ -125,7 +126,7 @@
                 [childStats]="childStats()"
                 (focusWorkListRow)="focusWorkRow($event)"
               />
-               <div #statsBand class="stats-band">
+               <div #statsBand class="stats-band" data-glass-surface="bar">
                  <div class="stage-caption">
                 <p
                   class="text-xs font-semibold uppercase tracking-widest text-state-need"
@@ -153,18 +154,18 @@
               >
                 01 / Voice command
               </p>
-              <p
-                class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
-              >
-                Select a sphere for status
-              </p>
              </main>
            } @else {
-             <main class="stage stage-fallback rounded-xl border border-base-300 bg-base-200 p-5" role="status">
+             <main class="stage stage-fallback rounded-xl border border-base-300 bg-base-200 p-5" role="status" data-glass-surface="content">
                <h2 class="font-serif text-lg">Live orchestration</h2>
                <p>Canvas unavailable. Use the delegated work list for status and selection.</p>
              </main>
            }
+          <ptah-command-caption-strip
+            [caption]="stageCaption()"
+            [exit]="page.store.captionExit()"
+            [reducedMotion]="page.store.reducedMotion()"
+          />
         </div>
         <ptah-command-dock
             class="dock block min-w-0"
@@ -186,67 +187,163 @@
             (interrupt)="page.interruptSpeech()"
             (openVoiceSettings)="page.openVoiceSettings()"
           />
-        <aside class="rail flex flex-col gap-2">
-          @if (page.recordWriteFailure()) {
-            <p role="status" class="rounded-lg border border-warning p-2">
-              The session pointer could not be saved. You can continue using
-              this session.
-            </p>
-          }
-          @if (selectedNode(); as node) {
+        <aside
+          class="rail rounded-xl border border-base-300 bg-base-200 text-base-content"
+          [attr.data-glass-surface]="isElectron ? null : 'chrome'"
+          aria-label="Command Center rail"
+        >
+          <div class="rail-head flex flex-col gap-2 p-2">
+            @if (page.recordWriteFailure()) {
+              <p role="status" class="rounded-lg border border-warning p-2 text-xs">
+                The session pointer could not be saved. You can continue using
+                this session.
+              </p>
+            }
+            <ptah-command-pending-input
+              #pendingCard
+              class="block"
+              [pending]="page.store.pendingInput()"
+              [proposal]="page.shownProposal()"
+              [choices]="page.ordinaryChoices()"
+              [timedOut]="page.rosterTimedOut()"
+              [answerResult]="answerResult()"
+              (confirm)="page.confirmProposal($event.proposalId)"
+              (decline)="page.declineProposal($event)"
+              (response)="answerPendingInput($event)"
+            />
             <section
-              class="rounded-xl border border-base-300 bg-base-200 p-3 text-base-content"
+              class="rail-selected rounded-xl border border-base-300 bg-base-200 p-3 text-base-content"
+              data-glass-surface="tile"
               aria-label="Selected work"
             >
-              <p
-                class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
-              >
-                Selected ·
-                {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
-              </p>
-              <ptah-command-node-detail
-                class="mt-2 block"
-                [node]="node"
-                [phaseCount]="phaseCount(node.id)"
-                [childStats]="childStats()[node.id] ?? null"
-                [now]="page.now()"
-                [reducedMotion]="page.store.reducedMotion()"
-              />
+              @if (selectedNode(); as node) {
+                <p
+                  class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+                >
+                  Selected ·
+                  {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
+                </p>
+                <ptah-command-node-detail
+                  class="mt-1 block"
+                  [node]="node"
+                  [phaseCount]="phaseCount(node.id)"
+                  [childStats]="childStats()[node.id] ?? null"
+                  [now]="page.now()"
+                  [reducedMotion]="page.store.reducedMotion()"
+                />
+              } @else {
+                <p class="text-xs text-base-content-muted">
+                  No node selected. Select a sphere or a row.
+                </p>
+              }
             </section>
-          }
-          <ptah-command-pending-input
-            #pendingCard
-            [pending]="page.store.pendingInput()"
-            [proposal]="page.shownProposal()"
-            [choices]="page.ordinaryChoices()"
-            [timedOut]="page.rosterTimedOut()"
-            [answerResult]="answerResult()"
-            (confirm)="page.confirmProposal($event.proposalId)"
-            (decline)="page.declineProposal($event)"
-            (response)="answerPendingInput($event)"
-          />
-          @if (page.latestReply(); as reply) {
-            <p
-              class="rounded-lg border border-base-300 p-2 text-xs whitespace-pre-wrap"
-            >
-              {{ reply }}
-            </p>
-          }
-          <div
-            class="work-list-region rounded-xl border border-base-300 bg-base-200"
-            tabindex="0"
-            role="region"
-            aria-label="Delegated work list"
-          >
-            <ptah-command-work-list
-              [now]="page.now()"
-              [overflowCompleted]="overflow().completed"
-              [overflowOther]="overflow().other"
-              [projection]="page.projection()"
-              [reducedMotion]="page.store.reducedMotion()"
-              [selectedId]="page.store.selectedId()"
-              (selection)="page.store.select($event)"
+            <ptah-command-rail-tabs
+              [active]="activeTab()"
+              [displayCount]="displayCount()"
+              (activeChange)="activeTab.set($event)"
             />
+          </div>
+          <div class="rail-body">
+            <div
+              class="rail-panel live-panel"
+              role="tabpanel"
+              tabindex="0"
+              data-glass-focus
+              [id]="panelId('live')"
+              [attr.aria-labelledby]="tabId('live')"
+              [hidden]="activeTab() !== 'live'"
+              [class.reduced]="page.store.reducedMotion()"
+            >
+              <ptah-command-live-panel
+                [target]="liveTarget()"
+                [visible]="activeTab() === 'live'"
+                [hasSession]="!!page.store.markedTabId()"
+                [reducedMotion]="page.store.reducedMotion()"
+                (openLane)="openLane($event)"
+                (openSession)="page.store.select(null)"
+              />
+            </div>
+            @switch (activeTab()) {
+              @case ('work') {
+                <div
+                  class="rail-panel"
+                  role="tabpanel"
+                  tabindex="0"
+                  data-glass-focus
+                  [id]="panelId('work')"
+                  [attr.aria-labelledby]="tabId('work')"
+                  [class.reduced]="page.store.reducedMotion()"
+                >
+                  <div
+                    class="work-list-region rounded-xl border border-base-300 bg-base-200"
+                    data-glass-surface="tile"
+                    tabindex="0"
+                    data-glass-focus
+                    role="region"
+                    aria-label="Delegated work list"
+                  >
+                    <ptah-command-work-list
+                      [now]="page.now()"
+                      [overflowCompleted]="overflow().completed"
+                      [overflowOther]="overflow().other"
+                      [projection]="page.projection()"
+                      [reducedMotion]="page.store.reducedMotion()"
+                      [selectedId]="page.store.selectedId()"
+                      (selection)="page.store.select($event)"
+                    />
+                  </div>
+                </div>
+              }
+              @case ('stats') {
+                <div
+                  class="rail-panel"
+                  role="tabpanel"
+                  tabindex="0"
+                  data-glass-focus
+                  [id]="panelId('stats')"
+                  [attr.aria-labelledby]="tabId('stats')"
+                  [class.reduced]="page.store.reducedMotion()"
+                >
+                  @if (liveTab()?.sessionStats; as snapshot) {
+                    <ptah-session-stats-summary
+                      [snapshot]="snapshot"
+                      [liveModelStats]="liveTab()?.liveModelStats ?? null"
+                      [compactionCount]="liveTab()?.compactionCount ?? 0"
+                      [sessionId]="liveTab()?.claudeSessionId ?? null"
+                      [budget]="liveTab()?.sessionBudget ?? null"
+                    />
+                  } @else if (liveTarget().tabId) {
+                    <p
+                      class="rounded-xl border border-base-300 bg-base-200 p-3 text-center text-xs text-base-content-muted"
+                      data-glass-surface="tile"
+                    >
+                      Stats appear after the first turn.
+                    </p>
+                  } @else {
+                    <p
+                      class="rounded-xl border border-base-300 bg-base-200 p-3 text-center text-xs text-base-content-muted"
+                      data-glass-surface="tile"
+                      data-testid="stats-missing"
+                    >
+                      No session data for this agent.
+                    </p>
+                  }
+                </div>
+              }
+              @case ('display') {
+                <div
+                  class="rail-panel"
+                  role="tabpanel"
+                  tabindex="0"
+                  data-glass-focus
+                  [id]="panelId('display')"
+                  [attr.aria-labelledby]="tabId('display')"
+                  [class.reduced]="page.store.reducedMotion()"
+                >
+                  <ptah-command-rail-display [tabId]="liveTarget().tabId" />
+                </div>
+              }
+            }
           </div>
         </aside>
       </div>

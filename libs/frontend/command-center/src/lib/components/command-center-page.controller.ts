@@ -5,10 +5,12 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   CommandCenterVoiceSessionService,
   TabManagerService,
+  type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
 import {
@@ -26,6 +28,7 @@ import {
   rootWorkState,
 } from '../model/work-projection';
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
+import { replyExcerpt } from '../voice/spoken-text';
 import { hasTribunalIntent } from './command-center-tribunal-intent';
 import { commandCenterClock } from './command-center-clock';
 import {
@@ -96,15 +99,11 @@ export class CommandCenterPageController {
   public readonly hoveredNodeId = signal<string | null>(null);
   public readonly recordWriteFailure =
     this.tabs.commandCenterRecordWriteFailure;
-  public readonly latestReply = computed(() => {
-    const tabId = this.store.markedTabId();
-    const pulse = tabId
-      ? this.tabs.lastTerminalPulseByTab().get(tabId)
-      : undefined;
-    return pulse?.classification === 'success'
-      ? (pulse.lastAssistantMessage ?? null)
-      : null;
-  });
+  /** Last terminal pulse seen for the marked tab, so only new replies are captioned. */
+  private replyCaptionMark: { tabId: string | null; seq: number } = {
+    tabId: null,
+    seq: 0,
+  };
   private readonly voiceTurnToken = signal<number | null>(null);
   /** Each entry belongs to the tab active at send time, even after a rebind. */
   private readonly armedTurns: {
@@ -237,6 +236,13 @@ export class CommandCenterPageController {
       this.previousMarkedTabId = tabId;
     });
     trackTurnStatus(this.tabs, this.store, this.turnAbortable);
+    effect(() => {
+      const tabId = this.store.markedTabId();
+      const pulse = tabId
+        ? this.tabs.lastTerminalPulseByTab().get(tabId)
+        : undefined;
+      untracked(() => this.captionUnspokenReply(tabId, pulse));
+    });
     effect(() => {
       const tabId = this.store.markedTabId();
       const token = this.voiceTurnToken();
@@ -485,6 +491,28 @@ export class CommandCenterPageController {
     this.armedTurns.length = 0;
     this.voiceTurnToken.set(null);
   }
+  /**
+   * A reply that will not be spoken (voice off, muted or no synthesis) still
+   * reaches the stage caption and its live region as a short excerpt. Pulses
+   * already present when a tab is bound are history, not new replies.
+   */
+  private captionUnspokenReply(
+    tabId: string | null,
+    pulse: TerminalTurnPulse | undefined,
+  ): void {
+    const seq = pulse?.seq ?? 0;
+    if (tabId !== this.replyCaptionMark.tabId) {
+      this.replyCaptionMark = { tabId, seq };
+      return;
+    }
+    if (!pulse || seq <= this.replyCaptionMark.seq) return;
+    this.replyCaptionMark = { tabId, seq };
+    if (pulse.classification !== 'success' || this.voice.speaksReplies)
+      return;
+    const excerpt = replyExcerpt(pulse.lastAssistantMessage ?? '');
+    if (excerpt) this.voice.showReplyCaption(excerpt);
+  }
+
   private clearGraceTimer(): void {
     if (this.graceTimer) clearTimeout(this.graceTimer);
     this.graceTimer = null;
