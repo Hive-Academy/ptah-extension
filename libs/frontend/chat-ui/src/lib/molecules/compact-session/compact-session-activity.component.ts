@@ -48,6 +48,7 @@ import type {
   CompactCallout,
   CompactLaneSummary,
   CompactPermissionCallout,
+  CompactPermissionDecision,
 } from './compact-lane.types';
 
 export type FeedFilter = 'all' | 'error' | 'warn';
@@ -765,7 +766,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
 
       @if (lanes(); as laneData) {
         <div
-          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-hidden border-t border-base-content/10 px-3 py-1"
+          class="cs-lanes flex min-w-0 flex-col gap-0.5 overflow-y-auto overflow-x-hidden border-t border-base-content/10 px-3 py-1"
           data-zone="lanes"
         >
           <ptah-compact-session-lanes
@@ -778,8 +779,7 @@ const FALLBACK_RECAP_HEIGHT = 180;
           @if (callout()) {
             <ptah-compact-session-callout
               [callout]="callout()"
-              (allow)="allow.emit($event)"
-              (deny)="deny.emit($event)"
+              (decide)="decide.emit($event)"
               (answer)="answer.emit()"
               (openRequest)="openRequest.emit($event)"
               (retry)="retry.emit()"
@@ -874,8 +874,7 @@ export class CompactSessionActivityComponent {
     Math.round(this.contextPercent() ?? 0),
   );
 
-  readonly allow = output<CompactPermissionCallout>();
-  readonly deny = output<CompactPermissionCallout>();
+  readonly decide = output<CompactPermissionDecision>();
   readonly answer = output<void>();
   readonly openRequest = output<CompactPermissionCallout>();
   readonly showOutput = output<void>();

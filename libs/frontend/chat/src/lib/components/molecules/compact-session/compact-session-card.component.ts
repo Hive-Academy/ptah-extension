@@ -20,6 +20,7 @@ import {
   summarizeLive,
   type CompactCallout,
   type CompactPermissionCallout,
+  type CompactPermissionDecision,
   type CompactLaneSummary,
   type CompactRailDensity,
   type CompactRailState,
@@ -187,8 +188,7 @@ function sameLaneSummary(
             [todos]="todos()"
             [gitStats]="gitStats()"
             (openFullView)="openFullView()"
-            (allow)="respond($event, 'allow')"
-            (deny)="respond($event, 'deny')"
+            (decide)="respond($event.callout, $event.decision, $event.reason)"
             (answer)="openFullView()"
             (openRequest)="openRequest($event)"
             (showOutput)="openFullView()"
@@ -527,7 +527,7 @@ export class CompactSessionCardComponent {
     });
   }
 
-  respond(callout: CompactPermissionCallout, decision: 'allow' | 'deny'): void {
+  respond(callout: CompactPermissionCallout, decision: CompactPermissionDecision['decision'], reason?: string): void {
     if (this.callout()?.requestId !== callout.requestId) {
       this.staleAction.emit();
       return;
@@ -537,11 +537,16 @@ export class CompactSessionCardComponent {
         (candidate) => candidate.id === callout.requestId,
       );
       if (request && callout.tabId) {
-        this.responder.respondSession(request, decision, callout.tabId);
+        this.responder.respondSession(request, decision, callout.tabId, reason);
       } else {
         this.staleAction.emit();
       }
     } else if (callout.agentId) {
+      // A lane accepts only allow and deny; any other decision means the callout is out of date.
+      if (decision !== 'allow' && decision !== 'deny') {
+        this.staleAction.emit();
+        return;
+      }
       const stillQueued = this.agentStore
         .agentsOwnedBySession(this.sessionIdentity())
         .some(
