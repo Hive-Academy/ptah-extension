@@ -124,6 +124,9 @@ export class SessionControl {
         // allowing late A hooks to acquire operation ownership during turn B.
         this.retireInterruptedRecord(rec);
       } else if (this.registry.find(sessionId as string) === rec) {
+        rec.interruptRetirement = rec.currentTurnClientMessageId;
+        rec.currentTurnClientMessageId = null;
+        rec.interruptAwaitingResult = true;
         if (this.onTurnTerminal) {
           this.onTurnTerminal(sessionId);
         } else {

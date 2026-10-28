@@ -233,6 +233,10 @@ export interface StreamTransformConfig {
    * the 180s no-activity watchdog instead of the turn (TASK_2026_294).
    */
   onTurnEnd?: () => void;
+  turnIdentity?: {
+    takeAtResult(): string | null;
+    takeInterruptRetirement(): string | null;
+  };
   /**
    * Fired once per `compact_boundary` message in THIS stream (the main loop;
    * subagent streams are dispatched elsewhere), with the effective session id
@@ -443,6 +447,7 @@ export class StreamTransformer {
       onResultStats,
       onLiveStats,
       onTurnEnd,
+      turnIdentity,
       onCompactBoundary,
       tabId,
       activityWatchdog,
@@ -537,6 +542,12 @@ export class StreamTransformer {
 
         try {
           for await (const sdkMessage of sdkQuery) {
+            const interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+            if (interruptClientMessageId !== null) {
+              yieldedEventCount++;
+              yield messageTransformer.settleInterruptedTurn(effectiveSessionId, interruptClientMessageId);
+            }
+            let resultConsumedClientMessageId: string | null = null;
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
@@ -696,6 +707,8 @@ export class StreamTransformer {
               }
             }
             if (isResultMessage(sdkMessage)) {
+              const consumedClientMessageId = turnIdentity?.takeAtResult() ?? null;
+              resultConsumedClientMessageId = consumedClientMessageId;
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
               onTurnEnd?.();
@@ -1037,10 +1050,17 @@ export class StreamTransformer {
 
               for (const event of flatEvents) {
                 yieldedEventCount++;
-
-                yield event;
+                yield resultConsumedClientMessageId !== null && event.eventType === 'turn_state'
+                  ? { ...event, consumedClientMessageId: resultConsumedClientMessageId }
+                  : event;
               }
             }
+          }
+
+          const finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+          if (finalInterruptClientMessageId !== null) {
+            yieldedEventCount++;
+            yield messageTransformer.settleInterruptedTurn(effectiveSessionId, finalInterruptClientMessageId);
           }
 
           logger.debug(

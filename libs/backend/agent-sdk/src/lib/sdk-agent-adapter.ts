@@ -1098,6 +1098,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
+      turnIdentity: {
+        takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(trackingId),
+        takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(trackingId),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
@@ -1300,6 +1304,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
         ),
         onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
+        turnIdentity: {
+          takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
+          takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+        },
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
         // The run's compaction tap, as the stream that started it passes it.
@@ -1466,6 +1474,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      turnIdentity: {
+        takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
+        takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
@@ -1857,6 +1869,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       ),
       onLiveStats: this.wrapLiveStatsForBudget(this.callbacks.getLiveStats()),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      turnIdentity: {
+        takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
+        takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+      },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,
