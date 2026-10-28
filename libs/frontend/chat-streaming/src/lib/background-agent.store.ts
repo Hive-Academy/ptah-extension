@@ -410,9 +410,10 @@ export class BackgroundAgentStore {
     this.applyMutation((map) => {
       const [key, agent] = this.locateEntry(map, resolved, event.toolCallId);
 
-      // Same terminal guard as `onCompleted`: a `completed`/`error` entry
-      // must not be reopened by a late `stopped`. Decline the write.
-      if (agent && agent.status !== 'running') {
+      // A `stopped` only comes from a user stop, and the SubagentStop hook
+      // can complete the entry first, so `completed` may still become
+      // `stopped`. Every other terminal status is kept.
+      if (agent && agent.status !== 'running' && agent.status !== 'completed') {
         return map;
       }
 

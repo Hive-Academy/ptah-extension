@@ -306,6 +306,17 @@ export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
   private readonly turns = new WeakMap<TrackedAgent, symbol>();
   /**
+   * Lanes adopted by a handoff whose new session is still starting, keyed by
+   * agent id: the parent to restore if the start fails, and whether the
+   * lane's completion signal is being held meanwhile. Entries exist only
+   * between {@link adoptLanes} and {@link settleLaneAdoption}, which the
+   * handoff always calls (start success, refusal, fault or deadline).
+   */
+  private readonly pendingAdoptions = new Map<
+    string,
+    { readonly previousParent: string; signalHeld: boolean }
+  >();
+  /**
    * One tool-call budget guard per running lane (TASK_2026_597, component 16),
    * keyed by agent id. Added in {@link trackSdkHandle}, dropped by
    * {@link releaseLaneGuard} on whichever path ends the lane.
@@ -1951,6 +1962,72 @@ export class AgentProcessManager {
   }
 
   /**
+   * Hand every RUNNING lane whose parent is one of `fromIds` to the session
+   * `toSessionId` that `ptah_session_handoff` is starting: its completion
+   * signal and its `ptah_agent_report` calls then reach that session,
+   * because both read the live record's `parentSessionId`. While `toSessionId`
+   * is a tab id, {@link resolveParentSessionId} moves the lane to that
+   * session's SDK id like any lane the session spawned itself. Finished lanes
+   * keep their parent: their signal already went out.
+   *
+   * The adoption is provisional until {@link settleLaneAdoption}: the new
+   * session is not live yet, so a lane that finishes meanwhile has its
+   * completion signal held rather than refused as `parent-session-not-active`.
+   * Returns the adopted agent ids.
+   */
+  adoptLanes(fromIds: readonly string[], toSessionId: string): string[] {
+    const from = new Set(
+      fromIds.map((id) => id.trim()).filter((id) => id.length > 0),
+    );
+    const to = toSessionId.trim();
+    if (from.size === 0 || !to) return [];
+    const adopted: string[] = [];
+    for (const tracked of this.agents.values()) {
+      const parent = tracked.info.parentSessionId;
+      if (tracked.info.status !== 'running' || !parent || !from.has(parent)) {
+        continue;
+      }
+      this.pendingAdoptions.set(tracked.info.agentId, {
+        previousParent: parent,
+        signalHeld: false,
+      });
+      tracked.info.parentSessionId = to;
+      adopted.push(tracked.info.agentId);
+    }
+    if (adopted.length > 0) {
+      this.logger.info('[AgentProcessManager] Lanes adopted by a new session', {
+        agentIds: adopted,
+        toSessionId: to,
+      });
+    }
+    return adopted;
+  }
+
+  /**
+   * End a provisional {@link adoptLanes}. `kept`: the new session started,
+   * the lanes stay with it. `reverted`: it did not (or not in time), so each
+   * lane gets its previous parent back. Either way a completion signal held
+   * meanwhile is sent now, to the parent the lane ends up with. Ids that are
+   * not pending are ignored, so a second settle is a no-op.
+   */
+  settleLaneAdoption(
+    agentIds: readonly string[],
+    outcome: 'kept' | 'reverted',
+  ): void {
+    for (const agentId of agentIds) {
+      const pending = this.pendingAdoptions.get(agentId);
+      if (!pending) continue;
+      this.pendingAdoptions.delete(agentId);
+      const tracked = this.agents.get(agentId);
+      if (!tracked) continue;
+      if (outcome === 'reverted') {
+        tracked.info.parentSessionId = pending.previousParent;
+      }
+      if (pending.signalHeld) this.signalLaneCompletion(tracked);
+    }
+  }
+
+  /**
    * Stream events copied out for persistence.
    *
    * The LIVE cap is `MAX_ACCUMULATED_STREAM_EVENTS` (50 000) — the right size
@@ -2919,6 +2996,13 @@ export class AgentProcessManager {
    * ending as the new event it is.
    */
   private signalLaneCompletion(tracked: TrackedAgent): void {
+    const pending = this.pendingAdoptions.get(tracked.info.agentId);
+    if (pending) {
+      // A handoff is still deciding this lane's parent; settleLaneAdoption
+      // sends the signal once it has.
+      pending.signalHeld = true;
+      return;
+    }
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
     void this.laneCompletion.signal(info, {

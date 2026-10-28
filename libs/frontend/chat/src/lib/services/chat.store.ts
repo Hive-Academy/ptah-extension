@@ -34,7 +34,10 @@ import {
   SessionHistoryReplayer,
   type ReplayLiveSeed,
 } from './chat-store/session-history-replayer.service';
-import { ConversationService } from './chat-store/conversation.service';
+import {
+  ConversationService,
+  type QueuedCommand,
+} from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
 import type { SendOutcome } from './message-sender.service';
@@ -265,6 +268,14 @@ export class ChatStore {
     return this.sessionLoader.upsertSessionSummary(summary);
   }
 
+  /**
+   * Whether the tab has a pending permission prompt, which a message queued
+   * on it now would answer (deny). Reactive.
+   */
+  hasPendingPermissionForTab(tabId: string): boolean {
+    return this.messageDispatch.hasPendingPermissionForTab(tabId);
+  }
+
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
@@ -375,6 +386,20 @@ export class ChatStore {
     if (!targetTabId) return;
     this.tabManager.setQueuedContent(targetTabId, null);
     this.conversation.releaseHeldCommand(targetTabId);
+  }
+
+  /**
+   * Withdraw exactly this queued or held slash command and keep the rest of
+   * the tab's queue (the automatic hand-off's Cancel). False when it is no
+   * longer queued.
+   */
+  withdrawQueuedCommand(command: QueuedCommand): boolean {
+    return this.conversation.withdrawQueuedCommand(command);
+  }
+
+  /** Whether this queued slash command is still waiting on its tab. */
+  isQueuedCommand(command: QueuedCommand): boolean {
+    return this.conversation.isQueuedCommand(command);
   }
 
   clearQueueRestoreSignal(): void {

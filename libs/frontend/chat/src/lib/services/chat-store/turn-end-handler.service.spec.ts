@@ -123,7 +123,7 @@ describe('TurnEndHandlerService', () => {
   let setLastTerminalReasonMock: jest.Mock;
   let setPendingBackgroundTasksMock: jest.Mock;
   let handleChatErrorMock: jest.Mock;
-  let onStoppedMock: jest.Mock;
+  let onCompletedMock: jest.Mock;
   let findByAgentIdMock: jest.Mock<
     BackgroundAgentEntry | null,
     [BackgroundAgentId]
@@ -139,7 +139,7 @@ describe('TurnEndHandlerService', () => {
     setLastTerminalReasonMock = jest.fn();
     setPendingBackgroundTasksMock = jest.fn();
     handleChatErrorMock = jest.fn();
-    onStoppedMock = jest.fn();
+    onCompletedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
 
     // Snapshot setters ONLY. No `markTabIdle`, `markLoaded`, `markStreaming`,
@@ -159,7 +159,7 @@ describe('TurnEndHandlerService', () => {
     } as unknown as ChatLifecycleService;
 
     const backgroundAgentStoreMock = {
-      onStopped: onStoppedMock,
+      onCompleted: onCompletedMock,
       findByAgentId: findByAgentIdMock,
     } as unknown as BackgroundAgentStore;
 
@@ -447,7 +447,7 @@ describe('TurnEndHandlerService', () => {
       summary: '',
     };
 
-    it('stops the KNOWN background agent and stamps the remaining-tasks snapshot', () => {
+    it('completes the KNOWN background agent and stamps the remaining-tasks snapshot', () => {
       tabs = [
         makeTab({
           id: 'tab-1',
@@ -461,9 +461,9 @@ describe('TurnEndHandlerService', () => {
         makeSubagentEndedPayload({ backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).toHaveBeenCalledWith(
+      expect(onCompletedMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          eventType: 'background_agent_stopped',
+          eventType: 'background_agent_completed',
           agentId: 'agent-a',
           agentType: 'subagent',
           toolCallId: 'toolu_abc',
@@ -506,11 +506,11 @@ describe('TurnEndHandlerService', () => {
         makeSubagentEndedPayload({ agentId: 'mystery', backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).not.toHaveBeenCalled();
+      expect(onCompletedMock).not.toHaveBeenCalled();
       expect(setPendingBackgroundTasksMock).toHaveBeenCalledWith('tab-1', []);
     });
 
-    it('warns and still stops a known agent when no tab is bound to the sessionId', () => {
+    it('warns and still completes a known agent when no tab is bound to the sessionId', () => {
       tabs = [];
       findByAgentIdMock.mockReturnValue(knownEntry);
 
@@ -518,7 +518,7 @@ describe('TurnEndHandlerService', () => {
         makeSubagentEndedPayload({ sessionId: SESS_UNKNOWN }),
       );
 
-      expect(onStoppedMock).toHaveBeenCalledTimes(1);
+      expect(onCompletedMock).toHaveBeenCalledTimes(1);
       expect(setPendingBackgroundTasksMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
