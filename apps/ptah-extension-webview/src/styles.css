@@ -3565,7 +3565,7 @@ END OF ANUBIS DESIGN SYSTEM
   padding-inline: var(--sidebar-spacing-md);
   padding-bottom: var(--sidebar-spacing-md);
 }
-:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary)) {
+:root[data-theme][data-glass='on'] ptah-chat-transcript .chat-scroll-content:has(> .chat-msg-slot) :is([data-glass-surface='content'], .chat-bubble:not(.chat-bubble-primary):not(.cs-user-bubble)) {
   background: transparent;
   box-shadow: none;
 }

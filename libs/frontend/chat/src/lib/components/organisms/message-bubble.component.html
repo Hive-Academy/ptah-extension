@@ -187,7 +187,8 @@
     <div class="chat chat-end cs-user-chat group">
       <!-- Header -->
       <div
-        class="chat-header justify-self-end text-xs text-base-content-muted mb-1"
+        class="chat-header justify-self-start w-full text-xs text-base-content-muted mb-1"
+        style="padding-inline: var(--sidebar-spacing-md)"
       >
         <time
           class="mr-2 opacity-60"
@@ -205,6 +206,43 @@
         } @else {
           You
         }
+        @if (userActions()) {
+          <!-- Keep actions on the header row so they reserve no space below the bubble. -->
+          <div
+            class="ml-auto flex gap-1 items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200"
+          >
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              title="Branch conversation from here"
+              aria-label="Branch conversation from this message"
+              data-testid="user-branch-button"
+              (click)="onBranchClick()"
+            >
+              <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              [title]="
+                isSessionActive()
+                  ? 'Rewind file changes to here'
+                  : 'Rewind is only available during an active conversation'
+              "
+              [attr.aria-label]="
+                isSessionActive()
+                  ? 'Rewind file changes to this message'
+                  : 'Rewind unavailable — session is not active'
+              "
+              [disabled]="!isSessionActive()"
+              [attr.aria-disabled]="!isSessionActive()"
+              data-testid="user-rewind-button"
+              (click)="onRewindClick()"
+            >
+              <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        }
       </div>
 
       <!-- Message bubble - same surface as the assistant bubble. A turn injected
@@ -212,8 +250,7 @@
            left border + the icon above) so the two are distinguishable without
            relying on colour alone. -->
       <div
-        class="chat-bubble cs-user-bubble surface-1 text-base-content"
-        [class.surface-2]="!!inboundPeerLabel()"
+        class="chat-bubble cs-user-bubble surface-2 text-base-content"
         [class.border-l-4]="!!inboundPeerLabel()"
         [class.border-secondary]="!!inboundPeerLabel()"
         [attr.data-testid]="
@@ -229,47 +266,7 @@
             unverified.
           </p>
         }
-        @if (laneEnvelope()) {
-          <!-- A lane report / completion: a compact heading and the body, not
-               the raw envelope tags. First line only until expanded. -->
-          <p
-            class="text-xs font-semibold mb-1"
-            data-testid="chat-peer-envelope-heading"
-          >
-            {{ laneEnvelopeHeading() }}
-          </p>
-          @if (laneEnvelopeBody(); as body) {
-            <div [id]="laneEnvelopeBodyId()">
-              @if (isLaneEnvelopeExpanded()) {
-                <markdown
-                  [data]="
-                    laneEnvelopeMarkdown() | surfaceMarkdown: surfaceActive()
-                  "
-                  class="prose prose-sm max-w-none [&_*]:text-base-content"
-                />
-              } @else {
-                <p
-                  class="text-sm whitespace-pre-wrap break-words"
-                  data-testid="chat-peer-envelope-first-line"
-                >
-                  {{ body.firstLine }}
-                </p>
-              }
-            </div>
-            @if (body.hasMore) {
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs mt-1 px-1"
-                data-testid="chat-peer-envelope-toggle"
-                [attr.aria-expanded]="isLaneEnvelopeExpanded()"
-                [attr.aria-controls]="laneEnvelopeBodyId()"
-                (click)="toggleLaneEnvelope()"
-              >
-                {{ isLaneEnvelopeExpanded() ? 'Show less' : 'Show more' }}
-              </button>
-            }
-          }
-        } @else if (isCompactionContinuation()) {
+        @if (isCompactionContinuation()) {
           <button
             type="button"
             class="w-full flex items-center gap-2 text-left hover:bg-base-200/30 rounded transition-colors py-0.5"
@@ -345,43 +342,6 @@
         }
       </div>
 
-      @if (userActions()) {
-        <!-- User message action buttons (hover reveal): branch + rewind -->
-        <div
-          class="chat-footer flex gap-1 items-center mt-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
-        >
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs"
-            title="Branch conversation from here"
-            aria-label="Branch conversation from this message"
-            data-testid="user-branch-button"
-            (click)="onBranchClick()"
-          >
-            <lucide-angular [img]="GitBranchIcon" class="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs"
-            [title]="
-              isSessionActive()
-                ? 'Rewind file changes to here'
-                : 'Rewind is only available during an active conversation'
-            "
-            [attr.aria-label]="
-              isSessionActive()
-                ? 'Rewind file changes to this message'
-                : 'Rewind unavailable — session is not active'
-            "
-            [disabled]="!isSessionActive()"
-            [attr.aria-disabled]="!isSessionActive()"
-            data-testid="user-rewind-button"
-            (click)="onRewindClick()"
-          >
-            <lucide-angular [img]="Undo2Icon" class="w-3.5 h-3.5" />
-          </button>
-        </div>
-      }
     </div>
   </article>
 }

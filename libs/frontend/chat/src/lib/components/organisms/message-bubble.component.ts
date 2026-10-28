@@ -36,10 +36,9 @@ import {
   CopyButtonComponent,
   formatAgentDuration,
 } from '@ptah-extension/chat-ui';
-import { formatUsdCost, parseLaneEnvelope } from '@ptah-extension/shared';
+import { formatUsdCost } from '@ptah-extension/shared';
 import type {
   ExecutionChatMessage,
-  LaneEnvelope,
   PermissionRequest,
   PermissionResponse,
   TurnSourceSnapshot,
@@ -443,58 +442,6 @@ export class MessageBubbleComponent {
     const trimmed = peer.label.trim();
     return trimmed.length > 0 ? trimmed : 'peer session';
   });
-
-  /**
-   * The lane envelope (`<agent-report>` / `<agent-lane-completed>`) of a peer
-   * turn, or `null` for any other message. Its attributes are self-reported
-   * display text, like the label above.
-   */
-  readonly laneEnvelope = computed((): LaneEnvelope | null =>
-    this.inboundPeerLabel()
-      ? parseLaneEnvelope(this.message().rawContent ?? '')
-      : null,
-  );
-
-  /** `<agent> · report`, or `<agent> · completed · <verdict>`. */
-  readonly laneEnvelopeHeading = computed((): string | null => {
-    const envelope = this.laneEnvelope();
-    if (!envelope) return null;
-    const parts = [envelope.agent, envelope.kind];
-    if (envelope.verdict) parts.push(envelope.verdict);
-    return parts.join(' · ');
-  });
-
-  /** The envelope body split at its first line; the rest is collapsible. */
-  readonly laneEnvelopeBody = computed(
-    (): { readonly firstLine: string; readonly hasMore: boolean } | null => {
-      const envelope = this.laneEnvelope();
-      if (!envelope || envelope.body.length === 0) return null;
-      const newline = envelope.body.indexOf('\n');
-      return newline === -1
-        ? { firstLine: envelope.body, hasMore: false }
-        : {
-            firstLine: envelope.body.slice(0, newline).trim(),
-            hasMore: envelope.body.slice(newline + 1).trim().length > 0,
-          };
-    },
-  );
-
-  /** The full envelope body, prepared like any typed user message. */
-  readonly laneEnvelopeMarkdown = computed((): string =>
-    toUserMessageMarkdown(this.laneEnvelope()?.body ?? ''),
-  );
-
-  /** DOM id of the envelope body, for the toggle's `aria-controls`. */
-  readonly laneEnvelopeBodyId = computed(
-    () => `peer-envelope-body-${this.message().id}`,
-  );
-
-  /** Expand state of the envelope body. Defaults to the first line only. */
-  readonly isLaneEnvelopeExpanded = signal(false);
-
-  protected toggleLaneEnvelope(): void {
-    this.isLaneEnvelopeExpanded.update((expanded) => !expanded);
-  }
 
   /** Pre-computed image count label to avoid triple signal reads in template */
   readonly imageCountLabel = computed(() => {

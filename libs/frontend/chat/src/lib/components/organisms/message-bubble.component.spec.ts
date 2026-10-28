@@ -141,6 +141,19 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
 
     expect(branch).not.toBeNull();
     expect(rewind).not.toBeNull();
+    const header = fixture.debugElement.query(By.css('.chat-header'));
+    const bubble = fixture.debugElement.query(By.css('.cs-user-bubble'));
+    expect(header.nativeElement.classList.contains('justify-self-start')).toBe(
+      true,
+    );
+    expect(header.nativeElement.style.paddingInline).toBe(
+      'var(--sidebar-spacing-md)',
+    );
+    expect(header.nativeElement.contains(branch.nativeElement)).toBe(true);
+    expect(header.nativeElement.contains(rewind.nativeElement)).toBe(true);
+    expect(fixture.debugElement.query(By.css('.chat-footer'))).toBeNull();
+    expect(bubble.nativeElement.classList.contains('surface-2')).toBe(true);
+    expect(bubble.nativeElement.classList.contains('surface-1')).toBe(false);
   });
 
   it('does NOT render branch/rewind buttons for assistant role messages', () => {
@@ -453,6 +466,11 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
         By.css('[data-testid="chat-peer-unverified-caption"]'),
       );
       expect(caption.nativeElement.textContent).toContain('unverified');
+      expect(
+        fixture.debugElement
+          .query(By.css('[data-testid="chat-peer-message"]'))
+          .nativeElement.classList.contains('border-secondary'),
+      ).toBe(true);
     });
 
     it('routes the body through <markdown>, not innerHTML', () => {
@@ -474,70 +492,6 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .query(By.css('[data-testid="chat-peer-label"]'))
           .nativeElement.textContent.trim(),
       ).toBe('peer session');
-    });
-
-    it('renders a lane envelope as a compact heading and its body, not the raw tags', () => {
-      setMessage(
-        createExecutionChatMessage({
-          id: 'msg-peer-envelope',
-          role: 'user',
-          rawContent:
-            '<agent-lane-completed agent-id="lane-a" agent="reviewer" cli="codex" status="completed" verdict="PASS">\nAll checks pass.\nSee the report.\n</agent-lane-completed>',
-          inboundPeer: { label: 'codex · reviewer' },
-        }),
-      );
-      const text = (selector: string): string =>
-        fixture.debugElement
-          .query(By.css(selector))
-          .nativeElement.textContent.trim();
-      const bubble = text('[data-testid="chat-peer-message"]');
-
-      expect(text('[data-testid="chat-peer-envelope-heading"]')).toBe(
-        'reviewer · completed · PASS',
-      );
-      expect(text('[data-testid="chat-peer-envelope-first-line"]')).toBe(
-        'All checks pass.',
-      );
-      expect(bubble).not.toContain('<agent-lane-completed');
-      expect(bubble).not.toContain('See the report.');
-      expect(text('[data-testid="chat-peer-unverified-caption"]')).toContain(
-        'unverified',
-      );
-
-      const toggle = fixture.debugElement.query(
-        By.css('[data-testid="chat-peer-envelope-toggle"]'),
-      );
-      expect(toggle.attributes['aria-expanded']).toBe('false');
-      toggle.nativeElement.click();
-      fixture.detectChanges();
-
-      expect(toggle.attributes['aria-expanded']).toBe('true');
-      const markdown = fixture.debugElement.query(By.css('markdown'));
-      expect(markdown.componentInstance.data).toContain('See the report.');
-      expect(markdown.componentInstance.data).not.toContain('<agent-');
-    });
-
-    it('shows a one-line report body with no expand toggle', () => {
-      setMessage(
-        createExecutionChatMessage({
-          id: 'msg-peer-report',
-          role: 'user',
-          rawContent:
-            '<agent-report agent-id="lane-b" agent="tester" cli="codex">\nAll tests pass.\n</agent-report>',
-          inboundPeer: { label: 'codex · tester' },
-        }),
-      );
-
-      expect(
-        fixture.debugElement
-          .query(By.css('[data-testid="chat-peer-envelope-heading"]'))
-          .nativeElement.textContent.trim(),
-      ).toBe('tester · report');
-      expect(
-        fixture.debugElement.query(
-          By.css('[data-testid="chat-peer-envelope-toggle"]'),
-        ),
-      ).toBeNull();
     });
 
     it('leaves an ordinary user turn on the user bubble', () => {
