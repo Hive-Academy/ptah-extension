@@ -16,6 +16,8 @@ import type { AISessionConfig, SessionId } from '@ptah-extension/shared';
 
 import { SdkError, SessionAdmissionRefusedError } from '../../errors';
 import { SessionRegistry } from './session-registry.service';
+import { takeAwaitingEcho } from './echo-identity';
+import { randomUUID } from 'node:crypto';
 import { SessionStreamPump } from './session-stream-pump.service';
 import type { SdkMessageFactory } from '../sdk-message-factory';
 import type { SDKUserMessage } from '../../types/sdk-types/claude-sdk.types';
@@ -33,19 +35,31 @@ function makeLogger(): Logger {
 
 function makeMessageFactory(): SdkMessageFactory {
   return {
-    createUserMessage: jest.fn(async ({ content }: { content: string }) => ({
-      type: 'user',
-      message: { role: 'user', content },
-    })),
+    createUserMessage: jest.fn(
+      async ({
+        content,
+        origin,
+      }: {
+        content: string;
+        origin?: SDKUserMessage['origin'];
+      }): Promise<SDKUserMessage> => ({
+        type: 'user',
+        uuid: randomUUID(),
+        session_id: TAB,
+        parent_tool_use_id: null,
+        origin,
+        message: { role: 'user', content },
+      }),
+    ),
   } as unknown as SdkMessageFactory;
 }
 
 function textOf(message: SDKUserMessage): unknown {
-  return (message as unknown as { message: { content: unknown } }).message
-    .content;
+  return message.message.content;
 }
 
 interface Harness {
+  logger: Logger;
   registry: SessionRegistry;
   pump: SessionStreamPump;
   abortController: AbortController;
@@ -60,7 +74,7 @@ function makeHarness(): Harness {
   registry.register(TAB as string, {} as AISessionConfig, abortController);
   const stream = pump.createUserMessageStream(TAB, abortController);
   const iterator = stream[Symbol.asyncIterator]();
-  return { registry, pump, abortController, iterator };
+  return { logger, registry, pump, abortController, iterator };
 }
 
 /**
@@ -206,6 +220,7 @@ function makeDeferredHarness(): Harness & {
   const stream = pump.createUserMessageStream(TAB, abortController);
   const iterator = stream[Symbol.asyncIterator]();
   return {
+    logger,
     registry,
     pump,
     abortController,
@@ -356,7 +371,7 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
     await expect(submit).rejects.toBeInstanceOf(SessionAdmissionRefusedError);
     await expect(submit).rejects.toMatchObject({ reason: 'busy' });
     const queue = h.registry.find(TAB as string)?.messageQueue ?? [];
-    expect(queue.map(textOf)).toEqual(['competing']);
+    expect(queue.map(({ message }) => textOf(message))).toEqual(['competing']);
   });
 
   it('refuses busy when a competing message starts a turn during the await', async () => {
@@ -412,6 +427,92 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
 
     const record = h.registry.find(TAB as string);
     expect(record?.turnInFlight).toBe(true);
-    expect(record?.messageQueue.map(textOf)).toEqual(['follow-up']);
+    expect(record?.messageQueue.map(({ message }) => textOf(message))).toEqual([
+      'follow-up',
+    ]);
+  });
+});
+
+describe('SessionStreamPump turn identity', () => {
+  it('keeps 66 held entries and promotes each exact factory message with its metadata', async () => {
+    const h = makeHarness();
+    const rec = h.registry.find(TAB);
+    if (!rec) throw new Error('Missing registration');
+    expect(rec.awaitingEcho).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBeNull();
+    expect(rec.interruptRetirement).toBeNull();
+    expect(rec.interruptAwaitingResult).toBe(false);
+    await h.pump.sendMessage(TAB, 'initial');
+    await h.iterator.next();
+    expect(rec.currentTurnClientMessageId).toBeNull();
+    for (let i = 0; i < 66; i++) {
+      await h.pump.sendMessage(TAB, `held-${i}`, undefined, undefined, {
+        clientMessageId: `client-${i}`,
+        origin: { kind: 'human' },
+      });
+    }
+    const held = [...rec.messageQueue];
+    expect(held).toHaveLength(66);
+    for (const [i, turn] of held.entries()) {
+      expect(turn.clientMessageId).toBe(`client-${i}`);
+      expect(turn.message.origin).toEqual({ kind: 'human' });
+      expect(turn.message.uuid).toBeDefined();
+      h.registry.markTurnEnded(TAB);
+      expect((await h.iterator.next()).value).toBe(turn.message);
+      expect(rec.awaitingEcho).toBe(turn);
+      expect(rec.currentTurnClientMessageId).toBe(`client-${i}`);
+    }
+    expect(rec.messageQueue).toHaveLength(0);
+    expect(h.logger.debug).toHaveBeenCalledWith(
+      '[SessionLifecycle] Replacing unechoed turn',
+      { unechoedTurnDropped: true },
+    );
+    h.abortController.abort();
+    await h.iterator.next();
+  });
+
+  it('matches only the replacement of an unechoed turn and keeps its result identity', async () => {
+    const h = makeHarness();
+    const rec = h.registry.find(TAB);
+    if (!rec) throw new Error('Missing registration');
+    await h.pump.sendMessage(TAB, 'same', undefined, undefined, {
+      clientMessageId: 'P',
+    });
+    await h.iterator.next();
+    const old = rec.awaitingEcho;
+    if (!old) throw new Error('Missing yielded turn');
+    await h.pump.sendMessage(TAB, 'same', undefined, undefined, {
+      clientMessageId: 'Q',
+    });
+    h.registry.markTurnEnded(TAB);
+    await h.iterator.next();
+    const next = rec.awaitingEcho;
+    if (!next) throw new Error('Missing next turn');
+    expect(takeAwaitingEcho(rec, old.message)).toBeNull();
+    expect(takeAwaitingEcho(rec, next.message)).toBe(next);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    h.abortController.abort();
+    await h.iterator.next();
+  });
+
+  it('starts a replacement record empty and rejects the old record echo', async () => {
+    const h = makeHarness();
+    await h.pump.sendMessage(TAB, 'old', undefined, undefined, {
+      clientMessageId: 'old',
+    });
+    const old = (await h.iterator.next()).value;
+    const replacement = h.registry.register(
+      TAB,
+      {} as AISessionConfig,
+      new AbortController(),
+    );
+    expect(replacement.messageQueue).toEqual([]);
+    expect(replacement.awaitingEcho).toBeNull();
+    expect(replacement.currentTurnClientMessageId).toBeNull();
+    expect(replacement.interruptRetirement).toBeNull();
+    expect(replacement.interruptAwaitingResult).toBe(false);
+    expect(takeAwaitingEcho(replacement, old)).toBeNull();
+    h.abortController.abort();
+    await h.iterator.next();
   });
 });

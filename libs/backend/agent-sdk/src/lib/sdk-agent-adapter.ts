@@ -1633,7 +1633,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       // Forwarded verbatim. The factory defaults an absent origin to
       // `{ kind: 'human' }`, and an absent admission holds a mid-turn
       // message as before, so an interactive turn is unaffected.
-      { origin: options?.origin, admission: options?.admission },
+      {
+        origin: options?.origin,
+        admission: options?.admission,
+        clientMessageId: options?.clientMessageId,
+      },
     );
   }
 

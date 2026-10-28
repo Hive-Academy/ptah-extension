@@ -80,16 +80,24 @@ export class SessionStreamPump {
             return;
           }
           while (session.messageQueue.length > 0 && !session.turnInFlight) {
-            const message = session.messageQueue.shift();
-            if (message) {
+            const turn = session.messageQueue.shift();
+            if (turn) {
               // Claim the turn BEFORE yielding: this both ends the drain loop
               // after one message and blocks any message that arrives while
               // the SDK is generating (TASK_2026_294).
               registry.markTurnStarted(session);
+              if (session.awaitingEcho !== null) {
+                logger.debug(
+                  '[SessionLifecycle] Replacing unechoed turn',
+                  { unechoedTurnDropped: true },
+                );
+              }
+              session.awaitingEcho = turn;
+              session.currentTurnClientMessageId = turn.clientMessageId ?? null;
               logger.debug(
                 `[SessionLifecycle] Yielding message (${session.messageQueue.length} held)`,
               );
-              yield message;
+              yield turn.message;
             }
             if (abortController.signal.aborted) return;
           }
@@ -203,6 +211,7 @@ export class SessionStreamPump {
     options?: {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
+      clientMessageId?: string;
       beforeEnqueue?: () => void;
     },
   ): Promise<void> {
@@ -246,7 +255,10 @@ export class SessionStreamPump {
       options?.beforeEnqueue?.();
       this.registry.markActive(sessionId as string);
     }
-    session.messageQueue.push(sdkUserMessage);
+    session.messageQueue.push({
+      message: sdkUserMessage,
+      clientMessageId: options?.clientMessageId,
+    });
     if (session.resolveNext) {
       session.resolveNext();
       session.resolveNext = null;

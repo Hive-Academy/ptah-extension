@@ -463,6 +463,28 @@ export class SessionLifecycleManager {
     this.watchCompactionThreshold();
   }
 
+  /** Capture synchronously before releasing the pump or awaiting result work. */
+  takeResultClientMessageId(sessionId: SessionId): string | null {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return null;
+    if (rec.interruptAwaitingResult) {
+      rec.interruptAwaitingResult = false;
+      return null;
+    }
+    const id = rec.currentTurnClientMessageId;
+    rec.currentTurnClientMessageId = null;
+    return id;
+  }
+
+  /** Drain the interrupted turn independently of the next yielded turn. */
+  takeInterruptRetirement(sessionId: SessionId): string | null {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return null;
+    const id = rec.interruptRetirement;
+    rec.interruptRetirement = null;
+    return id;
+  }
+
   /**
    * At a turn's end, before waking a held queue: the turn's budget estimate
    * must not outlive the turn, nor may its pending notices reach the next one.
@@ -718,6 +740,7 @@ export class SessionLifecycleManager {
     options?: {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
+      clientMessageId?: string;
     },
   ): Promise<void> {
     const record = this._registry.find(sessionId as string);

@@ -598,12 +598,17 @@ describe('SessionLifecycleManager', () => {
       await concurrentHarness.manager.sendMessage(
         'tab_msg_a' as SessionId,
         'hello-a',
+        undefined,
+        undefined,
+        { clientMessageId: 'client-a' },
       );
 
       const sessionA = concurrentHarness.manager.find('tab_msg_a');
       const sessionB = concurrentHarness.manager.find('tab_msg_b');
 
       expect(sessionA?.messageQueue).toHaveLength(1);
+      expect(sessionA?.messageQueue[0].clientMessageId).toBe('client-a');
+      expect(sessionA?.messageQueue[0].message.message.content).toBe('hello-a');
       expect(sessionB?.messageQueue).toHaveLength(0);
     });
 
@@ -1337,5 +1342,54 @@ describe('SessionLifecycleManager', () => {
       //     (indirectly verified: the session is gone AND no orphan exists)
       expect(throwHarness.manager.getActiveSessionCount()).toBe(0);
     });
+  });
+});
+
+
+describe('SessionLifecycleManager turn identity accessors', () => {
+  it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {
+    const h = makeHarness();
+    const tab = 'identity-tab' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    const realId = 'identity-real' as SessionId;
+    h.manager.bindRealSessionId(tab, realId);
+    rec.currentTurnClientMessageId = 'P';
+    expect(h.manager.takeResultClientMessageId(realId)).toBe('P');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    rec.interruptRetirement = 'P';
+    rec.interruptAwaitingResult = true;
+    rec.currentTurnClientMessageId = 'Q';
+    expect(h.manager.takeInterruptRetirement(realId)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(rec.interruptAwaitingResult).toBe(false);
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.takeResultClientMessageId('missing' as SessionId)).toBeNull();
+    expect(h.manager.takeInterruptRetirement('missing' as SessionId)).toBeNull();
+  });
+});
+
+
+describe('SessionLifecycleManager queue identity on interrupt', () => {
+  it('forwards client ids and preserves held entry references on a successful interrupt', async () => {
+    const h = makeHarness();
+    const tab = 'interrupt-identity' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.turnInFlight = true;
+    await h.manager.sendMessage(tab, 'held', undefined, undefined, { clientMessageId: 'held-id' });
+    const held = rec.messageQueue[0];
+    expect(held.clientMessageId).toBe('held-id');
+    expect(held.message.message.content).toBe('held');
+    expect(await h.manager.interruptCurrentTurn(tab)).toBe(true);
+    expect(h.manager.find(tab)).toBe(rec);
+    expect(rec.messageQueue).toEqual([held]);
+    expect(rec.messageQueue[0]).toBe(held);
+    expect(rec.turnInFlight).toBe(false);
   });
 });

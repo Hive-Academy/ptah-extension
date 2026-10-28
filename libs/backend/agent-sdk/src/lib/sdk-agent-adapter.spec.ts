@@ -1697,6 +1697,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResult: false,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -1751,6 +1755,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResult: false,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -1956,6 +1964,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResult: false,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -2691,6 +2703,10 @@ describe('SdkAgentAdapter', () => {
         config: {} as AISessionConfig,
         abortController: new AbortController(),
         messageQueue: [],
+        awaitingEcho: null,
+        currentTurnClientMessageId: null,
+        interruptRetirement: null,
+        interruptAwaitingResult: false,
         resolveNext: null,
         turnInFlight: false,
         activityHold: null,
@@ -3957,5 +3973,19 @@ describe('SdkAgentAdapter', () => {
         });
       });
     });
+  });
+});
+
+
+describe('SdkAgentAdapter client message identity', () => {
+  it('forwards clientMessageId to the lifecycle queue options', async () => {
+    const h = makeAdapter();
+    await h.adapter.sendMessageToSession('identity-session' as SessionId, 'hello', {
+      clientMessageId: 'client-id', origin: { kind: 'human' }, admission: 'require-idle',
+    });
+    expect(h.sessionLifecycle.sendMessage).toHaveBeenCalledWith(
+      'identity-session', 'hello', undefined, undefined,
+      { clientMessageId: 'client-id', origin: { kind: 'human' }, admission: 'require-idle' },
+    );
   });
 });
