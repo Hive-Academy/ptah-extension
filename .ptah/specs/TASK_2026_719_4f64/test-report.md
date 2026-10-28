@@ -105,9 +105,12 @@ DB `~/.ptah/state/ptah-dev.sqlite` (read-only query `.ptah/tmp/live-q.cjs`, opaq
 | s12 Part B try 1 | `7736c04f8` | not a task result | app started on another workspace with the API-key route; the switch to the test workspace did not initialize the SDK adapter again → "No Anthropic API key configured" in 2 s (D75 a) |
 | s12 Part B try 2 (restart on the test workspace, 20 s after start) | `7736c04f8` | FAIL closed | no RPC timeout; host answered after 54.3 s with "Named account admission could not be completed"; no new binding, no new lease; event-loop lag and deferred background work logged at that time; no refusal code in the log (D75 b) |
 | s12 Part B try 3 (warm app) | `7736c04f8` | PASS | reply "hey" after 37.5 s; no RPC timeout; `[RPC] slow handler` chat:start 34.7 s (< 120 s); new binding `365d6cbe…` on `e8b8f739`, `identity_kind known`, owner key hash equals the profile `identity_ref` (opaque compare); new link `36118d12…` |
+| s13 Part B cold start (D76), app started on the test workspace, message sent 15 s after process start | `c68c05f21` | PASS | reply "hey" after 30.2 s; no RPC timeout, no admission refusal, no "Query init failed"; chat:start 26.4 s; new binding `f0ac6a0e…` on `e8b8f739`, `identity_kind known`, owner key hash equals the profile `identity_ref`; new link `85c3a5bf…` |
+| s13 Part B workspace switch (D76 item 2): app started on the p8e workspace (no named selection, API-key route, "No Anthropic API key configured" at start-up as expected), switched to the test workspace, no restart | `c68c05f21` | PASS | reply "hey" after 24.2 s; no failure line after the switch; chat:start 22.4 s; new binding `d39d4d00…` on `e8b8f739`, `identity_kind known`, owner key hash equals the profile `identity_ref`; new link `8b704524…` |
 
-The agent drove s12 through CDP on its own instance (accessibility tree only) at the user's request; the user
-did not sign in again (profile already signed in). Paid calls: three Haiku messages.
+The agent drove s12 and s13 through CDP on its own instance (accessibility tree and chat reply text only) at the
+user's request; the user did not sign in again (profile already signed in). Paid calls: three Haiku messages in
+s12, two in s13. s13 build: `dist/` from `c68c05f21` (contains the D76 code; Nx cache restored 10 of 12 tasks).
 
 ## Live test plan (Requirement 8)
 
