@@ -201,9 +201,10 @@ describe('RoutingMapComponent', () => {
       expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Default'], ['Decision', 'Default']]);
     });
 
-    it('Inspect opens Agent Orchestration at the background models', () => {
+    it('Inspect focuses the background models below on this Providers tab', () => {
+      expect(within('background-roles', 'routing-node-action')?.getAttribute('aria-label')).toBe('Inspect background roles below');
       within('background-roles', 'routing-node-action')?.click();
-      expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'orchestration', section: 'background-models' });
+      expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', section: 'background-models' });
       expect(fixture.componentInstance.activated).toEqual(['background-roles']);
     });
 
@@ -230,9 +231,10 @@ describe('RoutingMapComponent', () => {
       expect(within('cli-agents', 'routing-node-status')?.textContent?.trim()).toBe('4 enabled');
     });
 
-    it('Manage matrix opens Agent Orchestration at the CLI agents', () => {
+    it('Manage matrix focuses the CLI agent matrix below on this Providers tab', () => {
+      expect(within('cli-agents', 'routing-node-action')?.getAttribute('aria-label')).toBe('Manage the CLI agent matrix below');
       within('cli-agents', 'routing-node-action')?.click();
-      expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'orchestration', section: 'cli-agents' });
+      expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', section: 'cli-agents' });
     });
 
     it('no detected agent says so; a failed read retries the orchestration read', () => {

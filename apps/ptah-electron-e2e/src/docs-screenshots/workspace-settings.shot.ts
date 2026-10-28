@@ -35,8 +35,8 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     // The landing (default) tab is the consolidated Providers page: tab id
     // `claude-auth` is retained, but it renders `ptah-providers-settings`,
     // whose "Your connections" section carries `providers-connections-heading`.
-    // (`assignments-heading` moved to the Orchestration tab in Batch 18, inside
-    // the closed roles <details> since Batch 33; it is asserted below.)
+    // (`assignments-heading` sits on this tab too, inside the closed Background
+    // Model Roles <details> since Batch 33; it is asserted below.)
     await expect(page.locator('ptah-providers-settings')).toBeVisible();
     await expect(page.locator('#providers-connections-heading')).toBeVisible();
     // Give the page's async section reads a beat to land so the shot shows
@@ -50,33 +50,20 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     await page.waitForTimeout(1_500);
     await shoot(page, 'settings-overview');
 
-    // Agent Orchestration is a settings section, and the only surface in the
-    // app that shows orchestration configuration.
-    const orchestration = page.getByRole('button', {
-      name: 'Agent Orchestration',
-    });
-    if (
-      await orchestration
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      await orchestration.first().click();
-      // The section detects installed CLIs before it can render them; shooting
-      // on the click captures "Loading agent config…".
-      await expect(settings).not.toContainText('Loading agent config', {
-        timeout: 30_000,
-      });
-      await page.waitForTimeout(1_500);
-      await shoot(page, 'agents-orchestration', { crop: settings });
+    // The CLI agent matrix sits on the Providers tab, under the routing map and
+    // connections. It is the only surface that shows orchestration config.
+    const matrix = settings.locator('ptah-cli-orchestration-matrix');
+    await expect(matrix).toBeVisible();
+    await matrix.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1_500);
+    await shoot(page, 'agents-orchestration', { crop: settings });
 
-      // The Background models heading lives inside the roles <details>, which is
-      // closed by default (Batch 33). Open it before looking for the heading.
-      await page.locator('[data-testid="background-roles-summary"]').click();
-      await expect(
-        page.locator('[data-testid="assignments-heading"]'),
-      ).toBeVisible();
-    }
+    // The Background models heading lives inside the roles <details>, which is
+    // closed by default (Batch 33). Open it before looking for the heading.
+    await page.locator('[data-testid="background-roles-summary"]').click();
+    await expect(
+      page.locator('[data-testid="assignments-heading"]'),
+    ).toBeVisible();
 
     // NOT captured: `ptah-browser-settings` was deleted (Batch 44) and folded
     // into the MCP & browser card as "Allow localhost", while browser-automation/

@@ -184,12 +184,9 @@ describe('LocalTtsPanelComponent', () => {
       message: 'Could not save the text-to-speech configuration.',
       canUndo: false,
     });
-    const alert = byTestId('local-tts-panel-error');
-    expect(alert.textContent).toContain(
-      'Could not save the text-to-speech configuration.',
-    );
-    // F1: the host's raw error text never reaches the panel.
-    expect(alert.textContent).not.toContain('disk full');
+    // Reported only in the toast; F1: the host's raw error text never reaches the panel.
+    expect(element.querySelector('[data-testid="local-tts-panel-error"]')).toBeNull();
+    expect(element.textContent).not.toContain('disk full');
     expect(element.querySelector('[data-testid="local-tts-saved"]')).toBeNull();
   });
 
@@ -214,9 +211,7 @@ describe('LocalTtsPanelComponent', () => {
       message: 'Could not save the text-to-speech configuration.',
       canUndo: false,
     });
-    expect(byTestId('local-tts-panel-error').textContent?.trim()).toBe(
-      'Could not save the text-to-speech configuration.',
-    );
+    expect(element.querySelector('[data-testid="local-tts-panel-error"]')).toBeNull();
     expect(element.textContent).not.toContain('secret host detail');
   });
 
@@ -241,9 +236,7 @@ describe('LocalTtsPanelComponent', () => {
       message: 'Could not save the text-to-speech configuration.',
       canUndo: false,
     });
-    expect(byTestId('local-tts-panel-error').textContent?.trim()).toBe(
-      'Could not save the text-to-speech configuration.',
-    );
+    expect(element.querySelector('[data-testid="local-tts-panel-error"]')).toBeNull();
     expect(element.textContent).not.toContain('host detail');
   });
 
@@ -261,6 +254,13 @@ describe('LocalTtsPanelComponent', () => {
     expect(element.textContent).not.toContain('host detail');
   }
 
+  /** Action failures (download, preview) are announced through the page toast, never inline. */
+  function expectFixedToast(sentence: string): void {
+    expect(element.querySelector('[data-testid="local-tts-panel-error"]')).toBeNull();
+    expect(feedback.toast()).toEqual({ tone: 'alert', message: sentence, canUndo: false });
+    expect(element.textContent).not.toContain('host detail');
+  }
+
   it.each(HOST_FAILURES)(
     'shows a fixed sentence, never host text, when the voice list fails with %s (F1)',
     async (_shape, failure) => {
@@ -275,7 +275,7 @@ describe('LocalTtsPanelComponent', () => {
   );
 
   it.each(HOST_FAILURES)(
-    'shows a fixed sentence, never host text, when the download fails with %s (F1)',
+    'announces a fixed sentence, never host text, when the download fails with %s (F1)',
     async (_shape, failure) => {
       const rpc = createMockRpcService();
       routeRpc(rpc, {
@@ -288,15 +288,13 @@ describe('LocalTtsPanelComponent', () => {
       byTestId<HTMLButtonElement>('local-tts-download-btn').click();
       await settle();
 
-      expect(component.errorMessage()).toBe(
-        'Could not download the text-to-speech model.',
-      );
-      expectFixedAlert('Could not download the text-to-speech model.');
+      expect(component.errorMessage()).toBeNull();
+      expectFixedToast('Could not download the text-to-speech model.');
     },
   );
 
   it.each(HOST_FAILURES)(
-    'shows a fixed sentence, never host text, when the preview fails with %s (F1)',
+    'announces a fixed sentence, never host text, when the preview fails with %s (F1)',
     async (_shape, failure) => {
       const rpc = createMockRpcService();
       routeRpc(rpc, {
@@ -310,8 +308,8 @@ describe('LocalTtsPanelComponent', () => {
       await settle();
 
       expect(component.isPreviewing()).toBe(false);
-      expect(component.errorMessage()).toBe('Could not play the preview.');
-      expectFixedAlert('Could not play the preview.');
+      expect(component.errorMessage()).toBeNull();
+      expectFixedToast('Could not play the preview.');
     },
   );
 
@@ -410,11 +408,8 @@ describe('LocalTtsPanelComponent', () => {
       message: 'Could not save the text-to-speech configuration.',
       canUndo: false,
     });
-    const alert = byTestId('local-tts-panel-error');
-    expect(alert.textContent).toContain(
-      'Could not save the text-to-speech configuration.',
-    );
-    expect(alert.textContent).not.toContain('disk full');
+    expect(element.querySelector('[data-testid="local-tts-panel-error"]')).toBeNull();
+    expect(element.textContent).not.toContain('disk full');
   });
 
   it('returns to Curated immediately and Undo restores the previous source (V13, S-sel)', async () => {

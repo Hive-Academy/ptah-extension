@@ -16,6 +16,7 @@ import {
   type SessionBudgetUnit,
 } from '@ptah-extension/shared';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
 
 type BudgetKey = keyof SessionBudgetConfig;
@@ -43,6 +44,19 @@ const SETTINGS_READ_TIMEOUT_MS = 5_000;
 const SETTINGS_WRITE_TIMEOUT_MS = 5_000;
 /** The prefix `rpcCall` puts on the error of a request that got no response in time. */
 const RPC_TIMEOUT_PREFIX = 'RPC timeout';
+/** A read-back value that can be written back (Undo); anything else offers no Undo. */
+function isBudgetValue(
+  value: unknown,
+): value is number | null | boolean | SessionBudgetUnit {
+  return (
+    value === null ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value === 'tokens' ||
+    value === 'cost'
+  );
+}
+
 const UNIT_LABELS: Readonly<Record<SessionBudgetUnit, string>> = {
   tokens: 'Tokens',
   cost: 'Cost (USD)',
@@ -355,20 +369,13 @@ function storedNumberIsValid(
         }
       }
 
-      <p
-        role="status"
-        aria-live="polite"
-        class="min-h-4 text-base-content-muted"
-        data-testid="session-budget-status"
-      >
-        {{ status() }}
-      </p>
     </ptah-surface-section>
   `,
 })
 export class SessionBudgetSettingsComponent implements OnInit {
   private readonly vscode = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
 
   protected readonly focusRing = FOCUS;
   protected readonly settings = SESSION_BUDGET_SETTINGS;
@@ -390,8 +397,9 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected readonly errors = signal<Partial<Record<BudgetKey, string>>>({});
   /** The field whose write is in flight; every control is busy meanwhile (the percent pair depends on each other). */
   private readonly savingKey = signal<BudgetKey | null>(null);
-  protected readonly busy = computed(() => this.savingKey() !== null);
-  protected readonly status = signal('');
+  protected readonly busy = computed(
+    () => this.savingKey() !== null || this.feedback.saving(),
+  );
   /** The number field that has focus: its draft is still being typed, so a partner save must not commit it. */
   protected focusedKey: NumberKey | null = null;
 
@@ -591,11 +599,33 @@ export class SessionBudgetSettingsComponent implements OnInit {
     );
   }
 
-  /** Writes one key; true when the host confirmed the write. A failure leaves the saved value and says so. */
+  /**
+   * Writes one key through the page toast (`saveGeneric`): "Saved {label}." with Undo to the previous read-back
+   * value, or the failure sentence. True when the host confirmed this write.
+   */
   private async write(
     key: BudgetKey,
     value: number | null | boolean | SessionBudgetUnit,
   ): Promise<boolean> {
+    const previous = this.saved()[key];
+    let confirmed = false;
+    await this.feedback.saveGeneric({
+      label: this.labels[key],
+      write: async () => {
+        const result = await this.writeOnce(key, value);
+        confirmed = result.ok;
+        return result;
+      },
+      undo: isBudgetValue(previous) ? () => this.writeOnce(key, previous) : null,
+    });
+    return confirmed;
+  }
+
+  /** One `settings:set`; a failure leaves the saved value and returns the sentence the toast shows. */
+  private async writeOnce(
+    key: BudgetKey,
+    value: number | null | boolean | SessionBudgetUnit,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
     const label = this.labels[key];
     this.savingKey.set(key);
     this.setError(key, null);
@@ -613,8 +643,10 @@ export class SessionBudgetSettingsComponent implements OnInit {
         !result.success &&
         (result.error?.startsWith(RPC_TIMEOUT_PREFIX) ?? false);
     } catch (error: unknown) {
-      // Reported inline below (the field's message and the status line), like a refused write.
+      // Reported in the toast below, like a refused write.
       console.warn('[SessionBudgetSettings] settings:set failed', error);
+    } finally {
+      this.savingKey.set(null);
     }
     if (confirmed) {
       this.saved.update((saved) => ({ ...saved, [key]: value }));
@@ -622,17 +654,15 @@ export class SessionBudgetSettingsComponent implements OnInit {
       if (key === 'enabled' && value === false) {
         this.tabManager.clearSessionBudgets();
       }
-      this.status.set(`Saved ${label}.`);
-    } else {
-      // A timed-out write may still land on the host, so it cannot claim the setting is unchanged.
-      const message = timedOut
-        ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
-        : `Could not save ${label}. The saved setting is unchanged.`;
-      this.setError(key, message);
-      this.status.set(message);
+      return { ok: true };
     }
-    this.savingKey.set(null);
-    return confirmed;
+    // A timed-out write may still land on the host, so it cannot claim the setting is unchanged.
+    return {
+      ok: false,
+      message: timedOut
+        ? `Could not confirm saving ${label}. Reopen settings to see the saved value.`
+        : `Could not save ${label}. The saved setting is unchanged.`,
+    };
   }
 
   private formatDefault(setting: SessionBudgetNumberSetting): string {

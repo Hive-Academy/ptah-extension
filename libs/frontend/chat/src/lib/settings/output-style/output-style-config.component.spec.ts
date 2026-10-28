@@ -71,12 +71,18 @@ describe('OutputStyleConfigComponent', () => {
   let component: OutputStyleConfigComponent;
   let feedback: SettingsSaveFeedbackService;
   let parityWarning: ReturnType<typeof signal<string | null>>;
+  let parityWrittenPath: ReturnType<typeof signal<string | null>>;
+  let remove: jest.Mock;
+  let load: jest.Mock;
   let activate: jest.Mock;
   let dismissError: jest.Mock;
   let copyToProjectTier: jest.Mock;
 
   beforeEach(async () => {
     parityWarning = signal<string | null>(null);
+    parityWrittenPath = signal<string | null>(null);
+    remove = jest.fn().mockResolvedValue(true);
+    load = jest.fn().mockResolvedValue(null);
     activate = jest.fn().mockResolvedValue(true);
     dismissError = jest.fn();
     copyToProjectTier = jest.fn().mockResolvedValue(null);
@@ -98,7 +104,9 @@ describe('OutputStyleConfigComponent', () => {
             hasCollision: signal(false),
             collidingNames: signal<readonly string[]>([]),
             usingFallbackInjection: signal(false),
-            parityWrittenPath: signal<string | null>(null),
+            parityWrittenPath,
+            remove,
+            load,
             parityWarning,
             refresh: jest.fn().mockResolvedValue(undefined),
             activate,
@@ -154,6 +162,21 @@ describe('OutputStyleConfigComponent', () => {
       expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved output style.', canUndo: false });
     });
 
+    it('names the parity file the host wrote in the toast (E2)', async () => {
+      activate.mockImplementation(async () => {
+        parityWrittenPath.set('.claude/settings.local.json');
+        return true;
+      });
+
+      await component.onActivate({ name: 'Terse', parity: { enabled: true, tier: 'local' } });
+
+      expect(feedback.toast()).toEqual({
+        tone: 'status',
+        message: 'Saved output style. Saved to .claude/settings.local.json.',
+        canUndo: false,
+      });
+    });
+
     it('tells the list the parity tier only after the activation succeeded (N3)', async () => {
       const list = fixture.debugElement.query(By.directive(OutputStyleListComponent))
         .componentInstance as OutputStyleListComponent;
@@ -178,6 +201,36 @@ describe('OutputStyleConfigComponent', () => {
       ['Terse', false],
       ['Terse', true],
     ]);
+  });
+
+  describe('write failures in the toast', () => {
+    it('a failed delete', async () => {
+      remove.mockResolvedValueOnce(false);
+      await component.onRemove({ name: 'Terse', tier: 'user' });
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not delete the output style.', canUndo: false });
+    });
+
+    it('a style that could not be opened for editing', async () => {
+      await component.onEdit({ name: 'Terse', tier: 'user' });
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not open that output style.', canUndo: false });
+      expect(component.view()).toBe('list');
+    });
+
+    it('a failed copy to the project', async () => {
+      copyToProjectTier.mockResolvedValueOnce({ code: 'WRITE_FAILED', message: 'x' });
+      await component.onCopyToProject({ name: 'Terse', overwrite: false });
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not copy the output style to the project.',
+        canUndo: false,
+      });
+    });
+
+    it('a successful delete or copy shows nothing', async () => {
+      await component.onRemove({ name: 'Terse', tier: 'user' });
+      await component.onCopyToProject({ name: 'Terse', overwrite: false });
+      expect(feedback.toast()).toBeNull();
+    });
   });
 
   describe('returning from the editor', () => {

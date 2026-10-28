@@ -24,7 +24,6 @@ import {
 import {
   LucideAngularModule,
   AlertTriangle,
-  Check,
 } from 'lucide-angular';
 import type { SettingsTier } from '@ptah-extension/shared';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
@@ -163,17 +162,6 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
         </div>
       }
 
-      @if (parityWrittenPath(); as written) {
-        <p
-          class="text-xs text-base-content mt-2 pl-6 leading-relaxed flex items-center gap-1.5"
-          role="status"
-          data-testid="output-style-parity-written"
-        >
-          <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
-          <span>Saved to <code>{{ written }}</code>.</span>
-        </p>
-      }
-
       @if (parityWarning(); as warning) {
         <div
           class="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2 mt-2 text-xs text-base-content"
@@ -209,7 +197,6 @@ export class OutputStyleParitySectionComponent {
   readonly parityTier = input<SettingsTier>('project');
   readonly parityDisplayPath = input.required<string>();
   readonly pendingParitySelection = input<string | null | undefined>(undefined);
-  readonly parityWrittenPath = input<string | null>(null);
   readonly parityWarning = input<string | null>(null);
   readonly saving = input(false);
 
@@ -220,7 +207,6 @@ export class OutputStyleParitySectionComponent {
   readonly dismissParity = output<void>();
 
   readonly AlertTriangleIcon = AlertTriangle;
-  readonly CheckIcon = Check;
   readonly parityTiers = PARITY_TIERS;
 
   private readonly details = viewChild<ElementRef<HTMLDetailsElement>>('details');

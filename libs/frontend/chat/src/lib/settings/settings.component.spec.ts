@@ -59,6 +59,7 @@ import type { ConfigGetScopesResult } from '@ptah-extension/shared';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SettingsComponent } from './settings.component';
 import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
+import { AgentsRoutingSettingsComponent } from './providers/agents-routing-settings.component';
 
 /** The deferred CLI matrix: only the table the `cli-agents` deep link focuses (Batch 34). */
 @Component({
@@ -70,7 +71,7 @@ import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings
 })
 class CliMatrixStub {}
 
-/** The slice of the shared Providers state the shell and the Orchestration container read. */
+/** The slice of the shared Providers state the shell, the agents routing and the Context Management container read. */
 function providersStateFake() {
   const unloaded = { status: 'unloaded' as const, data: null, error: null };
   return {
@@ -190,7 +191,7 @@ describe('SettingsComponent deep-link', () => {
     expect(page.activeSettingsTab()).toBe('claude-auth');
     expect(page.requestedProviderId()).toBe('openrouter');
     expect(page.providersTarget()).toBeNull();
-    expect(page.orchestrationTarget()).toBeNull();
+    expect(page.agentsRoutingTarget()).toBeNull();
   });
 
   it.each([
@@ -205,35 +206,49 @@ describe('SettingsComponent deep-link', () => {
       const page = await landWith({ tab: 'orchestration', section });
       expect(page.activeSettingsTab()).toBe('claude-auth');
       expect(page.providersTarget()).toBe(section);
-      expect(page.orchestrationTarget()).toBeNull();
+      expect(page.agentsRoutingTarget()).toBeNull();
     },
   );
 
-  it.each([
-    'background-models',
-    'memory-curator',
-    'enhancement',
-  ] as const)(
-    'routes the %s background-role section to Orchestration',
-    async (section) => {
-      const page = await landWith({ tab: 'providers', section });
-      expect(page.activeSettingsTab()).toBe('orchestration');
-      expect(page.orchestrationTarget()).toBe(section);
+  // Callers (memory diagnostics, tribunal, the connection drawer...) may still name tab 'orchestration': the section wins.
+  it.each(
+    (['orchestration', 'providers'] as const).flatMap((tab) =>
+      (['background-models', 'memory-curator', 'enhancement'] as const).map(
+        (section) => ({ tab, section }),
+      ),
+    ),
+  )(
+    'routes the $section background-role section requested for $tab to the agents routing on Providers',
+    async (request) => {
+      const page = await landWith(request);
+      expect(page.activeSettingsTab()).toBe('claude-auth');
+      expect(page.agentsRoutingTarget()).toBe(request.section);
       expect(page.providersTarget()).toBeNull();
     },
   );
 
-  it('routes cli-agents to Orchestration (the CLI matrix lives there)', async () => {
-    const page = await landWith({ tab: 'providers', section: 'cli-agents' });
+  it.each(['orchestration', 'providers'] as const)(
+    'routes cli-agents requested for %s to Providers (the CLI matrix lives there)',
+    async (tab) => {
+      const page = await landWith({ tab, section: 'cli-agents' });
+      expect(page.activeSettingsTab()).toBe('claude-auth');
+      expect(page.agentsRoutingTarget()).toBe('cli-agents');
+      expect(page.providersTarget()).toBeNull();
+    },
+  );
+
+  it('opens Context Management (tab id orchestration) with no focus when there is no section', async () => {
+    const page = await landWith({ tab: 'orchestration' });
     expect(page.activeSettingsTab()).toBe('orchestration');
-    expect(page.orchestrationTarget()).toBe('cli-agents');
+    expect(page.agentsRoutingTarget()).toBeNull();
+    expect(page.providersTarget()).toBeNull();
   });
 
   it('opens the requested tab with no focus when there is no section', async () => {
     const page = await landWith({ tab: 'pro-features' });
     expect(page.activeSettingsTab()).toBe('pro-features');
     expect(page.providersTarget()).toBeNull();
-    expect(page.orchestrationTarget()).toBeNull();
+    expect(page.agentsRoutingTarget()).toBeNull();
   });
 
   it('falls back to the requested tab for an unknown section', async () => {
@@ -243,7 +258,7 @@ describe('SettingsComponent deep-link', () => {
     });
     expect(page.activeSettingsTab()).toBe('tools');
     expect(page.providersTarget()).toBeNull();
-    expect(page.orchestrationTarget()).toBeNull();
+    expect(page.agentsRoutingTarget()).toBeNull();
   });
 
   it('R2.7: reacts to a pending tab raised while Settings is already open', async () => {
@@ -254,13 +269,13 @@ describe('SettingsComponent deep-link', () => {
     // A cli-agents request raised while Settings is open (the routing map's CLI agents node, RM-3).
     appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
     TestBed.tick();
-    expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
-    expect(fixture.componentInstance.orchestrationTarget()).toBe('cli-agents');
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+    expect(fixture.componentInstance.agentsRoutingTarget()).toBe('cli-agents');
     expect(appState.pendingSettingsTab()).toBeNull();
   });
 
-  // Batch 35: the Orchestration container raises `requestSettingsTab({tab:'providers', providerId})` for a background
-  // role's "Set up"; Settings is already open, so the pending-tab effect lands on Providers with the wizard's provider.
+  // Batch 35: a background role's "Set up" raises `requestSettingsTab({tab:'providers', providerId})`; Settings is
+  // already open, so the pending-tab effect lands on Providers with the wizard's provider.
   it('a background role asking for provider setup (raised while open) switches to Providers with that provider', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
@@ -275,14 +290,14 @@ describe('SettingsComponent deep-link', () => {
 
   // Batch 35 revise R3: a deep-link target belongs to the visit it opened; leaving the tab clears it.
   it('clears a deep-link target when the tab changes, so a later visit does not re-apply it', async () => {
-    const page = await landWith({ tab: 'providers', section: 'enhancement' });
-    expect(page.orchestrationTarget()).toBe('enhancement');
-    page.setActiveTab('orchestration');
-    expect(page.orchestrationTarget()).toBe('enhancement');
+    const page = await landWith({ tab: 'orchestration', section: 'enhancement' });
+    expect(page.agentsRoutingTarget()).toBe('enhancement');
+    page.setActiveTab('providers');
+    expect(page.agentsRoutingTarget()).toBe('enhancement');
     page.setActiveTab('pro-features');
-    expect(page.orchestrationTarget()).toBeNull();
-    page.setActiveTab('orchestration');
-    expect(page.orchestrationTarget()).toBeNull();
+    expect(page.agentsRoutingTarget()).toBeNull();
+    page.setActiveTab('providers');
+    expect(page.agentsRoutingTarget()).toBeNull();
     const providers = await landWith({
       tab: 'orchestration',
       section: 'connections',
@@ -307,11 +322,12 @@ describe('SettingsComponent deep-link', () => {
 });
 
 /**
- * Plan :571-574: the harness cannot raise a pending-tab request, so this is the proof that a
- * direct Orchestration landing opens the shared state without mounting the Providers page.
+ * Plan :571-574: the harness cannot raise a pending-tab request, so this is the proof that a deep link
+ * reaches the real agents routing on the Providers tab, and that a direct Context Management landing
+ * opens the shared state without mounting the Providers page.
  */
-describe('SettingsComponent Orchestration landing', () => {
-  /** Lands on Settings with `request` and renders the real Orchestration container (children unresolved but the matrix stub). */
+describe('SettingsComponent agents-routing landing', () => {
+  /** Lands on Settings with `request` and renders the real agents routing (children unresolved but the matrix stub). */
   async function land(request: PendingSettingsTab) {
     const state = providersStateFake();
     TestBed.configureTestingModule({
@@ -329,11 +345,11 @@ describe('SettingsComponent Orchestration landing', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [OrchestrationSettingsComponent],
+        imports: [AgentsRoutingSettingsComponent],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
-    TestBed.overrideComponent(OrchestrationSettingsComponent, {
+    TestBed.overrideComponent(AgentsRoutingSettingsComponent, {
       set: { imports: [CliMatrixStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     TestBed.inject(AppStateManager).requestSettingsTab(request);
@@ -354,7 +370,7 @@ describe('SettingsComponent Orchestration landing', () => {
   ] as const)(
     'opens the background roles <details> for the %s deep link and focuses the section',
     async (section) => {
-      const element = await land({ tab: 'providers', section });
+      const element = await land({ tab: 'orchestration', section });
       const details = element.querySelector<HTMLDetailsElement>(
         '[data-testid="background-roles-details"]',
       );
@@ -367,15 +383,15 @@ describe('SettingsComponent Orchestration landing', () => {
 
   // Batch 34 (plan Component 10, S6 row): cli-agents focuses the matrix table, not the retired CLI manager's heading.
   it('focuses the CLI matrix table for the cli-agents deep link', async () => {
-    const element = await land({ tab: 'providers', section: 'cli-agents' });
+    const element = await land({ tab: 'orchestration', section: 'cli-agents' });
     const table = element.querySelector('[data-testid="cli-matrix"]');
     expect(table).not.toBeNull();
     expect(document.activeElement).toBe(table);
     expect(element.querySelector('#providers-cli-heading')).toBeNull();
   });
 
-  // Batch 35 revise R3: the sticky deep link. Leaving Orchestration and coming back must not re-open the roles.
-  it('re-visiting Orchestration after a background-role deep link leaves the roles closed and unfocused', async () => {
+  // Batch 35 revise R3: the sticky deep link. Leaving Providers and coming back must not re-open the roles.
+  it('re-visiting Providers after a background-role deep link leaves the roles closed and unfocused', async () => {
     const state = providersStateFake();
     TestBed.configureTestingModule({
       providers: [
@@ -392,11 +408,11 @@ describe('SettingsComponent Orchestration landing', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [OrchestrationSettingsComponent],
+        imports: [AgentsRoutingSettingsComponent],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
-    TestBed.overrideComponent(OrchestrationSettingsComponent, {
+    TestBed.overrideComponent(AgentsRoutingSettingsComponent, {
       set: { imports: [CliMatrixStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     TestBed.inject(AppStateManager).requestSettingsTab({
@@ -417,7 +433,7 @@ describe('SettingsComponent Orchestration landing', () => {
     fixture.componentInstance.setActiveTab('pro-features');
     fixture.detectChanges();
     (document.activeElement as HTMLElement | null)?.blur();
-    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.componentInstance.setActiveTab('providers');
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -432,14 +448,14 @@ describe('SettingsComponent Orchestration landing', () => {
   });
 
   // Gate V 36 M-1: a consumed target is cleared, so the same role deep-linked again while on the tab applies again.
-  it('clears the Orchestration target once the tab consumed it, so a repeated deep link to the same role applies again', async () => {
+  it('clears the agents-routing target once it was consumed, so a repeated deep link to the same role applies again', async () => {
     @Component({
-      selector: 'ptah-orchestration-settings',
+      selector: 'ptah-agents-routing-settings',
       standalone: true,
       changeDetection: ChangeDetectionStrategy.OnPush,
       template: '',
     })
-    class OrchestrationStub {
+    class AgentsRoutingStub {
       readonly focusTarget = input<string | null>(null);
       readonly focusTargetConsumed = output<void>();
     }
@@ -460,34 +476,35 @@ describe('SettingsComponent Orchestration landing', () => {
       ],
     });
     TestBed.overrideComponent(SettingsComponent, {
-      set: { imports: [OrchestrationStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [AgentsRoutingStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const appState = TestBed.inject(AppStateManager);
-    appState.requestSettingsTab({ tab: 'providers', section: 'enhancement' });
+    appState.requestSettingsTab({ tab: 'orchestration', section: 'enhancement' });
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
     fixture.detectChanges();
-    // The Orchestration tab is a `@defer (on immediate)` block: let its chunk render first.
+    // The Providers tab is a `@defer (on immediate)` block: let its chunk render first.
     await fixture.whenStable();
     fixture.detectChanges();
     const stub = () =>
       fixture.debugElement.query(
-        (node) => node.componentInstance instanceof OrchestrationStub,
-      ).componentInstance as OrchestrationStub;
+        (node) => node.componentInstance instanceof AgentsRoutingStub,
+      ).componentInstance as AgentsRoutingStub;
     expect(stub().focusTarget()).toBe('enhancement');
     stub().focusTargetConsumed.emit();
     fixture.detectChanges();
-    expect(fixture.componentInstance.orchestrationTarget()).toBeNull();
+    expect(fixture.componentInstance.agentsRoutingTarget()).toBeNull();
     expect(stub().focusTarget()).toBeNull();
+    // Raised again from the same Providers tab (the Routing Map's Inspect, or the drawer's role link).
     appState.requestSettingsTab({ tab: 'providers', section: 'enhancement' });
     TestBed.tick();
-    expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
     expect(stub().focusTarget()).toBe('enhancement');
   });
 
   it.each([
-    { tab: 'orchestration' },
-    { tab: 'providers', section: 'cli-agents' },
+    { tab: 'providers' },
+    { tab: 'orchestration', section: 'cli-agents' },
   ] as const)('leaves the background roles closed for %o', async (request) => {
     const element = await land(request);
     expect(
@@ -497,7 +514,7 @@ describe('SettingsComponent Orchestration landing', () => {
     ).toBe(false);
   });
 
-  it('renders the Orchestration container, not Providers, and opens the state', async () => {
+  it('renders the Context Management container, not Providers or the agents routing, and opens the state', async () => {
     const state = providersStateFake();
     TestBed.configureTestingModule({
       providers: [
@@ -534,6 +551,7 @@ describe('SettingsComponent Orchestration landing', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('ptah-orchestration-settings')).not.toBeNull();
     expect(element.querySelector('ptah-providers-settings')).toBeNull();
+    expect(element.querySelector('ptah-agents-routing-settings')).toBeNull();
     expect(state.open).toHaveBeenCalledTimes(1);
     TestBed.resetTestingModule();
   });
@@ -604,7 +622,7 @@ describe('SettingsComponent header', () => {
     );
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
       'Providers',
-      'Agent Orchestration',
+      'Context Management',
       'Advanced',
       'Search & Voice',
     ]);
@@ -715,7 +733,7 @@ describe('SettingsComponent security copy', () => {
 });
 
 /**
- * The Orchestration, Advanced and Search & Voice tabs are `@defer (on immediate)` blocks so each loads
+ * The Context Management, Advanced and Search & Voice tabs are `@defer (on immediate)` blocks so each loads
  * as its own chunk; the placeholder is `aria-busy` so the harness `waitForSettled` keeps waiting for it.
  */
 describe('SettingsComponent deferred tabs', () => {
@@ -743,7 +761,15 @@ describe('SettingsComponent deferred tabs', () => {
     changeDetection: ChangeDetectionStrategy.OnPush,
     template: '',
   })
-  class OrchestrationStub {
+  class OrchestrationStub {}
+
+  @Component({
+    selector: 'ptah-agents-routing-settings',
+    standalone: true,
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    template: '',
+  })
+  class AgentsRoutingStub {
     readonly focusTarget = input<string | null>(null);
     readonly focusTargetConsumed = output<void>();
   }
@@ -768,7 +794,12 @@ describe('SettingsComponent deferred tabs', () => {
     });
     TestBed.overrideComponent(SettingsComponent, {
       set: {
-        imports: [AdvancedStub, SearchVoiceStub, OrchestrationStub],
+        imports: [
+          AdvancedStub,
+          SearchVoiceStub,
+          OrchestrationStub,
+          AgentsRoutingStub,
+        ],
         schemas: [CUSTOM_ELEMENTS_SCHEMA],
       },
     });
@@ -819,10 +850,9 @@ describe('SettingsComponent deferred tabs', () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it('shows an aria-busy placeholder until the Orchestration chunk renders, then passes the deep-link target', async () => {
+  it('shows an aria-busy placeholder until the Context Management chunk renders', async () => {
     const fixture = create(DeferBlockBehavior.Manual);
     fixture.componentInstance.setActiveTab('orchestration');
-    fixture.componentInstance.orchestrationTarget.set('enhancement');
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('ptah-orchestration-settings')).toBeNull();
@@ -831,13 +861,30 @@ describe('SettingsComponent deferred tabs', () => {
     const [block] = await fixture.getDeferBlocks();
     await block.render(DeferBlockState.Complete);
     expect(element.querySelector('[aria-busy="true"]')).toBeNull();
-    const host = element.querySelector('ptah-orchestration-settings');
+    expect(element.querySelector('ptah-orchestration-settings')).not.toBeNull();
+  });
+
+  it('renders the agents routing after the Providers page in the same chunk, then passes the deep-link target', async () => {
+    const fixture = create(DeferBlockBehavior.Manual);
+    fixture.componentInstance.agentsRoutingTarget.set('cli-agents');
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('ptah-agents-routing-settings')).toBeNull();
+
+    const blocks = await fixture.getDeferBlocks();
+    expect(blocks).toHaveLength(1);
+    await blocks[0].render(DeferBlockState.Complete);
+    const page = element.querySelector('ptah-providers-settings');
+    const host = element.querySelector('ptah-agents-routing-settings');
+    expect(page?.compareDocumentPosition(host as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     const stub = fixture.debugElement.query(
       (node) => node.nativeElement === host,
-    ).componentInstance as OrchestrationStub;
-    expect(stub.focusTarget()).toBe('enhancement');
+    ).componentInstance as AgentsRoutingStub;
+    expect(stub.focusTarget()).toBe('cli-agents');
     stub.focusTargetConsumed.emit();
-    expect(fixture.componentInstance.orchestrationTarget()).toBeNull();
+    expect(fixture.componentInstance.agentsRoutingTarget()).toBeNull();
   });
 
   it.each([

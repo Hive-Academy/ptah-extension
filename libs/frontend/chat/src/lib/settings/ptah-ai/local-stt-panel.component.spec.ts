@@ -152,12 +152,9 @@ describe('LocalSttPanelComponent', () => {
       message: 'Could not save the voice configuration.',
       canUndo: false,
     });
-    expect(component.errorMessage()).toBe('Could not save the voice configuration.');
-    const alert = byTestId('local-stt-panel-error');
-    expect(alert.getAttribute('role')).toBe('alert');
-    expect(alert.classList).toContain('text-base-content');
-    // F1: the host's raw error text never reaches the panel.
-    expect(alert.textContent).not.toContain('disk full');
+    // Reported only in the toast; F1: the host's raw error text never reaches the panel.
+    expect(element.querySelector('[data-testid="local-stt-panel-error"]')).toBeNull();
+    expect(element.textContent).not.toContain('disk full');
     expect(element.querySelector('[data-testid="local-stt-saved"]')).toBeNull();
   });
 
@@ -176,9 +173,7 @@ describe('LocalSttPanelComponent', () => {
       message: 'Could not save the voice configuration.',
       canUndo: false,
     });
-    expect(byTestId('local-stt-panel-error').textContent?.trim()).toBe(
-      'Could not save the voice configuration.',
-    );
+    expect(element.querySelector('[data-testid="local-stt-panel-error"]')).toBeNull();
     expect(element.textContent).not.toContain('secret host detail');
   });
 
@@ -199,9 +194,7 @@ describe('LocalSttPanelComponent', () => {
       message: 'Could not save the voice configuration.',
       canUndo: false,
     });
-    expect(byTestId('local-stt-panel-error').textContent?.trim()).toBe(
-      'Could not save the voice configuration.',
-    );
+    expect(element.querySelector('[data-testid="local-stt-panel-error"]')).toBeNull();
     expect(element.textContent).not.toContain('host detail');
   });
 
@@ -265,9 +258,8 @@ describe('LocalSttPanelComponent', () => {
       message: 'Could not save the voice configuration.',
       canUndo: false,
     });
-    const alert = byTestId('local-stt-panel-error');
-    expect(alert.textContent).toContain('Could not save the voice configuration.');
-    expect(alert.textContent).not.toContain('disk full');
+    expect(element.querySelector('[data-testid="local-stt-panel-error"]')).toBeNull();
+    expect(element.textContent).not.toContain('disk full');
   });
 
   it('returns to Curated immediately and Undo restores the previous source (V13, S-sel)', async () => {
@@ -363,17 +355,20 @@ describe('LocalSttPanelComponent', () => {
       () => Promise.resolve(rpcSuccess({ ok: false, error: 'host detail' })),
     ],
   ])(
-    'shows a fixed sentence, never host text, when the download fails with %s (F1)',
+    'announces a fixed sentence, never host text, when the download fails with %s (F1)',
     async (_shape, failure) => {
       (rpc.call as jest.Mock).mockImplementation(failure);
-      const component = mount(localConfig({ whisperModel: 'small.en' }));
+      mount(localConfig({ whisperModel: 'small.en' }));
 
       byTestId<HTMLButtonElement>('local-stt-download-btn').click();
       await settle();
 
-      expect(component.errorMessage()).toBe('Could not download the voice model.');
-      const alert = byTestId('local-stt-panel-error');
-      expect(alert.textContent?.trim()).toBe('Could not download the voice model.');
+      expect(element.querySelector('[data-testid="local-stt-panel-error"]')).toBeNull();
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not download the voice model.',
+        canUndo: false,
+      });
       expect(element.textContent).not.toContain('host detail');
     },
   );

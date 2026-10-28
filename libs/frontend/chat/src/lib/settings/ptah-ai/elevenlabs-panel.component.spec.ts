@@ -122,9 +122,9 @@ describe('ElevenLabsPanelComponent', () => {
   }
 
   function expectFixedAlert(sentence: string): void {
-    const alert = byTestId('elevenlabs-panel-error');
-    expect(alert.getAttribute('role')).toBe('alert');
-    expect(alert.textContent?.trim()).toBe(sentence);
+    // The failure is reported only in the page toast, never inline (and never with host text).
+    expect(element.querySelector('[data-testid="elevenlabs-panel-error"]')).toBeNull();
+    expect(feedback.toast()).toEqual({ tone: 'alert', message: sentence, canUndo: false });
     expect(element.textContent).not.toContain('host detail');
   }
 

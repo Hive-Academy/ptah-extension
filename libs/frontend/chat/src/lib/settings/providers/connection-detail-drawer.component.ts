@@ -91,7 +91,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
                   [keyHint]="overviewKeyHint()" [lastCheck]="lastCheck()"
                   [loading]="loading()" [checking]="checking()" [saving]="saving()" [usedBy]="usedBy()" [usageComplete]="usageComplete()"
                   [usageError]="usageError()" (checkConnectionRequested)="checkConnectionRequested.emit()"
-                  (retryUsageRequested)="retryUsageRequested.emit()" />
+                  (retryUsageRequested)="retryUsageRequested.emit()" (roleLinkOpened)="closed.emit()" />
               }
               @case ('credentials') {
                 <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isDriver()"

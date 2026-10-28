@@ -68,7 +68,16 @@ export async function bootVariant(
 }
 
 export const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
-export const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');
+/**
+ * The CLI matrix and the background model roles: on the Providers tab, below Routing Map + Connections. Waits for the
+ * matrix (its own deferred chunk) so the callers can act on it.
+ */
+export async function agentsRoutingTab(page: Page): Promise<void> {
+  await gotoSettingsTab(page, 'Providers');
+  await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
+}
+/** Context Management (tab id `orchestration`): subagent cache TTL, session budget, lane guards, advanced groups. */
+export const contextManagementTab = (page: Page) => gotoSettingsTab(page, 'Context Management');
 export const advancedTab = (page: Page) => gotoSettingsTab(page, 'Advanced');
 
 /** A connection card by its visible provider name (today's flat card list). */
@@ -183,6 +192,12 @@ export async function withAuthStatus(page: Page, change: Partial<ReturnType<type
   }
 }
 
+/** Puts back a third-party key that `auth:deleteStoredKey` removed, so later entries of a shared session still see it. */
+export async function restoreStoredKey(page: Page, providerId: string): Promise<void> {
+  getFixtureState(page).deletedKeys.delete(providerId);
+  await remountProviders(page);
+}
+
 /**
  * Providers tab, then the scope badge of `field` (its full name, `data-field`, D16); returns its open
  * popover. Batch 23: the badge replaced the always-visible scope strip.
@@ -282,8 +297,13 @@ export async function closeCatalog(page: Page): Promise<void> {
   await expect(connectProviderButton(page)).toBeFocused();
 }
 
-/** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
-export async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
+/**
+ * Confirms an inline two-step write in the Credentials tab, asserts its RPC went out and that the page toast says this
+ * write's own outcome (`toast`, e.g. "Stored key deleted."), so an earlier toast still on screen cannot satisfy it.
+ */
+export async function confirmWrite(
+  page: Page, trigger: string, confirm: string, method: string, params: unknown, toast: string,
+): Promise<void> {
   const state = getFixtureState(page);
   const before = state.calls.length;
   const start = page.locator(`[data-testid="${trigger}"]`);
@@ -292,6 +312,7 @@ export async function confirmWrite(page: Page, trigger: string, confirm: string,
   const confirmButton = page.locator(`[data-testid="${confirm}"]`);
   await visibleEnabled(confirmButton);
   await confirmButton.click();
-  await expect(page.locator('[data-testid="credentials-commit"]')).toBeVisible();
+  // The write's outcome is announced through the page toast.
+  await expect(page.locator('[data-testid="settings-toast-message"]')).toHaveText(toast);
   await expect.poll(() => state.calls.slice(before).find((call) => call.method === method)?.params).toEqual(params);
 }

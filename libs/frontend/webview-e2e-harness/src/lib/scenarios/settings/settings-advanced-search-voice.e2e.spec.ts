@@ -257,7 +257,7 @@ for (const host of HOSTS) {
       failures.set('outputStyle:activate', { success: false, decision: { path: 'none' }, error: { code: 'WRITE_FAILED', message: HOST_DETAIL } });
       await styleRow(page, 'Learning').getByRole('radio').click();
       await expectFailedWrite(page, 'Could not change the active output style.');
-      await expect(page.locator('[data-testid="output-style-error"]')).toContainText('Could not change the active output style.');
+      await expect(page.locator('[data-testid="output-style-error"]')).toHaveCount(0);
       await expect(styleRow(page, 'Learning').getByRole('radio')).not.toBeChecked();
       await expect(styleRow(page, 'concise-reviewer').getByRole('radio')).toBeChecked();
     });
@@ -287,7 +287,6 @@ for (const host of HOSTS) {
         await select.selectOption('small.en');
         await expectFailedWrite(page, 'Could not save the voice configuration.');
         await expect(select).toHaveValue('base.en');
-        await expect(page.locator('[data-testid="local-stt-panel-error"]')).toContainText('Could not save the voice configuration.');
       });
       await dismissToast(page);
       await closeDrawers(page).catch(() => undefined);

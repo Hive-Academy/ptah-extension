@@ -503,7 +503,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(document.activeElement).toBe(button('policy-order-up-glm-1'));
     });
 
-    it('D15: a failed move keeps the saved order and shows a fixed sentence, never the host text', async () => {
+    it('D15: a failed move keeps the saved order; the toast reports it, the popover shows no host text', async () => {
       state.persist = false;
       state.saveSettings.mockImplementation(async () => {
         state.commit.set({
@@ -524,14 +524,12 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
         'copilot',
         'opencode',
       ]);
-      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim()).toBe(
-        'Could not save the preferred order. The order shown is the saved one.',
-      );
+      expect(q('[data-testid="policy-order-error"]')).toBeNull();
       expect(popover()?.textContent).not.toContain('EACCES');
       expect(feedback.toast()?.tone).toBe('alert');
     });
 
-    it('m-1: a refused move shows its own sentence even when commit() still says an earlier save was "saved"', async () => {
+    it('m-1: a refused move is reported by the toast even when commit() still says an earlier save was "saved"', async () => {
       state.commit.set({
         ...idle,
         status: 'saved',
@@ -549,9 +547,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
         'copilot',
         'opencode',
       ]);
-      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim()).toBe(
-        'Could not save the preferred order. The order shown is the saved one.',
-      );
+      expect(q('[data-testid="policy-order-error"]')).toBeNull();
       expect(feedback.toast()).toEqual({
         tone: 'alert',
         message: 'Another change is still saving.',
@@ -559,7 +555,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       });
     });
 
-    it('m-1: a write that throws shows the popover sentence too', async () => {
+    it('m-1: a write that throws is reported by the toast', async () => {
       state.commit.set({
         ...idle,
         status: 'saved',
@@ -571,10 +567,9 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       await openOrder();
       button('policy-order-down-codex')?.click();
       await flush();
-      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim()).toBe(
-        'Could not save the preferred order. The order shown is the saved one.',
-      );
+      expect(q('[data-testid="policy-order-error"]')).toBeNull();
       expect(popover()?.textContent).not.toContain('EACCES');
+      expect(feedback.toast()?.tone).toBe('alert');
     });
 
     it('V36-8: the popover is titled by a non-heading element (no skipped heading level)', async () => {
@@ -691,9 +686,11 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       button('policy-redetect')?.click();
       await flush();
       expect(state.redetectClis).toHaveBeenCalledTimes(1);
-      expect(q('[role="status"]')?.textContent?.trim()).toBe(
-        'CLI agents re-detected.',
-      );
+      expect(feedback.toast()).toEqual({
+        tone: 'status',
+        message: 'CLI agents re-detected.',
+        canUndo: false,
+      });
       expect(q('[data-testid="policy-redetect-error"]')).toBeNull();
     });
 
@@ -728,16 +725,17 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
         },
       ],
     ])(
-      'shows a fixed sentence after %s, never the host text',
+      'announces a fixed sentence after %s, never the host text',
       async (_label, run) => {
         state.redetectClis.mockImplementation(() => run(state));
         button('policy-redetect')?.click();
         await flush();
-        expect(
-          q('[data-testid="policy-redetect-error"]')?.textContent?.trim(),
-        ).toBe(
-          'Could not re-detect CLI agents. Your saved settings have not changed.',
-        );
+        expect(feedback.toast()).toEqual({
+          tone: 'alert',
+          message:
+            'Could not re-detect CLI agents. Your saved settings have not changed.',
+          canUndo: false,
+        });
         expect(element().textContent).not.toContain('EACCES');
         expect(isDisabledControl(button('policy-redetect'))).toBe(false);
       },

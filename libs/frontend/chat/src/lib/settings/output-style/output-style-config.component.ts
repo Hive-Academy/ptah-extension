@@ -6,7 +6,9 @@
  *   - Body mounts `OutputStyleListComponent` (matrix table, banners, command-line parity)
  *   - Drawer D-OS (`OutputStyleEditorComponent`) lazily loaded via `@defer (when view() === 'editor')`
  *   - Active style selection is persisted through {@link SettingsSaveFeedbackService.saveGeneric}
- *     with Undo (D15). Parity writes confirm first and have no Undo.
+ *     with Undo (D15). Parity writes confirm first and have no Undo; a written parity file is named in the toast.
+ *   - Delete, open and copy-to-project failures show as the page toast (`announce`); only the list read
+ *     failure stays inline in the notices.
  */
 
 import {
@@ -35,6 +37,9 @@ import {
 import { OutputStyleEditorComponent } from './output-style-editor.component';
 
 const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
+const OUTPUT_STYLE_DELETE_FAILED = 'Could not delete the output style.';
+const OUTPUT_STYLE_OPEN_FAILED = 'Could not open that output style.';
+const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project.';
 /** Serious 2: the selection saved, the requested command-line file did not — the toast says so, not "Saved". */
 const OUTPUT_STYLE_PARITY_FAILED =
   'Your style is active in Ptah, but the settings file for the command line could not be updated.';
@@ -106,7 +111,6 @@ const OUTPUT_STYLE_PARITY_FAILED =
         [hasCollision]="store.hasCollision()"
         [collidingNames]="store.collidingNames()"
         [usingFallback]="store.usingFallbackInjection()"
-        [parityWrittenPath]="store.parityWrittenPath()"
         [parityWarning]="store.parityWarning()"
         (activate)="onActivate($event)"
         (create)="onCreate()"
@@ -163,7 +167,7 @@ export class OutputStyleConfigComponent implements OnInit {
     const isParity = parity !== null;
     const outcome = { activated: false };
 
-    await this.feedback.saveGeneric({
+    const result = await this.feedback.saveGeneric({
       label: 'output style',
       write: async () => {
         try {
@@ -190,6 +194,9 @@ export class OutputStyleConfigComponent implements OnInit {
             }
           },
     });
+    // The parity file the host wrote is named in the toast, replacing the plain "Saved" (no Undo either way).
+    const written = result === 'saved' && isParity ? this.store.parityWrittenPath() : null;
+    if (written !== null) this.feedback.announce(`Saved output style. Saved to ${written}.`, 'status');
     // N3: the list counts the parity file as requested only once the activation itself succeeded.
     if (outcome.activated && parity !== null) this.list()?.parityActivated(parity.tier);
     // A refused or failed activate leaves the clicked radio checked: show the saved style again (D15).
@@ -204,7 +211,10 @@ export class OutputStyleConfigComponent implements OnInit {
 
   async onEdit(ref: OutputStyleRef): Promise<void> {
     const detail = await this.store.load(ref.name, ref.tier);
-    if (detail === null) return;
+    if (detail === null) {
+      this.feedback.announce(OUTPUT_STYLE_OPEN_FAILED, 'alert');
+      return;
+    }
 
     this.draft.set(detail);
     this.repair.set(null);
@@ -219,12 +229,16 @@ export class OutputStyleConfigComponent implements OnInit {
   }
 
   async onRemove(ref: OutputStyleRef): Promise<void> {
-    await this.store.remove(ref.name, ref.tier);
+    if (!(await this.store.remove(ref.name, ref.tier))) {
+      this.feedback.announce(OUTPUT_STYLE_DELETE_FAILED, 'alert');
+    }
   }
 
   /** Req 5.5 — copy the injected user-tier style into the project tier; replaces only after the list's confirm. */
   async onCopyToProject(request: { readonly name: string; readonly overwrite: boolean }): Promise<void> {
-    await this.store.copyToProjectTier(request.name, request.overwrite);
+    if ((await this.store.copyToProjectTier(request.name, request.overwrite)) !== null) {
+      this.feedback.announce(OUTPUT_STYLE_COPY_FAILED, 'alert');
+    }
   }
 
   /**

@@ -133,7 +133,7 @@ for (const host of HOSTS) {
         await expect(page.locator(selector).first()).toBeVisible();
       }
       // Tab buttons by role and name (plan §6 finding 7's fourth kept item).
-      for (const label of ['Providers', 'Agent Orchestration', 'Advanced', 'Search & Voice']) {
+      for (const label of ['Providers', 'Context Management', 'Advanced', 'Search & Voice']) {
         await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
       }
       await page.getByRole('button', { name: 'Advanced', exact: true }).click();

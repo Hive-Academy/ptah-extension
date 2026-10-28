@@ -7,6 +7,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { SystemPromptDrawerComponent } from './system-prompt-drawer.component';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 @Component({
   selector: 'ptah-markdown-block',
@@ -47,6 +48,8 @@ describe('SystemPromptDrawerComponent', () => {
   let host: TestHostComponent;
   let element: HTMLElement;
   let call: jest.Mock;
+  /** Regenerate and download outcomes go to the page toast, not into the drawer. */
+  let announce: jest.Mock;
 
   const defaultStatus: EnhancedPromptsGetStatusResponse = {
     enabled: true,
@@ -84,9 +87,13 @@ describe('SystemPromptDrawerComponent', () => {
       return rpcSuccess(undefined);
     });
 
+    announce = jest.fn();
     TestBed.configureTestingModule({
       imports: [TestHostComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: { call } }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: { call } },
+        { provide: SettingsSaveFeedbackService, useValue: { announce } },
+      ],
     }).overrideComponent(SystemPromptDrawerComponent, {
       remove: { imports: [MarkdownBlockComponent] },
       add: { imports: [MarkdownBlockStubComponent] },
@@ -275,9 +282,8 @@ describe('SystemPromptDrawerComponent', () => {
       expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
       expect(host.changedCalled).toBe(false);
 
-      const error = element.querySelector('[data-testid="system-prompt-drawer-error"]');
-      expect(error?.textContent).toContain('Could not regenerate the system prompt.');
-      expect(error?.textContent).not.toContain('Generation failed: no workspace.');
+      expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
+      expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
     });
 
     it('re-reads status and emits changed on successful regeneration', async () => {
@@ -326,8 +332,8 @@ describe('SystemPromptDrawerComponent', () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      const error = element.querySelector('[data-testid="system-prompt-drawer-error"]');
-      expect(error).toBeNull();
+      expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
+      expect(announce).not.toHaveBeenCalled();
     });
 
     it('surfaces alert with fixed error when download returns {success:false} (D15, F1)', async () => {
@@ -349,10 +355,9 @@ describe('SystemPromptDrawerComponent', () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      const error = element.querySelector('[data-testid="system-prompt-drawer-error"]');
-      expect(error).not.toBeNull();
-      expect(error?.textContent).toContain('Could not download the system prompt.');
-      expect(error?.textContent).not.toContain('EACCES');
+      expect(announce).toHaveBeenCalledWith('Could not download the system prompt.', 'alert');
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
     });
 
     it('surfaces alert with fixed error when download RPC fails (F1)', async () => {
@@ -371,10 +376,9 @@ describe('SystemPromptDrawerComponent', () => {
       await fixture.whenStable();
       fixture.detectChanges();
 
-      const error = element.querySelector('[data-testid="system-prompt-drawer-error"]');
-      expect(error).not.toBeNull();
-      expect(error?.textContent).toContain('Could not download the system prompt.');
-      expect(error?.textContent).not.toContain('Permission denied');
+      expect(announce).toHaveBeenCalledWith('Could not download the system prompt.', 'alert');
+      expect(announce).toHaveBeenCalledTimes(1);
+      expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
     });
 
     it('succeeds cleanly when download returns {success:true}', async () => {
@@ -387,6 +391,7 @@ describe('SystemPromptDrawerComponent', () => {
 
       expect(call).toHaveBeenCalledWith('enhancedPrompts:download', { workspacePath: '.' });
       expect(element.querySelector('[data-testid="system-prompt-drawer-error"]')).toBeNull();
+      expect(announce).not.toHaveBeenCalledWith(expect.anything(), 'alert');
     });
 
     it('sends the active workspace root, not ".", when the host tracks one', async () => {
@@ -479,12 +484,12 @@ describe('SystemPromptDrawerComponent', () => {
       expect(element.textContent).not.toContain('Invalid Date');
     });
 
-    it('shows a saved line only after the host reports a successful download (Minor 15)', async () => {
+    it('announces "Saved" only after the host reports a successful download (Minor 15)', async () => {
       await render();
       by('system-prompt-download-button')?.click();
       await settle();
-      expect(by('system-prompt-download-saved')?.textContent).toContain('Saved to the chosen file.');
-      expect(by('system-prompt-download-saved')?.getAttribute('role')).toBe('status');
+      expect(announce).toHaveBeenCalledWith('Saved to the chosen file.', 'status');
+      expect(by('system-prompt-download-saved')).toBeNull();
     });
 
     describe('regenerate confirm focus and Esc (Moderate 7)', () => {
@@ -560,8 +565,8 @@ describe('SystemPromptDrawerComponent', () => {
         by('regenerate-confirm-button')?.click();
         await settle();
 
-        expect(by('system-prompt-drawer-error')?.textContent).toContain('Could not regenerate the system prompt.');
-        expect(by('system-prompt-drawer-error')?.textContent).not.toContain('transport closed');
+        expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
+        expect(by('system-prompt-drawer-error')).toBeNull();
         expect(by('regenerate-may-be-running')).toBeNull();
         expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', expect.anything());
         expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(false);
@@ -608,7 +613,7 @@ describe('SystemPromptDrawerComponent', () => {
         await drawer().checkRegenerate();
         fixture.detectChanges();
         expect(by('regenerate-may-be-running')).toBeNull();
-        expect(by('system-prompt-drawer-error')?.textContent).toContain('Could not regenerate the system prompt.');
+        expect(announce).toHaveBeenCalledWith('Could not regenerate the system prompt.', 'alert');
       });
     });
   });

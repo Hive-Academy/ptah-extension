@@ -89,6 +89,7 @@ for (const host of HOSTS) {
         'credentials-delete-confirm-button',
         'auth:deleteStoredKey',
         { providerId: 'kimi-code' },
+        'Stored key deleted.',
       );
       await closeConnectionDrawer(page);
     });
@@ -104,6 +105,7 @@ for (const host of HOSTS) {
           'credentials-sign-out-confirm-button',
           'auth:copilotLogout',
           {},
+          'Signed out.',
         );
       });
     });
