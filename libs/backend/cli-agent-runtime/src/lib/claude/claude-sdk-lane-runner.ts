@@ -610,13 +610,13 @@ export class ClaudeNamedLaneAdmission {
    */
   private recordChild(child: object): void {
     if (!this.admission.recordRunChild) return;
-    const unrecorded = (): void => this.logger.warn('[ClaudeLane] Account child was not recorded on its reservation.');
+    const message = '[ClaudeLane] Account child was not recorded on its reservation.';
     void spawnedChildPid(child).then(async (pid) => {
       if (pid === null) return;
       const result = await this.admission.recordRunChild?.({ reservationId: this.reservation.reservationId,
         operationId: this.reservation.operationId, authEpoch: this.reservation.authEpoch, pid });
-      if (result && result.code !== 'ok') unrecorded();
-    }).catch(unrecorded);
+      if (result && result.code !== 'ok') this.logger.warn(message);
+    }).catch(() => this.logger.warn(message));
   }
 
   private certifiedLaunch(): ClaudeCertifiedLaunchContext {

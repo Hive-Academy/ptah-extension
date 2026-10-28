@@ -1008,13 +1008,13 @@ export class NamedAccountQueryAdmission {
   private recordChild(childPid: Promise<number | null>): void {
     const reservation = this.reservation;
     if (!reservation || !this.admission.recordRunChild) return;
-    const unrecorded = (): void => this.logger.warn('[SessionLifecycle] Named account child was not recorded on its reservation.');
+    const message = '[SessionLifecycle] Named account child was not recorded on its reservation.';
     void childPid.then(async (pid) => {
       if (pid === null) return;
       const result = await this.admission.recordRunChild?.({ reservationId: reservation.reservationId,
         operationId: reservation.operationId, authEpoch: reservation.authEpoch, pid });
-      if (result && result.code !== 'ok') unrecorded();
-    }).catch(unrecorded);
+      if (result && result.code !== 'ok') this.logger.warn(message);
+    }).catch(() => this.logger.warn(message));
   }
 
   private closeChild(): void {
