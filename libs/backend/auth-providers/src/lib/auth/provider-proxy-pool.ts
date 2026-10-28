@@ -85,6 +85,11 @@ import {
 } from '../providers/codex';
 import type { ICodexOwnerKeySource } from '../providers/codex/codex-provider.types';
 import {
+  KimiCodeTranslationProxy,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+  type IKimiCodeAuthService,
+} from '../providers/kimi-code';
+import {
   OpenRouterTranslationProxy,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   type IOpenRouterAuthService,
@@ -200,6 +205,8 @@ export class ProviderProxyPool {
     private readonly openRouterAuth: IOpenRouterAuthService,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_CODEX_ACCOUNT_USAGE)
     private readonly codexOwnerKeys: ICodexOwnerKeySource,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH)
+    private readonly kimiCodeAuth: IKimiCodeAuthService,
   ) {}
 
   private key(providerId: string, credentialKey: string): string {
@@ -505,6 +512,19 @@ export class ProviderProxyPool {
           authToken: CODEX_PROXY_TOKEN_PLACEHOLDER,
         };
       }
+      case 'kimi-code': {
+        // The credential is resolved per request by the shared Kimi Code
+        // auth service, so one proxy serves every scope (constant key).
+        await this.ensureKimiCodeReady();
+        return {
+          proxy: new KimiCodeTranslationProxy(
+            this.logger,
+            this.kimiCodeAuth,
+            this.configManager,
+          ),
+          authToken: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+        };
+      }
       case 'openrouter': {
         return {
           proxy: new OpenRouterTranslationProxy(
@@ -662,6 +682,23 @@ export class ProviderProxyPool {
       this.logger.warn(
         '[ProviderProxyPool] Codex readiness check failed (proxy will 401 until authenticated).',
         { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+  }
+
+  /**
+   * Best-effort Kimi Code readiness — starts the shared credentials watcher
+   * (so a later `kimi login` is detected) and refreshes the CLI login if
+   * possible. A failure leaves the stored key (if any) to serve requests.
+   */
+  private async ensureKimiCodeReady(): Promise<void> {
+    try {
+      this.kimiCodeAuth.startWatching();
+      await this.kimiCodeAuth.ensureFresh();
+    } catch (error: unknown) {
+      this.logger.warn(
+        '[ProviderProxyPool] Kimi Code readiness check failed (proxy answers 401 until signed in).',
+        { error: error instanceof Error ? error.name : 'unknown' },
       );
     }
   }

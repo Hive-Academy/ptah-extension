@@ -53,6 +53,10 @@ import type {
   ConnectionCheckRecord,
 } from '@ptah-extension/shared';
 
+import {
+  createFakeKimiCodeAuth,
+  createFakeKimiCodeLogin,
+} from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
@@ -91,6 +95,14 @@ function makeHarness(
     }),
   );
   const recorder = new ConnectionCheckRecorder();
+  // The stored-key fallback serves Kimi Code here, so its check is the
+  // stored-key probe like any API-key connection.
+  const kimiCodeAuth = createFakeKimiCodeAuth({
+    cliDetected: true,
+    hasApiKey: true,
+    credentialSource: 'api-key',
+  });
+  const kimiCodeLogin = createFakeKimiCodeLogin();
   const handlers = new AuthRpcHandlers(
     createMockLogger() as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
@@ -117,6 +129,8 @@ function makeHarness(
       })),
       clearCache: jest.fn(),
     } as unknown as ICodexAuthService,
+    kimiCodeAuth,
+    kimiCodeLogin,
     createMockPlatformCommands() as unknown as IPlatformCommands,
     createMockAuthProvider() as unknown as IPlatformAuthProvider,
     {

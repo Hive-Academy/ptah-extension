@@ -7,10 +7,15 @@
  * - Flat subscription (`pricingModel: 'subscription'`). The static models carry
  *   no per-token cost, so cost renders as unavailable instead of a fake amount,
  *   and `seedStaticModelPricing` keeps them out of the shared pricing map.
- * - Base URL: https://api.kimi.ai/coding/ (Anthropic Messages passthrough, no
- *   translation proxy).
- * - Auth: `ANTHROPIC_API_KEY`, which the runtime sends as `x-api-key`, per the
- *   Kimi Code docs.
+ * - Base URL: https://api.kimi.ai/coding/ (Anthropic Messages endpoint).
+ * - Auth: `authType: 'oauth'` + `requiresProxy: true`. The SDK talks to a local
+ *   Kimi Code proxy that relays Messages requests unchanged and attaches a
+ *   fresh credential per request: the Kimi Code CLI sign-in
+ *   (`~/.kimi-code/credentials`, refreshed and written back by Ptah) first,
+ *   and the stored Kimi Code API key as a fallback (`apiKeyFallback`).
+ * - `authEnvVar: 'ANTHROPIC_API_KEY'` (sent as `x-api-key`) is used by the
+ *   direct key paths: draft verification, connection check and Ptah CLI
+ *   agents.
  * - No `modelsEndpoint`: the dynamic fetch sends `Authorization: Bearer`, and a
  *   live list would replace the static `capabilities` below.
  * - `keyPrefix` is empty: Kimi Code keys have no documented stable prefix.
@@ -121,14 +126,15 @@ export const KIMI_CODE_PROVIDER_ENTRY: AnthropicProvider = {
   name: 'Kimi Code',
   baseUrl: 'https://api.kimi.ai/coding/',
   authEnvVar: 'ANTHROPIC_API_KEY',
-  authType: 'apiKey',
-  requiresProxy: false,
+  authType: 'oauth',
+  requiresProxy: true,
+  apiKeyFallback: true,
   isLocal: false,
   keyPrefix: '',
   helpUrl: 'https://www.kimi.com/code',
   description:
-    'Kimi Code subscription (K3.1 Pro, K3, Kimi for Coding) via the Anthropic-compatible coding endpoint',
-  keyPlaceholder: 'Enter Kimi Code API key...',
+    'Kimi Code subscription (K3.1 Pro, K3, Kimi for Coding) with Kimi Code CLI sign-in, or an API key',
+  keyPlaceholder: 'Optional: Kimi Code API key',
   maskedKeyDisplay: '••••••••••••',
   pricingModel: 'subscription',
   defaultTiers: KIMI_CODE_DEFAULT_TIERS,

@@ -16,7 +16,9 @@ import type {
   VoiceProviderConfigDto,
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { By } from '@angular/platform-browser';
 import { VoiceConfigComponent } from './voice-config.component';
+import { VoiceDetailsDrawerComponent } from './voice-details-drawer.component';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function providers(elevenlabsAvailable = false): VoiceProviderCapabilityDto[] {
@@ -312,5 +314,26 @@ describe('VoiceConfigComponent', () => {
     await settle();
     expect(component.drawerDirection()).toBeNull();
     expect(document.querySelector('[data-testid="voice-details-drawer"]')).toBeNull();
+  });
+
+  it('re-reads provider availability after a drawer save so a newly keyed ElevenLabs is selectable', async () => {
+    responses['voice:listProviders'] = () => ok({ ok: true, providers: providers(false), active: { tts: 'local', stt: 'local' } });
+    await render();
+    const [block] = await fixture.getDeferBlocks();
+    byTestId<HTMLButtonElement>('voice-engine-details-stt').click();
+    await block.render(DeferBlockState.Complete);
+    await settle();
+
+    responses['voice:listProviders'] = () => ok({ ok: true, providers: providers(true), active: { tts: 'local', stt: 'local' } });
+    fixture.debugElement.query(By.directive(VoiceDetailsDrawerComponent)).componentInstance.changed.emit();
+    await settle();
+
+    expect(calls('voice:listProviders').length).toBe(2);
+    expect(calls('voice:getProviderConfig').length).toBe(2);
+    component.drawerDirection.set(null);
+    fixture.detectChanges();
+    byTestId<HTMLButtonElement>('voice-provider-btn-stt').click();
+    fixture.detectChanges();
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('voice-provider-option-stt-elevenlabs'))).toBe(false);
   });
 });

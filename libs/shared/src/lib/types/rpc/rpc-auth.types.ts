@@ -5,7 +5,8 @@ import type { ProviderModelTier } from './rpc-providers.types';
  * Authentication RPC Type Definitions
  *
  * Types for auth:getHealth, auth:saveSettings, auth:testConnection,
- * auth:copilotLogin/Logout/Status, auth:codexLogin, auth:getAuthStatus
+ * auth:copilotLogin/Logout/Status, auth:codexLogin, auth:kimiCodeLogin,
+ * auth:kimiCodeLoginCancel, auth:getAuthStatus
  */
 
 /** Supported authentication methods */
@@ -95,6 +96,103 @@ export interface AuthCodexLoginResponse {
   error?: string;
 }
 
+/**
+ * Which credential serves the next Kimi Code request.
+ *
+ * - `'cli-login'`: the Kimi Code CLI sign-in (`~/.kimi-code/credentials`).
+ * - `'api-key'`: the stored Kimi Code API key (fallback when no usable sign-in).
+ * - `'none'`: neither is available; Kimi Code needs a sign-in or a key.
+ */
+export type KimiCodeCredentialSource = 'cli-login' | 'api-key' | 'none';
+
+/**
+ * Phase of the in-app Kimi Code sign-in (`kimi login` run by the host).
+ *
+ * - `'starting'`: the host is launching `kimi login`.
+ * - `'awaiting-browser'`: the CLI printed a verification URL; the user must
+ *   approve the sign-in in the browser (`verificationUrl` is set).
+ * - `'succeeded'`: the CLI exited 0 and its credential file reads back OK.
+ * - `'failed'`: see `errorCode` / `error`.
+ * - `'cancelled'`: `auth:kimiCodeLoginCancel` stopped the sign-in.
+ *
+ * `succeeded`, `failed` and `cancelled` are terminal.
+ */
+export type KimiCodeLoginStatus =
+  | 'starting'
+  | 'awaiting-browser'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled';
+
+/**
+ * Why an in-app Kimi Code sign-in failed.
+ *
+ * - `'not-installed'`: no `kimi` executable on PATH or in `~/.kimi-code/bin`.
+ *   The UI should show the install link and the API key fallback.
+ * - `'spawn-failed'`: the executable exists but could not be started.
+ * - `'exited'`: `kimi login` exited with a non-zero code.
+ * - `'timeout'`: the sign-in did not finish within 10 minutes.
+ * - `'no-credentials'`: `kimi login` exited 0 but no readable sign-in was found.
+ */
+export type KimiCodeLoginErrorCode =
+  | 'not-installed'
+  | 'spawn-failed'
+  | 'exited'
+  | 'timeout'
+  | 'no-credentials';
+
+/**
+ * Snapshot of the in-app Kimi Code sign-in. Returned by `auth:kimiCodeLogin`
+ * and pushed as `MESSAGE_TYPES.AUTH_KIMI_CODE_LOGIN_STATUS`
+ * (`'auth:kimiCodeLoginStatus'`) on every change.
+ *
+ * SECURITY: never carries CLI output, tokens or local paths. `error` is fixed
+ * host copy chosen by `errorCode`.
+ */
+export interface KimiCodeLoginState {
+  readonly status: KimiCodeLoginStatus;
+  /** `https:` verification URL printed by the CLI, once known. */
+  readonly verificationUrl?: string;
+  /** Device user code, when the CLI printed one. */
+  readonly userCode?: string;
+  /** Whether the host opened `verificationUrl` in the system browser. */
+  readonly browserOpened?: boolean;
+  /** Set when `status === 'failed'`. */
+  readonly errorCode?: KimiCodeLoginErrorCode;
+  /** Fixed, display-safe copy; set for `failed` and `cancelled`. */
+  readonly error?: string;
+}
+
+/** Parameters for auth:kimiCodeLogin RPC method */
+export type AuthKimiCodeLoginParams = Record<string, never>;
+
+/**
+ * Response from auth:kimiCodeLogin RPC method.
+ *
+ * Starts the in-app sign-in and resolves as soon as `kimi login` is launched
+ * (or fails to launch); it does NOT wait for the user to finish in the
+ * browser. Progress arrives as `auth:kimiCodeLoginStatus` push events. Only
+ * one sign-in runs at a time: calling it again while one is running starts
+ * nothing and returns the running sign-in's current `state`.
+ */
+export interface AuthKimiCodeLoginResponse {
+  /** False only when the sign-in could not be started. */
+  success: boolean;
+  /** Fixed, display-safe copy when `success` is false. */
+  error?: string;
+  /** Current sign-in snapshot (same shape as the push payload). */
+  state?: KimiCodeLoginState;
+}
+
+/** Parameters for auth:kimiCodeLoginCancel RPC method */
+export type AuthKimiCodeLoginCancelParams = Record<string, never>;
+
+/** Response from auth:kimiCodeLoginCancel RPC method */
+export interface AuthKimiCodeLoginCancelResponse {
+  /** True when a running sign-in was stopped; false when none was running. */
+  cancelled: boolean;
+}
+
 /** Parameters for auth:getAuthStatus RPC method */
 export interface AuthGetAuthStatusParams {
   /** Optional provider ID to check key status for (defaults to persisted config value) */
@@ -144,6 +242,13 @@ export interface AnthropicProviderInfo {
    * continues to work without a key.
    */
   supportsOptionalApiKey?: boolean;
+  /**
+   * An OAuth provider that also accepts a stored API key when its sign-in is
+   * unavailable (currently `kimi-code`). The UI shows the sign-in AND an
+   * optional key input. Distinct from `supportsOptionalApiKey` (Ollama-style
+   * metadata key) — see `AnthropicProvider.apiKeyFallback`.
+   */
+  apiKeyFallback?: boolean;
   /**
    * Whether this provider runs on the host's AMBIENT Claude credentials
    * (`~/.claude`) rather than any endpoint or key of its own — currently only
@@ -205,6 +310,14 @@ export interface AuthGetAuthStatusResponse {
   codexAuthenticated?: boolean;
   /** Whether the Codex OAuth token is expired/stale */
   codexTokenStale?: boolean;
+  /** Whether the Kimi Code CLI home (`~/.kimi-code`) exists on this machine */
+  kimiCodeCliDetected?: boolean;
+  /** Whether a Kimi Code CLI sign-in is present and not known to be dead */
+  kimiCodeAuthenticated?: boolean;
+  /** Whether the Kimi Code CLI sign-in was rejected on refresh (run `kimi login` again) */
+  kimiCodeTokenStale?: boolean;
+  /** Which credential serves Kimi Code requests now; see {@link KimiCodeCredentialSource} */
+  kimiCodeCredentialSource?: KimiCodeCredentialSource;
   /** Whether Claude CLI is installed and detected on the system */
   claudeCliInstalled?: boolean;
 }

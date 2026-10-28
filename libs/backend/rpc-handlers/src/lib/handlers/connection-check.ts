@@ -12,6 +12,9 @@
  * - Sign-in and CLI connections (Copilot, Codex, Claude CLI) are checked by
  *   their existing token read or CLI detection. No request is made, so they
  *   record `latencyMs: null`.
+ * - Kimi Code is checked by the credential that serves it: a CLI sign-in by
+ *   its token read and refresh (no request), the stored-key fallback by the
+ *   stored-key probe above.
  *
  * Every outcome is recorded in {@link ConnectionCheckRecorder} and returned.
  * A check never rejects: a probe that throws records `failed`/`unclassified`.
@@ -31,6 +34,7 @@ import type {
   CopilotAuthService,
   DraftVerificationService,
   ICodexAuthService,
+  IKimiCodeAuthService,
 } from '@ptah-extension/auth-providers';
 import {
   ANTHROPIC_DIRECT_PROVIDER_ID,
@@ -55,10 +59,16 @@ import {
 
 /** How a saved connection is checked. */
 export type ConnectionCheckKind =
-  'apiKey' | 'custom' | 'copilot' | 'codex' | 'claude-cli';
+  | 'apiKey'
+  | 'custom'
+  | 'copilot'
+  | 'codex'
+  | 'kimi-code'
+  | 'claude-cli';
 
 const COPILOT_PROVIDER_ID = 'github-copilot';
 const CODEX_PROVIDER_ID = 'openai-codex';
+const KIMI_CODE_PROVIDER_ID = 'kimi-code';
 
 /** Classify a saved connection. `undefined` = unknown id; `null` = no check (local servers). */
 export function connectionCheckKind(
@@ -70,6 +80,7 @@ export function connectionCheckKind(
   if (provider.nativeAuth) return 'claude-cli';
   if (provider.id === COPILOT_PROVIDER_ID) return 'copilot';
   if (provider.id === CODEX_PROVIDER_ID) return 'codex';
+  if (provider.id === KIMI_CODE_PROVIDER_ID) return 'kimi-code';
   if (provider.isCustom) return 'custom';
   // Local servers and key-optional routes (e.g. Ollama Cloud) have no stored-key check.
   return (provider.authType ?? 'apiKey') === 'apiKey' && !provider.isLocal
@@ -82,6 +93,10 @@ export interface ConnectionCheckerDeps {
   readonly draftVerification: Pick<DraftVerificationService, 'verify'>;
   readonly copilotAuth: Pick<CopilotAuthService, 'isAuthenticated'>;
   readonly codexAuth: Pick<ICodexAuthService, 'getTokenStatus' | 'clearCache'>;
+  readonly kimiCodeAuth: Pick<
+    IKimiCodeAuthService,
+    'getStatus' | 'ensureFresh' | 'clearCache'
+  >;
   readonly cliDetector: Pick<ClaudeCliDetector, 'performHealthCheck'>;
   /** Stored key of a custom entry, for its probe (`IAuthSecretsService.getProviderKey`). */
   readonly readProviderKey: (providerId: string) => Promise<string | undefined>;
@@ -190,11 +205,48 @@ export class ConnectionChecker {
           ? verified(null)
           : failedCheck('signed-out');
       }
+      case 'kimi-code':
+        return this.probeKimiCode(providerId, sequence);
       case 'claude-cli':
         return (await this.deps.cliDetector.performHealthCheck()).available
           ? verified(null)
           : failedCheck('not-installed');
     }
+  }
+
+  /**
+   * Kimi Code: the credential that serves requests decides the check. A CLI
+   * sign-in is re-read from disk and refreshed (no inference request); the
+   * stored-key fallback gets the same real round trip as every API-key
+   * connection, against the direct endpoint.
+   */
+  private async probeKimiCode(
+    providerId: string,
+    sequence: number,
+  ): Promise<ConnectionCheckRecord> {
+    const { kimiCodeAuth } = this.deps;
+    kimiCodeAuth.clearCache();
+    const status = await kimiCodeAuth.getStatus();
+    if (status.credentialSource === 'cli-login') {
+      if (await kimiCodeAuth.ensureFresh()) return verified(null);
+      // The sign-in is not ready (rejected, or a transient refresh failure
+      // left it expired). Requests then fall back to the stored key, so a
+      // stored key is verified directly. The status still says `cli-login`
+      // after a transient failure, so the key's presence decides, not the
+      // reported source.
+      const after = await kimiCodeAuth.getStatus();
+      if (!after.hasApiKey) return failedCheck('signed-out');
+    } else if (status.credentialSource === 'none') {
+      return failedCheck('signed-out');
+    }
+    return fromDraftProbe(
+      await this.deps.draftVerification.verify({
+        probeId: `connection-check:${providerId}:${sequence}`,
+        providerId,
+        authMode: 'apiKey',
+        credential: { kind: 'stored' },
+      }),
+    );
   }
 }
 

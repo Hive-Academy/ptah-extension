@@ -513,3 +513,77 @@ describe('resolveEffectiveAuthRoute', () => {
     expect(r.ready).toBe(false);
   });
 });
+
+describe('ptah doctor — Kimi Code (CLI sign-in with API key fallback)', () => {
+  async function kimiStatus(
+    hasApiKey: boolean,
+    kimiCodeCredentialSource?: 'cli-login' | 'api-key' | 'none',
+  ): Promise<DoctorProviderEntry | undefined> {
+    const formatterTrace = makeFormatter();
+    const engine = makeEngine();
+    engine.scripted.set('auth:getAuthStatus', {
+      success: true,
+      data: {
+        authMethod: 'thirdParty',
+        anthropicProviderId: 'kimi-code',
+        kimiCodeCredentialSource,
+      },
+    });
+    engine.scripted.set('llm:getDefaultProvider', {
+      success: true,
+      data: { provider: 'kimi-code' },
+    });
+    engine.scripted.set('llm:getProviderStatus', {
+      success: true,
+      data: {
+        providers: [
+          {
+            name: 'kimi-code',
+            authType: 'oauth',
+            hasApiKey,
+            isLocal: false,
+            requiresProxy: true,
+            baseUrl: null,
+          },
+        ],
+      },
+    });
+    engine.scripted.set('auth:getHealth', {
+      success: true,
+      data: { success: true, health: {} },
+    });
+    engine.resolved.set(SDK_TOKENS.SDK_CLI_DETECTOR, {
+      performHealthCheck: jest.fn(async () => ({ available: false })),
+    });
+
+    await execute({}, baseGlobals, {
+      formatter: formatterTrace.formatter,
+      withEngine: engine.withEngine,
+      probeLocal: jest.fn(async () => 'reachable' as const),
+      now: () => new Date('2026-05-04T00:00:00.000Z'),
+    });
+    const report = formatterTrace.notifications[0]?.params as {
+      providers: DoctorProviderEntry[];
+    };
+    return report.providers.find((p) => p.id === 'kimi-code');
+  }
+
+  it('reports a stored-key user as connected (no regression after the OAuth flip)', async () => {
+    await expect(kimiStatus(true)).resolves.toMatchObject({
+      type: 'oauth',
+      status: 'connected',
+    });
+  });
+
+  it('reports a CLI sign-in as connected', async () => {
+    await expect(kimiStatus(false, 'cli-login')).resolves.toMatchObject({
+      status: 'connected',
+    });
+  });
+
+  it('reports neither as unauthenticated', async () => {
+    await expect(kimiStatus(false, 'none')).resolves.toMatchObject({
+      status: 'unauthenticated',
+    });
+  });
+});

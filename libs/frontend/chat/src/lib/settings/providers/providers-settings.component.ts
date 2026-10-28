@@ -57,6 +57,8 @@ import type {
 import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+// Rendered only inside `@defer`, so it stays out of the eager settings bundle.
+import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
 export type ProvidersSettingsFocusTarget =
@@ -87,6 +89,7 @@ const CONTROL =
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
     AccountsSectionComponent,
+    KimiCodeLoginProgressComponent,
   ],
   template: `
     <div
@@ -404,8 +407,25 @@ const CONTROL =
           />
         }
 
-        @if (state.externalAuth().data; as auth) {
-          <p role="status" class="break-words">{{ auth.message }}</p>
+        @if (state.externalAuth().data?.message; as message) {
+          <p role="status" class="break-words">{{ message }}</p>
+        }
+        @if (pageKimiLogin(); as login) {
+          <div class="space-y-2" data-testid="providers-kimi-login">
+            @defer (on immediate) {
+              <ptah-kimi-code-login-progress [state]="login" />
+            }
+            @if (login.status !== 'failed') {
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                (click)="externalAction(kimiCodeId, 'sign-in-cancel')"
+                data-testid="providers-kimi-login-cancel"
+              >
+                Cancel Kimi Code sign-in
+              </button>
+            }
+          </div>
         }
         @if (state.externalAuth().status === 'loading') {
           <p role="status">Waiting for external sign-in…</p>
@@ -475,6 +495,7 @@ const CONTROL =
             [credentialsSetupError]="state.connectionSetup().status === 'error'"
             [credentialsCommit]="drawerCommit()"
             [externalAuth]="drawerExternalAuth()"
+            [kimiLogin]="state.kimiCodeLogin()"
             [verifyDraftConnection]="verifyDraftConnection"
             [cancelDraftVerification]="cancelDraftVerification"
             (closed)="closeDrawer()"
@@ -511,6 +532,7 @@ const CONTROL =
             [defaultsResolvable]="wizardDefaults()"
             [externalAuth]="wizardExternalAuth()"
             [externalMessage]="state.externalAuth().data?.message ?? null"
+            [signInProgress]="wizardSignInProgress()"
             [initialSetup]="
               state.connectionSetup().status === 'ready'
                 ? state.connectionSetup().data
@@ -684,6 +706,29 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
             ? ('failed' as const)
             : auth.data.signInState,
     };
+  });
+  /** `KIMI_CODE_PROVIDER_ENTRY.id`; a literal keeps `@ptah-extension/shared` a type-only import here. */
+  protected readonly kimiCodeId = 'kimi-code';
+  /** The in-app sign-in progress belongs to Kimi Code only; any other provider shows none. */
+  protected readonly wizardSignInProgress = computed(() =>
+    this.selectedWizardProvider() === this.kimiCodeId
+      ? this.state.kimiCodeLogin()
+      : null,
+  );
+  /**
+   * A Kimi Code sign-in started from a card still runs or failed: the page shows its link and code
+   * or its error, unless the Kimi Code drawer or the wizard already shows them.
+   */
+  protected readonly pageKimiLogin = computed(() => {
+    const login = this.state.kimiCodeLogin();
+    // `starting`, `awaiting-browser` or `failed`, written as the two other statuses for a smaller main bundle.
+    return login &&
+      login.status !== 'succeeded' &&
+      login.status !== 'cancelled' &&
+      this.drawerId() !== this.kimiCodeId &&
+      !this.wizardOpen()
+      ? login
+      : null;
   });
   protected readonly wizardContextChanged = computed(() => {
     const before = this.wizardContext(),

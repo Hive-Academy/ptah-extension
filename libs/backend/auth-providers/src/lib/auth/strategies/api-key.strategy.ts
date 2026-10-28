@@ -3,13 +3,13 @@
  *
  * Handles authentication via direct API key for:
  * - Anthropic direct (ANTHROPIC_API_KEY from SecretStorage or env)
- * - Anthropic-compatible providers (OpenRouter, Kimi Code, Z.AI) using per-provider keys
+ * - Anthropic-compatible providers (OpenRouter, Z.AI) using per-provider keys
  * - User-defined provider entries from `provider.custom.entries`
  *
  * Custom entries take one of two existing paths, chosen by the registry's
  * `requiresProxy` flag (itself derived from the entry's `lane`):
  * - `lane: 'anthropic'` -> `requiresProxy: false` -> the direct-passthrough
- *   path, identical to Kimi Code/Z.AI (base URL + per-provider key).
+ *   path, identical to Z.AI (base URL + per-provider key).
  * - `lane: 'openai'` -> `requiresProxy: true` -> a `CustomOpenAiTranslationProxy`
  *   built for that id on demand, alongside the built-in OpenRouter/Sakana
  *   proxy singletons.
@@ -539,7 +539,8 @@ export class ApiKeyStrategy implements IAuthStrategy {
 
   /**
    * Configure a third-party Anthropic-compatible provider via per-provider API key.
-   * Supports: OpenRouter, Kimi Code, Z.AI (GLM).
+   * Supports: OpenRouter, Z.AI (GLM). Kimi Code routes through
+   * `OAuthProxyStrategy` (CLI sign-in with a stored-key fallback).
    *
    * An id the registry does not know (for example a provider removed in an
    * earlier release) fails closed: no key is read and no env is set, because
@@ -573,8 +574,8 @@ export class ApiKeyStrategy implements IAuthStrategy {
     const providerKey = await this.authSecrets.getProviderKey(providerId);
 
     if (!providerKey?.trim() && authEnvVar === 'ANTHROPIC_API_KEY') {
-      // No env fallback for a provider whose key lives in ANTHROPIC_API_KEY
-      // (Kimi Code). That variable is the direct-Anthropic credential every
+      // No env fallback for a provider whose key lives in ANTHROPIC_API_KEY.
+      // That variable is the direct-Anthropic credential every
       // developer shell already carries, so a value found there cannot be
       // attributed to this provider, and taking it would send an Anthropic
       // key to a third-party host. Only a stored key configures it.
@@ -678,7 +679,7 @@ export class ApiKeyStrategy implements IAuthStrategy {
    * Returns the user-supplied override stored at
    * `provider.<id>.baseUrl` in `~/.ptah/settings.json` when present, otherwise
    * the static registry default from `getProviderBaseUrl()`. Used by both the
-   * direct-passthrough flow (Kimi Code, Z-AI, Ollama, etc.) and the OpenRouter
+   * direct-passthrough flow (Z-AI, Ollama, etc.) and the OpenRouter
    * proxy flow (CLI parity: `provider base-url set ...` and `provider ollama
    * set-endpoint ...`).
    *

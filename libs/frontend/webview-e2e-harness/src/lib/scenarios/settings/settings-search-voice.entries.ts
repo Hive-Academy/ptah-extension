@@ -215,7 +215,8 @@ const voice: readonly ReachabilityEntry[] = [
     }) },
   { id: 'SV-15', capability: 'ElevenLabs key: test first (fixed category sentence), Save only after a passing test; Clear asks first', status: 'restored',
     reach: (page) => inVoiceDrawer(page, 'tts', async () => {
-      await expect(page.locator('[data-testid="elevenlabs-key-configured"]')).toBeVisible();
+      await expect(page.locator('[data-testid="elevenlabs-key-configured"]')).toHaveText('Key saved');
+      await page.locator('[data-testid="elevenlabs-key-replace"]').click();
       const input = page.locator('[data-testid="elevenlabs-key-input"]');
       const save = page.locator('[data-testid="elevenlabs-key-save"]');
       await input.fill(INVALID_VOICE_KEY);
@@ -230,6 +231,7 @@ const voice: readonly ReachabilityEntry[] = [
       await save.click();
       await expectWrite(page, start, 'voice:setApiKey', { providerId: 'elevenlabs', apiKey: 'el-e2e-good-key' });
       await dismissToast(page, 'Saved ElevenLabs API key.');
+      await expect(input).toHaveCount(0);
       await page.locator('[data-testid="elevenlabs-key-clear"]').click();
       await expect(page.locator('[data-testid="elevenlabs-clear-group"]')).toBeVisible();
       await page.locator('[data-testid="elevenlabs-clear-cancel"]').click();

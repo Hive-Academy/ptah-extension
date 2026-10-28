@@ -1,13 +1,16 @@
 import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { AlertTriangle, Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-angular';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
 import {
   getAnthropicProvider,
   type AuthCancelDraftVerificationParams, type AuthCancelDraftVerificationResult,
-  type AuthVerifyDraftConnectionParams, type AuthVerifyDraftConnectionResult, type ProbeFailureReason,
+  type AuthVerifyDraftConnectionParams, type AuthVerifyDraftConnectionResult, type KimiCodeLoginState,
+  type ProbeFailureReason,
 } from '@ptah-extension/shared';
+import { KimiCodeLoginProgressComponent } from './kimi-code-login-progress.component';
 import type { ConnectionKind } from './connection-kind';
 import type { DrawerWriteOutcome } from './drawer-write';
 import { KEY_UNREADABLE_TEXT } from '../provider-connection-card.state';
@@ -40,7 +43,13 @@ export interface CredentialsSetup {
   readonly tiers: { readonly sonnet: string | null; readonly opus: string | null; readonly haiku: string | null };
 }
 
-export type CredentialsExternalAction = 'sign-in' | 'cli-check';
+export type CredentialsExternalAction = 'sign-in' | 'sign-in-cancel' | 'cli-check';
+
+/** A sign-in connection that also takes a stored key (`apiKeyFallback`) stores and checks that key as an API key. */
+function keyAuthMode(connection: ProvidersConnection): ProvidersConnectionDraft['authMode'] {
+  if (connection.custom || connection.authMode === 'custom') return 'apiKey';
+  return getAnthropicProvider(connection.id)?.apiKeyFallback ? 'apiKey' : connection.authMode;
+}
 
 /**
  * The `connectProvider` draft for a verified Replace (plan :645-652). It writes the credential only:
@@ -54,7 +63,7 @@ export function replaceKeyDraft(connection: ProvidersConnection, request: Replac
   const tiers = { everyday: setup?.tiers.sonnet ?? '', complex: setup?.tiers.opus ?? '', fast: setup?.tiers.haiku ?? '' };
   return {
     providerId: connection.id, displayName: connection.name,
-    authMode: connection.custom || connection.authMode === 'custom' ? 'apiKey' : connection.authMode,
+    authMode: keyAuthMode(connection),
     customName: null, customProtocol: null,
     credential: { kind: 'apiKey', value: request.key },
     baseUrl: null, verified: { probeId: request.probeId },
@@ -80,6 +89,7 @@ const PROBE_FAILURE_COPY: Readonly<Record<ProbeFailureReason, string>> = {
 };
 
 const CLAUDE_LOGIN = 'claude login';
+const KIMI_LOGIN = 'kimi login';
 const CLAUDE_INSTALL = 'npm install -g @anthropic-ai/claude-code';
 
 type ProbeState = 'idle' | 'checking' | 'verified' | 'failed';
@@ -90,6 +100,8 @@ let PROBE_COUNTER = 0;
  * - api-key / custom: the host's masked hint ("•••• 8f21", Batch 28d) or a fixed mask, Replace (verify, then
  *   save), Delete key;
  * - GitHub Copilot: the account and Sign out; OpenAI Codex: login state and Open login;
+ * - Kimi Code: which credential serves it, the in-app sign-in (link, code, Cancel), the `kimi login` command,
+ *   Check again, and the optional fallback key (the same key block as api-key connections);
  * - claude-cli: the `claude login` / install commands with Copy;
  * - local: "no key needed".
  * Every write asks for an inline confirm or a passing check first; this component never writes itself.
@@ -98,7 +110,7 @@ let PROBE_COUNTER = 0;
   selector: 'ptah-connection-credentials-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NgTemplateOutlet, KimiCodeLoginProgressComponent],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-credentials">
       @switch (view()) {
@@ -167,6 +179,38 @@ let PROBE_COUNTER = 0;
               data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
           </div>
         }
+        @case ('kimi-code') {
+          <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="credentials-kimi">
+            <p class="flex items-center gap-1.5 font-semibold text-base-content" data-testid="credentials-kimi-status">
+              <span [class]="kimiStatus().dot" aria-hidden="true"></span> {{ kimiStatus().text }}
+            </p>
+            <p class="text-xs text-base-content-muted" data-testid="credentials-kimi-copy">
+              Ptah uses the login stored by the Kimi Code CLI in ~/.kimi-code. Sign in here, or run kimi login in a
+              terminal, to sign in or switch accounts.
+            </p>
+            <ptah-kimi-code-login-progress [state]="kimiLogin()" [installUrl]="helpUrl()" />
+            <div class="flex flex-wrap gap-2">
+              @if (kimiRunning()) {
+                <button type="button" class="btn btn-outline btn-sm" (click)="externalActionRequested.emit('sign-in-cancel')"
+                  data-testid="credentials-kimi-cancel">Cancel sign-in</button>
+              } @else {
+                <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()"
+                  (click)="externalActionRequested.emit('sign-in')" data-testid="credentials-kimi-sign-in">Sign in with Kimi Code</button>
+              }
+              <button type="button" class="btn btn-ghost btn-sm" [ptahBusyDisabled]="busy() || externalBusy() || kimiRunning()"
+                (click)="externalActionRequested.emit('cli-check')" data-testid="credentials-kimi-check">{{ externalBusy() ? 'Checking…' : 'Check again' }}</button>
+            </div>
+            <p class="text-xs text-base-content-muted">Or sign in from a terminal:</p>
+            <div class="flex items-center justify-between gap-2 rounded border border-base-300 bg-base-100 px-2 py-1">
+              <code class="font-mono text-xs text-base-content">{{ kimiLoginCommand }}</code>
+              <button type="button" class="btn btn-ghost btn-xs gap-1" (click)="copy(kimiLoginCommand)"
+                aria-label="Copy kimi login" data-testid="credentials-copy-kimi-login">
+                <lucide-angular [img]="CopyIcon" class="h-3 w-3" aria-hidden="true" /> Copy
+              </button>
+            </div>
+          </div>
+          <ng-container [ngTemplateOutlet]="keyBlock" />
+        }
         @case ('oauth') {
           <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="credentials-oauth">
             <p class="text-xs text-base-content">Signed in with your provider account. Open login to switch or refresh it.</p>
@@ -192,108 +236,7 @@ let PROBE_COUNTER = 0;
           }
         }
         @default {
-          <div class="space-y-2" data-testid="credentials-key">
-            <span class="block font-semibold text-base-content" id="credentials-key-label">Stored API key</span>
-            <div class="flex flex-wrap items-center gap-2">
-              @if (connection().keyUnreadable) {
-                <!-- M-6: the host could not read the key, so whether one is stored is unknown: never "No key stored". -->
-                <span class="flex min-w-0 flex-1 items-center gap-1.5 rounded border border-base-300 bg-base-200 px-3 py-1.5 text-xs text-base-content"
-                  aria-labelledby="credentials-key-label" data-testid="credentials-key-unreadable">
-                  <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-                  {{ keyUnreadableText }}
-                </span>
-                <button type="button"
-                  class="btn btn-link btn-xs h-6 min-h-6 !px-0 text-xs text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-                  aria-label="Retry reading the stored key" (click)="keyRetryRequested.emit()" data-testid="credentials-key-unreadable-retry">Retry</button>
-              } @else {
-                <!-- The host's masked hint (bullets + last 4) when it sent one, else a fixed mask. Display only:
-                     not selectable and never offered to a copy action. -->
-                <span class="min-w-0 flex-1 select-none rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
-                  aria-labelledby="credentials-key-label" data-testid="credentials-key-mask">
-                  {{ connection().hasKey ? (connection().keyHint ?? '••••••••••••••••') : 'No key stored' }}
-                </span>
-              }
-              @if (canReplace()) {
-                <!-- An unreadable key can still be overwritten, so it reads Replace, not Add key. -->
-                <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || replacing()"
-                  (click)="startReplace()" data-testid="credentials-replace">{{ connection().hasKey || connection().keyUnreadable ? 'Replace' : 'Add key' }}</button>
-              }
-              @if (connection().hasKey || connection().keyUnreadable) {
-                <!-- An unreadable key can be deleted too: the delete does not need to read it. -->
-                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
-                  (click)="confirming.set('delete')" data-testid="credentials-delete">Delete key</button>
-              }
-            </div>
-            @if (anthropicGuidance()) {
-              <p class="text-xs text-base-content-muted" data-testid="credentials-anthropic-guidance">
-                A new Claude API key is saved together with choosing Claude API for the main agent. Use Connect provider → Claude API to replace it.
-              </p>
-            }
-            @if (optionalKey()) {
-              <p class="text-xs text-base-content-muted" data-testid="credentials-optional-key">
-                The key is optional. Without it, requests go through your signed-in local Ollama; with an ollama.com key, Ptah connects directly and can list models and prices.
-              </p>
-            }
-            @if (helpUrl(); as url) {
-              <a [href]="url" target="_blank" rel="noopener noreferrer" class="link link-hover inline-block text-xs text-base-content"
-                data-testid="credentials-get-key">Get a key →</a>
-            }
-          </div>
-
-          @if (replacing()) {
-            <div class="space-y-2 rounded border border-base-300 p-3" data-testid="credentials-replace-form">
-              <label for="credentials-new-key" class="block text-xs font-semibold text-base-content">New API key</label>
-              <div class="relative">
-                <input id="credentials-new-key" [type]="keyVisible() ? 'text' : 'password'" autocomplete="off" spellcheck="false"
-                  class="input input-bordered input-sm w-full pr-9 font-mono text-xs" [value]="keyDraft()" (input)="onKeyInput($event)"
-                  [attr.placeholder]="keyPlaceholder()" data-testid="credentials-new-key" />
-                <button type="button" class="btn btn-ghost btn-xs absolute right-1 top-1" (click)="keyVisible.set(!keyVisible())"
-                  [attr.aria-label]="keyVisible() ? 'Hide API key' : 'Show API key'" [attr.aria-pressed]="keyVisible()"
-                  data-testid="credentials-toggle-visibility">
-                  <lucide-angular [img]="keyVisible() ? EyeOffIcon : EyeIcon" class="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              </div>
-              @if (connection().id === 'anthropic') {
-                <p class="text-xs text-base-content-muted">Saving updates the main agent's Claude API key and restarts running chat sessions.</p>
-              }
-              @if (setupMissing(); as missing) {
-                <p class="text-xs text-base-content-muted" data-testid="credentials-setup-missing">{{ missing }}</p>
-              }
-              <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
-                @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
-                {{ probeText() }}
-              </p>
-              <div class="flex flex-wrap gap-2">
-                <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
-                  (click)="verify()" data-testid="credentials-verify">{{ probeState() === 'checking' ? 'Checking…' : 'Check key' }}</button>
-                <button type="button" class="btn btn-primary btn-sm" [ptahBusyDisabled]="!canSave()" (click)="save()"
-                  data-testid="credentials-save">Save key</button>
-                <button type="button" class="btn btn-ghost btn-sm" (click)="cancelReplace()" data-testid="credentials-cancel-replace">Cancel</button>
-              </div>
-            </div>
-          }
-
-          @if (confirming() === 'delete') {
-            <div role="group" aria-label="Confirm delete key" class="space-y-2 rounded border border-base-300 p-3" data-testid="credentials-delete-confirm">
-              <p class="text-xs text-base-content">Delete the stored key for {{ connection().name }} from this machine?</p>
-              @if (isActiveDriver()) {
-                <p class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-active-driver-warning">
-                  <span class="h-2 w-2 shrink-0 rounded-full bg-warning" aria-hidden="true"></span>
-                  {{ connection().name }} drives the main agent. New requests fail until a key is added.
-                </p>
-              }
-              <div class="flex gap-2">
-                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [ptahBusyDisabled]="busy()"
-                  (click)="confirmDelete()" data-testid="credentials-delete-confirm-button">Delete key</button>
-                <button type="button" class="btn btn-ghost btn-sm" (click)="confirming.set(null)">Cancel</button>
-              </div>
-            </div>
-          }
-
-          <div class="flex items-center justify-between gap-3 rounded border border-base-300 bg-base-200 p-2.5 text-xs">
-            <span class="text-base-content-muted">Storage</span>
-            <span class="text-base-content">Encrypted on this machine</span>
-          </div>
+          <ng-container [ngTemplateOutlet]="keyBlock" />
         }
       }
 
@@ -320,6 +263,118 @@ let PROBE_COUNTER = 0;
           <span [class]="feedback.dot" aria-hidden="true"></span> {{ feedback.text }}
         </p>
       }
+
+      <!-- The stored-key block: the whole view of a key connection, and the optional fallback key of a
+           sign-in connection that also takes one (Kimi Code). -->
+      <ng-template #keyBlock>
+        <div class="space-y-2" data-testid="credentials-key">
+          <span class="block font-semibold text-base-content" id="credentials-key-label">{{ keyFallback() ? 'Optional API key' : 'Stored API key' }}</span>
+          @if (keyFallback()) {
+            <p class="text-xs text-base-content-muted" data-testid="credentials-fallback-key-copy">
+              Used only when the {{ connection().name }} CLI is not signed in.
+            </p>
+          }
+          <div class="flex flex-wrap items-center gap-2">
+            @if (connection().keyUnreadable) {
+              <!-- M-6: the host could not read the key, so whether one is stored is unknown: never "No key stored". -->
+              <span class="flex min-w-0 flex-1 items-center gap-1.5 rounded border border-base-300 bg-base-200 px-3 py-1.5 text-xs text-base-content"
+                aria-labelledby="credentials-key-label" data-testid="credentials-key-unreadable">
+                <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                {{ keyUnreadableText }}
+              </span>
+              <button type="button"
+                class="btn btn-link btn-xs h-6 min-h-6 !px-0 text-xs text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                aria-label="Retry reading the stored key" (click)="keyRetryRequested.emit()" data-testid="credentials-key-unreadable-retry">Retry</button>
+            } @else {
+              <!-- The host's masked hint (bullets + last 4) when it sent one, else a fixed mask. Display only:
+                   not selectable and never offered to a copy action. -->
+              <span class="min-w-0 flex-1 select-none rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
+                aria-labelledby="credentials-key-label" data-testid="credentials-key-mask">
+                {{ connection().hasKey ? (connection().keyHint ?? '••••••••••••••••') : 'No key stored' }}
+              </span>
+            }
+            @if (canReplace()) {
+              <!-- An unreadable key can still be overwritten, so it reads Replace, not Add key. -->
+              <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || replacing()"
+                (click)="startReplace()" data-testid="credentials-replace">{{ connection().hasKey || connection().keyUnreadable ? 'Replace' : 'Add key' }}</button>
+            }
+            @if (connection().hasKey || connection().keyUnreadable) {
+              <!-- An unreadable key can be deleted too: the delete does not need to read it. -->
+              <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
+                (click)="confirming.set('delete')" data-testid="credentials-delete">Delete key</button>
+            }
+          </div>
+          @if (anthropicGuidance()) {
+            <p class="text-xs text-base-content-muted" data-testid="credentials-anthropic-guidance">
+              A new Claude API key is saved together with choosing Claude API for the main agent. Use Connect provider → Claude API to replace it.
+            </p>
+          }
+          @if (optionalKey()) {
+            <p class="text-xs text-base-content-muted" data-testid="credentials-optional-key">
+              The key is optional. Without it, requests go through your signed-in local Ollama; with an ollama.com key, Ptah connects directly and can list models and prices.
+            </p>
+          }
+          @if (helpUrl(); as url) {
+            <a [href]="url" target="_blank" rel="noopener noreferrer" class="link link-hover inline-block text-xs text-base-content"
+              data-testid="credentials-get-key">Get a key →</a>
+          }
+        </div>
+
+        @if (replacing()) {
+          <div class="space-y-2 rounded border border-base-300 p-3" data-testid="credentials-replace-form">
+            <label for="credentials-new-key" class="block text-xs font-semibold text-base-content">New API key</label>
+            <div class="relative">
+              <input id="credentials-new-key" [type]="keyVisible() ? 'text' : 'password'" autocomplete="off" spellcheck="false"
+                class="input input-bordered input-sm w-full pr-9 font-mono text-xs" [value]="keyDraft()" (input)="onKeyInput($event)"
+                [attr.placeholder]="keyPlaceholder()" data-testid="credentials-new-key" />
+              <button type="button" class="btn btn-ghost btn-xs absolute right-1 top-1" (click)="keyVisible.set(!keyVisible())"
+                [attr.aria-label]="keyVisible() ? 'Hide API key' : 'Show API key'" [attr.aria-pressed]="keyVisible()"
+                data-testid="credentials-toggle-visibility">
+                <lucide-angular [img]="keyVisible() ? EyeOffIcon : EyeIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+            @if (connection().id === 'anthropic') {
+              <p class="text-xs text-base-content-muted">Saving updates the main agent's Claude API key and restarts running chat sessions.</p>
+            }
+            @if (setupMissing(); as missing) {
+              <p class="text-xs text-base-content-muted" data-testid="credentials-setup-missing">{{ missing }}</p>
+            }
+            <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
+              @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
+              {{ probeText() }}
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
+                (click)="verify()" data-testid="credentials-verify">{{ probeState() === 'checking' ? 'Checking…' : 'Check key' }}</button>
+              <button type="button" class="btn btn-primary btn-sm" [ptahBusyDisabled]="!canSave()" (click)="save()"
+                data-testid="credentials-save">Save key</button>
+              <button type="button" class="btn btn-ghost btn-sm" (click)="cancelReplace()" data-testid="credentials-cancel-replace">Cancel</button>
+            </div>
+          </div>
+        }
+
+        @if (confirming() === 'delete') {
+          <div role="group" aria-label="Confirm delete key" class="space-y-2 rounded border border-base-300 p-3" data-testid="credentials-delete-confirm">
+            <p class="text-xs text-base-content">Delete the stored key for {{ connection().name }} from this machine?</p>
+            @if (isActiveDriver()) {
+              <p class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-active-driver-warning">
+                <span class="h-2 w-2 shrink-0 rounded-full bg-warning" aria-hidden="true"></span>
+                {{ connection().name }} drives the main agent. New requests fail until a key is added.
+              </p>
+            }
+            <div class="flex gap-2">
+              <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [ptahBusyDisabled]="busy()"
+                (click)="confirmDelete()" data-testid="credentials-delete-confirm-button">Delete key</button>
+              <button type="button" class="btn btn-ghost btn-sm" (click)="confirming.set(null)">Cancel</button>
+            </div>
+          </div>
+        }
+
+        <div class="flex items-center justify-between gap-3 rounded border border-base-300 bg-base-200 p-2.5 text-xs">
+          <span class="text-base-content-muted">Storage</span>
+          <span class="text-base-content">Encrypted on this machine</span>
+        </div>
+      </ng-template>
     </div>
   `,
 })
@@ -337,6 +392,8 @@ export class CredentialsTabComponent {
   readonly commit = input<CredentialsCommit | null>(null);
   /** The drawer-started sign-in for this connection. */
   readonly externalAuth = input<CredentialsExternalAuth>({ status: 'idle', message: null });
+  /** The in-app Kimi Code sign-in (`state.kimiCodeLogin()`); read only by the Kimi Code view. */
+  readonly kimiLogin = input<KimiCodeLoginState | null>(null);
   readonly verifyDraftConnection = input.required<VerifyDraftFn>();
   readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly replaceKeyRequested = output<ReplaceKeyRequest>();
@@ -355,6 +412,7 @@ export class CredentialsTabComponent {
     { id: 'login', label: 'claude login command', text: CLAUDE_LOGIN },
     { id: 'install', label: 'install command', text: CLAUDE_INSTALL },
   ] as const;
+  protected readonly kimiLoginCommand = KIMI_LOGIN;
 
   protected readonly confirming = signal<'delete' | 'sign-out' | null>(null);
   protected readonly replacing = signal(false);
@@ -373,6 +431,7 @@ export class CredentialsTabComponent {
     const connection = this.connection();
     if (connection.id === 'github-copilot') return 'copilot';
     if (connection.id === 'openai-codex') return 'codex';
+    if (connection.id === 'kimi-code') return 'kimi-code';
     switch (this.kind()) {
       case 'claude-cli': return 'cli';
       case 'oauth': return 'oauth';
@@ -386,6 +445,27 @@ export class CredentialsTabComponent {
     return /^https:\/\//.test(url) ? url : null;
   });
   protected readonly optionalKey = computed(() => this.registryEntry()?.supportsOptionalApiKey === true);
+  /** A sign-in connection whose stored key is only a fallback (`apiKeyFallback`). */
+  protected readonly keyFallback = computed(() => this.registryEntry()?.apiKeyFallback === true);
+  /** A Kimi Code sign-in is between start and its final phase. */
+  protected readonly kimiRunning = computed(() => {
+    const status = this.kimiLogin()?.status;
+    return status === 'starting' || status === 'awaiting-browser';
+  });
+  /** Which credential serves Kimi Code now. The dot never stands alone: the text says the same. */
+  protected readonly kimiStatus = computed(() => {
+    const connection = this.connection();
+    const source = connection.credentialSource ?? 'none';
+    const dot = (tone: string) => `h-2 w-2 shrink-0 rounded-full ${tone}`;
+    if (connection.tokenStale)
+      return { text: source === 'api-key' ? 'Kimi Code CLI login expired · using the stored API key'
+        : 'Kimi Code CLI login expired', dot: dot('bg-warning') };
+    switch (source) {
+      case 'cli-login': return { text: 'Connected via Kimi Code CLI', dot: dot('bg-success') };
+      case 'api-key': return { text: 'Using the stored API key', dot: dot('bg-success') };
+      default: return { text: 'Not signed in', dot: dot('bg-warning') };
+    }
+  });
   protected readonly keyPlaceholder = computed(() => {
     const prefix = this.registryEntry()?.keyPrefix ?? '';
     return prefix ? `Starts with ${prefix}` : 'Paste the new key';
@@ -474,7 +554,7 @@ export class CredentialsTabComponent {
     const custom = this.kind() === 'custom';
     const params: AuthVerifyDraftConnectionParams = {
       probeId, providerId: connection.id,
-      authMode: custom ? 'custom' : connection.authMode,
+      authMode: custom ? 'custom' : keyAuthMode(connection),
       credential: { kind: 'apiKey', value: key },
       ...(custom && this.setup()?.baseUrl ? { baseUrl: this.setup()?.baseUrl ?? '' } : {}),
     };

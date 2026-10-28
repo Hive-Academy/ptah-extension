@@ -39,6 +39,9 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
   SDK_CODEX_HOME_RESOLVER: Symbol.for('SdkCodexHomeResolver'),
   SDK_CODEX_ACCOUNT_USAGE: Symbol.for('SdkCodexAccountUsage'),
+  SDK_KIMI_CODE_AUTH: Symbol.for('SdkKimiCodeAuth'),
+  SDK_KIMI_CODE_PROXY: Symbol.for('SdkKimiCodeProxy'),
+  SDK_KIMI_CODE_LOGIN: Symbol.for('SdkKimiCodeLogin'),
   SDK_OPENROUTER_AUTH: Symbol.for('SdkOpenRouterAuth'),
   SDK_OPENROUTER_PROXY: Symbol.for('SdkOpenRouterProxy'),
   SDK_OPENROUTER_PRICING: Symbol.for('SdkOpenRouterPricing'),
@@ -56,6 +59,7 @@ export const AUTH_PROVIDERS_TOKENS = {
   SDK_CURATOR_PROXY_MANAGER: Symbol.for('SdkCuratorProxyManager'),
   SDK_CURATOR_COPILOT_PROXY: Symbol.for('SdkCuratorCopilotProxy'),
   SDK_CURATOR_CODEX_PROXY: Symbol.for('SdkCuratorCodexProxy'),
+  SDK_CURATOR_KIMI_CODE_PROXY: Symbol.for('SdkCuratorKimiCodeProxy'),
   SDK_CURATOR_OPENROUTER_PROXY: Symbol.for('SdkCuratorOpenRouterProxy'),
   SDK_CURATOR_LM_STUDIO_PROXY: Symbol.for('SdkCuratorLmStudioProxy'),
 

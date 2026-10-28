@@ -6,11 +6,13 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import type { VoiceProviderConfigDto } from '@ptah-extension/shared';
 import { VoiceDetailsDrawerComponent, type VoiceDirection } from './voice-details-drawer.component';
 import { LocalSttPanelComponent } from './local-stt-panel.component';
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
 import { ElevenLabsPanelComponent } from './elevenlabs-panel.component';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 @Component({ selector: 'ptah-local-stt-panel', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
   template: '<button type="button" data-testid="stub-local-stt" (click)="changed.emit()">stt</button>' })
@@ -31,6 +33,7 @@ class LocalTtsStub {
 class ElevenLabsStub {
   readonly direction = input.required<'stt' | 'tts'>();
   readonly config = input.required<unknown>();
+  readonly keyOnly = input(false);
   readonly changed = output<void>();
 }
 
@@ -62,8 +65,14 @@ describe('VoiceDetailsDrawerComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
 
+  const saving = signal(false);
+
   beforeEach(async () => {
-    TestBed.configureTestingModule({ imports: [HostComponent] }).overrideComponent(VoiceDetailsDrawerComponent, {
+    saving.set(false);
+    TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [{ provide: SettingsSaveFeedbackService, useValue: { saving } }],
+    }).overrideComponent(VoiceDetailsDrawerComponent, {
       remove: { imports: [LocalSttPanelComponent, LocalTtsPanelComponent, ElevenLabsPanelComponent] },
       add: { imports: [LocalSttStub, LocalTtsStub, ElevenLabsStub] },
     });
@@ -106,6 +115,21 @@ describe('VoiceDetailsDrawerComponent', () => {
     fixture.detectChanges();
     expect(q('stub-elevenlabs-tts')).not.toBeNull();
     expect(q('stub-local-tts')).toBeNull();
+    expect(q('voice-elevenlabs-setup')).toBeNull();
+  });
+
+  it('offers ElevenLabs key setup beside the local panel so the provider can become available', () => {
+    host.config.set(config({ elevenlabs: { ...config().elevenlabs, apiKeyConfigured: false } }));
+    fixture.detectChanges();
+    expect(q('stub-local-stt')).not.toBeNull();
+    expect(q('voice-elevenlabs-setup')?.querySelector('[data-testid="stub-elevenlabs-stt"]')).not.toBeNull();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub)).componentInstance.keyOnly()).toBe(true);
+
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(q('stub-local-tts')).not.toBeNull();
+    expect(q('stub-elevenlabs-tts')).not.toBeNull();
+    expect(q('stub-elevenlabs-stt')).toBeNull();
   });
 
   it('forwards a panel save so the parent re-reads config', () => {
@@ -122,9 +146,40 @@ describe('VoiceDetailsDrawerComponent', () => {
     expect(q('voice-details-drawer')).toBeNull();
   });
 
+  it('keeps the drawer open and on its tab while a save is in flight, so the panel can report it', () => {
+    saving.set(true);
+    fixture.detectChanges();
+
+    const close = q('voice-details-close') as HTMLButtonElement;
+    expect(close.disabled).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(host.closedCount).toBe(0);
+    expect(host.direction()).toBe('stt');
+    expect(q('stub-local-stt')).not.toBeNull();
+
+    saving.set(false);
+    fixture.detectChanges();
+    close.click();
+    fixture.detectChanges();
+    expect(host.closedCount).toBe(1);
+  });
+
   it('is closed while no direction is set', () => {
     host.direction.set(null);
     fixture.detectChanges();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('destroys every panel on close so an unsaved ElevenLabs key draft is not kept', () => {
+    tab('Text-to-speech')?.click();
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub))).not.toBeNull();
+
+    host.direction.set(null);
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(ElevenLabsStub))).toBeNull();
+    expect(fixture.debugElement.query(By.directive(LocalTtsStub))).toBeNull();
   });
 });
