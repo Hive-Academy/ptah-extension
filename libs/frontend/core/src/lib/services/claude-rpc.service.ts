@@ -16,13 +16,28 @@ import {
   SubagentQueryResult,
   SubagentCommandResult,
   type RpcUserErrorCode,
+  CHAT_ADMISSION_RPC_TIMEOUT_MS,
 } from '@ptah-extension/shared';
+
+/** Renderer-side timeout for an RPC whose caller passes none. */
+export const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+
+/**
+ * Methods that can run a named Claude account admission before the host
+ * answers (D72): a new chat, a `chat:continue` that auto-resumes an inactive
+ * session, and an activating `chat:resume`. They default to
+ * {@link CHAT_ADMISSION_RPC_TIMEOUT_MS}, which outlasts the host's admission
+ * budget; an explicit `options.timeout` still wins.
+ */
+const CHAT_ADMISSION_RPC_METHODS: ReadonlySet<RpcMethodName> =
+  new Set<RpcMethodName>(['chat:start', 'chat:continue', 'chat:resume']);
 
 /**
  * Options for RPC calls
  */
 export interface RpcCallOptions {
-  timeout?: number; // milliseconds, default: 30000
+  /** Milliseconds; default `DEFAULT_RPC_TIMEOUT_MS`, or `CHAT_ADMISSION_RPC_TIMEOUT_MS` for chat admission methods. */
+  timeout?: number;
   /**
    * Optional AbortSignal — when fired, the pending call is dropped and the
    * promise resolves with `success=false, error='RPC aborted: <method>'`.
@@ -132,7 +147,11 @@ export class ClaudeRpcService implements MessageHandler {
     options?: RpcCallOptions,
   ): Promise<RpcResult<RpcMethodResult<T>>> {
     const correlationId = CorrelationId.create();
-    const timeout = options?.timeout ?? 30000;
+    const timeout =
+      options?.timeout ??
+      (CHAT_ADMISSION_RPC_METHODS.has(method)
+        ? CHAT_ADMISSION_RPC_TIMEOUT_MS
+        : DEFAULT_RPC_TIMEOUT_MS);
     const signal = options?.signal;
     if (signal?.aborted) {
       return new RpcResult<RpcMethodResult<T>>(

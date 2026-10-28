@@ -904,6 +904,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       includePartialMessages?: boolean;
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
       providerProfile?: ProviderProfile;
+      /** See `ExecuteQueryConfig.admissionDeadline` (named admission only). */
+      admissionDeadline?: number;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -988,6 +990,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       includePartialMessages,
       mcpServersOverride,
       authEnvOverride: effectiveAuthEnv,
+      admissionDeadline: config.admissionDeadline,
     });
     // A brand-new session has a known-empty history and nothing saved to
     // restore. It is keyed by the tab id until the SDK reports the canonical
@@ -1198,6 +1201,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       providerProfile?: ProviderProfile;
+      /** See `ExecuteQueryConfig.admissionDeadline` (named admission only). */
+      admissionDeadline?: number;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -1320,6 +1325,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
       includePartialMessages,
       authEnvOverride: effectiveAuthEnv,
+      admissionDeadline: config?.admissionDeadline,
     });
     this.statsOwner.beginRun(
       sessionId as string,

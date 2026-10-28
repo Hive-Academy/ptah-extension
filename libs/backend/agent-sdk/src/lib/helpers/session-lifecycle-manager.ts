@@ -256,6 +256,12 @@ export interface ExecuteQueryConfig {
    * auth env instead of the DI-singleton AuthEnv.
    */
   authEnvOverride?: AuthEnv;
+  /**
+   * Absolute end (epoch ms) of the RPC operation that started this query, set
+   * at handler entry. A named account admission refuses once it passes and
+   * never admits after it (D73). Ignored by the ambient path.
+   */
+  admissionDeadline?: number;
 }
 
 /**

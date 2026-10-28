@@ -21,6 +21,33 @@ import type { AgentSessionOpenedPayload } from '../messages/agent-session';
 import type { ProviderAccountSelection } from '../provider-account.types';
 
 /**
+ * Host deadline for a whole renderer-awaited RPC that may run a named Claude
+ * account admission (`chat:start`, `chat:continue` auto-resume, `chat:resume`
+ * activate). The clock starts at handler entry, so the handler's preparation
+ * (MCP and OAuth overrides, profile, prompts) counts against it; the
+ * admission (`NamedAccountQueryAdmission`: route certification, the bootstrap
+ * identity child, the options build and the final child up to the committed
+ * run binding) gets the smaller of this budget and the time left, and refuses
+ * once it passes (D72, D73). Each step also keeps its own per-step deadline.
+ */
+export const NAMED_ACCOUNT_ADMISSION_BUDGET_MS = 90_000;
+
+/**
+ * How long the renderer keeps waiting after the host deadline: the IPC round
+ * trip, the handler's work after admission, and preparation the host cannot
+ * interrupt before it reaches its first deadline check.
+ */
+export const CHAT_ADMISSION_RPC_MARGIN_MS = 30_000;
+
+/**
+ * Renderer timeout for the RPCs above. It is the host deadline plus the
+ * margin, so the host answers (admitted or refused) before the renderer gives
+ * up on the call: `CHAT_ADMISSION_RPC_TIMEOUT_MS > NAMED_ACCOUNT_ADMISSION_BUDGET_MS`.
+ */
+export const CHAT_ADMISSION_RPC_TIMEOUT_MS =
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS + CHAT_ADMISSION_RPC_MARGIN_MS;
+
+/**
  * Minimal HTTP-flavored MCP server descriptor used by the
  * `ChatStartParams.mcpServersOverride` escape hatch (proxy).
  *

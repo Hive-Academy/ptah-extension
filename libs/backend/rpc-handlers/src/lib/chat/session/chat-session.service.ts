@@ -82,7 +82,11 @@ import type {
   McpHttpServerOverride,
   PermissionLevel,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+  selectHistoryPage,
+} from '@ptah-extension/shared';
 
 import { CHAT_TOKENS } from '../tokens';
 import type { ChatSdkContextService } from './chat-sdk-context.service';
@@ -138,6 +142,8 @@ interface AutoResumePreflight extends MainSessionAccountSelection {
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
   ptahUiFence?: ChatContinueParams['ptahUiFence'];
+  /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
+  admissionDeadline?: number;
 }
 
 /** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
@@ -209,6 +215,19 @@ interface SdkSessionLaunch {
   readonly ptahUiFence?: ChatStartParams['ptahUiFence'];
   /** The gate's resolved named selection; absent on the ambient path. */
   readonly accountSelection?: ResolvedMainAccountSelection;
+  /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
+  readonly admissionDeadline?: number;
+}
+
+/**
+ * One host deadline for a whole renderer-awaited RPC that may run a named
+ * account admission (`chat:start`, `chat:continue` auto-resume, `chat:resume`
+ * activate), taken at handler entry so the preparation before admission (MCP
+ * and OAuth overrides, profile, prompts) counts against it (D73). The
+ * renderer's `CHAT_ADMISSION_RPC_TIMEOUT_MS` is this budget plus its margin.
+ */
+function namedAdmissionDeadline(): number {
+  return Date.now() + NAMED_ACCOUNT_ADMISSION_BUDGET_MS;
 }
 
 /** What `chat:resume` needs from the session budget (N7). */
@@ -521,6 +540,7 @@ export class ChatSessionService {
   }
 
   async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -638,6 +658,7 @@ export class ChatSessionService {
         mcpToolProfile: params.mcpToolProfile,
         ptahUiFence: params.ptahUiFence,
         accountSelection,
+        admissionDeadline,
       });
 
       return { success: true };
@@ -948,7 +969,9 @@ export class ChatSessionService {
         ? { ptahUiFence: input.ptahUiFence }
         : {}),
       // Named only; the ambient launch config keeps its existing fields.
-      ...(input.accountSelection ? { accountSelection: input.accountSelection } : {}),
+      ...(input.accountSelection
+        ? { accountSelection: input.accountSelection, admissionDeadline: input.admissionDeadline }
+        : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -965,6 +988,7 @@ export class ChatSessionService {
   async continueSession(
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, sessionId, tabId, name } = params;
       this.logger.debug('RPC: chat:continue called', {
@@ -1031,7 +1055,7 @@ export class ChatSessionService {
           sessionId,
           tabId,
           prompt,
-          params,
+          { ...params, admissionDeadline },
           mcpRegisteredForSubagents,
         );
         if ('error' in resumeOutcome) return resumeOutcome.error;
@@ -1133,6 +1157,7 @@ export class ChatSessionService {
    * stats, resumable subagents, and any CLI session references.
    */
   async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
@@ -1243,6 +1268,7 @@ export class ChatSessionService {
               systemPrompt: params.systemPrompt,
               ptahUiFence: params.ptahUiFence,
               accountSelection: params.accountSelection,
+              admissionDeadline,
             },
           );
           if ('justResumed' in activateResult) {
@@ -1679,7 +1705,9 @@ export class ChatSessionService {
           ? { ptahUiFence: params.ptahUiFence }
           : {}),
         // Named only: the resume reuses the stored binding (no second lease).
-        ...(accountSelection ? { accountSelection } : {}),
+        ...(accountSelection
+          ? { accountSelection, admissionDeadline: params.admissionDeadline }
+          : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

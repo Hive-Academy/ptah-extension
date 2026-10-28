@@ -75,7 +75,11 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
    * Models CLI 2.1.278 streaming input: the final child reads the first prompt
    * turn and asks for one tool before it emits `system/init`.
    */
-  initAfterFirstTurn?: boolean } = {}) {
+  initAfterFirstTurn?: boolean;
+  /** Per-step deadline and total admission budget passed to the flow. */
+  deadlineMs?: number; budgetMs?: number;
+  /** Absolute end of the calling RPC (D73), set at handler entry. */
+  operationDeadline?: number } = {}) {
   const projectDir = settings.projectDir ?? launchContext.cwd;
   const certifiedLaunch = settings.projectDir === undefined && settings.certifiedCwd === undefined
     ? launchContext : { ...launchContext, cwd: settings.certifiedCwd ?? projectDir };
@@ -194,7 +198,8 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
     }),
   };
   const log = { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() };
-  const flow = new NamedAccountQueryAdmission(runner, admission, persistence, registry, log, controller, 50);
+  const flow = new NamedAccountQueryAdmission(runner, admission, persistence, registry, log, controller,
+    settings.deadlineMs ?? 50, settings.budgetMs, settings.operationDeadline);
   const queryFn = jest.fn() as QueryFunction;
   const source = { async *[Symbol.asyncIterator]() {
     events.push('turn-1');
@@ -592,6 +597,110 @@ describe('named SDK bootstrap and final admission', () => {
       expect(f.admission.releaseReservation).toHaveBeenCalledTimes(released ? 1 : 0);
       expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(released ? 0 : 1);
     });
+
+  // D72: the whole admission is bounded, not only each step, so the renderer's
+  // admission RPC timeout (derived from the same budget) always outlasts it.
+  it('refuses when the total admission budget expires before any single step deadline', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'commit', deadlineMs: 60_000, budgetMs: 1_000 });
+    let settled = false;
+    const rejected = expect(f.run().finally(() => { settled = true; })).rejects.toMatchObject({
+      code: 'identity-unproved' });
+    await f.entered.promise;
+    await jest.advanceTimersByTimeAsync(999);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(f.controller.signal.aborted).toBe(true);
+    f.paused.resolve();
+    await flush();
+    await f.flow.dispose();
+    expect(f.saved()).toBeUndefined();
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+  });
+
+  // D73 F1: the handler's preparation counts against one operation deadline.
+  it('refuses with no reservation, child or tools when preparation used up the operation deadline', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ operationDeadline: Date.now() });
+    await expect(f.run()).rejects.toEqual({ code: 'identity-unproved',
+      summary: 'Named account admission could not be completed.' });
+    await flush();
+    await f.flow.dispose();
+    expect(f.controller.signal.aborted).toBe(true);
+    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(f.options).toHaveLength(0);
+    expect(f.yielded()).toBe(0);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.saved()).toBeUndefined();
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+    expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+    await expectNoAdmission(f);
+  });
+
+  // M1: an expiry refusal must not abandon an already-started step unobserved.
+  it('observes a step that rejects after an expired-deadline refusal, with no unhandled rejection', async () => {
+    const f = fixture({ operationDeadline: Date.now() });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      let rejectStep!: (reason: Error) => void;
+      const step = new Promise<never>((_resolve, reject) => { rejectStep = reject; });
+      await expect(f.flow.wait(step)).rejects.toEqual({ code: 'identity-unproved',
+        summary: 'Named account admission could not be completed.' });
+      expect(f.controller.signal.aborted).toBe(true);
+      rejectStep(new Error('sdk module load failed'));
+      await new Promise<void>((done) => setImmediate(done));
+      await new Promise<void>((done) => setImmediate(done));
+      expect(unhandled).toEqual([]);
+      expect(f.log.warn).toHaveBeenCalledWith('[SessionLifecycle] Abandoned admission step rejected after the deadline.');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      await f.flow.dispose();
+    }
+  });
+
+  it('bounds the admission by the time left of the operation deadline, not the full budget', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'commit', deadlineMs: 60_000, operationDeadline: Date.now() + 500 });
+    let settled = false;
+    const rejected = expect(f.run().finally(() => { settled = true; })).rejects.toMatchObject({
+      code: 'identity-unproved' });
+    await f.entered.promise;
+    await jest.advanceTimersByTimeAsync(499);
+    expect(settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await rejected;
+    expect(f.controller.signal.aborted).toBe(true);
+    f.paused.resolve();
+    await flush();
+    await f.flow.dispose();
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.saved()).toBeUndefined();
+    await expectNoAdmission(f);
+  });
+
+  // D73 F2: a step that settles after the end (no timer fired yet) never admits.
+  it('refuses when the budget expired while a step was already resolving', async () => {
+    jest.useFakeTimers();
+    const f = fixture({ pause: 'commit', deadlineMs: 60_000, budgetMs: 1_000 });
+    const rejected = expect(f.run()).rejects.toEqual({ code: 'identity-unproved',
+      summary: 'Named account admission could not be completed.' });
+    await f.entered.promise;
+    // Move the clock past the end without running the budget timer, then settle the step.
+    jest.setSystemTime(Date.now() + 1_000);
+    f.paused.resolve();
+    await rejected;
+    expect(f.controller.signal.aborted).toBe(true);
+    await flush();
+    await f.flow.dispose();
+    expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.saved()).toBeUndefined();
+    expect(f.yielded()).toBe(1);
+    await expectNoAdmission(f);
+  });
 
   it('retains the reservation when bootstrap termination cannot be proved', async () => {
     jest.useFakeTimers();

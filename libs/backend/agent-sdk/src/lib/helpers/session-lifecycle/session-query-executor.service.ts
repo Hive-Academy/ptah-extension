@@ -49,6 +49,7 @@ import {
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
   type ContextCapacityRoute,
 } from '@ptah-extension/shared';
 import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
@@ -687,6 +688,14 @@ export class NamedAccountQueryAdmission {
   /** True once the admitted child ended on its own; dispose then leaves the session controller alone. */
   private childEnded = false;
   private settleAdmission?: (admitted: boolean) => void;
+  /**
+   * Wall-clock end of the whole admission: the earlier of this flow's own
+   * budget and the caller's operation deadline (D73). Until the run is
+   * admitted, `wait` never outlasts it and an expired end never admits.
+   */
+  private readonly admissionEndsAt: number;
+  /** Set when the binding commits; later waits (per-turn identity checks) keep only the per-step deadline. */
+  private admitted = false;
   private readonly onAbort = (): void => {
     for (const gate of this.gates) gate.close();
     this.closeChild();
@@ -701,15 +710,45 @@ export class NamedAccountQueryAdmission {
     private readonly logger: Pick<Logger, 'warn'>,
     private readonly abortController: AbortController,
     private readonly deadlineMs = 15_000,
+    admissionBudgetMs = NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+    /** Absolute end (epoch ms) of the whole RPC operation, set at handler entry. */
+    operationDeadline?: number,
   ) {
+    // The renderer's admission RPC timeout is derived from this same budget,
+    // so the host always answers before the renderer gives up (D72). The
+    // handler's deadline already counts the work done before admission (D73).
+    this.admissionEndsAt = Math.min(Date.now() + admissionBudgetMs, operationDeadline ?? Number.POSITIVE_INFINITY);
     abortController.signal.addEventListener('abort', this.onAbort, { once: true });
     if (abortController.signal.aborted) this.onAbort();
+  }
+
+  /**
+   * An expired admission refuses the same way the budget timer does: abort
+   * (which disposes the flow) and throw the deadline refusal. Checked before
+   * each race and after it, so an already-settled step cannot win a
+   * zero-length race and admit after the end (D73).
+   */
+  private refuseIfExpired(): void {
+    if (this.admitted || Date.now() < this.admissionEndsAt) return;
+    this.abortController.abort();
+    throw namedAccountRefusal();
   }
 
   /** Every admission await is cancellable; late resolutions never advance the flow. */
   async wait<T>(pending: Promise<T>): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancel: (() => void) | undefined;
+    try {
+      this.refuseIfExpired();
+    } catch (refusal: unknown) {
+      // The caller's step is already running and is abandoned by this refusal;
+      // observe its late rejection so it never surfaces as an unhandled rejection.
+      void pending.catch(() => this.logger.warn('[SessionLifecycle] Abandoned admission step rejected after the deadline.'));
+      throw refusal;
+    }
+    const limitMs = this.admitted
+      ? this.deadlineMs
+      : Math.min(this.deadlineMs, Math.max(0, this.admissionEndsAt - Date.now()));
     try {
       const value = await Promise.race([
         pending,
@@ -719,10 +758,11 @@ export class NamedAccountQueryAdmission {
           if (this.abortController.signal.aborted) cancel();
         }),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
+          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, limitMs);
         }),
       ]);
       if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
+      this.refuseIfExpired();
       return value;
     } finally {
       clearTimeout(timer);
@@ -738,6 +778,8 @@ export class NamedAccountQueryAdmission {
   async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection, workingDirectory: string,
     resumeSessionId?: string, forkSession = false): Promise<void> {
     try {
+      // Time used up before admission (handler preparation included) refuses before any reservation.
+      this.refuseIfExpired();
       // Resolve authoritative evidence before constructing ANY conversation options.
       const stored = resumeSessionId
         ? await this.wait(this.persistence.resolveAccountBinding(resumeSessionId)) : null;
@@ -880,6 +922,8 @@ export class NamedAccountQueryAdmission {
       await this.verifyIdentity();
       // A dispose during the last read is terminal: never admit after it.
       if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal();
+      this.refuseIfExpired();
+      this.admitted = true;
       this.settleAdmission?.(true);
       gate.commit();
       void this.child.terminated.then(() => { this.childEnded = true; return this.dispose(); }).catch(() =>
@@ -1029,6 +1073,7 @@ export class SessionQueryExecutor {
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
+      admissionDeadline,
     } = config;
 
     this.logger.info(
@@ -1081,7 +1126,7 @@ export class SessionQueryExecutor {
         const projectPath = sessionConfig?.projectPath;
         if (typeof projectPath !== 'string' || projectPath.trim() === '') throw namedAccountRefusal('conflict');
         named = new NamedAccountQueryAdmission(this.queryRunner, admission, persistence,
-          this.registry, this.logger, abortController);
+          this.registry, this.logger, abortController, undefined, undefined, admissionDeadline);
         namedQueryFn = await named.wait(this.moduleLoader.getQueryFunction());
         await named.bootstrap(namedQueryFn, selection, projectPath, resumeSessionId, forkSession);
       } catch (error) {
