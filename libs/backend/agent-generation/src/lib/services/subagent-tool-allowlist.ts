@@ -84,16 +84,25 @@ export const SUBAGENT_DISALLOWED_TOOLS: Readonly<
 };
 
 /**
+ * Whether the agent type has a known tool policy. An unknown type (a custom or
+ * user-authored template) has none: its permitted capabilities cannot be
+ * determined.
+ */
+export function hasSubagentToolPolicy(agentType: string): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    SUBAGENT_DISALLOWED_TOOLS,
+    agentType,
+  );
+}
+
+/**
  * Deny list for one agent type. An unknown type (a custom or user-authored
  * template) gets no restriction.
  */
 export function getSubagentDisallowedTools(
   agentType: string,
 ): readonly string[] {
-  return Object.prototype.hasOwnProperty.call(
-    SUBAGENT_DISALLOWED_TOOLS,
-    agentType,
-  )
+  return hasSubagentToolPolicy(agentType)
     ? SUBAGENT_DISALLOWED_TOOLS[agentType]
     : [];
 }

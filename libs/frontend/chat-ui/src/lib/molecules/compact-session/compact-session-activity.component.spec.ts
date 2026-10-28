@@ -1312,10 +1312,8 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
       callout: permission,
     });
     const root = fixture.nativeElement as HTMLElement;
-    const allowed = jest.fn();
-    const denied = jest.fn();
-    fixture.componentInstance.allow.subscribe(allowed);
-    fixture.componentInstance.deny.subscribe(denied);
+    const decided = jest.fn();
+    fixture.componentInstance.decide.subscribe(decided);
 
     expect(laneButtons(root)).toHaveLength(0);
     expect(root.querySelector('[data-testid="cs-lanes-more"]')).toBeNull();
@@ -1332,8 +1330,33 @@ describe(`${CompactSessionActivityComponent.name} board layout`, () => {
     buttonByText(root, 'Allow')?.click();
     buttonByText(root, 'Deny')?.click();
 
-    expect(allowed).toHaveBeenCalledWith(permission);
-    expect(denied).toHaveBeenCalledWith(permission);
+    expect(decided).toHaveBeenCalledWith({ callout: permission, decision: 'allow', reason: undefined });
+    expect(decided).toHaveBeenCalledWith({ callout: permission, decision: 'deny', reason: undefined });
+    // A lane accepts only allow and deny, so it has no further options.
+    expect(buttonByText(root, 'More')).toBeUndefined();
+  });
+
+  it('offers a session permission every option, including a denial reason', () => {
+    const session: CompactPermissionCallout = { ...permission, source: 'session', agentId: undefined };
+    const fixture = renderBoard({ lanes: laneSummary([lane()], 2, { running: 3 }), callout: session });
+    const root = fixture.nativeElement as HTMLElement;
+    const decided = jest.fn();
+    const opened = jest.fn();
+    fixture.componentInstance.decide.subscribe(decided);
+    fixture.componentInstance.openRequest.subscribe(opened);
+
+    buttonByText(root, 'Open')?.click();
+    expect(opened).toHaveBeenCalledWith(session);
+    buttonByText(root, 'More')?.click(); fixture.detectChanges();
+    buttonByText(root, 'Always allow')?.click();
+    expect(decided).toHaveBeenLastCalledWith({ callout: session, decision: 'always_allow', reason: undefined });
+    fixture.detectChanges();
+    buttonByText(root, 'More')?.click(); fixture.detectChanges();
+    buttonByText(root, 'Deny with message')?.click(); fixture.detectChanges();
+    const reason = root.querySelector<HTMLInputElement>('[data-testid="cs-callout-permission"] input')!;
+    reason.value = 'Run the unit suite only';
+    buttonByText(root, 'Send denial')?.click();
+    expect(decided).toHaveBeenLastCalledWith({ callout: session, decision: 'deny_with_message', reason: 'Run the unit suite only' });
   });
 
   it('shows question text and remaining count and emits Answer', () => {

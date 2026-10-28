@@ -55,6 +55,7 @@ export * from './lib/types/capability-toggle.types';
 export * from './lib/types/capability-id-codec';
 export * from './lib/types/harness-blocked-wording';
 export * from './lib/types/origin-sidecar.types';
+export * from './lib/types/library-provenance';
 export * from './lib/types/user-layer-agents';
 export * from './lib/types/agent-models.types';
 export * from './lib/types/session-budget.types';

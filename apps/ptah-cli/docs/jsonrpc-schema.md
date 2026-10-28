@@ -63,10 +63,12 @@ Notifications carry no `id` and require no response. Each `params` includes a ba
 Example:
 
 ```json
-{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.5", "schema_version": "0.2", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
+{ "jsonrpc": "2.0", "method": "session.ready", "params": { "session_id": "tab-abc", "version": "0.1.5", "schema_version": "1.0", "capabilities": ["chat", "session", "permission", "question"], "protocol_version": "2.0" } }
 ```
 
 > `schema_version` (added 2026-05) advertises the Ptah JSON-RPC schema version (see `JSONRPC_SCHEMA_VERSION` in `apps/ptah-cli/src/cli/jsonrpc/types.ts`). The field is **additive** — clients written against the pre-`schema_version` shape continue to work unchanged. Hosts that pin a specific schema version should match against this field. The CLI bumps the MINOR component on backward-compatible surface additions and the MAJOR component on breaking wire changes. `0.2` adds the Thoth RPC namespaces (`cron`, `gateway`, `voice`, `memory`, `mem`, `corpus`, `skillSynthesis`, `db`, `embedder`, `indexing`) and their push notifications, all additive over `0.1`. A host that advertises `PTAH_HOST_SCHEMA_VERSION=0.1` still runs against a `0.2` CLI — `checkSchemaVersionSkew()` emits a non-fatal stderr warning and never aborts.
+>
+> `1.0` (2026-10) is a MAJOR bump for a breaking payload change in the `harness.*` results (see § 1.5): the per-target field `overwrittenLocalEdit` is removed and `keptLocalEdit: string[]` replaces it. Ptah now keeps hand-edited managed copies instead of overwriting them, so the list names the edited copies that were kept. Hosts that read the old field must switch to `keptLocalEdit`. The JSON-RPC wire version (`"jsonrpc": "2.0"`, `protocol_version: "2.0"`) is unchanged. A host that advertises `PTAH_HOST_SCHEMA_VERSION=0.2` still runs against a `1.0` CLI — `checkSchemaVersionSkew()` emits the same non-fatal stderr warning and never aborts.
 
 ### 1.2 Agent execution (`agent.*`)
 
@@ -177,23 +179,26 @@ Example:
 
 ### 1.5 Harness (`harness.*`)
 
-| Method                          | Trigger                           | Key params                                                               |
-| ------------------------------- | --------------------------------- | ------------------------------------------------------------------------ |
-| `harness.initialized`           | `harness init`                    | `{ path, created: string[], skipped: string[] }`                         |
-| `harness.status`                | `harness status`                  | `{ path, has_skills, has_agents, has_specs, plugins_enabled: string[] }` |
-| `harness.workspace_context`     | After `harness:initialize` RPC    | `{ workspace_path, git_branch?, ... }`                                   |
-| `harness.available_agents`      | After `harness:initialize`        | `{ entries }`                                                            |
-| `harness.available_skills`      | After `harness:initialize`        | `{ entries }`                                                            |
-| `harness.existing_presets`      | After `harness:initialize`        | `{ entries }`                                                            |
-| `harness.applied`               | After `harness:apply`             | `{ preset_name, files_written: string[], changed: bool }`                |
-| `harness.preset.saved`          | `harness preset save`             | `{ name, changed: bool }`                                                |
-| `harness.preset.list`           | `harness preset load`             | `{ presets }`                                                            |
-| `harness.intent.analysis`       | `harness analyze-intent`          | `{ intent, suggested_config }`                                           |
-| `harness.agent_design.start`    | `harness design-agents` start     | `{ stream_id }`                                                          |
-| `harness.agent_design.complete` | `harness design-agents` end       | `{ stream_id, output }`                                                  |
-| `harness.document.start`        | `harness generate-document` start | `{ stream_id, kind }`                                                    |
-| `harness.document.stream`       | Per chunk                         | `{ stream_id, chunk: string }`                                           |
-| `harness.document.complete`     | `harness generate-document` end   | `{ stream_id, output }`                                                  |
+| Method                          | Trigger                           | Key params                                                                                       |
+| ------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `harness.initialized`           | `harness init`                    | `{ path, created: string[], skipped: string[] }`                                                 |
+| `harness.status`                | `harness status`                  | `{ path, has_skills, has_agents, has_specs, plugins_enabled: string[] }`                         |
+| `harness.workspace_context`     | After `harness:initialize` RPC    | `{ workspace_path, git_branch?, ... }`                                                           |
+| `harness.available_agents`      | After `harness:initialize`        | `{ entries }`                                                                                    |
+| `harness.available_skills`      | After `harness:initialize`        | `{ entries }`                                                                                    |
+| `harness.existing_presets`      | After `harness:initialize`        | `{ entries }`                                                                                    |
+| `harness.applied`               | After `harness:apply`             | `{ preset_name, files_written: string[], changed: bool }`                                        |
+| `harness.preset.saved`          | `harness preset save`             | `{ name, changed: bool }`                                                                        |
+| `harness.preset.list`           | `harness preset load`             | `{ presets }`                                                                                    |
+| `harness.intent.analysis`       | `harness analyze-intent`          | `{ intent, suggested_config }`                                                                   |
+| `harness.agent_design.start`    | `harness design-agents` start     | `{ stream_id }`                                                                                  |
+| `harness.agent_design.complete` | `harness design-agents` end       | `{ stream_id, output }`                                                                          |
+| `harness.document.start`        | `harness generate-document` start | `{ stream_id, kind }`                                                                            |
+| `harness.document.stream`       | Per chunk                         | `{ stream_id, chunk: string }`                                                                   |
+| `harness.document.complete`     | `harness generate-document` end   | `{ stream_id, output }`                                                                          |
+| `harness.doctor`                | `ptah harness doctor [--fix]`     | `{ fixed, health: { targets: [{ target, ..., keptLocalEdit: string[] }] }, selection, summary }` |
+
+> Breaking (2026-10, schema `1.0`): `overwrittenLocalEdit` was renamed to `keptLocalEdit`. Ptah now keeps edited managed copies instead of overwriting them.
 
 > `harness.chat.message` / `harness.chat.complete` (Phase 2 / not yet implemented as a separate cluster — `harness chat` is currently an alias for `session start --scope harness-skill` and emits `agent.*` notifications).
 
@@ -524,7 +529,7 @@ Example — describe the live surface (in `interact` mode):
 CLI reply:
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
+{ "jsonrpc": "2.0", "id": "desc-1", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "1.0", "mode": "interact", "catalog": { "methods": ["task.submit", "task.cancel", "session.shutdown", "session.history", "rpc.call", "session.describe", "session.methods"], "tools": [] }, "errorCodes": ["db_lock", "provider_unavailable", "auth_required", "rate_limited", "license_required", "unknown", "internal_failure", "cli_agent_unavailable", "sdk_init_failed", "workspace_missing", "proxy_bind_failed", "proxy_invalid_request", "permission_gate_unavailable", "claude_cli_not_found", "mcp_handshake_failed", "mcp_tool_not_found", "mcp_invalid_tool_args", "mcp_tool_denied"], "capabilities": ["chat", "session", "permission", "question"] } }
 ```
 
 Example — describe in `mcp-serve` mode (catalog includes the 8 MCP tools):
@@ -536,7 +541,7 @@ Example — describe in `mcp-serve` mode (catalog includes the 8 MCP tools):
 CLI reply (abbreviated):
 
 ```json
-{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "0.2", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_message", "description": "..." }, { "name": "agent_report", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
+{ "jsonrpc": "2.0", "id": "desc-2", "result": { "serverName": "ptah", "version": "0.1.5", "schemaVersion": "1.0", "mode": "mcp-serve", "catalog": { "methods": ["initialize", "tools/list", "tools/call", "notifications/cancelled", "session.describe", "session.methods"], "tools": [{ "name": "agent_spawn", "description": "..." }, { "name": "agent_status", "description": "..." }, { "name": "agent_read", "description": "..." }, { "name": "agent_message", "description": "..." }, { "name": "agent_report", "description": "..." }, { "name": "agent_stop", "description": "..." }, { "name": "agent_list", "description": "..." }, { "name": "session_submit", "description": "..." }] }, "errorCodes": [...], "capabilities": ["mcp"] } }
 ```
 
 Example — methods-only introspection:

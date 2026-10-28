@@ -1,5 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { ExternalInstallPlan } from '@ptah-extension/shared';
+import type {
+  ExternalInstallPlan,
+  ExternalLocalItem,
+} from '@ptah-extension/shared';
+import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 import { ExternalConsentDialogComponent } from './external-consent-dialog.component';
 
 /** A plan with every disclosure empty — tests opt IN to the parts they assert. */
@@ -39,6 +43,10 @@ describe('ExternalConsentDialogComponent', () => {
 
   const dialog = (): HTMLElement | null =>
     host.querySelector('[data-testid="external-consent"]');
+  const confirmButton = (): HTMLButtonElement | null =>
+    host.querySelector<HTMLButtonElement>(
+      '[data-testid="external-consent-confirm"]',
+    );
 
   beforeEach(() => {
     TestBed.configureTestingModule({
@@ -231,10 +239,278 @@ describe('ExternalConsentDialogComponent', () => {
 
   it('renders an error without dismissing the dialog', () => {
     render(makePlan());
-    fixture.componentRef.setInput('errorMessage', 'consent token expired');
+    fixture.componentRef.setInput('installFailed', true);
     fixture.detectChanges();
 
     expect(dialog()).toBeTruthy();
-    expect(dialog()?.textContent).toContain('consent token expired');
+    const alert = host.querySelector('[data-testid="external-consent-error"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Install failed. Ptah removes what it wrote for this install where it ' +
+        'can. Check the files listed in the install report, then retry.',
+    );
+    // Outside the scrolling body, right above the actions, so a long
+    // local-files list cannot push it below the fold.
+    expect(alert?.closest('.overflow-y-auto')).toBeNull();
+    expect(alert?.nextElementSibling?.classList.contains('modal-action')).toBe(
+      true,
+    );
+  });
+
+  it('shows a failed confirm as "Install failed" with "Retry install"', () => {
+    render(makePlan());
+    fixture.componentRef.setInput('installFailed', true);
+    fixture.detectChanges();
+
+    const alert = host.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('Install failed.');
+    expect(alert?.textContent).toContain(
+      'Ptah removes what it wrote for this install where it can.',
+    );
+    expect(confirmButton()?.textContent?.trim()).toBe('Retry install');
+  });
+
+  it('shows no failure before a failed confirm', () => {
+    render(makePlan());
+    expect(
+      host.querySelector('[data-testid="external-consent-error"]'),
+    ).toBeNull();
+    expect(confirmButton()?.textContent?.trim()).toBe('Install .NET Test');
+  });
+
+  // ── Local files this install would replace (design 3.3) ────────────────────
+
+  describe('local files section', () => {
+    /** Acme Toolkit update from design 3.3 C, named from the shared fixture. */
+    function acmePlan(): ExternalInstallPlan {
+      const acme = makeLibraryAgreementFixtures().shadowedSkill.plugins.find(
+        (plugin) => plugin.source === 'external',
+      );
+      const [architect, reviewer] = acme?.agentNames ?? [];
+      const [apiDesign] = acme?.skillNames ?? [];
+      const [ship] = acme?.commandNames ?? [];
+      const items: ExternalLocalItem[] = [
+        {
+          approvalId: 'a-architect',
+          target: 'claude',
+          relPath: `.claude/agents/${architect}.md`,
+          family: 'external',
+          kind: 'unowned',
+        },
+        {
+          approvalId: 'a-api',
+          target: 'codex',
+          relPath: `.codex/skills/${apiDesign}/SKILL.md`,
+          family: 'external',
+          kind: 'owned-edited',
+          recordedVersion: '2.0.3',
+        },
+        {
+          approvalId: 'a-ship',
+          target: 'claude',
+          relPath: `.claude/commands/${ship}.md`,
+          family: 'external',
+          kind: 'unowned',
+        },
+        {
+          approvalId: 'a-deploy',
+          target: 'claude',
+          relPath: '.claude/commands/deploy.md',
+          family: 'external',
+          kind: 'unreadable',
+        },
+        {
+          approvalId: 'a-reviewer',
+          relPath: `${reviewer}`,
+          family: 'external',
+          kind: 'library-clone',
+        },
+      ];
+      return makePlan({
+        displayName: acme?.name ?? 'missing-fixture',
+        installedVersion: '2.0.3',
+        version: '2.1.0',
+        collisions: [
+          { skillName: 'release-notes', shadowedBy: 'Ptah Release Kit' },
+        ],
+        localItems: items,
+      });
+    }
+
+    const section = (): HTMLElement | null =>
+      host.querySelector('[data-testid="external-consent-local-items"]');
+    const rows = (): HTMLElement[] =>
+      Array.from(
+        host.querySelectorAll<HTMLElement>(
+          '[data-testid="external-consent-local-row"]',
+        ),
+      );
+    const replaceOf = (row: HTMLElement): HTMLButtonElement | null =>
+      row.querySelector<HTMLButtonElement>('[data-testid="replace-segment"]');
+    const keepOf = (row: HTMLElement): HTMLButtonElement | null =>
+      row.querySelector<HTMLButtonElement>('[data-testid="keep-segment"]');
+
+    it('is absent when the plan lists no local item, and the label has no suffix', () => {
+      render(makePlan());
+      expect(section()).toBeNull();
+      expect(confirmButton()?.textContent?.trim()).toBe('Install .NET Test');
+    });
+
+    it('sits after the shadowed block and before the error', () => {
+      render(acmePlan());
+      fixture.componentRef.setInput('installFailed', true);
+      fixture.detectChanges();
+      const text = dialog()?.textContent ?? '';
+      const shadowed = text.indexOf('Some skills will not take effect');
+      const local = text.indexOf('Local files this install would replace (5)');
+      const error = text.indexOf('Install failed.');
+      expect(shadowed).toBeGreaterThan(-1);
+      expect(local).toBeGreaterThan(shadowed);
+      expect(error).toBeGreaterThan(local);
+    });
+
+    it('renders each reason badge, the edited note and the Library copy labels', () => {
+      render(acmePlan());
+      const [architect, api, , deploy, reviewer] = rows();
+      expect(architect.textContent).toContain('Not created by Ptah');
+      expect(api.textContent).toContain('Edited since Ptah wrote it');
+      expect(api.textContent).toContain(
+        'Ptah copied this on 2.0.3. The file on disk has changed since.',
+      );
+      expect(deploy.textContent).toContain('Could not read file');
+      expect(reviewer.textContent).toContain('Edited Library copy');
+      expect(reviewer.textContent).toContain('Library copy: reviewer');
+      expect(keepOf(reviewer)?.textContent?.trim()).toBe('Keep my copy');
+      expect(replaceOf(reviewer)?.textContent?.trim()).toBe('Replace (rebase)');
+      expect(replaceOf(architect)?.textContent?.trim()).toBe(
+        'Replace with plugin version',
+      );
+      for (const row of rows()) {
+        expect(keepOf(row)?.getAttribute('aria-checked')).toBe('true');
+      }
+    });
+
+    it('forces Keep for an unreadable item, also through Replace all', () => {
+      render(acmePlan());
+      const deploy = rows()[3];
+      expect(replaceOf(deploy)?.getAttribute('aria-disabled')).toBe('true');
+      replaceOf(deploy)?.click();
+      fixture.detectChanges();
+      expect(component.replaceCount()).toBe(0);
+
+      component.setAll('replace');
+      fixture.detectChanges();
+      expect(component.replaceCount()).toBe(4);
+      expect(keepOf(rows()[3])?.getAttribute('aria-checked')).toBe('true');
+      expect(confirmButton()?.textContent?.trim()).toBe(
+        'Update Acme Toolkit and replace 4 files',
+      );
+    });
+
+    it('emits a decision per item keyed by approvalId', () => {
+      render(acmePlan());
+      const emitted: Record<string, string>[] = [];
+      component.confirmed.subscribe((decisions) => emitted.push(decisions));
+      replaceOf(rows()[1])?.click();
+      fixture.detectChanges();
+      expect(confirmButton()?.textContent?.trim()).toBe(
+        'Update Acme Toolkit and replace 1 file',
+      );
+      confirmButton()?.click();
+      expect(emitted).toEqual([
+        {
+          'a-architect': 'keep',
+          'a-api': 'replace',
+          'a-ship': 'keep',
+          'a-deploy': 'keep',
+          'a-reviewer': 'keep',
+        },
+      ]);
+    });
+
+    it('resets every choice to Keep on re-approval with a new plan', () => {
+      render(acmePlan());
+      component.setAll('replace');
+      fixture.detectChanges();
+      expect(component.replaceCount()).toBe(4);
+
+      fixture.componentRef.setInput('reason', 'approval-expired');
+      fixture.componentRef.setInput('plan', acmePlan());
+      fixture.detectChanges();
+
+      expect(component.replaceCount()).toBe(0);
+      expect(dialog()?.textContent).toContain('Every choice is reset to Keep.');
+      for (const row of rows()) {
+        expect(keepOf(row)?.getAttribute('aria-checked')).toBe('true');
+      }
+    });
+
+    it('disables every choice while the install runs and sets aria-busy', () => {
+      render(acmePlan());
+      fixture.componentRef.setInput('busy', true);
+      fixture.detectChanges();
+      expect(host.querySelector('.modal-box')?.getAttribute('aria-busy')).toBe(
+        'true',
+      );
+      for (const row of rows()) {
+        expect(replaceOf(row)?.disabled).toBe(true);
+      }
+    });
+  });
+
+  // ── Modal keyboard contract ────────────────────────────────────────────────
+
+  describe('keyboard trap', () => {
+    const key = (init: KeyboardEventInit): void => {
+      dialog()?.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
+      );
+    };
+    const stops = (): HTMLButtonElement[] =>
+      Array.from(
+        dialog()?.querySelectorAll<HTMLButtonElement>(
+          'button:not(:disabled)',
+        ) ?? [],
+      ).filter((button) => button.tabIndex !== -1);
+
+    it('wraps Tab and Shift+Tab inside the dialog', () => {
+      render(makePlan());
+      const all = stops();
+      const last = all[all.length - 1];
+      last.focus();
+      key({ key: 'Tab' });
+      expect(document.activeElement).toBe(all[0]);
+      key({ key: 'Tab', shiftKey: true });
+      expect(document.activeElement).toBe(last);
+    });
+
+    it('cancels on Escape, but not while the install runs', () => {
+      render(makePlan());
+      const cancelled = jest.fn();
+      component.cancelled.subscribe(cancelled);
+      fixture.componentRef.setInput('busy', true);
+      fixture.detectChanges();
+      key({ key: 'Escape' });
+      expect(cancelled).not.toHaveBeenCalled();
+
+      fixture.componentRef.setInput('busy', false);
+      fixture.detectChanges();
+      key({ key: 'Escape' });
+      expect(cancelled).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns focus to the opener when the dialog closes', () => {
+      const opener = document.createElement('button');
+      document.body.appendChild(opener);
+      opener.focus();
+      render(makePlan());
+      fixture.destroy();
+      expect(document.activeElement).toBe(opener);
+      opener.remove();
+    });
   });
 });

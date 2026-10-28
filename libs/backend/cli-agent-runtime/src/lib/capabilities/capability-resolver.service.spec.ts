@@ -1031,6 +1031,69 @@ describe('CapabilityResolverService', () => {
       ).not.toContain('alpha-skill');
     });
 
+    it('D14 agreement: a toggle saved through the session resolver from repo/a is read back from repo/b and repo', async () => {
+      const env = setup();
+      const subA = path.join(env.repo, 'a');
+      const subB = path.join(env.repo, 'b');
+      fs.mkdirSync(subA, { recursive: true });
+      fs.mkdirSync(subB, { recursive: true });
+      // Both sub-folders are open; neither holds a saved config of its own.
+      const storageA = createStateStorage();
+      const storageB = createStateStorage();
+      const byFolder = new Map<string, IStateStorage>([
+        [path.resolve(subA), storageA],
+        [path.resolve(subB), storageB],
+      ]);
+      const scoped = {
+        ...storageB,
+        getStorageForWorkspace: (root: string) => byFolder.get(root),
+        getAllWorkspacePaths: () => [...byFolder.keys()],
+      };
+      const homeStorage = createStateStorage();
+      const loader = new PluginLoaderService(
+        createMockLogger() as unknown as Logger,
+        { isInstalled: () => false, listInstalled: () => [] } as never,
+        { getWorkspaceRoot: () => subB } as never,
+        env.store,
+      );
+      loader.initialize(path.join(env.home, 'plugins'), scoped, {
+        harnessRootOf: () => env.repo,
+        homeStorage,
+      });
+      const resolver = new CapabilityResolverService({
+        output: env.output,
+        store: env.store,
+        inventory: env.inventory,
+        approvals: env.approvals,
+        plugins: loader,
+        homeDir: env.home,
+      });
+
+      await resolver.set({
+        cwd: subA,
+        scope: 'workspace',
+        kind: 'skill',
+        id: 'alpha-skill',
+        enabled: false,
+      });
+
+      // `plugins:get-config` reads the active folder (b) with no root.
+      expect(loader.getWorkspacePluginConfig().disabledSkillIds).toEqual([
+        'alpha-skill',
+      ]);
+      for (const folder of [subA, subB, env.repo]) {
+        expect(
+          loader.getWorkspacePluginConfig(folder).disabledSkillIds,
+        ).toEqual(['alpha-skill']);
+        expect((await resolver.resolve(folder)).deniedSkillNames).toContain(
+          'alpha-skill',
+        );
+      }
+      // The folder records were never written.
+      expect(storageA.raw.has(CONFIG_KEY)).toBe(false);
+      expect(storageB.raw.has(CONFIG_KEY)).toBe(false);
+    });
+
     it('denies the children of a globally-OFF plugin, bare and plugin:skill', async () => {
       const env = setup();
       const before = await env.resolver.resolve(env.repo);

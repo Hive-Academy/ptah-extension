@@ -30,15 +30,34 @@ type ResultDetails = Pick<
   | 'rejectedSections'
   | 'tailoredSections'
   | 'propagation'
+  | 'target'
+  | 'libraryPass'
+  | 'libraryDiverged'
 >;
 
 function outcomeStatus(
-  status: 'written' | 'unchanged' | 'failed' | 'pending' | 'running',
+  status: Manifest['agents'][string]['status'],
   rejectedSections: number,
 ): NonNullable<SetupGenerationResultFacts['agentOutcomes']>[number]['status'] {
   if (status === 'pending' || status === 'running') return 'skipped';
   if (status === 'failed' && rejectedSections > 0) return 'rejected';
   return status;
+}
+
+/**
+ * The status a result reports for an agent. A carried-over agent was settled
+ * by an earlier invocation: a file it wrote is current now (`unchanged`), and
+ * a file it left alone stays `kept` / `changed-since-preview`.
+ */
+function reportedStatus(
+  manifest: Manifest,
+  agentId: string,
+): Manifest['agents'][string]['status'] {
+  const status = manifest.agents[agentId]?.status ?? 'pending';
+  if (!manifest.carriedOverAgentIds?.includes(agentId)) return status;
+  return status === 'kept' || status === 'changed-since-preview'
+    ? status
+    : 'unchanged';
 }
 
 function countOutcomes(
@@ -53,15 +72,15 @@ function countOutcomes(
     failed: count('failed') + count('rejected'),
     skipped: count('skipped'),
     rejected: count('rejected'),
+    kept: count('kept'),
+    changedSincePreview: count('changed-since-preview'),
   };
 }
 
 export function resultDetailsFromManifest(manifest: Manifest): ResultDetails {
   const agentOutcomes = manifest.selectedAgentIds.map((agentId) => {
     const agent = manifest.agents[agentId];
-    const status = manifest.carriedOverAgentIds?.includes(agentId)
-      ? 'unchanged'
-      : (agent?.status ?? 'pending');
+    const status = reportedStatus(manifest, agentId);
     return {
       agentId,
       status: outcomeStatus(status, agent?.rejectedSections ?? 0),
@@ -83,6 +102,13 @@ export function resultDetailsFromManifest(manifest: Manifest): ResultDetails {
       0,
     ),
     ...(manifest.propagation ? { propagation: manifest.propagation } : {}),
+    ...(manifest.target ? { target: { ...manifest.target } } : {}),
+    ...(manifest.library
+      ? {
+          libraryPass: manifest.library.pass,
+          libraryDiverged: [...manifest.library.diverged],
+        }
+      : {}),
   };
 }
 
@@ -342,17 +368,17 @@ export function acceptedSubmit(
     : { success: true };
 }
 
-export function consumeConfirmedPreview(
-  confirmedPreviews: Map<string, string>,
-  tabBinding: SetupGenerationTabBinding,
-  workspaceRoot: string,
-  currentPreview: string,
-  consume = true,
-): boolean {
-  const previewKey = `${tabBinding.tabId}\0${workspaceRoot}`;
-  const confirmed = confirmedPreviews.get(previewKey) === currentPreview;
-  if (consume && confirmed) confirmedPreviews.delete(previewKey);
-  return confirmed;
+/**
+ * A fresh submit whose decisions are not bound to a current preview: the tab
+ * has none, the token is stale, a replace no longer matches its baseline, or
+ * the files a preview would list changed. The client re-previews and confirms.
+ */
+export function previewRequiredSubmit(): WizardSubmitSelectionResponse {
+  return {
+    success: false,
+    rejection: { reason: 'preview-required' },
+    error: 'Generation targets changed. Review the preview and confirm again.',
+  };
 }
 
 export interface GenerationProviderModels {

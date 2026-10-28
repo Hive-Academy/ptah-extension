@@ -36,7 +36,7 @@ const usage = {
 const threadResult = {
   thread: {
     id: 'thread',
-    cliVersion: '0.155.1',
+    cliVersion: '0.165.0',
     createdAt: 1,
     updatedAt: 1,
     cwd: '/work',

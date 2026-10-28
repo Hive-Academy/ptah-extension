@@ -133,27 +133,47 @@ describe('HarnessReconcilerService — foreign files and local edits', () => {
     expect(health.targets[0]?.foreign).toContain('.claude/skills/mine');
   });
 
-  it('[E10] a hand-edited managed copy is overwritten back to the source content and reported in overwrittenLocalEdit', async () => {
-    const reconciler = buildReconciler(layoutWithSkills());
+  it('[E10/D8] a hand-edited managed copy is kept byte-identical in every pass and reported; an unmodified one is still replaced', async () => {
+    const state = layoutWithSkills();
+    writeSkill(join(sourcesRoot, 'skills'), 'bar', 'bar content v1');
+    const reconciler = buildReconciler(state);
 
-    // First pass creates the managed copy.
+    // First pass creates both managed copies.
     await reconciler.reconcile(ws, { mode: 'full', reason: 'seed' });
-    const managedFile = join(ws, '.claude', 'skills', 'foo', 'SKILL.md');
-    expect(readFileSync(managedFile, 'utf-8')).toContain('source content v1');
+    const editedFile = join(ws, '.claude', 'skills', 'foo', 'SKILL.md');
+    const untouchedFile = join(ws, '.claude', 'skills', 'bar', 'SKILL.md');
+    expect(readFileSync(editedFile, 'utf-8')).toContain('source content v1');
+    const ownedHash = (): string | undefined =>
+      new ManagedManifestStore().load(ws, 'claude').entries[
+        '.claude/skills/foo'
+      ]?.hash;
+    const hashBefore = ownedHash();
 
-    // User hand-edits the copy directly.
-    writeFileSync(managedFile, 'HAND EDITED, NOT FROM SOURCE', 'utf-8');
+    // User hand-edits one copy; then both sources change upstream.
+    writeFileSync(editedFile, 'HAND EDITED, NOT FROM SOURCE', 'utf-8');
+    writeSkill(join(sourcesRoot, 'skills'), 'foo', 'source content v2');
+    writeSkill(join(sourcesRoot, 'skills'), 'bar', 'bar content v2');
 
-    const health = await reconciler.reconcile(ws, {
-      mode: 'full',
-      reason: 'second pass',
-    });
+    const verified = (await reconciler.verify(ws)).targets[0];
+    expect(verified?.keptLocalEdit).toEqual(['.claude/skills/foo']);
+    expect(verified?.localEdit).toEqual(['.claude/skills/foo']);
 
-    // Source wins: the edit is discarded, but reported so the user can find it.
-    expect(readFileSync(managedFile, 'utf-8')).toContain('source content v1');
-    expect(readFileSync(managedFile, 'utf-8')).not.toContain('HAND EDITED');
-    expect(health.targets[0]?.overwrittenLocalEdit).toContain(
-      '.claude/skills/foo',
-    );
+    for (const reason of ['second pass', 'third pass']) {
+      const health = await reconciler.reconcile(ws, { mode: 'full', reason });
+      const claude = health.targets[0];
+
+      // The edit is kept exactly as the user left it ...
+      expect(readFileSync(editedFile, 'utf-8')).toBe(
+        'HAND EDITED, NOT FROM SOURCE',
+      );
+      expect(claude?.keptLocalEdit).toEqual(['.claude/skills/foo']);
+      expect(claude?.localEdit).toEqual(['.claude/skills/foo']);
+      expect(claude?.missing).not.toContain('.claude/skills/foo');
+      expect(claude?.writeFailed).toEqual([]);
+      // ... under the hash Ptah wrote, so every later pass keeps it again.
+      expect(ownedHash()).toBe(hashBefore);
+      // The unmodified copy follows its source.
+      expect(readFileSync(untouchedFile, 'utf-8')).toContain('bar content v2');
+    }
   });
 });

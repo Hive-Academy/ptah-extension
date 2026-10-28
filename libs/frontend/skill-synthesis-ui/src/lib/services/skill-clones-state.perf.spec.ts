@@ -10,6 +10,8 @@
  * RPC + 1 GROUP-BY") and `task-description.md` NFR — and asserts the RPC call
  * count stays exactly 1 regardless of clone count.
  */
+import { signal } from '@angular/core';
+import { LibraryChangeFeed } from '@ptah-extension/marketplace/services';
 import { TestBed } from '@angular/core/testing';
 import type { AgentScorecard, CloneSummary } from '@ptah-extension/shared';
 
@@ -75,14 +77,17 @@ describe('SkillClonesStateService — 200-clone Library render perf (NFR)', () =
     );
 
     const rpc: jest.Mocked<RpcSlice> = {
-      listClones: jest.fn(async () => clones),
+      listClones: jest.fn(async () => ({ clones })),
       getClone: jest.fn(),
       getScorecards: jest.fn(async () => scorecardsBySlug),
       getScorecardDetail: jest.fn(),
     } as unknown as jest.Mocked<RpcSlice>;
 
     TestBed.configureTestingModule({
-      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+      providers: [
+        { provide: SkillSynthesisRpcService, useValue: rpc },
+        { provide: LibraryChangeFeed, useValue: { latest: signal(null) } },
+      ],
     });
     const svc = TestBed.inject(SkillClonesStateService);
 

@@ -28,7 +28,7 @@ export class NotificationService {
   private readonly sounded = new Set<string>();
   private readonly dismissed = new Map<string, string>();
   private readonly hiddenRecent = new Set<string>();
-  private readonly suppressed = new Map<string, Set<'panel' | 'inline'>>();
+  private readonly suppressed = new Map<string, Set<'panel' | 'inline' | 'rail'>>();
   private readonly individuallyPaused = new Set<string>();
   private readonly clocks = new Map<string, TransientClock>();
   private readonly revision = signal(0);
@@ -189,8 +189,8 @@ export class NotificationService {
   }
 
   /** The presenter controls focused/visible surface suppression. */
-  setSnackbarSuppressed(key: string, suppressed: boolean, reason: 'panel' | 'inline' = 'panel'): void {
-    const reasons = this.suppressed.get(key) ?? new Set<'panel' | 'inline'>();
+  setSnackbarSuppressed(key: string, suppressed: boolean, reason: 'panel' | 'inline' | 'rail' = 'panel'): void {
+    const reasons = this.suppressed.get(key) ?? new Set<'panel' | 'inline' | 'rail'>();
     if (reasons.has(reason) === suppressed) return;
     if (suppressed) reasons.add(reason);
     else reasons.delete(reason);

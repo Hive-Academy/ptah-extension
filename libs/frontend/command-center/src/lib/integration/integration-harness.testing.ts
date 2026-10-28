@@ -20,6 +20,10 @@ import type {
   ProjectionResult,
 } from '../model/work-projection';
 import { CommandSceneComponent } from '../scene/command-scene.component';
+import {
+  RAIL_STUB_OVERRIDE,
+  railStubProviders,
+} from '../components/command-rail.testing';
 
 @Component({
   selector: 'ptah-command-scene',
@@ -34,6 +38,7 @@ export class SceneStubComponent {
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
   public readonly reservedTop = input(72);
+  public readonly reservedBottom = input(62);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
@@ -158,18 +163,19 @@ export function createHarness(
       { provide: MessageSenderService, useValue: sender },
       { provide: ChatStore, useValue: chat },
       { provide: AgentMonitorStore, useValue: monitor },
+      ...railStubProviders(),
     ],
   });
   TestBed.overrideComponent(CommandCenterPageComponent, {
     remove: {
-      imports: [CommandSceneComponent],
+      imports: [CommandSceneComponent, ...RAIL_STUB_OVERRIDE.remove],
       providers: [
         CommandCenterTribunalTransport,
         CommandCenterProjectionSource,
       ],
     },
     add: {
-      imports: [SceneStubComponent],
+      imports: [SceneStubComponent, ...RAIL_STUB_OVERRIDE.add],
       providers: [
         { provide: CommandCenterTribunalTransport, useValue: transport },
         ...(options.realProjectionSource

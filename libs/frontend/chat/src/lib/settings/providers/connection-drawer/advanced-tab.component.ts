@@ -6,6 +6,8 @@ import { validateProviderBaseUrl, type AuthVerifyDraftConnectionParams, type Aut
 import type { CancelDraftFn, VerifyDraftFn } from './credentials-tab.component';
 import { runDrawerWrite, type DrawerWriteOutcome } from './drawer-write';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { commitToast } from '../../feedback/settings-commit-toast';
 
 /** Verbatim (plan :662-664): pricing has no runtime reader (`provider-registry.ts:703-718`). */
 export const PRICING_NOTE = 'Stored for your reference; Ptah does not use it for cost estimates yet.';
@@ -35,6 +37,13 @@ const PROBE_FAILURE_COPY: Readonly<Record<string, string>> = {
 };
 
 let PROBE_COUNTER = 0;
+
+function probeResultText(result: AuthVerifyDraftConnectionResult): string {
+  const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
+  return result.outcome === 'verified'
+    ? `Endpoint verified${latency}. Save it to apply.`
+    : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`;
+}
 
 /** Parses the two price fields: both empty clears the pricing; otherwise both must be numbers ≥ 0. */
 export function parsePricing(input: string, output: string): { readonly ok: true; readonly value: ProvidersCustomEntry['pricing'] } | { readonly ok: false } {
@@ -86,6 +95,7 @@ export function parsePricing(input: string, output: string): { readonly ok: true
               [value]="keyDraft()" (input)="keyDraft.set(value($event)); abandonProbe()" data-testid="advanced-check-key" />
             <p class="text-xs text-base-content-muted">The stored key can only be checked against the saved address. It is used for this check only and is not saved.</p>
           }
+          <!-- The check's state gates Save endpoint, so it stays here; its result is also the page toast. -->
           <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="advanced-probe">
             @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
             {{ probeText() }}
@@ -153,16 +163,12 @@ export function parsePricing(input: string, output: string): { readonly ok: true
           </div>
         }
       }
-      @if (outcomeView(); as feedback) {
-        <p [attr.role]="feedback.alert ? 'alert' : 'status'" class="flex items-start gap-1.5 text-xs text-base-content" data-testid="advanced-commit">
-          <span [class]="feedback.dot" aria-hidden="true"></span> {{ feedback.text }}
-        </p>
-      }
     </div>
   `,
 })
 export class AdvancedTabComponent {
   private readonly state = inject(ProvidersSettingsStateService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   readonly connection = input.required<ProvidersConnection>();
   /** This connection drives the main agent: it cannot be deleted. */
   readonly isDriver = input(false);
@@ -183,7 +189,6 @@ export class AdvancedTabComponent {
   protected readonly probeState = signal<ProbeState>('idle');
   protected readonly probeResult = signal<AuthVerifyDraftConnectionResult | null>(null);
   private readonly outcome = signal<DrawerWriteOutcome | null>(null);
-  private readonly section = signal<Section | null>(null);
   private probeId: string | null = null;
   private readonly connectionId = computed(() => this.connection().id);
 
@@ -207,29 +212,17 @@ export class AdvancedTabComponent {
     && (this.baseUrlChanged() || this.modelsEndpointChanged()) && (!this.baseUrlChanged() || !!this.keyDraft().trim()));
   protected readonly canSaveEndpoint = computed(() => !this.busy() && this.probeState() === 'verified'
     && this.probeResult()?.probeId === this.probeId && (this.baseUrlChanged() || this.modelsEndpointChanged()));
+  /** The check's state stays inline: a `verified` result is what enables Save endpoint. */
   protected readonly probeText = computed(() => {
     const result = this.probeResult();
-    const latency = result?.latencyMs !== null && result?.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
     switch (this.probeState()) {
       case 'checking': return 'Checking the endpoint…';
-      case 'verified': return `Endpoint verified${latency}. Save it to apply.`;
-      case 'failed': return `Check failed${latency}: ${PROBE_FAILURE_COPY[result?.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`;
-      default: return 'A changed base URL or models endpoint is saved only after a passing check.';
+      case 'idle': return 'A changed base URL or models endpoint is saved only after a passing check.';
+      default: return result ? probeResultText(result) : '';
     }
   });
   protected readonly probeDot = computed(() =>
     `h-2 w-2 shrink-0 rounded-full ${this.probeState() === 'verified' ? 'bg-success' : this.probeState() === 'failed' ? 'bg-error' : 'bg-base-content-muted'}`);
-  protected readonly outcomeView = computed(() => {
-    const outcome = this.outcome(), section = this.section();
-    if (!outcome || !section || outcome.status === 'idle') return null;
-    const dot = (tone: string) => `mt-1 h-2 w-2 shrink-0 rounded-full ${tone}`;
-    switch (outcome.status) {
-      case 'saving': return { text: 'Saving…', dot: dot('bg-base-content-muted'), alert: false };
-      case 'saved': return { text: SAVED_TEXT[section], dot: dot('bg-success'), alert: false };
-      case 'unconfirmed': return { text: `Save not confirmed. ${outcome.message ?? ''}`.trim(), dot: dot('bg-warning'), alert: true };
-      default: return { text: `Not saved. ${outcome.message ?? ''}`.trim(), dot: dot('bg-error'), alert: true };
-    }
-  });
 
   constructor() {
     effect(() => {
@@ -255,14 +248,20 @@ export class AdvancedTabComponent {
     };
     void this.verifyDraftConnection()(params).then((result) => {
       if (this.probeId !== probeId || result.probeId !== probeId) return;
-      this.probeResult.set(result);
-      this.probeState.set(result.outcome === 'verified' ? 'verified' : 'failed');
+      this.settleProbe(result);
     }).catch(() => {
       if (this.probeId !== probeId) return;
-      this.probeResult.set({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null, modelUsed: null,
+      this.settleProbe({ probeId, outcome: 'failed', reason: 'unclassified', detail: null, latencyMs: null, modelUsed: null,
         checkedAt: new Date().toISOString() });
-      this.probeState.set('failed');
     });
+  }
+
+  /** Records a check's result (it gates Save endpoint, so it stays inline) and also says it in the page toast. */
+  private settleProbe(result: AuthVerifyDraftConnectionResult): void {
+    this.probeResult.set(result);
+    const verified = result.outcome === 'verified';
+    this.probeState.set(verified ? 'verified' : 'failed');
+    this.feedback.announce(probeResultText(result), verified ? 'status' : 'alert');
   }
 
   protected saveEndpoint(): Promise<void> {
@@ -311,11 +310,13 @@ export class AdvancedTabComponent {
   private async write(section: Section, run: Parameters<typeof runDrawerWrite>[1], onSaved: () => void): Promise<void> {
     if (this.busy()) return;
     const id = this.connectionId();
-    this.section.set(section);
     await runDrawerWrite(this.state, run, (outcome) => {
       if (this.connectionId() !== id) return;
       this.outcome.set(outcome);
       if (outcome.status === 'saved') onSaved();
+      // The outcome is the page toast; Save stays disabled while it runs, so "Saving…" is not repeated.
+      const said = commitToast(outcome, SAVED_TEXT[section]);
+      if (said) this.feedback.announce(said.message, said.tone);
     });
   }
 
@@ -333,6 +334,5 @@ export class AdvancedTabComponent {
     this.keyDraft.set('');
     this.confirmingDelete.set(false);
     this.outcome.set(null);
-    this.section.set(null);
   }
 }

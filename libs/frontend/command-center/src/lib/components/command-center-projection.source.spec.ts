@@ -253,6 +253,10 @@ describe('CommandCenterProjectionSource', () => {
       agentId: 'sdk-1',
       parentSessionId: 'child-session',
       status: 'completed',
+      agentType: 'software-architect',
+      description: 'Reading files',
+      taskDescription: 'Design the command center fix',
+      startedAt: 120,
       lastEventAt: 150,
     } as SubagentRecord;
     const monitor = Object.assign(Object.create(null) as AgentMonitorStore, {
@@ -323,6 +327,10 @@ describe('CommandCenterProjectionSource', () => {
           agentId: 'sdk-1',
           kind: 'sdk',
           state: 'completed',
+          displayName: 'software-architect',
+          task: 'Design the command center fix',
+          startedAt: 120,
+          updatedAt: 150,
         }),
       ]),
     );

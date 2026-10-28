@@ -76,6 +76,7 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
   RAIL_TRANSCRIPT_RETENTION,
+  SESSION_READ_ONLY,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
@@ -793,6 +794,10 @@ export class ChatViewComponent implements OnDestroy {
   private readonly _railRetention =
     inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
 
+  /** A read-only host (e.g. the Command Center rail) renders no composer. */
+  protected readonly readOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
+
   /**
    * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
    * (SESSION_CONTEXT present) renders one tab unless Rail retention is opted in;
@@ -966,6 +971,8 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly budgetDisplayStage = this._budgetActions.displayStage;
   protected readonly budgetDismissedStage = this._budgetActions.dismissedStage;
   protected readonly budgetWrapUpSent = this._budgetActions.wrapUpSent;
+  protected readonly budgetAutoHandoffQueued =
+    this._budgetActions.autoHandoffQueued;
 
   /**
    * The one stats source of this view (Delta 3). It names the run owners of
@@ -1162,6 +1169,7 @@ export class ChatViewComponent implements OnDestroy {
       activeTab: this.resolvedActiveTab,
       tabId: this.resolvedTabId,
       sessionId: this.resolvedSessionId,
+      bannerVisible: this.showSessionBudgetBanner,
     });
     this.observeHostWidth();
     this.wireSessionEntrance();
@@ -1415,6 +1423,11 @@ export class ChatViewComponent implements OnDestroy {
 
   protected onBudgetDismiss(): void {
     this._budgetActions.dismiss();
+  }
+
+  /** Budget banner "Cancel" on a queued automatic hand-off. */
+  protected onBudgetCancelAutoHandoff(): void {
+    this._budgetActions.cancelAutoHandoff();
   }
 
   /**

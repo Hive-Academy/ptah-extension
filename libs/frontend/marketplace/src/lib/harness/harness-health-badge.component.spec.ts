@@ -30,7 +30,10 @@ import type {
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { HARNESS_BLOCKED_RECONCILE_STEPS, summarizeHarnessHealth } from '@ptah-extension/shared';
+import {
+  HARNESS_BLOCKED_RECONCILE_STEPS,
+  summarizeHarnessHealth,
+} from '@ptah-extension/shared';
 import { HarnessHealthBadgeComponent } from './harness-health-badge.component';
 
 function ok<T>(data: T) {
@@ -69,7 +72,7 @@ function makeTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 8,
     ...over,
@@ -181,16 +184,24 @@ describe('HarnessHealthBadgeComponent', () => {
   });
 
   it('offers one repair dialog for blocked paths beside Reconcile now', async () => {
-    await render(makeHealth({ targets: [makeTarget('claude', {
-      found: 3,
-      missing: ['.claude/skills/orchestration'],
-      foreign: ['.claude/skills/orchestration'],
-    })] }));
+    await render(
+      makeHealth({
+        targets: [
+          makeTarget('claude', {
+            found: 3,
+            missing: ['.claude/skills/orchestration'],
+            foreign: ['.claude/skills/orchestration'],
+          }),
+        ],
+      }),
+    );
     await openPanel();
     expect(testId('harness-reconcile')).not.toBeNull();
     const repair = testId('harness-badge-repair');
     expect(repair?.textContent).toContain('Move these aside');
-    expect(testId('harness-blocked-action')?.textContent).toContain(HARNESS_BLOCKED_RECONCILE_STEPS['marketplace-popover']);
+    expect(testId('harness-blocked-action')?.textContent).toContain(
+      HARNESS_BLOCKED_RECONCILE_STEPS['marketplace-popover'],
+    );
     repair?.click();
     fixture.detectChanges();
     expect(host.querySelector('ptah-harness-repair-dialog')).not.toBeNull();
@@ -425,38 +436,39 @@ describe('HarnessHealthBadgeComponent', () => {
       expect(failures?.textContent).toContain('EBUSY');
     });
 
-    it('explains an overwritten local edit instead of just counting it', async () => {
-      // E10: the source wins, and the user needs to know where to edit instead.
+    it('explains a kept local edit instead of just counting it', async () => {
+      // D8: an edited managed copy is kept, and the user needs to know that
+      // sync leaves it alone until they choose to replace it.
       await render(
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),
       );
       await openPanel();
 
-      expect(testId('harness-target-overwritten')?.textContent).toContain(
-        'user layer',
-      );
+      const text = testId('harness-target-kept')?.textContent ?? '';
+      expect(text).toContain('kept as you left it');
+      expect(text).not.toContain('replaced from the source');
     });
 
-    it('opens diverged Skills clones from an Electron overwritten-edit button', async () => {
+    it('opens diverged Skills clones from an Electron kept-edit button', async () => {
       vscodeMock.isElectron = true;
       await render(
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),
       );
       await openPanel();
 
-      const control = testId('harness-target-overwritten');
+      const control = testId('harness-target-kept');
       expect(control?.tagName).toBe('BUTTON');
       expect(control?.getAttribute('aria-label')).toContain('Skills library');
 
@@ -465,21 +477,21 @@ describe('HarnessHealthBadgeComponent', () => {
       expect(appStateMock.openSkillsDivergedClones).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps overwritten-edit copy inert outside Electron', async () => {
+    it('keeps kept-edit copy inert outside Electron', async () => {
       await render(
         makeHealth({
           targets: [
             makeTarget('claude', {
-              overwrittenLocalEdit: ['.claude/skills/a/SKILL.md'],
+              keptLocalEdit: ['.claude/skills/a/SKILL.md'],
             }),
           ],
         }),
       );
       await openPanel();
 
-      const copy = testId('harness-target-overwritten');
+      const copy = testId('harness-target-kept');
       expect(copy?.tagName).toBe('P');
-      expect(copy?.textContent).toContain('user layer');
+      expect(copy?.textContent).toContain('kept as you left it');
       expect(appStateMock.openSkillsDivergedClones).not.toHaveBeenCalled();
     });
 

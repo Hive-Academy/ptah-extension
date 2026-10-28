@@ -71,8 +71,9 @@ function isNotification(method: string): method is CodexNotificationMethod {
   return Object.hasOwn(codexNotificationSchemas, method);
 }
 
-// Pinned 0.155.1 ServerNotification methods; specs compare this surface with both artifacts.
+// Pinned 0.165.0 ServerNotification methods; specs compare this surface with both artifacts.
 const pinnedServerNotifications = new Set<string>([
+  'account/gatewayOAuth/changed',
   'account/login/completed',
   'account/rateLimits/updated',
   'account/updated',
@@ -129,7 +130,9 @@ const pinnedServerNotifications = new Set<string>([
   'thread/goal/updated',
   'thread/name/updated',
   'thread/project/updated',
+  'thread/prediction/updated',
   'thread/queue/changed',
+  'thread/readState/changed',
   'thread/realtime/closed',
   'thread/realtime/error',
   'thread/realtime/item/completed',

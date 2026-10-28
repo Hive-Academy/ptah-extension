@@ -93,7 +93,7 @@ export function harnessTargetLabel(target: HarnessTargetId): string {
  * Whether one target row should render as attention-needing.
  *
  * Row-level only — it tints a row, it does not feed the overall badge. Unlike
- * the shared reducer this DOES include `overwrittenLocalEdit`, because at row
+ * the shared reducer this DOES include `keptLocalEdit`, because at row
  * level it is actionable information ("your edit here was replaced; edit the
  * user layer instead", E10) rather than a defect in the reconcile.
  */
@@ -106,7 +106,7 @@ export function harnessTargetNeedsAttention(
   return (
     target.missing.length > 0 ||
     target.writeFailed.length > 0 ||
-    target.overwrittenLocalEdit.length > 0
+    target.keptLocalEdit.length > 0
   );
 }
 

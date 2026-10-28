@@ -137,7 +137,7 @@ export interface CanvasBoardNotice {
           [collapsed]="effectiveCollapsed()" [autoCollapsed]="autoCollapsed()"
           [band]="band()" [runningCount]="store.runningSessionCount()"
           [canStart]="store.canStartRunningSession()" [canAdd]="store.canAddTile()"
-          [holdTabId]="holdTabId()" [surfaceActive]="visible()"
+          [holdTabId]="holdTabId()" [surfaceActive]="surfaceActive()"
           [previousSessionsOpen]="previousSessions.isOpen()"
           [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)" (collapseToggled)="toggleCollapse()"

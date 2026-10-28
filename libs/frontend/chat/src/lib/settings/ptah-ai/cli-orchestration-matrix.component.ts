@@ -853,15 +853,6 @@ const SAVE_SCOPE = 'global';
                           </ptah-native-popover>
                         </div>
                       }
-                      @if (testResult(row); as result) {
-                        <p
-                          [attr.role]="result.ok ? 'status' : 'alert'"
-                          class="mt-0.5 whitespace-normal text-xs text-base-content"
-                          data-testid="cli-matrix-test-result"
-                        >
-                          {{ result.text }}
-                        </p>
-                      }
                     } @else {
                       <div
                         class="inline-flex flex-wrap items-center justify-end gap-1"
@@ -998,19 +989,6 @@ const SAVE_SCOPE = 'global';
                                       Re-detect
                                     }
                                   </button>
-                                  @if (guideNote()?.rowId === row.id) {
-                                    <p
-                                      class="text-xs text-base-content"
-                                      role="status"
-                                      data-testid="cli-install-redetect-note"
-                                    >
-                                      {{
-                                        guideNote()?.outcome === 'failed'
-                                          ? 'Detection failed. Try again.'
-                                          : 'Still not found. Check the step above, then try again.'
-                                      }}
-                                    </p>
-                                  }
                                 </div>
                               </div>
                             }
@@ -1155,11 +1133,6 @@ export class CliOrchestrationMatrixComponent {
   protected readonly guideDetecting = computed(
     () => this.state.cliDetection().status === 'loading',
   );
-  /** The install guide's last Re-detect outcome when the CLI did not move to the installed group. */
-  protected readonly guideNote = signal<{
-    readonly rowId: string;
-    readonly outcome: 'not-found' | 'failed';
-  } | null>(null);
 
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
@@ -1247,7 +1220,7 @@ export class CliOrchestrationMatrixComponent {
   }
 
   /**
-   * M4: a created instance's key is stored, not verified, so its Test runs at once and shows inline. Minor 2: from the
+   * M4: a created instance's key is stored, not verified, so its Test runs at once and its result is announced. Minor 2: from the
    * empty-state button, focus moves to the new row's first action (that button is gone). When the refreshed list does
    * not hold the new instance yet, no Test runs and a fixed toast says so (re-check N-1).
    */
@@ -1310,7 +1283,6 @@ export class CliOrchestrationMatrixComponent {
   }
 
   protected openCell(rowId: string, kind: OpenCell['kind']): void {
-    this.guideNote.set(null);
     this.openState.set(this.isOpen(rowId, kind) ? null : { rowId, kind });
   }
 
@@ -1320,17 +1292,19 @@ export class CliOrchestrationMatrixComponent {
 
   /**
    * The install guide's Re-detect: the same re-read as the policy bar's Re-detect CLIs. A CLI that is found
-   * leaves the Uninstalled group, so the guide closes and focus follows the row; otherwise the guide says why.
+   * leaves the Uninstalled group, so the guide closes and focus follows the row; otherwise the page toast says why.
    */
   protected async redetectFromGuide(rowId: string): Promise<void> {
     if (this.guideDetecting()) return;
-    this.guideNote.set(null);
     if (!(await this.state.redetectClis())) {
-      this.guideNote.set({ rowId, outcome: 'failed' });
+      this.feedback.announce('Detection failed. Try again.', 'alert');
       return;
     }
     if (this.rows().uninstalled.some((row) => row.id === rowId)) {
-      this.guideNote.set({ rowId, outcome: 'not-found' });
+      this.feedback.announce(
+        'Still not found. Check the step above, then try again.',
+        'status',
+      );
       return;
     }
     this.close();
@@ -1463,14 +1437,14 @@ export class CliOrchestrationMatrixComponent {
   }
 
   /**
-   * RUX-11: this instance's last Test, inline. Only this run's result counts (S1: the state drops the previous one when
-   * a run starts and on any failure), nothing shows while it runs, and a failure is a fixed sentence (M1) followed by
-   * the state's own fixed reason when it has one.
+   * RUX-11: this instance's last Test, announced through the page toast with the instance name when the run ends (the
+   * row's status badge keeps the latency of a passed test). Only this run's result counts (S1: the state drops the
+   * previous one when a run starts and on any failure), and a failure is a fixed sentence (M1) followed by the state's
+   * own fixed reason when it has one.
    */
-  protected testResult(
+  private testResult(
     row: InstanceCliMatrixRow,
   ): { readonly ok: boolean; readonly text: string } | null {
-    if (this.testingId() === row.id) return null;
     if (row.lastTest) {
       if (row.lastTest.success) {
         return {
@@ -1503,6 +1477,14 @@ export class CliOrchestrationMatrixComponent {
     } finally {
       this.testingId.set(null);
     }
+    const { installed, uninstalled } = this.rows();
+    const row = [...installed, ...uninstalled].find(
+      (candidate): candidate is InstanceCliMatrixRow =>
+        candidate.kind === 'instance' && candidate.id === id,
+    );
+    const result = row ? this.testResult(row) : null;
+    // Named: a later Test of another instance replaces this toast, so each one says whose result it is.
+    if (row && result) this.feedback.announce(`${row.name}: ${result.text}`, result.ok ? 'status' : 'alert');
   }
 
   /**

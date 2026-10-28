@@ -25,13 +25,18 @@
  *   1. **Nothing consented ⇒ nothing runs.** Not even a reconcile — a pass
  *      writes files, and "declined consent leaves the filesystem byte-identical"
  *      has to mean byte-identical.
- *   2. **The blocked set is re-derived here**, from `reconciler.verify()`, and a
- *      requested path outside it is REFUSED. The caller's list is a UI's view of
- *      a report that may be minutes old; this is what keeps the RPC from being a
- *      general-purpose "move this directory" primitive.
+ *   2. **The repairable set is re-derived here**, from `reconciler.verify()`:
+ *      the blocked paths, plus the kept local edits (D8) — and a kept local
+ *      edit only when the request carries the digest the user approved
+ *      (A21). A requested path outside that set is REFUSED. The caller's list
+ *      is a UI's view of a report that may be minutes old; this is what keeps
+ *      the RPC from being a general-purpose "move this directory" primitive.
  *   3. **Move every consented occupant to quarantine first**, under the
- *      workspace lock, verifying each move. A path whose move failed is left
- *      exactly as it was.
+ *      workspace lock, verifying each move. A path carrying an approval digest
+ *      is re-digested under that lock immediately before its move; any
+ *      difference — edited again, deleted, recreated, now unreadable — leaves
+ *      it exactly as it is (`changed-since-approval`). A path whose move
+ *      failed is left exactly as it was.
  *   4. **Then one ordinary full pass.** The write is the reconciler's, not a
  *      second writer of its own — which is what makes "a failed move means no
  *      write at that path" STRUCTURAL rather than a branch somebody has to
@@ -58,6 +63,7 @@
  * runs the other way. The only caller is the `harness:repairBlocked` RPC.
  */
 
+import { lstat } from 'fs/promises';
 import { join } from 'path';
 import {
   blockedTargetPaths,
@@ -68,6 +74,9 @@ import {
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { describeError } from '../fs/windows-retry';
+import { hashDir, hashFile } from '../hash/content-hash';
+import { probeDestination } from '../health/harness-destination-scanner';
+import { TARGET_WIDE_FAILURE } from '../health/harness-health';
 import {
   acquireWorkspaceLock,
   serializePerWorkspace,
@@ -76,6 +85,7 @@ import {
   moveToQuarantine,
   restoreFromQuarantine,
 } from '../quarantine/quarantine';
+import type { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import type { HarnessPropagationService } from '../propagation/harness-propagation.service';
 import type { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
 import { isMcpFragmentKey } from '../targets/mcp/mcp-facet.port';
@@ -83,6 +93,13 @@ import { resolveHarnessWorkspaceRoot } from '../workspace/workspace-root';
 
 /** The reason string the repair pass carries into logs and health reports. */
 export const REPAIR_REASON = 'harness:repairBlocked';
+
+/**
+ * The `changed-since-approval` reason. Shared by the two places that decide it
+ * (the refusal before any lock, the re-digest under it) so they cannot drift.
+ */
+const CHANGED_SINCE_APPROVAL_REASON =
+  'this changed after you approved it, so it was kept exactly as it is and nothing was moved or written';
 
 export interface HarnessBlockedRepairReport {
   /** One entry per requested path, in request order. */
@@ -106,6 +123,11 @@ export class HarnessBlockedRepairService {
     private readonly logger: Logger,
     private readonly reconciler: HarnessReconcilerService,
     private readonly propagation: HarnessPropagationService,
+    /**
+     * Read under the lock after the pass: the manifest entry plus the bytes on
+     * disk are the positive proof a path was repaired (P1 review A2).
+     */
+    private readonly manifestStore: ManagedManifestStore,
     /** Injected so a spec can pin the quarantine name without faking a clock. */
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -133,14 +155,14 @@ export class HarnessBlockedRepairService {
     // blocked set, and refusing a path that turns out not to be blocked is the
     // safe direction to be wrong in.
     const before = await this.reconciler.verify(workspaceRoot, REPAIR_REASON);
-    const blocked = blockedByTarget(before);
+    const repairable = repairableByTarget(before);
 
     const accepted: HarnessRepairBlockedPath[] = [];
     const acceptedIndexes: number[] = [];
     consented.forEach((request, index) => {
-      const refusal = refuse(request, blocked);
+      const refusal = refuse(request, repairable);
       if (refusal !== null) {
-        results[index] = { ...request, ...refusal };
+        results[index] = { ...pathOf(request), ...refusal };
         return;
       }
       accepted.push(request);
@@ -208,31 +230,51 @@ export class HarnessBlockedRepairService {
       try {
         for (let i = 0; i < accepted.length; i++) {
           const request = accepted[i];
+          const path = pathOf(request);
           const index = acceptedIndexes[i];
           const absolute = toAbsolute(workspaceRoot, request.relPath);
+          if (
+            request.expectedDigest !== undefined &&
+            (await probeDestination(absolute)).digest !== request.expectedDigest
+          ) {
+            // Re-digested under the lock, immediately before the move (A21).
+            // The user approved replacing specific content; what is there now
+            // is not it, so it stays exactly as it is and nothing is moved.
+            results[index] = {
+              ...path,
+              outcome: 'changed-since-approval',
+              reason: CHANGED_SINCE_APPROVAL_REASON,
+            };
+            this.logger.info(
+              '[harness-sync] Kept a path that changed since its replace was approved',
+              path,
+            );
+            continue;
+          }
           try {
             const { quarantinePath } = await moveToQuarantine(
               absolute,
               this.now(),
             );
-            moved.push({ index, ...request, absolute, quarantinePath });
+            moved.push({ index, ...path, absolute, quarantinePath });
             this.logger.info(
-              '[harness-sync] Quarantined a blocked path on explicit consent',
-              { ...request, quarantinePath },
+              '[harness-sync] Quarantined a consented path on explicit consent',
+              { ...path, quarantinePath },
             );
           } catch (error: unknown) {
-            // Untouched, and no write will be attempted here: the occupant is
-            // still unowned, so the pass below classifies it foreign and drops
-            // it before `plan.writes` exists.
+            // Untouched, and no write will be attempted here: a blocked
+            // occupant is still unowned, so the pass below classifies it
+            // foreign and drops it before `plan.writes` exists; a kept local
+            // edit is still edited, so the pass keeps it (D8).
             results[index] = {
-              ...request,
+              ...path,
               outcome: 'move-failed',
               reason: `could not move the occupant aside, so nothing was written here: ${describeError(error)}`,
             };
             this.logger.warn(
-              '[harness-sync] Could not quarantine a blocked path; leaving it exactly as it was',
+              '[harness-sync] Could not quarantine a consented path; leaving it exactly as it was',
               {
-                ...request,
+                ...path,
                 error: error instanceof Error ? error.message : String(error),
               },
             );
@@ -246,19 +288,31 @@ export class HarnessBlockedRepairService {
   }
 
   /**
-   * Phase two: decide each moved path from the pass's own report.
+   * Phase two: decide each moved path on POSITIVE evidence that the managed
+   * copy is installed there (P1 review A2), and restore every other one.
    *
-   * `missing` after an apply is the failed writes PLUS the blocked set
-   * (`health/harness-health.ts:112`), so "still missing" is exactly "the
-   * managed copy did not land" and needs no second disk walk to establish.
+   * The absence of a path from `missing` is not that evidence. A target whose
+   * detection or plan threw reports `missing: []` beside a `(target)` write
+   * failure; a target that stopped being detected reports nothing at all; and
+   * an edited occupant that appeared during the pass is kept rather than
+   * missing. Each of those used to read as `repaired` while nothing was
+   * installed. A path is therefore repaired only when BOTH hold:
+   *
+   * 1. the pass's report has the target detected, with no target-wide or
+   *    per-path write failure, and the path neither missing, kept, nor foreign;
+   * 2. a fresh check under the lock finds the target's manifest owning the
+   *    path, with what is on disk now hashing to the recorded entry — Ptah's
+   *    own copy, as written, at that path.
+   *
+   * Anything short of that restores the original through
+   * `restoreFromQuarantine`, which never deletes: an obstruction (this pass's
+   * half-finished copy, or a save that landed meanwhile) is moved aside into
+   * the quarantine and named in the log.
    *
    * **Runs inside the workspace lock, like phase one.** The write pass has
    * completed and released by now, so re-taking it here nests nothing and
-   * deadlocks nothing — and a restore puts a user's directory back onto a path
-   * another writer could otherwise be touching. `restoreFromQuarantine` is
-   * non-destructive regardless (it moves an obstruction aside rather than
-   * deleting it), so the lock narrows the window rather than being the thing
-   * that makes the operation safe.
+   * deadlocks nothing, and both the evidence check and a restore must not race
+   * another Ptah writer on the same path.
    */
   private settle(
     workspaceRoot: string,
@@ -266,34 +320,65 @@ export class HarnessBlockedRepairService {
     health: HarnessHealth | null,
     results: HarnessRepairPathResult[],
   ): Promise<number> {
-    const stillMissing = missingByTarget(health);
-    const written = (path: MovedPath): boolean =>
-      health !== null && !stillMissing.get(path.target)?.has(path.relPath);
-
-    const repairedNow = moved.filter(written);
-    for (const path of repairedNow) {
-      results[path.index] = {
-        target: path.target,
-        relPath: path.relPath,
-        quarantinePath: path.quarantinePath,
-        outcome: 'repaired',
-      };
-    }
-
-    const toRestore = moved.filter((path) => !written(path));
-    if (toRestore.length === 0) return Promise.resolve(repairedNow.length);
-
     return serializePerWorkspace(workspaceRoot, async () => {
       const lock = await acquireWorkspaceLock(workspaceRoot);
       try {
-        for (const path of toRestore) {
+        let repaired = 0;
+        for (const path of moved) {
+          const notInstalled =
+            passDisproves(health, path) ??
+            (await this.managedCopyAbsent(workspaceRoot, path));
+          if (notInstalled === null) {
+            results[path.index] = {
+              target: path.target,
+              relPath: path.relPath,
+              quarantinePath: path.quarantinePath,
+              outcome: 'repaired',
+            };
+            repaired++;
+            continue;
+          }
+          this.logger.warn(
+            '[harness-sync] Repair found no installed managed copy; restoring the original',
+            { target: path.target, relPath: path.relPath, why: notInstalled },
+          );
           await this.restoreOne(path, results);
         }
+        return repaired;
       } finally {
         lock.release();
       }
-      return repairedNow.length;
     });
+  }
+
+  /**
+   * Why the managed copy is NOT proven installed at `path` by a fresh look at
+   * the target's manifest and the disk, or `null` when it is.
+   */
+  private async managedCopyAbsent(
+    workspaceRoot: string,
+    path: MovedPath,
+  ): Promise<string | null> {
+    const entry = this.manifestStore.load(workspaceRoot, path.target).entries[
+      path.relPath
+    ];
+    if (entry === undefined) return 'the target manifest does not own the path';
+    let isDirectory: boolean;
+    try {
+      const stat = await lstat(path.absolute);
+      if (stat.isSymbolicLink()) return 'the path is a symbolic link';
+      isDirectory = stat.isDirectory();
+    } catch (error: unknown) {
+      // Not an error to surface: an absent or unstat-able path is exactly
+      // "not installed", and the caller restores the original.
+      return `the path cannot be observed: ${describeError(error)}`;
+    }
+    const onDisk = isDirectory
+      ? await hashDir(path.absolute)
+      : await hashFile(path.absolute);
+    return onDisk !== null && onDisk === entry.hash
+      ? null
+      : 'what is at the path is not the copy the manifest records';
   }
 
   /** One restore, reported whichever way it goes. Never throws. */
@@ -362,36 +447,81 @@ function toAbsolute(workspaceRoot: string, relPath: string): string {
   return join(workspaceRoot, ...relPath.split('/'));
 }
 
-function blockedByTarget(
+/** The paths a fresh verify allows a repair to move, per target. */
+interface RepairablePaths {
+  blocked: ReadonlySet<string>;
+  /** Kept local edits (D8): repairable only with an approval digest (A21). */
+  keptLocalEdit: ReadonlySet<string>;
+}
+
+function repairableByTarget(
   health: HarnessHealth,
-): ReadonlyMap<HarnessTargetId, ReadonlySet<string>> {
+): ReadonlyMap<HarnessTargetId, RepairablePaths> {
   return new Map(
     health.targets.map((target) => [
       target.target,
-      new Set(blockedTargetPaths(target)),
+      {
+        blocked: new Set(blockedTargetPaths(target)),
+        keptLocalEdit: new Set(target.keptLocalEdit),
+      },
     ]),
   );
 }
 
-function missingByTarget(
+/**
+ * The request's identity alone. The approval digest is internal: it never
+ * reaches a result the caller is handed, nor a log line.
+ */
+function pathOf(
+  request: HarnessRepairBlockedPath,
+): Pick<HarnessRepairPathResult, 'target' | 'relPath'> {
+  return { target: request.target, relPath: request.relPath };
+}
+
+/**
+ * Why the pass's own report rules out an installed copy at `path`, or `null`
+ * when it is consistent with one. Consistency is necessary, not sufficient:
+ * `settle` still checks the manifest and the disk.
+ */
+function passDisproves(
   health: HarnessHealth | null,
-): ReadonlyMap<HarnessTargetId, ReadonlySet<string>> {
-  if (health === null) return new Map();
-  return new Map(
-    health.targets.map((target) => [target.target, new Set(target.missing)]),
+  path: Pick<MovedPath, 'target' | 'relPath'>,
+): string | null {
+  if (health === null) return 'the write pass did not run';
+  const target = health.targets.find((t) => t.target === path.target);
+  if (target === undefined || !target.detected) {
+    return 'the target was not part of the pass';
+  }
+  const failure = target.writeFailed.find(
+    (f) => f.relPath === path.relPath || f.relPath === TARGET_WIDE_FAILURE,
   );
+  if (failure !== undefined) {
+    return failure.relPath === TARGET_WIDE_FAILURE
+      ? 'the target failed as a whole during the pass'
+      : 'the write at this path failed';
+  }
+  if (target.missing.includes(path.relPath)) return 'the path is still missing';
+  if (target.keptLocalEdit.includes(path.relPath)) {
+    return 'the pass kept a different edit at this path';
+  }
+  if (target.foreign.includes(path.relPath)) {
+    return 'something unowned occupies the path';
+  }
+  return null;
 }
 
 /**
  * Why a requested path is refused, or `null` when it is acceptable.
  *
- * Both refusals leave the path untouched, and neither is an error: a UI showing
+ * Every refusal leaves the path untouched, and none is an error: a UI showing
  * a report from before the last reconcile can legitimately offer a path that is
- * no longer blocked.
+ * no longer blocked. A kept local edit without an approval digest is refused
+ * as `not-blocked`: it is not in the blocked set, and the user's own edit is
+ * replaceable only against the content they approved (A21).
  */
 function refuse(
   request: HarnessRepairBlockedPath,
-  blocked: ReadonlyMap<HarnessTargetId, ReadonlySet<string>>,
+  repairable: ReadonlyMap<HarnessTargetId, RepairablePaths>,
 ): Pick<HarnessRepairPathResult, 'outcome' | 'reason'> | null {
   if (isMcpFragmentKey(request.relPath)) {
     return {
@@ -400,7 +530,21 @@ function refuse(
         'this is a server key inside a config file you also write, not a file — there is nothing to move aside',
     };
   }
-  if (!blocked.get(request.target)?.has(request.relPath)) {
+  const paths = repairable.get(request.target);
+  const isBlocked = paths?.blocked.has(request.relPath) === true;
+  const isApprovedKeptEdit =
+    request.expectedDigest !== undefined &&
+    paths?.keptLocalEdit.has(request.relPath) === true;
+  if (!isBlocked && !isApprovedKeptEdit) {
+    // An approved path that is no longer blocked or kept changed state since
+    // the approval (its occupant deleted, or now Ptah's own unmodified copy):
+    // that IS a change since approval, and it is kept as it is.
+    if (request.expectedDigest !== undefined) {
+      return {
+        outcome: 'changed-since-approval',
+        reason: CHANGED_SINCE_APPROVAL_REASON,
+      };
+    }
     return {
       outcome: 'not-blocked',
       reason:

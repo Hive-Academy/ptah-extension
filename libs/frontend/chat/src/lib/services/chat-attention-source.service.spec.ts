@@ -22,6 +22,7 @@ describe('ChatAttentionSourceService', () => {
   const upsert = jest.fn<void, [AttentionItem]>();
   const resolve = jest.fn<void, [string, number, string]>();
   const setSnackbarSuppressed = jest.fn();
+  const dismissPresentation = jest.fn();
   const voice = jest.fn<boolean, [string]>(() => false);
 
   beforeEach(() => {
@@ -53,7 +54,7 @@ describe('ChatAttentionSourceService', () => {
             ? { tab: tabs()[0], workspacePath: ownerWorkspacePath } : null,
       } },
       { provide: CommandCenterVoiceSessionService, useValue: { isActive: voice } },
-      { provide: NotificationService, useValue: { upsert, resolve, setSnackbarSuppressed } },
+      { provide: NotificationService, useValue: { upsert, resolve, setSnackbarSuppressed, dismissPresentation } },
       { provide: VSCodeService, useValue: { config: () => ({ workspaceRoot: configuredWorkspaceRoot() }) } },
       { provide: SURFACE_FOCUS_ROUTER, useValue: {
         kind: 'mcp-apps', canFocus: (id: string) => id === 'apps-session',
@@ -439,6 +440,25 @@ describe('ChatAttentionSourceService', () => {
     focused.mockReturnValue(false);
     window.dispatchEvent(new Event('blur'));
     expect(model.snackbars()).toHaveLength(1);
+    focused.mockRestore();
+  });
+
+  it('leaves a request that arrives in the background to the native notification, not a snackbar', () => {
+    const focused = jest.spyOn(document, 'hasFocus').mockReturnValue(false);
+    TestBed.overrideProvider(NotificationService, { useClass: NotificationService });
+    const model = TestBed.inject(NotificationService);
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'away', toolName: 'Read', toolInput: {}, timestamp: 1,
+      timeoutAt: 0, description: '', tabId: 'missing-tab', sessionId: 'missing-session' }]);
+    TestBed.tick();
+    focused.mockReturnValue(true);
+    window.dispatchEvent(new Event('focus'));
+    expect(model.badgeCount()).toBe(1);
+    expect(model.snackbars()).toHaveLength(0);
+    permissions.set([...permissions(), { id: 'present', toolName: 'Read', toolInput: {}, timestamp: 2,
+      timeoutAt: 0, description: '', tabId: 'missing-tab', sessionId: 'missing-session' }]);
+    TestBed.tick();
+    expect(model.snackbars().map(item => item.key)).toEqual(['permission:present']);
     focused.mockRestore();
   });
 });

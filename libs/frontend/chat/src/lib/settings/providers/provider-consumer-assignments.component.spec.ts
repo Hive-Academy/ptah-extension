@@ -1,7 +1,7 @@
 /** Enhancement consumer row, assignment, and timeout behavior. */
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SAVE_REFUSED_MESSAGE, SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { computed, signal } from '@angular/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { rpcSuccess } from '@ptah-extension/core/testing';
@@ -395,7 +395,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
     button(fixture, 'timeout-save-button')?.click();
     await flushSave();
     expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
-    expect(query(fixture, 'timeout-save-error')?.textContent).toContain('was not saved');
+    // The refusal is the page toast's alone; nothing inline repeats it.
+    expect(query(fixture, 'timeout-save-error')).toBeNull();
+    expect(feedback.toast()).toMatchObject({ tone: 'alert', message: SAVE_REFUSED_MESSAGE });
   });
 
   it('does not report a failed assignment as saved', async () => {

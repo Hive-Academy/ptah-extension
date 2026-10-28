@@ -2,6 +2,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 import type {
   AnalysisPhase,
   GenerationAgentOutcome,
+  SetupGenerationResultFacts,
 } from '@ptah-extension/shared';
 
 /**
@@ -125,6 +126,12 @@ export interface CompletionData {
   errors?: string[];
   warnings?: string[];
   enhancedPromptsUsed?: boolean;
+  /**
+   * Result facts (target, Library pass, diverged Library copies). Absent when
+   * the host did not attach them; the completion page then shows no Library
+   * or grade copy.
+   */
+  result?: SetupGenerationResultFacts;
 }
 
 /**

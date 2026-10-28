@@ -40,6 +40,8 @@ describe('GuidanceGenerationRunSupervisor', () => {
       writtenCount: 0,
       unchangedCount: 0,
       failedCount: 0,
+      keptCount: 0,
+      changedSincePreviewCount: 0,
       rejectedSections: 0,
       tailoredSections: 0,
       lifecycle: 'completed',

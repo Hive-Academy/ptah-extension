@@ -1,4 +1,5 @@
-import type { CloneSummary } from '@ptah-extension/shared';
+import { provenanceLabel, type CloneSummary } from '@ptah-extension/shared';
+import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 
 import {
   BULK_REBASE_EXPLANATION,
@@ -162,6 +163,53 @@ describe('hasUpstreamSource', () => {
     ['synth', false],
   ] as const)('%s -> %s', (cloneStatus, expected) => {
     expect(hasUpstreamSource(clone({ cloneStatus }))).toBe(expected);
+  });
+});
+
+describe('provenance does not change the gating (A-hint, TASK_2026_701_9e4b)', () => {
+  it.each(['clone', 'diverged', 'authored', 'synth'] as const)(
+    'hasUpstreamSource(%s) ignores a recorded origin',
+    (cloneStatus) => {
+      const without = clone({ cloneStatus });
+      const withOrigin = clone({
+        cloneStatus,
+        provenance: { kind: 'setup-wizard' },
+      });
+      expect(hasUpstreamSource(withOrigin)).toBe(hasUpstreamSource(without));
+      expect(cloneActionModel(withOrigin, NOW)).toEqual(
+        cloneActionModel(without, NOW),
+      );
+    },
+  );
+
+  it('keeps the former plugin label on an orphan and leaves it out of bulk rebase', () => {
+    const { uninstalledPluginEditedClone } = makeLibraryAgreementFixtures();
+    const orphan = {
+      ...uninstalledPluginEditedClone.listClones.clones[0],
+      cloneStatus: 'diverged' as const,
+      diverged: true,
+    };
+    expect(orphan.orphaned).toBe(true);
+    expect(provenanceLabel(orphan.provenance)).toBe(
+      uninstalledPluginEditedClone.expectedLabels['agent:legacy-linter'],
+    );
+    expect(provenanceLabel(orphan.provenance)).toBe('Plugin: Former Helper');
+    expect(eligibleForBulkRebase([orphan], 'agent')).toEqual([]);
+  });
+
+  it('gates every agreement fixture clone exactly as before provenance existed', () => {
+    for (const scenario of Object.values(makeLibraryAgreementFixtures())) {
+      for (const entry of scenario.listClones.clones) {
+        const bare: CloneSummary = {
+          ...entry,
+          provenance: undefined,
+          divergedReason: undefined,
+        };
+        expect(cloneActionModel(entry, NOW)).toEqual(
+          cloneActionModel(bare, NOW),
+        );
+      }
+    }
   });
 });
 

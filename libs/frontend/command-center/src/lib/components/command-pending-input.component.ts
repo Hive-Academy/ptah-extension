@@ -28,7 +28,9 @@ import {
     </p>
     @if (pending(); as request) {
       <section
-        class="rounded-2xl border border-state-need bg-base-200 p-4 text-base-content shadow-lg"
+        style="--glass-glow-ink: var(--ptah-gold)"
+        class="glass-glow rounded-2xl border border-state-need bg-base-200 p-4 text-base-content shadow-lg"
+        data-glass-surface="tile"
         aria-labelledby="pending-title"
       >
         <div class="flex items-center gap-2 text-state-need">

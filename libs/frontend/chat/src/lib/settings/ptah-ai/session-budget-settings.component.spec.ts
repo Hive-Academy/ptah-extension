@@ -1,11 +1,16 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import {
+  ProvidersSettingsStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SESSION_BUDGET_SETTINGS,
   type SessionBudgetConfig,
   type SessionBudgetNumberSetting,
 } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 
 const mockRpcCall = jest.fn();
@@ -104,14 +109,24 @@ describe('SessionBudgetSettingsComponent', () => {
       providers: [
         { provide: VSCodeService, useValue: {} },
         { provide: TabManagerService, useValue: tabManager },
+        {
+          provide: ProvidersSettingsStateService,
+          useValue: { commit: signal({ status: 'idle' }) },
+        },
+        SettingsSaveFeedbackService,
       ],
     });
   });
 
-  afterEach(() => fixture?.destroy());
+  const toast = () => TestBed.inject(SettingsSaveFeedbackService).toast();
+
+  afterEach(() => {
+    TestBed.inject(SettingsSaveFeedbackService).dismiss();
+    fixture?.destroy();
+  });
 
   describe('load', () => {
-    it('reads all nine sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
+    it('reads all ten sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
       await create();
       const read = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
@@ -122,7 +137,7 @@ describe('SessionBudgetSettingsComponent', () => {
           .map((setting) => setting.key)
           .sort(),
       );
-      expect(read).toHaveLength(9);
+      expect(read).toHaveLength(10);
       expect(field('tokens').value).toBe('50000000');
       expect(field('tokens').className).toContain('input-sm');
       expect(field('tokens').className).toContain('flex-1');
@@ -144,7 +159,7 @@ describe('SessionBudgetSettingsComponent', () => {
       const readTimeouts = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
         .map((call) => call[3]);
-      expect(readTimeouts).toEqual(Array(9).fill(5_000));
+      expect(readTimeouts).toEqual(Array(10).fill(5_000));
     });
 
     it('shows a load error with Retry when a read fails, and Retry reads again', async () => {
@@ -380,12 +395,13 @@ describe('SessionBudgetSettingsComponent', () => {
       });
       await create();
       await enter('tokens', '2000000');
-      expect(byTestId('session-budget-tokens-error')?.textContent).toContain(
-        'Could not save Token budget. The saved setting is unchanged.',
-      );
-      expect(byTestId('session-budget-status')?.textContent).toContain(
-        'Could not save Token budget',
-      );
+      expect(byTestId('session-budget-tokens-error')).toBeNull();
+      expect(byTestId('session-budget-status')).toBeNull();
+      expect(toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not save Token budget. The saved setting is unchanged.',
+        canUndo: false,
+      });
       expect(field('tokens').value).toBe('2000000');
       expect(stored['sessionBudget.tokens']).toBe(50_000_000);
     });
@@ -406,7 +422,8 @@ describe('SessionBudgetSettingsComponent', () => {
       });
       await create();
       await enter('tokens', '2000000');
-      expect(byTestId('session-budget-tokens-error')?.textContent).toContain(
+      expect(toast()?.tone).toBe('alert');
+      expect(toast()?.message).toContain(
         'Could not confirm saving Token budget',
       );
       expect(field('tokens').getAttribute('aria-disabled')).toBeNull();
@@ -436,9 +453,8 @@ describe('SessionBudgetSettingsComponent', () => {
         box.dispatchEvent(new Event('change'));
         await settle();
         expect(box.checked).toBe(true);
-        expect(byTestId('session-budget-status')?.textContent).toContain(
-          'Could not save',
-        );
+        expect(toast()?.tone).toBe('alert');
+        expect(toast()?.message).toContain('Could not save');
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn).toHaveBeenCalledWith(
           expect.stringContaining('[SessionBudgetSettings] settings:set failed'),
@@ -461,7 +477,36 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.enabled', value: false },
       ]);
       expect(box.checked).toBe(false);
-      expect(byTestId('session-budget-status')?.textContent).toContain('Saved');
+      expect(toast()?.tone).toBe('status');
+      expect(toast()?.message).toContain('Saved');
+      expect(toast()?.canUndo).toBe(true);
+      await TestBed.inject(SettingsSaveFeedbackService).undo();
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.enabled', value: false },
+        { key: 'sessionBudget.enabled', value: true },
+      ]);
+      expect(box.checked).toBe(true);
+    });
+
+    it('writes "Hand off automatically at 100%" (off by default) and keeps the banners', async () => {
+      await create();
+      const box = field('autoHandoffAtLimit');
+      expect(box.checked).toBe(false);
+      expect(box.getAttribute('aria-label')).toBe(
+        'Hand off automatically at 100%',
+      );
+      expect(
+        byTestId('settings-section-session-budget')?.textContent,
+      ).toContain('once per session');
+      box.checked = true;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.autoHandoffAtLimit', value: true },
+      ]);
+      expect(box.checked).toBe(true);
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 
     // TASK_2026_614 F.4 / F-D: turning the budget off clears every tab's banner.

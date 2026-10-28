@@ -38,6 +38,7 @@ import {
   isSafePathToken,
   type ExternalInstallPlan,
   type ExternalInstallResult,
+  type ExternalLocalItem,
   type ExternalPluginMcpServer,
 } from '@ptah-extension/shared';
 import { GitHubContentClient } from '../github/github-content.client';
@@ -84,8 +85,13 @@ const MAX_CONCURRENCY = 10;
  */
 export const PLUGIN_INSTALL_PLAN_DEADLINE_MS = 180_000;
 
-/** How long a pending plan (and its downloaded bytes) stays valid. */
-const PLAN_TTL_MS = 10 * 60 * 1000;
+/**
+ * How long a pending plan (and its downloaded bytes) stays valid. Exported so
+ * the RPC layer can give the plan's local-item approvals the same lifetime as
+ * the consent token they ride on.
+ */
+export const PLUGIN_INSTALL_PLAN_TTL_MS = 10 * 60 * 1000;
+const PLAN_TTL_MS = PLUGIN_INSTALL_PLAN_TTL_MS;
 
 /** How many plans may be pending at once before the oldest is evicted. */
 const MAX_PENDING_PLANS = 4;
@@ -107,6 +113,28 @@ interface PendingInstall {
   coordinate: ExternalPluginCoordinate;
   files: StagedFile[];
   createdAt: number;
+  /**
+   * Local items the RPC layer found in the way of this plan (A-plan). Held
+   * beside the token, never hashed into it: they describe local state, like
+   * collisions, and a local edit must not invalidate the user's consent.
+   */
+  localItems?: ExternalLocalItem[];
+}
+
+/** The skill, command and agent slugs a pending plan would install. */
+export interface ExternalPluginItemSlugs {
+  skills: string[];
+  commands: string[];
+  agents: string[];
+}
+
+/**
+ * The confirmed install, plus the local items its plan carried. The RPC layer
+ * reads `planLocalItems` to decide which approval ids the confirm may apply
+ * and strips it before answering the client.
+ */
+export interface ConfirmedExternalInstall extends ExternalInstallResult {
+  planLocalItems: ExternalLocalItem[];
 }
 
 @injectable()
@@ -250,7 +278,9 @@ export class ExternalPluginInstallerService {
    * @throws PluginMarketplaceError `consent-required` when the token is
    *   unknown or expired — the caller must obtain and show a fresh plan.
    */
-  async confirmInstall(consentToken: string): Promise<ExternalInstallResult> {
+  async confirmInstall(
+    consentToken: string,
+  ): Promise<ConfirmedExternalInstall> {
     const pluginsBasePath = this.requireInitialized();
     const pendingInstall = this.takePlan(consentToken);
 
@@ -327,7 +357,40 @@ export class ExternalPluginInstallerService {
       skippedBinaryFiles: plan.skippedBinaryFiles,
       // Filled in by the RPC layer, same reason as on the plan.
       collisions: [],
+      planLocalItems: pendingInstall.localItems ?? [],
     };
+  }
+
+  /**
+   * The skill, command and agent slugs the pending plan `consentToken` would
+   * install, read from its staged file list. `null` when the plan is unknown
+   * or expired. Reads only; the plan stays pending.
+   */
+  planItemSlugs(consentToken: string): ExternalPluginItemSlugs | null {
+    const pendingInstall = this.peekPlan(consentToken);
+    if (!pendingInstall) return null;
+    return {
+      skills: collectSkillNames(pendingInstall.files),
+      commands: collectMarkdownNames(pendingInstall.files, 'commands'),
+      agents: collectMarkdownNames(pendingInstall.files, 'agents'),
+    };
+  }
+
+  /**
+   * Attach the local items the RPC layer found for the pending plan
+   * `consentToken` (A-plan). `confirmInstall` returns them, so a confirm can
+   * act only on approval ids its own plan issued. Replaces any earlier list.
+   *
+   * @returns false when the plan is unknown or expired; nothing is attached.
+   */
+  attachLocalItems(
+    consentToken: string,
+    items: readonly ExternalLocalItem[],
+  ): boolean {
+    const pendingInstall = this.peekPlan(consentToken);
+    if (!pendingInstall) return false;
+    pendingInstall.localItems = [...items];
+    return true;
   }
 
   /**
@@ -527,6 +590,14 @@ export class ExternalPluginInstallerService {
     }
   }
 
+  /** Read a live plan by token without consuming it, or null. */
+  private peekPlan(consentToken: string): PendingInstall | null {
+    const pendingInstall = this.pending.get(consentToken);
+    if (!pendingInstall) return null;
+    if (Date.now() - pendingInstall.createdAt > PLAN_TTL_MS) return null;
+    return pendingInstall;
+  }
+
   /** Consume a plan by token, or null when unknown/expired. */
   private takePlan(consentToken: string): PendingInstall | null {
     const pendingInstall = this.pending.get(consentToken);
@@ -686,6 +757,29 @@ function collectSkillNames(files: StagedFile[]): string[] {
       segments[2].toUpperCase() === 'SKILL.MD'
     ) {
       names.add(segments[1]);
+    }
+  }
+  return [...names].sort();
+}
+
+/**
+ * Names (without `.md`) of the markdown files directly under `dir/` in the
+ * plugin root — the command or agent slugs a plugin ships. Sorted.
+ */
+function collectMarkdownNames(
+  files: StagedFile[],
+  dir: 'commands' | 'agents',
+): string[] {
+  const names = new Set<string>();
+  for (const file of files) {
+    const segments = file.relativePath.split('/');
+    if (
+      segments.length === 2 &&
+      segments[0] === dir &&
+      segments[1].toLowerCase().endsWith('.md') &&
+      segments[1].length > 3
+    ) {
+      names.add(segments[1].slice(0, -3));
     }
   }
   return [...names].sort();

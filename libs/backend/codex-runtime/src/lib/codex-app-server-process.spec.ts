@@ -48,8 +48,8 @@ const executable: CodexExecutableSource = {
   expectedManifestRow: {
     platform: 'test',
     arch: 'test',
-    pinnedVersion: '0.155.1',
-    version: 'codex-cli 0.155.1',
+    pinnedVersion: '0.165.0',
+    version: 'codex-cli 0.165.0',
     binarySha256: 'a'.repeat(64),
     schemaSha256: 'b'.repeat(64),
   },
@@ -58,7 +58,7 @@ const binary: CodexBinaryIdentity = {
   executablePath: '/bin/codex',
   platform: 'test',
   arch: 'test',
-  versionOutput: 'codex-cli 0.155.1',
+  versionOutput: 'codex-cli 0.165.0',
   sha256: 'a'.repeat(64),
 };
 const profile: CodexExecutionProfile = {

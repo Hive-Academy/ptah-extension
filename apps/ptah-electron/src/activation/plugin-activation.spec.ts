@@ -34,6 +34,8 @@ const SKILL_REGISTRY_CATALOG_TOKEN = Symbol.for('SkillRegistryCatalogService');
 const SQLITE_CONNECTION_TOKEN = Symbol.for('PtahSqliteConnection');
 const AGENT_SYNC_GATE_TOKEN = Symbol.for('HarnessSyncAgentSyncGate');
 const GOVERNOR_TOKEN = Symbol.for('BackgroundWorkGovernor');
+const WEBVIEW_MANAGER_TOKEN = Symbol.for('WebviewManager');
+const WORKSPACE_STATE_STORAGE_TOKEN = Symbol.for('IWorkspaceStateStorage');
 
 const CONFIGURED_SKILLS_ROOT = path.join('/configured', 'skills-root');
 
@@ -47,7 +49,10 @@ jest.mock('@ptah-extension/platform-core', () => ({
 }));
 
 jest.mock('@ptah-extension/vscode-core', () => ({
-  TOKENS: { BACKGROUND_WORK_GOVERNOR: Symbol.for('BackgroundWorkGovernor') },
+  TOKENS: {
+    BACKGROUND_WORK_GOVERNOR: Symbol.for('BackgroundWorkGovernor'),
+    WEBVIEW_MANAGER: Symbol.for('WebviewManager'),
+  },
 }));
 
 jest.mock('@ptah-extension/agent-sdk', () => ({
@@ -66,7 +71,8 @@ jest.mock('@ptah-extension/harness-sync', () => ({
     PROPAGATION: Symbol.for('HarnessSyncPropagation'),
     AGENT_SYNC_GATE: Symbol.for('HarnessSyncAgentSyncGate'),
   },
-  resolveHarnessWorkspaceRoot: (root: string) => root,
+  // Identity by default; a case below maps a sub-folder to its harness root.
+  resolveHarnessWorkspaceRoot: jest.fn((root: string) => root),
   resolveAgentMirrorSource: (root: string | undefined) =>
     root === undefined || root === ''
       ? {}
@@ -80,6 +86,11 @@ jest.mock('@ptah-extension/agent-generation', () => ({
   AGENT_GENERATION_TOKENS: {
     USER_LAYER_MIRROR_SERVICE: Symbol.for('PtahUserLayerMirrorService'),
   },
+  // The library's rule: per-file errors plus managed-skill retirement errors.
+  userLayerPassFailures: (result: {
+    errors: number;
+    retiredSkills: { errors: number };
+  }) => result.errors + result.retiredSkills.errors,
 }));
 
 jest.mock('@ptah-extension/plugin-marketplace', () => ({
@@ -95,10 +106,13 @@ jest.mock('@ptah-extension/skill-synthesis', () => ({
 }));
 
 import { resolveSkillsRoot } from '@ptah-extension/skill-synthesis';
+import { resolveHarnessWorkspaceRoot } from '@ptah-extension/harness-sync';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   GOVERNED_USER_LAYER_REASONS,
   USER_LAYER_COALESCE_WINDOW_MS,
   createUserLayerRefresher,
+  initPluginLoader,
   mirrorUserLayer,
   propagateHarness,
   reconcileUserLayer,
@@ -113,9 +127,33 @@ const WORKSPACE_ROOT = path.join('/tmp', 'ws');
 const PLUGINS_BASE = path.join('/home', '.ptah', 'plugins');
 const BUNDLED_PLUGIN = path.join(PLUGINS_BASE, 'ptah-core');
 const HARNESS_PLUGIN = path.join(PLUGINS_BASE, 'ptah-harness-release-notes');
+const SKILLS_SH_PLUGIN = path.join(PLUGINS_BASE, 'ptah-skillssh-acme-tools');
+const DISABLED_SKILLS_SH_PLUGIN = path.join(
+  PLUGINS_BASE,
+  'ptah-skillssh-switched-off',
+);
+const PLUGIN_DESCRIPTORS = {
+  [BUNDLED_PLUGIN]: { sourceRef: 'ptah:ptah-core', label: 'Ptah Core' },
+  [SKILLS_SH_PLUGIN]: {
+    sourceRef: 'skills-sh:ptah-skillssh-acme-tools',
+    label: 'Acme Tools',
+  },
+};
+
+/** Restores the identity harness-root mapping the module mock starts with. */
+function resetHarnessRootMapping(): void {
+  (resolveHarnessWorkspaceRoot as jest.Mock).mockImplementation(
+    (root: string) => root,
+  );
+}
 
 interface Harness {
   container: { resolve: <T>(token: symbol) => T; isRegistered: () => boolean };
+  stateGet: jest.Mock;
+  stateUpdate: jest.Mock;
+  getWorkspacePluginConfig: jest.Mock;
+  resolvePluginPaths: jest.Mock;
+  broadcastMessage: jest.Mock;
   mirrorAll: jest.Mock;
   reconcileAll: jest.Mock;
   reconcile: jest.Mock;
@@ -124,8 +162,24 @@ interface Harness {
   setPending: jest.Mock;
 }
 
+const NO_RETIREMENT = { removed: [], preserved: [], errors: 0 };
+
+function emptyMirrorResult(over: Record<string, unknown> = {}) {
+  return {
+    retiredSkills: NO_RETIREMENT,
+    skillsMirrored: 0,
+    agentsMirrored: 0,
+    commandsMirrored: 0,
+    skipped: 0,
+    conflicts: 0,
+    errors: 0,
+    ...over,
+  };
+}
+
 function emptyReconcileResult(over: Record<string, unknown> = {}) {
   return {
+    retiredSkills: NO_RETIREMENT,
     noop: 0,
     fastForwarded: 0,
     diverged: 0,
@@ -144,39 +198,40 @@ function makeHarness(
   reconcileResult: Record<string, unknown> = emptyReconcileResult(),
   options: { sqliteOpen?: boolean; governor?: unknown } = {},
 ): Harness {
-  const mirrorAll = jest.fn().mockResolvedValue({
-    skillsMirrored: 0,
-    agentsMirrored: 0,
-    commandsMirrored: 0,
-    skipped: 0,
-    conflicts: 0,
-    errors: 0,
-  });
+  const mirrorAll = jest.fn().mockResolvedValue(emptyMirrorResult());
   const reconcileAll = jest.fn().mockResolvedValue(reconcileResult);
   const reconcile = jest.fn().mockResolvedValue(reconcileResult);
   const catalogSync = jest.fn().mockResolvedValue({ upserted: 0, linked: 0 });
   const setDiverged = jest.fn();
   const setPending = jest.fn();
+  const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+  const stateGet = jest.fn((): number | undefined => 1);
+  const stateUpdate = jest.fn().mockResolvedValue(undefined);
+  const getWorkspacePluginConfig = jest.fn(() => ({
+    enabledPluginIds: ['ptah-core'],
+    disabledPluginIds: ['ptah-skillssh-switched-off'],
+    disabledSkillIds: [],
+  }));
+  const resolvePluginPaths = jest.fn(() => [BUNDLED_PLUGIN]);
 
   const map = new Map<symbol, unknown>([
     [
       PLUGIN_LOADER_TOKEN,
       {
-        getWorkspacePluginConfig: () => ({
-          enabledPluginIds: ['ptah-core'],
-          disabledPluginIds: [],
-          disabledSkillIds: [],
-        }),
-        resolvePluginPaths: () => [BUNDLED_PLUGIN],
+        getWorkspacePluginConfig,
+        resolvePluginPaths,
         discoverHarnessPluginPaths: () => [HARNESS_PLUGIN],
+        discoverSkillsShPluginPaths: () => [
+          SKILLS_SH_PLUGIN,
+          DISABLED_SKILLS_SH_PLUGIN,
+        ],
+        getPluginSourceDescriptors: () => PLUGIN_DESCRIPTORS,
       },
     ],
+    [WEBVIEW_MANAGER_TOKEN, { broadcastMessage }],
     [CONTENT_DOWNLOAD_TOKEN, { getPluginsPath: () => PLUGINS_BASE }],
     [WORKSPACE_PROVIDER_TOKEN, { getConfiguration: jest.fn() }],
-    [
-      STATE_STORAGE_TOKEN,
-      { get: jest.fn(() => 1), update: jest.fn().mockResolvedValue(undefined) },
-    ],
+    [STATE_STORAGE_TOKEN, { get: stateGet, update: stateUpdate }],
     [
       USER_LAYER_MIRROR_TOKEN,
       {
@@ -210,6 +265,11 @@ function makeHarness(
       },
       isRegistered: () => true,
     },
+    stateGet,
+    stateUpdate,
+    getWorkspacePluginConfig,
+    resolvePluginPaths,
+    broadcastMessage,
     mirrorAll,
     reconcileAll,
     reconcile,
@@ -221,9 +281,14 @@ function makeHarness(
 
 const EXPECTED_SOURCES = {
   pluginPaths: [BUNDLED_PLUGIN],
-  harnessPluginRoots: [HARNESS_PLUGIN],
+  // skills.sh roots join the harness roots (A9); the one switched off in the
+  // Plugins panel is left out (A-disabled).
+  harnessPluginRoots: [HARNESS_PLUGIN, SKILLS_SH_PLUGIN],
   pluginsBasePath: PLUGINS_BASE,
   synthesizedSkillsRoot: CONFIGURED_SKILLS_ROOT,
+  pluginDescriptors: PLUGIN_DESCRIPTORS,
+  // Plugin agents land in this root's Library whether or not agent sync is on.
+  libraryScopeRoot: WORKSPACE_ROOT,
   agentSourceDir: path.join(WORKSPACE_ROOT, '.claude', 'agents'),
   // Agent clones are keyed by workspace, so the mirror is told which one it is
   // writing for (TASK_2026_365).
@@ -233,6 +298,7 @@ const EXPECTED_SOURCES = {
 describe('electron plugin-activation — user-layer sources (TASK_2026_278)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetHarnessRootMapping();
     (resolveSkillsRoot as jest.Mock).mockReturnValue(CONFIGURED_SKILLS_ROOT);
   });
 
@@ -268,8 +334,77 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
 
     const sources = h.reconcileAll.mock.calls[0][0];
     expect(sources).not.toHaveProperty('agentSourceDir');
-    expect(sources.harnessPluginRoots).toEqual([HARNESS_PLUGIN]);
+    expect(sources).not.toHaveProperty('libraryScopeRoot');
+    expect(sources.harnessPluginRoots).toEqual([
+      HARNESS_PLUGIN,
+      SKILLS_SH_PLUGIN,
+    ]);
     expect(sources.pluginsBasePath).toBe(PLUGINS_BASE);
+    expect(h.getWorkspacePluginConfig).toHaveBeenCalledWith(undefined);
+  });
+
+  it('reads the plugin config for the harness root, and scopes the Library to it', async () => {
+    // A sub-folder of a repository: the config home and the Library are both
+    // filed under the repository root (A27, D14), so the mirror must read and
+    // write there rather than under the folder that happens to be open.
+    const subFolder = path.join(WORKSPACE_ROOT, 'packages', 'app');
+    (resolveHarnessWorkspaceRoot as jest.Mock).mockImplementation(
+      (root: string) => (root === subFolder ? WORKSPACE_ROOT : root),
+    );
+    const h = makeHarness();
+
+    await mirrorUserLayer(h.container as never, subFolder);
+
+    expect(h.getWorkspacePluginConfig).toHaveBeenCalledWith(WORKSPACE_ROOT);
+    expect(h.resolvePluginPaths).toHaveBeenCalledWith(
+      ['ptah-core'],
+      WORKSPACE_ROOT,
+    );
+    expect(h.mirrorAll.mock.calls[0][0].libraryScopeRoot).toBe(WORKSPACE_ROOT);
+  });
+
+  it('reports each step: ok on success, failed when the step throws', async () => {
+    const h = makeHarness();
+
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('ok');
+    await expect(
+      reconcileUserLayer(h.container as never, WORKSPACE_ROOT, false),
+    ).resolves.toBe('ok');
+
+    h.mirrorAll.mockRejectedValue(new Error('EPERM'));
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('failed');
+  });
+
+  it('a step that resolves with counted per-file errors is failed, not ok (B3)', async () => {
+    const h = makeHarness(emptyReconcileResult({ errors: 1 }));
+    h.stateGet.mockReturnValue(undefined);
+    h.mirrorAll.mockResolvedValue(emptyMirrorResult({ errors: 2 }));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('failed');
+    // A failed first backfill is not stamped complete.
+    expect(h.stateUpdate).not.toHaveBeenCalled();
+    await expect(
+      reconcileUserLayer(h.container as never, WORKSPACE_ROOT, false),
+    ).resolves.toBe('failed');
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/mirror finished with 2 failed item/),
+    );
+
+    // Retirement errors count as well.
+    h.mirrorAll.mockResolvedValue(
+      emptyMirrorResult({ retiredSkills: { ...NO_RETIREMENT, errors: 1 } }),
+    );
+    await expect(
+      mirrorUserLayer(h.container as never, WORKSPACE_ROOT),
+    ).resolves.toBe('failed');
   });
 
   it('sweeps with reconcileAll — reconcile() alone never reaps a deleted upstream', async () => {
@@ -317,7 +452,7 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
 
     await expect(
       reconcileUserLayer(h.container as never, WORKSPACE_ROOT, true),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe('failed');
   });
 });
 
@@ -340,6 +475,7 @@ describe('electron plugin-activation — user-layer sources (TASK_2026_278)', ()
 describe('electron plugin-activation — refreshUserLayer coalescing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    resetHarnessRootMapping();
     jest.useFakeTimers();
     (resolveSkillsRoot as jest.Mock).mockReturnValue(CONFIGURED_SKILLS_ROOT);
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -411,14 +547,7 @@ describe('electron plugin-activation — refreshUserLayer coalescing', () => {
     const order: string[] = [];
     h.mirrorAll.mockImplementation(async () => {
       order.push('mirrorAll');
-      return {
-        skillsMirrored: 0,
-        agentsMirrored: 0,
-        commandsMirrored: 0,
-        skipped: 0,
-        conflicts: 0,
-        errors: 0,
-      };
+      return emptyMirrorResult();
     });
     h.reconcileAll.mockImplementation(async () => {
       order.push('reconcileAll');
@@ -533,7 +662,190 @@ describe('electron plugin-activation — refreshUserLayer coalescing', () => {
     );
     jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
 
-    await expect(pass).resolves.toBeUndefined();
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'failed' });
+  });
+
+  it('a pass whose steps all succeed is updated: the request, the refresher and the push agree', async () => {
+    const h = makeHarness();
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    const refreshed = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'updated' });
+    await expect(refreshed).resolves.toBe('refreshed');
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.LIBRARY_CHANGED,
+      {
+        workspaceRoot: WORKSPACE_ROOT,
+        status: 'updated',
+        reasons: ['activation', 'harness-propagation'],
+      },
+    );
+  });
+
+  it('a failed step makes the refresher report failed and the push say failed', async () => {
+    const h = makeHarness();
+    h.reconcileAll.mockRejectedValue(new Error('EPERM'));
+
+    const refreshed = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(refreshed).resolves.toBe('failed');
+    // The step failure does not stop the pass: the catalog still syncs.
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.LIBRARY_CHANGED,
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it('counted per-file errors fail the pass: requester, refresher and push agree (B3)', async () => {
+    const h = makeHarness(emptyReconcileResult({ errors: 1 }));
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    const refreshed = createUserLayerRefresher(h.container as never).refresh(
+      WORKSPACE_ROOT,
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'failed' });
+    await expect(refreshed).resolves.toBe('failed');
+    // Partial results still reach the catalog and the Library.
+    expect(h.catalogSync).toHaveBeenCalledTimes(1);
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.LIBRARY_CHANGED,
+      expect.objectContaining({ status: 'failed' }),
+    );
+  });
+
+  it('a failed catalog sync fails the pass', async () => {
+    const h = makeHarness();
+    h.catalogSync.mockRejectedValue(new Error('SQLITE_BUSY'));
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'failed' });
+  });
+
+  it('a closed database skips the catalog step without failing the pass', async () => {
+    const h = makeHarness(emptyReconcileResult(), { sqliteOpen: false });
+
+    const pass = refreshUserLayer(
+      h.container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'updated' });
+  });
+
+  it('pushes the harness root, not the sub-folder the pass ran for', async () => {
+    const subFolder = path.join(WORKSPACE_ROOT, 'packages', 'app');
+    (resolveHarnessWorkspaceRoot as jest.Mock).mockImplementation(
+      (root: string) => (root === subFolder ? WORKSPACE_ROOT : root),
+    );
+    const h = makeHarness();
+
+    const pass = refreshUserLayer(h.container as never, subFolder, 'switch');
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+    await pass;
+
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.LIBRARY_CHANGED,
+      expect.objectContaining({ workspaceRoot: WORKSPACE_ROOT }),
+    );
+  });
+
+  it('settles every requester when no window manager is registered', async () => {
+    const h = makeHarness();
+    const container = {
+      resolve: h.container.resolve,
+      isRegistered: (token: symbol) => token !== WEBVIEW_MANAGER_TOKEN,
+    };
+
+    const pass = refreshUserLayer(
+      container as never,
+      WORKSPACE_ROOT,
+      'activation',
+    );
+    jest.advanceTimersByTime(USER_LAYER_COALESCE_WINDOW_MS);
+
+    await expect(pass).resolves.toEqual({ kind: 'ran', result: 'updated' });
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('electron plugin-activation — initPluginLoader config home (A27, D14)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetHarnessRootMapping();
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('initializes the loader with harnessRootOf and the global state storage', () => {
+    const initialize = jest.fn();
+    const workspaceState = { kind: 'workspace-scoped' };
+    const globalState = { kind: 'global' };
+    const map = new Map<symbol, unknown>([
+      [
+        PLUGIN_LOADER_TOKEN,
+        {
+          initialize,
+          getWorkspacePluginConfig: () => ({
+            enabledPluginIds: [],
+            disabledSkillIds: [],
+          }),
+          resolvePluginPaths: () => [],
+        },
+      ],
+      [WORKSPACE_STATE_STORAGE_TOKEN, workspaceState],
+      [STATE_STORAGE_TOKEN, globalState],
+    ]);
+    const container = {
+      resolve: <T>(token: symbol): T => map.get(token) as T,
+      isRegistered: () => true,
+    };
+
+    initPluginLoader(container as never, PLUGINS_BASE);
+
+    expect(initialize).toHaveBeenCalledTimes(1);
+    const [base, folderStorage, options] = initialize.mock.calls[0];
+    expect(base).toBe(PLUGINS_BASE);
+    expect(folderStorage).toBe(workspaceState);
+    expect(options.homeStorage).toBe(globalState);
+
+    // `harnessRootOf` is the harness-sync resolver, not a copy of it.
+    (resolveHarnessWorkspaceRoot as jest.Mock).mockImplementation(
+      (root: string) => path.dirname(root),
+    );
+    expect(options.harnessRootOf(path.join(WORKSPACE_ROOT, 'sub'))).toBe(
+      WORKSPACE_ROOT,
+    );
   });
 });
 
@@ -763,7 +1075,7 @@ describe('electron plugin-activation — refreshUserLayer defers background reas
     governor.dispose();
     await settle();
 
-    await expect(pass).resolves.toBeUndefined();
+    await expect(pass).resolves.toEqual({ kind: 'skipped' });
     expect(h.mirrorAll).not.toHaveBeenCalled();
     expect(
       logged.some((line) =>

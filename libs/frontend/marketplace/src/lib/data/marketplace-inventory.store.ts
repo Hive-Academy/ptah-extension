@@ -13,6 +13,7 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
   PluginCatalogService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import {
@@ -22,12 +23,18 @@ import {
 } from '@ptah-extension/chat-ui';
 import type { SessionMcpStatus } from '@ptah-extension/chat-state';
 import type {
+  CloneSummary,
   ExternalPluginListing,
   InstalledMcpServer,
   InstalledSkill,
+  LibraryPassStatus,
   PluginInfo,
 } from '@ptah-extension/shared';
 import { toConnectorRows } from '../mcp-connector-rows';
+import {
+  LibraryChangeFeed,
+  type LibraryChange,
+} from '../services/library-change-feed';
 import { encodeServerRef } from './server-ref';
 import { encodeSkillRef } from './skill-ref';
 import { injectWorkspaceSessionStatus } from './workspace-session-status';
@@ -166,11 +173,16 @@ function messageOf(error: unknown, fallback: string): string {
 
 // ── Internal slice machinery ──────────────────────────────────────────────────
 
-/** What each slice stores from its own read. Plugins read the root catalogue. */
+/**
+ * What each slice stores from its own read. Plugins read the root catalogue;
+ * their cell holds the Library copies (Electron only) the agent shadow state
+ * joins with, so they share the slice's generation guard and are dropped with
+ * it on a workspace switch.
+ */
 interface SliceData {
   /** `null` until a read lands: connector rows need the installed keys first. */
   installed: readonly InstalledMcpServer[] | null;
-  plugins: null;
+  plugins: LibraryCopies;
   community: readonly InstalledSkill[];
   marketplaces: readonly ExternalPluginListing[];
 }
@@ -188,6 +200,18 @@ interface SliceCell<T> {
   /** Bumped per load; a load publishes only while it is still the newest. */
   generation: number;
 }
+
+/** The Library copies read with the plugins slice, and the root they belong to. */
+interface LibraryCopies {
+  readonly clones: readonly CloneSummary[];
+  /**
+   * Harness root the copies were scoped to (`scopeRoot`, B13). `null` before
+   * a read, outside Electron, and on hosts that do not send it.
+   */
+  readonly scopeRoot: string | null;
+}
+
+const NO_LIBRARY_COPIES: LibraryCopies = { clones: [], scopeRoot: null };
 
 type Loaded<T> =
   | { readonly ok: true; readonly data: T }
@@ -230,8 +254,9 @@ function cell<T>(empty: T): SliceCell<T> {
  * Construction reads nothing. A slice leaves `idle` only when a page calls
  * {@link ensure} for it; reading a slice, {@link counts} (nav badges, status
  * bar) or {@link newestSessionStatus} never loads anything. Every later reload
- * — after an install or removal ({@link notifyContentChanged}) or a workspace
- * switch — touches only the slices some page already asked for.
+ * — after an install or removal ({@link notifyContentChanged}), a workspace
+ * switch or a `library:changed` push ({@link LibraryChangeFeed}) — touches only
+ * the slices some page already asked for.
  *
  * ## Failure isolation
  *
@@ -262,11 +287,13 @@ export class MarketplaceInventoryStore {
   private readonly catalog = inject(PluginCatalogService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
   private readonly scope = inject(WorkspaceScopeService);
+  private readonly vscode = inject(VSCodeService);
+  private readonly feed = inject(LibraryChangeFeed);
 
   private readonly cells: { [K in InventorySliceId]: SliceCell<SliceData[K]> } =
     {
       installed: cell<readonly InstalledMcpServer[] | null>(null),
-      plugins: cell<null>(null),
+      plugins: cell<LibraryCopies>(NO_LIBRARY_COPIES),
       community: cell<readonly InstalledSkill[]>([]),
       marketplaces: cell<readonly ExternalPluginListing[]>([]),
     };
@@ -283,6 +310,14 @@ export class MarketplaceInventoryStore {
   private readonly _pendingIds = signal<ReadonlySet<string>>(new Set());
   private destroyed = false;
   private seenWorkspaceGeneration = this.scope.generation();
+  /**
+   * The push the feed held when this store was created. It predates the
+   * visit, and the first read of any slice already reflects it.
+   */
+  private seenLibraryChange: LibraryChange | null = untracked(() =>
+    this.feed.latest(),
+  );
+  private readonly _libraryPassFailed = signal(false);
 
   public constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -332,6 +367,26 @@ export class MarketplaceInventoryStore {
     };
   });
 
+  /**
+   * Library copies of the current workspace, read with the plugins slice
+   * (Electron only). Empty before that read, after it failed, and from the
+   * instant the workspace changes.
+   */
+  public readonly libraryClones: Signal<readonly CloneSummary[]> = computed(
+    () => this.cells.plugins.data().clones,
+  );
+
+  /**
+   * True when the last Library pass for the CURRENT workspace's harness root
+   * failed after its files were written (C10): a `library:changed` push with
+   * `status: 'failed'` for the root the Library copies were scoped to, or a
+   * config-home choice that answered `libraryPass: 'failed'`. A pass that
+   * succeeded for that root and a workspace switch clear it; a push for
+   * another root never touches it. Always `false` outside Electron.
+   */
+  public readonly libraryPassFailed: Signal<boolean> =
+    this._libraryPassFailed.asReadonly();
+
   /** skills.sh skills installed on this machine. */
   public readonly community = sliceView(this.cells.community);
 
@@ -362,29 +417,61 @@ export class MarketplaceInventoryStore {
     const generation = this.scope.generation();
     if (generation === this.seenWorkspaceGeneration) return;
     this.seenWorkspaceGeneration = generation;
-    untracked(() => this.reloadRequested(true));
+    untracked(() => {
+      this._libraryPassFailed.set(false);
+      this.reloadRequested(true);
+    });
+  });
+
+  /**
+   * Re-read what some page already asked for on every NEW `library:changed`
+   * push (a pass in this or another view changed the Library). Before any
+   * slice was requested there is nothing to keep current, and the first
+   * request reads fresh anyway.
+   */
+  private readonly libraryChangeEffect = effect(() => {
+    const change = this.feed.latest();
+    if (change === null || change === this.seenLibraryChange) return;
+    this.seenLibraryChange = change;
+    untracked(() => void this.onLibraryChanged(change));
   });
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
   /** Load a slice for the first time. A no-op unless the slice is `idle`. */
-  public ensure(id: InventorySliceId): Promise<void> {
-    if (this.cells[id].status().state !== 'idle') return Promise.resolve();
-    return this.load(id, 'ensure', false);
+  public async ensure(id: InventorySliceId): Promise<void> {
+    if (this.cells[id].status().state !== 'idle') return;
+    await this.load(id, 'ensure', false);
   }
 
   /** Re-read a slice now, superseding any read in flight for it. */
-  public reload(id: InventorySliceId): Promise<void> {
-    return this.load(id, 'reload', false);
+  public async reload(id: InventorySliceId): Promise<void> {
+    await this.load(id, 'reload', false);
   }
 
   /**
    * The error state's Retry. Only a failed slice re-reads, so a second click
    * while the retry is already loading does not start another read.
    */
-  public retry(id: InventorySliceId): Promise<void> {
-    if (this.cells[id].status().state !== 'error') return Promise.resolve();
-    return this.load(id, 'reload', false);
+  public async retry(id: InventorySliceId): Promise<void> {
+    if (this.cells[id].status().state !== 'error') return;
+    await this.load(id, 'reload', false);
+  }
+
+  /**
+   * Record the `libraryPass` of an action that wrote files for the workspace
+   * whose {@link WorkspaceScopeService.generation} was `workspaceGeneration`
+   * when it started. An answer for a workspace that is no longer active is
+   * dropped; `'not-applicable'` and an absent value change nothing.
+   */
+  public recordLibraryPass(
+    pass: LibraryPassStatus | undefined,
+    workspaceGeneration: number,
+  ): void {
+    if (this.destroyed || !this.vscode.isElectron) return;
+    if (this.scope.generation() !== workspaceGeneration) return;
+    if (pass === 'failed') this._libraryPassFailed.set(true);
+    else if (pass === 'updated') this._libraryPassFailed.set(false);
   }
 
   /**
@@ -397,18 +484,26 @@ export class MarketplaceInventoryStore {
     this.reloadRequested(false);
   }
 
-  private reloadRequested(discardData: boolean): void {
+  /**
+   * Reload every slice some page already asked for. Resolves, per reloaded
+   * slice, whether its read was the one that published.
+   */
+  private reloadRequested(
+    discardData: boolean,
+  ): Partial<Record<InventorySliceId, Promise<boolean>>> {
+    const reads: Partial<Record<InventorySliceId, Promise<boolean>>> = {};
     for (const id of SLICE_IDS) {
       if (this.cells[id].status().state === 'idle') continue;
-      void this.load(id, 'reload', discardData);
+      reads[id] = this.load(id, 'reload', discardData);
     }
+    return reads;
   }
 
   private async load<K extends InventorySliceId>(
     id: K,
     mode: LoadMode,
     discardData: boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const slice: SliceCell<SliceData[K]> = this.cells[id];
     const generation = ++slice.generation;
     const workspace = this.scope.generation();
@@ -429,7 +524,7 @@ export class MarketplaceInventoryStore {
       slice.generation !== generation ||
       this.scope.generation() !== workspace
     ) {
-      return;
+      return false;
     }
     // Starting the load cleared `actionError`; one written while it was in
     // flight (a removal that failed meanwhile) is newer than this read and
@@ -443,6 +538,25 @@ export class MarketplaceInventoryStore {
       slice.data.set(slice.empty);
       slice.status.set({ state: 'error', error: outcome.error, ...kept });
     }
+    return true;
+  }
+
+  /**
+   * One `library:changed` push: clear the `@agent` autocomplete cache and
+   * re-read the requested slices. Once the plugins read that carries the
+   * Library copies has PUBLISHED, the push's outcome is recorded only when it
+   * names the root those copies were scoped to. A read superseded by a newer
+   * one or by a workspace switch publishes nothing and records nothing, and a
+   * push for another root is not this workspace's.
+   */
+  private async onLibraryChanged(change: LibraryChange): Promise<void> {
+    if (this.destroyed) return;
+    this.commandDiscovery.clearCache();
+    const applied = await this.reloadRequested(false).plugins;
+    if (applied !== true || this.destroyed) return;
+    const { scopeRoot } = this.cells.plugins.data();
+    if (scopeRoot === null || scopeRoot !== change.workspaceRoot) return;
+    this._libraryPassFailed.set(change.status === 'failed');
   }
 
   private async readInstalled(): Promise<Loaded<SliceData['installed']>> {
@@ -458,12 +572,37 @@ export class MarketplaceInventoryStore {
    * publishes a failure on `error()` instead. `ensure` lets it answer from
    * cache; a reload or Retry asks it to re-read.
    */
-  private async readPlugins(mode: LoadMode): Promise<Loaded<null>> {
-    await (mode === 'ensure'
-      ? this.catalog.ensureLoaded()
-      : this.catalog.refresh());
+  private async readPlugins(
+    mode: LoadMode,
+  ): Promise<Loaded<SliceData['plugins']>> {
+    const [, clones] = await Promise.all([
+      mode === 'ensure' ? this.catalog.ensureLoaded() : this.catalog.refresh(),
+      this.readLibraryClones(),
+    ]);
     const error = this.catalog.error();
-    return error === null ? { ok: true, data: null } : { ok: false, error };
+    return error === null ? { ok: true, data: clones } : { ok: false, error };
+  }
+
+  /**
+   * The Library copies, for the agent shadow state (F7f). Electron only: no
+   * other host has a Library. A failed read degrades to "nothing shadowed"
+   * instead of failing the plugin list it decorates.
+   */
+  private async readLibraryClones(): Promise<LibraryCopies> {
+    if (!this.vscode.isElectron) return NO_LIBRARY_COPIES;
+    try {
+      const result = await this.rpc.call('skillSynthesis:listClones', {});
+      if (!result.isSuccess()) return NO_LIBRARY_COPIES;
+      return {
+        clones: result.data.clones,
+        scopeRoot: result.data.scopeRoot ?? null,
+      };
+    } catch {
+      // degradation-audit: optional-capability — decoration only; the rows
+      // render without the "Shadowed" marks, which is the state before any
+      // Library existed.
+      return NO_LIBRARY_COPIES;
+    }
   }
 
   private async readCommunity(): Promise<Loaded<SliceData['community']>> {

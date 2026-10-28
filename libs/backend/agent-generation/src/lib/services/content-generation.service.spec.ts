@@ -17,6 +17,7 @@ jest.mock('@ptah-extension/settings-core', () => ({
 jest.mock('@ptah-extension/agent-sdk', () => ({
   SDK_TOKENS: {
     SDK_INTERNAL_QUERY_SERVICE: Symbol.for('InternalQueryService'),
+    SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
   },
   SdkStreamProcessor: jest.fn().mockImplementation(() => ({
     process: jest.fn().mockResolvedValue({ structuredOutput: null }),
@@ -24,6 +25,29 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
   discoverPluginSkills: jest.fn().mockReturnValue([]),
   formatSkillsForPrompt: jest.fn().mockReturnValue(''),
 }));
+
+/**
+ * No shipped agent type denies `Skill` today, so the policy map gains one
+ * fixture type that does (the representative case for requirement 6.7).
+ * Every real type keeps its real policy.
+ */
+jest.mock('./subagent-tool-allowlist', () => {
+  const actual = jest.requireActual<typeof import('./subagent-tool-allowlist')>(
+    './subagent-tool-allowlist',
+  );
+  const policy: Readonly<Record<string, readonly string[]>> = {
+    ...actual.SUBAGENT_DISALLOWED_TOOLS,
+    'skill-less-fixture': ['Skill'],
+  };
+  const has = (type: string): boolean =>
+    Object.prototype.hasOwnProperty.call(policy, type);
+  return {
+    ...actual,
+    hasSubagentToolPolicy: has,
+    getSubagentDisallowedTools: (type: string): readonly string[] =>
+      has(type) ? policy[type] : [],
+  };
+});
 
 jest.mock('fs', () => ({
   readFileSync: jest.fn().mockReturnValue('## Project Profile\n\nMock content'),
@@ -45,6 +69,7 @@ import { readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { createMockFileSystemProvider } from '@ptah-extension/platform-core/testing';
 import { computeWorkspaceFingerprint } from './analysis-fingerprint';
+import { GENERATION_RUBRIC_RULES } from './generation-prompt-rules';
 
 const SdkStreamProcessorMock = SdkStreamProcessor as jest.MockedClass<
   typeof SdkStreamProcessor
@@ -954,12 +979,31 @@ Default
 
     it('should include discovered plugin skills in system prompt when pluginPaths provided', async () => {
       discoverPluginSkillsMock.mockReturnValueOnce([
-        { name: 'skill-a', description: 'd' } as never,
+        {
+          pluginId: 'p',
+          skillId: 'skill-a',
+          skillName: 'skill-a',
+          description: 'd',
+        },
       ]);
       formatSkillsForPromptMock.mockReturnValueOnce('FORMATTED_SKILLS_HERE');
+      const getEffectivePluginConfig = jest
+        .fn()
+        .mockResolvedValue({ config: { disabledSkillIds: [] } });
+      service = new ContentGenerationService(
+        mockLogger as never,
+        mockInternalQueryService as never,
+        mockWorkspaceLlm as never,
+        null,
+        undefined,
+        mockFreshness as never,
+        mockAnalysisStorage as never,
+        { getEffectivePluginConfig } as never,
+      );
 
       const template = {
         ...baseTemplate,
+        name: 'backend-developer',
         content: `<!-- LLM:SECTION_A -->
 Default
 <!-- /LLM:SECTION_A -->`,
@@ -976,7 +1020,16 @@ Default
       ]);
       expect(formatSkillsForPromptMock).toHaveBeenCalled();
       const callArgs = mockInternalQueryService.execute.mock.calls[0][0];
-      expect(callArgs.systemPromptAppend).toContain('Available Plugin Skills');
+      expect(getEffectivePluginConfig).toHaveBeenCalledWith(
+        mockContext.rootPath,
+      );
+      expect(callArgs.systemPromptAppend).toContain(
+        '## Available Plugin Skills',
+      );
+      expect(callArgs.systemPromptAppend).toContain(
+        "Reference only skills relevant to this agent's role; every skill listed here is one this agent may invoke.",
+      );
+      expect(callArgs.systemPromptAppend).not.toContain('where relevant');
       expect(callArgs.systemPromptAppend).toContain('FORMATTED_SKILLS_HERE');
       // `pluginPaths` reaches the LLM as PROSE in the system prompt and by no
       // other route. It used to be forwarded to `InternalQueryService` as well,
@@ -1005,7 +1058,7 @@ Default
 
       const callArgs = mockInternalQueryService.execute.mock.calls[0][0];
       expect(callArgs.systemPromptAppend).not.toContain(
-        'Available Plugin Skills',
+        '## Available Plugin Skills',
       );
     });
 
@@ -2242,5 +2295,295 @@ describe('ContentGenerationService — abort signal and section counts', () => {
 
     expect(result.isOk()).toBe(true);
     expect(result.value!.content).toContain('Fallback A');
+  });
+});
+
+/**
+ * Rubric alignment of the generation prompt: the RUBRIC RULES block, the
+ * plugin-skill permission gate (rubric rule 8) and the no-history rule over
+ * representative output.
+ */
+describe('ContentGenerationService — rubric rules and plugin-skill gate', () => {
+  const ROLE_SKILL = {
+    pluginId: 'ptah-core',
+    skillId: 'fixture-role-skill',
+    skillName: 'fixture-role-skill',
+    description: 'Conventions for the work this role does',
+  };
+  const AUTHORED_FALLBACK = '## Conventions\n\n- Generic authored fallback.';
+
+  function templateFor(name: string): AgentTemplate {
+    return {
+      ...baseTemplate,
+      id: name,
+      name,
+      content: `<!-- LLM:REPO_CONVENTIONS -->\n${AUTHORED_FALLBACK}\n<!-- /LLM:REPO_CONVENTIONS -->`,
+    };
+  }
+
+  function build(policy: { getEffectivePluginConfig: jest.Mock } | null): {
+    service: ContentGenerationService;
+    execute: jest.Mock;
+    logger: MockLogger;
+  } {
+    const logger: MockLogger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    };
+    const execute = jest.fn().mockResolvedValue({
+      stream: makeStream(null),
+      abort: jest.fn(),
+      close: jest.fn(),
+    });
+    const workspaceLlm = {
+      resolveForPath: async () => ({ providerId: 'anthropic', model: 'model' }),
+    };
+    // The real validator (default argument): no deterministic step is stubbed
+    // between the model's answer and the generated file.
+    const service = new ContentGenerationService(
+      logger as never,
+      { execute } as never,
+      workspaceLlm as never,
+      null,
+      undefined,
+      null,
+      null,
+      policy as never,
+    );
+    return { service, execute, logger };
+  }
+
+  const knownPolicy = (disabledSkillIds: string[] = []) => ({
+    getEffectivePluginConfig: jest
+      .fn()
+      .mockResolvedValue({ config: { disabledSkillIds } }),
+  });
+
+  /**
+   * Stub LLM: representative content derived from the prompt it was given.
+   * Every skill the prompt's plugin-skill block lists is cited, as a model
+   * following that block would.
+   */
+  function stubLlmFromPrompt(execute: jest.Mock): void {
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn(async () => {
+            const systemPrompt = execute.mock.calls[0][0]
+              .systemPromptAppend as string;
+            const block = systemPrompt.split('## Available Plugin Skills')[1];
+            const cited = block
+              ? [...block.matchAll(/\*\*([^*]+)\*\*/g)].map(
+                  (m) =>
+                    `- Invoke the \`${m[1]}\` skill before changing this area.`,
+                )
+              : [];
+            return {
+              structuredOutput: {
+                sections: {
+                  REPO_CONVENTIONS: [
+                    '## Conventions',
+                    '- Declare modules the way the framework already does.',
+                    ...cited,
+                  ].join('\n'),
+                },
+              },
+            };
+          }),
+        }) as never,
+    );
+  }
+
+  beforeEach(() => {
+    discoverPluginSkillsMock.mockReturnValue([ROLE_SKILL]);
+    formatSkillsForPromptMock.mockImplementation((skills) =>
+      skills
+        .map(
+          (s) =>
+            `- **${s.skillName}** (plugin: ${s.pluginId}): ${s.description}`,
+        )
+        .join('\n'),
+    );
+  });
+
+  afterEach(() => {
+    discoverPluginSkillsMock.mockReset();
+    discoverPluginSkillsMock.mockReturnValue([]);
+    formatSkillsForPromptMock.mockReset();
+    formatSkillsForPromptMock.mockReturnValue('');
+    SdkStreamProcessorMock.mockImplementation(
+      () =>
+        ({
+          process: jest.fn().mockResolvedValue({ structuredOutput: null }),
+        }) as never,
+    );
+  });
+
+  it('carries every rubric instruction verbatim in a RUBRIC RULES block', async () => {
+    const { service, execute } = build(knownPolicy());
+    await service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+    );
+
+    const systemPrompt = execute.mock.calls[0][0].systemPromptAppend as string;
+    expect(systemPrompt).toContain('RUBRIC RULES');
+    for (const { instruction } of GENERATION_RUBRIC_RULES) {
+      expect(systemPrompt).toContain(instruction);
+    }
+  });
+
+  it('lists a relevant skill for a known type that may invoke Skill (control case)', async () => {
+    const { service, execute } = build(knownPolicy());
+    stubLlmFromPrompt(execute);
+
+    const result = await service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+      { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+    );
+
+    const systemPrompt = execute.mock.calls[0][0].systemPromptAppend as string;
+    expect(systemPrompt).toContain('## Available Plugin Skills');
+    expect(systemPrompt).toContain(ROLE_SKILL.skillName);
+    expect(result.value?.content).toContain(ROLE_SKILL.skillName);
+  });
+
+  it('lists no plugin skill for an unknown agent type', async () => {
+    const { service, execute } = build(knownPolicy());
+    await service.generateContent(templateFor('my-custom-agent'), mockContext, {
+      mcpServerRunning: false,
+      pluginPaths: ['/plugins/ptah-core'],
+    });
+
+    const systemPrompt = execute.mock.calls[0][0].systemPromptAppend as string;
+    expect(systemPrompt).not.toContain('## Available Plugin Skills');
+    expect(systemPrompt).not.toContain(ROLE_SKILL.skillName);
+  });
+
+  it('omits a disabled skill and drops the block when none is left', async () => {
+    const policy = knownPolicy([ROLE_SKILL.skillId]);
+    const { service, execute } = build(policy);
+    await service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+      { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+    );
+
+    expect(policy.getEffectivePluginConfig).toHaveBeenCalledWith(
+      mockContext.rootPath,
+    );
+    const systemPrompt = execute.mock.calls[0][0].systemPromptAppend as string;
+    expect(systemPrompt).not.toContain('## Available Plugin Skills');
+    expect(systemPrompt).not.toContain(ROLE_SKILL.skillName);
+  });
+
+  it('lists no plugin skill when the skill policy is unreadable or absent', async () => {
+    const failing = {
+      getEffectivePluginConfig: jest
+        .fn()
+        .mockRejectedValue(new Error('policy unreadable')),
+    };
+    const unreadable = build(failing);
+    await unreadable.service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+      { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+    );
+    expect(
+      unreadable.execute.mock.calls[0][0].systemPromptAppend as string,
+    ).not.toContain('## Available Plugin Skills');
+    expect(unreadable.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Skill policy unreadable'),
+      expect.objectContaining({ error: 'policy unreadable' }),
+    );
+
+    const absent = build(null);
+    await absent.service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+      { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+    );
+    expect(
+      absent.execute.mock.calls[0][0].systemPromptAppend as string,
+    ).not.toContain('## Available Plugin Skills');
+  });
+
+  /**
+   * Representative case for requirement 6.7: a type that may not invoke
+   * `Skill`, with a plugin skill relevant to its role.
+   *
+   * Limits: this proves Ptah never supplies the forbidden skill to the model
+   * and that no deterministic step (prompt builder, section validator,
+   * variable substitution, authored fallback) injects it. It does not prove
+   * that an arbitrary model never invents a reference on its own; no output
+   * filter is added, and the section validator is unchanged (6.4).
+   */
+  describe('representative case: relevant skill, Skill not permitted', () => {
+    const FIXTURE_TYPE = 'skill-less-fixture';
+
+    it('(a) the built prompt has no plugin-skill block and no mention of the skill', async () => {
+      const { service, execute } = build(knownPolicy());
+      await service.generateContent(templateFor(FIXTURE_TYPE), mockContext, {
+        mcpServerRunning: false,
+        pluginPaths: ['/plugins/ptah-core'],
+      });
+
+      const call = execute.mock.calls[0][0];
+      const systemPrompt = call.systemPromptAppend as string;
+      expect(systemPrompt).not.toContain('## Available Plugin Skills');
+      expect(systemPrompt).not.toContain(ROLE_SKILL.skillName);
+      expect(call.prompt as string).not.toContain(ROLE_SKILL.skillName);
+    });
+
+    it('(b) the pipeline with a prompt-derived stub LLM outputs no reference to the skill', async () => {
+      const { service, execute } = build(knownPolicy());
+      stubLlmFromPrompt(execute);
+
+      const result = await service.generateContent(
+        templateFor(FIXTURE_TYPE),
+        mockContext,
+        { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+      );
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.tailoredSections).toBe(1);
+      expect(result.value?.content).toContain(
+        '- Declare modules the way the framework already does.',
+      );
+      expect(result.value?.content).not.toContain(ROLE_SKILL.skillName);
+    });
+
+    it('(c) the authored fallback for the template has no reference to the skill', async () => {
+      const { service } = build(knownPolicy());
+
+      const result = await service.generateContent(
+        templateFor(FIXTURE_TYPE),
+        mockContext,
+        { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+      );
+
+      expect(result.value?.content).toContain('- Generic authored fallback.');
+      expect(result.value?.content).not.toContain(ROLE_SKILL.skillName);
+    });
+  });
+
+  it('representative generated output carries no task id and no date', async () => {
+    const { service, execute } = build(knownPolicy());
+    stubLlmFromPrompt(execute);
+
+    const result = await service.generateContent(
+      templateFor('backend-developer'),
+      mockContext,
+      { mcpServerRunning: false, pluginPaths: ['/plugins/ptah-core'] },
+    );
+
+    const content = result.value?.content ?? '';
+    expect(result.value?.tailoredSections).toBe(1);
+    expect(content).not.toMatch(/TASK_\d{4}_\d+/);
+    expect(content).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+    expect(content).not.toMatch(/\b(19|20)\d{2}\b/);
   });
 });

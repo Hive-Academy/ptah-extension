@@ -44,6 +44,13 @@ export interface CompactPermissionCallout {
   readonly moreCount?: number;
 }
 
+/** Every decision a permission callout can send; lanes only accept allow and deny. */
+export interface CompactPermissionDecision {
+  readonly callout: CompactPermissionCallout;
+  readonly decision: 'allow' | 'always_allow' | 'deny' | 'deny_with_message';
+  readonly reason?: string;
+}
+
 export interface CompactQuestionCallout {
   readonly kind: 'question';
   readonly requestId: string;

@@ -27,7 +27,7 @@ export function drawStatus(
   context.beginPath();
   const angle =
     state === 'running' && !snapshot.reducedMotion
-      ? time * 0.0017
+      ? time * RUNNING_RING_RAD_PER_MS
       : -Math.PI / 2;
   context.arc(
     node.x,
@@ -107,6 +107,72 @@ export function drawStatus(
     );
     context.stroke();
   }
+}
+
+/** Running ring: 0.15 turn per second. */
+export const RUNNING_RING_RAD_PER_MS = (0.15 * Math.PI * 2) / 1000;
+const BREATH_PERIOD_MS = 2400;
+const BREATH_DEPTH = 0.04;
+const WAITING_PERIOD_MS = 1600;
+/** Up to this many running nodes breathe at full depth. */
+export const BREATHING_NODE_LIMIT = 8;
+/** From the limit to this count the depth ramps down to zero; above it nodes hold still. */
+export const BREATHING_NODE_STILL = 16;
+
+/** Breathing depth share for `runningCount` running nodes: 1 up to the limit, 0 at the still count. */
+export function breathingDepthFactor(runningCount: number): number {
+  if (runningCount <= BREATHING_NODE_LIMIT) return 1;
+  if (runningCount >= BREATHING_NODE_STILL) return 0;
+  return (
+    (BREATHING_NODE_STILL - runningCount) /
+    (BREATHING_NODE_STILL - BREATHING_NODE_LIMIT)
+  );
+}
+
+/**
+ * Sprite scale for a running delegate: 1.00 to 1.04 and back every 2.4s.
+ * Static under reduced motion and for the root. Past eight running nodes the
+ * depth shrinks with each extra node, so the stage calms instead of snapping still.
+ */
+export function breathScale(
+  node: SceneNode,
+  time: number,
+  snapshot: SceneRenderSnapshot,
+  runningCount: number,
+): number {
+  if (
+    snapshot.reducedMotion ||
+    node.kind === 'root' ||
+    node.node.state !== 'running'
+  )
+    return 1;
+  const depth = BREATH_DEPTH * breathingDepthFactor(runningCount);
+  if (depth === 0) return 1;
+  const phase = (time % BREATH_PERIOD_MS) / BREATH_PERIOD_MS;
+  return 1 + (depth * (1 - Math.cos(phase * Math.PI * 2))) / 2;
+}
+
+/** Halo alpha for a node waiting on input: 0.15 to 0.35 over 1.6s, fixed 0.3 when reduced. */
+export function waitingHaloAlpha(time: number, reducedMotion: boolean): number {
+  if (reducedMotion) return 0.3;
+  const phase = (time % WAITING_PERIOD_MS) / WAITING_PERIOD_MS;
+  return 0.15 + (0.2 * (1 - Math.cos(phase * Math.PI * 2))) / 2;
+}
+
+/** Soft amber halo drawn under the sprite of a delegate that waits on input. */
+export function drawWaitingHalo(
+  context: CanvasRenderingContext2D,
+  node: SceneNode,
+  time: number,
+  snapshot: SceneRenderSnapshot,
+): void {
+  if (node.kind === 'root' || node.node.state !== 'awaiting input') return;
+  context.globalAlpha = waitingHaloAlpha(time, snapshot.reducedMotion);
+  context.fillStyle = snapshot.inks.need;
+  context.beginPath();
+  context.arc(node.x, node.y, node.radius + 10, 0, Math.PI * 2);
+  context.fill();
+  context.globalAlpha = 1;
 }
 
 export function drawVoiceRing(

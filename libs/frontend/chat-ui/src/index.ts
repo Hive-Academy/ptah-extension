@@ -91,6 +91,7 @@ export type {
   CompactLaneStatus,
   CompactLaneSummary,
   CompactPermissionCallout,
+  CompactPermissionDecision,
   CompactQuestionCallout,
   CompactRailDensity,
   CompactRailState,

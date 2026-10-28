@@ -1,4 +1,4 @@
-import { toSpokenText } from './spoken-text';
+import { replyExcerpt, toSpokenText } from './spoken-text';
 
 describe('toSpokenText', () => {
   it('keeps conversational text and drops code, diffs, tools and raw links', () => {
@@ -45,5 +45,23 @@ describe('toSpokenText', () => {
     const spoken = toSpokenText('running '.repeat(100), 'status');
     expect(spoken.length).toBeLessThanOrEqual(180);
     expect(spoken).toContain('See text for the rest');
+  });
+});
+
+describe('replyExcerpt', () => {
+  it('keeps only the first prose sentence of a reply', () => {
+    expect(
+      replyExcerpt('The change is ready. Review it.\n```ts\nconst a = 1;\n```'),
+    ).toBe('The change is ready.');
+  });
+
+  it('truncates a long sentence with an ellipsis', () => {
+    const excerpt = replyExcerpt('word '.repeat(80));
+    expect(excerpt.length).toBeLessThanOrEqual(160);
+    expect(excerpt.endsWith('…')).toBe(true);
+  });
+
+  it('returns nothing for a reply without prose', () => {
+    expect(replyExcerpt('```ts\nconst a = 1;\n```')).toBe('');
   });
 });

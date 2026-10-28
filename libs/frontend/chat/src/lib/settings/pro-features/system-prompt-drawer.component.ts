@@ -15,7 +15,6 @@ import {
 } from '@angular/core';
 import {
   AlertCircle,
-  Check,
   Clock,
   Download,
   LucideAngularModule,
@@ -27,6 +26,7 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 const PROMPT_STATUS_LOAD_FAILED = 'Could not load the system prompt status.';
 const PROMPT_REGENERATE_FAILED = 'Could not regenerate the system prompt.';
@@ -51,8 +51,8 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
  *
  * Slide-over detail drawer for the enhanced system prompt:
  * - A14: Metadata readout (generated-at timestamp and detected stack summary)
- * - A15: Regenerate prompt (S-confirm: inline confirm first; inline progress up to 120 s; failure alert)
- * - A16: Download prompt as markdown file (D15: {success:false} or failed RPC shows alert, never silent)
+ * - A15: Regenerate prompt (S-confirm: inline confirm first; inline progress up to 120 s; failure in the page toast)
+ * - A16: Download prompt as markdown file (D15: {success:false} or failed RPC shows an alert toast, never silent)
  * - A17: View/Hide prompt preview rendered through {@link MarkdownBlockComponent} (safe DOMPurify chokepoint)
  * - A18: Empty-state guidance when no prompt has been generated yet — only after a successful status read
  *
@@ -137,13 +137,6 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
               Check again
             </button>
           </div>
-        }
-
-        @if (downloadNote(); as note) {
-          <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="system-prompt-download-saved">
-            <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
-            {{ note }}
-          </p>
         }
 
         @if (isLoading()) {
@@ -315,12 +308,13 @@ export class SystemPromptDrawerComponent {
     return this.workspaceScope.activeWorkspacePath() ?? '.';
   }
   private readonly injector = inject(Injector);
+  /** Regenerate and download outcomes show as the Settings page toast; load failures stay inline with Retry. */
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly regenerateCancel = viewChild<ElementRef<HTMLButtonElement>>('regenerateCancel');
   private readonly regenerateButton = viewChild<ElementRef<HTMLButtonElement>>('regenerateButton');
 
   readonly SparklesIcon = Sparkles;
   readonly ClockIcon = Clock;
-  readonly CheckIcon = Check;
   readonly RotateCwIcon = RotateCw;
   readonly DownloadIcon = Download;
   readonly AlertCircleIcon = AlertCircle;
@@ -338,7 +332,6 @@ export class SystemPromptDrawerComponent {
   readonly isRegenerating = signal(false);
   readonly confirmingRegenerate = signal(false);
   readonly isDownloading = signal(false);
-  readonly downloadNote = signal<string | null>(null);
 
   /**
    * When a regenerate went unanswered, the time it started; `null` otherwise. While set, the host may still be
@@ -386,7 +379,6 @@ export class SystemPromptDrawerComponent {
       if (this.isOpen()) {
         untracked(() => {
           this.error.set(null);
-          this.downloadNote.set(null);
           this.confirmingRegenerate.set(false);
           void this.loadStatus();
         });
@@ -421,7 +413,6 @@ export class SystemPromptDrawerComponent {
 
   requestRegenerate(): void {
     if (this.regenerateStartedAt() !== null) return;
-    this.downloadNote.set(null);
     this.confirmingRegenerate.set(true);
   }
 
@@ -471,7 +462,7 @@ export class SystemPromptDrawerComponent {
     } finally {
       this.isRegenerating.set(false);
     }
-    this.error.set(PROMPT_REGENERATE_FAILED);
+    this.feedback.announce(PROMPT_REGENERATE_FAILED, 'alert');
   }
 
   /** The RPC client resolves a timeout as a failed result once the budget has elapsed (`claude-rpc.service`). */
@@ -495,34 +486,32 @@ export class SystemPromptDrawerComponent {
       this.changed.emit();
     } else if (Date.now() - startedAt >= 2 * REGENERATE_TIMEOUT_MS) {
       this.regenerateStartedAt.set(null);
-      this.error.set(PROMPT_REGENERATE_FAILED);
+      this.feedback.announce(PROMPT_REGENERATE_FAILED, 'alert');
     }
   }
 
   /**
    * Downloads the enhanced prompt as a markdown file (A16).
    * D15: A `{success:false}` or failed RPC surfaces an alert, never silent; only the host's own success shows
-   * the saved line (Minor 15).
+   * the saved toast (Minor 15).
    * F2: User cancellation in the host save dialog (`DOWNLOAD_CANCELLED_BY_USER`) surfaces no alert.
    */
   async downloadEnhancedPrompt(): Promise<void> {
     if (this.isDownloading()) return;
     this.isDownloading.set(true);
-    this.error.set(null);
-    this.downloadNote.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:download', {
         workspacePath: this.workspacePath(),
       });
       if (!result.isSuccess()) {
-        this.error.set(PROMPT_DOWNLOAD_FAILED);
+        this.feedback.announce(PROMPT_DOWNLOAD_FAILED, 'alert');
       } else if (result.data.success) {
-        this.downloadNote.set(PROMPT_DOWNLOAD_SAVED);
+        this.feedback.announce(PROMPT_DOWNLOAD_SAVED, 'status');
       } else if (result.data.error !== DOWNLOAD_CANCELLED_BY_USER) {
-        this.error.set(PROMPT_DOWNLOAD_FAILED);
+        this.feedback.announce(PROMPT_DOWNLOAD_FAILED, 'alert');
       }
     } catch {
-      this.error.set(PROMPT_DOWNLOAD_FAILED);
+      this.feedback.announce(PROMPT_DOWNLOAD_FAILED, 'alert');
     } finally {
       this.isDownloading.set(false);
     }

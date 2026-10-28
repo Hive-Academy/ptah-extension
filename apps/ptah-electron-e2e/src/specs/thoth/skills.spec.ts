@@ -113,13 +113,7 @@ test.describe('Thoth - Skills Library', () => {
     });
     await ui.goto('settings');
     const page = ui.page;
-    await page
-      .locator('ptah-settings')
-      .getByRole('button', {
-        name: 'Agent Orchestration',
-        exact: true,
-      })
-      .click();
+    // Background Model Roles sit on the default Providers tab.
     await page.locator('[data-testid="background-roles-summary"]').click();
     const row = page.locator('[data-testid="consumer-row-enhancement"]');
     await expect(row).toBeVisible();

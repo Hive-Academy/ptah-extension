@@ -232,8 +232,11 @@ export class MessageDispatchService {
           reason: content,
         });
       }
-      const held = this.conversation.queueOrAppendMessage(content, options);
-      return held ? { success: true, heldCommand: held } : { success: true };
+      const queued = this.conversation.queueOrAppendMessage(content, options);
+      if (!queued) return { success: true };
+      return queued.held
+        ? { success: true, queuedCommand: queued, heldCommand: queued.held }
+        : { success: true, queuedCommand: queued };
     }
     const previousTerminalReason = dispatchTab?.lastTerminalReason;
     const outcome = await this.messageSender.send(content, options);
@@ -382,6 +385,19 @@ export class MessageDispatchService {
    * id, as in `PermissionHandlerService.cleanupSession`). A prompt with no
    * routing at all is shown globally, so it is treated as the active tab's.
    */
+  /**
+   * Whether a pending permission prompt belongs to the tab: the prompts
+   * {@link sendOrQueueMessage} answers (denies) when it queues a message on
+   * it. Reactive: reads the prompt list and the prompt routing revision.
+   */
+  hasPendingPermissionForTab(tabId: string): boolean {
+    this.permissionHandler.routingTargetRevision();
+    const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab ?? null;
+    return this.permissionHandler
+      .permissionRequests()
+      .some((perm) => this.isPermissionForTab(perm, tabId, tab));
+  }
+
   private isPermissionForTab(
     perm: PermissionRequest,
     tabId: string | null,

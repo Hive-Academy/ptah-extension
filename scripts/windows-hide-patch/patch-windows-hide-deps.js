@@ -45,7 +45,7 @@ const SHIM_MJS = `./${SHIM_BASENAME}.mjs`;
 const PATCHES = [
   {
     name: '@openai/codex-sdk',
-    version: '0.155.1',
+    version: '0.165.0',
     files: [
       {
         file: 'dist/index.js',

@@ -263,9 +263,8 @@ describe('VoiceConfigComponent', () => {
     expect(feedback.toast()).toEqual({
       tone: 'alert', message: 'Could not save the text-to-speech engine.', canUndo: false,
     });
-    const alert = byTestId('voice-config-error');
-    expect(alert.getAttribute('role')).toBe('alert');
-    expect(alert.classList).toContain('text-base-content');
+    // The save failure is reported only in the toast; the inline alert is for load failures.
+    expect(queryTestId('voice-config-error')).toBeNull();
   });
 
   it.each(HOST_FAILURES)('shows only a fixed sentence when a provider write fails with %s (F1)', async (_case, respond) => {
@@ -274,7 +273,7 @@ describe('VoiceConfigComponent', () => {
     await choose('stt', 'elevenlabs');
 
     expect(component.sttProviderId()).toBe('local');
-    expect(byTestId('voice-config-error').textContent?.trim()).toBe('Could not save the speech-to-text engine.');
+    expect(queryTestId('voice-config-error')).toBeNull();
     expect(feedback.toast()).toEqual({
       tone: 'alert', message: 'Could not save the speech-to-text engine.', canUndo: false,
     });

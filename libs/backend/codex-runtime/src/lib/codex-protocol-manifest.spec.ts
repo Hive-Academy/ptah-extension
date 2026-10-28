@@ -23,7 +23,7 @@ const manifest = z
   );
 const binary: CodexBinaryIdentity = {
   executablePath: '/bundled/codex',
-  versionOutput: 'codex-cli 0.155.1\r\n',
+  versionOutput: 'codex-cli 0.165.0\r\n',
   sha256: manifest.binarySha256,
   platform: manifest.platform,
   arch: manifest.arch,
@@ -31,7 +31,7 @@ const binary: CodexBinaryIdentity = {
 
 describe('verifyCodexBinary', () => {
   it('accepts the pinned binary at a different installation path', () => {
-    expect(manifest.pinnedVersion).toBe('0.155.1');
+    expect(manifest.pinnedVersion).toBe('0.165.0');
     expect(verifyCodexBinary(binary, manifest)).toEqual({ status: 'ok' });
   });
   it('rejects global 0.163.0 despite matching digest and path', () => {
@@ -46,7 +46,7 @@ describe('verifyCodexBinary', () => {
       ),
     ).toEqual({ status: 'mismatch', reason: 'versionMismatch' });
   });
-  it.each(['0.155.1', 'codex-cli 0.155.10', 'codex-cli 0.155.1\nextra', ''])(
+  it.each(['0.165.0', 'codex-cli 0.165.00', 'codex-cli 0.165.0\nextra', ''])(
     'rejects malformed or different version output %j',
     (versionOutput) => {
       expect(verifyCodexBinary({ ...binary, versionOutput }, manifest)).toEqual(

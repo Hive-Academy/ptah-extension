@@ -63,6 +63,7 @@ import type {
 } from '../targets/harness-target.port';
 import {
   appliedTargetHealth,
+  TARGET_WIDE_FAILURE,
   undetectedTargetHealth,
 } from '../health/harness-health';
 import type { HarnessGitignoreWriter } from '../gitignore/gitignore-writer';
@@ -304,6 +305,7 @@ export class HarnessReconcilerService {
               collisions: [],
               migrations: [],
               adopted: [],
+              keptLocalEdit: [],
               baseEntries: manifest.entries,
               unchanged: 0,
               expected: 0,
@@ -326,7 +328,7 @@ export class HarnessReconcilerService {
             missing: [],
             foreign: [],
             writeFailed: result.writeFailed,
-            overwrittenLocalEdit: [],
+            keptLocalEdit: [],
             removed: result.removed,
             removedLocalEdit: result.removedLocalEdit ?? [],
             durationMs: Date.now() - startedAt,
@@ -623,7 +625,7 @@ export class HarnessReconcilerService {
             written: {},
             removed: [],
             writeFailed: [],
-            overwrittenLocalEdit: [],
+            keptLocalEdit: [],
           },
           Date.now() - startedAt,
         );
@@ -704,7 +706,7 @@ export class HarnessReconcilerService {
         detected: true,
         writeFailed: [
           {
-            relPath: '(target)',
+            relPath: TARGET_WIDE_FAILURE,
             reason: error instanceof Error ? error.message : String(error),
           },
         ],

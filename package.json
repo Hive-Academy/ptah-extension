@@ -126,7 +126,7 @@
     "@nestjs/platform-express": "^12.0.3",
     "@nestjs/schedule": "^12.0.2",
     "@nestjs/throttler": "^6.7.0",
-    "@openai/codex-sdk": "^0.155.1",
+    "@openai/codex-sdk": "^0.165.0",
     "@paddle/paddle-js": "^1.6.1",
     "@paddle/paddle-node-sdk": "^3.10.0",
     "@paper-design/shaders-react": "^0.0.77",

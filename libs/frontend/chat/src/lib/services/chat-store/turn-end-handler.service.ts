@@ -13,7 +13,10 @@ import {
   type BackgroundAgentId,
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
-import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  BackgroundAgentStore,
+} from '@ptah-extension/chat-streaming';
 import { ChatLifecycleService } from './chat-lifecycle.service';
 
 const SDK_ERROR_MESSAGES: Readonly<Record<SdkAssistantMessageError, string>> = {
@@ -62,6 +65,7 @@ export class TurnEndHandlerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly lifecycle = inject(ChatLifecycleService);
   private readonly backgroundAgents = inject(BackgroundAgentStore);
+  private readonly agentMonitor = inject(AgentMonitorStore);
   private readonly conversations = inject(ConversationRegistry);
   private readonly sessionBinding = inject(TabSessionBinding);
 
@@ -130,22 +134,38 @@ export class TurnEndHandlerService {
 
   /**
    * Handle the `session:subagentEnded` push (backend `SubagentStop` SDK hook).
-   * Stops the matching entry in `BackgroundAgentStore` when the agent is a
+   * Completes the matching entry in `BackgroundAgentStore` when the agent is a
    * known BACKGROUND agent, and applies the SDK's authoritative
    * `backgroundTasks` snapshot onto every bound tab. The
    * `awaiting-background → loaded` flip is the backend's call: it arrives as
    * an `idle` `turn_state` once the registry sees no remaining tasks.
    *
-   * This is the ONLY terminal signal a background agent has —
-   * `background_agent_completed` has no producer anywhere in the repository —
-   * so an entry this method cannot address stays `running` forever. It could
+   * This is the main terminal signal a background agent has. The
+   * transformer's `task_notification` path adds one only for a task it
+   * announced from `task_started` (a SendMessage resume), plus a
+   * `background_agent_stopped` for any background task the user stopped. An
+   * entry this method cannot address can therefore stay `running` forever. It could
    * not address one whose `background_agent_started` event arrived without an
    * `agentId`, because the store then keys that entry by its `toolCallId` and
    * `findByAgentId` is a lookup on the other identity space. When the payload
    * carries the `toolCallId` the two are reconciled first, through
-   * `adoptRealAgentId`, and the stop then proceeds unchanged.
+   * `adoptRealAgentId`, and the completion then proceeds unchanged.
+   *
+   * With a `toolCallId` it also finishes the `AgentMonitorStore` record for
+   * that Task. A Task the SDK backgrounded by default gets only the
+   * "launched in the background" placeholder tool_result, which must not
+   * terminalise it, so without this the tile can stay `running` after the
+   * agent ended. `onSubagentEnded` only moves `pending`/`running` and never
+   * overrides a terminal status an `agent_completed`/`agent_status` set.
    */
   handleSubagentEnded(payload: SdkSubagentEndedPayload): void {
+    if (payload.toolCallId) {
+      this.agentMonitor.onSubagentEnded(
+        payload.toolCallId,
+        payload.lastAssistantMessage ?? undefined,
+        payload.timestamp,
+      );
+    }
     const sessionId = SessionId.from(payload.sessionId);
     const tabs = this.tabManager.findTabsBySessionId(sessionId);
     const agentKey = payload.agentId as BackgroundAgentId;
@@ -158,15 +178,20 @@ export class TurnEndHandlerService {
           )
         : null);
     if (knownEntry) {
-      this.backgroundAgents.onStopped({
-        id: `subagent-stopped-${payload.agentId}-${payload.timestamp}`,
-        eventType: 'background_agent_stopped',
+      // SubagentStop is the normal-finish hook, so the entry completes. A
+      // user stop arrives as `background_agent_stopped` from the SDK's
+      // `task_notification`. Either order ends `stopped`: `onCompleted`
+      // keeps an earlier `stopped`, and `onStopped` relabels `completed`.
+      this.backgroundAgents.onCompleted({
+        id: `subagent-ended-${payload.agentId}-${payload.timestamp}`,
+        eventType: 'background_agent_completed',
         timestamp: payload.timestamp,
         sessionId: payload.sessionId,
         messageId: '',
         toolCallId: knownEntry.toolCallId,
         agentId: payload.agentId,
         agentType: payload.agentType,
+        result: payload.lastAssistantMessage ?? undefined,
       });
     }
     if (tabs.length === 0) {

@@ -45,7 +45,7 @@ function health(overrides: Partial<HarnessHealth> = {}): HarnessHealth {
         missing: [],
         foreign: [],
         writeFailed: [],
-        overwrittenLocalEdit: [],
+        keptLocalEdit: [],
         removed: [],
         durationMs: 4,
       },

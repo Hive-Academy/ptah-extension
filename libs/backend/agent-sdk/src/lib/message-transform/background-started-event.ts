@@ -41,6 +41,33 @@ export interface BackgroundStartedEventParams {
   readonly helpers: TransformerHelpers;
 }
 
+/**
+ * The `background_agent_started` event for a placeholder tool_result of a
+ * `run_in_background: true` Task, or null when there is nothing to announce:
+ * the tool_use was not a tracked background spawn, or this stream already
+ * announced the task (a `task_started` with `is_backgrounded` can arrive
+ * first). Consumes the spawn's tracking entry and records the announcement
+ * as `task_tool`, so a later `task_started` / `task_updated` for the same
+ * task stays silent and no transformer terminal event is produced — the
+ * SubagentStop path ends this entry.
+ */
+export function takeBackgroundAgentStartedEvent(
+  params: BackgroundStartedEventParams,
+): BackgroundAgentStartedEvent | null {
+  const { toolCallId, state } = params;
+  if (!state.hasBackgroundTaskToolUseId(toolCallId)) {
+    return null;
+  }
+  const event = state.isBackgroundAnnounced(toolCallId)
+    ? null
+    : buildBackgroundAgentStartedEvent(params);
+  state.removeBackgroundTaskToolUseId(toolCallId);
+  if (event) {
+    state.markBackgroundAnnounced(toolCallId, 'task_tool');
+  }
+  return event;
+}
+
 export function buildBackgroundAgentStartedEvent(
   params: BackgroundStartedEventParams,
 ): BackgroundAgentStartedEvent {

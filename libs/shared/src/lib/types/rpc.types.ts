@@ -19,6 +19,7 @@ export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
 export * from './rpc/rpc-provider-accounts.types';
 export * from './rpc/rpc-setup.types';
+export * from './rpc/rpc-setup-decisions.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
@@ -92,10 +93,18 @@ import type {
   ExternalMarketplace,
   ExternalUninstallParams,
   ExternalUninstallResult,
+  KeptItem,
   ListMarketplacesResult,
   MarketplaceBrowseParams,
   MarketplaceSourceParams,
+  PluginsReplaceKeptItemsParams,
+  PluginsReplaceKeptItemsResult,
 } from './rpc/rpc-plugin-marketplace.types';
+import type {
+  LibraryPassStatus,
+  WizardPlanPackInstallParams,
+  WizardPlanPackInstallResult,
+} from './rpc/rpc-setup-decisions.types';
 
 import type {
   SubagentQueryParams,
@@ -656,8 +665,10 @@ import type {
   QualityExportParams,
   QualityExportResult,
   PluginInfo,
-  PluginConfigState,
+  PluginConfigStateWithHome,
   PluginSkillEntry,
+  PluginsResolveConfigHomeParams,
+  PluginsResolveConfigHomeResult,
 } from './rpc/rpc-misc.types';
 import type {
   EditorDetectTargetsParams,
@@ -788,9 +799,18 @@ import type {
  * in `rpc/rpc-provider-accounts.types.ts` and merged in through `extends`.
  */
 export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
-  'artifacts:list': { params: ArtifactListRequest; result: ArtifactListResponse };
-  'artifacts:openLink': { params: { url: string }; result: { opened: boolean } };
-  'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
+  'artifacts:list': {
+    params: ArtifactListRequest;
+    result: ArtifactListResponse;
+  };
+  'artifacts:openLink': {
+    params: { url: string };
+    result: { opened: boolean };
+  };
+  'analytics:spendSummary': {
+    params: UsageSummaryParams;
+    result: UsageSummary;
+  };
   'attention:getSnapshot': {
     params: AttentionGetSnapshotParams;
     result: AttentionGetSnapshotResult;
@@ -1106,6 +1126,10 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: WizardListAgentPacksParams;
     result: WizardListAgentPacksResult;
   };
+  'wizard:plan-pack-install': {
+    params: WizardPlanPackInstallParams;
+    result: WizardPlanPackInstallResult;
+  };
   'wizard:install-pack-agents': {
     params: WizardInstallPackAgentsParams;
     result: WizardInstallPackAgentsResult;
@@ -1289,7 +1313,8 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   };
   'plugins:get-config': {
     params: Record<string, never>;
-    result: PluginConfigState;
+    /** `configHome` is Electron-only and absent when no notice applies. */
+    result: PluginConfigStateWithHome;
   };
   'plugins:save-config': {
     params: {
@@ -1302,7 +1327,13 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
        */
       disabledPluginIds?: string[];
     };
-    result: { success: boolean; error?: string };
+    result: {
+      success: boolean;
+      error?: string;
+      /** Local items an enable left as the user's (plugin enable/agents). */
+      kept?: KeptItem[];
+      libraryPass?: LibraryPassStatus;
+    };
   };
   'plugins:list-skills': {
     params: { pluginIds: string[] };
@@ -1341,6 +1372,19 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
   'plugins:uninstall-external': {
     params: ExternalUninstallParams;
     result: ExternalUninstallResult;
+  };
+  /**
+   * Replace local items a no-dialog action (skills.sh install, plugin enable,
+   * plugin agents) kept. Accepts only server-issued approval ids.
+   */
+  'plugins:replace-kept-items': {
+    params: PluginsReplaceKeptItemsParams;
+    result: PluginsReplaceKeptItemsResult;
+  };
+  /** Adopt or dismiss one folder's saved plugin settings (D14, Electron). */
+  'plugins:resolve-config-home': {
+    params: PluginsResolveConfigHomeParams;
+    result: PluginsResolveConfigHomeResult;
   };
   'agent:getConfig': {
     params: void;
@@ -1518,7 +1562,13 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
       source: string;
       skillId?: string;
     };
-    result: { success: boolean; error?: string };
+    result: {
+      success: boolean;
+      error?: string;
+      /** Local items the install left as the user's. */
+      kept?: KeptItem[];
+      libraryPass?: LibraryPassStatus;
+    };
   };
   'skillsSh:uninstall': {
     params: { name: string };
@@ -3181,6 +3231,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:list-analyses': true,
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
+  'wizard:plan-pack-install': true,
   'wizard:install-pack-agents': true,
   'license:getStatus': true,
   'license:setKey': true,
@@ -3250,6 +3301,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'plugins:browse-marketplace': true,
   'plugins:install-external': true,
   'plugins:uninstall-external': true,
+  'plugins:replace-kept-items': true,
+  'plugins:resolve-config-home': true,
   'agent:getConfig': true,
   'agent:setConfig': true,
   'agent:detectClis': true,

@@ -1,7 +1,12 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
 import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 
 const CONFIG = {
@@ -13,6 +18,7 @@ const CONFIG = {
 describe('LaneGuardsSettingsComponent', () => {
   let fixture: ComponentFixture<LaneGuardsSettingsComponent>;
   let call: jest.Mock;
+  let feedback: SettingsSaveFeedbackService;
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -47,11 +53,22 @@ describe('LaneGuardsSettingsComponent', () => {
     });
     TestBed.configureTestingModule({
       imports: [LaneGuardsSettingsComponent],
-      providers: [{ provide: ClaudeRpcService, useValue: { call } }],
+      providers: [
+        { provide: ClaudeRpcService, useValue: { call } },
+        {
+          provide: ProvidersSettingsStateService,
+          useValue: { commit: signal({ status: 'idle' }) },
+        },
+        SettingsSaveFeedbackService,
+      ],
     });
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
   });
 
-  afterEach(() => fixture?.destroy());
+  afterEach(() => {
+    feedback.dismiss();
+    fixture?.destroy();
+  });
 
   it('loads the three guard values from agent:getConfig', async () => {
     await create();
@@ -98,7 +115,7 @@ describe('LaneGuardsSettingsComponent', () => {
     expect(call).not.toHaveBeenCalled();
   });
 
-  it('saves a valid pair through agent:setConfig', async () => {
+  it('saves a valid pair through agent:setConfig, reports it in the toast, and Undo writes the previous value', async () => {
     await create();
     await enter('lane-guards-steer', '10');
     expect(call).toHaveBeenCalledWith(
@@ -106,7 +123,20 @@ describe('LaneGuardsSettingsComponent', () => {
       { laneToolCallSteerAt: 10 },
       { timeout: 5_000 },
     );
-    expect(byTestId('lane-guards-status')?.textContent).toContain('Saved');
+    expect(byTestId('lane-guards-status')).toBeNull();
+    expect(feedback.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved Steer at (tool calls).',
+      canUndo: true,
+    });
+    await feedback.undo();
+    await settle();
+    expect(call).toHaveBeenLastCalledWith(
+      'agent:setConfig',
+      { laneToolCallSteerAt: 40 },
+      { timeout: 5_000 },
+    );
+    expect(input('lane-guards-steer').value).toBe('40');
   });
 
   it('shows the backend error when setConfig rejects the write', async () => {
@@ -124,5 +154,10 @@ describe('LaneGuardsSettingsComponent', () => {
       'Unsupported laneToolCallStopAt value',
     );
     expect(input('lane-guards-stop').value).toBe('80');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Unsupported laneToolCallStopAt value',
+      canUndo: false,
+    });
   });
 });

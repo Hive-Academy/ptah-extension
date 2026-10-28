@@ -932,7 +932,7 @@ process.stdin.on('end', () => rl.close());
 `;
 
 const manifestSchema = z.object({
-  pinnedVersion: z.literal('0.155.1'),
+  pinnedVersion: z.literal('0.165.0'),
   binaryPath: z.string(),
   binarySha256: z.string(),
   schemaSha256: z.string(),

@@ -169,6 +169,12 @@ export const USER_LAYER_MIRROR_SERVICE = Symbol.for(
 );
 
 /**
+ * WizardAgentOriginStore - Records which agent files the setup wizard wrote
+ * Responsibilities: Persist `{harnessRoot}/.ptah/setup-wizard/agent-origins.json` (slug -> written hash)
+ */
+export const AGENT_ORIGIN_STORE = Symbol.for('WizardAgentOriginStore');
+
+/**
  * AGENT_GENERATION_TOKENS - Centralized token registry
  * Provides a single source of truth for all agent-generation DI tokens
  */
@@ -193,6 +199,7 @@ export const AGENT_GENERATION_TOKENS = {
   PROMPT_CACHE_SERVICE,
   ENHANCED_PROMPTS_SERVICE,
   USER_LAYER_MIRROR_SERVICE,
+  AGENT_ORIGIN_STORE,
 } as const;
 
 /**

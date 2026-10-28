@@ -31,7 +31,7 @@ function target(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 3,
     ...overrides,

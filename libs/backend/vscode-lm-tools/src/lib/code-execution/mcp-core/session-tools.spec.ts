@@ -311,6 +311,8 @@ const HANDED_OFF = {
   workspaceRoot: '/repo',
   cwd: '/repo/packages/core',
   tabOpened: true,
+  adoptedLanes: [],
+  adoptedChildSessions: [],
 } as const;
 
 function logger(): Logger & { warn: jest.Mock } {
@@ -618,6 +620,39 @@ describe('handleSessionToolCall › ptah_session_handoff (TASK_2026_655)', () =>
     expect(reply.text).toMatch(/No Ptah window took the tab/);
     expect(reply.text).toMatch(/session sidebar/);
     expect(reply.text).not.toMatch(/tabOpened: true/);
+  });
+
+  it('lists the lanes and child sessions the new session adopted', async () => {
+    const session = fakeSession({
+      handoff: jest.fn().mockResolvedValue({
+        ...HANDED_OFF,
+        adoptedLanes: ['lane-a', 'lane-b'],
+        adoptedChildSessions: ['child-c'],
+      }),
+    });
+    const reply = await call('ptah_session_handoff', ARGS, session);
+    expect(reply.text).toContain(
+      'Adopted by the new session: lanes lane-a, lane-b; child sessions child-c.',
+    );
+  });
+
+  it('names only the kind of work that was adopted, and nothing when none was', async () => {
+    const lanesOnly = await call(
+      'ptah_session_handoff',
+      ARGS,
+      fakeSession({
+        handoff: jest
+          .fn()
+          .mockResolvedValue({ ...HANDED_OFF, adoptedLanes: ['lane-a'] }),
+      }),
+    );
+    expect(lanesOnly.text).toContain(
+      'Adopted by the new session: lanes lane-a.',
+    );
+    expect(lanesOnly.text).not.toContain('child sessions');
+
+    const none = await call('ptah_session_handoff', ARGS, fakeSession());
+    expect(none.text).not.toContain('Adopted');
   });
 
   it.each([

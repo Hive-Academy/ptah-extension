@@ -96,12 +96,12 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     expect(isDisabledControl(toggle())).toBe(false);
   });
 
-  it('shows the re-read value and says it is unchanged when nothing was written (D15)', async () => {
+  it('shows the re-read value and reports the failure only in the toast when nothing was written (D15)', async () => {
     state.next = 'rejected';
     toggle()?.click();
     await flush();
     expect(toggle()?.checked).toBe(false);
-    expect(error()).toBe('Could not save Copilot auto-approve. The saved setting is unchanged.');
+    expect(error()).toBeNull();
     expect(isDisabledControl(toggle())).toBe(false);
     expect(feedback.toast()?.tone).toBe('alert');
     expect(feedback.toast()?.message).not.toContain('Saved');
@@ -113,7 +113,8 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     await flush();
     expect(toggle()?.indeterminate).toBe(true);
     expect(isDisabledControl(toggle())).toBe(true);
-    expect(error()).toContain('Could not confirm whether Copilot auto-approve was saved');
+    expect(error()).toBeNull();
+    expect(feedback.toast()?.tone).toBe('alert');
     // A write attempt while unconfirmed is ignored.
     state.saveSettings.mockClear();
     await fixture.componentInstance.toggle({ target: toggle() } as unknown as Event);
@@ -140,8 +141,11 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     toggle()?.click();
     await flush();
     expect(toggle()?.indeterminate).toBe(true);
-    expect(error()).toContain('Could not confirm');
-    expect(el().querySelector('[data-testid="copilot-auto-approve-unloaded"]')).toBeNull();
+    expect(error()).toBeNull();
+    // The toast's "Saved" is corrected by an alert; the unread value is stated inline.
+    expect(feedback.toast()).toEqual({ tone: 'alert', canUndo: false,
+      message: 'Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it.' });
+    expect(el().querySelector('[data-testid="copilot-auto-approve-unloaded"]')).not.toBeNull();
   });
 
   it('treats a save command that threw as unconfirmed (it may have written)', async () => {
@@ -149,7 +153,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     toggle()?.click();
     await flush();
     expect(toggle()?.indeterminate).toBe(true);
-    expect(error()).toContain('Could not confirm');
+    expect(error()).toBeNull();
     expect(feedback.toast()?.message).toBe('Could not confirm whether Copilot auto-approve was saved.');
   });
 

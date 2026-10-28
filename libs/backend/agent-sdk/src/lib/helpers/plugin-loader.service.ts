@@ -48,6 +48,7 @@ import {
   type ICapabilityGlobalLayer,
   type PluginInfo,
   type PluginConfigState,
+  type PluginConfigHomeStatus,
   type PluginHealthIssue,
   type PluginHealthStatus,
   type PluginSkillEntry,
@@ -70,18 +71,35 @@ import {
 } from '@ptah-extension/plugin-marketplace';
 import { SdkError } from '../errors';
 import { SDK_TOKENS } from '../di/tokens';
+import {
+  PLUGIN_CONFIG_KEY,
+  PluginConfigHome,
+  canonicalRootKey,
+  emptyPluginConfig,
+  normalizePluginConfig,
+  parsePluginConfig,
+} from './plugin-config-home';
 
-/** VS Code workspaceState key for plugin configuration */
-const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
+/**
+ * The harness-root configuration home a multi-root host gives the loader, so
+ * it keeps one plugin configuration per harness root (D14). Both halves are
+ * required: the options are passed whole or not at all, and a host that
+ * passes none keeps the per-folder configuration. The home is active only over
+ * workspace-scoped state storage.
+ */
+export interface PluginLoaderInitOptions {
+  /** The harness root a folder belongs to; injected so agent-sdk has no harness-sync edge. */
+  harnessRootOf: (folder: string) => string;
+  /** Global state storage that holds one home record per harness root. */
+  homeStorage: IStateStorage;
+}
 
-/** The id lists a persisted `PluginConfigState` may carry. */
-const PLUGIN_CONFIG_LIST_FIELDS = [
-  'enabledPluginIds',
-  'disabledSkillIds',
-  'disabledPluginIds',
-  'disabledAgentIds',
-  'enabledSkillIds',
-] as const;
+/** Identity and display label of one plugin source directory. */
+export interface PluginSourceDescriptor {
+  /** `ptah:<id>`, `harness:<dir>`, `skills-sh:<dir>` or `external:<owner>/<repo>/<plugin>`. */
+  sourceRef: string;
+  label: string;
+}
 
 /**
  * The capability policy for skills and plugins could not be read, so no one
@@ -152,14 +170,6 @@ function errnoOf(error: unknown): string {
     typeof (error as NodeJS.ErrnoException).code === 'string'
     ? ((error as NodeJS.ErrnoException).code as string)
     : '';
-}
-
-/** A persisted id list is usable when it is absent or a list of strings. */
-function isAbsentOrStringList(value: unknown): boolean {
-  return (
-    value === undefined ||
-    (Array.isArray(value) && value.every((item) => typeof item === 'string'))
-  );
 }
 
 /**
@@ -475,6 +485,12 @@ export class PluginLoaderService {
   private workspaceState: IStateStorage | null = null;
 
   /**
+   * The harness-root configuration home (D14), or null when this host did not
+   * ask for one. Null keeps every workspace method on today's per-folder path.
+   */
+  private configHome: PluginConfigHome | null = null;
+
+  /**
    * `SKILL.md` paths already reported unreadable, mapped to the errno that was
    * reported for them.
    *
@@ -525,14 +541,38 @@ export class PluginLoaderService {
    *
    * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
    * @param workspaceState - VS Code Memento for per-workspace state (from context.workspaceState)
+   * @param options - The harness-root configuration home (D14). Omitted, every
+   *   method uses the per-folder configuration. Given, it is active only when
+   *   `workspaceState` is workspace-scoped; over any other storage it is
+   *   ignored with a warning, since one storage already answers every root.
    */
-  initialize(pluginsBasePath: string, workspaceState: IStateStorage): void {
+  initialize(
+    pluginsBasePath: string,
+    workspaceState: IStateStorage,
+    options?: PluginLoaderInitOptions,
+  ): void {
     this.pluginsBasePath = pluginsBasePath;
     this.workspaceState = workspaceState;
+    this.configHome = null;
+    if (options !== undefined) {
+      if (isWorkspaceScopedStateStorage(workspaceState)) {
+        this.configHome = new PluginConfigHome({
+          folderStorage: workspaceState,
+          homeStorage: options.homeStorage,
+          harnessRootOf: options.harnessRootOf,
+          logger: this.logger,
+        });
+      } else {
+        this.logger.warn(
+          '[PluginLoaderService] Configuration home ignored: workspace state is not workspace-scoped',
+        );
+      }
+    }
 
     this.logger.debug('[PluginLoaderService] Initialized', {
       pluginsBasePath,
       hasWorkspaceState: true,
+      configHome: this.configHome !== null,
     });
   }
 
@@ -553,9 +593,19 @@ export class PluginLoaderService {
   getAvailablePlugins(): PluginInfo[] {
     const bundled: PluginInfo[] = AVAILABLE_PLUGINS.map((plugin) => {
       const scan = this.scanBundledPlugin(plugin.id);
+      // Contents come from disk once the plugin has downloaded. Before that
+      // the catalogue placeholders stand and no name lists are claimed.
+      const contents =
+        scan && this.pluginsBasePath
+          ? this.pluginContents(
+              path.join(this.pluginsBasePath, plugin.id),
+              scan.skills,
+            )
+          : {};
       return {
         ...plugin,
         skillCount: scan ? scan.skills.length : plugin.skillCount,
+        ...contents,
         source: 'bundled' as const,
         // A bundled plugin that has not downloaded yet has no `skills/` tree to
         // scan and no failure to report, so it is `ok` rather than unknown.
@@ -569,6 +619,59 @@ export class PluginLoaderService {
       ...this.describeSkillsShPlugins(),
       ...this.describeExternalPlugins(),
     ];
+  }
+
+  /**
+   * The durable identity and display label of every plugin source directory
+   * this loader knows, keyed by absolute plugin path: bundled (`ptah:<id>`),
+   * harness in both scopes (`harness:<dir>`), skills.sh (`skills-sh:<dir>`)
+   * and consented externals (`external:<owner>/<repo>/<plugin>`). Two
+   * external plugins that share a directory basename keep distinct refs.
+   *
+   * A path whose source cannot be described is absent; a consumer then falls
+   * back to the plugin id as its label.
+   */
+  getPluginSourceDescriptors(): Record<string, PluginSourceDescriptor> {
+    const descriptors: Record<string, PluginSourceDescriptor> = {};
+    const pluginsBasePath = this.pluginsBasePath;
+
+    if (pluginsBasePath !== null) {
+      for (const plugin of AVAILABLE_PLUGINS) {
+        descriptors[path.join(pluginsBasePath, plugin.id)] = {
+          sourceRef: `ptah:${plugin.id}`,
+          label: plugin.name,
+        };
+      }
+    }
+    for (const pluginPath of [
+      ...this.discoverHarnessPluginPaths(),
+      ...this.discoverWorkspaceHarnessPluginPaths(),
+    ]) {
+      const dir = path.basename(pluginPath);
+      descriptors[pluginPath] = {
+        sourceRef: `harness:${dir}`,
+        label: humanizeSlug(dir.slice(HARNESS_PLUGIN_PREFIX.length)),
+      };
+    }
+    for (const pluginPath of this.discoverSkillsShPluginPaths()) {
+      const dir = path.basename(pluginPath);
+      descriptors[pluginPath] = {
+        sourceRef: `skills-sh:${dir}`,
+        label: humanizeSlug(dir.slice(SKILLS_SH_PLUGIN_PREFIX.length)),
+      };
+    }
+    if (pluginsBasePath !== null) {
+      for (const record of this.externalPlugins.listInstalled()) {
+        const coordinate = parseExternalPluginId(record.pluginId);
+        if (!coordinate) continue;
+        // The plugin id already is `external:<owner>/<repo>/<plugin>`.
+        descriptors[externalPluginDir(pluginsBasePath, coordinate)] = {
+          sourceRef: record.pluginId,
+          label: record.displayName,
+        };
+      }
+    }
+    return descriptors;
   }
 
   /**
@@ -597,7 +700,7 @@ export class PluginLoaderService {
         description: skills[0]?.description ?? SKILLS_SH_FALLBACK_DESCRIPTION,
         category: 'external-tools' as const,
         skillCount: skills.length,
-        commandCount: this.countPluginCommands(pluginPath),
+        ...this.pluginContents(pluginPath, skills),
         // "Recommended" is a Ptah endorsement. Third-party skills never get it.
         isDefault: false,
         keywords: [
@@ -644,7 +747,15 @@ export class PluginLoaderService {
           `Installed from ${record.source} (version ${record.version}).`,
         category: 'external-tools' as const,
         skillCount: skills.length,
-        commandCount: pluginPath ? this.countPluginCommands(pluginPath) : 0,
+        ...(pluginPath
+          ? this.pluginContents(pluginPath, skills)
+          : {
+              commandCount: 0,
+              agentCount: 0,
+              skillNames: [],
+              agentNames: [],
+              commandNames: [],
+            }),
         // "Recommended" is a Ptah endorsement. Third-party plugins never get it.
         isDefault: false,
         keywords: [
@@ -711,7 +822,7 @@ export class PluginLoaderService {
         description: primarySkill?.description ?? HARNESS_FALLBACK_DESCRIPTION,
         category: 'harness-tools' as const,
         skillCount: skills.length,
-        commandCount: this.countPluginCommands(pluginPath),
+        ...this.pluginContents(pluginPath, skills),
         // Harness plugins are opt-out, not "recommended" — `isDefault` drives a
         // Recommended badge in the browser modal and would misread here.
         isDefault: false,
@@ -747,19 +858,48 @@ export class PluginLoaderService {
   }
 
   /**
-   * Count the markdown command files directly under `{pluginPath}/commands/`.
-   *
-   * Returns 0 when the directory is absent — which is the normal case for
-   * harness plugins, since the wizard only writes skills.
+   * What a plugin directory ships, for the Marketplace inspector: its skill
+   * names (from the scan), and the agents and commands listed as the markdown
+   * files directly under `agents/` and `commands/`.
    */
-  private countPluginCommands(pluginPath: string): number {
+  private pluginContents(
+    pluginPath: string,
+    skills: readonly PluginSkillEntry[],
+  ): Pick<
+    PluginInfo,
+    'commandCount' | 'agentCount' | 'skillNames' | 'agentNames' | 'commandNames'
+  > {
+    const agentNames = this.listMarkdownNames(pluginPath, 'agents');
+    const commandNames = this.listMarkdownNames(pluginPath, 'commands');
+    return {
+      commandCount: commandNames.length,
+      agentCount: agentNames.length,
+      skillNames: skills
+        .map((skill) => skill.skillId)
+        .sort((a, b) => Number(a > b) - Number(a < b)),
+      agentNames,
+      commandNames,
+    };
+  }
+
+  /**
+   * The names (without `.md`) of the markdown files directly under
+   * `{pluginPath}/{dir}/`, sorted. An absent directory lists nothing — the
+   * normal case for harness plugins, since the wizard only writes skills.
+   */
+  private listMarkdownNames(pluginPath: string, dir: string): string[] {
+    let entries: string[];
     try {
-      return fs
-        .readdirSync(path.join(pluginPath, 'commands'))
-        .filter((entry) => entry.toLowerCase().endsWith('.md')).length;
+      entries = fs.readdirSync(path.join(pluginPath, dir));
     } catch {
-      return 0;
+      // `agents/` and `commands/` are optional parts of a plugin; a directory
+      // that cannot be listed ships nothing.
+      entries = [];
     }
+    return entries
+      .filter((entry) => entry.toLowerCase().endsWith('.md'))
+      .map((entry) => entry.slice(0, -'.md'.length))
+      .sort((a, b) => Number(a > b) - Number(a < b));
   }
 
   /**
@@ -787,10 +927,21 @@ export class PluginLoaderService {
    * reads as "nothing switched off". On win32 that pass is also
    * case-insensitive, because a root from a workspace provider and one from a
    * `.ptah/specs` walk routinely disagree about the drive letter's case.
+   *
+   * With the configuration home active (D14) the answer is instead the home
+   * view of the request's harness root, `harnessRootOf(root ?? active root)`:
+   * every folder of one repository reads and writes the same configuration.
+   * With no root asked for and no active folder, the injected storage answers
+   * as before.
    */
   private storageFor(workspaceRoot?: string): IStateStorage | null {
     const storage = this.workspaceState;
     if (storage === null) return null;
+    if (this.configHome !== null) {
+      const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
+      if (target === undefined) return storage;
+      return this.configHome.viewFor(this.configHome.harnessRootFor(target));
+    }
     if (workspaceRoot === undefined) return storage;
     if (!isWorkspaceScopedStateStorage(storage)) return storage;
 
@@ -798,9 +949,9 @@ export class PluginLoaderService {
     const exact = storage.getStorageForWorkspace(wanted);
     if (exact !== undefined) return exact;
 
-    const wantedKey = PluginLoaderService.canonicalRootKey(wanted);
+    const wantedKey = canonicalRootKey(wanted);
     for (const registered of storage.getAllWorkspacePaths()) {
-      if (PluginLoaderService.canonicalRootKey(registered) === wantedKey) {
+      if (canonicalRootKey(registered) === wantedKey) {
         return storage.getStorageForWorkspace(registered) ?? null;
       }
     }
@@ -817,26 +968,53 @@ export class PluginLoaderService {
     return this.storageFor(workspaceRoot) !== null;
   }
 
-  /** `realpath` of `root` (the resolved path when it cannot be read), folded on win32. */
-  private static canonicalRootKey(root: string): string {
-    let canonical = path.resolve(root);
-    try {
-      canonical = fs.realpathSync.native(canonical);
-    } catch {
-      // A missing or unreadable folder compares by its resolved path.
-    }
-    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  /**
+   * Where the plugin configuration of `workspaceRoot`'s harness root lives,
+   * and whether the user needs to choose (D14). Null when the configuration
+   * home is inactive on this host, when no folder is open, or when the home
+   * governs with nothing differing. Never carries a config body.
+   */
+  getConfigHomeStatus(workspaceRoot?: string): PluginConfigHomeStatus | null {
+    if (this.configHome === null) return null;
+    const target = workspaceRoot ?? this.workspace?.getWorkspaceRoot();
+    if (target === undefined) return null;
+    return this.configHome.status(this.configHome.harnessRootFor(target));
   }
 
-  /** The shape every "no config to read" path returns. */
-  private static emptyPluginConfig(): PluginConfigState {
-    return {
-      enabledPluginIds: [],
-      disabledSkillIds: [],
-      disabledPluginIds: [],
-      disabledAgentIds: [],
-      lastUpdated: undefined,
-    };
+  /**
+   * Make `folder`'s own saved configuration the configuration of the harness
+   * root, exactly as saved (lists are never merged).
+   *
+   * @throws SdkError when the home is inactive, when `folder` holds no
+   *   readable configuration under that root, or when the write fails.
+   */
+  async adoptFolderConfig(harnessRoot: string, folder: string): Promise<void> {
+    const home = this.requireConfigHome();
+    await home.adopt(home.harnessRootFor(harnessRoot), folder);
+  }
+
+  /**
+   * Hide `folder`'s notice until its saved configuration changes again.
+   *
+   * @throws SdkError when the home is inactive, when `folder` holds no
+   *   configuration under that root, when the root has no configuration of
+   *   its own yet, or when the write fails.
+   */
+  async dismissFolderConfig(
+    harnessRoot: string,
+    folder: string,
+  ): Promise<void> {
+    const home = this.requireConfigHome();
+    await home.dismiss(home.harnessRootFor(harnessRoot), folder);
+  }
+
+  private requireConfigHome(): PluginConfigHome {
+    if (this.configHome === null) {
+      throw new SdkError(
+        'This host keeps plugin settings per folder; there is no harness-root configuration to change',
+      );
+    }
+    return this.configHome;
   }
 
   /**
@@ -860,52 +1038,10 @@ export class PluginLoaderService {
         '[PluginLoaderService] No workspace state for this scope, returning default config',
         { workspaceRoot, initialized: this.workspaceState !== null },
       );
-      return PluginLoaderService.emptyPluginConfig();
+      return emptyPluginConfig();
     }
 
-    return PluginLoaderService.normalizeStoredConfig(
-      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
-    );
-  }
-
-  /**
-   * A persisted config in the shape every reader returns. A missing list reads
-   * as empty and `enabledSkillIds` appears only when it was stored, so a config
-   * saved before a field existed reads exactly as it always did (AC-3.2).
-   */
-  private static normalizeStoredConfig(
-    stored: PluginConfigState | undefined,
-  ): PluginConfigState {
-    if (!stored || !Array.isArray(stored.enabledPluginIds)) {
-      return PluginLoaderService.emptyPluginConfig();
-    }
-
-    return {
-      enabledPluginIds: stored.enabledPluginIds,
-      disabledSkillIds: Array.isArray(stored.disabledSkillIds)
-        ? stored.disabledSkillIds
-        : [],
-      // Absent on every config persisted before harness plugins became
-      // toggleable — read as "nothing explicitly disabled", which is exactly
-      // the default-enabled behaviour those configs already had. No migration.
-      disabledPluginIds: Array.isArray(stored.disabledPluginIds)
-        ? stored.disabledPluginIds
-        : [],
-      // Same idiom, same reason: absent on every config persisted before agents
-      // became individually toggleable, and read as "nothing explicitly
-      // disabled" — which is exactly the ungated behaviour those configs
-      // already had. No migration.
-      disabledAgentIds: Array.isArray(stored.disabledAgentIds)
-        ? stored.disabledAgentIds
-        : [],
-      // TASK_2026_560: only an override of a global OFF, so absent means
-      // "nothing overridden". Left out rather than defaulted to `[]` so a
-      // pre-task config reads back unchanged.
-      ...(Array.isArray(stored.enabledSkillIds)
-        ? { enabledSkillIds: stored.enabledSkillIds }
-        : {}),
-      lastUpdated: stored.lastUpdated,
-    };
+    return normalizePluginConfig(storage.get<unknown>(PLUGIN_CONFIG_KEY));
   }
 
   /**
@@ -922,7 +1058,7 @@ export class PluginLoaderService {
   private readWorkspaceLayer(workspaceRoot?: string): WorkspaceLayerRead {
     const storage = this.storageFor(workspaceRoot);
     if (storage === null) {
-      return { status: 'ok', config: PluginLoaderService.emptyPluginConfig() };
+      return { status: 'ok', config: emptyPluginConfig() };
     }
 
     // Workspace state has no file path of its own to name, so the reason names
@@ -946,28 +1082,17 @@ export class PluginLoaderService {
     }
 
     if (stored === undefined || stored === null) {
-      return { status: 'ok', config: PluginLoaderService.emptyPluginConfig() };
+      return { status: 'ok', config: emptyPluginConfig() };
     }
-    if (
-      typeof stored !== 'object' ||
-      Array.isArray(stored) ||
-      !Array.isArray((stored as PluginConfigState).enabledPluginIds) ||
-      !PLUGIN_CONFIG_LIST_FIELDS.every((field) =>
-        isAbsentOrStringList((stored as Record<string, unknown>)[field]),
-      )
-    ) {
+    const config = parsePluginConfig(stored);
+    if (config === null) {
       return {
         status: 'error',
         reason: { path: reasonPath, error: 'invalid plugin config' },
       };
     }
 
-    return {
-      status: 'ok',
-      config: PluginLoaderService.normalizeStoredConfig(
-        stored as PluginConfigState,
-      ),
-    };
+    return { status: 'ok', config };
   }
 
   /**
@@ -1066,15 +1191,14 @@ export class PluginLoaderService {
     }
 
     // One read for every preserved list, from the storage captured above.
-    const persisted = PluginLoaderService.normalizeStoredConfig(
-      storage.get<PluginConfigState>(PLUGIN_CONFIG_KEY),
+    const persisted = normalizePluginConfig(
+      storage.get<unknown>(PLUGIN_CONFIG_KEY),
     );
     const disabledPluginIds =
       config.disabledPluginIds ?? persisted.disabledPluginIds ?? [];
     const disabledAgentIds =
       config.disabledAgentIds ?? persisted.disabledAgentIds ?? [];
-    const enabledSkillIds =
-      config.enabledSkillIds ?? persisted.enabledSkillIds;
+    const enabledSkillIds = config.enabledSkillIds ?? persisted.enabledSkillIds;
 
     const configToSave: PluginConfigState = {
       enabledPluginIds: config.enabledPluginIds,
@@ -1337,16 +1461,17 @@ export class PluginLoaderService {
    * path.
    *
    * Separate from {@link discoverHarnessPluginPaths} even though the scan is
-   * identical, because the two feed different places on purpose. BOTH reach
-   * `resolveCurrentPluginPaths` (the harness desired state); only the harness
-   * one reaches `buildMirrorSources` in each host.
+   * identical, because the two are filtered differently. BOTH reach
+   * `resolveCurrentPluginPaths` (the harness desired state) and each host's
+   * `buildMirrorSources` (TASK_2026_701 A9), so community skills become Library
+   * clones. A host leaves a skills.sh root out of the mirror sources while the
+   * Plugins panel has it switched off (`disabledPluginIds`); harness roots are
+   * never filtered that way.
    *
-   * That asymmetry is the load-bearing part of uninstall. The user-layer mirror
-   * CLONES a plugin's skills into `~/.ptah/user/skills` create-if-absent, and
-   * the user layer is the desired state's base — so a cloned skills.sh skill
-   * would survive the deletion of its source root and keep propagating into
-   * every target forever. Overlay-only means `skillsSh:uninstall` deletes the
-   * one copy that exists and the reconciler's removal sweep clears the rest.
+   * Uninstall stays clean through the deleted-upstream sweep: a clone whose
+   * skills.sh root is gone from disk is reaped when it carries no local work
+   * (kept and flagged `orphaned` when it does), while a switched-off root is
+   * still on disk, so its clones are kept.
    */
   discoverSkillsShPluginPaths(): string[] {
     return this.discoverPrefixedPluginPaths(SKILLS_SH_PLUGIN_PREFIX);

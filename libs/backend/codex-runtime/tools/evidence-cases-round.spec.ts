@@ -27,7 +27,7 @@ import {
 import { schemaProbe } from './evidence-cases-round';
 
 const manifest: Manifest = {
-  pinnedVersion: '0.155.1',
+  pinnedVersion: '0.165.0',
   binaryPath: 'unused',
   binarySha256: 'unused',
   schemaSha256: 'unused',

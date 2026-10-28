@@ -36,7 +36,17 @@ import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorde
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 import { GuidanceGenerationRunSupervisor } from './handlers/guidance-generation-run.supervisor';
 import { GenerationRunSupervisor } from './handlers/wizard-generation-run.supervisor';
+import { GenerationPreviewService } from './handlers/wizard-generation/generation-preview.service';
+import { GenerationLibraryPassService } from './handlers/wizard-generation/generation-library-pass.service';
+import { PackInstallService } from './handlers/setup/pack-install.service';
+import { AgentPackDownloadService } from '@ptah-extension/platform-core';
 import { ProviderAccountRpcHandlers } from './handlers/provider-account-rpc.handlers';
+import { LocalItemApprovals } from './handlers/marketplace/local-item-approvals';
+import { InstallLocalItemsService } from './handlers/marketplace/install-local-items.service';
+import { MarketplaceLocalItemsService } from './handlers/marketplace/marketplace-local-items.service';
+import { PluginLocalItemsService } from './handlers/marketplace/plugin-local-items.service';
+import { CloneRebaseService } from './handlers/skill-synthesis/clone-rebase.service';
+import { CloneProvenanceResolver } from './handlers/skill-synthesis/clone-provenance.resolver';
 
 /**
  * Register the shared RPC handler classes that every app wires the same way,
@@ -68,6 +78,33 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(CliModelListService);
   container.registerSingleton(GuidanceGenerationRunSupervisor);
   container.registerSingleton(GenerationRunSupervisor);
+  // A singleton: it holds the preview token records and the per-process
+  // revision secret that `wizard:submit-selection` checks decisions against.
+  container.registerSingleton(GenerationPreviewService);
+  // Stateless; the post-run Library pass every wizard agents run shares.
+  container.registerSingleton(GenerationLibraryPassService);
+  // Singletons: the download service shares in-flight fetches and queues
+  // installs per target directory; the install service holds the pack plan
+  // tokens and the per-process revision secret `wizard:install-pack-agents`
+  // checks Replace decisions against. A second instance of either would
+  // break both.
+  container.registerSingleton(AgentPackDownloadService);
+  container.registerSingleton(PackInstallService);
+  // Marketplace local items (TASK_2026_701 B12, A21). The approval registry
+  // MUST be one instance: it holds the server-side digests behind every
+  // approvalId the client was given, so a second instance would forget them
+  // and every replace decision would read as unknown. The apply service and
+  // the clone rebase (shared with `skillSynthesis:rebaseClone`) are
+  // stateless; singletons so every caller shares one graph.
+  container.registerSingleton(LocalItemApprovals);
+  container.registerSingleton(CloneRebaseService);
+  container.registerSingleton(InstallLocalItemsService);
+  // Finds and registers the local items an install plan or kept report offers.
+  container.registerSingleton(MarketplaceLocalItemsService);
+  // The plugin RPCs' local-item steps (plan, confirm, save); stateless.
+  container.registerSingleton(PluginLocalItemsService);
+  // Library provenance (B13); stateless, reads the live sources per listing.
+  container.registerSingleton(CloneProvenanceResolver);
   container.registerSingleton(
     LANE_ROUTING_TOKENS.LANE_MODEL_LISTING,
     LaneModelListingAdapter,

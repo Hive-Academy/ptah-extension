@@ -31,6 +31,7 @@ describe('SESSION_BUDGET_SETTINGS', () => {
       'handoffPercent',
       'handoffAfterCompactions',
       'tightenWindowTokens',
+      'autoHandoffAtLimit',
     ];
     expect(Object.keys(SESSION_BUDGET_SETTINGS).sort()).toEqual(
       [...fields].sort(),
@@ -97,6 +98,7 @@ describe('SessionBudgetState.rotation', () => {
     lowerBound: false,
     revision: null,
     compactions: 0,
+    autoHandoff: false,
   };
 
   it('is optional: a state without the advisory is complete', () => {

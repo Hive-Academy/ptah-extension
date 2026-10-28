@@ -27,10 +27,13 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import type {
-  ExternalPluginListing,
-  InstalledSkill,
-  PluginInfo,
+import {
+  MESSAGE_TYPES,
+  type CloneSummary,
+  type ExternalPluginListing,
+  type InstalledSkill,
+  type PluginConfigHomeStatus,
+  type PluginInfo,
 } from '@ptah-extension/shared';
 import { MarketplaceInventoryStore } from '../../data/marketplace-inventory.store';
 import { encodeSkillRef } from '../../data/skill-ref';
@@ -38,6 +41,8 @@ import {
   MarketplaceLayout,
   type MarketplaceTier,
 } from '../../layout/marketplace-layout';
+import { LibraryChangeFeed } from '../../services/library-change-feed';
+import { INSTALLED_LIBRARY_STALE_COPY } from './installed-library-stale-notice.component';
 import { InstalledSkillsPageComponent } from './installed-skills-page.component';
 import { marketplaceRow } from './installed-skill-rows';
 import { SkillDetailComponent } from './skill-detail.component';
@@ -108,7 +113,8 @@ function must<T>(value: T | null | undefined): T {
   return value;
 }
 
-const routes: Routes = [  {
+const routes: Routes = [
+  {
     path: 'marketplace',
     children: [
       {
@@ -138,6 +144,9 @@ describe('InstalledSkillsPageComponent', () => {
   let tier: ReturnType<typeof signal<MarketplaceTier>>;
   let enabledPlugins: ReturnType<typeof signal<readonly PluginInfo[]>>;
   let ensureLoaded: jest.Mock;
+  let refresh: jest.Mock;
+  let configHome: ReturnType<typeof signal<PluginConfigHomeStatus | null>>;
+  let vscodeStub: { isElectron: boolean };
 
   const rpcMock = {
     call: jest.fn((method: string, params: unknown) => {
@@ -173,7 +182,11 @@ describe('InstalledSkillsPageComponent', () => {
       group(id).querySelectorAll('[data-testid="installed-skill-name"]'),
     ).map((el) => el.textContent?.trim() ?? '');
   const rowLink = (ref: string): HTMLAnchorElement =>
-    must(qa<HTMLAnchorElement>('[data-testid="installed-skill-open"]').find((el) => el.dataset['ref'] === ref));
+    must(
+      qa<HTMLAnchorElement>('[data-testid="installed-skill-open"]').find(
+        (el) => el.dataset['ref'] === ref,
+      ),
+    );
 
   const COMMUNITY_REF = encodeSkillRef({
     kind: 'community-skill',
@@ -198,6 +211,9 @@ describe('InstalledSkillsPageComponent', () => {
       plugin('ptah-core', 'Ptah Core'),
     ]);
     ensureLoaded = jest.fn().mockResolvedValue(undefined);
+    refresh = jest.fn().mockResolvedValue(undefined);
+    configHome = signal<PluginConfigHomeStatus | null>(null);
+    vscodeStub = { isElectron: false };
 
     responders.set('skillsSh:listInstalled', () =>
       ok({ skills: [skill('deep-research'), skill('pdf-tools')] }),
@@ -213,13 +229,17 @@ describe('InstalledSkillsPageComponent', () => {
         provideLocationMocks(),
         MarketplaceInventoryStore,
         { provide: ClaudeRpcService, useValue: rpcMock },
-        { provide: CommandDiscoveryFacade, useValue: { clearCache: jest.fn() } },
+        {
+          provide: CommandDiscoveryFacade,
+          useValue: { clearCache: jest.fn() },
+        },
         { provide: TabManagerService, useValue: { tabs: signal([]) } },
         {
           provide: PluginCatalogService,
           useValue: {
             ensureLoaded,
-            refresh: jest.fn().mockResolvedValue(undefined),
+            refresh,
+            configHome: configHome.asReadonly(),
             enabledPlugins: enabledPlugins.asReadonly(),
             error: signal<string | null>(null).asReadonly(),
             isLoaded: signal(true).asReadonly(),
@@ -232,7 +252,7 @@ describe('InstalledSkillsPageComponent', () => {
           provide: AppStateManager,
           useValue: { openSkillsDivergedClones: jest.fn() },
         },
-        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: VSCodeService, useValue: vscodeStub },
       ],
     });
     harness = await RouterTestingHarness.create();
@@ -279,9 +299,9 @@ describe('InstalledSkillsPageComponent', () => {
   it('shows the enabled count and the harness badge in the header', async () => {
     await openPage();
 
-    expect(
-      q('[data-testid="skills-enabled-count"]')?.textContent?.trim(),
-    ).toBe('1/4 enabled');
+    expect(q('[data-testid="skills-enabled-count"]')?.textContent?.trim()).toBe(
+      '1/4 enabled',
+    );
     expect(q('[data-testid="harness-health-badge"]')).toBeTruthy();
   });
 
@@ -301,9 +321,11 @@ describe('InstalledSkillsPageComponent', () => {
     );
     calls = [];
     await click(
-      must(group('community').querySelector<HTMLElement>(
-        '[data-testid="installed-skills-retry"]',
-      )),
+      must(
+        group('community').querySelector<HTMLElement>(
+          '[data-testid="installed-skills-retry"]',
+        ),
+      ),
     );
 
     expect(methods()).toEqual(['skillsSh:listInstalled']);
@@ -334,9 +356,13 @@ describe('InstalledSkillsPageComponent', () => {
     const manage = group('plugins').querySelector(
       '[data-testid="installed-skill-manage"]',
     );
-    expect(manage?.getAttribute('href')).toBe('/marketplace/skills/ptah-plugins');
+    expect(manage?.getAttribute('href')).toBe(
+      '/marketplace/skills/ptah-plugins',
+    );
     expect(
-      group('plugins').querySelector('[data-testid="installed-skill-uninstall"]'),
+      group('plugins').querySelector(
+        '[data-testid="installed-skill-uninstall"]',
+      ),
     ).toBeNull();
   });
 
@@ -352,12 +378,190 @@ describe('InstalledSkillsPageComponent', () => {
 
     expect(names('community')).toEqual(['pdf-tools']);
     expect(
-      group('plugins').querySelector('[data-testid="installed-skills-no-match"]'),
+      group('plugins').querySelector(
+        '[data-testid="installed-skills-no-match"]',
+      ),
     ).toBeTruthy();
     expect(
       group('plugins').querySelector('[data-testid="installed-skills-count"]')
         ?.textContent,
     ).toBe('1');
+  });
+
+  it('matches every query word across name, description, source and kind', async () => {
+    await openPage();
+    const search = must(q<HTMLInputElement>('input[type="search"]'));
+
+    search.value = 'marketplace acme/tools';
+    search.dispatchEvent(new Event('input'));
+    harness.detectChanges();
+
+    expect(names('marketplaces')).toEqual(['lint-kit']);
+    expect(names('community')).toEqual([]);
+    expect(names('plugins')).toEqual([]);
+  });
+
+  // ── Provenance, contents and shadow state ─────────────────────────────────
+
+  it('shows a provenance badge on every row and the agent count', async () => {
+    enabledPlugins.set([
+      {
+        ...plugin('ptah-release-kit', 'Ptah Release Kit'),
+        agentCount: 1,
+        agentNames: ['release-manager'],
+      },
+    ]);
+    await openPage();
+
+    const badges = qa('[data-testid="installed-skill-provenance"]').map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(badges).toEqual([
+      'Plugin: Ptah Release Kit',
+      'skills.sh: owner/skills',
+      'skills.sh: owner/skills',
+      'Plugin: lint-kit',
+    ]);
+    // Narrow windows: the badge stays one line and truncates, the full
+    // origin stays in its title.
+    const first = q('[data-testid="installed-skill-provenance"]');
+    expect(first?.getAttribute('title')).toBe(
+      'Origin: Plugin: Ptah Release Kit',
+    );
+    expect(first?.querySelector('.truncate')?.textContent).toBe(
+      'Plugin: Ptah Release Kit',
+    );
+    expect(group('plugins').textContent).toContain(
+      '2 skills · 1 command · 1 agent',
+    );
+    // Not Electron: no Library read, so nothing is shadowed.
+    expect(methods()).not.toContain('skillSynthesis:listClones');
+    expect(q('[data-testid="installed-skill-shadowed"]')).toBeNull();
+  });
+
+  it('marks shadowed agents and names orphaned copies in Electron (F7f)', async () => {
+    vscodeStub.isElectron = true;
+    enabledPlugins.set([
+      {
+        ...plugin('ptah-release-kit', 'Ptah Release Kit'),
+        agentNames: ['release-manager'],
+      },
+    ]);
+    const copy = (
+      slug: string,
+      provenance: CloneSummary['provenance'],
+    ): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      provenance,
+    });
+    responders.set('skillSynthesis:listClones', () =>
+      ok({
+        clones: [
+          copy('release-manager', { kind: 'workspace' }),
+          copy('legacy-linter', {
+            kind: 'plugin',
+            pluginId: 'former-helper',
+            name: 'Former Helper',
+            state: 'uninstalled',
+          }),
+        ],
+      }),
+    );
+    await openPage();
+
+    expect(
+      group('plugins')
+        .querySelector('[data-testid="installed-skill-shadowed"]')
+        ?.textContent?.trim(),
+    ).toBe('1 agent shadowed');
+    expect(
+      q('[data-testid="installed-skills-orphaned"]')?.textContent,
+    ).toContain('legacy-linter (plugin "Former Helper")');
+  });
+
+  // ── Plugin settings notice (D14) ──────────────────────────────────────────
+
+  it('renders no notice while the catalogue has no config-home status', async () => {
+    vscodeStub.isElectron = true;
+    responders.set('skillSynthesis:listClones', () => ok({ clones: [] }));
+    await openPage();
+
+    expect(q('ptah-plugin-config-home-notice')).toBeTruthy();
+    expect(q('[data-testid="plugin-config-home-notice"]')).toBeNull();
+  });
+
+  it('never mounts the notice outside Electron', async () => {
+    configHome.set({
+      harnessRoot: '/repo',
+      state: 'imported',
+      candidates: [
+        {
+          folder: '/repo/api',
+          enabledCount: 1,
+          disabledCount: 0,
+          differsFromHome: false,
+        },
+      ],
+    });
+    await openPage();
+
+    expect(q('ptah-plugin-config-home-notice')).toBeNull();
+  });
+
+  it('puts the notice under the header and shows its failure as the plugins actionError', async () => {
+    vscodeStub.isElectron = true;
+    responders.set('skillSynthesis:listClones', () => ok({ clones: [] }));
+    configHome.set({
+      harnessRoot: '/repo',
+      state: 'imported',
+      candidates: [
+        {
+          folder: '/repo/packages/app',
+          enabledCount: 1,
+          disabledCount: 0,
+          differsFromHome: false,
+        },
+      ],
+    });
+    responders.set('plugins:resolve-config-home', () =>
+      fail('EACCES: /repo/.ptah/plugins.json'),
+    );
+    await openPage();
+
+    const notice = must(q('[data-testid="plugin-config-home-notice"]'));
+    const header = must(q('[data-testid="installed-skills-page"] header'));
+    const search = must(q('[data-testid="installed-skills-search"]'));
+    expect(
+      header.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      notice.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(notice.textContent).toContain('packages/app');
+    expect(notice.textContent).not.toContain('/repo/packages/app');
+
+    await click(
+      must(notice.querySelector<HTMLElement>('[data-action="dismiss"]')),
+    );
+
+    const error = group('plugins').querySelector(
+      '[data-testid="installed-skills-action-error"]',
+    );
+    expect(error?.textContent?.trim()).toBe(
+      'Could not dismiss the plugin settings notice. Try again.',
+    );
+    expect(error?.textContent).not.toContain('EACCES');
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   // ── Removal ────────────────────────────────────────────────────────────────
@@ -370,9 +574,11 @@ describe('InstalledSkillsPageComponent', () => {
     );
 
     await click(
-      must(group('community').querySelector<HTMLElement>(
-        '[data-testid="installed-skill-uninstall"]',
-      )),
+      must(
+        group('community').querySelector<HTMLElement>(
+          '[data-testid="installed-skill-uninstall"]',
+        ),
+      ),
     );
     await settle();
 
@@ -390,9 +596,11 @@ describe('InstalledSkillsPageComponent', () => {
     await openPage();
 
     await click(
-      must(group('community').querySelector<HTMLElement>(
-        '[data-testid="installed-skill-uninstall"]',
-      )),
+      must(
+        group('community').querySelector<HTMLElement>(
+          '[data-testid="installed-skill-uninstall"]',
+        ),
+      ),
     );
 
     expect(
@@ -407,8 +615,7 @@ describe('InstalledSkillsPageComponent', () => {
     await openPage();
     calls = [];
     const page = harness.routeDebugElement?.componentInstance as
-      | InstalledSkillsPageComponent
-      | undefined;
+      InstalledSkillsPageComponent | undefined;
     const stale = marketplaceRow({
       ...listing(),
       id: 'external:acme/tools/removed-kit',
@@ -437,9 +644,9 @@ describe('InstalledSkillsPageComponent', () => {
     expect(router.url).toBe(`/marketplace/skills/${COMMUNITY_REF}`);
     expect(q('[data-testid="native-drawer-panel"]')).toBeTruthy();
     expect(q('[data-testid="docked-inspector"]')).toBeNull();
-    expect(
-      q('[data-testid="skill-drawer-heading"]')?.textContent?.trim(),
-    ).toBe('deep-research');
+    expect(q('[data-testid="skill-drawer-heading"]')?.textContent?.trim()).toBe(
+      'deep-research',
+    );
     expect(
       q('[data-testid="native-drawer-panel"] [data-testid="skill-detail"]'),
     ).toBeTruthy();
@@ -542,7 +749,11 @@ describe('InstalledSkillsPageComponent', () => {
       ),
     );
     await click(
-      must(row.querySelector<HTMLElement>('[data-testid="installed-skill-uninstall"]')),
+      must(
+        row.querySelector<HTMLElement>(
+          '[data-testid="installed-skill-uninstall"]',
+        ),
+      ),
     );
     await settle();
 
@@ -591,5 +802,178 @@ describe('InstalledSkillsPageComponent', () => {
     expect(rowLink(COMMUNITY_REF).getAttribute('href')).toBe(
       `/marketplace/skills/${COMMUNITY_REF}`,
     );
+  });
+
+  // ── Library-change pushes and the C10 notice (P3 L2, D41c) ────────────────
+
+  describe('library:changed and C10', () => {
+    const ROOT = '/repo';
+    const releaseKit = {
+      ...plugin('ptah-release-kit', 'Ptah Release Kit'),
+      agentNames: ['release-manager'],
+    };
+    const workspaceCopy = (slug: string): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      provenance: { kind: 'workspace' },
+    });
+    const differsStatus = (): PluginConfigHomeStatus => ({
+      harnessRoot: ROOT,
+      state: 'differs',
+      candidates: [
+        {
+          folder: `${ROOT}/web`,
+          enabledCount: 1,
+          disabledCount: 0,
+          differsFromHome: true,
+        },
+      ],
+    });
+
+    const push = async (
+      status: 'updated' | 'failed',
+      workspaceRoot = ROOT,
+    ): Promise<void> => {
+      TestBed.inject(LibraryChangeFeed).handleMessage({
+        type: MESSAGE_TYPES.LIBRARY_CHANGED,
+        payload: { workspaceRoot, status, reasons: ['setup-wizard'] },
+      });
+      TestBed.tick();
+      await settle();
+    };
+    const listCloneCalls = (): number =>
+      methods().filter((m) => m === 'skillSynthesis:listClones').length;
+    const notice = (): HTMLElement | null =>
+      q('[data-testid="installed-library-stale-notice"]');
+    const shadowMark = (): string | undefined =>
+      group('plugins')
+        .querySelector('[data-testid="installed-skill-shadowed"]')
+        ?.textContent?.trim();
+    const adoptButton = (): HTMLButtonElement =>
+      must(
+        qa<HTMLButtonElement>('[data-testid="plugin-config-home-action"]').find(
+          (b) => b.dataset['action'] === 'adopt',
+        ),
+      );
+
+    beforeEach(() => {
+      vscodeStub.isElectron = true;
+      enabledPlugins.set([releaseKit]);
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [], scopeRoot: ROOT }),
+      );
+    });
+
+    it('re-reads the Library copies on a same-root push while the page is mounted', async () => {
+      await openPage();
+      expect(listCloneCalls()).toBe(1);
+      expect(shadowMark()).toBeUndefined();
+
+      // A workspace agent with a plugin agent's slug was generated elsewhere.
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [workspaceCopy('release-manager')], scopeRoot: ROOT }),
+      );
+      await push('updated');
+
+      expect(listCloneCalls()).toBe(2);
+      expect(refresh).toHaveBeenCalled();
+      expect(shadowMark()).toBe('1 agent shadowed');
+      expect(notice()).toBeNull();
+    });
+
+    it('shows C10 for a failed same-root pass and clears it on the next good pass', async () => {
+      await openPage();
+
+      await push('failed');
+      const shown = must(notice());
+      expect(shown.getAttribute('role')).toBe('status');
+      expect(shown.textContent?.trim()).toBe(INSTALLED_LIBRARY_STALE_COPY);
+
+      await push('updated');
+      expect(notice()).toBeNull();
+    });
+
+    it('keeps the inventory current after the page was visited and left', async () => {
+      await openPage();
+      expect(listCloneCalls()).toBe(1);
+
+      // Leave the page for a sibling route with no component: the page is
+      // destroyed, the shell-scoped store stays.
+      await harness.navigateByUrl('/marketplace/skills/community');
+      await settle();
+      expect(q('[data-testid="installed-skills-page"]')).toBeNull();
+
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [workspaceCopy('release-manager')], scopeRoot: ROOT }),
+      );
+      await push('failed');
+      // Re-read while nobody shows it, not on the way back.
+      expect(listCloneCalls()).toBe(2);
+
+      await openPage();
+      expect(listCloneCalls()).toBe(2);
+      expect(shadowMark()).toBe('1 agent shadowed');
+      expect(must(notice()).textContent?.trim()).toBe(
+        INSTALLED_LIBRARY_STALE_COPY,
+      );
+    });
+
+    it('shows nothing for a failed pass of another root', async () => {
+      await openPage();
+
+      await push('failed', '/other-repo');
+
+      expect(listCloneCalls()).toBe(2);
+      expect(notice()).toBeNull();
+    });
+
+    it('never reacts outside Electron', async () => {
+      vscodeStub.isElectron = false;
+      await openPage();
+      const before = calls.length;
+
+      await push('failed');
+
+      expect(calls.length).toBe(before);
+      expect(q('ptah-installed-library-stale-notice')).toBeNull();
+    });
+
+    it('shows C10 when a config-home choice answers libraryPass failed (D41c)', async () => {
+      configHome.set(differsStatus());
+      responders.set('plugins:resolve-config-home', () =>
+        ok({ libraryPass: 'failed' }),
+      );
+      await openPage();
+      expect(notice()).toBeNull();
+
+      await click(adoptButton());
+
+      expect(methods()).toContain('plugins:resolve-config-home');
+      expect(must(notice()).textContent?.trim()).toBe(
+        INSTALLED_LIBRARY_STALE_COPY,
+      );
+    });
+
+    it('shows no C10 when the config-home choice refreshed the Library', async () => {
+      configHome.set(differsStatus());
+      responders.set('plugins:resolve-config-home', () =>
+        ok({ libraryPass: 'updated' }),
+      );
+      await openPage();
+
+      await click(adoptButton());
+
+      expect(methods()).toContain('plugins:resolve-config-home');
+      expect(notice()).toBeNull();
+    });
   });
 });

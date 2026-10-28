@@ -2,27 +2,25 @@
  * `AgentPackDownloadService` — unit specs.
  *
  * The service pulls curated agent packs (a manifest listing `.md` agent
- * files) from GitHub into a caller-supplied target directory. Critical
- * invariants under test:
+ * files) from GitHub. Critical invariants under test:
  *
  *   1. Pack manifest: `fetchPackInfo()` returns the structured info when
  *      the manifest is valid, and degrades gracefully (empty `agents` +
  *      error description) when it is not.
- *   2. Download targeting: `downloadAgents(manifestUrl, files, targetDir)`
- *      unpacks each `.md` file into `targetDir`, never outside it.
+ *   2. Plan: `planDownload()` fetches into memory, classifies each
+ *      destination (`new` / `identical` / `differs` / `unreadable`) and
+ *      writes nothing. A failed file download fails that file only.
  *   3. Input validation: non-`.md` filenames, absolute paths, and traversal
  *      attempts are rejected before any HTTP call happens.
- *   4. Cache hit: when the manifest's `contentHash` matches the stored
- *      cache entry AND every requested file is present on disk, the
- *      service returns `fromCache: true` without re-downloading.
- *   5. Offline / failure: every failure mode (manifest fetch, file fetch,
- *      invalid manifest) surfaces as a `success: false` result — the
- *      public API never throws.
+ *   4. Guarded install (TASK_2026_701 B8): create-only by default; replace
+ *      only against the baseline the plan saw; unreadable is always kept;
+ *      equal bytes are `unchanged`.
+ *   5. Concurrency (A22): no existence-only cache short-circuit; installs
+ *      into different roots never share outcomes; installs into one root
+ *      are serialized; only network fetches are deduplicated by URL.
  *
- * HOME is redirected to an isolated tmp dir BEFORE importing the impl so
- * the constructor picks up the sandboxed `~/.ptah/` path for the cache
- * metadata file. `https` + `http` are mocked to serve deterministic
- * responses.
+ * Every destination is a fresh `mkdtemp` directory under an isolated tmp
+ * home. `https` + `http` are mocked to serve deterministic responses.
  *
  * Source-under-test:
  *   `libs/backend/platform-core/src/agent-pack-download.service.ts`
@@ -34,40 +32,12 @@ import * as fs from 'fs';
 import * as nodeOs from 'os';
 import * as path from 'path';
 
-// ---------------------------------------------------------------------------
-// Sandbox `homedir()` to an isolated tmp dir BEFORE the impl is imported.
-// The service captures `homedir()` in its constructor, so we mock the `os`
-// module directly (env var sandboxing is insufficient on some Windows Node
-// builds where `os.homedir()` returns the native profile dir).
-// ---------------------------------------------------------------------------
-
-const mockTestHome = fs.mkdtempSync(
+const TEST_HOME = fs.mkdtempSync(
   path.join(nodeOs.tmpdir(), 'ptah-agent-pack-spec-'),
 );
-const TEST_HOME = mockTestHome;
-const prevHome = process.env['HOME'];
-const prevUserProfile = process.env['USERPROFILE'];
-process.env['HOME'] = mockTestHome;
-process.env['USERPROFILE'] = mockTestHome;
-
-jest.mock('os', () => {
-  const actual = jest.requireActual<typeof import('os')>('os');
-  return {
-    ...actual,
-    homedir: () => mockTestHome,
-  };
-});
 
 afterAll(() => {
-  if (prevHome === undefined) delete process.env['HOME'];
-  else process.env['HOME'] = prevHome;
-  if (prevUserProfile === undefined) delete process.env['USERPROFILE'];
-  else process.env['USERPROFILE'] = prevUserProfile;
-  try {
-    fs.rmSync(TEST_HOME, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
+  fs.rmSync(TEST_HOME, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -170,8 +140,43 @@ jest.mock('http', () => ({
   ),
 }));
 
-import { expectNormalizedPath } from '@ptah-extension/shared/testing';
-import { AgentPackDownloadService } from './agent-pack-download.service';
+/**
+ * Pass-through `fs/promises` whose `readFile` can be paused after it settles,
+ * so a test can hold two writers right after their initial destination read
+ * (A2 interleaving). With no gate set it behaves exactly like the real one.
+ */
+const mockReadGate: { hold: ((file: string) => Promise<void>) | null } = {
+  hold: null,
+};
+
+jest.mock('fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return {
+    ...actual,
+    readFile: async (file: string, encoding: BufferEncoding) => {
+      let text: string | undefined;
+      let failure: unknown;
+      let failed = false;
+      try {
+        text = await actual.readFile(file, encoding);
+      } catch (error: unknown) {
+        failure = error;
+        failed = true;
+      }
+      if (mockReadGate.hold) await mockReadGate.hold(String(file));
+      if (failed) throw failure;
+      return text;
+    },
+  };
+});
+
+import {
+  AgentPackDownloadService,
+  hashPackContent,
+  type AgentPackFilePlan,
+  type AgentPackPlanResult,
+} from './agent-pack-download.service';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -182,30 +187,19 @@ const MANIFEST_URL =
 const BASE_URL =
   'https://raw.githubusercontent.com/Hive-Academy/test-pack/main';
 
-const PTAH_DIR = path.join(TEST_HOME, '.ptah');
-const PACK_CACHE_PATH = path.join(PTAH_DIR, '.agent-pack-cache.json');
+const REACT = '# React Expert\n';
+const CSS = '# CSS Master\n';
 
 function buildPackManifest(
-  overrides?: Partial<{
-    name: string;
-    version: string;
-    contentHash: string;
-    baseUrl: string;
-    agents: Array<{
-      file: string;
-      name: string;
-      description: string;
-      category: string;
-    }>;
-  }>,
+  overrides?: Partial<{ name: string; baseUrl: string }>,
 ): string {
   return JSON.stringify({
     name: overrides?.name ?? 'Frontend Agents',
-    version: overrides?.version ?? '1.0.0',
+    version: '1.0.0',
     description: 'Curated frontend agents',
-    contentHash: overrides?.contentHash ?? 'pack-hash-alpha',
+    contentHash: 'pack-hash-alpha',
     baseUrl: overrides?.baseUrl ?? BASE_URL,
-    agents: overrides?.agents ?? [
+    agents: [
       {
         file: 'react-expert.md',
         name: 'React Expert',
@@ -222,14 +216,48 @@ function buildPackManifest(
   });
 }
 
+function servePack(files: Record<string, string> = {}): void {
+  const bodies: Record<string, string> = {
+    'react-expert.md': REACT,
+    'css-master.md': CSS,
+    ...files,
+  };
+  addRoute(
+    (url) => url === MANIFEST_URL,
+    () => ({ statusCode: 200, body: buildPackManifest() }),
+  );
+  addRoute(
+    (url) => url.startsWith(`${BASE_URL}/`),
+    (url) => {
+      const body = bodies[url.slice(BASE_URL.length + 1)];
+      return body === undefined
+        ? { statusCode: 404, body: 'gone' }
+        : { statusCode: 200, body };
+    },
+  );
+}
+
 function makeTargetDir(): string {
   return fs.mkdtempSync(path.join(TEST_HOME, 'target-'));
 }
 
-function cleanPtah(): void {
-  if (fs.existsSync(PTAH_DIR)) {
-    fs.rmSync(PTAH_DIR, { recursive: true, force: true });
-  }
+function okPlan(result: AgentPackPlanResult): AgentPackFilePlan[] {
+  if (!result.ok) throw new Error(`plan failed: ${result.error}`);
+  return result.files;
+}
+
+function fetchedRow(
+  files: AgentPackFilePlan[],
+  file: string,
+): Extract<AgentPackFilePlan, { fetched: true }> {
+  const row = files.find((f) => f.file === file);
+  if (!row || !row.fetched) throw new Error(`${file} was not fetched`);
+  return row;
+}
+
+/** A directory where a file is expected: reading it fails with EISDIR. */
+function makeUnreadable(targetDir: string, file: string): void {
+  fs.mkdirSync(path.join(targetDir, file));
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +268,6 @@ describe('AgentPackDownloadService', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    cleanPtah();
     resetMockHttp();
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
@@ -255,10 +282,7 @@ describe('AgentPackDownloadService', () => {
 
   describe('fetchPackInfo', () => {
     it('returns the structured info when manifest is valid', async () => {
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
+      servePack();
 
       const svc = new AgentPackDownloadService();
       const info = await svc.fetchPackInfo(MANIFEST_URL);
@@ -299,366 +323,632 @@ describe('AgentPackDownloadService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // downloadAgents — happy path (unpack into target dir)
+  // planDownload
   // -------------------------------------------------------------------------
 
-  describe('downloadAgents — happy path', () => {
-    it('downloads each requested agent file into the target directory', async () => {
-      const targetDir = makeTargetDir();
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-      addRoute(
-        (url) => url.endsWith('/react-expert.md'),
-        () => ({ statusCode: 200, body: '# React Expert' }),
-      );
-      addRoute(
-        (url) => url.endsWith('/css-master.md'),
-        () => ({ statusCode: 200, body: '# CSS Master' }),
-      );
-
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['react-expert.md', 'css-master.md'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.fromCache).toBe(false);
-      expect(result.agentsDownloaded).toBe(2);
-
-      const reactPath = path.join(targetDir, 'react-expert.md');
-      const cssPath = path.join(targetDir, 'css-master.md');
-      expect(fs.existsSync(reactPath)).toBe(true);
-      expect(fs.existsSync(cssPath)).toBe(true);
-      expect(fs.readFileSync(reactPath, 'utf-8')).toBe('# React Expert');
-      expect(fs.readFileSync(cssPath, 'utf-8')).toBe('# CSS Master');
-
-      // Target dir resolution is cross-platform normalized.
-      expectNormalizedPath(reactPath, path.join(targetDir, 'react-expert.md'));
-    });
-
-    it('invokes the progress callback with (completed, total) tuples', async () => {
-      const targetDir = makeTargetDir();
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({
+  describe('planDownload', () => {
+    it('classifies new, identical, differs and unreadable destinations and writes nothing', async () => {
+      servePack({ 'a.md': 'A', 'b.md': 'B', 'c.md': 'C', 'd.md': 'D' });
+      // Takes precedence over servePack's manifest: lists the four files.
+      mockRoutes.unshift({
+        match: (url) => url === MANIFEST_URL,
+        respond: () => ({
           statusCode: 200,
-          body: buildPackManifest({
-            agents: [
-              {
-                file: 'a.md',
-                name: 'A',
-                description: 'a',
-                category: 'x',
-              },
-            ],
+          body: JSON.stringify({
+            name: 'Four',
+            version: '1.0.0',
+            description: 'four files',
+            contentHash: 'h',
+            baseUrl: BASE_URL,
+            agents: ['a.md', 'b.md', 'c.md', 'd.md'].map((file) => ({
+              file,
+              name: file,
+              description: file,
+              category: 'x',
+            })),
           }),
         }),
-      );
-      addRoute(
-        (url) => url.endsWith('/a.md'),
-        () => ({ statusCode: 200, body: '# A' }),
-      );
+      });
+      const targetDir = makeTargetDir();
+      fs.writeFileSync(path.join(targetDir, 'b.md'), 'B');
+      fs.writeFileSync(path.join(targetDir, 'c.md'), 'local edit');
+      makeUnreadable(targetDir, 'd.md');
+      const before = fs.readdirSync(targetDir).sort();
 
-      const progress: Array<[number, number]> = [];
       const svc = new AgentPackDownloadService();
-      await svc.downloadAgents(MANIFEST_URL, ['a.md'], targetDir, (d, t) =>
-        progress.push([d, t]),
+      const files = okPlan(
+        await svc.planDownload(
+          MANIFEST_URL,
+          ['a.md', 'b.md', 'c.md', 'd.md'],
+          targetDir,
+        ),
       );
 
-      // At least the terminal (1, 1) tuple must be reported.
-      expect(progress[progress.length - 1]).toEqual([1, 1]);
+      expect(files.map((f) => (f.fetched ? f.state : 'failed'))).toEqual([
+        'new',
+        'identical',
+        'differs',
+        'unreadable',
+      ]);
+      const differs = fetchedRow(files, 'c.md');
+      expect(differs.content).toBe('C');
+      expect(differs.localText).toBe('local edit');
+      expect(differs.baselineHash).toBe(hashPackContent('local edit'));
+      expect(fetchedRow(files, 'b.md').baselineHash).toBe(hashPackContent('B'));
+      expect(fetchedRow(files, 'a.md').baselineHash).toBeUndefined();
+      expect(fetchedRow(files, 'd.md').localText).toBeUndefined();
+      expect(fs.readdirSync(targetDir).sort()).toEqual(before);
+      expect(fs.readFileSync(path.join(targetDir, 'c.md'), 'utf-8')).toBe(
+        'local edit',
+      );
     });
 
-    it('persists agent pack cache metadata under ~/.ptah/.agent-pack-cache.json', async () => {
-      const targetDir = makeTargetDir();
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-      addRoute(
-        () => true,
-        () => ({ statusCode: 200, body: '# content' }),
+    it('scopes a single-file plan to that file', async () => {
+      servePack();
+      const svc = new AgentPackDownloadService();
+
+      const files = okPlan(
+        await svc.planDownload(
+          MANIFEST_URL,
+          ['css-master.md'],
+          makeTargetDir(),
+        ),
       );
 
-      const svc = new AgentPackDownloadService();
-      await svc.downloadAgents(
+      expect(files.map((f) => f.file)).toEqual(['css-master.md']);
+      expect(recordedRequests).toEqual([
         MANIFEST_URL,
-        ['react-expert.md', 'css-master.md'],
-        targetDir,
-      );
-
-      expect(fs.existsSync(PACK_CACHE_PATH)).toBe(true);
-      const meta = JSON.parse(fs.readFileSync(PACK_CACHE_PATH, 'utf-8')) as {
-        packs: Record<string, { contentHash: string; agentCount: number }>;
-      };
-      expect(meta.packs[MANIFEST_URL]?.contentHash).toBe('pack-hash-alpha');
-      expect(meta.packs[MANIFEST_URL]?.agentCount).toBe(2);
+        `${BASE_URL}/css-master.md`,
+      ]);
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // downloadAgents — cache hit
-  // -------------------------------------------------------------------------
+    it('fails only the file whose download fails', async () => {
+      servePack();
+      mockRoutes.unshift({
+        match: (url) => url.endsWith('/css-master.md'),
+        respond: () => ({ statusCode: 500, body: 'boom' }),
+      });
+      const svc = new AgentPackDownloadService();
 
-  describe('downloadAgents — cache hit', () => {
-    it('returns fromCache=true when hash matches AND every requested file exists on disk', async () => {
-      const targetDir = makeTargetDir();
-
-      // Pre-populate the target dir with the files we are about to request.
-      fs.writeFileSync(
-        path.join(targetDir, 'react-expert.md'),
-        '# cached react',
+      const files = okPlan(
+        await svc.planDownload(
+          MANIFEST_URL,
+          ['react-expert.md', 'css-master.md'],
+          makeTargetDir(),
+        ),
       );
-      fs.writeFileSync(path.join(targetDir, 'css-master.md'), '# cached css');
 
-      // Pre-populate the cache metadata so the service thinks it's current.
-      fs.mkdirSync(PTAH_DIR, { recursive: true });
-      fs.writeFileSync(
-        PACK_CACHE_PATH,
-        JSON.stringify({
-          packs: {
-            [MANIFEST_URL]: {
-              contentHash: 'pack-hash-alpha',
-              downloadedAt: '2026-04-20T00:00:00Z',
-              version: '1.0.0',
-              agentCount: 2,
-            },
-          },
+      expect(fetchedRow(files, 'react-expert.md').state).toBe('new');
+      const failed = files.find((f) => f.file === 'css-master.md');
+      expect(failed).toEqual(
+        expect.objectContaining({
+          fetched: false,
+          error: expect.stringMatching(/HTTP 500/),
         }),
       );
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['react-expert.md', 'css-master.md'],
-        targetDir,
-      );
-
-      expect(result.fromCache).toBe(true);
-      expect(result.agentsDownloaded).toBe(2);
-      // Only the manifest was requested — no agent .md bytes fetched.
-      expect(recordedRequests).toEqual([MANIFEST_URL]);
     });
 
-    it('forces re-download when a cached file is missing on disk', async () => {
-      const targetDir = makeTargetDir();
-
-      // Cache metadata says we have 2 agents, but the files do not exist.
-      fs.mkdirSync(PTAH_DIR, { recursive: true });
-      fs.writeFileSync(
-        PACK_CACHE_PATH,
-        JSON.stringify({
-          packs: {
-            [MANIFEST_URL]: {
-              contentHash: 'pack-hash-alpha',
-              downloadedAt: '2026-04-20T00:00:00Z',
-              version: '1.0.0',
-              agentCount: 2,
-            },
-          },
-        }),
-      );
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-      addRoute(
-        (url) => url.endsWith('.md'),
-        () => ({ statusCode: 200, body: '# re-downloaded' }),
-      );
-
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['react-expert.md', 'css-master.md'],
-        targetDir,
-      );
-
-      expect(result.fromCache).toBe(false);
-      expect(result.agentsDownloaded).toBe(2);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Validation (rejects before any HTTP call)
-  // -------------------------------------------------------------------------
-
-  describe('downloadAgents — input validation', () => {
-    it('rejects an empty agent file list', async () => {
-      const targetDir = makeTargetDir();
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(MANIFEST_URL, [], targetDir);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/No agent files/);
-      expect(recordedRequests).toEqual([]);
-    });
-
-    it('rejects path traversal in file names', async () => {
-      const targetDir = makeTargetDir();
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['../../evil.md'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/path traversal/i);
-      expect(recordedRequests).toEqual([]);
-    });
-
-    it('rejects absolute paths', async () => {
-      const targetDir = makeTargetDir();
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['/etc/passwd'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/path traversal/i);
-    });
-
-    it('rejects non-.md file types', async () => {
-      const targetDir = makeTargetDir();
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['script.sh'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/only \.md files/i);
-    });
-
-    it('rejects files with control characters', async () => {
-      const targetDir = makeTargetDir();
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['bad\x00file.md'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/control characters/i);
-    });
-
-    it('rejects files that are not listed in the fetched manifest', async () => {
-      const targetDir = makeTargetDir();
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-
-      const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
-        MANIFEST_URL,
-        ['not-in-manifest.md'],
-        targetDir,
-      );
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/not found in manifest/i);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Failure modes (never throws)
-  // -------------------------------------------------------------------------
-
-  describe('downloadAgents — failure modes', () => {
     it('surfaces manifest fetch errors without throwing', async () => {
-      const targetDir = makeTargetDir();
       addRoute(
         (url) => url === MANIFEST_URL,
         () => ({ statusCode: 500, body: 'server error' }),
       );
-
       const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
+
+      const result = await svc.planDownload(
         MANIFEST_URL,
         ['react-expert.md'],
-        targetDir,
+        makeTargetDir(),
       );
 
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/Manifest fetch failed/);
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringMatching(/Manifest fetch failed/),
+      });
     });
 
-    it('counts partial file download failures', async () => {
-      const targetDir = makeTargetDir();
-
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-      addRoute(
-        (url) => url.endsWith('/react-expert.md'),
-        () => ({ statusCode: 200, body: '# ok' }),
-      );
-      addRoute(
-        (url) => url.endsWith('/css-master.md'),
-        () => ({ statusCode: 404, body: 'gone' }),
-      );
-
+    it('rejects files that are not listed in the fetched manifest', async () => {
+      servePack();
       const svc = new AgentPackDownloadService();
-      const result = await svc.downloadAgents(
+
+      const result = await svc.planDownload(
         MANIFEST_URL,
-        ['react-expert.md', 'css-master.md'],
-        targetDir,
+        ['not-in-manifest.md'],
+        makeTargetDir(),
       );
 
-      expect(result.success).toBe(false);
-      expect(result.agentsDownloaded).toBe(1);
-      expect(result.error).toMatch(/1 file\(s\) failed to download/);
+      expect(result).toEqual({
+        ok: false,
+        error: expect.stringMatching(/not found in manifest/i),
+      });
     });
 
-    it('dedupes concurrent calls with the same (manifestUrl, files) tuple', async () => {
-      const targetDir = makeTargetDir();
+    it.each<[string[], RegExp]>([
+      [[], /No agent files/],
+      [['../../evil.md'], /path traversal/i],
+      [['/etc/passwd.md'], /path traversal/i],
+      [['script.sh'], /only \.md files/i],
+      [['bad\x00file.md'], /control characters/i],
+    ])(
+      'rejects %j before any HTTP call',
+      async (agentFiles: string[], message: RegExp) => {
+        const svc = new AgentPackDownloadService();
 
-      addRoute(
-        (url) => url === MANIFEST_URL,
-        () => ({ statusCode: 200, body: buildPackManifest() }),
-      );
-      addRoute(
-        (url) => url.endsWith('.md'),
-        () => ({ statusCode: 200, body: '# content' }),
-      );
+        const result = await svc.planDownload(
+          MANIFEST_URL,
+          agentFiles,
+          makeTargetDir(),
+        );
 
+        expect(result).toEqual({
+          ok: false,
+          error: expect.stringMatching(message),
+        });
+        expect(recordedRequests).toEqual([]);
+      },
+    );
+
+    it('shares one network fetch per URL between concurrent plans', async () => {
+      servePack();
       const svc = new AgentPackDownloadService();
-      const [first, second] = await Promise.all([
-        svc.downloadAgents(
-          MANIFEST_URL,
-          ['react-expert.md', 'css-master.md'],
-          targetDir,
-        ),
-        svc.downloadAgents(
-          MANIFEST_URL,
-          ['react-expert.md', 'css-master.md'],
-          targetDir,
-        ),
+
+      await Promise.all([
+        svc.planDownload(MANIFEST_URL, ['react-expert.md'], makeTargetDir()),
+        svc.planDownload(MANIFEST_URL, ['react-expert.md'], makeTargetDir()),
       ]);
 
-      expect(first).toEqual(second);
-      const manifestHits = recordedRequests.filter((u) => u === MANIFEST_URL);
-      expect(manifestHits.length).toBe(1);
+      expect(recordedRequests.filter((u) => u === MANIFEST_URL)).toHaveLength(
+        1,
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // installFiles — guards
+  // -------------------------------------------------------------------------
+
+  describe('installFiles', () => {
+    const file = 'react-expert.md';
+
+    it('creates a new file under the default create-only guard', async () => {
+      const targetDir = path.join(makeTargetDir(), '.claude', 'agents');
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        { file, content: REACT, guard: { mode: 'create-only' } },
+      ]);
+
+      expect(outcomes).toEqual([{ file, outcome: 'written' }]);
+      expect(fs.readFileSync(path.join(targetDir, file), 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual([file]);
+    });
+
+    it('reports identical bytes as unchanged without writing', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, file);
+      fs.writeFileSync(dest, REACT);
+      const mtime = fs.statSync(dest).mtimeMs;
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        { file, content: REACT, guard: { mode: 'create-only' } },
+      ]);
+
+      expect(outcomes).toEqual([{ file, outcome: 'unchanged' }]);
+      expect(fs.statSync(dest).mtimeMs).toBe(mtime);
+    });
+
+    it('keeps a differing local file under create-only and keep', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, file);
+      fs.writeFileSync(dest, 'mine');
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        { file, content: REACT, guard: { mode: 'create-only' } },
+        { file, content: REACT, guard: { mode: 'keep' } },
+      ]);
+
+      expect(outcomes.map((o) => o.outcome)).toEqual(['kept', 'kept']);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe('mine');
+    });
+
+    it('never replaces an unreadable destination, even under a replace guard (D13 forced keep)', async () => {
+      const targetDir = makeTargetDir();
+      makeUnreadable(targetDir, file);
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        {
+          file,
+          content: REACT,
+          guard: { mode: 'replace', baselineHash: hashPackContent('x') },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ file, outcome: 'kept' }]);
+      expect(fs.statSync(path.join(targetDir, file)).isDirectory()).toBe(true);
+    });
+
+    it('replaces only when the destination still matches the planned baseline', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, file);
+      fs.writeFileSync(dest, 'A');
+      const svc = new AgentPackDownloadService();
+
+      const replaced = await svc.installFiles(targetDir, [
+        {
+          file,
+          content: REACT,
+          guard: { mode: 'replace', baselineHash: hashPackContent('A') },
+        },
+      ]);
+      expect(replaced).toEqual([{ file, outcome: 'written' }]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+
+      fs.writeFileSync(dest, 'B');
+      const stale = await svc.installFiles(targetDir, [
+        {
+          file,
+          content: CSS,
+          guard: { mode: 'replace', baselineHash: hashPackContent('A') },
+        },
+      ]);
+      expect(stale).toEqual([{ file, outcome: 'changed-since-preview' }]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe('B');
+    });
+
+    it('writes a replace whose destination was deleted since the plan', async () => {
+      const targetDir = makeTargetDir();
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        {
+          file,
+          content: REACT,
+          guard: { mode: 'replace', baselineHash: hashPackContent('A') },
+        },
+      ]);
+
+      expect(outcomes).toEqual([{ file, outcome: 'written' }]);
+    });
+
+    it('fails an item whose name is not a plain .md file', async () => {
+      const targetDir = makeTargetDir();
+      const svc = new AgentPackDownloadService();
+
+      const outcomes = await svc.installFiles(targetDir, [
+        { file: '../escape.md', content: 'x', guard: { mode: 'create-only' } },
+      ]);
+
+      expect(outcomes).toEqual([
+        expect.objectContaining({ file: '../escape.md', outcome: 'failed' }),
+      ]);
+      expect(fs.existsSync(path.join(TEST_HOME, 'escape.md'))).toBe(false);
+    });
+
+    // POSIX reports ENOTDIR on the read (kept); Windows reports ENOENT, so the
+    // write is attempted and fails. Either way nothing is written.
+    it('never writes through a target directory that is a file, and still installs elsewhere', async () => {
+      const root = makeTargetDir();
+      // The target "directory" is a file, so reading under it fails.
+      const blocked = path.join(root, 'blocked');
+      fs.writeFileSync(blocked, 'not a directory');
+      const svc = new AgentPackDownloadService();
+
+      const [blockedOutcome, okOutcome] = await Promise.all([
+        svc.installFiles(blocked, [
+          { file, content: REACT, guard: { mode: 'create-only' } },
+        ]),
+        svc.installFiles(root, [
+          {
+            file: 'css-master.md',
+            content: CSS,
+            guard: { mode: 'create-only' },
+          },
+        ]),
+      ]);
+
+      expect(blockedOutcome).toHaveLength(1);
+      expect(['kept', 'failed']).toContain(blockedOutcome[0]?.outcome);
+      expect(okOutcome).toEqual([
+        { file: 'css-master.md', outcome: 'written' },
+      ]);
+      expect(fs.readFileSync(blocked, 'utf-8')).toBe('not a directory');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Cache and concurrency (A22)
+  // -------------------------------------------------------------------------
+
+  describe('re-install and concurrency', () => {
+    it('re-plans a cached pack against a hand-edited file: Keep leaves it byte-identical, Replace with the planned baseline writes it', async () => {
+      servePack();
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      const svc = new AgentPackDownloadService();
+
+      const first = okPlan(
+        await svc.planDownload(MANIFEST_URL, ['react-expert.md'], targetDir),
+      );
+      await svc.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: fetchedRow(first, 'react-expert.md').content,
+          guard: { mode: 'create-only' },
+        },
+      ]);
+      fs.writeFileSync(dest, 'hand edited');
+
+      const second = fetchedRow(
+        okPlan(
+          await svc.planDownload(MANIFEST_URL, ['react-expert.md'], targetDir),
+        ),
+        'react-expert.md',
+      );
+      expect(second.state).toBe('differs');
+
+      const kept = await svc.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: second.content,
+          guard: { mode: 'keep' },
+        },
+      ]);
+      expect(kept).toEqual([{ file: 'react-expert.md', outcome: 'kept' }]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe('hand edited');
+
+      const replaced = await svc.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: second.content,
+          guard: {
+            mode: 'replace',
+            baselineHash: second.baselineHash ?? '',
+          },
+        },
+      ]);
+      expect(replaced).toEqual([
+        { file: 'react-expert.md', outcome: 'written' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+    });
+
+    it('gives concurrent installs into different roots their own outcomes', async () => {
+      const rootA = makeTargetDir();
+      const rootB = makeTargetDir();
+      fs.writeFileSync(path.join(rootA, 'react-expert.md'), 'edit A');
+      fs.writeFileSync(path.join(rootB, 'react-expert.md'), 'edit B');
+      const svc = new AgentPackDownloadService();
+
+      const [a, b] = await Promise.all([
+        svc.installFiles(rootA, [
+          {
+            file: 'react-expert.md',
+            content: REACT,
+            guard: { mode: 'keep' },
+          },
+        ]),
+        svc.installFiles(rootB, [
+          {
+            file: 'react-expert.md',
+            content: REACT,
+            guard: {
+              mode: 'replace',
+              baselineHash: hashPackContent('edit B'),
+            },
+          },
+        ]),
+      ]);
+
+      expect(a).toEqual([{ file: 'react-expert.md', outcome: 'kept' }]);
+      expect(b).toEqual([{ file: 'react-expert.md', outcome: 'written' }]);
+      expect(
+        fs.readFileSync(path.join(rootA, 'react-expert.md'), 'utf-8'),
+      ).toBe('edit A');
+      expect(
+        fs.readFileSync(path.join(rootB, 'react-expert.md'), 'utf-8'),
+      ).toBe(REACT);
+    });
+
+    it('serializes concurrent installs into one root so each sees the previous write', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      fs.writeFileSync(dest, 'A');
+      const svc = new AgentPackDownloadService();
+      const guard = {
+        mode: 'replace' as const,
+        baselineHash: hashPackContent('A'),
+      };
+
+      const [first, second] = await Promise.all([
+        svc.installFiles(targetDir, [
+          { file: 'react-expert.md', content: REACT, guard },
+        ]),
+        // Same directory spelled differently: still one queue.
+        svc.installFiles(path.join(targetDir, '.', ''), [
+          { file: 'react-expert.md', content: CSS, guard },
+        ]),
+      ]);
+
+      expect(first).toEqual([{ file: 'react-expert.md', outcome: 'written' }]);
+      expect(second).toEqual([
+        { file: 'react-expert.md', outcome: 'changed-since-preview' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // A2: writers outside this service's queue
+  // -------------------------------------------------------------------------
+
+  describe('no-clobber against writers outside the queue (A2)', () => {
+    afterEach(() => {
+      mockReadGate.hold = null;
+    });
+
+    /**
+     * Hold every read of `dest` until the test releases it; resolves once
+     * `count` reads are held.
+     */
+    function holdReads(
+      dest: string,
+      count: number,
+    ): { allHeld: Promise<void>; release: Array<() => void> } {
+      const release: Array<() => void> = [];
+      let signal: () => void = () => undefined;
+      const allHeld = new Promise<void>((resolve) => {
+        signal = resolve;
+      });
+      mockReadGate.hold = (file) => {
+        if (file !== dest || release.length >= count) return Promise.resolve();
+        return new Promise<void>((resume) => {
+          release.push(resume);
+          if (release.length === count) signal();
+        });
+      };
+      return { allHeld, release };
+    }
+
+    it('two create-only installers paused after their read: the second keeps the first', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      // Two instances: separate queues, like the wizard writer or another
+      // process racing this one.
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+
+      const first = a.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'create-only' },
+        },
+      ]);
+      const second = b.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'create-only' },
+        },
+      ]);
+      await gate.allHeld;
+
+      gate.release[0]?.();
+      expect(await first).toEqual([
+        { file: 'react-expert.md', outcome: 'written' },
+      ]);
+      gate.release[1]?.();
+      expect(await second).toEqual([
+        { file: 'react-expert.md', outcome: 'kept' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('a replace of a file deleted since the plan does not clobber a concurrent create', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+
+      const creator = a.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'create-only' },
+        },
+      ]);
+      const replacer = b.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'replace', baselineHash: hashPackContent('old') },
+        },
+      ]);
+      await gate.allHeld;
+
+      gate.release[0]?.();
+      await creator;
+      gate.release[1]?.();
+      expect(await replacer).toEqual([
+        { file: 'react-expert.md', outcome: 'changed-since-preview' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(REACT);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('a replace re-checks the baseline right before its rename', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      fs.writeFileSync(dest, 'old');
+      const svc = new AgentPackDownloadService();
+      const gate = holdReads(dest, 1);
+
+      const install = svc.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'replace', baselineHash: hashPackContent('old') },
+        },
+      ]);
+      await gate.allHeld;
+      // An editor saves after the initial (matching) read.
+      fs.writeFileSync(dest, 'edited');
+      gate.release[0]?.();
+
+      expect(await install).toEqual([
+        { file: 'react-expert.md', outcome: 'changed-since-preview' },
+      ]);
+      expect(fs.readFileSync(dest, 'utf-8')).toBe('edited');
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
+    });
+
+    it('two replace installers with the same baseline: exactly one writes, the other is changed-since-preview', async () => {
+      const targetDir = makeTargetDir();
+      const dest = path.join(targetDir, 'react-expert.md');
+      fs.writeFileSync(dest, 'old');
+      // Two instances have separate install queues; only the shared
+      // destination lock orders their re-check and rename.
+      const a = new AgentPackDownloadService();
+      const b = new AgentPackDownloadService();
+      const gate = holdReads(dest, 2);
+      const baselineHash = hashPackContent('old');
+
+      const first = a.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: REACT,
+          guard: { mode: 'replace', baselineHash },
+        },
+      ]);
+      const second = b.installFiles(targetDir, [
+        {
+          file: 'react-expert.md',
+          content: CSS,
+          guard: { mode: 'replace', baselineHash },
+        },
+      ]);
+      // Both initial reads saw the baseline; release them together so both
+      // guards pass before either replace.
+      await gate.allHeld;
+      gate.release[0]?.();
+      gate.release[1]?.();
+
+      const [[firstOutcome], [secondOutcome]] = await Promise.all([
+        first,
+        second,
+      ]);
+      const outcomes = [firstOutcome?.outcome, secondOutcome?.outcome].sort();
+      expect(outcomes).toEqual(['changed-since-preview', 'written']);
+      const winner = firstOutcome?.outcome === 'written' ? REACT : CSS;
+      expect(fs.readFileSync(dest, 'utf-8')).toBe(winner);
+      expect(fs.readdirSync(targetDir)).toEqual(['react-expert.md']);
     });
   });
 });

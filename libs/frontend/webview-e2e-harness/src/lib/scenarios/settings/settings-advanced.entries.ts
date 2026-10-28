@@ -82,7 +82,7 @@ const membership: readonly ReachabilityEntry[] = [
       await page.locator('[data-testid="import-confirm-button"]').click();
       if (electron) {
         await expectWrite(page, start, 'settings:import', {});
-        await expect(page.locator('[data-testid="import-outcome"]')).toHaveText('Settings imported.');
+        await expect(page.locator('[data-testid="settings-toast-message"]')).toHaveText('Settings imported.');
       } else {
         await expectWrite(page, start, 'command:execute', { command: 'ptah.importSettings' });
       }

@@ -5,7 +5,7 @@
  * through `input()` and every intent leaves through `output()`; the view
  * component owns the RPC calls and the state service.
  *
- * Sections, in order: identity + status, contextual actions (same gating as
+ * Sections, in order: identity (provenance badge first, C7) + status, contextual actions (same gating as
  * the card, with the divergence choices spelled out in full rather than hidden
  * in a tooltip), agent scorecard, the SKILL.md body preview, and the history
  * timeline with an on-demand Monaco diff of any snapshot against the live body.
@@ -36,13 +36,16 @@ import {
 } from '@angular/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
-import type {
-  AgentOutcomeSignals,
-  AgentScorecard,
-  CloneSummary,
-  ScorecardInvocationRow,
-  SkillCloneHistoryEntry,
-  SkillCloneStatus,
+import {
+  divergedReasonText,
+  orphanedText,
+  provenanceLabel,
+  type AgentOutcomeSignals,
+  type AgentScorecard,
+  type CloneSummary,
+  type ScorecardInvocationRow,
+  type SkillCloneHistoryEntry,
+  type SkillCloneStatus,
 } from '@ptah-extension/shared';
 
 import {
@@ -53,6 +56,11 @@ import { CloneBodyEditorComponent } from './clone-body-editor.component';
 import { LazyDiffViewComponent } from './lazy-diff-view.component';
 import { ScorecardBadgeComponent } from './scorecard-badge.component';
 import { ScorecardDetailComponent } from './scorecard-detail.component';
+import { ProvenanceBadgeComponent } from './provenance-badge.component';
+import {
+  DivergedReasonComponent,
+  divergenceUpstreamNote,
+} from './diverged-reason.component';
 import {
   CloneActionModel,
   KEEP_MINE_EXPLANATION,
@@ -93,6 +101,14 @@ interface DrawerViewModel {
   readonly status: SkillCloneStatus;
   readonly dotClass: string;
   readonly metrics: readonly CloneMetric[];
+  /** `provenanceLabel` of the recorded origin ("Workspace file" when absent). */
+  readonly provenanceLabel: string;
+  /** Whether the divergence has a reason with specific copy (C8). */
+  readonly hasDivergedReason: boolean;
+  /** Turned-off / uninstalled plugin sentence, or null. */
+  readonly pluginStateNote: string | null;
+  /** The gated "cannot rebase" note, worded for a recorded origin. */
+  readonly upstreamNote: string | null;
 }
 
 const STATUS_DOT: Record<SkillCloneStatus, string> = {
@@ -113,6 +129,8 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
     ScorecardDetailComponent,
     LazyDiffViewComponent,
     CloneBodyEditorComponent,
+    ProvenanceBadgeComponent,
+    DivergedReasonComponent,
   ],
   template: `
     <ptah-native-drawer
@@ -130,7 +148,11 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
           <h2 class="truncate font-mono text-sm font-medium">
             {{ m.clone.slug }}
           </h2>
-          <p class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <p
+            class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]"
+            data-testid="drawer-meta"
+          >
+            <ptah-provenance-badge [provenance]="m.clone.provenance" />
             <span
               class="inline-block size-1.5 rounded-full"
               [class]="m.dotClass"
@@ -198,7 +220,16 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
             </p>
           }
 
-          @if (m.actions.upstreamNote; as note) {
+          @if (m.pluginStateNote; as note) {
+            <p
+              class="rounded-lg bg-base-300 px-3 py-2 text-xs text-base-content"
+              data-testid="drawer-plugin-state"
+            >
+              {{ note }}
+            </p>
+          }
+
+          @if (m.upstreamNote; as note) {
             <p
               class="rounded-lg bg-base-300/40 px-3 py-2 text-xs text-base-content-muted"
               data-testid="drawer-upstream-note"
@@ -248,6 +279,22 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                 <p class="text-xs font-medium text-warning">
                   Upstream changed since this copy was made.
                 </p>
+
+                <dl
+                  class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs"
+                  data-testid="drawer-divergence-facts"
+                >
+                  <dt class="text-base-content-muted">Origin</dt>
+                  <dd data-testid="drawer-origin">{{ m.provenanceLabel }}</dd>
+                  @if (m.hasDivergedReason) {
+                    <dt class="text-base-content-muted">Reason</dt>
+                    <dd data-testid="drawer-reason">
+                      <ptah-diverged-reason
+                        [reason]="m.clone.divergedReason"
+                      />
+                    </dd>
+                  }
+                </dl>
 
                 @if (m.actions.rebase) {
                   <div class="space-y-1">
@@ -549,12 +596,17 @@ export class CloneDetailDrawerComponent {
     const clone = this.clone();
     if (clone === null) return null;
     const status = cloneStatusLabel(clone);
+    const actions = cloneActionModel(clone);
     return {
       clone,
-      actions: cloneActionModel(clone),
+      actions,
       status,
       dotClass: STATUS_DOT[status],
       metrics: this.buildMetrics(clone),
+      provenanceLabel: provenanceLabel(clone.provenance),
+      hasDivergedReason: divergedReasonText(clone.divergedReason) !== null,
+      pluginStateNote: orphanedText(clone.provenance),
+      upstreamNote: divergenceUpstreamNote(clone, actions.upstreamNote),
     };
   });
 

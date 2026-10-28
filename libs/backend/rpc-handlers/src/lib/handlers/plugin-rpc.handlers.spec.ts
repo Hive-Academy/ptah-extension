@@ -99,13 +99,23 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
-import type { HarnessPropagationService } from '@ptah-extension/harness-sync';
+import {
+  resolveHarnessWorkspaceRoot,
+  type HarnessPropagationService,
+} from '@ptah-extension/harness-sync';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
 import type {
+  ExternalInstallPlan,
+  ExternalLocalItem,
   HarnessCollision,
   HarnessHealth,
+  KeptItem,
+  PluginConfigHomeStatus,
   PluginInfo,
   PluginConfigState,
   PluginSkillEntry,
@@ -119,9 +129,20 @@ import type { DependencyContainer } from 'tsyringe';
 
 import { PluginRpcHandlers } from './plugin-rpc.handlers';
 import { EXTERNAL_PLUGIN_MCP_TOKEN } from './external-plugin-mcp.service';
+import { LocalItemApprovals } from './marketplace/local-item-approvals';
+import type { InstallLocalItemsService } from './marketplace/install-local-items.service';
+import type { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
+import { PluginLocalItemsService } from './marketplace/plugin-local-items.service';
 
-/** The workspace every reconcile in this suite is expected to target. */
+/** The workspace folder every handler in this suite sees as open. */
 const WORKSPACE_ROOT = 'C:\\ws';
+
+/**
+ * The harness root every config write and reconcile targets (8.1). Equal to
+ * {@link WORKSPACE_ROOT} on a Windows runner; resolved so the suite agrees
+ * with the handler on any platform.
+ */
+const HARNESS_ROOT = resolveHarnessWorkspaceRoot(WORKSPACE_ROOT);
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler touches
@@ -137,6 +158,11 @@ type MockPluginLoader = jest.Mocked<
     | 'resolveCurrentPluginPaths'
     | 'discoverHarnessPluginPaths'
     | 'discoverSkillsForPlugins'
+    | 'hasWorkspaceState'
+    | 'getConfigHomeStatus'
+    | 'adoptFolderConfig'
+    | 'dismissFolderConfig'
+    | 'getPluginSourceDescriptors'
   >
 >;
 
@@ -184,11 +210,19 @@ function createMockPluginLoader(
     discoverSkillsForPlugins: jest
       .fn()
       .mockReturnValue(overrides.discoveredSkills ?? []),
+    hasWorkspaceState: jest.fn().mockReturnValue(true),
+    getConfigHomeStatus: jest.fn().mockReturnValue(null),
+    adoptFolderConfig: jest.fn().mockResolvedValue(undefined),
+    dismissFolderConfig: jest.fn().mockResolvedValue(undefined),
+    getPluginSourceDescriptors: jest.fn().mockReturnValue({}),
   };
 }
 
 type MockHarnessPropagation = jest.Mocked<
-  Pick<HarnessPropagationService, 'propagate'>
+  Pick<
+    HarnessPropagationService,
+    'propagate' | 'propagateWithReport' | 'refreshUserLayerInBackground'
+  >
 >;
 
 /**
@@ -209,9 +243,25 @@ function makeHealth(overrides: Partial<HarnessHealth> = {}): HarnessHealth {
   };
 }
 
+/**
+ * `propagateWithReport` answers through `propagate`, so a test that shapes
+ * the health (or a rejection) with `propagate` shapes the report too, and the
+ * call assertions on `propagate` keep describing the one pass that ran.
+ */
 function createMockHarnessPropagation(): MockHarnessPropagation {
+  const propagate = jest.fn().mockResolvedValue(makeHealth());
   return {
-    propagate: jest.fn().mockResolvedValue(makeHealth()),
+    propagate,
+    propagateWithReport: jest.fn(
+      async (...args: Parameters<HarnessPropagationService['propagate']>) => ({
+        health: (await propagate(...args)) as HarnessHealth | null,
+        userLayer:
+          args[2]?.skipUserLayerRefresh === true
+            ? ('skipped' as const)
+            : ('refreshed' as const),
+      }),
+    ),
+    refreshUserLayerInBackground: jest.fn(),
   } as unknown as MockHarnessPropagation;
 }
 
@@ -248,6 +298,8 @@ interface MockExternalInstaller {
   planInstall: jest.Mock;
   confirmInstall: jest.Mock;
   uninstall: jest.Mock;
+  planItemSlugs: jest.Mock;
+  attachLocalItems: jest.Mock;
 }
 
 function createMockExternalInstaller(): MockExternalInstaller {
@@ -255,6 +307,31 @@ function createMockExternalInstaller(): MockExternalInstaller {
     planInstall: jest.fn(),
     confirmInstall: jest.fn(),
     uninstall: jest.fn().mockResolvedValue(false),
+    planItemSlugs: jest.fn().mockReturnValue(null),
+    attachLocalItems: jest.fn().mockReturnValue(true),
+  };
+}
+
+/** Local-item discovery (B12): inert unless a test shapes it. */
+interface MockLocalItems {
+  planLocalItems: jest.Mock;
+  keptReport: jest.Mock;
+}
+
+function createMockLocalItems(): MockLocalItems {
+  return {
+    planLocalItems: jest.fn().mockResolvedValue([]),
+    keptReport: jest.fn().mockResolvedValue([]),
+  };
+}
+
+interface MockInstallLocalItems {
+  apply: jest.Mock;
+}
+
+function createMockInstallLocalItems(): MockInstallLocalItems {
+  return {
+    apply: jest.fn().mockResolvedValue({ replaced: [], kept: [], unknown: [] }),
   };
 }
 
@@ -366,6 +443,10 @@ interface Harness {
   externalInstaller: MockExternalInstaller;
   externalState: MockExternalState;
   externalMcp: MockExternalMcp;
+  localItems: MockLocalItems;
+  installLocalItems: MockInstallLocalItems;
+  /** The real registry: in-memory, and what the family check reads. */
+  approvals: LocalItemApprovals;
 }
 
 function makeHarness(
@@ -376,6 +457,8 @@ function makeHarness(
     currentPluginPaths?: string[];
     harnessPaths?: string[];
     discoveredSkills?: PluginSkillEntry[];
+    /** The open folder; defaults to {@link WORKSPACE_ROOT}. `null`: none. */
+    workspaceRoot?: string | null;
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -383,7 +466,8 @@ function makeHarness(
   const pluginLoader = createMockPluginLoader(opts);
   const harnessPropagation = createMockHarnessPropagation();
   const workspaceProvider = createMockWorkspaceProvider({
-    folders: [WORKSPACE_ROOT],
+    folders:
+      opts.workspaceRoot === null ? [] : [opts.workspaceRoot ?? WORKSPACE_ROOT],
   }) as unknown as IWorkspaceProvider;
   const commandDiscovery = createMockCommandDiscovery();
   const sentry = createMockSentryService();
@@ -393,6 +477,21 @@ function makeHarness(
   const externalMcp = createMockExternalMcp();
   const container = createStubContainer(
     new Map<symbol, unknown>([[EXTERNAL_PLUGIN_MCP_TOKEN, externalMcp]]),
+  );
+  const localItems = createMockLocalItems();
+  const installLocalItems = createMockInstallLocalItems();
+  const approvals = new LocalItemApprovals();
+  // The real local-item steps over the mocked collaborators, so every
+  // plan / confirm / save case below exercises the code the handler delegates to.
+  const pluginLocalItems = new PluginLocalItemsService(
+    logger as unknown as Logger,
+    sentry as unknown as SentryService,
+    pluginLoader as unknown as PluginLoaderService,
+    externalInstaller as unknown as ConstructorParameters<
+      typeof PluginLocalItemsService
+    >[3],
+    localItems as unknown as MarketplaceLocalItemsService,
+    installLocalItems as unknown as InstallLocalItemsService,
   );
 
   const handlers = new PluginRpcHandlers(
@@ -413,6 +512,9 @@ function makeHarness(
       typeof PluginRpcHandlers
     >[9],
     container,
+    pluginLocalItems,
+    installLocalItems as unknown as InstallLocalItemsService,
+    approvals,
   );
 
   return {
@@ -428,6 +530,9 @@ function makeHarness(
     externalInstaller,
     externalState,
     externalMcp,
+    localItems,
+    installLocalItems,
+    approvals,
   };
 }
 
@@ -472,6 +577,8 @@ describe('PluginRpcHandlers', () => {
           'plugins:browse-marketplace',
           'plugins:install-external',
           'plugins:uninstall-external',
+          'plugins:replace-kept-items',
+          'plugins:resolve-config-home',
         ].sort(),
       );
     });
@@ -666,7 +773,7 @@ describe('PluginRpcHandlers', () => {
 
       expect(h.commandDiscovery.invalidateCache).toHaveBeenCalledTimes(1);
       expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
-        WORKSPACE_ROOT,
+        HARNESS_ROOT,
         'plugins:save-config',
         // Enable/disable changes which sources are FILTERED IN, never what a
         // source contains, so the user-layer refresh is deliberately skipped.
@@ -701,7 +808,7 @@ describe('PluginRpcHandlers', () => {
       expect(h.harnessPropagation.propagate).toHaveBeenCalledTimes(1);
       const [root, reason, options, ...extra] =
         h.harnessPropagation.propagate.mock.calls[0];
-      expect(root).toBe(WORKSPACE_ROOT);
+      expect(root).toBe(HARNESS_ROOT);
       expect(reason).toBe('plugins:save-config');
       expect(options).toEqual({ skipUserLayerRefresh: true });
       expect(extra).toEqual([]);
@@ -726,9 +833,9 @@ describe('PluginRpcHandlers', () => {
         disabledSkillIds: [],
       });
 
-      expect(result).toEqual({ success: true });
+      expect(result).toEqual({ success: true, kept: [] });
       expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
-        WORKSPACE_ROOT,
+        HARNESS_ROOT,
         'plugins:save-config',
         // Enable/disable changes which sources are FILTERED IN, never what a
         // source contains, so the user-layer refresh is deliberately skipped.
@@ -1041,6 +1148,7 @@ describe('PluginRpcHandlers', () => {
       installedVersion: string;
       filesWritten: number;
       skippedBinaryFiles: string[];
+      planLocalItems: ExternalLocalItem[];
     } {
       return {
         pluginId: PLUGIN_ID,
@@ -1048,6 +1156,7 @@ describe('PluginRpcHandlers', () => {
         installedVersion: '1.2.0',
         filesWritten: 4,
         skippedBinaryFiles: [],
+        planLocalItems: [],
       };
     }
 
@@ -1063,7 +1172,7 @@ describe('PluginRpcHandlers', () => {
       });
 
       expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
-        WORKSPACE_ROOT,
+        HARNESS_ROOT,
         'plugins:install-external',
         {},
       );
@@ -1125,7 +1234,7 @@ describe('PluginRpcHandlers', () => {
       // half of `reconcileAll` is the only thing that removes the removed
       // plugin's clones from `~/.ptah/user` (defect 7).
       expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
-        WORKSPACE_ROOT,
+        HARNESS_ROOT,
         'plugins:uninstall-external',
         {},
       );
@@ -1312,6 +1421,993 @@ describe('PluginRpcHandlers', () => {
       await call(h, 'plugins:uninstall-external', { pluginId: PLUGIN_ID });
 
       expect(h.externalMcp.uninstall).not.toHaveBeenCalled();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_701 B12 — harness root, config home, local items, kept reports
+// ---------------------------------------------------------------------------
+
+describe('PluginRpcHandlers — harness root, config home and local items (TASK_2026_701 B12)', () => {
+  const PLUGIN_ID = 'external:dotnet/skills/dotnet';
+  const CONSENT_TOKEN = 'b'.repeat(64);
+  const FOREIGN_ID = '99999999-9999-4999-8999-999999999999';
+
+  function makePlan(): ExternalInstallPlan {
+    return {
+      pluginId: PLUGIN_ID,
+      source: 'dotnet/skills',
+      plugin: 'dotnet',
+      displayName: 'dotnet',
+      version: '1.2.0',
+      skills: ['run-tests'],
+      fileCount: 3,
+      totalBytes: 10,
+      scriptFiles: [],
+      skippedBinaryFiles: [],
+      mcpServers: [],
+      collisions: [],
+      consentToken: CONSENT_TOKEN,
+    };
+  }
+
+  function planItem(
+    approvalId: string,
+    kind: ExternalLocalItem['kind'],
+    relPath: string,
+  ): ExternalLocalItem {
+    return {
+      approvalId,
+      ...(kind === 'library-clone' ? {} : { target: 'claude' as const }),
+      relPath,
+      family: 'external',
+      kind,
+    };
+  }
+
+  const ITEM_EDITED = planItem(
+    '11111111-1111-4111-8111-111111111111',
+    'owned-edited',
+    '.claude/skills/run-tests',
+  );
+  const ITEM_CLONE = planItem(
+    '22222222-2222-4222-8222-222222222222',
+    'library-clone',
+    'skills/run-tests',
+  );
+  const ITEM_AGENT = planItem(
+    '33333333-3333-4333-8333-333333333333',
+    'agent-source',
+    '.claude/agents/test-reviewer.md',
+  );
+
+  async function rpc(
+    h: Harness,
+    method: string,
+    params: unknown,
+  ): Promise<{ success: boolean; data?: unknown; errorCode?: string }> {
+    const response = await h.rpcHandler.handleMessage({
+      method,
+      params: params as Record<string, unknown>,
+      correlationId: `corr-${method}`,
+    });
+    return response as { success: boolean; data?: unknown; errorCode?: string };
+  }
+
+  function homeStatus(folders: string[]): PluginConfigHomeStatus {
+    return {
+      harnessRoot: HARNESS_ROOT,
+      state: 'conflict',
+      governingFolder: folders[0],
+      candidates: folders.map((folder) => ({
+        folder,
+        enabledCount: 1,
+        disabledCount: 0,
+        differsFromHome: true,
+      })),
+    };
+  }
+
+  describe('plugins:get-config', () => {
+    it('reads the harness-root config and adds the config-home notice', async () => {
+      const h = makeHarness();
+      const status = homeStatus([path.join(HARNESS_ROOT, 'app')]);
+      h.pluginLoader.getConfigHomeStatus.mockReturnValue(status);
+      h.handlers.register();
+
+      const result = await call<{ configHome?: PluginConfigHomeStatus }>(
+        h,
+        'plugins:get-config',
+      );
+
+      expect(h.pluginLoader.getWorkspacePluginConfig).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+      );
+      expect(h.pluginLoader.getConfigHomeStatus).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+      );
+      expect(result.configHome).toEqual(status);
+    });
+
+    it('omits configHome when there is nothing to show', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const result = await call<Record<string, unknown>>(
+        h,
+        'plugins:get-config',
+      );
+
+      expect('configHome' in result).toBe(false);
+    });
+
+    it('falls back to the open folder when the host keeps no state for the harness root', async () => {
+      const h = makeHarness();
+      h.pluginLoader.hasWorkspaceState.mockReturnValue(false);
+      h.handlers.register();
+
+      await call(h, 'plugins:get-config');
+
+      expect(h.pluginLoader.getWorkspacePluginConfig).toHaveBeenCalledWith(
+        undefined,
+      );
+    });
+  });
+
+  describe('sub-folder workspace (8.1)', () => {
+    let tmpRoot: string;
+    let subFolder: string;
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-b12-'));
+      fs.mkdirSync(path.join(tmpRoot, '.git'));
+      subFolder = path.join(tmpRoot, 'packages', 'app');
+      fs.mkdirSync(subFolder, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('enable and disable write config to the harness-root home and reconcile it', async () => {
+      const h = makeHarness({
+        workspaceRoot: subFolder,
+        availablePlugins: [makePluginInfo('alpha')],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', { enabledPluginIds: ['alpha'] });
+      await call(h, 'plugins:save-config', { enabledPluginIds: [] });
+
+      const harnessRoot = resolveHarnessWorkspaceRoot(subFolder);
+      expect(harnessRoot).toBe(path.resolve(tmpRoot));
+      for (const [, root] of h.pluginLoader.saveWorkspacePluginConfig.mock
+        .calls) {
+        expect(root).toBe(harnessRoot);
+      }
+      for (const [root] of h.harnessPropagation.propagate.mock.calls) {
+        expect(root).toBe(harnessRoot);
+      }
+      expect(
+        h.harnessPropagation.refreshUserLayerInBackground,
+      ).toHaveBeenCalledWith(harnessRoot, 'plugins:save-config');
+    });
+
+    it('install writes config to the harness-root home and plans local items there', async () => {
+      const h = makeHarness({ workspaceRoot: subFolder });
+      h.externalInstaller.planInstall.mockResolvedValue(makePlan());
+      h.externalInstaller.confirmInstall.mockResolvedValue({
+        pluginId: PLUGIN_ID,
+        displayName: 'dotnet',
+        installedVersion: '1.2.0',
+        filesWritten: 3,
+        skippedBinaryFiles: [],
+        collisions: [],
+        planLocalItems: [],
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+      });
+      await call(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      const harnessRoot = resolveHarnessWorkspaceRoot(subFolder);
+      expect(h.localItems.planLocalItems).toHaveBeenCalledWith(
+        expect.objectContaining({ harnessRoot }),
+      );
+      expect(h.pluginLoader.saveWorkspacePluginConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ enabledPluginIds: [PLUGIN_ID] }),
+        harnessRoot,
+      );
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        harnessRoot,
+        'plugins:install-external',
+        {},
+      );
+    });
+  });
+
+  describe('plugins:save-config (plugin enable / plugin-agent families)', () => {
+    it('fires a background Library refresh after a successful save (A13)', async () => {
+      const h = makeHarness({ availablePlugins: [makePluginInfo('alpha')] });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', { enabledPluginIds: ['alpha'] });
+
+      expect(
+        h.harnessPropagation.refreshUserLayerInBackground,
+      ).toHaveBeenCalledWith(HARNESS_ROOT, 'plugins:save-config');
+    });
+
+    it('reports the kept items of the plugins this save turned on, and only those', async () => {
+      const alpha: PluginInfo = {
+        ...makePluginInfo('alpha'),
+        skillNames: ['lint'],
+        commandNames: ['fix'],
+        agentNames: ['release-manager'],
+      };
+      const health = makeHealth();
+      const kept: KeptItem[] = [
+        {
+          approvalId: '44444444-4444-4444-8444-444444444444',
+          family: 'plugin-agent',
+          target: 'claude',
+          relPath: '.claude/agents/release-manager.md',
+          reason: 'shadowed',
+        },
+      ];
+      const h = makeHarness({
+        availablePlugins: [alpha, makePluginInfo('beta')],
+        workspaceConfig: {
+          enabledPluginIds: ['beta'],
+          disabledSkillIds: [],
+          disabledPluginIds: [],
+        },
+      });
+      h.harnessPropagation.propagate.mockResolvedValue(health);
+      h.pluginLoader.getPluginSourceDescriptors.mockReturnValue({
+        '/plugins/alpha': { sourceRef: 'ptah:alpha', label: 'Alpha' },
+      });
+      h.localItems.keptReport.mockResolvedValue(kept);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; kept?: KeptItem[] }>(
+        h,
+        'plugins:save-config',
+        { enabledPluginIds: ['alpha', 'beta'] },
+      );
+
+      expect(h.localItems.keptReport).toHaveBeenCalledTimes(1);
+      expect(h.localItems.keptReport).toHaveBeenCalledWith({
+        harnessRoot: HARNESS_ROOT,
+        sourceRef: 'ptah:alpha',
+        slugs: {
+          skills: ['lint'],
+          commands: ['fix'],
+          agents: ['release-manager'],
+        },
+        health,
+        fileFamily: 'plugin-enable',
+        agentFamily: 'plugin-agent',
+      });
+      expect(result).toEqual({ success: true, kept });
+    });
+
+    it('reports a harness plugin taken off the denylist as turned on', async () => {
+      const h = makeHarness({
+        availablePlugins: [makeHarnessPluginInfo('ptah-harness-demo')],
+        workspaceConfig: {
+          enabledPluginIds: [],
+          disabledSkillIds: [],
+          disabledPluginIds: ['ptah-harness-demo'],
+        },
+      });
+      h.handlers.register();
+
+      await call(h, 'plugins:save-config', {
+        enabledPluginIds: [],
+        disabledPluginIds: [],
+      });
+
+      expect(h.localItems.keptReport).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceRef: 'ptah:ptah-harness-demo' }),
+      );
+    });
+
+    it('a failed config save returns the error with no kept report and no refresh (8.10)', async () => {
+      const h = makeHarness({ availablePlugins: [makePluginInfo('alpha')] });
+      h.pluginLoader.saveWorkspacePluginConfig.mockRejectedValue(
+        new Error('disk full'),
+      );
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+      });
+
+      expect(result).toEqual({ success: false, error: 'disk full' });
+      expect(h.localItems.keptReport).not.toHaveBeenCalled();
+      expect(
+        h.harnessPropagation.refreshUserLayerInBackground,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('a failed reconcile after a successful save reports libraryPass failed (8.10a)', async () => {
+      const h = makeHarness({ availablePlugins: [makePluginInfo('alpha')] });
+      h.harnessPropagation.propagate.mockResolvedValue(null);
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:save-config', {
+        enabledPluginIds: ['alpha'],
+      });
+
+      expect(result).toMatchObject({ success: true, libraryPass: 'failed' });
+    });
+  });
+
+  describe('plugins:install-external consent plan', () => {
+    it('lists the local items, registered for the consent lifetime, and attaches them to the plan', async () => {
+      const h = makeHarness();
+      const slugs = {
+        skills: ['run-tests'],
+        commands: [],
+        agents: ['test-reviewer'],
+      };
+      h.externalInstaller.planInstall.mockResolvedValue(makePlan());
+      h.externalInstaller.planItemSlugs.mockReturnValue(slugs);
+      h.localItems.planLocalItems.mockResolvedValue([ITEM_EDITED, ITEM_AGENT]);
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        plan: ExternalInstallPlan;
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+      });
+
+      expect(h.localItems.planLocalItems).toHaveBeenCalledWith({
+        family: 'external',
+        harnessRoot: HARNESS_ROOT,
+        sourceRef: PLUGIN_ID,
+        slugs,
+        ttlMs: expect.any(Number),
+      });
+      expect(h.externalInstaller.attachLocalItems).toHaveBeenCalledWith(
+        CONSENT_TOKEN,
+        [ITEM_EDITED, ITEM_AGENT],
+      );
+      expect(response.status).toBe('consent-required');
+      expect(response.plan.localItems).toEqual([ITEM_EDITED, ITEM_AGENT]);
+    });
+
+    it('omits localItems when nothing local is in the way', async () => {
+      const h = makeHarness();
+      h.externalInstaller.planInstall.mockResolvedValue(makePlan());
+      h.handlers.register();
+
+      const response = await call<{ plan: ExternalInstallPlan }>(
+        h,
+        'plugins:install-external',
+        { source: 'dotnet/skills', plugin: 'dotnet' },
+      );
+
+      expect('localItems' in response.plan).toBe(false);
+    });
+
+    it('still shows the plan when local-item discovery fails', async () => {
+      const h = makeHarness();
+      h.externalInstaller.planInstall.mockResolvedValue(makePlan());
+      h.localItems.planLocalItems.mockRejectedValue(new Error('scan failed'));
+      h.handlers.register();
+
+      const response = await call<{ status: string }>(
+        h,
+        'plugins:install-external',
+        { source: 'dotnet/skills', plugin: 'dotnet' },
+      );
+
+      expect(response.status).toBe('consent-required');
+      expect(h.logger.warn).toHaveBeenCalled();
+    });
+  });
+
+  describe('plugins:install-external confirm', () => {
+    function confirmed(planLocalItems: ExternalLocalItem[]) {
+      return {
+        pluginId: PLUGIN_ID,
+        displayName: 'dotnet',
+        installedVersion: '1.2.0',
+        filesWritten: 3,
+        skippedBinaryFiles: [],
+        collisions: [],
+        planLocalItems,
+      };
+    }
+
+    it('applies only the replace decisions for ids its own plan issued, after the install', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED, ITEM_CLONE, ITEM_AGENT]),
+      );
+      h.installLocalItems.apply.mockResolvedValue({
+        replaced: [
+          {
+            approvalId: ITEM_EDITED.approvalId,
+            family: 'external',
+            target: 'claude',
+            relPath: ITEM_EDITED.relPath,
+            reason: 'owned-edited',
+          },
+        ],
+        kept: [
+          {
+            approvalId: ITEM_CLONE.approvalId,
+            family: 'external',
+            relPath: ITEM_CLONE.relPath,
+            reason: 'changed-since-approval',
+          },
+        ],
+        unknown: [],
+      });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: {
+          kept?: KeptItem[];
+          replaced?: ExternalLocalItem[];
+          libraryPass?: string;
+        } & Record<string, unknown>;
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: {
+          [ITEM_EDITED.approvalId]: 'replace',
+          [ITEM_CLONE.approvalId]: 'replace',
+          [ITEM_AGENT.approvalId]: 'keep',
+          // Not issued by this plan: never applied.
+          [FOREIGN_ID]: 'replace',
+        },
+      });
+
+      expect(h.installLocalItems.apply).toHaveBeenCalledWith({
+        family: 'external',
+        harnessRoot: HARNESS_ROOT,
+        approvalIds: [ITEM_EDITED.approvalId, ITEM_CLONE.approvalId],
+      });
+      // Replace runs after the install and its reconcile, never before.
+      expect(
+        h.externalInstaller.confirmInstall.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.installLocalItems.apply.mock.invocationCallOrder[0]);
+      expect(
+        h.harnessPropagation.propagate.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.installLocalItems.apply.mock.invocationCallOrder[0]);
+      expect(response.result.replaced).toEqual([ITEM_EDITED]);
+      expect(response.result.kept).toEqual([
+        {
+          approvalId: ITEM_CLONE.approvalId,
+          family: 'external',
+          relPath: ITEM_CLONE.relPath,
+          reason: 'changed-since-approval',
+        },
+        {
+          approvalId: ITEM_AGENT.approvalId,
+          family: 'external',
+          target: 'claude',
+          relPath: ITEM_AGENT.relPath,
+          reason: 'shadowed',
+        },
+      ]);
+      expect(response.result.libraryPass).toBe('updated');
+      // The plan's item list is server-side only.
+      expect('planLocalItems' in response.result).toBe(false);
+    });
+
+    /** An apply report that replaced {@link ITEM_EDITED}. */
+    function replacedEdited() {
+      return {
+        replaced: [
+          {
+            approvalId: ITEM_EDITED.approvalId,
+            family: 'external' as const,
+            target: 'claude',
+            relPath: ITEM_EDITED.relPath,
+            reason: 'owned-edited' as const,
+          },
+        ],
+        kept: [],
+        unknown: [],
+      };
+    }
+
+    it('runs a final awaited Library pass after the replacements and reports that pass', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED]),
+      );
+      h.installLocalItems.apply.mockResolvedValue(replacedEdited());
+      // The activation pass fails, the final one succeeds: the response must
+      // carry the final pass, the one that saw the replaced bytes.
+      h.harnessPropagation.propagateWithReport
+        .mockResolvedValueOnce({ health: makeHealth(), userLayer: 'failed' })
+        .mockResolvedValueOnce({
+          health: makeHealth(),
+          userLayer: 'refreshed',
+        });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { replaced?: ExternalLocalItem[]; libraryPass?: string };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { [ITEM_EDITED.approvalId]: 'replace' },
+      });
+
+      const passes = h.harnessPropagation.propagateWithReport;
+      expect(passes).toHaveBeenCalledTimes(2);
+      expect(passes).toHaveBeenLastCalledWith(
+        HARNESS_ROOT,
+        'plugins:install-external',
+        {},
+      );
+      // install -> activation pass -> replace -> final pass.
+      const applyOrder = h.installLocalItems.apply.mock.invocationCallOrder[0];
+      expect(
+        h.externalInstaller.confirmInstall.mock.invocationCallOrder[0],
+      ).toBeLessThan(passes.mock.invocationCallOrder[0]);
+      expect(passes.mock.invocationCallOrder[0]).toBeLessThan(applyOrder);
+      expect(applyOrder).toBeLessThan(passes.mock.invocationCallOrder[1]);
+      expect(response.status).toBe('installed');
+      expect(response.result.replaced).toEqual([ITEM_EDITED]);
+      expect(response.result.libraryPass).toBe('updated');
+    });
+
+    it('a failed final pass after a replacement keeps the install and reports libraryPass failed', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED]),
+      );
+      h.installLocalItems.apply.mockResolvedValue(replacedEdited());
+      h.harnessPropagation.propagateWithReport
+        .mockResolvedValueOnce({
+          health: makeHealth(),
+          userLayer: 'refreshed',
+        })
+        .mockRejectedValueOnce(new Error('mirror failed'));
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { replaced?: ExternalLocalItem[]; libraryPass?: string };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { [ITEM_EDITED.approvalId]: 'replace' },
+      });
+
+      expect(h.harnessPropagation.propagateWithReport).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe('installed');
+      expect(response.result.replaced).toEqual([ITEM_EDITED]);
+      expect(response.result.libraryPass).toBe('failed');
+    });
+
+    it('applies nothing when every decision is keep', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(
+        confirmed([ITEM_EDITED]),
+      );
+      h.handlers.register();
+
+      const response = await call<{ result: { kept?: KeptItem[] } }>(
+        h,
+        'plugins:install-external',
+        {
+          source: 'dotnet/skills',
+          plugin: 'dotnet',
+          consentToken: CONSENT_TOKEN,
+        },
+      );
+
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+      // No replacement: the activation pass is the only one.
+      expect(h.harnessPropagation.propagateWithReport).toHaveBeenCalledTimes(1);
+      expect(response.result.kept).toEqual([
+        {
+          approvalId: ITEM_EDITED.approvalId,
+          family: 'external',
+          target: 'claude',
+          relPath: ITEM_EDITED.relPath,
+          reason: 'owned-edited',
+        },
+      ]);
+    });
+
+    it('a failed write fails the RPC with no replace step (8.10)', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockRejectedValue(
+        new Error('EACCES: write failed'),
+      );
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { [ITEM_EDITED.approvalId]: 'replace' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+    });
+
+    it('a failed Library refresh after a successful install reports libraryPass failed (8.10a)', async () => {
+      const h = makeHarness();
+      h.externalInstaller.confirmInstall.mockResolvedValue(confirmed([]));
+      h.harnessPropagation.propagateWithReport.mockResolvedValue({
+        health: makeHealth(),
+        userLayer: 'failed',
+      });
+      h.handlers.register();
+
+      const response = await call<{
+        status: string;
+        result: { libraryPass?: string };
+      }>(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+      });
+
+      expect(response.status).toBe('installed');
+      expect(response.result.libraryPass).toBe('failed');
+    });
+
+    it('a failed removal fails the uninstall with no config write and no reconcile (8.10)', async () => {
+      const h = makeHarness();
+      h.externalInstaller.uninstall.mockRejectedValue(
+        new Error('EBUSY: resource busy'),
+      );
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:uninstall-external', {
+        pluginId: PLUGIN_ID,
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.externalMcp.uninstall).not.toHaveBeenCalled();
+      expect(h.pluginLoader.saveWorkspacePluginConfig).not.toHaveBeenCalled();
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+    });
+
+    it('rejects a malformed decision id at the boundary', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:install-external', {
+        source: 'dotnet/skills',
+        plugin: 'dotnet',
+        consentToken: CONSENT_TOKEN,
+        localItemDecisions: { '../../etc/passwd': 'replace' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.externalInstaller.confirmInstall).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('plugins:replace-kept-items', () => {
+    function register(
+      h: Harness,
+      family: 'external' | 'skills-sh' | 'plugin-enable' | 'plugin-agent',
+      relPath: string,
+    ): string {
+      return h.approvals.register({
+        harnessRoot: HARNESS_ROOT,
+        family,
+        kind: 'owned-edited',
+        target: 'claude',
+        relPath,
+        sourceRef: 'ptah:alpha',
+        digest: 'sha256:abc',
+      });
+    }
+
+    it('routes each id through its own family', async () => {
+      const h = makeHarness();
+      const skillsShId = register(h, 'skills-sh', '.claude/skills/a');
+      const agentId = register(h, 'plugin-agent', '.claude/agents/b.md');
+      const keptId = register(h, 'plugin-enable', '.claude/skills/c');
+      h.installLocalItems.apply.mockImplementation(
+        async (request: { family: string; approvalIds: string[] }) => ({
+          replaced: request.approvalIds.map((approvalId) => ({
+            approvalId,
+            family: request.family,
+            relPath: 'x',
+            reason: 'owned-edited',
+          })),
+          kept: [],
+          unknown: [],
+        }),
+      );
+      h.handlers.register();
+
+      const result = await call<{
+        replaced: KeptItem[];
+        libraryPass: string;
+      }>(h, 'plugins:replace-kept-items', {
+        decisions: {
+          [skillsShId]: 'replace',
+          [agentId]: 'replace',
+          [keptId]: 'keep',
+        },
+      });
+
+      expect(h.installLocalItems.apply).toHaveBeenCalledTimes(2);
+      expect(h.installLocalItems.apply).toHaveBeenCalledWith({
+        family: 'skills-sh',
+        harnessRoot: HARNESS_ROOT,
+        approvalIds: [skillsShId],
+      });
+      expect(h.installLocalItems.apply).toHaveBeenCalledWith({
+        family: 'plugin-agent',
+        harnessRoot: HARNESS_ROOT,
+        approvalIds: [agentId],
+      });
+      expect(result.replaced).toHaveLength(2);
+      // A replaced item changed a source: one full pass follows.
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+        'plugins:replace-kept-items',
+        {},
+      );
+      expect(result.libraryPass).toBe('updated');
+    });
+
+    it('rejects an approval id issued to another family, and writes nothing', async () => {
+      const h = makeHarness();
+      const externalId = register(h, 'external', '.claude/skills/a');
+      const skillsShId = register(h, 'skills-sh', '.claude/skills/b');
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:replace-kept-items', {
+        decisions: { [skillsShId]: 'replace', [externalId]: 'replace' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+      // The rejected request consumed nothing: the external dialog can still
+      // act on its own id.
+      expect(
+        h.approvals.peek(externalId, 'external', HARNESS_ROOT),
+      ).not.toBeNull();
+    });
+
+    it('rejects an unknown id, and one issued for another repository', async () => {
+      const h = makeHarness();
+      const otherRepoId = h.approvals.register({
+        harnessRoot: path.join(HARNESS_ROOT, 'elsewhere'),
+        family: 'skills-sh',
+        kind: 'unowned',
+        target: 'claude',
+        relPath: '.claude/skills/a',
+        sourceRef: 'skills-sh:x',
+        digest: 'sha256:abc',
+      });
+      h.handlers.register();
+
+      for (const id of [FOREIGN_ID, otherRepoId]) {
+        const response = await rpc(h, 'plugins:replace-kept-items', {
+          decisions: { [id]: 'replace' },
+        });
+        expect(response.success).toBe(false);
+      }
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when every decision is keep', async () => {
+      const h = makeHarness();
+      const id = register(h, 'skills-sh', '.claude/skills/a');
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:replace-kept-items', {
+        decisions: { [id]: 'keep' },
+      });
+
+      expect(result).toEqual({
+        replaced: [],
+        kept: [],
+        libraryPass: 'not-applicable',
+      });
+      expect(h.installLocalItems.apply).not.toHaveBeenCalled();
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+    });
+
+    it('reports an id that lapsed before the apply as changed-since-approval', async () => {
+      const h = makeHarness();
+      const id = register(h, 'skills-sh', '.claude/skills/a');
+      h.installLocalItems.apply.mockResolvedValue({
+        replaced: [],
+        kept: [],
+        unknown: [id],
+      });
+      h.handlers.register();
+
+      const result = await call<{ kept: KeptItem[] }>(
+        h,
+        'plugins:replace-kept-items',
+        { decisions: { [id]: 'replace' } },
+      );
+
+      expect(result.kept).toEqual([
+        {
+          approvalId: id,
+          family: 'skills-sh',
+          target: 'claude',
+          relPath: '.claude/skills/a',
+          reason: 'changed-since-approval',
+        },
+      ]);
+    });
+
+    it('rejects a malformed request at the boundary', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:replace-kept-items', {
+        decisions: { 'not-an-id': 'replace' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+    });
+
+    it('requires an open folder', async () => {
+      const h = makeHarness({ workspaceRoot: null });
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:replace-kept-items', {
+        decisions: { [FOREIGN_ID]: 'replace' },
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('WORKSPACE_NOT_OPEN');
+    });
+  });
+
+  describe('plugins:resolve-config-home (D14)', () => {
+    const FOLDER = path.join(HARNESS_ROOT, 'packages', 'app');
+
+    it('adopt copies the chosen folder config, reconciles and refreshes in the background', async () => {
+      const h = makeHarness();
+      const after: PluginConfigHomeStatus = {
+        harnessRoot: HARNESS_ROOT,
+        state: 'imported',
+        candidates: [],
+      };
+      h.pluginLoader.getConfigHomeStatus
+        .mockReturnValueOnce(homeStatus([FOLDER]))
+        .mockReturnValueOnce(after);
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:resolve-config-home', {
+        action: 'adopt',
+        folder: FOLDER,
+      });
+
+      expect(h.pluginLoader.adoptFolderConfig).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+        FOLDER,
+      );
+      expect(h.harnessPropagation.propagate).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+        'plugins:resolve-config-home',
+        { skipUserLayerRefresh: true },
+      );
+      expect(
+        h.harnessPropagation.refreshUserLayerInBackground,
+      ).toHaveBeenCalledWith(HARNESS_ROOT, 'plugins:resolve-config-home');
+      expect(result).toEqual({ configHome: after });
+    });
+
+    it('dismiss hides the folder notice and answers the new status', async () => {
+      const h = makeHarness();
+      h.pluginLoader.getConfigHomeStatus
+        .mockReturnValueOnce(homeStatus([FOLDER]))
+        .mockReturnValueOnce(null);
+      h.handlers.register();
+
+      const result = await call(h, 'plugins:resolve-config-home', {
+        action: 'dismiss',
+        folder: FOLDER,
+      });
+
+      expect(h.pluginLoader.dismissFolderConfig).toHaveBeenCalledWith(
+        HARNESS_ROOT,
+        FOLDER,
+      );
+      expect(h.pluginLoader.adoptFolderConfig).not.toHaveBeenCalled();
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+      expect(result).toEqual({});
+    });
+
+    it.each([
+      ['an unknown folder', path.join(HARNESS_ROOT, 'other')],
+      ['a path outside the candidates', path.join(os.tmpdir(), 'evil')],
+      ['a traversal from a candidate', path.join(FOLDER, '..', '..')],
+    ])('rejects %s and writes nothing', async (_label, folder) => {
+      const h = makeHarness();
+      h.pluginLoader.getConfigHomeStatus.mockReturnValue(homeStatus([FOLDER]));
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:resolve-config-home', {
+        action: 'adopt',
+        folder,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.pluginLoader.adoptFolderConfig).not.toHaveBeenCalled();
+      expect(h.pluginLoader.dismissFolderConfig).not.toHaveBeenCalled();
+    });
+
+    it('rejects any folder when there is no config-home status', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:resolve-config-home', {
+        action: 'dismiss',
+        folder: FOLDER,
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.pluginLoader.dismissFolderConfig).not.toHaveBeenCalled();
+    });
+
+    it('an adopt persistence failure is an error and runs no reconcile', async () => {
+      const h = makeHarness();
+      h.pluginLoader.getConfigHomeStatus.mockReturnValue(homeStatus([FOLDER]));
+      h.pluginLoader.adoptFolderConfig.mockRejectedValue(new Error('EPERM'));
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:resolve-config-home', {
+        action: 'adopt',
+        folder: FOLDER,
+      });
+
+      expect(response.success).toBe(false);
+      expect(h.harnessPropagation.propagate).not.toHaveBeenCalled();
+      expect(
+        h.harnessPropagation.refreshUserLayerInBackground,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown action at the boundary', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const response = await rpc(h, 'plugins:resolve-config-home', {
+        action: 'delete',
+        folder: FOLDER,
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
     });
   });
 });

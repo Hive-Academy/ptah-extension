@@ -5,22 +5,28 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
 import {
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   type SubagentPromptCacheTtlSetting,
 } from '@ptah-extension/shared';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import {
+  SettingsSaveFeedbackService,
+  settingNotConfirmedMessage,
+  settingNotSavedMessage,
+  type SettingsSaveResult,
+} from '../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ENV_VAR = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
-const NOT_SAVED =
-  'Could not save the subagent prompt-cache TTL. The saved setting is unchanged.';
-const NOT_CONFIRMED =
-  'Could not confirm whether the subagent prompt-cache TTL was saved. Check the saved setting again before changing it.';
+const LABEL = 'Subagent prompt-cache TTL';
+const NOT_SAVED = `${settingNotSavedMessage(LABEL)} The saved setting is unchanged.`;
+const NOT_CONFIRMED = `${settingNotConfirmedMessage(LABEL)} Check the saved setting again before changing it.`;
+/** The state method's own answer for one write; see `select()`. */
+type WriteAttempt = 'skipped' | 'threw' | 'refused' | 'started';
 const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
   auto: 'Auto (1 hour for sessions with subagents)',
   '5m': '5 minutes',
@@ -31,7 +37,9 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
  * Subagent prompt-cache TTL (`agentOrchestration.subagentPromptCacheTtl`, TASK_2026_597 N1). Same save model as
  * `CopilotAutoApproveToggleComponent`: the write is `state.saveSettings({orchestration:{subagentPromptCacheTtl}})` through
  * `SettingsSaveFeedbackService` (toast + Undo), and the select only ever shows the read-back value (D15). An unknown
- * outcome blanks the select and takes no writes until "Check saved setting again" reads the value.
+ * outcome blanks the select and takes no writes until "Check saved setting again" reads the value. Outcomes are
+ * reported only in the page toast: `save()` names a failed or unconfirmed write, and a saved write whose read-back
+ * differs is announced here as an alert.
  *
  * When the host's `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` is set (`subagentPromptCacheTtlEnvOverride`, read-only) the
  * select stays editable and a notice says the env var takes precedence, or that its value is invalid and ignored.
@@ -95,15 +103,7 @@ const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
           }
         </p>
       }
-      @if (error(); as message) {
-        <p
-          class="text-xs text-base-content"
-          role="alert"
-          data-testid="subagent-cache-ttl-error"
-        >
-          {{ message }}
-        </p>
-      } @else if (saved() === null) {
+      @if (saved() === null) {
         <p
           class="text-xs text-base-content-muted"
           role="status"
@@ -151,7 +151,6 @@ export class SubagentCacheTtlSettingComponent {
   });
   /** True while this setting's write or re-read runs; the select is disabled meanwhile. */
   protected readonly saving = signal(false);
-  protected readonly error = signal<string | null>(null);
   /** A write's outcome is unknown: no value is shown and no write is taken until a re-read succeeds. */
   protected readonly unconfirmed = signal(false);
   protected readonly needsRecheck = computed(
@@ -181,33 +180,20 @@ export class SubagentCacheTtlSettingComponent {
     )
       return;
     this.saving.set(true);
-    this.error.set(null);
     try {
       // `refused`: another save in flight, nothing written; `started`: the commit describes this write; `threw`: the
       // outcome is unknown; `skipped`: never called.
-      const result: { attempt: 'skipped' | 'threw' | 'refused' | 'started' } = {
-        attempt: 'skipped',
-      };
-      await this.feedback.save({
-        label: 'Subagent prompt-cache TTL',
+      const result: { attempt: WriteAttempt } = { attempt: 'skipped' };
+      const undo: { attempt: WriteAttempt } = { attempt: 'skipped' };
+      const outcome = await this.feedback.save({
+        label: LABEL,
         scope: 'global',
-        write: async () => {
-          result.attempt = 'threw';
-          const started = await this.state.saveSettings(
-            { orchestration: { subagentPromptCacheTtl: next } },
-            context,
-          );
-          result.attempt = started ? 'started' : 'refused';
-          return started;
-        },
-        undo: () =>
-          this.state.saveSettings(
-            { orchestration: { subagentPromptCacheTtl: saved } },
-            context,
-          ),
+        write: () => this.write(next, context, result),
+        // The Undo is a write too: it is reconciled the same way once its own toast is shown.
+        undo: () => this.write(saved, context, undo),
+        undoSettled: (undoOutcome) => this.reconcile(undo.attempt, saved, undoOutcome),
       });
-      if (result.attempt === 'started') this.settle(next);
-      else if (result.attempt === 'threw') this.markUnconfirmed();
+      this.reconcile(result.attempt, next, outcome);
     } finally {
       this.saving.set(false);
     }
@@ -224,25 +210,45 @@ export class SubagentCacheTtlSettingComponent {
         this.saved() !== null
       ) {
         this.unconfirmed.set(false);
-        this.error.set(null);
       } else {
-        this.markUnconfirmed();
+        this.unconfirmed.set(true);
       }
     } finally {
       this.saving.set(false);
     }
   }
 
-  private settle(requested: SubagentPromptCacheTtlSetting): void {
-    if (this.state.commit().status === 'unconfirmed' || this.saved() === null) {
-      this.markUnconfirmed();
-      return;
-    }
-    if (this.saved() !== requested) this.error.set(NOT_SAVED);
+  private async write(
+    value: SubagentPromptCacheTtlSetting,
+    context: ProvidersEditContext,
+    track: { attempt: WriteAttempt },
+  ): Promise<boolean> {
+    track.attempt = 'threw';
+    const started = await this.state.saveSettings(
+      { orchestration: { subagentPromptCacheTtl: value } },
+      context,
+    );
+    track.attempt = started ? 'started' : 'refused';
+    return started;
   }
 
-  private markUnconfirmed(): void {
-    this.unconfirmed.set(true);
-    this.error.set(NOT_CONFIRMED);
+  private reconcile(
+    attempt: WriteAttempt,
+    requested: SubagentPromptCacheTtlSetting,
+    outcome: SettingsSaveResult,
+  ): void {
+    if (attempt === 'started') this.settle(requested, outcome === 'saved');
+    else if (attempt === 'threw') this.unconfirmed.set(true);
+  }
+
+  /** `toastSaid`: the toast reported this write as saved, so a read-back mismatch needs its own alert. */
+  private settle(requested: SubagentPromptCacheTtlSetting, toastSaid: boolean): void {
+    if (this.state.commit().status === 'unconfirmed' || this.saved() === null) {
+      this.unconfirmed.set(true);
+      // The toast said "Saved", but nothing was read back: correct it.
+      if (toastSaid) this.feedback.announce(NOT_CONFIRMED, 'alert');
+      return;
+    }
+    if (toastSaid && this.saved() !== requested) this.feedback.announce(NOT_SAVED, 'alert');
   }
 }

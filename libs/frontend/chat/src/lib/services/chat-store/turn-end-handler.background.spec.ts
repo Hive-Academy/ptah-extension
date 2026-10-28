@@ -9,7 +9,7 @@
  *
  *   - handleTurnEnded: pendingBackgroundTasks / pendingSessionCrons /
  *     lastTerminalReason; NO `status` key in the update.
- *   - handleSubagentEnded: onStopped only for a KNOWN background agent;
+ *   - handleSubagentEnded: onCompleted only for a KNOWN background agent;
  *     updateBackgroundTab with pendingBackgroundTasks; NO `status` key.
  *   - handleTurnFailed: updateBackgroundTab with lastTerminalReason only; the
  *     foreground handleChatError channel is NOT invoked (its active-tab
@@ -24,6 +24,7 @@ import {
   type ClaudeSessionId,
 } from '@ptah-extension/chat-state';
 import {
+  AgentMonitorStore,
   BackgroundAgentStore,
   type BackgroundAgentEntry,
 } from '@ptah-extension/chat-streaming';
@@ -121,8 +122,9 @@ describe('TurnEndHandlerService — background fallback', () => {
   let setLastTerminalReasonMock: jest.Mock;
   let setPendingBackgroundTasksMock: jest.Mock;
   let handleChatErrorMock: jest.Mock;
-  let onStoppedMock: jest.Mock;
+  let onCompletedMock: jest.Mock;
   let findByAgentIdMock: jest.Mock;
+  let onSubagentEndedMock: jest.Mock;
   let warn: jest.SpyInstance;
 
   const knownEntry: BackgroundAgentEntry = {
@@ -146,8 +148,9 @@ describe('TurnEndHandlerService — background fallback', () => {
     setLastTerminalReasonMock = jest.fn();
     setPendingBackgroundTasksMock = jest.fn();
     handleChatErrorMock = jest.fn();
-    onStoppedMock = jest.fn();
+    onCompletedMock = jest.fn();
     findByAgentIdMock = jest.fn().mockReturnValue(null);
+    onSubagentEndedMock = jest.fn();
 
     // Snapshot setters only — see turn-end-handler.service.spec.ts.
     const tabManagerMock = {
@@ -164,8 +167,9 @@ describe('TurnEndHandlerService — background fallback', () => {
     } as unknown as ChatLifecycleService;
 
     const backgroundAgentStoreMock = {
-      onStopped: onStoppedMock,
+      onCompleted: onCompletedMock,
       findByAgentId: findByAgentIdMock,
+      adoptRealAgentId: jest.fn().mockReturnValue(null),
     } as unknown as BackgroundAgentStore;
 
     warn = jest.spyOn(console, 'warn').mockImplementation();
@@ -176,6 +180,12 @@ describe('TurnEndHandlerService — background fallback', () => {
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: ChatLifecycleService, useValue: lifecycleMock },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStoreMock },
+        {
+          provide: AgentMonitorStore,
+          useValue: {
+            onSubagentEnded: onSubagentEndedMock,
+          } as unknown as AgentMonitorStore,
+        },
       ],
     });
     service = TestBed.inject(TurnEndHandlerService);
@@ -270,7 +280,7 @@ describe('TurnEndHandlerService — background fallback', () => {
   });
 
   describe('handleSubagentEnded background fallback', () => {
-    it('stops the known agent and stamps the snapshot without a status key', () => {
+    it('completes the known agent and stamps the snapshot without a status key', () => {
       crossWsTab = makeTab({ status: 'awaiting-background' });
       findByAgentIdMock.mockReturnValue(knownEntry);
 
@@ -278,7 +288,7 @@ describe('TurnEndHandlerService — background fallback', () => {
         makeSubagentEndedPayload({ backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).toHaveBeenCalledTimes(1);
+      expect(onCompletedMock).toHaveBeenCalledTimes(1);
       expect(updateBackgroundTabMock).toHaveBeenCalledTimes(1);
       const updates = updateBackgroundTabMock.mock.calls[0][1];
       expect(updates).toEqual({ pendingBackgroundTasks: [] });
@@ -300,7 +310,7 @@ describe('TurnEndHandlerService — background fallback', () => {
       expect('status' in updates).toBe(false);
     });
 
-    it('does NOT stop a store entry for an unknown (foreground) agent', () => {
+    it('does NOT complete a store entry for an unknown (foreground) agent', () => {
       crossWsTab = makeTab({ status: 'streaming' });
       findByAgentIdMock.mockReturnValue(null);
 
@@ -308,7 +318,7 @@ describe('TurnEndHandlerService — background fallback', () => {
         makeSubagentEndedPayload({ backgroundTasks: [] }),
       );
 
-      expect(onStoppedMock).not.toHaveBeenCalled();
+      expect(onCompletedMock).not.toHaveBeenCalled();
       expect(updateBackgroundTabMock).toHaveBeenCalledTimes(1);
     });
 
@@ -322,13 +332,13 @@ describe('TurnEndHandlerService — background fallback', () => {
       expect(setPendingBackgroundTasksMock).not.toHaveBeenCalled();
     });
 
-    it('still stops a known agent when no tab is found anywhere, then warns', () => {
+    it('still completes a known agent when no tab is found anywhere, then warns', () => {
       crossWsTab = null;
       findByAgentIdMock.mockReturnValue(knownEntry);
 
       service.handleSubagentEnded(makeSubagentEndedPayload());
 
-      expect(onStoppedMock).toHaveBeenCalledTimes(1);
+      expect(onCompletedMock).toHaveBeenCalledTimes(1);
       expect(updateBackgroundTabMock).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
         '[ChatStore] handleSubagentEnded: no tab bound to sessionId',
@@ -353,6 +363,46 @@ describe('TurnEndHandlerService — background fallback', () => {
 
       expect(updateBackgroundTabMock).not.toHaveBeenCalled();
       expect(setPendingBackgroundTasksMock).toHaveBeenCalledWith('bg-tab', []);
+    });
+  });
+
+  describe('handleSubagentEnded AgentMonitorStore backstop', () => {
+    it('finishes the monitor record for the payload toolCallId', () => {
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({
+          toolCallId: 'toolu_task',
+          lastAssistantMessage: 'sub done',
+          timestamp: 1_700_000_000_500,
+        }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledTimes(1);
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        'sub done',
+        1_700_000_000_500,
+      );
+    });
+
+    it('passes no summary when the hook carried no last message', () => {
+      service.handleSubagentEnded(
+        makeSubagentEndedPayload({
+          toolCallId: 'toolu_task',
+          lastAssistantMessage: null,
+        }),
+      );
+
+      expect(onSubagentEndedMock).toHaveBeenCalledWith(
+        'toolu_task',
+        undefined,
+        1_700_000_000_000,
+      );
+    });
+
+    it('does not touch the monitor store without a toolCallId', () => {
+      service.handleSubagentEnded(makeSubagentEndedPayload());
+
+      expect(onSubagentEndedMock).not.toHaveBeenCalled();
     });
   });
 

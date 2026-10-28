@@ -9,6 +9,7 @@
  * every reconcile was a correct no-op over nothing.
  */
 
+import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { bootHarness, createCliUserLayerRefresher } from './harness-boot';
 
@@ -17,8 +18,18 @@ const MIRROR = Symbol.for('PtahUserLayerMirrorService');
 const WORKSPACE_PROVIDER = Symbol.for('PlatformWorkspaceProvider');
 const CONTENT_DOWNLOAD = Symbol.for('PlatformContentDownload');
 const PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+const LOGGER = Symbol.for('Logger');
+const PLUGIN_DESCRIPTORS = {
+  '/home/.ptah/plugins/ptah-core': {
+    sourceRef: 'ptah:ptah-core',
+    label: 'Ptah Core',
+  },
+};
 
 const WORKSPACE_ROOT = '/repo';
+
+/** The failure counters of a mirror/reconcile pass that handled every file. */
+const CLEAN_PASS = { errors: 0, retiredSkills: { errors: 0 } };
 
 function makeLogger(): Logger {
   return {
@@ -104,22 +115,34 @@ describe('bootHarness', () => {
 });
 
 describe('createCliUserLayerRefresher', () => {
-  function mirrorContainer(mirror: {
-    mirrorAll: jest.Mock;
-    reconcileAll: jest.Mock;
-  }): FakeContainer {
+  function mirrorContainer(
+    mirror: {
+      mirrorAll: jest.Mock;
+      reconcileAll: jest.Mock;
+    },
+    logger: Logger = makeLogger(),
+  ): FakeContainer {
     return makeContainer([
       [MIRROR, mirror],
+      [LOGGER, logger],
       [WORKSPACE_PROVIDER, workspaceProvider(WORKSPACE_ROOT)],
       [CONTENT_DOWNLOAD, { getPluginsPath: () => '/home/.ptah/plugins' }],
       [
         PLUGIN_LOADER,
         {
-          getWorkspacePluginConfig: () => ({ enabledPluginIds: ['ptah-core'] }),
+          getWorkspacePluginConfig: () => ({
+            enabledPluginIds: ['ptah-core'],
+            disabledPluginIds: ['ptah-skillssh-off'],
+          }),
           resolvePluginPaths: () => ['/home/.ptah/plugins/ptah-core'],
           discoverHarnessPluginPaths: () => [
             '/home/.ptah/plugins/ptah-harness-x',
           ],
+          discoverSkillsShPluginPaths: () => [
+            '/home/.ptah/plugins/ptah-skillssh-acme',
+            '/home/.ptah/plugins/ptah-skillssh-off',
+          ],
+          getPluginSourceDescriptors: () => PLUGIN_DESCRIPTORS,
         },
       ],
     ]);
@@ -130,8 +153,8 @@ describe('createCliUserLayerRefresher', () => {
     // slugs; `reconcileAll` fast-forwards and reaps. Reaping first would sweep
     // a clone whose source had only just been mirrored.
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,
@@ -149,8 +172,8 @@ describe('createCliUserLayerRefresher', () => {
     // deleted", so a reconcile walking fewer roots than the mirror would reap
     // live clones.
     const mirror = {
-      mirrorAll: jest.fn().mockResolvedValue({}),
-      reconcileAll: jest.fn().mockResolvedValue({}),
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
     };
     const refresher = createCliUserLayerRefresher(
       mirrorContainer(mirror) as never,
@@ -163,9 +186,93 @@ describe('createCliUserLayerRefresher', () => {
     );
     expect(mirror.mirrorAll.mock.calls[0][0]).toMatchObject({
       pluginPaths: ['/home/.ptah/plugins/ptah-core'],
-      harnessPluginRoots: ['/home/.ptah/plugins/ptah-harness-x'],
+      // skills.sh roots join the harness roots (A9); a disabled one does not.
+      harnessPluginRoots: [
+        '/home/.ptah/plugins/ptah-harness-x',
+        '/home/.ptah/plugins/ptah-skillssh-acme',
+      ],
       pluginsBasePath: '/home/.ptah/plugins',
+      pluginDescriptors: PLUGIN_DESCRIPTORS,
+      // No `.ptah`/`.git` above the fake root, so it is its own harness root.
+      libraryScopeRoot: path.resolve(WORKSPACE_ROOT),
     });
+  });
+
+  it('reports refreshed when both halves complete', async () => {
+    const mirror = {
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+    };
+    const refresher = createCliUserLayerRefresher(
+      mirrorContainer(mirror) as never,
+    );
+
+    await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBe('refreshed');
+  });
+
+  it('reports failed and logs, never rejects, when a half throws', async () => {
+    const mirror = {
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockRejectedValue(new Error('EACCES')),
+    };
+    const logger = makeLogger();
+    const refresher = createCliUserLayerRefresher(
+      mirrorContainer(mirror, logger) as never,
+    );
+
+    await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBe('failed');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[CLI harness] User-layer refresh failed (non-fatal)',
+      { error: 'EACCES' },
+    );
+  });
+
+  it.each([
+    [
+      'a mirror file error',
+      { errors: 1, retiredSkills: { errors: 0 } },
+      CLEAN_PASS,
+    ],
+    [
+      'a reconcile retirement error',
+      CLEAN_PASS,
+      { errors: 0, retiredSkills: { errors: 2 } },
+    ],
+  ])(
+    'reports failed, not refreshed, after %s counted without throwing (B3)',
+    async (_label, mirrored, reconciled) => {
+      const mirror = {
+        mirrorAll: jest.fn().mockResolvedValue(mirrored),
+        reconcileAll: jest.fn().mockResolvedValue(reconciled),
+      };
+      const logger = makeLogger();
+      const refresher = createCliUserLayerRefresher(
+        mirrorContainer(mirror, logger) as never,
+      );
+
+      await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBe('failed');
+      // Reconcile still runs after a counted mirror failure.
+      expect(mirror.reconcileAll).toHaveBeenCalledTimes(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('the Library may be incomplete'),
+      );
+    },
+  );
+
+  it('omits libraryScopeRoot when no workspace is open', async () => {
+    const mirror = {
+      mirrorAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+      reconcileAll: jest.fn().mockResolvedValue(CLEAN_PASS),
+    };
+    const refresher = createCliUserLayerRefresher(
+      mirrorContainer(mirror) as never,
+    );
+
+    await refresher.refresh(undefined);
+
+    expect(mirror.mirrorAll.mock.calls[0][0]).not.toHaveProperty(
+      'libraryScopeRoot',
+    );
   });
 
   it('no-ops when agent-generation is not registered in this container', async () => {
@@ -175,6 +282,6 @@ describe('createCliUserLayerRefresher', () => {
       ]) as never,
     );
 
-    await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBeUndefined();
+    await expect(refresher.refresh(WORKSPACE_ROOT)).resolves.toBe('skipped');
   });
 });

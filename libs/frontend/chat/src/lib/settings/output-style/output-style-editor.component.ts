@@ -7,7 +7,8 @@
  *  - The Keep default instructions toggle and the Instructions body (Edit | Preview tabs, markdown preview) in
  *    {@link OutputStyleInstructionsFieldComponent}; this editor owns their values
  *  - Footer: Primary "Save style" and ghost "Cancel"
- *  - Error handling: Never surfaces raw host error text; uses fixed sentence (D15)
+ *  - Error handling: Never surfaces raw host error text; a failed save shows a fixed sentence as the Settings page
+ *    toast, which stays visible above the drawer (D15)
  *
  * Three inline dialogs sit at the top of the body, one at a time: the `FILE_EXISTS`
  * replace prompt, the `STALE_FILE` prompt (Reload or Overwrite against the file's
@@ -44,6 +45,7 @@ import type {
 } from '@ptah-extension/shared';
 import { OutputStyleStore } from './output-style.store';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { OutputStyleInstructionsFieldComponent } from './output-style-instructions-field.component';
 
 interface TierChoice {
@@ -132,28 +134,6 @@ interface StaleConflict {
               with what you enter. To keep the original wording, copy it out of that
               file first.
             </p>
-          </div>
-        }
-
-        @if (formError(); as message) {
-          <div
-            class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-2 text-xs text-base-content"
-            role="alert"
-            data-testid="output-style-form-error"
-          >
-            <lucide-angular
-              [img]="AlertTriangleIcon"
-              class="w-3.5 h-3.5 mt-0.5 shrink-0 text-error"
-              aria-hidden="true"
-            />
-            <span class="text-xs text-base-content flex-1">{{ message }}</span>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs text-base-content"
-              (click)="formError.set(null)"
-            >
-              Dismiss
-            </button>
           </div>
         }
 
@@ -390,6 +370,7 @@ interface StaleConflict {
 })
 export class OutputStyleEditorComponent {
   private readonly store = inject(OutputStyleStore);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
 
   /** Controls drawer visibility (defaults to true for standalone/test usage). */
   readonly isOpen = input(true);
@@ -468,7 +449,6 @@ export class OutputStyleEditorComponent {
   readonly nameTouched = signal(false);
   readonly descriptionTouched = signal(false);
   readonly submitAttempted = signal(false);
-  readonly formError = signal<string | null>(null);
   /** A `FILE_EXISTS` result awaiting an explicit replace. */
   readonly conflict = signal<OutputStyleOperationError | null>(null);
   /** A `STALE_FILE` result awaiting Reload or Overwrite. */
@@ -583,7 +563,6 @@ export class OutputStyleEditorComponent {
   async submit(event?: Event): Promise<void> {
     event?.preventDefault();
     this.submitAttempted.set(true);
-    this.formError.set(null);
 
     if (this.nameInvalid() || this.descriptionInvalid()) return;
 
@@ -624,7 +603,7 @@ export class OutputStyleEditorComponent {
       } else if (error.code === 'STALE_FILE') {
         await this.readCurrentFile();
       } else {
-        this.formError.set(OUTPUT_STYLE_SAVE_FAILED);
+        this.feedback.announce(OUTPUT_STYLE_SAVE_FAILED, 'alert');
       }
     } finally {
       this.persisting.set(false);

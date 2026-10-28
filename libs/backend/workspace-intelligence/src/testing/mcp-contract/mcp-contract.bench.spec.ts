@@ -188,6 +188,7 @@ function createRealFsProvider(): IFileSystemProvider {
     delete: notNeeded('delete'),
     createDirectory: notNeeded('createDirectory'),
     createDirectoryExclusive: notNeeded('createDirectoryExclusive'),
+    writeFileExclusive: notNeeded('writeFileExclusive'),
     copy: notNeeded('copy'),
     findFiles: notNeeded('findFiles'),
     createFileWatcher: () => {

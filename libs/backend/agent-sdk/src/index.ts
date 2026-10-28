@@ -461,6 +461,8 @@ export {
 export {
   CapabilityPolicyUnknownError,
   type EffectivePluginConfig,
+  type PluginLoaderInitOptions,
+  type PluginSourceDescriptor,
 } from './lib/helpers/plugin-loader.service';
 export {
   wireSessionMetadataEvents,

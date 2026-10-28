@@ -71,7 +71,7 @@ function makeTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 8,
     ...over,
@@ -639,6 +639,10 @@ describe('harness repair consent dialog', () => {
               outcome: 'not-blocked',
               reason: HARNESS_REPAIR_REASONS.notBlocked,
             }),
+            pathResult('.claude/skills/e', {
+              outcome: 'changed-since-approval',
+              reason: HARNESS_REPAIR_REASONS.changedSinceApproval,
+            }),
           ]),
         ),
       );
@@ -673,6 +677,7 @@ describe('harness repair consent dialog', () => {
             '.claude/skills/b',
             '.claude/skills/c',
             '.claude/skills/d',
+            '.claude/skills/e',
             '.vscode/mcp.json#wanted',
             'Claude Code',
             quarantined,
@@ -812,6 +817,30 @@ describe('harness repair consent dialog', () => {
       const row = host.querySelector('[data-testid="harness-repair-result"]');
       expect(textOf(row)).toContain('does not apply');
       expect(textOf(row)).not.toContain('not-a-path');
+    });
+
+    it('renders a path that changed since approval as kept, never as moved', async () => {
+      // A21: a re-digest under the lock found the content no longer matches
+      // what the user approved, so the path was left exactly as it is.
+      rpcMock.call.mockResolvedValue(
+        ok(
+          repairResult([
+            pathResult('.claude/skills/a', {
+              outcome: 'changed-since-approval',
+              reason: HARNESS_REPAIR_REASONS.changedSinceApproval,
+            }),
+          ]),
+        ),
+      );
+      await open(makeHealth([blockedTarget('claude', ['.claude/skills/a'])]));
+      await tick('claude::.claude/skills/a');
+      await click('harness-repair-confirm');
+
+      const row = host.querySelector('[data-testid="harness-repair-result"]');
+      expect(row?.getAttribute('data-outcome')).toBe('changed-since-approval');
+      expect(textOf(row)).toContain('Kept: changed since approval');
+      expect(textOf(row).toLowerCase()).not.toContain('moved aside');
+      expect(textOf(row)).not.toContain('changed-since-approval');
     });
 
     it('surfaces a transport failure without claiming anything was moved', async () => {

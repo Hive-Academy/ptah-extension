@@ -4,7 +4,7 @@ import {
   computed,
   inject,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   Check,
@@ -17,17 +17,13 @@ import {
   Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
-
-/**
- * One agent card on the completion screen, derived from the explicit
- * terminal outcome the backend reported — never from streamed progress.
- */
-interface AgentOutcomeTile {
-  id: string;
-  name: string;
-  status: 'written' | 'unchanged' | 'failed';
-  error?: string;
-}
+import { GradeExpectationComponent } from './completion/grade-expectation.component';
+import { LibraryStaleNoticeComponent } from './completion/library-stale-notice.component';
+import { OutcomeSummaryComponent } from './completion/outcome-summary.component';
+import {
+  libraryReachable,
+  type OutcomeFileRow,
+} from './completion/outcome-rows';
 
 /**
  * CompletionComponent - Success screen with quick start guide and orchestration examples
@@ -55,7 +51,12 @@ interface AgentOutcomeTile {
 @Component({
   selector: 'ptah-completion',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [
+    LucideAngularModule,
+    OutcomeSummaryComponent,
+    GradeExpectationComponent,
+    LibraryStaleNoticeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-6 py-8">
@@ -110,38 +111,18 @@ interface AgentOutcomeTile {
             }
           </div>
 
-          <!-- Outcome counts (from the completion payload, not stream items) -->
+          <!-- Outcomes (from the completion payload, not stream items) -->
           @if (completion(); as data) {
-            <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
-              <span
-                class="badge badge-outline badge-sm"
-                data-testid="written-count"
-              >
-                {{ data.writtenCount }} written
-              </span>
-              <span
-                class="badge badge-outline badge-sm"
-                data-testid="unchanged-count"
-              >
-                {{ data.unchangedCount }} already current
-              </span>
-              @if (data.failedCount > 0) {
-                <span
-                  class="badge badge-error badge-sm"
-                  data-testid="failed-count"
-                >
-                  {{ data.failedCount }} failed
-                </span>
-              }
-              @if (data.rejectedSections > 0) {
+            @if (data.rejectedSections > 0) {
+              <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
                 <span
                   class="badge badge-warning badge-sm"
                   data-testid="rejected-sections-count"
                 >
                   {{ data.rejectedSections }} sections rejected
                 </span>
-              }
-            </div>
+              </div>
+            }
             <div
               class="flex items-center gap-2 mb-4 text-xs text-base-content-muted"
               data-testid="output-directory"
@@ -151,58 +132,23 @@ interface AgentOutcomeTile {
                 data.outputDirectory
               }}</code>
             </div>
-          }
-
-          <!-- Agent Tiles Grid -->
-          @if (agentTiles().length > 0) {
-            <div
-              class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
-            >
-              @for (tile of agentTiles(); track tile.id) {
-                <div
-                  class="card bg-base-200/50 hover:bg-base-200 shadow-sm hover:shadow-md transition-all"
-                  [attr.data-status]="tile.status"
-                >
-                  <div class="card-body p-5 text-center">
-                    <div class="flex justify-center mb-3">
-                      @if (tile.status === 'failed') {
-                        <div class="rounded-full bg-error/20 p-2">
-                          <lucide-angular
-                            [img]="XCircleIcon"
-                            class="h-4 w-4 text-error"
-                          />
-                        </div>
-                      } @else {
-                        <div class="rounded-full bg-success/20 p-2">
-                          <lucide-angular
-                            [img]="CheckIcon"
-                            class="h-4 w-4 text-success"
-                          />
-                        </div>
-                      }
-                    </div>
-                    <h3
-                      class="text-xs font-medium leading-snug opacity-90"
-                      [title]="tile.error ?? tile.name"
-                    >
-                      {{ formatAgentName(tile.name) }}
-                    </h3>
-                    @if (tile.status === 'unchanged') {
-                      <span class="badge badge-ghost badge-xs mx-auto">
-                        Already current
-                      </span>
-                    } @else if (tile.status === 'failed') {
-                      <span
-                        class="text-xs text-error leading-snug"
-                        [title]="tile.error"
-                      >
-                        {{ tile.error ?? 'Generation failed' }}
-                      </span>
-                    }
-                  </div>
-                </div>
+            <!-- Lazy chunk: the outcome views stay out of the initial bundle. -->
+            @defer (on immediate) {
+              <ptah-outcome-summary
+                [rows]="outcomeRows()"
+                [libraryDiverged]="data.result?.libraryDiverged ?? []"
+                [target]="data.result?.target"
+                [isElectron]="isElectron"
+                [outputDirectory]="data.outputDirectory"
+                (openLibrary)="onOpenLibrary()"
+              />
+              @if (showsLibrary()) {
+                <ptah-grade-expectation [rows]="outcomeRows()" />
+                <ptah-library-stale-notice
+                  [libraryPass]="data.result?.libraryPass"
+                />
               }
-            </div>
+            }
           }
 
           <!-- Generation errors from the completion payload -->
@@ -398,6 +344,9 @@ interface AgentOutcomeTile {
 export class CompletionComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly appState = inject(AppStateManager);
+  /** Library copy is Electron-only (D3). */
+  protected readonly isElectron = this.vscodeService.isElectron === true;
   protected readonly CheckIcon = Check;
   protected readonly FolderIcon = Folder;
   protected readonly ZapIcon = Zap;
@@ -410,31 +359,36 @@ export class CompletionComponent {
   protected readonly completion = this.wizardState.completionData;
 
   /**
-   * Agent cards derived from the explicit outcomes in the completion
-   * payload. Streamed progress never establishes a terminal write outcome.
+   * One row per explicit outcome in the completion payload. Streamed
+   * progress never establishes a terminal write outcome.
    */
-  protected readonly agentTiles = computed<AgentOutcomeTile[]>(() => {
+  protected readonly outcomeRows = computed<OutcomeFileRow[]>(() => {
     const data = this.completion();
-    if (data && data.agents.length > 0) {
-      return data.agents.map((outcome) => {
-        const fileName = outcome.filePath.split(/[\\/]/).pop();
-        return {
-          id: outcome.agentId,
-          name: fileName && fileName.length > 0 ? fileName : outcome.agentId,
-          status: outcome.status,
-          error: outcome.error,
-        };
-      });
-    }
-    return [];
+    if (!data) return [];
+    return data.agents.map((outcome) => {
+      const fileName = outcome.filePath.split(/[\\/]/).pop();
+      return {
+        id: outcome.agentId,
+        fileName:
+          fileName && fileName.length > 0 ? fileName : `${outcome.agentId}.md`,
+        status: outcome.status,
+        ...(outcome.error ? { error: outcome.error } : {}),
+      };
+    });
   });
 
   /**
    * Count of agents with a terminal outcome.
    */
-  protected readonly agentCount = computed(() => {
-    return this.agentTiles().length;
-  });
+  protected readonly agentCount = computed(() => this.outcomeRows().length);
+
+  /**
+   * Grade and stale-Library copy: Electron, harness-root target, and only
+   * when the host reported the result facts (absent facts show neither).
+   */
+  protected readonly showsLibrary = computed(() =>
+    libraryReachable(this.isElectron, this.completion()?.result?.target),
+  );
 
   /**
    * Whether the run reported any failure. Drives the header state.
@@ -493,17 +447,9 @@ export class CompletionComponent {
     () => this.wizardState.completionData()?.enhancedPromptsUsed ?? false,
   );
 
-  /**
-   * Format agent filename for display on tiles.
-   * Removes file extension and converts kebab-case to Title Case.
-   * Example: "frontend-developer.md" -> "Frontend Developer"
-   */
-  protected formatAgentName(filename: string): string {
-    const nameWithoutExt = filename.replace(/\.md$/i, '');
-    return nameWithoutExt
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  /** Open the Library filtered to the diverged copies this run named. */
+  protected onOpenLibrary(): void {
+    this.appState.openSkillsDivergedClones();
   }
 
   /**

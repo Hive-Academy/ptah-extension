@@ -88,24 +88,19 @@ import {
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
-// NOTE: intentionally the WIDE barrel, and there is deliberately no
-// `@ptah-extension/setup-wizard/services` barrel (TASK_2026_187 R6/R15).
-// The setup wizard is a LAUNCH SURFACE: `onCommand:ptah.setupAgents`
-// (apps/ptah-extension-vscode/package.json:41) opens a dedicated webview panel
-// whose HTML hardcodes `initialView: 'setup-wizard'`
-// (agent-generation/.../wizard/webview-lifecycle.service.ts:153), so a fresh
-// Angular bootstrap lands straight on that component with a user waiting.
-// `app.routes.ts` therefore binds it with a static `component:` and keeps the
-// wide barrel in the eager graph regardless of where the two services below
-// are imported from — a narrow barrel would move zero bytes. Same structural
-// no-op as the dashboard barrel dropped in Batch 3.
+// NARROW `/app` entry on purpose, here and in `app.routes.ts`. The setup
+// wizard is a LAUNCH SURFACE (`initialView: 'setup-wizard'`), so its route
+// stays a static `component:`. But its later steps render inside `@defer`,
+// and the wide barrel re-exports those step components, so importing the
+// wide barrel from eager code would put them back into the initial bundle
+// (about 208 kB, TASK_2026_701).
 import {
   provideWizardInternalState,
   provideSetupWizardFocusRouter,
   SetupWizardStateService,
   SetupGenerationOpenHandler,
   GenerationRunEventAdapter,
-} from '@ptah-extension/setup-wizard';
+} from '@ptah-extension/setup-wizard/app';
 import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
 import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
 import {
@@ -131,7 +126,10 @@ import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/s
 // NARROW barrel on purpose. `MARKETPLACE_COMPONENT` below is deferred, so
 // importing `HarnessHealthStore` from the wide barrel would pull the whole
 // marketplace hub back into the eager graph just to register one push handler.
-import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
+import {
+  HarnessHealthStore,
+  LibraryChangeFeed,
+} from '@ptah-extension/marketplace/services';
 import {
   TaskSessionLinksService,
   TasksStore,
@@ -404,6 +402,14 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: HarnessHealthStore,
+      multi: true,
+    },
+    // Same reason: `library:changed` follows a setup-wizard run or a plugin
+    // install, often before the Marketplace is opened. Registered for both
+    // hosts; the feed ignores the push outside Electron (D3).
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: LibraryChangeFeed,
       multi: true,
     },
     // Boot readiness (TASK_2026_380). Registered for BOTH hosts on purpose:

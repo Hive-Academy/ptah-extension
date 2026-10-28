@@ -7,13 +7,19 @@
 
 import { z } from 'zod';
 import { HARNESS_TARGET_IDS } from '@ptah-extension/shared';
-import type { ProjectAnalysisResult } from '@ptah-extension/shared';
+import type {
+  FileOutcome,
+  GenerationTargetInfo,
+  LibraryPassStatus,
+  ProjectAnalysisResult,
+} from '@ptah-extension/shared';
+import type { AgentFileGuard } from './core.types';
 
 /** Durable status for one selected agent's generation work. */
 export interface GenerationAgentCheckpoint {
   agentId: string;
   filePath: string;
-  status: 'pending' | 'running' | 'written' | 'unchanged' | 'failed';
+  status: 'pending' | 'running' | FileOutcome;
   rejectedSections: number;
   tailoredSections: number;
   error?: string;
@@ -38,6 +44,24 @@ export interface GenerationCheckpointManifest {
   updatedAt: string;
   lifecycle: 'running' | 'paused' | 'completed' | 'timed-out' | 'failed';
   outputDirectory: string;
+  /**
+   * The roots the run chose between when it was submitted. Absent on
+   * manifests written before runs carried a target.
+   */
+  target?: GenerationTargetInfo;
+  /**
+   * Root the agent files are written under (`{outputRoot}/.claude/agents`).
+   * Absent on older manifests, which write under the analysed workspace.
+   */
+  outputRoot?: string;
+  /**
+   * The confirmed keep/replace decision per agent id, persisted so a resume
+   * or a retry applies the same decision. Absent on older manifests, which
+   * resume create-only.
+   */
+  fileGuards?: Record<string, AgentFileGuard>;
+  /** Library refresh outcome of the latest invocation that settled. */
+  library?: { pass: LibraryPassStatus; diverged: string[] };
   selectedAgentIds: string[];
   input: {
     threshold?: number;
@@ -172,11 +196,34 @@ export const ProjectAnalysisResultSchema: z.ZodType<ProjectAnalysisResult> =
 const GenerationAgentCheckpointSchema = z.object({
   agentId: z.string(),
   filePath: z.string(),
-  status: z.enum(['pending', 'running', 'written', 'unchanged', 'failed']),
+  status: z.enum([
+    'pending',
+    'running',
+    'written',
+    'kept',
+    'unchanged',
+    'changed-since-preview',
+    'failed',
+  ]),
   rejectedSections: z.number(),
   tailoredSections: z.number(),
   error: z.string().optional(),
 });
+
+const AgentFileGuardSchema: z.ZodType<AgentFileGuard> = z.discriminatedUnion(
+  'mode',
+  [
+    z.object({ mode: z.literal('keep') }),
+    z.object({ mode: z.literal('create-only') }),
+    z.object({
+      mode: z.literal('replace-allowed'),
+      baseline: z.discriminatedUnion('state', [
+        z.object({ state: z.literal('missing') }),
+        z.object({ state: z.literal('present'), hash: z.string().min(1) }),
+      ]),
+    }),
+  ],
+);
 
 /** Validates a persisted generation checkpoint before a run is resumed. */
 export const GenerationCheckpointManifestSchema = z.object({
@@ -227,6 +274,22 @@ export const GenerationCheckpointManifestSchema = z.object({
   updatedAt: z.string(),
   lifecycle: z.enum(['running', 'paused', 'completed', 'timed-out', 'failed']),
   outputDirectory: z.string(),
+  target: z
+    .object({
+      harnessRoot: z.string(),
+      openedFolder: z.string(),
+      chosen: z.enum(['harness-root', 'opened-folder']),
+      openedIsHarnessRoot: z.boolean(),
+    })
+    .optional(),
+  outputRoot: z.string().optional(),
+  fileGuards: z.record(z.string(), AgentFileGuardSchema).optional(),
+  library: z
+    .object({
+      pass: z.enum(['updated', 'failed', 'not-applicable']),
+      diverged: z.array(z.string()),
+    })
+    .optional(),
   selectedAgentIds: z.array(z.string()),
   input: z.object({
     threshold: z.number().optional(),

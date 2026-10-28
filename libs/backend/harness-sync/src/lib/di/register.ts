@@ -37,6 +37,7 @@ import {
 } from '../sources/user-layer-refresher.port';
 import { HarnessPropagationService } from '../propagation/harness-propagation.service';
 import { HarnessBlockedRepairService } from '../repair/blocked-repair.service';
+import { HarnessDestinationScanner } from '../health/harness-destination-scanner';
 import {
   HarnessPreflightService,
   type HarnessPreflightDeps,
@@ -81,7 +82,8 @@ export interface HarnessSyncRegistrationOptions {
    * Mirror + `reconcileAll` over the user layer. Host-supplied because it needs
    * the plugin loader, the content download service and the workspace provider
    * (see `IUserLayerRefresher`). Omitting it degrades propagation to
-   * "reconcile the layer as it stands", never to a failure.
+   * "reconcile the layer as it stands", never to a failure: the default
+   * `NO_USER_LAYER_REFRESH` reports every refresh as `'skipped'`.
    */
   userLayerRefresher?: IUserLayerRefresher;
   /** Session-start preflight tuning; every field has a working default. */
@@ -211,6 +213,16 @@ export function registerHarnessSyncServices(
       reconcilerLogger,
       reconciler,
       propagation,
+      manifestStore,
+    ),
+  });
+  // Read-only and lock-free: it reports what sits at each destination and
+  // writes nothing, so like the repair it is reachable from no pass.
+  container.register(HARNESS_SYNC_TOKENS.DESTINATION_SCANNER, {
+    useValue: new HarnessDestinationScanner(
+      reconcilerLogger,
+      targets,
+      manifestStore,
     ),
   });
   container.register(HARNESS_SYNC_TOKENS.PREFLIGHT, {

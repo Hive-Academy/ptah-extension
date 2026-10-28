@@ -31,7 +31,8 @@ const FOCUS =
  *
  * Dumb component: shown at the `handoff` and `limit` display stages unless the
  * user dismissed that stage. A dismissed `handoff` comes back at `limit`. "Wrap up & hand off" asks the
- * parent to send the wrap-up message; the agent does the rest.
+ * parent to send the wrap-up message; the agent does the rest. While an automatic hand-off is queued the
+ * notice stays up (even if dismissed) with "Auto hand-off queued" and a Cancel button.
  */
 @Component({
   selector: 'ptah-session-budget-banner',
@@ -73,6 +74,27 @@ const FOCUS =
           {{ body }}
         </p>
 
+        @if (autoHandoffQueued()) {
+          <div
+            class="mt-1.5 flex flex-wrap items-center gap-2 px-2.5"
+            data-testid="session-budget-auto-queued"
+          >
+            <span class="font-semibold">Auto hand-off queued</span>
+            <span class="text-base-content-muted">
+              It runs after the current turn.
+            </span>
+            <button
+              type="button"
+              class="btn btn-xs btn-outline {{ focus }}"
+              aria-label="Cancel the automatic hand-off"
+              (click)="cancelAutoHandoff.emit()"
+              data-testid="session-budget-auto-cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        }
+
         <div class="flex flex-wrap items-center gap-1 px-2.5 pb-2 pt-1.5">
           <button
             type="button"
@@ -110,10 +132,15 @@ export class SessionBudgetBannerComponent {
   /** True once the wrap-up message was sent for this session. */
   readonly wrapUpSent = input(false);
 
+  /** True while the automatic hand-off is queued and can still be cancelled. */
+  readonly autoHandoffQueued = input(false);
+
   /** "Wrap up & hand off". */
   readonly wrapUp = output<void>();
   /** "Dismiss": hide the notice until the stage rises. */
   readonly dismiss = output<void>();
+  /** "Cancel" on a queued automatic hand-off. */
+  readonly cancelAutoHandoff = output<void>();
 
   protected readonly body = BODY;
   protected readonly focus = FOCUS;
@@ -124,7 +151,9 @@ export class SessionBudgetBannerComponent {
     if (!this.budget() || (display !== 'handoff' && display !== 'limit')) {
       return null;
     }
-    return this.dismissedStage() === display ? null : display;
+    return this.dismissedStage() === display && !this.autoHandoffQueued()
+      ? null
+      : display;
   });
 
   /** "Session used 41.2M of 50.0M tokens". */

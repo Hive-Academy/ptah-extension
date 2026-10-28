@@ -64,6 +64,19 @@ User (2026-10-20): add the Marketplace plugins page skill installs to this task 
 
 - Should wizard-created agents be visible in a VS Code Library view, or is desktop visibility enough?
 
+## Orchestration run (2026-10-25)
+
+- Worktree: `D:\projects\ptah-extension\.claude-worktrees\wizard-library-alignment`, branch
+  `feat/wizard-library-alignment` from `main` at `17860fd8b` (PR #788 merged as `7a4a307e7`).
+- Type FEATURE, depth Full. Flow: PM -> designer -> architect -> team-leader -> QA.
+- Gate 0.1: preference source = memory (`orchestration-executor-preference`,
+  `agent-lane-review-workflow`): Claude subagents write, codex lanes review. Mode `enabled`.
+  Approval mode `lane-review`.
+- `ptah_agent_list` (2026-10-25): codex installed, confirmed room (weekly 4%); antigravity
+  installed, limit unknown; grok installed, limit unknown; Glm (ptah-cli, Ollama Cloud) available;
+  opencode AT LIMIT (monthly, resets 2026-11-04) - skipped; copilot disabled; cursor, pi not installed.
+- Reviewer for document gates and code: codex (family codex; authors are Claude subagents).
+
 ## Next step
 
 `/orchestrate TASK_2026_701_9e4b` after TASK_2026_662 merges: PM -> designer (wizard preview
