@@ -6,6 +6,8 @@ import {
   claudePersonalLoginCheck,
   claudePersonalLoginPassed,
   createNamedAccountPromptGate,
+  isChildExitProved,
+  spawnedChildPid,
   withNamedAccountToolGate,
 } from '@ptah-extension/agent-sdk';
 import type {
@@ -586,16 +588,35 @@ export class ClaudeNamedLaneAdmission {
         spawnClaudeCodeProcess: (input) => {
           const process = spawn(input);
           process.once('exit', (code) => {
-            if (typeof code === 'number') {
+            // A signal death after close/abort is proof only when the spawner
+            // observed the child's own exit (see isChildExitProved).
+            if (isChildExitProved(process, code)) {
               exited = true;
               resolve();
             }
           });
+          this.recordChild(process);
           return process;
         },
       },
     });
     return child;
+  }
+
+  /**
+   * Records the child's pid on the reservation, so a later process reclaims a
+   * lease this host leaves behind only once the child is gone too. A failed
+   * record is logged and never changes the lane's own admission.
+   */
+  private recordChild(child: object): void {
+    if (!this.admission.recordRunChild) return;
+    const message = '[ClaudeLane] Account child was not recorded on its reservation.';
+    void spawnedChildPid(child).then(async (pid) => {
+      if (pid === null) return;
+      const result = await this.admission.recordRunChild?.({ reservationId: this.reservation.reservationId,
+        operationId: this.reservation.operationId, authEpoch: this.reservation.authEpoch, pid });
+      if (result && result.code !== 'ok') this.logger.warn(message);
+    }).catch(() => this.logger.warn(message));
   }
 
   private certifiedLaunch(): ClaudeCertifiedLaunchContext {

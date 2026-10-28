@@ -33,6 +33,7 @@ import type { SubagentHookHandler } from './subagent-hook-handler';
 import type { CompactionConfigProvider } from './compaction-config-provider';
 import type { SdkModelService } from './sdk-model-service';
 import type { Query } from './session-lifecycle-manager';
+import { EventEmitter } from 'node:events';
 import type {
   Options as SdkQueryOptions,
   QueryFunction,
@@ -578,6 +579,59 @@ describe('SdkQueryRunner', () => {
 
       expect(options.strictMcpConfig).toBe(true);
       expect(options.skills).toEqual([]);
+    });
+  });
+
+  describe('invokeNamedQuery — termination proof', () => {
+    /** Spawns `child` through the observed seam and reports whether `terminated` settled. */
+    async function terminatedAfter(
+      child: EventEmitter,
+      exit: readonly [number | null, NodeJS.Signals | null],
+    ): Promise<boolean> {
+      const h = makeRunner({
+        queryFnImpl: ({ options }) => {
+          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          return createFakeQuery('fresh');
+        },
+      });
+      h.processSpawner.spawn.mockReturnValue(child);
+      const handle = h.runner.invokeNamedQuery(
+        h.queryFn as unknown as QueryFunction,
+        emptyPrompt(),
+        {} as SdkQueryOptions,
+      );
+      child.emit('exit', ...exit);
+      return Promise.race([
+        handle.terminated.then(() => true),
+        new Promise<boolean>((resolve) => setImmediate(() => resolve(false))),
+      ]);
+    }
+
+    it('settles on a numeric exit status', async () => {
+      await expect(terminatedAfter(new EventEmitter(), [1, null])).resolves.toBe(true);
+    });
+
+    it('settles on a signal death the spawner observed (the SDK close/abort path)', async () => {
+      const child = Object.assign(new EventEmitter(), { exitObserved: true });
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(true);
+    });
+
+    it('reports the spawned child pid from the spawner', async () => {
+      const child = Object.assign(new EventEmitter(), { whenSpawned: Promise.resolve(4321) });
+      const h = makeRunner({
+        queryFnImpl: ({ options }) => {
+          options.spawnClaudeCodeProcess?.({ command: 'claude', args: [], env: {}, signal: new AbortController().signal } as SpawnOptions);
+          return createFakeQuery('fresh');
+        },
+      });
+      h.processSpawner.spawn.mockReturnValue(child);
+      const handle = h.runner.invokeNamedQuery(h.queryFn as unknown as QueryFunction, emptyPrompt(), {} as SdkQueryOptions);
+      await expect(handle.childPid).resolves.toBe(4321);
+    });
+
+    it('stays unsettled on a synthesized signal-only exit', async () => {
+      const child = Object.assign(new EventEmitter(), { exitObserved: false });
+      await expect(terminatedAfter(child, [null, 'SIGTERM'])).resolves.toBe(false);
     });
   });
 

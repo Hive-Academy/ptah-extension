@@ -8,7 +8,8 @@ import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { ProviderAccountAdmissionPort, ClaudeAccountAdmissionRequest, ClaudeAccountAdmissionOutcome,
   ClaudeAccountNamedRoute, ClaudeAccountSelectionReader,
   ClaudeAccountReservationRelease, ClaudeAccountReservationReleaseOutcome,
-  ClaudeAccountReservationRetain, ClaudeAccountReservationRetainOutcome, ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
+  ClaudeAccountReservationRetain, ClaudeAccountReservationRetainOutcome, ClaudeAccountRunChild,
+  ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 import { accountActionResult } from './claude-account-command';
 import { ClaudeRouteCertifier, type ClaudeRouteCertification } from './claude-route-certifier';
 import type { SqliteConnectionService, SqliteDatabase } from '@ptah-extension/persistence-sqlite';
@@ -105,7 +106,9 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
   /**
    * Lease, certify, then hand out a named route. A certification refusal
    * releases the lease only when every probe child's close was observed;
-   * otherwise the lease is retained (no age or PID reclaim).
+   * otherwise the lease is retained. No age reclaim: a retained lease is
+   * reclaimed only once this host and the run's Claude child are proved
+   * gone (`leaseOwnerGone`).
    */
   async admitClaudeRoute(request: ClaudeAccountAdmissionRequest): Promise<ClaudeAccountAdmissionOutcome> {
     if (this.disposed) return this.admissionRefusal('request', 'unavailable-storage');
@@ -118,12 +121,14 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
     let route: CanonicalProviderAccountRoute;
     let lease: AccountRunLease;
     let identityRef: string | null;
+    let profileRevision: number;
     try {
       const profile = this.store.get(selection.profileId);
       route = resolveProviderAccountRoute(profile.canonical_route);
       lease = this.store.acquireRunLease({ profileId: profile.profile_id, expectedRevision: profile.revision, route,
         runId, reservationId: randomUUID(), operationId });
       identityRef = profile.identity_ref;
+      profileRevision = profile.revision;
     } catch (error: unknown) {
       return this.admissionRefusal('store', storeCode(error));
     }
@@ -131,8 +136,11 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
     const settle = { reservationId: reservation.reservationId, operationId, authEpoch: reservation.authEpoch };
     let certification: ClaudeRouteCertification;
     try {
+      // The lease proved this revision, epoch and route revision current in its own transaction.
       certification = await this.certifier.certify({ route, profile: { identityRef }, signal: this.disposal.signal,
-        cwd: workingDirectory ?? route.canonicalPath, settingSources: RUN_SETTING_SOURCES });
+        cwd: workingDirectory ?? route.canonicalPath, settingSources: RUN_SETTING_SOURCES,
+        reuse: { profileId: selection.profileId, revision: profileRevision, authEpoch: reservation.authEpoch,
+          routeRevision: reservation.routeRevision } });
     } catch {
       // degradation-audit: reported - a thrown certification proves no child close; the lease is retained and the run refused.
       certification = { ok: false, code: 'identity-unproved', terminated: false };
@@ -167,6 +175,15 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
     }
   }
 
+  async recordRunChild(command: ClaudeAccountRunChild): Promise<ClaudeAccountReservationRetainOutcome> {
+    if (this.disposed) return this.refusal('unavailable-storage');
+    try {
+      return { code: 'ok', reservation: this.store.recordRunChild(command) };
+    } catch (error: unknown) {
+      return this.refusal(storeCode(error));
+    }
+  }
+
   async retainUnresolvedReservation(command: ClaudeAccountReservationRetain): Promise<ClaudeAccountReservationRetainOutcome> {
     if (this.disposed) return this.refusal('unavailable-storage');
     try {
@@ -179,7 +196,8 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort, Cla
   dispose(): void {
     this.disposed = true;
     this.disposal.abort();
-    // Disposal is not termination proof. Never sweep persisted reservations.
+    // Disposal is not termination proof. Never sweep persisted reservations:
+    // a later process reclaims them once this host and their children are gone.
   }
 
   private refusal(code: ProviderAccountPortRefusal['code']): ProviderAccountPortRefusal {
