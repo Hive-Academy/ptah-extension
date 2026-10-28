@@ -119,7 +119,7 @@ export class StreamingHandlerService {
   }
 
   /**
-   * Split the live bubble at a user prompt sent while a turn is streaming.
+   * Record every sent continue prompt; split the live bubble when a turn streams.
    *
    * `buildTree` merges consecutive root assistant messages into one bubble,
    * and only a user `message_start` stops the merge. The optimistic user
@@ -132,12 +132,19 @@ export class StreamingHandlerService {
    * own. It carries the bubble's own id, which is how
    * `finalizeCurrentMessage` places the settled turn around the prompt. A tab
    * with no live tree needs no boundary: the next turn starts its own state.
+   * Pending membership is independent of this boundary and lasts until echo,
+   * the consuming terminal turn_state, or a non-enqueued RPC result.
    *
    * Known limit: a `compaction_complete` replacement state and the
    * `STREAMING_EVENT_CAP` eviction can both drop the boundary. The turn then
    * renders and finalizes as it did before the boundary existed.
    */
   recordUserPromptBoundary(tabId: string, message: ExecutionChatMessage): void {
+    this.queuedPrompts.add(
+      tabId,
+      message.id,
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [],
+    );
     const state = this.findTabStreamingState(tabId);
     if (!state || state.currentMessageId == null) return;
     this.accumulatorCore.recordUserPromptBoundary(state, {
@@ -149,12 +156,29 @@ export class StreamingHandlerService {
       role: 'user',
     });
     this.publishBoundaryChange(tabId, state);
-    // Sent mid-turn, so it waits in the backend queue — possibly behind a
-    // held peer turn (`recordInboundPeerMessage`).
-    this.queuedPrompts.add(
+  }
+
+  /** Retire a successfully handled continue that the backend did not enqueue. */
+  retirePendingPrompt(tabId: string, messageId: string): void {
+    this.queuedPrompts.remove(tabId, messageId);
+  }
+
+  private acknowledgeUserEcho(tabId: string, start: MessageStartEvent): void {
+    if (start.clientMessageId) {
+      this.tabManager.acknowledgeUserPrompt(
+        tabId,
+        start.clientMessageId,
+        start.messageId,
+      );
+      this.queuedPrompts.remove(tabId, start.clientMessageId);
+      return;
+    }
+    const messages =
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [];
+    this.tabManager.reconcileUserMessageNativeUuid(
       tabId,
-      message.id,
-      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [],
+      start.messageId,
+      this.queuedPrompts.queuedAtTail(tabId, messages),
     );
   }
 
@@ -267,7 +291,7 @@ export class StreamingHandlerService {
       // session at all while the SDK session is still resolving. The fan-out
       // lookup below runs unconditionally — AFTER `processEventForTab` has
       // already mutated state — so a throw there was swallowed by the catch and
-      // turned into `null`, silently dropping the compaction / queued-content
+      // turned into `null`, silently dropping the compaction / queue-flush
       // dispatch that `chat.store.processStreamEvent` reads from the return
       // value. Never reach for `from` here. `safeParse` takes the absent case
       // itself (`undefined` → `null`), so every session lookup below is already
@@ -426,7 +450,6 @@ export class StreamingHandlerService {
     isReplay = false,
   ): {
     tabId: string;
-    queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
     boundaryId?: string;
@@ -481,10 +504,7 @@ export class StreamingHandlerService {
       (event as MessageStartEvent).role === 'user' &&
       !(event as MessageStartEvent).inboundPeer
     ) {
-      this.tabManager.reconcileUserMessageNativeUuid(
-        targetTab.id,
-        event.messageId,
-      );
+      this.acknowledgeUserEcho(targetTab.id, event as MessageStartEvent);
     }
 
     const ctx: AccumulatorContext = {
@@ -525,29 +545,12 @@ export class StreamingHandlerService {
       event.eventType === 'message_complete' && !event.parentToolUseId
         ? event
         : null;
-    // A user root's `message_complete` is the SDK's echo of the turn's input,
-    // which ends nothing — only an assistant root may release a queued prompt.
-    const rootCompleteRole = rootComplete
-      ? findMessageStartEvent(state, rootComplete.messageId)?.role
-      : undefined;
     if (rootComplete && !isReplay && !ephemeralState) {
       this.recordInboundPeerMessage(
         targetTab.id,
         state,
         rootComplete.messageId,
       );
-    }
-    if (
-      result.eventType === 'message_complete' &&
-      rootComplete &&
-      rootComplete.stopReason !== 'tool_use' &&
-      rootCompleteRole !== 'user'
-    ) {
-      const queuedContent = targetTab.queuedContent;
-      if (queuedContent && queuedContent.trim()) {
-        this.batchedUpdate.scheduleUpdate(targetTab.id, state);
-        return { tabId: targetTab.id, queuedContent };
-      }
     }
     if (result.stateMutated && !ephemeralState) {
       // Content only. The spinner / `status` are NOT re-asserted from content
@@ -593,6 +596,7 @@ export class StreamingHandlerService {
       tab.messages,
       buildUserMessageFromStart(state, start, tab.claudeSessionId ?? undefined),
       this.queuedPrompts.queuedAtTail(tabId, tab.messages),
+      start.inboundPeer.beforeClientMessageId,
     );
     if (messages) this.tabManager.setMessages(tabId, messages);
   }
@@ -611,6 +615,14 @@ export class StreamingHandlerService {
     if (!lookup) return false;
 
     const { tab } = lookup;
+    if (
+      !isReplay &&
+      event.eventType === 'message_start' &&
+      event.role === 'user' &&
+      !event.inboundPeer
+    ) {
+      this.acknowledgeUserEcho(tab.id, event);
+    }
     // A state queued before the tab left the active workspace may hold
     // changes the partition copy lacks, and shares its event Maps, so the
     // flush guard would not drop it. Accumulate onto it, then empty the queue

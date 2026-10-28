@@ -7,7 +7,7 @@
  * ingest → accumulate → finalize stack (only the tab store, batching and
  * monitor collaborators are faked) and pin:
  *   - live vs replay parity of the resulting transcript;
- *   - a queued prompt is released by the reply, not by the peer echo;
+ *   - a queued prompt stays held through the peer echo and reply;
  *   - a peer echo never stamps its uuid on the user's own bubble;
  *   - a prompt queued behind the peer turn lands after the peer's reply;
  *   - a backgrounded tab receives the peer message too.
@@ -199,16 +199,27 @@ class FakeTabStore {
   readonly activeTabId = computed(() => this.active()[0]?.id ?? null);
   readonly activeTab = computed(() => this.active()[0] ?? null);
   readonly reconcileUserMessageNativeUuid = jest.fn(
-    (tabId: string, nativeUuid: string): void => {
+    (tabId: string, nativeUuid: string, excludeIds: ReadonlySet<string> = new Set()): void => {
       const tab = this.find(tabId);
       if (!tab) return;
       const index = tab.messages.findIndex(
-        (m) => m.role === 'user' && !m.nativeUuid && !LINE_UUID.test(m.id),
+        (m) => m.role === 'user' && !m.nativeUuid && !LINE_UUID.test(m.id) && !excludeIds.has(m.id),
       );
       if (index === -1) return;
       this.write(tabId, {
         messages: tab.messages.map((m, i) =>
           i === index ? { ...m, nativeUuid } : m,
+        ),
+      });
+    },
+  );
+  readonly acknowledgeUserPrompt = jest.fn(
+    (tabId: string, clientMessageId: string, nativeUuid: string): void => {
+      const tab = this.find(tabId);
+      if (!tab) return;
+      this.write(tabId, {
+        messages: tab.messages.map((m) =>
+          m.id === clientMessageId ? { ...m, nativeUuid } : m,
         ),
       });
     },
@@ -442,7 +453,7 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     ]);
   });
 
-  it('releases a queued prompt on the reply, not on the peer echo', () => {
+  it('holds a queued prompt through both the peer echo and reply', () => {
     const { store, service } = setup();
     store.active.set([makeTab({ queuedContent: 'next please' })]);
     const { user, reply } = splitTurn(turnEvents(PEER_TURNS[0], 'live', 10));
@@ -453,17 +464,15 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     const replyResults = reply.map((e) =>
       service.processStreamEvent(e, TAB_ID),
     );
-    expect(replyResults[replyResults.length - 1]).toEqual({
-      tabId: TAB_ID,
-      queuedContent: 'next please',
-    });
+    expect(replyResults.every((r) => r === null)).toBe(true);
   });
 
-  it('never stamps a peer uuid on the user bubble; the prompt echo still does', () => {
+  it('never stamps a peer uuid or an unkeyed echo on a pending user bubble', () => {
     const { store, service } = setup();
     store.active.set([
       makeTab({ messages: [optimisticPrompt('opt-queued', 'later')] }),
     ]);
+    service.recordUserPromptBoundary(TAB_ID, store.find(TAB_ID)?.messages[0] as ExecutionChatMessage);
     const peer = splitTurn(turnEvents(PEER_TURNS[0], 'live', 10));
 
     service.processStreamEvent(peer.user[0], TAB_ID);
@@ -479,11 +488,12 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     expect(store.reconcileUserMessageNativeUuid).toHaveBeenCalledWith(
       TAB_ID,
       uuid(9),
+      expect.any(Set),
     );
     const bubble = store
       .find(TAB_ID)
       ?.messages.find((m) => m.id === 'opt-queued');
-    expect(bubble?.nativeUuid).toBe(uuid(9));
+    expect(bubble?.nativeUuid).toBeUndefined();
   });
 
   /**
@@ -534,7 +544,11 @@ describe('StreamingHandlerService — inbound peer turns', () => {
       replyId: 'msg_q',
       replyText: 'Done.',
     };
-    runLiveTurn(service, turnEvents(queuedTurn, 'live', 50));
+    runLiveTurn(service, turnEvents(queuedTurn, 'live', 50).map((event) =>
+      event.eventType === 'message_start' && event.role === 'user'
+        ? { ...event, clientMessageId: 'opt-queued' }
+        : event,
+    ));
 
     const messages = store.find(TAB_ID)?.messages ?? [];
     expect(messages.map((m) => m.id)).toEqual([
