@@ -20,6 +20,7 @@ import {
 import {
   createCodexChatHostPorts,
   createCodexRuntimeAdmission,
+  CodexChatRoutingError,
   type CodexChatHostPortsDeps,
 } from './codex-chat-host-ports';
 import { CodexChatOptionError } from './codex-chat-profile-options';
@@ -33,6 +34,16 @@ jest.mock('@ptah-extension/agent-sdk', () => ({
     typeof import('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint')
   >('../../../../../agent-sdk/src/lib/prompt-harness/ptah-ui-hint').PTAH_UI_HINT,
   SDK_TOKENS: { RUNTIME_HOST_CAPABILITIES: Symbol.for('caps') },
+  PTAH_MCP_PORT: 51820,
+}));
+// Only the two leaf modules the host ports use; the full barrel wires DI services.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  ptahMcpSessionUrl: jest.requireActual<
+    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url')
+  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url').ptahMcpSessionUrl,
+  CODEX_PTAH_TOOL_TIMEOUT_SEC: jest.requireActual<
+    typeof import('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder')
+  >('../../../../../cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder').CODEX_PTAH_TOOL_TIMEOUT_SEC,
 }));
 jest.mock('@ptah-extension/auth-providers', () => ({
   AUTH_PROVIDERS_TOKENS: {
@@ -156,6 +167,11 @@ describe('Codex chat host ports', () => {
   }
   const config = () => ({
     tabId: 'tab',
+    projectPath: workspace,
+    workspaceId: workspace,
+    model: 'sonnet',
+  });
+  const noTab = () => ({
     projectPath: workspace,
     workspaceId: workspace,
     model: 'sonnet',
@@ -296,7 +312,7 @@ describe('Codex chat host ports', () => {
     });
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
-  it.each([true, false])('strips host flags and reports MCP availability %s', async (mcpServerRunning) => {
+  it.each([true, false])('strips host flags without an MCP notice (running %s)', async (mcpServerRunning) => {
     const h = harness();
     const input = {
       ...config(),
@@ -313,17 +329,78 @@ describe('Codex chat host ports', () => {
       const { profile } = await h.ports.profile(input);
       expect(profile.model).toBe('gpt-5');
       expect(prepare.mock.calls[0][0]).toEqual(config());
-      expect(h.logger.info).toHaveBeenCalledTimes(mcpServerRunning ? 1 : 0);
-      if (mcpServerRunning) {
-        expect(h.logger.info).toHaveBeenCalledWith(
-          'Ptah MCP is not attached to Codex chat.',
-          { code: 'ptah-mcp-not-attached' },
-        );
-      }
+      expect(h.logger.info).not.toHaveBeenCalled();
+      expect(profile.mcpServers.map((server) => server.name)).toEqual(
+        mcpServerRunning ? ['ptah'] : [],
+      );
       expect(input).toHaveProperty('mcpServerRunning', mcpServerRunning);
     } finally {
       prepare.mockRestore();
     }
+  });
+  it('attaches Ptah MCP natively for a new session routed by tab id', async () => {
+    const { profile } = await harness().ports.profile({
+      ...config(), tabId: 'tab-1', mcpServerRunning: true,
+    });
+    expect(profile.mcpServers).toEqual([
+      {
+        name: 'ptah',
+        transport: 'http',
+        url: `http://localhost:51820/session/tab-1/workspace/${encodeURIComponent(profile.cwd)}`,
+        headerReferences: {},
+        toolTimeoutSec: 960,
+      },
+    ]);
+  });
+  it.each([false, undefined] as const)('attaches no Ptah server when MCP running is %s', async (mcpServerRunning) => {
+    const { profile } = await harness().ports.profile({ ...config(), mcpServerRunning });
+    expect(profile.mcpServers).toEqual([]);
+  });
+  async function resumable(h: ReturnType<typeof harness>) {
+    const { profile } = await h.ports.profile(config());
+    h.readResumeIdentity.mockResolvedValue({
+      threadId: id,
+      contextId: profile.contextId,
+      processGeneration: 1,
+      normalizedHome: profile.normalizedHome,
+      workspaceId: workspace,
+      providerId: profile.providerId,
+      profileFingerprint: profile.profileFingerprint,
+    });
+    return profile;
+  }
+  it('routes a resume without a tab id by the session id and still resumes', async () => {
+    const h = harness();
+    await resumable(h);
+    const prepared = await h.ports.profile({ ...noTab(), mcpServerRunning: true }, id);
+    expect(prepared.resume?.threadId).toBe(id);
+    expect(prepared.profile.mcpServers).toHaveLength(1);
+    expect(prepared.profile.mcpServers[0]).toMatchObject({
+      name: 'ptah',
+      url: `http://localhost:51820/session/${id}/workspace/${encodeURIComponent(prepared.profile.cwd)}`,
+    });
+  });
+  it('resumes under a new tab id because MCP servers are outside the fingerprint', async () => {
+    const h = harness();
+    const original = await resumable(h);
+    const prepared = await h.ports.profile(
+      { ...config(), tabId: 'tab-new', mcpServerRunning: true },
+      id,
+    );
+    expect(prepared.resume?.threadId).toBe(id);
+    expect(prepared.profile.profileFingerprint).toBe(original.profileFingerprint);
+    expect(prepared.profile.mcpServers[0]).toMatchObject({
+      url: `http://localhost:51820/session/tab-new/workspace/${encodeURIComponent(prepared.profile.cwd)}`,
+    });
+  });
+  it('refuses to attach Ptah MCP without a routing id instead of omitting it', async () => {
+    const h = harness();
+    const result = h.ports.profile({ ...noTab(), mcpServerRunning: true });
+    await expect(result).rejects.toBeInstanceOf(CodexChatRoutingError);
+    await expect(result).rejects.toMatchObject({
+      code: 'ptah-mcp-routing-id-missing',
+    });
+    expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
   it('uses the same provider resolver for admission', async () => {
     const h = harness();

@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { PTAH_UI_HINT, presentCodexApproval } from '@ptah-extension/agent-sdk';
+import {
+  PTAH_MCP_PORT,
+  PTAH_UI_HINT,
+  presentCodexApproval,
+} from '@ptah-extension/agent-sdk';
+import {
+  CODEX_PTAH_TOOL_TIMEOUT_SEC,
+  ptahMcpSessionUrl,
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   CodexChatAdapterPorts,
   HostAttentionCoordinator,
@@ -71,6 +79,18 @@ export interface CodexChatHostPortsDeps
 export interface CodexChatHostPorts extends CodexChatAdapterPorts {
   /** Host permission bridge must try this before the Claude permission handler. */
   handlePermissionResponse(response: PermissionResponse): boolean;
+}
+
+/** Ptah MCP is running but the chat has neither a tab id nor a session id to route by. */
+export class CodexChatRoutingError extends Error {
+  readonly code = 'ptah-mcp-routing-id-missing';
+
+  constructor() {
+    super(
+      'Codex chat cannot attach Ptah MCP: no tab id or session id to route the session by.',
+    );
+    this.name = 'CodexChatRoutingError';
+  }
 }
 
 function profiles(deps: CodexRuntimeAdmissionDeps) {
@@ -160,11 +180,8 @@ export function createCodexChatHostPorts(
     },
     async profile(input, sessionId) {
       const { supported: config, rejected, stripped, mcpServerNames } = classifyCodexChatOptions(input);
-      if (input.mcpServerRunning === true) {
-        deps.logger.info('Ptah MCP is not attached to Codex chat.', {
-          code: 'ptah-mcp-not-attached',
-        });
-      }
+      // Read from `input`: classification strips `mcpServerRunning` from config.
+      const attachPtahMcp = input.mcpServerRunning === true;
       if (mcpServerNames.length > 0) {
         deps.logger.info('User MCP servers are not attached to Codex chat.', {
           code: 'codex-user-mcp-not-attached',
@@ -182,6 +199,13 @@ export function createCodexChatHostPorts(
         });
       }
       if (rejected.length > 0) throw new CodexChatOptionError(rejected[0]);
+      // Claude main-chat parity: the session segment carries the tab id when
+      // present, else the session id; never attach Ptah MCP anonymously.
+      const routingId =
+        typeof input.tabId === 'string' && input.tabId.trim() !== ''
+          ? input.tabId
+          : sessionId;
+      if (attachPtahMcp && !routingId) throw new CodexChatRoutingError();
       const resume = sessionId
         ? await deps.readResumeIdentity(sessionId)
         : undefined;
@@ -259,6 +283,20 @@ export function createCodexChatHostPorts(
               (image) => ({ type: 'image' as const, ...image }),
             ),
           ],
+          ...(attachPtahMcp && routingId
+            ? {
+                mcpServers: [
+                  {
+                    name: 'ptah',
+                    transport: 'http' as const,
+                    // Live binding: read the port the host bound at open time.
+                    url: ptahMcpSessionUrl(PTAH_MCP_PORT, routingId, cwd),
+                    headerReferences: {},
+                    toolTimeoutSec: CODEX_PTAH_TOOL_TIMEOUT_SEC,
+                  },
+                ],
+              }
+            : {}),
         },
       };
       let developerPrompt = profileInput.session.developerPrompt;

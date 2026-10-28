@@ -9,7 +9,7 @@
  * written `http` entry would then be rewritten on every reconcile pass.
  */
 
-import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { ptahMcpServerUrl, ptahMcpSessionUrl } from './ptah-mcp-url';
 
 describe('ptahMcpServerUrl', () => {
   it('appends /workspace/{encoded} to the base URL', () => {
@@ -70,5 +70,33 @@ describe('ptahMcpServerUrl', () => {
       'http://localhost:51820/workspace/%2Fprojects%2Fsse%2Ftools',
     );
     expect(url).not.toContain('/sse');
+  });
+});
+
+describe('ptahMcpSessionUrl', () => {
+  it('leads with /session/{id} and keeps an encoded Windows root terminal', () => {
+    expect(
+      ptahMcpSessionUrl(51820, 'tab-1', 'D:\\projects\\ptah-extension'),
+    ).toBe(
+      'http://localhost:51820/session/tab-1/workspace/D%3A%5Cprojects%5Cptah-extension',
+    );
+  });
+
+  it('percent-encodes the routing id', () => {
+    expect(ptahMcpSessionUrl(51820, 'a/b?c', '/tmp/ws-a')).toBe(
+      'http://localhost:51820/session/a%2Fb%3Fc/workspace/%2Ftmp%2Fws-a',
+    );
+  });
+
+  it('omits the workspace segment for an empty working directory', () => {
+    expect(ptahMcpSessionUrl(51820, 'tab-1', '')).toBe(
+      'http://localhost:51820/session/tab-1',
+    );
+  });
+
+  it.each(['', '   '])('refuses a missing routing id (%j)', (routingId) => {
+    expect(() => ptahMcpSessionUrl(51820, routingId, '/tmp/ws-a')).toThrow(
+      /routing id/,
+    );
   });
 });
