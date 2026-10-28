@@ -1051,13 +1051,29 @@ export class SessionMetadataStore {
           'Invalid Codex thread mapping',
         );
       }
-      workspaceId = execution.workspaceId;
+      // Keep an existing caller path only when it belongs to this workspace.
+      // Repair old normalized keys and damaged or foreign stored paths.
+      const storedWorkspaceId = existing?.workspaceId;
+      let storedCallerPath: string | undefined;
+      if (storedWorkspaceId && storedWorkspaceId !== execution.workspaceId) {
+        try {
+          if (
+            normalizeCodexWorkspaceKey(storedWorkspaceId, process.platform) ===
+            execution.workspaceId
+          ) {
+            storedCallerPath = storedWorkspaceId;
+          }
+        } catch {
+          storedCallerPath = undefined;
+        }
+      }
+      workspaceId = storedCallerPath ?? proposed.workspaceId;
       const now = Date.now();
       const detail: SessionMetadata = {
         ...existing,
         sessionId,
         name: codexSessionName(existing?.name, sessionId, title),
-        workspaceId: execution.workspaceId,
+        workspaceId,
         providerId: execution.providerId,
         codexExecution: execution,
         ...(threadRecord?.success ? { codexThread: threadRecord.data } : {}),

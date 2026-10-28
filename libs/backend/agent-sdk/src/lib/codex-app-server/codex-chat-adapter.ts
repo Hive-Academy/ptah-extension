@@ -353,10 +353,15 @@ export class CodexChatAdapter implements NativeChatAdapter {
     context: CodexContext,
     config: AgentSessionStartConfig | AgentSessionResumeConfig,
   ): Promise<void> {
+    const title = [
+      config.sessionTitle,
+      config.sessionName,
+      'name' in config ? config.name : undefined,
+    ].find((candidate) => candidate?.trim());
     return this.ports.metadata.save(
       id,
       context.identity,
-      config.sessionTitle ?? config.sessionName,
+      title,
     );
   }
 

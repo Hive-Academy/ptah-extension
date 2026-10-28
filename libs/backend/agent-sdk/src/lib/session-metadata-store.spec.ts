@@ -44,7 +44,10 @@ import {
   type StateStorageGetOptions,
   type StateStorageSequenceReadOptions,
 } from '@ptah-extension/platform-core';
-import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
+import {
+  createMockSessionRecordRepository,
+  createMockStateStorage,
+} from '@ptah-extension/platform-core/testing';
 import {
   createMockLogger,
   type MockLogger,
@@ -2057,7 +2060,7 @@ describe('Codex metadata identity', () => {
       const row = await store.get(threadId);
       expect(row).toMatchObject({
         sessionId: threadId,
-        workspaceId: canonicalWorkspace,
+        workspaceId,
         codexExecution: { ...execution, workspaceId: canonicalWorkspace },
       });
       expect(row).not.toHaveProperty('accountBinding');
@@ -2245,7 +2248,7 @@ describe('Codex metadata identity', () => {
     expect(upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: threadId,
-        workspacePath: canonicalWorkspace,
+        workspacePath: workspaceId,
         detail: expect.objectContaining({
           codexExecution: { ...execution, workspaceId: canonicalWorkspace },
         }),
@@ -2295,12 +2298,12 @@ describe('Codex metadata identity', () => {
     expect(changed).toHaveBeenNthCalledWith(1, {
       kind: 'created',
       sessionId: threadId,
-      workspaceId: canonicalWorkspace,
+      workspaceId,
     });
     expect(changed).toHaveBeenNthCalledWith(2, {
       kind: 'updated',
       sessionId: threadId,
-      workspaceId: canonicalWorkspace,
+      workspaceId,
     });
     unsubscribe();
   });
@@ -2312,10 +2315,18 @@ describe('Codex metadata identity', () => {
       Object.defineProperty(process, 'platform', { value: 'win32' });
       try {
         const { store } = fixture(asyncStorage);
+        const callerPath = 'C:/Work/Project';
         await store.updateCodexExecution(threadId, () => ({
           ...execution,
-          workspaceId: 'C:/Work/Project',
+          workspaceId: callerPath,
         }));
+        expect(await store.get(threadId)).toMatchObject({
+          workspaceId: callerPath,
+          codexExecution: { workspaceId: 'c:/work/project' },
+        });
+        expect((await store.getForWorkspace(callerPath))[0]?.sessionId).toBe(
+          threadId,
+        );
         expect(
           (await store.getForWorkspace('C:\\WORK\\Project\\')).map(
             (row) => row.sessionId,
@@ -2331,6 +2342,132 @@ describe('Codex metadata identity', () => {
       }
     },
   );
+
+  it('lists a mixed-case Windows caller path through the records repository', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const records = createMockSessionRecordRepository();
+      const store = new SessionMetadataStore(
+        createMockStateStorage(),
+        asLogger(createMockLogger()),
+        records,
+      );
+      const callerPath = 'C:/Work/Project';
+      await store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: callerPath,
+      }));
+      expect(records.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspacePath: callerPath,
+          detail: expect.objectContaining({
+            workspaceId: callerPath,
+            codexExecution: expect.objectContaining({
+              workspaceId: 'c:/work/project',
+            }),
+          }),
+        }),
+      );
+      expect((await store.getForWorkspace(callerPath))[0]?.sessionId).toBe(
+        threadId,
+      );
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+  });
+
+  it('preserves a stored caller path and repairs a legacy normalized-key path', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      const callerPath = 'C:/Work/Project';
+      const { store } = fixture();
+      await store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: callerPath,
+      }));
+      await store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: 'c:/work/project',
+      }));
+      expect((await store.get(threadId))?.workspaceId).toBe(callerPath);
+
+      const { store: legacyStore } = fixture();
+      await legacyStore.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: 'c:/work/project',
+      }));
+      await legacyStore.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: callerPath,
+      }));
+      expect((await legacyStore.get(threadId))?.workspaceId).toBe(callerPath);
+      expect((await legacyStore.getForWorkspace(callerPath))[0]?.sessionId).toBe(
+        threadId,
+      );
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+  });
+
+  it.each(['D:/Other/Project', 'relative/project'])(
+    'replaces a %s stored workspace path with the caller path',
+    async (storedPath) => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      try {
+        const callerPath = 'C:/Work/Project';
+        const { store, storage } = fixture();
+        await store.updateCodexExecution(threadId, () => ({
+          ...execution,
+          workspaceId: callerPath,
+        }));
+        const row = await store.get(threadId);
+        if (!row) throw new Error('Missing Codex row');
+        storage.__state.seed(METADATA_KEY, [
+          { ...row, workspaceId: storedPath },
+        ]);
+
+        const reloaded = new SessionMetadataStore(
+          storage,
+          asLogger(createMockLogger()),
+        );
+        await reloaded.updateCodexExecution(threadId, () => ({
+          ...execution,
+          workspaceId: callerPath,
+        }));
+        expect((await reloaded.get(threadId))?.workspaceId).toBe(callerPath);
+        expect((await reloaded.getForWorkspace(callerPath))[0]?.sessionId).toBe(
+          threadId,
+        );
+      } finally {
+        if (platform) Object.defineProperty(process, 'platform', platform);
+      }
+    },
+  );
+
+  it('preserves an existing POSIX caller path for the same workspace', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      const { store } = fixture();
+      await store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: '/Work/Project/',
+      }));
+      await store.updateCodexExecution(threadId, () => ({
+        ...execution,
+        workspaceId: '/Work/Project',
+      }));
+      expect((await store.get(threadId))?.workspaceId).toBe('/Work/Project/');
+      expect((await store.get(threadId))?.codexExecution?.workspaceId).toBe(
+        '/Work/Project',
+      );
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+  });
 
   it('rejects a Codex write to inactive storage with unavailable-storage', async () => {
     const storage = createMockStateStorage();

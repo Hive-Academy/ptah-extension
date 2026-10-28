@@ -316,6 +316,56 @@ describe('CodexChatAdapter', () => {
     expect(lifecycle.closed).toHaveBeenCalledTimes(1);
     expect(lifecycle.closed).toHaveBeenCalledWith(id);
   });
+
+  it('passes a start tab name to metadata when it is the only title', async () => {
+    const { adapter, ports } = setup();
+    await adapter.startChatSession({ tabId, name: 'Tab title' });
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Tab title');
+  });
+
+  it('falls through a blank session title to the start tab name', async () => {
+    const { adapter, ports } = setup();
+    await adapter.startChatSession({
+      tabId,
+      sessionTitle: '   ',
+      sessionName: ' \t ',
+      name: 'Tab title',
+    });
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Tab title');
+  });
+
+  it('falls through a blank session title to the session name', async () => {
+    const { adapter, ports } = setup();
+    await adapter.startChatSession({
+      tabId,
+      sessionTitle: ' \t ',
+      sessionName: 'Session name',
+      name: 'Tab title',
+    });
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Session name');
+  });
+
+  it('prefers a nonblank session title over session name and tab name', async () => {
+    const { adapter, ports } = setup();
+    await adapter.startChatSession({
+      tabId,
+      sessionTitle: 'Explicit title',
+      sessionName: 'Session name',
+      name: 'Tab title',
+    });
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Explicit title');
+  });
+
+  it('passes the available title during resume', async () => {
+    const { adapter, ports } = setup();
+    await adapter.resumeSession(id, {
+      tabId,
+      sessionTitle: '  ',
+      sessionName: 'Resumed title',
+    });
+    expect(ports.metadata.save).toHaveBeenCalledWith(id, identity, 'Resumed title');
+  });
+
   it('refuses a closed gate without opening a context', async () => {
     const { adapter, open, dispose, lifecycle } = setup(false);
     await expect(adapter.startChatSession({ tabId })).rejects.toMatchObject({

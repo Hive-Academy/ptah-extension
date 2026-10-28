@@ -3496,3 +3496,142 @@ right after spawn, so every Codex open failed.
   m1 `Date.now()` instead of the Clock port; m3 no spec that a failed start emits no start log
   or that non-initialize timeouts stay at debug.
 - Open: a live Electron re-run (p8h) must confirm a Codex open succeeds on the bundled binary.
+
+## Round 8o: p8h backend gaps (A, B, C, E, F, H) — IN_PROGRESS
+
+Source: `live-test-p8h.md` (head d6602359e). Principle: native Codex chat produces exactly
+Claude's UI contracts; fixes only in codex-runtime -> agent-sdk codex-app-server ->
+rpc-handlers codex-host; no frontend Codex special case; no second proxy; MCP untouched.
+Team-leader session 23 is the only committing agent. Phase = the whole round (one phase gate).
+
+### Plan validation — PASSED WITH RISKS (root causes confirmed in code before assignment)
+
+- B (CONFIRMED): `session-metadata-store.ts` `updateCodexExecution` writes the detail
+  `workspaceId: execution.workspaceId`, the Codex KEY (`normalizeCodexWorkspaceKey`: win32
+  `/`-separated and fully lowercased). The SQLite repository derives `workspace_key` with
+  platform-core `normalizeWorkspaceRoot(workspacePath)` (drive letter lowercased only), and
+  `listForWorkspace` queries the same function of the caller path, so a mixed-case Windows path
+  never matches a Codex row. Claude rows store the caller path. Fix: the detail row keeps the
+  caller's workspace path (the profile path the port passes as `identity.workspaceId`);
+  `codexExecution.workspaceId` stays the normalized key (identity contract unchanged).
+- C (CONFIRMED): `codex-chat-adapter.ts:356-360` passes `config.sessionTitle ?? config.sessionName`;
+  `chat:start` sends the tab title as `config.name` (`chat-session.service.ts:1066`; p8h log
+  `sessionName: "Before you answer, ask me whether I…"`). Claude uses
+  `sessionName ?? name` (`sdk-agent-adapter.ts:992-1001`). The store placeholder rule
+  (`codexSessionName`) is correct. Fix in the adapter only.
+- E (CONFIRMED, three causes; rollout `rollout-2026-10-29T01-28-25-01a184a0-...jsonl`):
+  (1) In default collaboration mode 0.165.0 offers `request_user_input_async`, not the blocking
+  `request_user_input`: the question arrives as an `agentMessage` item with `delivery: "async"`
+  and `questions: [{title, options}]` (schema `AsyncUserInputQuestion`), the tool returns
+  `{"accepted":true}` at once, and the answer is expected as a later user message (binary prompt:
+  "The user may send a new message while you are still working"). The blocking
+  `item/tool/requestUserInput` path (8m-7) is offered only in plan mode or with the
+  under-development feature `default_mode_request_user_input` (`codex features list`: false).
+  (2) The "doubled" text is two distinct agentMessage items (the async question text, then the
+  final answer repeating it after the model ran `clock.sleep` for 30 s) — not a delta/final
+  duplication in `CodexChatEvents` (textFinal only replaces when the final does not extend the
+  deltas). (3) `[object Object]` is the renderer console formatting of the CHAT_ERROR payload
+  object (`chat-lifecycle.service.ts:209`); the payload `error` is already a string. The real
+  defect is that a CHAT_ERROR fired mid-turn: the `sleep` ThreadItem (also `hookPrompt`,
+  `functionCallOutput`, `subAgentActivity`, `imageView`, `imageGeneration`, review-mode items)
+  falls to `codex-event-translator.ts` default -> `unsupportedItem` error event ->
+  `CodexChatEvents.error()` -> CHAT_ERROR, although the turn completed. Retryable `error`
+  notifications (`willRetry: true`) take the same path. Claude never raises CHAT_ERROR for an
+  unrendered block or a retried request.
+- F (NOT A BACKEND GAP): the backend already emits Claude's shape (`isError: true` + real output
+  + "Command failed with exit code 1", `codex-tool-presentation.ts:142-157`). The header label
+  comes from `ExecutionNode.status`, which the shared tree builder sets to `complete` for every
+  result (`chat-execution-tree/src/lib/builders/tool-node.fn.ts:213`); `tool-call-header`
+  reads only `status` (`tool-status.utils.ts`). A failed Claude Bash shows the same label (it is
+  the `sr-only` status text). Fix belongs to a separate small frontend PR from `main` (shared
+  Claude + Codex); not done in this backend round.
+- H (CONFIRMED, different file than suspected): the failing reader is the legacy default-home
+  path `auth-providers/.../codex/codex-account-usage.service.ts` (log source line 273), whose
+  JSON-RPC client applies `REQUEST_TIMEOUT_MS = 10_000` to `initialize`; the bundled binary
+  needs 14.5-17.7 s. `codex-runtime`'s `CodexAccountUsageClient` already uses the process's
+  60 s `INITIALIZE_TIMEOUT_MS`. Fix: export the one constant from codex-runtime (auth-providers
+  already depends on it) and use it for the legacy initialize request only.
+- A (CONFIRMED symptom; native option UNVERIFIED): D14 `untrusted` auto-approves only Codex's
+  known-safe commands and exec-policy `allow` rules; PowerShell reads (`Get-Content`,
+  `Get-ChildItem`) and `rg` pipelines prompted on Windows. Research batch 8o-R answers from the
+  0.165.0 source whether a per-thread native option exists (exec-policy rules through thread
+  config, a safe-command setting, a granular field) before any build. No classifier unless no
+  native option exists AND the user approves (security-relevant: it auto-runs commands).
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| Existing p8h Codex rows keep their lowercased path until rewritten | LOW | Runtime is dev-gated and unreleased; recorded, no migration |
+| Async-question answer arrives after the turn ended | MEDIUM | 8o-3 delivers it as a new turn (same `post` follow-up path as D19) |
+| Suppressing mid-turn errors hides a real failure | MEDIUM | Terminal `failed` still raises CHAT_ERROR; specs pin both |
+| A new runtime event type breaks gateway/lane consumers | MEDIUM | 8o-3 updates every exhaustive switch; verify covers gateway-chat-bridge + cli-agent-runtime |
+
+### Batch 8o-1: B workspace path + C title — COMPLETE (commit: "batch 8o-1")
+
+- Lane codex 7e5bd25e (+ fix round aa3e8c0a). Report `batch-8o-1-report.md`.
+- Verify `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers,ptah-electron`:
+  EXIT 0, 15/15 tasks (2026-10-29 00:08).
+- Review `code-logic-review-8o-1-2.md`: APPROVED 8/10 (implementers OpenAI + xAI, reviewer
+  Anthropic). M1 (keep a stored path only when it normalizes to the key) and M2 (foreign,
+  malformed, posix specs) fixed in the fix round; m3 whitespace-title spec added; m4 recorded.
+
+- Executor: CLI lane codex (gpt-6-sol). Mode sequential. Review family: Anthropic (different).
+- Files: agent-sdk `session-metadata-store.ts` (+spec), `codex-app-server/codex-chat-adapter.ts`
+  (+spec), `wiring/codex-chat-metadata-port.spec.ts`.
+- Verify: chat path command.
+
+### Batch 8o-2: H legacy usage reader initialize budget — COMPLETE (commit: "batch 8o-2")
+
+- Lane grok b22ba51b (+ spec fix eda09405). Report `batch-8o-2-report.md`.
+- Verify `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/auth-providers,
+  @ptah-extension/cli-agent-runtime,@ptah-extension/gateway-chat-bridge`: 10/12; failures =
+  the new 15 s spec (fake-timer hang, fixed; rerun of the spec file 46/46 PASS), the known
+  local-only auth-providers lint `@nx/dependency-checks` and the known Windows EPERM teardown
+  failures in `translation-proxy.sdk.integration.spec.ts` (5 this run). codex-runtime,
+  cli-agent-runtime and gateway-chat-bridge green.
+- Review: same review file, APPROVED.
+
+- Executor: CLI lane grok. Mode sequential, parallel with 8o-1 (file-disjoint).
+- Files: codex-runtime `codex-app-server-process.ts`, `src/index.ts` (+ process spec if
+  needed); auth-providers `providers/codex/codex-account-usage.service.ts` (+spec).
+- Verify: codex-runtime command + `-p @ptah-extension/auth-providers`.
+
+### Batch 8o-R: A native read auto-allow research (read-only) — COMPLETE
+
+- Executor: CLI lane codex (research, web). No source edits. Deliverable
+  `research-8o-a-report.md`.
+
+### Batch 8o-3: E question card + no mid-turn CHAT_ERROR — PENDING (after 8o-1 and 8o-2 commit)
+
+- Executor: CLI lane codex (gpt-6-sol), sequential. Review family: Anthropic.
+- Exceeds the 6-file rule on purpose: adding a CodexRuntimeEvent variant must land with every
+  exhaustive consumer (agent-sdk chat events, cli-agent-runtime lane events, gateway adapter)
+  in one compiling commit. Verify: both commands (runtime + chat path).
+- Task 8o-3.1 (codex-runtime): `agentMessage` with `delivery: "async"` and non-empty
+  `questions` -> new event `userInputAsync {itemId, text, questions}` (no textFinal); `sleep`
+  item -> no event (no unsupportedItem error).
+- Task 8o-3.2 (lane + gateway): render `userInputAsync` as the item text (their users answer by
+  message, the native async semantics).
+- Task 8o-3.3 (chat): the question shows Claude's AskUserQuestion card through the SAME
+  requestUserInput port / AskUserQuestionService as 8m-7; the item text is not rendered; the
+  answer goes back in Claude's AskUserQuestion result wording via `turn/steer` while the turn
+  runs, else as a new turn through the existing follow-up path (D19); Stop/abort/close cancels
+  the pending card. Mid-turn `error` events (retryable, unsupportedItem,
+  unsupportedNotification) no longer raise CHAT_ERROR; a terminal `failed` still does once.
+
+### Batch 8o-4: A read-only allowlist (D20) — PENDING (after 8o-1 and 8o-2 commit)
+
+- User decision D20 (option 1). Executor: CLI lane codex (gpt-6-sol), sequential, parallel with
+  8o-3 and 8o-5 (file-disjoint). Review: independent security-focused review (Anthropic) before
+  commit.
+- Files: agent-sdk `codex-app-server/codex-read-only-command.ts` (new, + spec),
+  `codex-chat-approval-sink.ts` (+ spec), `codex-chat-adapter.ts` (pass permission level and
+  cwd to the sink only). Verify: chat path command.
+- Batch 8o-R: COMPLETE (research only, report `research-8o-a-report.md`): no native per-thread
+  option in 0.165.0. D14 unchanged.
+
+### Batch 8o-5: Codex UI hint without skill-file search (D21) — PENDING (after 8o-1/8o-2 commit)
+
+- Executor: CLI lane grok, sequential, parallel with 8o-3/8o-4.
+- Files: rpc-handlers `codex-host/codex-chat-host-ports.ts` (+ spec); agent-sdk
+  `prompt-harness/ptah-ui-hint.ts` only if a Codex variant must live beside the Claude hint
+  (Claude text unchanged, pinned by a spec). Verify: chat path command.
