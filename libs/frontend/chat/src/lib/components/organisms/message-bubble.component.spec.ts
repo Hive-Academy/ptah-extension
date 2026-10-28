@@ -146,6 +146,12 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(header.nativeElement.classList.contains('justify-self-start')).toBe(
       true,
     );
+    expect(header.nativeElement.classList.contains('flex')).toBe(true);
+    expect(header.nativeElement.classList.contains('items-center')).toBe(true);
+    expect(header.nativeElement.querySelector('time')).not.toBeNull();
+    expect(branch.nativeElement.parentElement.classList.contains('ml-auto')).toBe(true);
+    expect(branch.nativeElement.parentElement.classList.contains('h-4')).toBe(true);
+    expect(branch.nativeElement.parentElement.classList.contains('group-focus-within:opacity-100')).toBe(true);
     expect(header.nativeElement.style.paddingInline).toBe(
       'var(--sidebar-spacing-md)',
     );

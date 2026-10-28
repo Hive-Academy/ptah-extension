@@ -187,7 +187,7 @@
     <div class="chat chat-end cs-user-chat group">
       <!-- Header -->
       <div
-        class="chat-header justify-self-start w-full text-xs text-base-content-muted mb-1"
+        class="chat-header flex items-center justify-self-start w-full text-xs text-base-content-muted mb-1"
         style="padding-inline: var(--sidebar-spacing-md)"
       >
         <time
@@ -209,7 +209,7 @@
         @if (userActions()) {
           <!-- Keep actions on the header row so they reserve no space below the bubble. -->
           <div
-            class="ml-auto flex gap-1 items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200"
+            class="ml-auto flex h-4 gap-1 items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200"
           >
             <button
               type="button"

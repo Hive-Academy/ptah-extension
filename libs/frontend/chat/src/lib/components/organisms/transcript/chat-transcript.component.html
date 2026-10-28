@@ -55,6 +55,7 @@
               <ptah-lane-event class="block pb-3" [row]="laneSlot.row" [isSessionActive]="vm().isSessionActive"
                 (branchRequested)="branchRequested.emit($event)" (rewindRequested)="rewindRequested.emit($event)" />
             }
+            <!-- A merged slot keeps its message anchor; its content appears in the preceding row. -->
           } @else {
           <ptah-message-bubble
             class="block pb-3"

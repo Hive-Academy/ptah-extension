@@ -23,10 +23,10 @@ describe('groupLaneEvents', () => {
     expect(slots.get('m2')).toMatchObject({ kind: 'row', row: { rowKey: 'm2', earlier: [{ messageId: 'm1' }], liveLane: false } });
   });
 
-  it('keeps two interleaved lanes at their first positions', () => {
+  it('keeps A, B, A in three chronological rows', () => {
     const slots = groupLaneEvents([envelope('m1', 'a'), envelope('m2', 'b'), envelope('m3', 'a', 'completed')], new Set());
-    expect([...slots.values()].map(slot => slot.kind)).toEqual(['row', 'row', 'merged']);
-    expect(slots.get('m3')).toEqual({ kind: 'merged', rowKey: 'm1' });
+    expect([...slots.values()].map(slot => slot.kind)).toEqual(['row', 'row', 'row']);
+    expect(slots.get('m3')).toMatchObject({ kind: 'row', row: { rowKey: 'm3', earlier: [{ messageId: 'm1' }] } });
   });
 
   it('leaves malformed peer text and a user-pasted envelope as normal bubbles', () => {

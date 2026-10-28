@@ -4,7 +4,7 @@ import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 import { LaneEventRowComponent } from './lane-event-row.component';
 import { provideMarkdown } from 'ngx-markdown';
-import type { LaneEventRow } from '../../organisms/transcript/transcript-lane-events';
+import type { LaneEventRow } from './lane-event-row.types';
 
 const row: LaneEventRow = {
   rowKey: 'm1', agentId: 'agent-1', agent: 'Glm', cli: 'ptah-cli', peerLabel: 'peer session', liveLane: false, earlier: [],
@@ -35,7 +35,7 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).toContain('self-reported and unverified');
     expect(element.textContent).toContain('peer session');
     expect(element.textContent).toContain('file.txt');
-    expect(element.textContent).toContain('1 images');
+    expect(element.textContent).toContain('1 image');
     expect(element.querySelector('[data-testid="lane-event-show-more"]')?.textContent).toContain('Show more');
     const toggle = element.querySelector<HTMLButtonElement>('[data-testid="lane-event-toggle"]')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');

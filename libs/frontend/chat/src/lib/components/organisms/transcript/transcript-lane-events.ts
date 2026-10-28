@@ -1,30 +1,5 @@
-import { parseLaneEnvelope, type ExecutionChatMessage, type LaneEnvelopeKind } from '@ptah-extension/shared';
-
-export interface LaneEventItem {
-  readonly kind: LaneEnvelopeKind;
-  readonly status?: string;
-  readonly verdict?: string;
-  readonly body: string;
-  readonly timestamp: number;
-  readonly messageId: string;
-  readonly files?: readonly string[];
-  readonly imageCount?: number;
-}
-
-export interface LaneEventRow {
-  readonly rowKey: string;
-  readonly agentId: string;
-  readonly agent: string;
-  readonly cli: string;
-  readonly peerLabel: string;
-  readonly events: readonly LaneEventItem[];
-  readonly earlier: readonly LaneEventItem[];
-  readonly liveLane: boolean;
-}
-
-export type LaneSlot =
-  | { readonly kind: 'row'; readonly row: LaneEventRow }
-  | { readonly kind: 'merged'; readonly rowKey: string };
+import { parseLaneEnvelope, type ExecutionChatMessage } from '@ptah-extension/shared';
+import type { LaneEventItem, LaneEventRow, LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
 
 /** Preserves each message's slot while merging only within a contiguous envelope run. */
 export function groupLaneEvents(
@@ -33,13 +8,13 @@ export function groupLaneEvents(
 ): ReadonlyMap<string, LaneSlot> {
   const slots = new Map<string, LaneSlot>();
   const earlierByAgent = new Map<string, LaneEventItem[]>();
-  const run = new Map<string, { row: LaneEventRow; events: LaneEventItem[] }>();
+  let previousRow: { row: LaneEventRow; events: LaneEventItem[] } | undefined;
   for (const message of messages) {
     const envelope = message.inboundPeer
       ? parseLaneEnvelope(message.rawContent ?? '')
       : null;
     if (!envelope) {
-      run.clear();
+      previousRow = undefined;
       continue;
     }
     const event: LaneEventItem = {
@@ -52,7 +27,7 @@ export function groupLaneEvents(
       files: message.files,
       imageCount: message.imageCount,
     };
-    const existing = run.get(envelope.agentId);
+    const existing = previousRow?.row.agentId === envelope.agentId ? previousRow : undefined;
     if (existing) {
       existing.events.push(event);
       slots.set(message.id, { kind: 'merged', rowKey: existing.row.rowKey });
@@ -68,7 +43,7 @@ export function groupLaneEvents(
         earlier: earlierByAgent.get(envelope.agentId)?.slice() ?? [],
         liveLane: liveAgentIds.has(envelope.agentId),
       };
-      run.set(envelope.agentId, { row, events });
+      previousRow = { row, events };
       slots.set(message.id, { kind: 'row', row });
     }
     const previous = earlierByAgent.get(envelope.agentId);

@@ -5,6 +5,7 @@ import {
   output,
   signal,
   computed,
+  linkedSignal,
   viewChild,
   ChangeDetectionStrategy,
   afterNextRender,
@@ -101,7 +102,8 @@ import {
 } from './transcript-turn-contexts';
 import { TranscriptLiveClock } from './transcript-live-clock';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { groupLaneEvents, type LaneSlot } from './transcript-lane-events';
+import { groupLaneEvents } from './transcript-lane-events';
+import type { LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
 import { LaneEventRowComponent } from '../../molecules/lane-event/lane-event-row.component';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
@@ -696,15 +698,22 @@ export class ChatTranscriptComponent {
     },
   );
 
-  private frozenLaneSlots: ReadonlyMap<string, LaneSlot> = new Map();
-  protected readonly laneSlots = computed(() => {
-    if (!this.workActive()) return this.frozenLaneSlots;
-    const liveIds = new Set(
-      this.laneMonitor?.agents?.().filter(agent => agent.status === 'running').map(agent => agent.agentId) ?? [],
-    );
-    const next = groupLaneEvents(this.turnMessages(), liveIds);
-    this.frozenLaneSlots = next;
-    return next;
+  /** Keep the rendered rows stable while this tab is inactive. */
+  protected readonly laneSlots = linkedSignal({
+    source: () => ({
+      active: this.workActive(),
+      messages: this.turnMessages(),
+      agents: this.laneMonitor?.agents?.() ?? [],
+    }),
+    computation: (source, previous): ReadonlyMap<string, LaneSlot> => {
+      if (!source.active) return previous?.value ?? new Map();
+      const liveIds = new Set(
+        source.agents
+          .filter((agent) => agent.status === 'running')
+          .map((agent) => agent.agentId),
+      );
+      return groupLaneEvents(source.messages, liveIds);
+    },
   });
 
   private readonly turnContextBuilder = new TranscriptTurnContexts();

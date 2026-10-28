@@ -1,0 +1,224 @@
+<article
+  data-testid="lane-event"
+  class="group my-1 rounded-lg border border-base-content/10 bg-base-200/40 px-3 py-2 text-xs border-l-[3px]"
+  [class.border-l-state-run]="tone() === 'run'"
+  [class.border-l-state-done]="tone() === 'done'"
+  [class.border-l-state-need]="tone() === 'need'"
+  [class.border-l-state-err]="tone() === 'err'"
+  [class.border-l-base-content/30]="tone() === 'neutral'"
+  [attr.aria-label]="row().agent + ' lane, ' + chipSummary()"
+>
+  <div class="flex items-center gap-2 min-w-0">
+    <button
+      type="button"
+      data-testid="lane-event-toggle"
+      class="flex items-center gap-2 min-w-0 flex-1 text-left rounded py-1
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+        hover:bg-base-content/5"
+      [attr.aria-label]="
+        (expanded() ? 'Collapse ' : 'Expand ') + row().agent + ' lane event'
+      "
+      [attr.aria-expanded]="expanded()"
+      [attr.aria-controls]="bodyId()"
+      (click)="expanded.update((v) => !v)"
+    >
+      <lucide-angular
+        [img]="ChevronRightIcon"
+        class="w-3.5 h-3.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none"
+        [class.rotate-90]="expanded()"
+        aria-hidden="true"
+      />
+      <lucide-angular
+        [img]="BotIcon"
+        class="w-4 h-4 shrink-0"
+        [class.text-state-run]="tone() === 'run'"
+        [class.text-state-done]="tone() === 'done'"
+        [class.text-state-need]="tone() === 'need'"
+        [class.text-state-err]="tone() === 'err'"
+        aria-hidden="true"
+      />
+      <span class="font-semibold whitespace-nowrap">{{ row().agent }}</span>
+      <span class="text-base-content-muted truncate max-[360px]:hidden">{{
+        row().cli
+      }}</span>
+      @for (chip of chips(); track chip.label) {
+        <span
+          data-testid="lane-event-chip"
+          class="inline-flex items-center gap-1 rounded border border-current px-1.5 text-[11px] leading-[18px] whitespace-nowrap"
+          [class.text-state-run]="chip.tone === 'run'"
+          [class.text-state-done]="chip.tone === 'done'"
+          [class.text-state-need]="chip.tone === 'need'"
+          [class.text-state-err]="chip.tone === 'err'"
+          [class.text-base-content-muted]="chip.tone === 'neutral'"
+        >
+          <lucide-angular
+            [img]="chip.icon"
+            class="w-3 h-3 motion-reduce:animate-none"
+            aria-hidden="true"
+          />{{ chip.label }}
+        </span>
+      }
+      <time
+        class="ml-auto text-base-content-muted tabular-nums"
+        [attr.datetime]="iso(latest().timestamp)"
+        >{{ time(latest().timestamp) }}</time
+      >
+    </button>
+    @if (actions && row().cli !== 'ptah-session') {
+      <button
+        type="button"
+        data-testid="lane-event-open"
+        class="btn btn-ghost btn-xs gap-1 text-base-content-muted
+          hover:bg-base-content/10 hover:text-base-content
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        [attr.aria-label]="'Open ' + row().agent + ' agent lane'"
+        (click)="openLane()"
+      >
+        <lucide-angular
+          [img]="OpenIcon"
+          class="w-3 h-3"
+          aria-hidden="true"
+        />Open lane
+      </button>
+    }
+  </div>
+  <p class="mt-0.5 pl-[22px] truncate text-xs text-base-content">
+    {{ summary() }}
+  </p>
+  @if (canExpand()) {
+    <button
+      type="button"
+      class="ml-[22px] btn btn-ghost btn-xs px-1 focus-visible:ring-2 focus-visible:ring-primary"
+      data-testid="lane-event-show-more"
+      [attr.aria-expanded]="expanded()"
+      [attr.aria-controls]="bodyId()"
+      (click)="expanded.update((v) => !v)"
+    >
+      {{ expanded() ? 'Show less' : 'Show more' }}
+    </button>
+  }
+  <p
+    class="pl-[22px] text-[11px] text-base-content-muted"
+    data-testid="lane-event-peer-label"
+  >
+    <lucide-angular
+      [img]="UsersIcon"
+      class="w-3 h-3 inline-block align-[-1px] mr-1"
+      aria-hidden="true"
+    />{{ row().peerLabel }}
+  </p>
+  <p
+    class="pl-[22px] text-[11px] text-base-content-muted"
+    data-testid="lane-event-unverified-caption"
+  >
+    Sent from another session — the sender name is self-reported and unverified.
+  </p>
+  @if (timeline().length) {
+    <ol
+      data-testid="lane-event-timeline"
+      aria-label="Lane timeline"
+      class="mt-1.5 pl-[22px] flex flex-wrap items-center gap-1.5 text-base-content-muted"
+    >
+      @for (step of timeline(); track step) {
+        <li class="flex items-center gap-1">
+          <span
+            class="w-2 h-2 rounded-full border border-current"
+            aria-hidden="true"
+          ></span
+          >{{ step }}
+        </li>
+      }
+    </ol>
+  }
+  <div
+    [id]="bodyId()"
+    data-testid="lane-event-body"
+    [hidden]="!expanded()"
+    class="pl-[22px] mt-2"
+  >
+    @if (expanded()) {
+      @for (event of row().events; track event.messageId; let first = $first) {
+        <section
+          [class.border-t]="!first"
+          class="border-base-content/10 pt-2 mt-2"
+        >
+          <h4 class="text-[11px] font-semibold text-base-content-muted">
+            {{ event.kind === 'report' ? 'Report' : 'Completed' }},
+            {{ time(event.timestamp) }}
+            @if (event.kind === 'completed' && event.verdict) {
+              (verdict: {{ event.verdict }})
+            }
+          </h4>
+          <markdown
+            [data]="markdown(event.body) | surfaceMarkdown: surfaceActive()"
+            class="prose prose-sm max-w-none [&_*]:text-base-content"
+          />
+        </section>
+      }
+    }
+  </div>
+  @if (attachments().files.length || attachments().images) {
+    <div class="pl-[22px] mt-1 flex flex-wrap gap-1 text-base-content-muted">
+      @for (file of attachments().files; track file) {
+        <span class="badge badge-ghost badge-sm">{{ fileName(file) }}</span>
+      }
+      @if (attachments().images) {
+        <span class="badge badge-ghost badge-sm"
+          ><lucide-angular
+            [img]="ImageIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />{{ attachments().images }}
+          {{ attachments().images === 1 ? 'image' : 'images' }}</span
+        >
+      }
+    </div>
+  }
+  <div
+    class="flex gap-1 items-center mt-1 opacity-0 group-hover:opacity-100
+      group-focus-within:opacity-100 transition-opacity duration-200
+      motion-reduce:transition-none"
+  >
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
+      title="Branch conversation from here"
+      aria-label="Branch conversation from this message"
+      data-testid="lane-event-branch"
+      (click)="branchRequested.emit(lastMessageId())"
+    >
+      <lucide-angular
+        [img]="BranchIcon"
+        class="w-3.5 h-3.5"
+        aria-hidden="true"
+      />
+    </button>
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
+      [title]="
+        isSessionActive()
+          ? 'Rewind file changes to here'
+          : 'Rewind is only available during an active conversation'
+      "
+      [attr.aria-label]="
+        isSessionActive()
+          ? 'Rewind file changes to this message'
+          : 'Rewind unavailable — session is not active'
+      "
+      [disabled]="!isSessionActive()"
+      [attr.aria-disabled]="!isSessionActive()"
+      data-testid="lane-event-rewind"
+      (click)="requestRewind()"
+    >
+      <lucide-angular
+        [img]="RewindIcon"
+        class="w-3.5 h-3.5"
+        aria-hidden="true"
+      />
+    </button>
+  </div>
+  <span class="sr-only" role="status">{{
+    completed() ? row().agent + ' lane completed' : ''
+  }}</span>
+</article>
