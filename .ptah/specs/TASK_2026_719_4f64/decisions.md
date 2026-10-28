@@ -640,3 +640,19 @@
   and review the 15 s per-step limit under start-up load.
 - Source: orchestrator, live evidence (`test-report.md` "Live results").
 - Reversible: yes.
+
+## D76
+
+- Decision: the user asked (2026-10-28) to fix every remaining issue before merge. This overrides the
+  "later task" parts of D74 (M2, N1) and D75 (a, b). Three file-disjoint fixes, one round:
+  (1) executor: every named refusal carries a fixed reason code that the existing "Query init failed"
+  log records; the wait for the CLI's first stream message (the CLI connects its MCP servers first) uses
+  the remaining admission budget instead of the 15 s step limit; all other steps keep 15 s; the 90 s
+  operation deadline still bounds everything.
+  (2) adapter: a workspace switch while the adapter is not initialized tries the set-up again for the new
+  workspace's auth route.
+  (3) chat-session service: for a named start, preparation before admission (MCP OAuth refresh) is
+  bounded by the operation deadline, so the host answers before the renderer's 120 s; plus the N1
+  propagation spec.
+- Source: user instruction + live evidence (`test-report.md` "Live results").
+- Reversible: yes.
