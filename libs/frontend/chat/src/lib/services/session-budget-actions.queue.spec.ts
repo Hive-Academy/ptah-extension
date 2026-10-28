@@ -236,6 +236,7 @@ describe('SessionBudgetActionsService with the real queue', () => {
         status: 'streaming' as const,
       }),
       tabId: signal<string | null>(TAB),
+      bannerVisible: signal(true),
       sessionId: signal<string | null>(SESSION),
     });
   });

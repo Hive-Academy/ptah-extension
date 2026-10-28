@@ -41,6 +41,8 @@ export interface SessionBudgetView {
   } | null>;
   readonly tabId: Signal<string | null>;
   readonly sessionId: Signal<string | null>;
+  /** True while this view shows the budget banner, and so its Cancel. */
+  readonly bannerVisible: Signal<boolean>;
 }
 
 /**
@@ -83,6 +85,7 @@ const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
   tabId: signal(null),
   sessionId: signal(null),
+  bannerVisible: signal(false),
 };
 
 /**
@@ -202,6 +205,8 @@ export class SessionBudgetActionsService {
         budget?.autoHandoff !== true ||
         this.displayStage() !== 'limit' ||
         !tabId ||
+        // Only where the banner shows: the user must be able to cancel it.
+        !this.view().bannerVisible() ||
         this.wrapUpSent() ||
         this.autoHandoff.entry(budget.sessionId) !== null ||
         this.autoSkillMissing.has(budget.sessionId) ||
@@ -392,6 +397,7 @@ export class SessionBudgetActionsService {
     return (
       budget.autoHandoff === true &&
       this.displayStage() === 'limit' &&
+      this.view().bannerVisible() &&
       !this.sessionStartGuard?.()
     );
   }

@@ -488,11 +488,17 @@ export class SystemMessageTransformer {
     }
     state.markBackgroundAnnounced(toolUseId, params.origin);
 
-    helpers.subagentRegistry.update(toolUseId, {
-      status: 'background',
-      isBackground: true,
-      backgroundStartedAt: Date.now(),
-    });
+    if (record) {
+      helpers.subagentRegistry.update(toolUseId, {
+        status: 'background',
+        isBackground: true,
+        backgroundStartedAt: Date.now(),
+      });
+    } else {
+      // The SubagentStart hook has not registered it yet; let that
+      // registration start it as background.
+      helpers.subagentRegistry.markPendingBackground(toolUseId);
+    }
 
     helpers.logger.debug(
       `[SdkMessageTransformer] ${params.origin} → background_agent_started`,

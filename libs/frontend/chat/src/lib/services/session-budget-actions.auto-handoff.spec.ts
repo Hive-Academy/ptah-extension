@@ -73,6 +73,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
   let denyPermission: jest.Mock;
   /** While set, the skill probe waits for it (an in-flight discovery). */
   let probeGate: Promise<void> | null;
+  let bannerVisible: WritableSignal<boolean>;
   let service: SessionBudgetActionsService;
   let dispatch: MessageDispatchService;
 
@@ -99,6 +100,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
       activeTab: computed(() => tab()),
       tabId: signal<string | null>(TAB),
       sessionId: signal<string | null>(SESSION),
+      bannerVisible: computed(() => bannerVisible()),
     });
   const handoffSends = () =>
     [...send.mock.calls.map((call) => call[0] as string), ...flushed].filter(
@@ -135,6 +137,7 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     permissions = signal<PermissionRequest[]>([]);
     denyPermission = jest.fn();
     probeGate = null;
+    bannerVisible = signal(true);
     showError = jest.fn();
     send = jest.fn().mockResolvedValue({ success: true });
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -286,6 +289,17 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
     await run();
     expect(send).not.toHaveBeenCalled();
     expect(TestBed.inject(SessionAutoHandoffService).entry(SESSION)).toBeNull();
+  });
+
+  it('does nothing while the banner, and so its Cancel, is not shown', async () => {
+    bannerVisible.set(false);
+    start({}, 'loaded');
+    await run();
+    expect(send).not.toHaveBeenCalled();
+
+    bannerVisible.set(true);
+    await run();
+    expect(handoffSends()).toHaveLength(1);
   });
 
   it('does nothing below the limit', async () => {
@@ -511,6 +525,21 @@ describe('SessionBudgetActionsService automatic hand-off', () => {
       patch(TAB, {
         sessionBudget: { ...LIMIT_BUDGET, stage: 'handoff', percent: 85 },
       });
+      release();
+      await run();
+
+      expect(tab().queuedContent).toBeNull();
+      expect(
+        TestBed.inject(SessionAutoHandoffService).entry(SESSION),
+      ).toBeNull();
+    });
+
+    it('does not send when the banner was hidden meanwhile', async () => {
+      const release = holdProbe();
+      start();
+      await run();
+
+      bannerVisible.set(false);
       release();
       await run();
 

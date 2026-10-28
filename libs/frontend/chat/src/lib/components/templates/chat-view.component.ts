@@ -1164,6 +1164,7 @@ export class ChatViewComponent implements OnDestroy {
       activeTab: this.resolvedActiveTab,
       tabId: this.resolvedTabId,
       sessionId: this.resolvedSessionId,
+      bannerVisible: this.showSessionBudgetBanner,
     });
     this.observeHostWidth();
     this.wireSessionEntrance();

@@ -592,10 +592,10 @@ describe('SystemMessageTransformer', () => {
           agentDescription: 'Continue the review',
           sessionId: 'sess',
         });
-        expect(helpers.subagentRegistry.update).toHaveBeenCalledWith(
-          'toolu_sendmsg',
-          expect.objectContaining({ status: 'background', isBackground: true }),
-        );
+        // No record yet: the later SubagentStart registers it as background.
+        expect(
+          helpers.subagentRegistry.markPendingBackground,
+        ).toHaveBeenCalledWith('toolu_sendmsg');
       });
 
       it.each([false, undefined])(
@@ -765,6 +765,44 @@ describe('SystemMessageTransformer', () => {
           'toolu_task',
           'task_tool',
         );
+      });
+
+      it('marks the task pending background when SubagentStart has not registered it yet', () => {
+        const helpers = makeHelpers();
+        (helpers.subagentRegistry.get as jest.Mock).mockReturnValue(null);
+        state.isTaskStartedEmitted.mockReturnValue(true);
+
+        const events = transformer.transformTaskStarted(
+          defaultBgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(events.map((e) => e.eventType)).toEqual([
+          'background_agent_started',
+        ]);
+        expect(
+          helpers.subagentRegistry.markPendingBackground,
+        ).toHaveBeenCalledWith('toolu_task');
+        expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
+      });
+
+      it('leaves no pending marker for a foreground Task', () => {
+        const helpers = makeHelpers();
+        (helpers.subagentRegistry.get as jest.Mock).mockReturnValue(null);
+        state.isTaskStartedEmitted.mockReturnValue(true);
+
+        transformer.transformTaskStarted(
+          defaultBgMsg(false),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(
+          helpers.subagentRegistry.markPendingBackground,
+        ).not.toHaveBeenCalled();
       });
 
       it('emits no transformer terminal on task_notification (SubagentStop ends the entry)', () => {

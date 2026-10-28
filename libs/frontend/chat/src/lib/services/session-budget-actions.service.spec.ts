@@ -80,6 +80,7 @@ describe('SessionBudgetActionsService', () => {
       activeTab: tab,
       tabId,
       sessionId: signal<string | null>(SESSION),
+      bannerVisible: signal(true),
     });
     return {
       service,

@@ -180,8 +180,8 @@ export class TurnEndHandlerService {
     if (knownEntry) {
       // SubagentStop is the normal-finish hook, so the entry completes. A
       // user stop arrives as `background_agent_stopped` from the SDK's
-      // `task_notification`; `onCompleted` never reopens or relabels an
-      // entry that is already terminal, so that `stopped` is kept.
+      // `task_notification`. Either order ends `stopped`: `onCompleted`
+      // keeps an earlier `stopped`, and `onStopped` relabels `completed`.
       this.backgroundAgents.onCompleted({
         id: `subagent-ended-${payload.agentId}-${payload.timestamp}`,
         eventType: 'background_agent_completed',
