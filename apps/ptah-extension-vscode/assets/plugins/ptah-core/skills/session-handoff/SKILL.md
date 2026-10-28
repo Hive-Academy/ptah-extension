@@ -69,6 +69,7 @@ Do no further work here.
 
 If `ptah_session_handoff` is not available, or the call is refused (any code) or fails: do not
 retry. Print the continuation prompt in exactly one fenced code block and tell the user to paste
-it into a new session. HANDOFF.md stays where you wrote it. If the refusal says the new session
+it into a new session. HANDOFF.md stays where you wrote it. Lanes and child sessions stay with
+this session, so their reports arrive here. If the refusal says the new session
 may still open late, tell the user to look for it in the sessions panel first, and to paste the
 prompt only if it does not appear.
