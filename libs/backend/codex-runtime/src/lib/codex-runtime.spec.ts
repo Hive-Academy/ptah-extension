@@ -131,7 +131,7 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
         result = {
           thread: {
             id: this.threadId,
-            cliVersion: '0.155.1',
+            cliVersion: '0.165.0',
             createdAt: 1,
             updatedAt: 1,
             cwd: '/work',
@@ -201,8 +201,8 @@ describe('CodexRuntime', () => {
         expectedManifestRow: {
           platform: 'test',
           arch: 'test',
-          pinnedVersion: '0.155.1',
-          version: 'codex-cli 0.155.1',
+          pinnedVersion: '0.165.0',
+          version: 'codex-cli 0.165.0',
           binarySha256: 'a'.repeat(64),
           schemaSha256: 'b'.repeat(64),
         },
@@ -211,7 +211,7 @@ describe('CodexRuntime', () => {
         executablePath: '/bin/codex',
         platform: 'test',
         arch: 'test',
-        versionOutput: 'codex-cli 0.155.1',
+        versionOutput: 'codex-cli 0.165.0',
         sha256: 'a'.repeat(64),
       },
       store: { persist, markInactive: inactive, read: async () => undefined },
