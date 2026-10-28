@@ -865,6 +865,7 @@ export class NamedAccountQueryAdmission {
       this.gates.push(gate);
       this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(), bootstrapOptions,
         (termination) => { this.termination = termination; });
+      this.recordChild(this.child.childPid);
       const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
       if (stored && !sameNamedIdentity(stored.identity, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
       this.baseline = stored?.identity ?? identity;
@@ -925,6 +926,7 @@ export class NamedAccountQueryAdmission {
         catch (error: unknown) { await this.dispose(); throw rewrapNamedRefusal(error); }
       }), withNamedAccountToolGate(options, toolAdmitted),
         (termination) => { this.termination = termination; });
+      this.recordChild(this.child.childPid);
       await this.verifyIdentity();
       // The same child proved the account: hand over the first caller turn only.
       gate.releaseFirst();
@@ -995,6 +997,24 @@ export class NamedAccountQueryAdmission {
     await this.wait(this.persistence.assertRouteCurrent(this.route));
     const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
     if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
+  }
+
+  /**
+   * Records the child's pid on the reservation so a later process reclaims a
+   * lease this host leaves behind only once the child is gone too. Fire and
+   * forget: a failed record keeps the lease reclaimable on host death alone,
+   * which is logged, and never changes this run's own admission.
+   */
+  private recordChild(childPid: Promise<number | null>): void {
+    const reservation = this.reservation;
+    if (!reservation || !this.admission.recordRunChild) return;
+    const unrecorded = (): void => this.logger.warn('[SessionLifecycle] Named account child was not recorded on its reservation.');
+    void childPid.then(async (pid) => {
+      if (pid === null) return;
+      const result = await this.admission.recordRunChild?.({ reservationId: reservation.reservationId,
+        operationId: reservation.operationId, authEpoch: reservation.authEpoch, pid });
+      if (result && result.code !== 'ok') unrecorded();
+    }).catch(unrecorded);
   }
 
   private closeChild(): void {

@@ -151,6 +151,7 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export { isChildExitProved, spawnedChildPid } from './lib/helpers';
 export type {
   ManualCompactAdmission,
   ManualCompactDecision,

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { inject, injectable } from 'tsyringe';
 import type { ClaudeAccountActionCommand, ClaudeAccountActionTarget, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import { killProcessTree, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { ProviderAccountActionResult, ProviderAccountResultCode, ProviderAccountState } from '@ptah-extension/shared';
 import {
   accountActionResult, CLAUDE_ACCOUNT_CHILD_LIMITS, ClaudeAccountCommand, type ClaudeChildCloseReceipt,
@@ -216,6 +217,8 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     @inject(ClaudeAccountCommand) private readonly commands: ClaudeAccountCommand,
     @inject(ClaudeRouteCertifier) private readonly certifier: ClaudeRouteCertifier,
     @inject(ClaudeLoginConsole) private readonly loginConsole: ClaudeLoginConsole,
+    // Diagnostics only: a container without a logger runs every action the same way.
+    @inject(TOKENS.LOGGER, { isOptional: true }) private readonly logger: Pick<Logger, 'warn'> | null = null,
   ) {}
 
   onStateChanged(listener: (change: ProviderAccountStateChange) => void): () => void {
@@ -471,6 +474,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     const complete = (code: ProviderAccountResultCode, state: ProviderAccountState, terminated: boolean,
       identityRef?: string | null): ProviderAccountActionResult => {
       this.store.completeStatus(operationId, this.ownerId, authEpoch, state, terminated, identityRef);
+      this.logLeftSignedIn(priorState, state, 'status', code);
       this.emit(profileId);
       return accountActionResult(code);
     };
@@ -541,6 +545,19 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
     }
   }
 
+  /**
+   * Diagnoses a later "signed out": one warning when an operation that began
+   * on a `signed-in` account settles it in another state. Logged once, at
+   * completion (the transient `pending` of a sign-in or sign-out is not
+   * logged). Fixed text and enum fields only (the operation, the new state and
+   * the result code); never an id, path, email, token or CLI output.
+   */
+  private logLeftSignedIn(prior: ProviderAccountState, next: ProviderAccountState,
+    operation: 'status' | 'sign-in' | 'sign-out', reason: ProviderAccountResultCode): void {
+    if (prior !== 'signed-in' || next === 'signed-in') return;
+    this.logger?.warn('[ProviderAccountActions] Account left the signed-in state', { operation, state: next, reason });
+  }
+
   /** A coverage refusal starts no child and is a terminal failure of the operation. */
   private async coverage(operation: AuthOperation, context: ClaudeAuthContext): Promise<TerminalOutcome | undefined> {
     const checked: ClaudeCoverageOutcome = await this.certifier.checkCoverage(context, operation.controller.signal);
@@ -593,6 +610,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
       this.emit(operation.profileId);
       return this.refusal(error);
     }
+    this.logLeftSignedIn(operation.priorState, outcome.state, operation.kind, outcome.code);
     this.emit(operation.profileId);
     return accountActionResult(outcome.code);
   }

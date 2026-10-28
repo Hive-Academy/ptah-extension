@@ -119,6 +119,8 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
       events.push('retain');
       return { code: 'ok', reservation: { ...reservation, phase: 'retained' } };
     }),
+    recordRunChild: jest.fn(async (): ReturnType<NonNullable<ProviderAccountAdmissionPort['recordRunChild']>> =>
+      ({ code: 'ok', reservation: { ...reservation, phase: 'retained' } })),
   };
   const persistence: NamedAccountPersistencePort = {
     resolveAccountBinding: jest.fn(async (): Promise<ProviderAccountBinding | null> => {
@@ -194,7 +196,8 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
           if (settings.unproved !== stage) terminated.resolve();
         }),
       };
-      return { sdkQuery: query as ReturnType<QueryFunction>, terminated: terminated.promise };
+      return { sdkQuery: query as ReturnType<QueryFunction>, terminated: terminated.promise,
+        childPid: Promise.resolve(stage === 'bootstrap' ? 7001 : 7002) };
     }),
   };
   const log = { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() };
@@ -270,6 +273,11 @@ describe('named SDK bootstrap and final admission', () => {
     expect((await query.next()).value).toMatchObject({ subtype: 'init' });
     await f.flow.dispose();
     expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    // Each child's pid reaches its reservation, so a crashed host's lease waits for the child too.
+    const keys = { reservationId: reservation.reservationId, operationId: reservation.operationId,
+      authEpoch: reservation.authEpoch };
+    expect(f.admission.recordRunChild).toHaveBeenNthCalledWith(1, { ...keys, pid: 7001 });
+    expect(f.admission.recordRunChild).toHaveBeenNthCalledWith(2, { ...keys, pid: 7002 });
   });
 
   it('releases the first turn after the identity proof, then admits on init (D69, CLI 2.1.278 order)', async () => {
@@ -807,6 +815,17 @@ describe('named SDK bootstrap and final admission', () => {
     const held = fixture({ unknown: true, held: true });
     await expect(held.run()).rejects.toMatchObject({ code: 'release-held' });
     expect(held.options).toHaveLength(0);
+  });
+
+  it('refuses a reused certification whose login was signed out outside Ptah at the post-init check', async () => {
+    // The admission fake passes without any status child, as a certification
+    // reuse does. The bootstrap child's accountInfo() reports no login.
+    const f = fixture({ unknown: true });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
+    expect(f.runner.invokeNamedQuery).toHaveBeenCalledTimes(1);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.yielded()).toBe(0);
   });
 
   it('invalidates the registry on auth epoch change and stops dispatch', async () => {

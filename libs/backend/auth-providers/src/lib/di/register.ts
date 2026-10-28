@@ -177,6 +177,7 @@ function registerProviderAccountServices(container: DependencyContainer): void {
   container.register(ClaudeRouteCertifier, {
     useFactory: instanceCachingFactory((c) => new ClaudeRouteCertifier(
       c.resolve(ClaudeAccountCommand), process.platform, certifierFs,
+      c.isRegistered(TOKENS.LOGGER, true) ? c.resolve<Logger>(TOKENS.LOGGER) : null,
     )),
   });
   container.register(ClaudeLoginConsole, {

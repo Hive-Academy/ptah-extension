@@ -1,15 +1,17 @@
 import { inject, injectable } from 'tsyringe';
 import { z } from 'zod';
 import { PERSISTENCE_TOKENS, type SqliteConnectionService, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   isProviderAccountLabelTaken, isProviderAccountOpaqueId, isProviderAccountOwnerKey, isSafeProviderAccountLabel,
   PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY, PROVIDER_ACCOUNT_STATES,
   type ProviderAccountBinding, type ProviderAccountIdentityEvidence, type ProviderAccountScope, type ProviderAccountState,
 } from '@ptah-extension/shared';
 import type { ClaudeAccountRunReservation, ClaudeAccountAuthOperationReservation,
-  ClaudeAccountReservationRelease, ClaudeAccountReservationRetain } from '@ptah-extension/auth-providers-tokens';
+  ClaudeAccountReservationRelease, ClaudeAccountReservationRetain, ClaudeAccountRunChild } from '@ptah-extension/auth-providers-tokens';
 import { ProviderAccountStoreError, revalidateProviderAccountRoute,
   withNewProviderAccountDirectory, providerAccountErrorCode, type CanonicalProviderAccountRoute } from './provider-account-route';
+import { CURRENT_LEASE_HOST, leaseOwnerGone } from './provider-account-host';
 
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
@@ -54,6 +56,10 @@ const leaseSchema = z.object({
   auth_epoch: revision, route_revision: revision, lease_state: z.enum(['live', 'quarantined']),
 });
 type StoredRunLease = z.infer<typeof leaseSchema>;
+const leaseHostSchema = z.object({
+  lease_id: z.string(), host_pid: z.number().int().positive(), host_machine: z.string(),
+  child_pid: z.number().int().positive().nullable(),
+});
 export type StoredProviderAccount = z.infer<typeof profileSchema>;
 const liveLabelSchema = z.object({ profile_id: z.string(), label: z.string() });
 const selectionSchema = z.object({ profile_id: opaqueId.nullable(), revision });
@@ -98,12 +104,15 @@ export interface AccountRunBindingCommit {
 }
 
 /** Lazy shared connection: registration does not open or choose a database.
- * All writes are synchronous. No expiry, PID recovery or in-memory fallback.
+ * All writes are synchronous. No expiry or in-memory fallback. A run lease is
+ * reclaimed only when its host and Claude child are proved gone (`leaseOwnerGone`).
  */
 @injectable()
 export class ProviderAccountStore {
   constructor(@inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: Pick<SqliteConnectionService, 'db'>) {}
+    private readonly connection: Pick<SqliteConnectionService, 'db'>,
+    // Diagnostics only: a container without a logger reclaims and refuses the same way.
+    @inject(TOKENS.LOGGER, { isOptional: true }) private readonly logger: Pick<Logger, 'warn'> | null = null) {}
 
   private atomic<T>(work: (db: SqliteDatabase) => T): T {
     let db: SqliteDatabase | undefined;
@@ -423,20 +432,28 @@ export class ProviderAccountStore {
           throw new ProviderAccountStoreError('route-changed');
         }
       }
+      // A resumed run reuses its run id (UNIQUE): free the lease an ended host left for it.
+      this.reclaimAbandoned(db, request.route.fingerprint);
       const lease: StoredRunLease = {
         run_id: request.runId, profile_id: request.profileId, route_fingerprint: request.route.fingerprint,
         auth_epoch: profile?.auth_epoch ?? 0, route_revision: profile?.route_revision ?? 0, lease_state: 'live',
       };
       db.prepare(`INSERT INTO provider_account_run_leases
-        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at, auth_epoch, route_revision, lease_state)
-        VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, 'live')`)
+        (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id, acquired_at, auth_epoch, route_revision, lease_state,
+          host_pid, host_machine)
+        VALUES (?, ?, 'claude', ?, ?, ?, ?, ?, ?, 'live', ?, ?)`)
         .run(request.reservationId, lease.run_id, lease.profile_id, lease.route_fingerprint, request.operationId, Date.now(),
-          lease.auth_epoch, lease.route_revision);
+          lease.auth_epoch, lease.route_revision, CURRENT_LEASE_HOST.pid, CURRENT_LEASE_HOST.machine);
       return { binding, reservation: this.runReservation(request, lease, 'reserved') };
     });
   }
 
-  /** Status excludes other operations without starting a new authentication epoch. */
+  /**
+   * Status excludes other operations without starting a new authentication
+   * epoch. Live runs do not make it busy: a status child only reads the route,
+   * as the status child of every run certification already does beside other
+   * live runs, and completion never changes the epoch or route a lease holds.
+   */
   reserveStatus(profileId: string, expectedRevision: number, route: CanonicalProviderAccountRoute,
     operationId: string, ownerId: string): { readonly authEpoch: number } {
     this.validateIds(operationId, ownerId);
@@ -445,7 +462,7 @@ export class ProviderAccountStore {
     return this.atomic(db => {
       const profile = this.profile(db, profileId, expectedRevision);
       this.routeProfile(db, profileId, expectedRevision, route);
-      this.unoccupied(db, route.fingerprint, true);
+      this.unoccupied(db, route.fingerprint, false);
       db.prepare(`INSERT INTO provider_account_operations
         (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at)
         VALUES (?, ?, ?, 'claude', 'status', ?, ?, ?, ?)`)
@@ -535,6 +552,20 @@ export class ProviderAccountStore {
     });
   }
 
+  /**
+   * Records the run's current Claude child on its live lease (ownership and
+   * epoch checked as for retain). A later child of the same run replaces it:
+   * a run starts its next child only after the previous one's close.
+   */
+  recordRunChild(command: ClaudeAccountRunChild): ClaudeAccountRunReservation & { readonly phase: 'retained' } {
+    if (!Number.isSafeInteger(command.pid) || command.pid <= 0) throw new ProviderAccountStoreError('conflict');
+    return this.atomic(db => {
+      const lease = this.held(db, command);
+      db.prepare('UPDATE provider_account_run_leases SET child_pid = ? WHERE lease_id = ?').run(command.pid, command.reservationId);
+      return this.runReservation(command, lease, 'retained');
+    });
+  }
+
   /** Checks ownership and epoch only; the lease stays. */
   retain(command: ClaudeAccountReservationRetain): ClaudeAccountRunReservation & { readonly phase: 'retained' } {
     return this.atomic(db => this.runReservation(command, this.held(db, command), 'retained'));
@@ -588,11 +619,36 @@ export class ProviderAccountStore {
     return { profileId: row.profile_id, revision: row.revision };
   }
 
+  /** `includeRuns` first reclaims the route's leases whose owning host is proved gone. */
   private unoccupied(db: SqliteDatabase, fingerprint: string, includeRuns: boolean): void {
+    if (includeRuns) this.reclaimAbandoned(db, fingerprint);
     if (db.prepare('SELECT 1 FROM provider_account_operations WHERE route_fingerprint = ?').get(fingerprint) ||
       (includeRuns && db.prepare('SELECT 1 FROM provider_account_run_leases WHERE route_fingerprint = ?').get(fingerprint))) {
       throw new ProviderAccountStoreError('busy');
     }
+  }
+
+  /**
+   * Deletes the route's live leases whose run is proved over: same machine,
+   * and neither the host pid nor the recorded Claude child pid exists. A
+   * quarantined row, a legacy row without an owner, another machine's row and
+   * a row with either process still present stay held. Disposal never proves
+   * termination, and neither does the host's exit alone: its child can
+   * outlive it.
+   */
+  private reclaimAbandoned(db: SqliteDatabase, fingerprint: string): void {
+    const rows = db.prepare(`SELECT lease_id, host_pid, host_machine, child_pid FROM provider_account_run_leases
+      WHERE route_fingerprint = ? AND lease_state = 'live' AND host_pid IS NOT NULL AND host_machine = ?`)
+      .all(fingerprint, CURRENT_LEASE_HOST.machine);
+    let reclaimed = 0;
+    for (const raw of rows) {
+      const row = leaseHostSchema.safeParse(raw);
+      if (!row.success) throw new ProviderAccountStoreError('unavailable-storage');
+      if (!leaseOwnerGone({ pid: row.data.host_pid, machine: row.data.host_machine, childPid: row.data.child_pid })) continue;
+      db.prepare('DELETE FROM provider_account_run_leases WHERE lease_id = ?').run(row.data.lease_id);
+      reclaimed += 1;
+    }
+    if (reclaimed > 0) this.logger?.warn('[ProviderAccountStore] Reclaimed run leases left by an ended host', { reclaimed });
   }
 
   private validateIds(...ids: string[]): void {

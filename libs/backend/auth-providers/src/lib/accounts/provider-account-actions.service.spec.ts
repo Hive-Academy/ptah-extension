@@ -22,7 +22,7 @@ jest.mock('@ptah-extension/platform-core', () => ({
 }));
 
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const schema = [58, 59, 60].map(version => {
+const schema = [58, 59, 60, 61].map(version => {
   const migration = MIGRATIONS.find(entry => entry.version === version);
   if (!migration?.sql) throw new Error('Provider account migration is missing');
   return migration.sql;
@@ -94,10 +94,10 @@ describe('ProviderAccountActionsService', () => {
   const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
   const advance = async (ms: number): Promise<void> => { await jest.advanceTimersByTimeAsync(ms); await flush(); };
   const operations = () => db.prepare('SELECT * FROM provider_account_operations').all();
-  const build = (): ProviderAccountActionsService => new ProviderAccountActionsService(store,
+  const build = (logger: { warn: jest.Mock } | null = null): ProviderAccountActionsService => new ProviderAccountActionsService(store,
     Object.assign(Object.create(ClaudeAccountCommand.prototype) as ClaudeAccountCommand, commands),
     Object.assign(Object.create(ClaudeRouteCertifier.prototype) as ClaudeRouteCertifier, certifier),
-    Object.assign(Object.create(ClaudeLoginConsole.prototype) as ClaudeLoginConsole, loginConsole));
+    Object.assign(Object.create(ClaudeLoginConsole.prototype) as ClaudeLoginConsole, loginConsole), logger);
   const signIn = (accountState: 'signed-in' | 'signed-out'): void => {
     db.prepare('UPDATE provider_account_profiles SET state = ?, identity_ref = ? WHERE profile_id = ?')
       .run(accountState, accountState === 'signed-in' ? 'identity-ref-0001' : null, id);
@@ -658,6 +658,71 @@ describe('ProviderAccountActionsService', () => {
     expect(certifier.authContext).not.toHaveBeenCalled();
     expect(store.get(id).auth_epoch).toBe(0);
     expect(service.list()[0].activeRunCount).toBe(1);
+  });
+
+  it('reads status while a run lease is live; sign-in stays busy', async () => {
+    signIn('signed-in');
+    const profile = store.get(id);
+    store.acquireRunLease({ profileId: id, expectedRevision: profile.revision,
+      route: resolveProviderAccountRoute(profile.canonical_route),
+      runId: 'run-00001', reservationId: 'lease-00001', operationId: 'admit-00001' });
+    commands.status.mockResolvedValueOnce(signedIn());
+    expect((await actions.readStatus(target())).code).toBe('ok');
+    expect(commands.status).toHaveBeenCalledTimes(1);
+    expect(store.get(id).state).toBe('signed-in');
+    expect(operations()).toEqual([]);
+    expect((await actions.startSignIn(command())).code).toBe('busy');
+    expect(service.list()[0].activeRunCount).toBe(1);
+  });
+
+  describe('signed-in departure log', () => {
+    let logger: { warn: jest.Mock };
+    let logged: ProviderAccountActionsService;
+    beforeEach(() => {
+      logger = { warn: jest.fn() };
+      logged = build(logger);
+    });
+    afterEach(async () => { await logged.dispose(); });
+    const departures = () => logger.warn.mock.calls.filter(([text]) => text === '[ProviderAccountActions] Account left the signed-in state');
+
+    it('logs a status that observes a signed-out account, with fixed fields only', async () => {
+      signIn('signed-in');
+      commands.status.mockResolvedValueOnce(signedOut);
+      expect((await logged.readStatus(target())).code).toBe('ok');
+      expect(departures()).toEqual([
+        ['[ProviderAccountActions] Account left the signed-in state', { operation: 'status', state: 'signed-out', reason: 'ok' }],
+      ]);
+      // No profile id, path or CLI text reaches the log.
+      // The account directory ends with the profile id, so this also excludes the path.
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(id);
+    });
+
+    it('logs a status that cannot prove the login, with its result code', async () => {
+      signIn('signed-in');
+      commands.status.mockResolvedValueOnce({ status: null, terminated: true });
+      expect((await logged.readStatus(target())).code).toBe('unsupported-source');
+      expect(departures()).toEqual([
+        ['[ProviderAccountActions] Account left the signed-in state', { operation: 'status', state: 'disconnected', reason: 'unsupported-source' }],
+      ]);
+    });
+
+    it('stays quiet while the account stays signed in or was not signed in', async () => {
+      signIn('signed-in');
+      commands.status.mockResolvedValueOnce(signedIn());
+      await logged.readStatus(target());
+      signIn('signed-out');
+      commands.status.mockResolvedValueOnce(signedOut);
+      await logged.readStatus(target());
+      expect(departures()).toEqual([]);
+    });
+
+    it('logs a sign-out of a signed-in account once, at completion', async () => {
+      signIn('signed-in');
+      expect((await logged.signOut(command())).code).toBe('ok');
+      expect(departures()).toEqual([
+        ['[ProviderAccountActions] Account left the signed-in state', { operation: 'sign-out', state: 'signed-out', reason: 'ok' }],
+      ]);
+    });
   });
 
   it('compares operation id, revision and epoch on cancel', async () => {

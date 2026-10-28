@@ -27,6 +27,7 @@ import {
   type PtahSpawnedProcess,
 } from './off-thread-process-spawner';
 import { OFF_THREAD_SPAWNER_WORKER_SOURCE } from './off-thread-process-spawner-source';
+import { isChildExitProved } from './child-exit-proof';
 import {
   LIVE_WORKER_HARD_CAP,
   LIVE_WORKER_SOFT_CAP,
@@ -323,6 +324,25 @@ describe('OffThreadProcessSpawner', () => {
       expect(code === 0 && signal === null).toBe(false);
       await output;
     });
+
+    it.each([['worker', false], ['inline', true]] as const)(
+      'reports the observed exit of a killed child as proved (%s)',
+      async (_transport, inline) => {
+        if (inline) process.env['PTAH_SDK_INLINE_SPAWN'] = '1';
+        const child = spawner.spawn(spawnOptions(['-e', IDLE_SCRIPT]));
+        const output = readAll(child);
+        const exited = waitForExit(child);
+        expect(child.exitObserved).toBe(false);
+
+        child.kill('SIGTERM');
+        const { code } = await exited;
+        await output;
+
+        // A signal death (code null on POSIX) is still the child's real exit.
+        expect(child.exitObserved).toBe(true);
+        expect(isChildExitProved(child, code)).toBe(true);
+      },
+    );
 
     it('aborting the forwarded signal kills the child', async () => {
       const controller = new AbortController();
@@ -951,6 +971,9 @@ describe('OffThreadProcessSpawner', () => {
       expect(events).toEqual(['exit', 'close']);
       expect(child.killed).toBe(true);
       expect(child.exitCode).toBeNull();
+      // A synthesized exit is not termination proof: the child may still run.
+      expect(child.exitObserved).toBe(false);
+      expect(isChildExitProved(child, child.exitCode)).toBe(false);
       expect((child as unknown as { signalCode: string }).signalCode).toBe(
         'SIGKILL',
       );
