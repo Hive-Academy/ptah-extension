@@ -1,6 +1,6 @@
 import type { IDisposable } from '@ptah-extension/platform-core';
 import type {
-  CodexApprovalDecision,
+  CodexApprovalOutcome,
   CodexApprovalRequest,
   CodexThreadIdentity,
 } from './codex-runtime.types';
@@ -25,10 +25,7 @@ export interface ApprovalSink {
   request(
     request: CodexApprovalRequest,
     signal: AbortSignal,
-  ): Promise<
-    | CodexApprovalDecision
-    | { readonly decision: 'decline'; readonly editNotSupported: true }
-  >;
+  ): Promise<CodexApprovalOutcome>;
 }
 export interface CodexThreadIdentityStore {
   /** Must commit before the first turn; rejects if persistence fails. */

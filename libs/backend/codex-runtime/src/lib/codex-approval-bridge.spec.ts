@@ -92,10 +92,17 @@ function setup(overrides: Partial<CodexApprovalBridgeOptions> = {}) {
   };
   const isCurrent = jest.fn(() => true);
   const isWritable = jest.fn(() => true);
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
   const options = {
     identity,
     sink: { request },
     clock,
+    logger,
     rules: new CodexPermissionRuleStore(),
     permissionLevel: (): CodexPermissionLevel => 'ask',
     isCurrent,
@@ -107,6 +114,7 @@ function setup(overrides: Partial<CodexApprovalBridgeOptions> = {}) {
   return {
     bridge: new CodexApprovalBridge(options),
     request,
+    logger,
     options,
     isCurrent,
     isWritable,
@@ -214,6 +222,51 @@ describe('CodexApprovalBridge', () => {
     const before = Date.now();
     await bridge.handle(frame(), 'turn', signal());
     expect(request.mock.calls[0][0].expiresAt).toBe(before + 240_000);
+  });
+
+  it('times approvals out at 240s and leaves questions for the host auto-pick', async () => {
+    const { bridge, request } = setup({ timeoutMs: undefined });
+    request.mockReturnValue(new Promise(() => undefined));
+    const approval = bridge.handle(frame(), 'turn', signal());
+    await Promise.resolve();
+    jest.advanceTimersByTime(240_000);
+    expect(await approval).toEqual({ response: { decision: 'decline' } });
+    expect(request.mock.calls[0][1].aborted).toBe(true);
+
+    let answer: (value: { q: { answers: string[] } }) => void = () => undefined;
+    const input = jest.fn(
+      (_request: CodexApprovalRequest, _signal: AbortSignal) =>
+        new Promise<{ q: { answers: string[] } }>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const questions = setup({ timeoutMs: undefined, requestUserInput: input });
+    const before = Date.now();
+    const pending = questions.bridge.handle(frame(userInput), 'turn', signal());
+    await Promise.resolve();
+    expect(input.mock.calls[0]?.[0].expiresAt).toBe(before + 330_000);
+    jest.advanceTimersByTime(300_000);
+    expect(input.mock.calls[0]?.[1].aborted).toBe(false);
+    answer({ q: { answers: ['recommended'] } });
+    expect(await pending).toEqual({
+      response: { answers: { q: { answers: ['recommended'] } } },
+    });
+  });
+
+  it('does not let a short approval timeout decline a question', async () => {
+    const input = jest.fn(
+      (_request: CodexApprovalRequest, _signal: AbortSignal) =>
+        new Promise<Record<string, { answers: string[] }>>(() => undefined),
+    );
+    const { bridge } = setup({ requestUserInput: input });
+    const before = Date.now();
+    const pending = bridge.handle(frame(userInput), 'turn', signal());
+    await Promise.resolve();
+    expect(input.mock.calls[0]?.[0].expiresAt).toBe(before + 330_000);
+    jest.advanceTimersByTime(100);
+    expect(input.mock.calls[0]?.[1].aborted).toBe(false);
+    bridge.dispose();
+    await pending;
   });
 
   it('rejects duplicates both pending and completed without a second presentation', async () => {
@@ -351,6 +404,74 @@ describe('CodexApprovalBridge', () => {
     });
   });
 
+  it.each([
+    [
+      'command',
+      command,
+      'say "no"',
+      'The user denied this command request with the message: "say \\"no\\"". Respect this decision, do not retry the same call, and adjust your approach.',
+      { decision: 'decline' },
+    ],
+    [
+      'file change',
+      file,
+      'not this diff',
+      'The user denied this file change request with the message: "not this diff". Respect this decision, do not retry the same call, and adjust your approach.',
+      { decision: 'decline' },
+    ],
+    [
+      'permissions',
+      permissions,
+      'no network',
+      'The user denied this permissions request with the message: "no network". Respect this decision, do not retry the same call, and adjust your approach.',
+      { permissions: {}, scope: 'turn' },
+    ],
+    [
+      'MCP elicitation',
+      mcp,
+      'no form',
+      'The user denied this MCP elicitation request with the message: "no form". Respect this decision, do not retry the same call, and adjust your approach.',
+      { action: 'decline' },
+    ],
+  ] as const)(
+    'keeps the native decline and carries a typed %s reason for steer',
+    async (_label, method, reason, feedback, response) => {
+      const reply = {
+        decision: 'decline' as const,
+        denialReason: reason,
+      };
+      const { bridge, request } = setup();
+      request.mockResolvedValue(reply);
+      expect(await bridge.handle(frame(method), 'turn', signal())).toEqual({
+        response,
+        denialFeedback: feedback,
+      });
+    },
+  );
+
+  it('sends no steer text when the deny reason is blank', async () => {
+    const reply = {
+      decision: 'decline' as const,
+      denialReason: ' \n\t ',
+    };
+    const { bridge, request } = setup();
+    request.mockResolvedValue(reply);
+    expect(await bridge.handle(frame(), 'turn', signal())).toEqual({
+      response: { decision: 'decline' },
+    });
+  });
+
+  it.each(['accept', 'cancel'] as const)(
+    'adds no steer text for %s',
+    async (decision) => {
+      const { bridge, request } = setup();
+      request.mockResolvedValue(decision);
+      expect(await bridge.handle(frame(), 'turn', signal())).toEqual({
+        response: { decision },
+      });
+    },
+  );
+
   it('reuses only an exact command grant across process generations', async () => {
     const { bridge, request, options } = setup();
     request.mockResolvedValue('acceptForSession');
@@ -435,30 +556,41 @@ describe('CodexApprovalBridge', () => {
     },
   );
 
-  it('accepts evidenced required boolean, enums and defaults without persistence metadata', async () => {
-    const { bridge } = setup();
+  it('presents one card for a tool-approval elicitation and sends only the grant', async () => {
+    const { bridge, request, logger } = setup();
+    request.mockResolvedValueOnce('accept').mockResolvedValueOnce('decline');
+    expect(await bridge.handle(frame(mcp), 'turn', signal())).toEqual({
+      response: { action: 'accept', content: { approve: true } },
+    });
+    expect(await bridge.handle(frame(mcp, 2), 'turn', signal())).toEqual({
+      response: { action: 'decline' },
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('presents a defaults-and-consts form and sends only those values', async () => {
+    const { bridge, request } = setup();
+    request.mockResolvedValue('accept');
     expect(
       await bridge.handle(
         frame(mcp, 1, {
           requestedSchema: {
             type: 'object',
             properties: {
-              approve: { type: 'boolean' },
-              mode: { type: 'string', enum: ['deny', 'once'] },
+              note: { type: 'string', const: 'kept' },
               count: { type: 'integer', default: 2 },
             },
-            required: ['approve', 'mode', 'count'],
+            required: ['note', 'count'],
           },
         }),
         'turn',
         signal(),
       ),
     ).toEqual({
-      response: {
-        action: 'accept',
-        content: { approve: true, mode: 'once', count: 2 },
-      },
+      response: { action: 'accept', content: { note: 'kept', count: 2 } },
     });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -478,16 +610,52 @@ describe('CodexApprovalBridge', () => {
       properties: { mode: { type: 'string', default: 'bad', enum: ['good'] } },
       required: ['mode'],
     },
-  ])('declines an unfillable MCP form %j', async (requestedSchema) => {
-    const { bridge, request } = setup();
+  ])('declines an unfillable MCP form %j without a card', async (requestedSchema) => {
+    const { bridge, request, logger } = setup();
     request.mockResolvedValue('acceptForSession');
     expect(
       await bridge.handle(frame(mcp, 1, { requestedSchema }), 'turn', signal()),
     ).toEqual({ response: { action: 'decline' } });
+    expect(request).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Codex elicitation cannot be answered without user input.',
+      {
+        code: 'codex-elicitation-unanswerable',
+        mode: 'form',
+        serverName: 'server',
+      },
+    );
   });
 
-  it('declines URL elicitation', async () => {
-    const { bridge } = setup();
+  it('declines a form that needs typed input without a card', async () => {
+    const { bridge, request, logger } = setup();
+    expect(
+      await bridge.handle(
+        frame(mcp, 1, {
+          requestedSchema: {
+            type: 'object',
+            properties: { note: { type: 'string', title: 'Why' } },
+            required: ['note'],
+          },
+        }),
+        'turn',
+        signal(),
+      ),
+    ).toEqual({ response: { action: 'decline' } });
+    expect(request).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Codex elicitation cannot be answered without user input.',
+      {
+        code: 'codex-elicitation-unanswerable',
+        mode: 'form',
+        serverName: 'server',
+      },
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('Why');
+  });
+
+  it('declines URL elicitation immediately without a card', async () => {
+    const { bridge, request, logger } = setup();
     expect(
       await bridge.handle(
         {
@@ -507,6 +675,18 @@ describe('CodexApprovalBridge', () => {
         signal(),
       ),
     ).toEqual({ response: { action: 'decline' } });
+    expect(request).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Codex elicitation cannot be answered without user input.',
+      {
+        code: 'codex-elicitation-unanswerable',
+        mode: 'url',
+        serverName: 'server',
+      },
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
+      'https://example.test',
+    );
   });
 
   it('requires explicit MCP attribution and never infers a tool from prose', async () => {
@@ -629,17 +809,21 @@ describe('CodexApprovalBridge', () => {
       }),
     });
     request.mockResolvedValue('acceptForSession');
-    await bridge.handle(
-      frame(mcp, 1, {
-        requestedSchema: {
-          type: 'object',
-          properties: { text: { type: 'string' } },
-          required: ['text'],
-        },
-      }),
-      'turn',
-      signal(),
-    );
+    // A form that needs typed values is declined before any card (8m-9).
+    expect(
+      await bridge.handle(
+        frame(mcp, 1, {
+          requestedSchema: {
+            type: 'object',
+            properties: { text: { type: 'string' } },
+            required: ['text'],
+          },
+        }),
+        'turn',
+        signal(),
+      ),
+    ).toEqual({ response: { action: 'decline' } });
+    expect(request).not.toHaveBeenCalled();
     expect(
       options.rules.matches(identity, {
         kind: 'mcpElicitation',
@@ -648,7 +832,7 @@ describe('CodexApprovalBridge', () => {
       }),
     ).toBe(false);
     await bridge.handle(frame(mcp, 2), 'turn', signal());
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('cancels a pending question without inventing an answer', async () => {

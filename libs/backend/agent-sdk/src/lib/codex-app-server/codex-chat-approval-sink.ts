@@ -208,7 +208,8 @@ export class CodexChatApprovalSink implements ApprovalSink {
       return true;
     }
     // acceptForSession is scoped and validated by the core rule store, never here.
-    pending.settle(reply.decision);
+    // Plain deny (cancel) and Allow drop any reason. A blank reason declines with no extra text.
+    pending.settle(this.declineWithReason(reply.decision, reply.reason));
     return true;
   }
 
@@ -240,6 +241,17 @@ export class CodexChatApprovalSink implements ApprovalSink {
     for (const pending of this.pending.values())
       pending.settle('decline', 'disposed');
     this.seen.clear();
+  }
+
+  /** Typed deny text. Not an edit, and the reason is not logged. */
+  private declineWithReason(
+    decision: CodexChatApprovalReply['decision'],
+    reason: string | undefined,
+  ): Outcome {
+    const text = reason?.trim();
+    if (decision !== 'decline' || text === undefined || text.length === 0)
+      return decision;
+    return { decision: 'decline', denialReason: text };
   }
 
   private key(value: CodexApprovalCorrelation): string {

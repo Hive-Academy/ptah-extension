@@ -309,6 +309,24 @@ class RuntimeContext implements CodexContext {
             });
             this.followUps.add(handle);
           }
+          if (result.denialFeedback !== undefined) {
+            const text = result.denialFeedback;
+            const turnId = this.activeTurn;
+            // Same ordering as an edit follow-up: the returned decline is written
+            // before this check-phase steer. A refused or finished turn is logged
+            // without the user's reason and never fails this reply.
+            const handle = setImmediate(() => {
+              this.followUps.delete(handle);
+              if (
+                this.state === 'closed' ||
+                signal.aborted ||
+                turnId === undefined
+              )
+                return;
+              void this.deliverDenialFeedback(text, turnId);
+            });
+            this.followUps.add(handle);
+          }
           return result.response;
         },
       },
@@ -389,6 +407,7 @@ class RuntimeContext implements CodexContext {
         correlation.processGeneration === this.generation,
       isWritable: () => this.state !== 'closed',
       close: this.onFailure,
+      logger: this.options.logger,
       requestUserInput: this.options.requestUserInput,
       resolveTarget: (request) =>
         typeof request.details['itemId'] === 'string'
@@ -641,6 +660,43 @@ class RuntimeContext implements CodexContext {
       this.onFailure();
       throw new Error('Codex turn start failed');
     }
+  }
+
+  /** After a decline is written. Does not start a new turn and does not close the context. */
+  private deliverDenialFeedback(text: string, turnId: string): Promise<void> {
+    return this.serialize(async () => {
+      if (
+        this.state !== 'running' ||
+        this.activeTurn !== turnId ||
+        this.terminalTurns.has(turnId)
+      ) {
+        this.warnDenialFeedback('turn-ended');
+        return;
+      }
+      try {
+        const steered = await this.process.request('turn/steer', {
+          threadId: this.identity.threadId,
+          expectedTurnId: turnId,
+          input: this.wireInput({ text }),
+        });
+        if (steered.turnId !== turnId) this.warnDenialFeedback('failed');
+      } catch (error) {
+        this.warnDenialFeedback(
+          error instanceof CodexRequestRejectedError ? 'refused' : 'failed',
+        );
+      }
+    }).catch(() => {
+      this.warnDenialFeedback('failed');
+    });
+  }
+
+  private warnDenialFeedback(
+    cause: 'turn-ended' | 'refused' | 'failed',
+  ): void {
+    this.options.logger.warn('Codex denial feedback was not delivered.', {
+      code: 'codex-denial-feedback-undelivered',
+      cause,
+    });
   }
 
   steer(input: CodexTurnInput): Promise<CodexTurnReceipt> {

@@ -45,6 +45,12 @@ const profile: CodexExecutionProfile = {
   profileFingerprint: 'fingerprint',
 };
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+function blankDenial() {
+  return {
+    decision: 'decline' as const,
+    denialReason: ' \n\t ',
+  };
+}
 const turn = (id: string, status = 'inProgress') => ({ id, status, items: [] });
 const catalogModel = {
   id: 'catalog-id',
@@ -850,6 +856,144 @@ describe('CodexRuntime', () => {
     });
     await context.close();
     expect((await iterator.next()).done).toBe(true);
+  });
+
+  it('steers a typed deny reason after the unchanged decline', async () => {
+    const reason = 'say "no"';
+    const feedback =
+      'The user denied this command request with the message: "say \\"no\\"". Respect this decision, do not retry the same call, and adjust your approach.';
+    const reply = {
+      decision: 'decline' as const,
+      denialReason: reason,
+    };
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: async () => reply },
+    });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].approval();
+    await flush();
+    await flush();
+    const frames = children[0].frames;
+    const declined = frames.findIndex((frame) => frame['id'] === 'approval');
+    const steered = frames.findIndex(
+      (frame) => frame['method'] === 'turn/steer',
+    );
+    expect(frames[declined]).toEqual({
+      id: 'approval',
+      result: { decision: 'decline' },
+    });
+    expect(steered).toBeGreaterThan(declined);
+    expect(frames[steered]).toEqual({
+      id: expect.any(Number),
+      method: 'turn/steer',
+      params: {
+        threadId: 'thread-1',
+        expectedTurnId: 'turn-1',
+        input: [{ type: 'text', text: feedback }],
+      },
+    });
+    expect(JSON.stringify(jest.mocked(options.logger.warn).mock.calls)).not.toContain(
+      reason,
+    );
+  });
+
+  it.each([
+    ['accept', 'accept'],
+    ['cancel', 'cancel'],
+    ['a blank deny reason', 'decline'],
+  ] as const)(
+    'sends no steer frame for %s',
+    async (_label, decision) => {
+      const reply = decision === 'decline' ? blankDenial() : decision;
+      runtime = new CodexRuntime({
+        ...options,
+        sink: { request: async () => reply },
+      });
+      const context = await runtime.open(profile);
+      await context.startTurn({ text: 'go' });
+      children[0].approval();
+      await flush();
+      await flush();
+      expect(children[0].frames.filter((frame) => frame['id'] === 'approval')).toEqual(
+        [{ id: 'approval', result: { decision } }],
+      );
+      expect(
+        children[0].frames.filter((frame) => frame['method'] === 'turn/steer'),
+      ).toEqual([]);
+    },
+  );
+
+  it('keeps the decline when the denial steer is refused and logs a coded warning', async () => {
+    const reason = 'too risky';
+    const reply = {
+      decision: 'decline' as const,
+      denialReason: reason,
+    };
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: async () => reply },
+    });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].failMethod = 'turn/steer';
+    children[0].approval();
+    await flush();
+    await flush();
+    expect(children[0].frames.filter((frame) => frame['id'] === 'approval')).toEqual(
+      [{ id: 'approval', result: { decision: 'decline' } }],
+    );
+    expect(
+      children[0].frames.findIndex((frame) => frame['id'] === 'approval'),
+    ).toBeLessThan(
+      children[0].frames.findIndex((frame) => frame['method'] === 'turn/steer'),
+    );
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      'Codex denial feedback was not delivered.',
+      { code: 'codex-denial-feedback-undelivered', cause: 'refused' },
+    );
+    expect(JSON.stringify(jest.mocked(options.logger.warn).mock.calls)).not.toContain(
+      reason,
+    );
+    expect(children[0].stdin.writableEnded).toBe(false);
+    children[0].failMethod = undefined;
+    await expect(context.steer({ text: 'retry' })).resolves.toMatchObject({
+      turnId: 'turn-1',
+    });
+    children[0].complete();
+  });
+
+  it('logs a coded warning and does not steer when the turn already ended', async () => {
+    const reason = 'too late';
+    const reply = {
+      decision: 'decline' as const,
+      denialReason: reason,
+    };
+    runtime = new CodexRuntime({
+      ...options,
+      sink: { request: async () => reply },
+    });
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'go' });
+    children[0].approval();
+    await flush();
+    children[0].complete();
+    await flush();
+    expect(children[0].frames.filter((frame) => frame['id'] === 'approval')).toEqual(
+      [{ id: 'approval', result: { decision: 'decline' } }],
+    );
+    expect(
+      children[0].frames.filter((frame) => frame['method'] === 'turn/steer'),
+    ).toEqual([]);
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      'Codex denial feedback was not delivered.',
+      { code: 'codex-denial-feedback-undelivered', cause: 'turn-ended' },
+    );
+    expect(JSON.stringify(jest.mocked(options.logger.warn).mock.calls)).not.toContain(
+      reason,
+    );
+    await context.close();
   });
 
   it('blocks new turns until an interrupted turn is terminal, then approvals still work', async () => {

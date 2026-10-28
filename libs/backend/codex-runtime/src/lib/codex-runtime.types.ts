@@ -129,6 +129,15 @@ export interface AppliedSettings {
  */
 export type CodexApprovalDecision =
   'accept' | 'acceptForSession' | 'decline' | 'cancel';
+/**
+ * What an approval sink may return.
+ * `denialReason` is the user's deny-with-message text.
+ * `editNotSupported` is only the edit marker.
+ */
+export type CodexApprovalOutcome =
+  | CodexApprovalDecision
+  | { readonly decision: 'decline'; readonly editNotSupported: true }
+  | { readonly decision: 'decline'; readonly denialReason: string };
 export interface CodexApprovalCorrelation {
   readonly contextId: string;
   readonly processGeneration: number;

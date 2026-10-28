@@ -124,6 +124,57 @@ describe('CodexChatApprovalSink', () => {
       expect(jest.getTimerCount()).toBe(0);
     },
   );
+
+  it('carries a trimmed deny reason and drops blank, allow, and plain-deny reasons', async () => {
+    const { sink, followUp } = setup();
+    const denied = sink.request(request, new AbortController().signal);
+    expect(
+      sink.respond({ ...reply, decision: 'decline', reason: '  too risky  ' }),
+    ).toBe(true);
+    await expect(denied).resolves.toEqual({
+      decision: 'decline',
+      denialReason: 'too risky',
+    });
+    expect(followUp.post).not.toHaveBeenCalled();
+
+    const blank = sink.request(
+      { ...request, requestId: 8 },
+      new AbortController().signal,
+    );
+    sink.respond({
+      ...reply,
+      requestId: 8,
+      decision: 'decline',
+      reason: ' \n\t ',
+    });
+    await expect(blank).resolves.toBe('decline');
+
+    const allowed = sink.request(
+      { ...request, requestId: 9 },
+      new AbortController().signal,
+    );
+    sink.respond({
+      ...reply,
+      requestId: 9,
+      decision: 'accept',
+      reason: 'too risky',
+    });
+    await expect(allowed).resolves.toBe('accept');
+
+    const cancelled = sink.request(
+      { ...request, requestId: 10 },
+      new AbortController().signal,
+    );
+    sink.respond({
+      ...reply,
+      requestId: 10,
+      decision: 'cancel',
+      reason: 'too risky',
+    });
+    await expect(cancelled).resolves.toBe('cancel');
+    expect(followUp.post).not.toHaveBeenCalled();
+  });
+
   it.each([
     'sessionId',
     'contextId',
