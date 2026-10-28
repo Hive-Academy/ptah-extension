@@ -8,20 +8,22 @@ import type { NativeTab } from '@ptah-extension/ui';
  */
 export type ConnectionKind = 'claude-cli' | 'api-key' | 'oauth' | 'local' | 'custom';
 
-export type ConnectionDrawerTabId = 'overview' | 'credentials' | 'models' | 'advanced';
+export type ConnectionDrawerTabId = 'overview' | 'accounts' | 'credentials' | 'models' | 'advanced';
 
 export interface ConnectionDrawerTab extends NativeTab {
   readonly id: ConnectionDrawerTabId;
 }
 
 const OVERVIEW: ConnectionDrawerTab = { id: 'overview', label: 'Overview & Used By' };
+/** Named Claude accounts (TASK_2026_719 P5); the drawer drops it on hosts without account support. */
+const ACCOUNTS: ConnectionDrawerTab = { id: 'accounts', label: 'Accounts' };
 const CREDENTIALS: ConnectionDrawerTab = { id: 'credentials', label: 'Credentials' };
 const MODELS: ConnectionDrawerTab = { id: 'models', label: 'Models & Tiers' };
 const ADVANCED: ConnectionDrawerTab = { id: 'advanced', label: 'Advanced' };
 
 /** Only a custom endpoint has custom-only fields (models endpoint, help URL, pricing, delete). */
 const TABS_BY_KIND: Readonly<Record<ConnectionKind, readonly ConnectionDrawerTab[]>> = {
-  'claude-cli': [OVERVIEW, CREDENTIALS, MODELS],
+  'claude-cli': [OVERVIEW, ACCOUNTS, CREDENTIALS, MODELS],
   'api-key': [OVERVIEW, CREDENTIALS, MODELS],
   oauth: [OVERVIEW, CREDENTIALS, MODELS],
   local: [OVERVIEW, CREDENTIALS, MODELS],

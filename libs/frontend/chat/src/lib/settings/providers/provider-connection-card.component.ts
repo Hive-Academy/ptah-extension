@@ -120,6 +120,9 @@ interface InlineAction {
                 (clearRequested)="scopeClearRequested.emit()" (useGlobalRequested)="scopeUseGlobalRequested.emit()"
                 (copyGlobalRequested)="scopeCopyGlobalRequested.emit()" data-testid="card-scope-wrapper" />
             }
+            @if (connectedAccounts(); as connected) {
+              <span class="badge badge-ghost badge-sm" data-testid="connected-accounts-badge">{{ connected }} connected</span>
+            }
             @if (usedByCount() !== null) {
               <span class="font-mono text-[10px] text-base-content-muted" data-testid="used-by-count">Used by {{ usedByCount() }}</span>
             }
@@ -179,6 +182,11 @@ export class ProviderConnectionCardComponent {
   readonly workspaceCrossApp = input<boolean>(false);
   /** Consumers using this connection ("Used by N"); null while unknown (hidden, never a guessed 0). */
   readonly usedByCount = input<number | null>(null);
+  /**
+   * Claude CLI only (D41): signed-in named accounts + the existing login when connected. Display only;
+   * hidden for `null` (loading, failed or not applicable) and `0`. Never carries a name or other detail.
+   */
+  readonly connectedAccounts = input<number | null>(null);
   /**
    * The host could not read this connection's stored key (M-6): the card shows "Could not read the stored key."
    * with Retry (`keyRetryRequested`) instead of its state label and action, so it never asks to add a key.

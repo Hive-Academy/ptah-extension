@@ -1,0 +1,55 @@
+REVISE — 8/10
+Reviewer: codex / Author: claude
+
+Gate 2, revision 1, for TASK_2026_719_4f64. All four original findings are closed at plan level. One Moderate timing regression introduced by the refresh queue still needs correction. This reviews the implementation plan, not implemented behavior. Document citations are relative to this task folder; source citations are relative to the supplied worktree.
+
+## Finding 1-4 status
+
+| Original finding | Status | Evidence and assessment |
+| --- | --- | --- |
+| 1. Blocking: badge displays a partial count while ambient status is unavailable | **Closed** | Component specification §7, `implementation-plan-p5.md:353`, requires both reads to be ready, a nonstale account snapshot, and an ambient result of connected or signed-out without local failure. Idle/checking/inert/unknown/failure return null; zero remains hidden. The positive-named-count truth table, recovery, and pushed snapshot cases are specified at `:364`; page-level cases repeat them in §14 at `:500`. P5-D13 at `:758` matches D41 (`decisions.md:251`). |
+| 2. Moderate: dependent-host verification omissions | **Closed** | Batches derivation at `implementation-plan-p5.md:636` and commands at `:656`, `:662`, `:671` add TUI to B1–B3 and webview to B1/B3. F1–F7 include VS Code at `:676`, `:681`, `:685`, `:690`, `:694`, `:699`, `:704`. Listed counts are respectively 9/7/10 and 5/4/4/4/4/4/5. Source checks support the omitted edges: TUI imports shared at `apps/ptah-tui/src/hooks/use-chat.ts:4` and cli-engine at `apps/ptah-tui/src/transport/tui-webview-manager-adapter.ts:1`; cli-engine imports auth-providers at `libs/backend/cli-engine/src/lib/container.ts:107` and rpc-handlers at `:149`. Electron declares webview in `apps/ptah-electron/project.json:7`; VS Code declares rpc-handlers at `apps/ptah-extension-vscode/project.json:7` and packages webview at `:101`. Webview imports core/chat at `apps/ptah-extension-webview/src/app/app.routes.ts:6`. This is source/config verification, not a newly generated Nx graph or an executed verify run. |
+| 3. Moderate: cross-key concurrency and ambiguous in-flight refresh | **Closed** | §4 now specifies one serial child slot (`implementation-plan-p5.md:209`), same-key non-refresh join and a queued refresh (`:219`), different-key abort-and-await plus obsolete-waiter redirection (`:223`), and retained-receipt spawn blocking (`:229`). Deferred tests cover maximum live children, obsolete completions, shared refresh follow-up, and receipt release (`:259`). P5-D14 records the policy at `:759`. The underlying command really returns a receipt when termination remains unproved (`libs/backend/auth-providers/src/lib/accounts/claude-account-command.ts:450`), and certification propagates that receipt (`:290`). The original child-count defect is resolved; the queue's newly increased request latency is the separate finding below. |
+| 4. Moderate: fabricated checkedAt provenance | **Closed** | §1 defines nullable completed-attempt time at `implementation-plan-p5.md:148`. §4 blocked reads preserve an earlier same-key timestamp or return null (`:229`); completion/key/generation checks are explicit at `:239`. §6 transport failure discards the earlier result and sets localFailure without constructing a timestamp (`:316`). Tests cover repeated blocked reads and transport failure after connected at `:266` and `:323`; §7 suppresses age without a host time at `:349`. P5-D15 at `:760` follows the provenance requirement in `design-spec-p5-review-r1.md:44`. |
+
+## New findings
+
+1. **Moderate — The queued refresh can outlive its RPC timeout even when both probe attempts complete within their budgets.** Exact plan locations: §4 steps 3 and 6, `implementation-plan-p5.md:219` and `:234`; §4 quality bound at `:258`; §6 RPC timeout at `:319`; page/tab triggers at `:492` and `:446`.
+
+   The Providers page can start a non-refresh probe on a cold cache. Opening Accounts while it is running now queues a second attempt. The 20-second host budget starts when an attempt starts, while the 30-second RPC deadline includes the time waiting for the first attempt. For example, 18 seconds remaining on the first attempt followed by an 18-second follow-up exceeds that RPC deadline, although neither attempt breaches its individual budget. This is an allowed latency schedule, not an observed runtime measurement. Certification still performs discovery before checking its executable cache (`libs/backend/auth-providers/src/lib/accounts/claude-account-command.ts:248`, `:274`), so the cache does not establish a sufficiently short bound for the second attempt. The underlying version/status limits are each 10 seconds, with a 2-second kill grace (`:45`).
+
+   `ClaudeRpcService` starts its timer before posting the request (`libs/frontend/core/src/lib/services/claude-rpc.service.ts:154`, `:200`) and deletes the pending call on expiry (`:156`). Under §6, this yields localFailure, “Could not check,” and a hidden badge even though the host can subsequently finish the requested refresh successfully. Neither the old page reply nor the late refresh reply restores the view: the plan rejects stale sequences (`implementation-plan-p5.md:313`) and the expired RPC has already been settled. Another read is required. Severity is Moderate because the failure needs slow probes combined with overlapping page/tab reads; it does not corrupt state or expose credentials.
+
+   **Required correction:** give a read an explicit bounded end-to-end deadline covering queue wait, probe execution, and cleanup; make the frontend RPC timeout exceed that bound. Alternatively, define a queue-aware bounded host timeout that returns a deliberate unknown result before the transport expires. Preserve the one-child and fresh-follow-up guarantees. Add a deferred-command/fake-clock case for page read followed by tab refresh where the combined duration exceeds 30 seconds but the individual attempts remain within budget; assert the specified host outcome reaches the frontend without an accidental transport timeout. No particular replacement timeout value is mandated.
+
+## Parity check and binding rules
+
+The numbered map has **74 rows, 74 distinct IDs, and no missing ID in 1–74** (`implementation-plan-p5.md:551` through `:624`). Comparing their capability labels/dispositions with inventory sections 1–6 (`parity-inventory-p5.md:28` through `:126`) found no regression. Explicit removals remain rows 12, 14, 20, 26, 31, 34, 51, 53, and 66, supported by D39/D40 (`decisions.md:230`, `:238`). Harness gaps and other consumers are still acknowledged as unchanged at `implementation-plan-p5.md:626`.
+
+B-1 remains explicit in the inputs at `implementation-plan-p5.md:40` and in tab writes at `:463`; omitted versus absent named targets have presentation and tab tests at `:362` and `:469`. B-2 still requires both the waiting target and originating view to remain active (`:45`), with operation bookkeeping at `:464` and both-branch tests in the ambient row (`:382`), selects (`:411`), and detail view (`:436`). These preserve `decisions.md:263` and `:265`.
+
+D41's display-only “N connected,” zero suppression, one page account read plus cached ambient read, drawer-close refresh, and account-push recomputation remain in §§7/14 (`implementation-plan-p5.md:353`, `:490`, `:500`). Loading and failure now hide the entire count. The new finding concerns delivery timing, not the corrected badge calculation.
+
+Batch ownership remains disjoint and backend-first (`implementation-plan-p5.md:650`, `:715`). B3 retains the previously accepted seven-file exception as two coupled work packages (`:664`). The revision adds tests within already assigned spec files. The existing handler/capability and planned guard updates remain at §5 (`:275`, `:288`). Named-route status guards remain required unchanged (`:190`), consistent with the live pre-spawn, launch, and post-close checks at `libs/backend/auth-providers/src/lib/accounts/claude-account-command.ts:324`, `:328`, `:331`. Framework, public-boundary, and test constraints remain in the component contracts and quality requirements (`implementation-plan-p5.md:251`, `:320`, `:537`, `:541`).
+
+## Five logic questions
+
+1. **Silent success-looking failure?** The original partial badge and fabricated freshness are closed by §§4/6/7 (`implementation-plan-p5.md:229`, `:316`, `:353`). No remaining success-looking result was identified in the revised contracts.
+2. **Unexpected user action?** Opening Accounts during the page probe can encounter the new queued-refresh transport timeout described above (`:219`, `:446`, `:492`).
+3. **Wrong-answer input?** Positive named counts with unknown/loading ambient state now yield no badge, while signed-out contributes zero (`:353`, `:364`). Omitted and missing named selections remain distinct (`:336`, `:362`).
+4. **Dependency failure, timeout, or malformed shape?** Probe failures map to unknown, receipts prevent a second live child, and local transport failures clear the displayed result (`:229`, `:235`, `:316`). The outstanding issue is the mismatch between queue-inclusive latency and the transport deadline (`:319`).
+5. **Missing requirement?** The revised queue needs a total read-time contract, not just a per-attempt budget (`:219`, `:258`). Effective-environment assumption A1 remains an explicitly assigned implementation check (`:119`), not verified runtime behavior in this review.
+
+## Decisions
+
+- Accept P5-D13–P5-D15 as closing the original four findings. Alternatives were partial counts, concurrent per-key children, and synthetic timestamps; the controlling evidence is D41 and the completed-probe contract cited above. These implementation choices are reversible.
+- Retain the prior B3 exception assessment; no new file-cap exception is requested (`implementation-plan-p5.md:664`). Splitting the coupled tuple/schema/handler/smoke change remains the alternative. Reversible.
+- Classify the queue/transport mismatch separately rather than reopening the original concurrency finding: serialization is now specified, but its latency changes the end-to-end contract. Evidence is §4 versus §6 and the RPC timer source above. Reversible.
+
+## Lane-introduced constraints
+
+No new product requirement, removal, host feature work, or approval gate. The queue-aware deadline and its regression test enforce the plan's existing bounded-read promise; timeout values and scheduling mechanics remain implementation choices. No Minor item is used to block approval.
+
+Only this deliverable was written. No builds, tests, verify, Electron, or git commands were run. Source/config spot checks and static parity counting support this review; planned tests and actual child cleanup, environment selection, focus behavior, and host compilation remain implementation-verification work.
+
+Score **8/10**: all original findings are resolved and the parity/binding contracts remain intact, which separates this from the 5–6 real-gaps band. The concrete queue/transport timing defect prevents the 9–10 exemplary band. Remaining counts: **0 Blocking, 0 Serious, 1 Moderate, 0 Minor; 1 failure mode**.

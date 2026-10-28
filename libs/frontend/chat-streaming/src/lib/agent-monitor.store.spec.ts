@@ -17,7 +17,11 @@ import {
   MAX_FRONTEND_BUFFER,
 } from './agent-output-retention';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ProviderAccountsStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   createMockRpcService,
   rpcError,
@@ -25,6 +29,7 @@ import {
 } from '@ptah-extension/core/testing';
 import { signal, computed } from '@angular/core';
 import type {
+  AgentProcessInfo,
   AgentProgressEvent,
   AgentStatusEvent,
   AgentCompletedEvent,
@@ -1426,6 +1431,128 @@ describe('AgentMonitorStore', () => {
 
       expect(result.ok).toBe(false);
       expect(result.code).toBeUndefined();
+    });
+  });
+
+  describe('lane account (U5)', () => {
+    const PROFILE = 'profile_work_0001';
+    const LANE_ID = AgentId.create();
+    const CODEX_ID = AgentId.create();
+    const binding = {
+      version: 1,
+      provider: 'claude',
+      profileId: PROFILE,
+      routeRevision: 1,
+      routeFingerprint: 'fp_route_0001',
+      authEpoch: 1,
+      runId: 'run_0001',
+      identity: { kind: 'unknown' },
+    };
+    const accountsView = signal<{ status: string }>({ status: 'idle' });
+    const accountsFake = {
+      state: jest.fn(() => accountsView),
+      open: jest.fn(async () => undefined),
+    };
+
+    beforeEach(() => {
+      accountsView.set({ status: 'idle' });
+      accountsFake.state.mockClear();
+      accountsFake.open.mockClear();
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          AgentMonitorStore,
+          BackgroundAgentStore,
+          { provide: TabManagerService, useValue: mockTabManager },
+          { provide: VSCodeService, useValue: mockVSCodeService },
+          { provide: ClaudeRpcService, useValue: rpcMock },
+          { provide: ProviderAccountsStateService, useValue: accountsFake },
+        ],
+      });
+      store = TestBed.inject(AgentMonitorStore);
+    });
+
+    function info(overrides: Record<string, unknown>): AgentProcessInfo {
+      return {
+        agentId: LANE_ID,
+        cli: 'claude',
+        task: 'Account task',
+        workingDirectory: 'w',
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        ...overrides,
+      } as AgentProcessInfo;
+    }
+
+    function card() {
+      return store.agents().find((a) => a.agentId === LANE_ID);
+    }
+
+    it('keeps a named binding profile ID on the running and finished card', () => {
+      store.onAgentSpawned(
+        info({ accountBinding: binding, accountBindingId: 'run_0001' }),
+      );
+      expect(card()?.accountProfileId).toBe(PROFILE);
+      expect(accountsFake.open).toHaveBeenCalledWith('claude');
+
+      store.onAgentExited(
+        info({
+          status: 'completed',
+          accountBinding: binding,
+          accountBindingId: 'run_0001',
+        }),
+      );
+      expect(card()?.status).toBe('completed');
+      expect(card()?.accountProfileId).toBe(PROFILE);
+    });
+
+    it('records an ambient Claude run as the default and never loads accounts', () => {
+      store.onAgentSpawned(info({}));
+      expect(card()?.accountProfileId).toBeNull();
+      store.onAgentExited(info({ status: 'failed' }));
+      expect(card()?.accountProfileId).toBeNull();
+      expect(accountsFake.state).not.toHaveBeenCalled();
+      expect(accountsFake.open).not.toHaveBeenCalled();
+    });
+
+    it('does not reopen the account list once it was read', () => {
+      accountsView.set({ status: 'ready' });
+      store.onAgentSpawned(
+        info({ accountBinding: binding, accountBindingId: 'run_0001' }),
+      );
+      expect(accountsFake.open).not.toHaveBeenCalled();
+    });
+
+    it('never treats a corrupt binding or a non-Claude lane as the default', () => {
+      store.onAgentSpawned(info({ accountBinding: null }));
+      expect(card()?.accountProfileId).toBeUndefined();
+
+      store.onAgentSpawned(
+        info({
+          agentId: CODEX_ID,
+          cli: 'codex',
+        }),
+      );
+      const codex = store.agents().find((a) => a.agentId === CODEX_ID);
+      expect(codex?.accountProfileId).toBeUndefined();
+    });
+
+    it('restores the account of a finished lane from its session reference', () => {
+      const ref = {
+        cliSessionId: 'cli-1',
+        cli: 'claude',
+        agentId: LANE_ID,
+        task: 'Account task',
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        status: 'completed',
+        accountBinding: binding,
+        accountBindingId: 'run_0001',
+      } as CliSessionReference;
+      store.loadCliSessions([ref], 'session-1');
+      expect(card()?.accountProfileId).toBe(PROFILE);
+      expect(card()?.restored).toBe(true);
+      expect(accountsFake.open).toHaveBeenCalledWith('claude');
     });
   });
 

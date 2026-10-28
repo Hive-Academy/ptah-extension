@@ -13,7 +13,8 @@ export const MAX_TASK_LENGTH = 100 * 1024;
  * The one system lane whose spawn takes an account selection. Codex accounts
  * share the account vocabulary but have no lane contract yet.
  */
-export const AGENT_SPAWN_ACCOUNT_CLI = 'claude' as const satisfies SystemCliType;
+export const AGENT_SPAWN_ACCOUNT_CLI =
+  'claude' as const satisfies SystemCliType;
 
 /** The spawn fields an account refusal depends on, in either casing. */
 export interface AgentSpawnAccountInput {
@@ -29,14 +30,14 @@ export interface AgentSpawnAccountInput {
  *
  * - The selection applies to `cli: 'claude'` only, never to a Ptah CLI
  *   provider or an auto-detected lane.
- * - A named account is refused: named lane admission is release-held (D7), so
- *   accepting it would launch the ambient login under a named request.
  * - A resume never takes a named account: the resumed session keeps the
  *   account stored with it. Ambient on resume is checked by the runtime's
  *   resume gate against that stored binding, which refuses a bound session.
  *
- * An accepted selection (ambient or omitted) is forwarded on
- * `SpawnAgentRequest.accountSelection`; both are today's route.
+ * An accepted selection is forwarded on `SpawnAgentRequest.accountSelection`.
+ * Ambient and omitted keep the existing Claude login. A named selection on a
+ * fresh `claude` spawn is admitted by the runtime (`AgentProcessManager`),
+ * which refuses the spawn when that account cannot be proved.
  */
 export function agentSpawnAccountRefusal(
   input: AgentSpawnAccountInput,
@@ -48,11 +49,11 @@ export function agentSpawnAccountRefusal(
   if (input.ptahCliId || input.cli !== AGENT_SPAWN_ACCOUNT_CLI) {
     return `accountSelection applies only to cli "${AGENT_SPAWN_ACCOUNT_CLI}" lanes, not to Ptah CLI agents, auto-detected lanes or other CLIs.`;
   }
-  if (selection.kind !== 'named') return undefined;
-  if (input.resumeSessionId) {
+  if (selection.kind === 'named' && input.resumeSessionId) {
     return 'a resumed lane keeps the account stored with its session; omit accountSelection when resuming.';
   }
-  return 'named Claude account lanes are not available in this release; omit accountSelection or pass {"kind":"ambient"} to use the existing Claude login.';
+  // Ambient, omitted, or named on a fresh claude spawn: the runtime admits it.
+  return undefined;
 }
 
 /**

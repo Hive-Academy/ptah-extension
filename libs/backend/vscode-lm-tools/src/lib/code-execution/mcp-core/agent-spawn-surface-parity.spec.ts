@@ -194,6 +194,7 @@ describe('agent spawn surface parity', () => {
   it.each([
     ['ambient', { kind: 'ambient' }],
     ['omitted', { kind: 'omitted' }],
+    ['named', { kind: 'named', profileId: 'profile-0001' }],
   ])(
     'forwards a %s accountSelection for a claude lane from HTTP and stdio',
     async (_label, accountSelection) => {
@@ -221,13 +222,6 @@ describe('agent spawn surface parity', () => {
 
   it.each([
     [
-      'a named claude selection',
-      {
-        cli: 'claude',
-        accountSelection: { kind: 'named', profileId: 'profile-0001' },
-      },
-    ],
-    [
       'a named claude selection on resume',
       {
         cli: 'claude',
@@ -238,6 +232,13 @@ describe('agent spawn surface parity', () => {
     [
       'a selection on another CLI',
       { cli: 'codex', accountSelection: { kind: 'ambient' } },
+    ],
+    [
+      'a named selection on another CLI',
+      {
+        cli: 'codex',
+        accountSelection: { kind: 'named', profileId: 'profile-0001' },
+      },
     ],
     [
       'a selection on an auto-detected lane',

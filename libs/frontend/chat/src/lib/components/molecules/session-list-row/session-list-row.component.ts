@@ -20,13 +20,17 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   afterRenderEffect,
   computed,
+  effect,
   inject,
   input,
   output,
+  untracked,
   viewChild,
 } from '@angular/core';
+import { ProviderAccountsStateService } from '@ptah-extension/core';
 import { NgClass } from '@angular/common';
 import { LucideAngularModule, Pencil, Tag, Trash2 } from 'lucide-angular';
 import type { WorkflowKind } from '@ptah-extension/chat-types';
@@ -50,6 +54,9 @@ const FOCUS_RING =
 
 const ACTION_BUTTON =
   'btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 rounded text-base-content-muted';
+
+/** Canonical provider id of a session on the Claude (Anthropic) route. */
+const CLAUDE_PROVIDER_ID = 'anthropic';
 
 let nextId = 0;
 
@@ -231,6 +238,15 @@ export const SESSION_LIST_ROW_STYLES = `
             @if (session().messageCount > 0) {
               <span>{{ session().messageCount }} msgs</span>
             }
+            <!-- Claude account the session runs under (label only; never an ID) -->
+            @if (accountText(); as account) {
+              <span
+                class="min-w-0 max-w-[10rem] truncate"
+                [title]="account"
+                data-testid="session-row-account"
+                >{{ account }}</span
+              >
+            }
             @if (expired()) {
               <span
                 class="italic"
@@ -310,6 +326,8 @@ export const SESSION_LIST_ROW_STYLES = `
 })
 export class SessionListRowComponent {
   private readonly displayUtils = inject(SessionDisplayUtils);
+  /** Resolves the account state lazily: only a named session needs labels. */
+  private readonly injector = inject(Injector);
 
   readonly session = input.required<ChatSessionSummary>();
   /** Nesting depth under a parent (`By parent`); 0 for a top-level row. */
@@ -374,12 +392,50 @@ export class SessionListRowComponent {
   protected readonly openInTabOnly = computed(
     () => this.isOpenInTab() && !this.isCurrent(),
   );
+  /**
+   * "Account: <label>" for a session bound to a named Claude account,
+   * "Default" for a Claude session on the ambient account, "Removed account"
+   * once the loaded account list no longer has the profile (same wording as
+   * the lane card). Nothing while the list is not loaded, and nothing for a
+   * session whose last turn ran on another provider. The account state is
+   * resolved only for a named account.
+   */
+  protected readonly accountText = computed<string | null>(() => {
+    const { accountProfileId: profileId, providerId } = this.session();
+    if (!profileId) {
+      return providerId === undefined || providerId === CLAUDE_PROVIDER_ID
+        ? 'Default'
+        : null;
+    }
+    const accounts = untracked(() =>
+      this.injector.get(ProviderAccountsStateService),
+    );
+    const snapshot = accounts.state('claude')().snapshot;
+    if (!snapshot) return null;
+    const match = snapshot.accounts.find(
+      (account) =>
+        account.provider === 'claude' && account.profileId === profileId,
+    );
+    return match ? `Account: ${match.label}` : 'Removed account';
+  });
   protected readonly titleClasses = computed(() => {
     const weight = this.isCurrent() ? 'font-semibold' : 'font-medium';
     return this.expired() ? `${weight} text-base-content-muted` : weight;
   });
 
   constructor() {
+    // A named session needs the Claude account list for its label. The
+    // account state owns the read; this only opens it when nothing has been
+    // read yet (an inert host never reads).
+    effect(() => {
+      if (!this.session().accountProfileId) return;
+      untracked(() => {
+        const accounts = this.injector.get(ProviderAccountsStateService);
+        if (accounts.state('claude')().status === 'idle') {
+          void accounts.open('claude');
+        }
+      });
+    });
     // A new rename field (each time editing starts) gets focus with its
     // text selected, after it is in the DOM.
     afterRenderEffect(() => {

@@ -19,7 +19,9 @@
  *
  * Schemas use `.passthrough()` so unknown fields (model selection, files,
  * thinking config, …) are preserved verbatim for the handler body; we only
- * validate the id, surface mode and MCP tool profile fields and trust the rest of the static
+ * validate the id, surface mode, MCP tool profile and account selection fields (the
+ * selection reuses the strict shared `ProviderAccountSelectionSchema`, so a
+ * malformed shape is rejected rather than passed through) and trust the rest of the static
  * `ChatStartParams`/`ChatContinueParams`/`ChatResumeParams`/`ChatAbortParams`
  * types past this boundary.
  */
@@ -30,6 +32,7 @@ import {
   MCP_TOOL_PROFILES,
   UUID_REGEX,
 } from '@ptah-extension/shared';
+import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 
 /** Maximum renderer-supplied persona length at the RPC boundary. */
 export const SYSTEM_PROMPT_MAX_LENGTH = 16 * 1024;
@@ -71,6 +74,7 @@ export const ChatStartParamsSchema = z
     surfaceMode: z.boolean().optional(),
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
     ptahUiFence: z.boolean().optional(),
+    accountSelection: ProviderAccountSelectionSchema.optional(),
   })
   .passthrough();
 
@@ -87,6 +91,7 @@ export const ChatContinueParamsSchema = z
     surfaceMode: z.boolean().optional(),
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
     ptahUiFence: z.boolean().optional(),
+    accountSelection: ProviderAccountSelectionSchema.optional(),
   })
   .passthrough();
 
@@ -104,6 +109,7 @@ export const ChatResumeParamsSchema = z
       .object({ maxEvents: HistoryPageSizeSchema })
       .strict()
       .optional(),
+    accountSelection: ProviderAccountSelectionSchema.optional(),
   })
   .passthrough();
 

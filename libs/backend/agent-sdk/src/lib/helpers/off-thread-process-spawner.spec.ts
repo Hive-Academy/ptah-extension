@@ -1107,6 +1107,279 @@ describe('OffThreadProcessSpawner', () => {
     });
   });
 
+  describe('userConsole (TASK_2026_719 Batch 4)', () => {
+    /**
+     * A user-console child is a VISIBLE window on Windows, so no spec here
+     * creates one. The worker-transport cases answer the spawn message from a
+     * fake worker (the real worker never receives it); the worker program's own
+     * `ignore` stdio is driven separately with `windowsHide: true`; the inline
+     * case launches a `.exe` path that does not exist, so no process starts.
+     */
+    const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    const realPostMessage = Worker.prototype.postMessage;
+    let postSpy: jest.SpyInstance | null = null;
+
+    function setPlatform(platform: NodeJS.Platform): void {
+      Object.defineProperty(process, 'platform', {
+        value: platform,
+        configurable: true,
+      });
+    }
+
+    afterEach(() => {
+      postSpy?.mockRestore();
+      postSpy = null;
+      if (realPlatform) Object.defineProperty(process, 'platform', realPlatform);
+    });
+
+    /**
+     * Intercept every `spawn` message and answer it as a worker whose child
+     * started with `pid` and exited 0 — without creating any child.
+     */
+    function fakeWorkerSpawns(pid: number): Array<Record<string, unknown>> {
+      const seen: Array<Record<string, unknown>> = [];
+      postSpy = jest
+        .spyOn(Worker.prototype, 'postMessage')
+        .mockImplementation(function (
+          this: Worker,
+          message: unknown,
+          transfer?: Parameters<Worker['postMessage']>[1],
+        ) {
+          const record = message as Record<string, unknown>;
+          if (record?.['type'] !== 'spawn') {
+            realPostMessage.call(this, message, transfer);
+            return;
+          }
+          seen.push(record);
+          const id = record['id'];
+          setImmediate(() => {
+            this.emit('message', { id, type: 'spawned', pid });
+            this.emit('message', { id, type: 'stdout-end' });
+            this.emit('message', { id, type: 'stderr-end' });
+            this.emit('message', { id, type: 'exit', code: 0, signal: null });
+          });
+        });
+      return seen;
+    }
+
+    function waitForCloseCode(
+      target: SpawnedProcessHandle,
+    ): Promise<number | null> {
+      return new Promise((resolve) => {
+        target.once('close', (code) => resolve(code));
+      });
+    }
+
+    it('worker transport: ignore stdio, null streams, a visible console, and close on exit', async () => {
+      if (process.platform !== 'win32') setPlatform('win32');
+      const messages = fakeWorkerSpawns(4242);
+      const guard: SpawnLaunchGuard = { fileContents: [] };
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        userConsole: true,
+        launchGuard: guard,
+      });
+
+      expect(child.stdin).toBeNull();
+      expect(child.stdout).toBeNull();
+      expect(child.stderr).toBeNull();
+      await expect(waitForCloseCode(child)).resolves.toBe(0);
+      await expect(child.whenSpawned).resolves.toBe(4242);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toEqual(
+        expect.objectContaining({
+          stdioMode: 'ignore',
+          stderrMode: 'ignore',
+          windowsHide: false,
+          launchGuard: guard,
+        }),
+      );
+      // `windowsHide` stays an explicit key (windows-hide-spawn.guard.spec.ts).
+      expect(Object.keys(messages[0] ?? {})).toContain('windowsHide');
+    });
+
+    it('needsConsole is unchanged and a plain request still pipes', async () => {
+      if (process.platform !== 'win32') setPlatform('win32');
+      const messages = fakeWorkerSpawns(4343);
+
+      const piped = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        needsConsole: true,
+      });
+      await waitForCloseCode(piped);
+
+      expect(piped.stdin).not.toBeNull();
+      expect(piped.stdout).not.toBeNull();
+      expect(piped.stderr).not.toBeNull();
+      expect(messages[0]).toEqual(
+        expect.objectContaining({
+          stdioMode: 'pipe',
+          stderrMode: 'stream',
+          windowsHide: false,
+        }),
+      );
+    });
+
+    it('ignoreStdio: null streams, no pipe, and a HIDDEN window', async () => {
+      if (process.platform !== 'win32') setPlatform('win32');
+      const messages = fakeWorkerSpawns(4444);
+      const guard: SpawnLaunchGuard = { fileContents: [] };
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        ignoreStdio: true,
+        launchGuard: guard,
+      });
+
+      expect(child.stdin).toBeNull();
+      expect(child.stdout).toBeNull();
+      expect(child.stderr).toBeNull();
+      await expect(waitForCloseCode(child)).resolves.toBe(0);
+      await expect(child.whenSpawned).resolves.toBe(4444);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toEqual(
+        expect.objectContaining({
+          stdioMode: 'ignore',
+          stderrMode: 'ignore',
+          windowsHide: true,
+          launchGuard: guard,
+        }),
+      );
+    });
+
+    it('ignoreStdio is not refused off win32', async () => {
+      setPlatform('linux');
+      const messages = fakeWorkerSpawns(4545);
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        env: process.env,
+        ignoreStdio: true,
+      });
+
+      await expect(waitForCloseCode(child)).resolves.toBe(0);
+      expect(child.stdout).toBeNull();
+      expect(messages[0]).toEqual(
+        expect.objectContaining({ stdioMode: 'ignore', windowsHide: true }),
+      );
+    });
+
+    it('the worker program gives an ignore-stdio child no pipe and still ends stdout once', async () => {
+      const worker = new Worker(OFF_THREAD_SPAWNER_WORKER_SOURCE, {
+        eval: true,
+      });
+      const messages: Array<Record<string, unknown>> = [];
+      const exited = new Promise<void>((resolve) => {
+        worker.on('message', (message: Record<string, unknown>) => {
+          messages.push(message);
+          if (message['type'] === 'exit' || message['type'] === 'error') {
+            resolve();
+          }
+        });
+      });
+      try {
+        worker.postMessage({
+          type: 'spawn',
+          id: 7,
+          command: process.execPath,
+          args: [
+            '-e',
+            "process.stdout.write('out'); process.stderr.write('err')",
+          ],
+          env: { ...process.env },
+          stdioMode: 'ignore',
+          stderrMode: 'ignore',
+          // Hidden here only: a visible console is what the spec must not open.
+          windowsHide: true,
+        });
+        await exited;
+
+        const types = messages.map((m) => m['type']);
+        expect(types).toContain('spawned');
+        expect(types.filter((t) => t === 'stdout-end')).toHaveLength(1);
+        expect(types).not.toContain('stdout');
+        expect(types).not.toContain('stderr');
+        expect(types).not.toContain('stderr-chunk');
+        expect(messages).toContainEqual(
+          expect.objectContaining({ type: 'exit', code: 0 }),
+        );
+      } finally {
+        await worker.terminate();
+      }
+    });
+
+    it('inline transport: ignore stdio gives null streams instead of throwing', async () => {
+      if (process.platform !== 'win32') setPlatform('win32');
+      process.env['PTAH_SDK_INLINE_SPAWN'] = '1';
+      // The real node binary (an absolute `.exe` on Windows, so cross-spawn
+      // does not wrap it in cmd.exe) with a working directory that does not
+      // exist: process creation fails, so no process and no window appear.
+      const missingCwd = path.join(
+        os.tmpdir(),
+        `ptah-user-console-missing-${process.pid}-${Date.now()}`,
+      );
+
+      const child = spawner.spawnProcess({
+        command: process.execPath,
+        args: ['-e', ''],
+        cwd: missingCwd,
+        env: process.env,
+        userConsole: true,
+      });
+      const failure = new Promise<Error>((resolve) => {
+        child.once('error', resolve);
+      });
+
+      expect(child.stdin).toBeNull();
+      expect(child.stdout).toBeNull();
+      expect(child.stderr).toBeNull();
+      await expect(failure).resolves.toEqual(
+        expect.objectContaining({ code: 'ENOENT' }),
+      );
+      await expect(child.whenSpawned).resolves.toBeNull();
+    });
+
+    it.each(['darwin', 'linux'] as const)(
+      'refuses on %s with an error event and no child',
+      async (platform) => {
+        setPlatform(platform);
+        const messages = fakeWorkerSpawns(1);
+
+        const child = spawner.spawnProcess({
+          command: process.execPath,
+          args: ['-e', ''],
+          env: process.env,
+          userConsole: true,
+        });
+        const failure = new Promise<Error>((resolve) => {
+          child.once('error', resolve);
+        });
+        const closed = waitForCloseCode(child);
+
+        expect(child.stdin).toBeNull();
+        expect(child.stdout).toBeNull();
+        expect(child.stderr).toBeNull();
+        await expect(failure).resolves.toEqual(
+          expect.objectContaining({ code: 'ENOTSUP' }),
+        );
+        await expect(closed).resolves.toBeNull();
+        await expect(child.whenSpawned).resolves.toBeNull();
+        expect(child.pid).toBeUndefined();
+        expect(child.kill()).toBe(false);
+        expect(messages).toHaveLength(0);
+      },
+    );
+  });
+
   describe('PTAH_SDK_INLINE_SPAWN escape hatch', () => {
     it('spawns inline, warns once, and still round-trips stdio', async () => {
       process.env['PTAH_SDK_INLINE_SPAWN'] = '1';

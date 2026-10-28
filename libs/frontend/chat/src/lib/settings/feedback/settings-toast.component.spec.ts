@@ -48,11 +48,117 @@ describe('SettingsToastComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('renders nothing without a toast', () => {
+  /** Real-timer wait past the 50 ms announce tick (the 8 s auto-dismiss stays far away). */
+  async function afterAnnounceTick(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    fixture.detectChanges();
+  }
+
+  it('renders no card without a toast, but both live regions exist and are empty', () => {
     expect(query('settings-toast')).toBeNull();
+    const status = query('settings-toast-live-status');
+    const alert = query('settings-toast-live-alert');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.getAttribute('aria-atomic')).toBe('true');
+    expect(status?.classList.contains('sr-only')).toBe(true);
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.getAttribute('aria-atomic')).toBe('true');
+    expect(alert?.classList.contains('sr-only')).toBe(true);
+    expect(status?.textContent?.trim()).toBe('');
+    expect(alert?.textContent?.trim()).toBe('');
   });
 
-  it('renders a success as role="status" (polite) with an Undo that performs the undo write', async () => {
+  describe('persistent live regions (P6-A1)', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const text = (testId: string) => query(testId)?.textContent?.trim();
+
+    it('fills only the toned region, and only after the tick', () => {
+      feedback.announce('Account added', 'status');
+      fixture.detectChanges();
+      expect(query('settings-toast-message')?.textContent).toBe('Account added');
+      expect(text('settings-toast-live-status')).toBe('');
+      expect(text('settings-toast-live-alert')).toBe('');
+
+      jest.advanceTimersByTime(49);
+      fixture.detectChanges();
+      expect(text('settings-toast-live-status')).toBe('');
+
+      jest.advanceTimersByTime(1);
+      fixture.detectChanges();
+      expect(text('settings-toast-live-status')).toBe('Account added');
+      expect(text('settings-toast-live-alert')).toBe('');
+    });
+
+    it('an alert goes to the alert region and clears the status region', () => {
+      feedback.announce('Saved', 'status');
+      fixture.detectChanges();
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      feedback.announce('Account not saved.', 'alert');
+      fixture.detectChanges();
+      expect(text('settings-toast-live-status')).toBe('');
+      expect(text('settings-toast-live-alert')).toBe('');
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      expect(text('settings-toast-live-status')).toBe('');
+      expect(text('settings-toast-live-alert')).toBe('Account not saved.');
+    });
+
+    it('an identical consecutive message is cleared, then set again', () => {
+      feedback.announce('Lanes use Work', 'status');
+      fixture.detectChanges();
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      const region = query('settings-toast-live-status');
+      expect(region?.textContent?.trim()).toBe('Lanes use Work');
+
+      feedback.announce('Lanes use Work', 'status');
+      fixture.detectChanges();
+      expect(query('settings-toast-live-status')).toBe(region);
+      expect(text('settings-toast-live-status')).toBe('');
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      expect(text('settings-toast-live-status')).toBe('Lanes use Work');
+    });
+
+    it('dismiss clears the regions and cancels a pending announcement', () => {
+      feedback.announce('First', 'status');
+      fixture.detectChanges();
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      feedback.announce('Second', 'alert');
+      fixture.detectChanges();
+      feedback.dismiss();
+      fixture.detectChanges();
+      jest.advanceTimersByTime(50);
+      fixture.detectChanges();
+      expect(query('settings-toast')).toBeNull();
+      expect(text('settings-toast-live-status')).toBe('');
+      expect(text('settings-toast-live-alert')).toBe('');
+      expect(query('settings-toast-live-status')).not.toBeNull();
+    });
+
+    it('a destroyed component leaves no pending announce timer', () => {
+      const component = fixture.componentInstance as unknown as { liveStatus: () => string };
+      feedback.announce('Gone', 'status');
+      fixture.detectChanges();
+      fixture.destroy();
+      jest.advanceTimersByTime(50);
+      expect(component.liveStatus()).toBe('');
+    });
+
+    it('the visual card carries no role or aria-live of its own', () => {
+      feedback.announce('Saved', 'status');
+      fixture.detectChanges();
+      expect(query('settings-toast')?.hasAttribute('role')).toBe(false);
+      expect(query('settings-toast')?.hasAttribute('aria-live')).toBe(false);
+    });
+  });
+
+  it('announces a success in the polite region, with an Undo that performs the undo write', async () => {
     const undo = settlesTo({ status: 'saved', saved: ['model'] });
     await feedback.save({
       label: 'main agent model',
@@ -63,9 +169,10 @@ describe('SettingsToastComponent', () => {
     fixture.detectChanges();
 
     const toast = query('settings-toast');
-    expect(toast?.getAttribute('role')).toBe('status');
-    expect(toast?.getAttribute('aria-live')).toBe('polite');
     expect(toast?.textContent).toContain('Saved main agent model to This workspace.');
+    await afterAnnounceTick();
+    expect(query('settings-toast-live-status')?.textContent?.trim()).toBe('Saved main agent model to This workspace.');
+    expect(query('settings-toast-live-alert')?.textContent?.trim()).toBe('');
 
     const undoClick = jest.spyOn(feedback, 'undo');
     query('settings-toast-undo')?.click();
@@ -77,7 +184,7 @@ describe('SettingsToastComponent', () => {
     expect(query('settings-toast-undo')).toBeNull();
   });
 
-  it('renders a failure as role="alert" with no Undo', async () => {
+  it('announces a failure in the alert region, with no Undo', async () => {
     await feedback.save({
       label: 'effort',
       scope: 'global',
@@ -87,8 +194,10 @@ describe('SettingsToastComponent', () => {
     fixture.detectChanges();
 
     const toast = query('settings-toast');
-    expect(toast?.getAttribute('role')).toBe('alert');
     expect(toast?.textContent).toContain('Could not save effort. Not saved: effort.');
+    await afterAnnounceTick();
+    expect(query('settings-toast-live-alert')?.textContent).toContain('Could not save effort. Not saved: effort.');
+    expect(query('settings-toast-live-status')?.textContent?.trim()).toBe('');
     expect(query('settings-toast-undo')).toBeNull();
   });
 
@@ -118,24 +227,30 @@ describe('SettingsToastComponent', () => {
       fixture.detectChanges();
       expect(query('settings-toast-region')).toBeNull();
       expect(query('settings-toast')).toBeNull();
+      expect(query('settings-toast-live-status')).toBeNull();
       const toast = query('settings-toast-inline');
-      expect(toast?.getAttribute('role')).toBe('status');
+      expect(toast?.hasAttribute('role')).toBe(false);
       expect(toast?.className).not.toContain('shadow-lg');
       expect(toast?.closest('.fixed')).toBeNull();
       expect(query('settings-toast-inline-message')?.textContent).toBe('Saved opus tier model to All Ptah apps.');
+      await afterAnnounceTick();
+      expect(query('settings-toast-inline-live-status')?.textContent?.trim()).toBe('Saved opus tier model to All Ptah apps.');
       query('settings-toast-inline-undo')?.click();
       await Promise.resolve();
       expect(undo).toHaveBeenCalledTimes(1);
     });
 
-    it('a failure is role="alert" with no Undo, and Dismiss removes it', async () => {
+    it('a failure is announced in the inline alert region with no Undo, and Dismiss removes and clears it', async () => {
       await feedback.save({ label: 'opus tier model', scope: 'global', write: settlesTo({ status: 'failed' }), undo: null });
       fixture.detectChanges();
-      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('alert');
+      expect(query('settings-toast-inline-live-alert')?.textContent?.trim()).toBe('');
+      await afterAnnounceTick();
+      expect(query('settings-toast-inline-live-alert')?.textContent).toContain('Could not save');
       expect(query('settings-toast-inline-undo')).toBeNull();
       query('settings-toast-inline-dismiss')?.click();
       fixture.detectChanges();
       expect(query('settings-toast-inline')).toBeNull();
+      expect(query('settings-toast-inline-live-alert')?.textContent?.trim()).toBe('');
     });
   });
 
@@ -359,7 +474,9 @@ describe('SettingsToastComponent', () => {
 
       expect(region?.classList.contains('bottom-6')).toBe(true);
       expect(region?.classList.contains(LIFT)).toBe(true);
-      expect(region?.querySelector('[data-testid="settings-toast"]')?.getAttribute('role')).toBe('status');
+      expect(region?.querySelector('[data-testid="settings-toast"]')).not.toBeNull();
+      // The live regions stay outside the popover, which exists only while a toast shows.
+      expect(region?.querySelector('[data-testid="settings-toast-live-status"]')).toBeNull();
     });
 
     it('lifts only while a drawer panel is rendered, not for a closed drawer host', () => {

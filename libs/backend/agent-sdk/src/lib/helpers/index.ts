@@ -262,4 +262,21 @@ export {
   type SdkAdapterTeammateIdleEvent,
 } from './sdk-adapter-events.service';
 export { applyClaudeAccountRouteEnv } from './claude-account-route-env';
+export {
+  CLAUDE_CERTIFIED_ENV_KEYS,
+  CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  CLAUDE_SETTINGS_SAFE_ENV_KEYS,
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
+  buildCertifiedClaudeEnv,
+  certifiedEnvDigest,
+  certifiedNamedEnv,
+  claudeSettingsOverride,
+  isCertifiedClaudeEnvKey,
+  isClaudeSettingsEnvKeyAllowed,
+  type ClaudeActualLaunch,
+  type ClaudeCertifiedLaunchRefusalCode,
+  type ClaudeRunPolicyKey,
+} from './claude-certified-launch';
+export { claudeIdentityReference } from './claude-identity-reference';
 export * from './named-account-prompt-gate';

@@ -73,6 +73,26 @@ export interface ProcessSpawnRequest {
   /** Windows: give the child its own hidden console. ConPTY needs one. */
   readonly needsConsole?: boolean;
   /**
+   * Windows only: start the child in a new VISIBLE console that the user reads
+   * and types into, for a CLI the user drives by hand (an interactive sign-in).
+   *
+   * All three stdio slots are `ignore`, so the caller never sees the child's
+   * input or output: the handle's `stdin`, `stdout` and `stderr` are `null` and
+   * no pipe is created. `close` fires once the child exits. On any other
+   * platform no child is created and the handle reports `error` with `code`
+   * `ENOTSUP`. Independent of {@link needsConsole}, which keeps its meaning.
+   */
+  readonly userConsole?: true;
+  /**
+   * All three stdio slots are `ignore`: the caller never sees the child's input
+   * or output, the handle's `stdin`, `stdout` and `stderr` are `null` and no
+   * pipe is created. `close` fires once the child exits. The window follows the
+   * usual rule (hidden unless {@link needsConsole} or {@link userConsole}), so
+   * on Windows this is the hidden, output-free launcher of a process that opens
+   * its own window (the Claude sign-in console). Available on every platform.
+   */
+  readonly ignoreStdio?: true;
+  /**
    * Re-checked at the instant of creation; see {@link SpawnLaunchGuard}. An
    * implementation MUST honour it (or refuse the request); it must never
    * create the child without checking it.

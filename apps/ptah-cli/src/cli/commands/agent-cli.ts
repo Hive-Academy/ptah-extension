@@ -142,8 +142,8 @@ export interface AgentCliOptions {
    * flag value: the {@link AMBIENT_ACCOUNT_SENTINEL} or an account ID. Optional:
    * when absent no selection is sent and the stored binding decides. It is
    * never inferred, because the local CLI session index has no profile field.
-   * Only the ambient sentinel is accepted while named admission is
-   * release-held (D7); see {@link resolveResumeAccountSelection}.
+   * Only the ambient sentinel is accepted: named accounts are not available
+   * in the CLI host (D7); see {@link resolveResumeAccountSelection}.
    */
   account?: string;
 }
@@ -667,8 +667,9 @@ export type ResumeAccountResolution =
  * Only `claude` lanes have account bindings, so any other target is refused.
  * The ambient sentinel becomes `{ kind: 'ambient' }`; the backend then refuses
  * it before spawn if the stored binding is a named account (a resume never
- * switches accounts). An account ID is refused here: named admission is
- * release-held (D7). Messages never echo the raw value, which is user input.
+ * switches accounts). An account ID is refused here: named accounts are not
+ * available in the CLI host (D7). Messages never echo the raw value, which is
+ * user input.
  */
 export function resolveResumeAccountSelection(
   raw: string,
@@ -687,7 +688,7 @@ export function resolveResumeAccountSelection(
   if (isProviderAccountOpaqueId(value)) {
     return {
       status: 'refused',
-      message: `named accounts are not available yet; use --account ${AMBIENT_ACCOUNT_SENTINEL} or omit the flag`,
+      message: `named accounts are not available in the CLI host; use --account ${AMBIENT_ACCOUNT_SENTINEL} or omit the flag`,
     };
   }
   return {

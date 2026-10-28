@@ -120,6 +120,7 @@ import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gatew
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
 import { createUserLayerRefresher } from '../activation/plugin-activation';
+import { registerClaudeNamedAccountBindings } from './claude-named-account-bindings';
 
 /**
  * `harness.preflightTimeoutMs` — how long a session start may wait for the
@@ -395,6 +396,13 @@ export function registerPhase2Libraries(
       },
     );
   }
+  // Named Claude accounts (TASK_2026_719 B17): binds the certified adapter
+  // over the null defaults only when the SQLite block above registered
+  // SQLITE_CONNECTION; otherwise named runs keep refusing.
+  const namedAccountsBound = registerClaudeNamedAccountBindings(container);
+  logger.info('[Electron DI] Named Claude account persistence', {
+    bound: namedAccountsBound,
+  });
   startAndRegisterLaneOutcomes(container, logger);
   // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);

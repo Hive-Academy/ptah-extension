@@ -52,6 +52,7 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'provider:addAccount',
   'provider:cancelAccountSignIn',
   'provider:getAccountStatus',
+  'provider:getAmbientClaudeStatus',
   'provider:listAccounts',
   'provider:removeAccount',
   'provider:renameAccount',

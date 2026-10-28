@@ -64,6 +64,7 @@ const PUBLIC_PARAM_KEYS: ReadonlySet<string> = new Set([
   'expectedRevision',
   'expectedSelectionRevision',
   'expectedSelectionRevisions',
+  'refresh',
 ]);
 
 const WORKSPACE = 'D:/work/project';
@@ -137,6 +138,7 @@ const SAMPLE_PARAMS: { [M in ProviderAccountRpcMethodName]: ParamsOf<M> } = {
     expectedSelectionRevisions: { main: 0, lane: -1 },
     requestId: REQUEST_ID,
   },
+  'provider:getAmbientClaudeStatus': { provider: 'claude', refresh: true },
 };
 
 const BINDING: ProviderAccountBinding = {
@@ -182,6 +184,7 @@ describe('provider account RPC contracts', () => {
         'provider:signOutAccount',
         'provider:setAccountSelection',
         'provider:setAccountDefault',
+        'provider:getAmbientClaudeStatus',
       ]);
     });
 
@@ -228,7 +231,11 @@ describe('provider account RPC contracts', () => {
     });
 
     it('requires a request id on every write', () => {
-      const reads = new Set(['provider:listAccounts', 'provider:getAccountStatus']);
+      const reads = new Set([
+        'provider:listAccounts',
+        'provider:getAccountStatus',
+        'provider:getAmbientClaudeStatus',
+      ]);
       for (const [method, params] of Object.entries(SAMPLE_PARAMS)) {
         expect('requestId' in params).toBe(!reads.has(method));
       }

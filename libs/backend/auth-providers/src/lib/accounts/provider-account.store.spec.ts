@@ -1,33 +1,19 @@
 import 'reflect-metadata';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
-import { ClaudeAccountCommand } from './claude-account-command';
-import { ProviderAccountActionsService } from './provider-account-actions.service';
+import type { ClaudeCertifiedLaunchContext } from '@ptah-extension/auth-providers-tokens';
+import { ClaudeRouteCertifier, type ClaudeRouteCertification } from './claude-route-certifier';
 
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
-import { ProviderAccountStore, type AccountRunAdmission } from './provider-account.store';
+import { PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY, PROVIDER_ACCOUNT_RESERVED_LABEL } from '@ptah-extension/shared';
+import { ProviderAccountStore, type AccountRunAdmission, type AccountRunLease } from './provider-account.store';
 import { ProviderAccountStoreError, resolveProviderAccountRoute } from './provider-account-route';
 import { ProviderAccountService } from './provider-account.service';
 
-class DisposalChild extends EventEmitter implements SpawnedProcessHandle {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
-  // Spawn never settles: `null` would mean "never started" (proved termination).
-  readonly whenSpawned = new Promise<number | null>(() => undefined);
-  readonly pid = undefined;
-  readonly killed = false;
-  readonly exitCode = null;
-  kill(): boolean { return true; }
-}
-
 // Real independent SQLite connections; no production/development DB path resolver.
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const schema = [58, 59].map(version => {
+const schema = [58, 59, 60].map(version => {
   const migration = MIGRATIONS.find(entry => entry.version === version);
   if (!migration?.sql) throw new Error('Provider account migration is missing');
   return migration.sql;
@@ -59,7 +45,38 @@ describe('ProviderAccountStore transactions', () => {
     first.close(); second.close();
     rmSync(root, { recursive: true, force: true });
   });
-  function add(id = profileId, name = 'account'): void { a.add(id, 'Work', join(root, name)); }
+  const ownerKey = 'a'.repeat(64);
+  const identityRef = 'identity-ref-0001';
+  /** Adds a profile and records a signed-in status with an identity reference (admission precondition). */
+  function add(id = profileId, name = 'account'): void {
+    // Live names must differ (D40): the first account is "Work", others are named by their id.
+    a.add(id, id === profileId ? 'Work' : id, join(root, name));
+    first.prepare("UPDATE provider_account_profiles SET state = 'signed-in', identity_ref = ? WHERE profile_id = ?").run(identityRef, id);
+  }
+  function commit(store: ProviderAccountStore, lease: AccountRunLease, key = ownerKey) {
+    const { reservation } = lease;
+    return store.commitRunBinding({ reservationId: reservation.reservationId, operationId: reservation.operationId,
+      authEpoch: reservation.authEpoch, runId: reservation.runId, identity: { kind: 'known', ownerKey: key } });
+  }
+  /** Lease then binding, as a certified run does. */
+  function bind(store: ProviderAccountStore, admission: AccountRunAdmission, key = ownerKey) {
+    return commit(store, store.acquireRunLease(admission), key);
+  }
+  const launch: ClaudeCertifiedLaunchContext = {
+    executable: { command: 'claude-fixture', prefixArgs: [], sdkExecutablePath: 'claude-fixture', version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 } },
+    env: {}, envDigest: 'digest-fixture', cwd: 'fixture', settingSources: ['user', 'project', 'local'],
+    policy: { coverage: 'win32@2.1.310', managedFile: 'absent', managedDropIn: 'absent', registry: 'absent', remoteSignals: 'absent' },
+    accountClass: 'personal', identityReference: 'identity-ref-0001',
+  };
+  /** Certifier fake: the real class's prototype with only `certify` replaced. */
+  function certifier(result: ClaudeRouteCertification = { ok: true, launch }): ClaudeRouteCertifier & { certify: jest.Mock } {
+    return Object.assign(Object.create(ClaudeRouteCertifier.prototype) as ClaudeRouteCertifier,
+      { certify: jest.fn(async () => result) });
+  }
+  function accountService(store = a, certify = certifier()): ProviderAccountService {
+    return new ProviderAccountService(store, { db: store === a ? first : second, dbPath: join(root, 'isolated.sqlite') }, certify);
+  }
   function request(overrides: Partial<AccountRunAdmission> = {}): AccountRunAdmission {
     return { profileId, expectedRevision: 0, route: resolveProviderAccountRoute(join(root, 'account')),
       runId: 'run-00001', reservationId: 'lease-0001', operationId: 'owner-0001', ...overrides };
@@ -83,8 +100,8 @@ describe('ProviderAccountStore transactions', () => {
 
   it('attaches durably, resolves the full frozen binding, and preserves the first attachment on repeat', async () => {
     add();
-    const committed = await a.commitRunBinding(request({ identity: { kind: 'known', ownerKey: 'a'.repeat(64) } }));
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const committed = { binding: await bind(a, request()) };
+    const service = accountService(a);
     await expect(service.attachSdkSession(attachment)).resolves.toEqual({ status: 'attached' });
     await expect(b.attachSdkSession({ ...attachment, attachedAt: 456 })).resolves.toEqual({ status: 'attached' });
     const lookup = { provider: attachment.provider, sdkSessionId: attachment.sdkSessionId };
@@ -102,8 +119,8 @@ describe('ProviderAccountStore transactions', () => {
 
   it('refuses another run for the same SDK session without changing the original link', async () => {
     add();
-    await a.commitRunBinding(request());
-    await a.commitRunBinding(request({ runId: 'run-00002', reservationId: 'lease-0002' }));
+    await bind(a, request());
+    await bind(a, request({ runId: 'run-00002', reservationId: 'lease-0002' }));
     await a.attachSdkSession(attachment);
     await expect(b.attachSdkSession({ ...attachment, runId: 'run-00002' }))
       .resolves.toEqual({ status: 'session-linked-elsewhere' });
@@ -112,7 +129,7 @@ describe('ProviderAccountStore transactions', () => {
 
   it('refuses another SDK session for the same run without changing the original link', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     await a.attachSdkSession(attachment);
     await expect(b.attachSdkSession({ ...attachment, sdkSessionId: 'sdk-session-0002' }))
       .resolves.toEqual({ status: 'run-linked-elsewhere' });
@@ -123,13 +140,13 @@ describe('ProviderAccountStore transactions', () => {
   it('requires a binding with the same provider', async () => {
     await expect(a.attachSdkSession(attachment)).resolves.toEqual({ status: 'binding-absent' });
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     await expect(a.attachSdkSession({ ...attachment, provider: 'codex' })).resolves.toEqual({ status: 'binding-absent' });
     expect(count('session_links')).toBe(0);
   });
 
-  it.each(['', '/', '\\', '/private/account', 'C:\\private\\account', 'a'.repeat(257), ' ', 'sdk\u0000id'])
-    ('refuses invalid SDK session id case %# without exposing its value', async sdkSessionId => {
+  it.each(['', '/', '\\', '/private/account', 'C:\\private\\account', 'a'.repeat(257), ' ', 'sdk\u0000id'])(
+    'refuses invalid SDK session id case %# without exposing its value', async sdkSessionId => {
       await expect(a.attachSdkSession({ ...attachment, sdkSessionId }))
         .rejects.toMatchObject({ code: 'conflict', message: 'The local account operation could not be completed.' });
       await expect(a.lookupBySdkSession({ provider: 'claude', sdkSessionId })).resolves.toEqual({ status: 'invalid-bound' });
@@ -138,13 +155,13 @@ describe('ProviderAccountStore transactions', () => {
 
   it('accepts an SDK session id at the length bound', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     await expect(a.attachSdkSession({ ...attachment, sdkSessionId: 'a'.repeat(256) })).resolves.toEqual({ status: 'attached' });
   });
 
   it('returns absence only for an absent provider/session link', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     await expect(a.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId })).resolves.toEqual({ status: 'absent' });
     await a.attachSdkSession(attachment);
     await expect(a.lookupBySdkSession({ provider: 'codex', sdkSessionId: attachment.sdkSessionId })).resolves.toEqual({ status: 'absent' });
@@ -161,7 +178,7 @@ describe('ProviderAccountStore transactions', () => {
 
   it('refuses malformed bound evidence and provider-mismatched persisted links', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     await a.attachSdkSession(attachment);
     first.prepare("UPDATE provider_account_session_links SET provider = 'codex'").run();
     await expect(b.lookupBySdkSession({ provider: 'codex', sdkSessionId: attachment.sdkSessionId }))
@@ -189,7 +206,7 @@ describe('ProviderAccountStore transactions', () => {
 
   it('rolls back SDK attachment on a native SQLite constraint error without exposing its message', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     first.exec("CREATE TRIGGER fail_attachment AFTER INSERT ON provider_account_session_links BEGIN SELECT RAISE(ABORT, '/private/account'); END");
     await expect(a.attachSdkSession(attachment)).rejects.toMatchObject({
       code: 'conflict', message: 'The local account operation could not be completed.',
@@ -206,10 +223,10 @@ describe('ProviderAccountStore transactions', () => {
     });
   });
 
-  it('awaits the registry transaction and reads immutable unknown evidence from another connection', async () => {
+  it('awaits the registry transaction and reads immutable known evidence from another connection', async () => {
     add();
-    const committed = await a.commitRunBinding(request());
-    expect(committed.binding?.identity).toEqual({ kind: 'unknown' });
+    const committed = { binding: await bind(a, request()) };
+    expect(committed.binding.identity).toEqual({ kind: 'known', ownerKey });
     await expect(b.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'bound', binding: committed.binding });
     expect(JSON.stringify(committed.binding)).not.toContain(root);
     expect(Object.isFrozen(committed.binding)).toBe(true);
@@ -225,22 +242,24 @@ describe('ProviderAccountStore transactions', () => {
   it('refuses extra identity fields before committing a path-bearing binding', async () => {
     add();
     const identity = { kind: 'unknown' as const, directory: '/private/account' };
-    await expect(a.commitRunBinding(request({ identity }))).rejects.toMatchObject({ code: 'identity-unproved' });
+    const { reservation } = a.acquireRunLease(request());
+    await expect(a.commitRunBinding({ ...reservation, identity })).rejects.toMatchObject({ code: 'identity-unproved' });
+    await expect(a.commitRunBinding({ ...reservation, identity: { kind: 'unknown' } })).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(count('run_bindings')).toBe(0);
-    expect(count('run_leases')).toBe(0);
+    expect(count('run_leases')).toBe(1);
   });
 
-  it('rolls back a registry binding when the lease write fails', async () => {
+  it('keeps the lease and stores no binding when the binding write fails', async () => {
     add();
-    first.exec("CREATE TRIGGER fail_lease BEFORE INSERT ON provider_account_run_leases BEGIN SELECT RAISE(ABORT, 'fixture'); END");
-    await expect(a.commitRunBinding(request())).rejects.toMatchObject({ code: 'conflict' });
+    first.exec("CREATE TRIGGER fail_binding BEFORE INSERT ON provider_account_run_bindings BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+    await expect(bind(a, request())).rejects.toMatchObject({ code: 'conflict' });
     expect(count('run_bindings')).toBe(0);
-    expect(count('run_leases')).toBe(0);
+    expect(count('run_leases')).toBe(1);
   });
 
   it('refuses malformed stored evidence without downgrading to absence', async () => {
     add();
-    await a.commitRunBinding(request());
+    await bind(a, request());
     first.prepare("UPDATE provider_account_run_bindings SET identity_kind = 'known', owner_key_hash = ? WHERE run_id = ?")
       .run('/private/account', 'run-00001');
     await expect(b.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'invalid-bound' });
@@ -248,23 +267,28 @@ describe('ProviderAccountStore transactions', () => {
 
   it('does not replace an existing registry binding', async () => {
     add();
-    await a.commitRunBinding(request());
-    await expect(a.commitRunBinding(request({ identity: { kind: 'known', ownerKey: 'a'.repeat(64) } })))
-      .rejects.toMatchObject({ code: 'conflict' });
-    expect(a.binding('run-00001')?.identity).toEqual({ kind: 'unknown' });
+    const lease = a.acquireRunLease(request());
+    await commit(a, lease);
+    await expect(commit(a, lease, 'b'.repeat(64))).rejects.toMatchObject({ code: 'conflict' });
+    expect(a.binding('run-00001')?.identity).toEqual({ kind: 'known', ownerKey });
   });
 
-  it('keeps admission held and refuses persistence after service disposal', async () => {
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
-    await expect(service.admitClaudeRoute({ provider: 'claude', scope: 'main', operationId: 'owner-0001', runId: 'run-00001', selection: { kind: 'ambient' } }))
-      .resolves.toMatchObject({ code: 'release-held' });
+  it('refuses ambient admission and every persistence surface after service disposal', async () => {
+    const certify = certifier();
+    const facade = accountService(a, certify);
+    await expect(facade.admitClaudeRoute({ provider: 'claude', scope: 'main', operationId: 'owner-0001', runId: 'run-00001', selection: { kind: 'ambient' } }))
+      .resolves.toMatchObject({ code: 'conflict' });
     add();
-    service.dispose();
-    await expect(service.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'unavailable-storage' });
-    await expect(service.commitRunBinding(request())).rejects.toMatchObject({ code: 'unavailable-storage' });
-    await expect(service.attachSdkSession(attachment)).rejects.toMatchObject({ code: 'unavailable-storage' });
-    await expect(service.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
+    const lease = a.acquireRunLease(request());
+    facade.dispose();
+    await expect(facade.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'unavailable-storage' });
+    await expect(facade.commitRunBinding({ ...lease.reservation, identity: { kind: 'known', ownerKey } }))
+      .rejects.toMatchObject({ code: 'unavailable-storage' });
+    await expect(facade.attachSdkSession(attachment)).rejects.toMatchObject({ code: 'unavailable-storage' });
+    await expect(facade.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
       .resolves.toEqual({ status: 'unavailable-storage' });
+    await expect(facade.readStoredSelection(root, 'main')).rejects.toMatchObject({ code: 'unavailable-storage' });
+    expect(certify.certify).not.toHaveBeenCalled();
     expect(count('run_bindings')).toBe(0);
     expect(count('session_links')).toBe(0);
   });
@@ -319,89 +343,6 @@ describe('ProviderAccountStore transactions', () => {
     expect(existsSync(join(root, 'owned'))).toBe(true);
   });
 
-  it.each(['status', 'login', 'logout'] as const)(
-    'disposal awaits bounded %s process termination, retains an unproved lease and refuses every new action',
-    async kind => {
-      jest.useFakeTimers();
-      const child = new DisposalChild();
-      const spawnProcess = jest.fn(() => child);
-      const commands = new ClaudeAccountCommand({ findExecutable: jest.fn().mockResolvedValue({
-        path: 'mock-claude', source: 'path', version: 'fixture',
-      }) }, { spawnProcess });
-      jest.spyOn(commands, 'authorization').mockReturnValue('ok');
-      jest.spyOn(commands, 'environment').mockImplementation(route => ({ CLAUDE_CONFIG_DIR: route.canonicalPath }));
-      const actions = new ProviderAccountActionsService(a, commands);
-      try {
-        add();
-        const target = { provider: 'claude' as const, profileId };
-        const command = { ...target, operationId: 'operation-disposal', expectedRevision: 0 };
-        const running = kind === 'status' ? actions.readStatus(target)
-          : kind === 'login' ? actions.startSignIn(command) : actions.signOut(command);
-        await jest.advanceTimersByTimeAsync(0);
-        expect(spawnProcess).toHaveBeenCalledTimes(1);
-        let settled = false;
-        const disposal = actions.dispose();
-        expect(actions.dispose()).toBe(disposal);
-        void disposal.then(() => { settled = true; });
-        await jest.advanceTimersByTimeAsync(1_999);
-        expect(settled).toBe(false);
-        await jest.advanceTimersByTimeAsync(1);
-        await disposal;
-        await expect(running).resolves.toMatchObject({ code: 'cancelled' });
-        expect(a.get(profileId).state).toBe(kind === 'status' ? 'not-signed-in' : 'pending');
-        expect(count('operations')).toBe(1);
-        refuses(() => b.reserveAuth(profileId, a.get(profileId).revision, request().route,
-          'operation-other', 'owner-other', 'sign-in'), 'busy');
-        for (const result of await Promise.all([
-          actions.readStatus(target), actions.startSignIn(command),
-          actions.signOut(command), actions.cancelSignIn(command),
-        ])) expect(result.code).toBe('unavailable-storage');
-        expect(spawnProcess).toHaveBeenCalledTimes(1);
-        expect(child.listenerCount('close')).toBe(0);
-        expect(child.stdout.listenerCount('data')).toBe(0);
-        expect(jest.getTimerCount()).toBe(0);
-      } finally {
-        jest.restoreAllMocks();
-        jest.useRealTimers();
-      }
-    },
-  );
-
-  it('disposal aborts a cancellation status recheck and retains its unproved operation', async () => {
-    jest.useFakeTimers();
-    const children: DisposalChild[] = [];
-    const commands = new ClaudeAccountCommand({ findExecutable: jest.fn().mockResolvedValue({
-      path: 'mock-claude', source: 'path', version: 'fixture',
-    }) }, { spawnProcess: () => {
-      const child = new DisposalChild(); children.push(child); return child;
-    } });
-    jest.spyOn(commands, 'authorization').mockReturnValue('ok');
-    jest.spyOn(commands, 'environment').mockImplementation(route => ({ CLAUDE_CONFIG_DIR: route.canonicalPath }));
-    const actions = new ProviderAccountActionsService(a, commands);
-    try {
-      add();
-      const command = { provider: 'claude' as const, profileId, operationId: 'operation-disposal', expectedRevision: 0 };
-      const running = actions.startSignIn(command);
-      await jest.advanceTimersByTimeAsync(0);
-      const cancellation = actions.cancelSignIn({ ...command, expectedRevision: 1 });
-      children[0].emit('close', 0, null);
-      await jest.advanceTimersByTimeAsync(0);
-      expect(children).toHaveLength(2);
-      const disposal = actions.dispose();
-      await jest.advanceTimersByTimeAsync(2_000);
-      await disposal;
-      await expect(running).resolves.toMatchObject({ code: 'cancelled' });
-      await expect(cancellation).resolves.toMatchObject({ code: 'cancelled' });
-      expect(a.get(profileId).state).toBe('pending');
-      expect(count('operations')).toBe(1);
-      expect(children[1].listenerCount('close')).toBe(0);
-      expect(jest.getTimerCount()).toBe(0);
-    } finally {
-      jest.restoreAllMocks();
-      jest.useRealTimers();
-    }
-  });
-
   it('two connections racing Add have one winner and preserve its directory', () => {
     add();
     refuses(() => b.add(profileId, 'Other', join(root, 'loser')));
@@ -433,31 +374,31 @@ describe('ProviderAccountStore transactions', () => {
     expect(a.selection(root, 'lane').profileId).toBeNull();
   });
 
-  it('two connections racing admission for the same run have one binding and lease', () => {
+  it('two connections racing admission for the same run have one lease and no binding', () => {
     add();
-    a.admit(request());
-    refuses(() => b.admit(request({ reservationId: 'lease-0002' })));
-    expect(count('run_bindings')).toBe(1);
+    a.acquireRunLease(request());
+    refuses(() => b.acquireRunLease(request({ reservationId: 'lease-0002' })));
+    expect(count('run_bindings')).toBe(0);
     expect(count('run_leases')).toBe(1);
   });
 
   it('allows distinct runs on one route but excludes auth until all leases release', () => {
     add();
-    a.admit(request());
-    b.admit(request({ runId: 'run-00002', reservationId: 'lease-0002' }));
+    a.acquireRunLease(request());
+    b.acquireRunLease(request({ runId: 'run-00002', reservationId: 'lease-0002' }));
     refuses(() => a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in'), 'busy');
     for (const reservationId of ['lease-0001', 'lease-0002']) {
       b.release({ reservationId, operationId: 'owner-0001', authEpoch: 0, reason: 'child-closed' });
     }
     a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in');
-    expect(count('run_bindings')).toBe(2);
+    expect(count('run_bindings')).toBe(0);
   });
 
   it('two connections racing auth have one winner and auth excludes admission', () => {
     add();
     a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in');
     refuses(() => b.reserveAuth(profileId, 0, request().route, 'auth-00002', 'owner-0002', 'sign-out'));
-    refuses(() => b.admit(request({ expectedRevision: 1 })), 'busy');
+    refuses(() => b.acquireRunLease(request({ expectedRevision: 1 })), 'busy');
     refuses(() => b.remove(profileId, 1), 'busy');
     refuses(() => b.select(root, 'main', profileId, -1, 1), 'busy');
     expect(count('operations')).toBe(1);
@@ -480,21 +421,21 @@ describe('ProviderAccountStore transactions', () => {
     add();
     a.select(root, 'main', profileId, -1, 0);
     b.select(root, 'main', null, 0);
-    refuses(() => a.admit(request({ selection: { workspaceRoot: root, scope: 'main', revision: 0 } })));
+    refuses(() => a.acquireRunLease(request({ selection: { workspaceRoot: root, scope: 'main', revision: 0 } })));
     expect(count('run_leases')).toBe(0);
   });
 
-  it('removal clears future selections but retains snapshots, leases and tombstones', () => {
+  it('removal clears future selections but retains snapshots, leases and tombstones', async () => {
     add();
     a.select(root, 'main', profileId, -1, 0);
     a.select(root, 'lane', profileId, -1, 0);
-    a.admit(request());
+    await bind(a, request());
     const snapshot = a.binding('run-00001');
     b.remove(profileId, 0);
     expect(a.selection(root, 'main')).toEqual({ profileId: null, revision: 1 });
     expect(a.selection(root, 'lane')).toEqual({ profileId: null, revision: 1 });
-    refuses(() => a.admit(request({ expectedRevision: 1, runId: 'run-00002' })), 'missing-profile');
-    refuses(() => a.admit(request({ profileId: null, runId: 'run-00002' })));
+    refuses(() => a.acquireRunLease(request({ expectedRevision: 1, runId: 'run-00002' })), 'missing-profile');
+    refuses(() => a.acquireRunLease(request({ profileId: null, runId: 'run-00002' })));
     expect(count('run_bindings')).toBe(1);
     expect(b.binding('run-00001')).toEqual(snapshot);
     expect(Object.isFrozen(snapshot)).toBe(true);
@@ -506,10 +447,10 @@ describe('ProviderAccountStore transactions', () => {
 
   it('refuses ambient collision in both directions without adopting external directories', () => {
     add();
-    refuses(() => b.admit(request({ profileId: null })));
+    refuses(() => b.acquireRunLease(request({ profileId: null })));
     const directory = join(root, 'ambient');
     mkdirSync(directory);
-    b.admit(request({ profileId: null, route: resolveProviderAccountRoute(directory) }));
+    b.acquireRunLease(request({ profileId: null, route: resolveProviderAccountRoute(directory) }));
     refuses(() => a.add('profile-0002', 'Other', directory));
     expect(count('profiles')).toBe(1);
     expect(count('run_leases')).toBe(1);
@@ -520,8 +461,8 @@ describe('ProviderAccountStore transactions', () => {
     const previous = request();
     renameSync(join(root, 'account'), join(root, 'original'));
     mkdirSync(join(root, 'account'));
-    refuses(() => b.admit(previous), 'route-changed');
-    refuses(() => b.admit(request()), 'route-changed');
+    refuses(() => b.acquireRunLease(previous), 'route-changed');
+    refuses(() => b.acquireRunLease(request()), 'route-changed');
     expect(count('run_bindings')).toBe(0);
   });
 
@@ -534,11 +475,11 @@ describe('ProviderAccountStore transactions', () => {
     expect(count('profiles')).toBe(0);
   });
 
-  it('failed lease insertion rolls back its binding and failed remove restores selections', () => {
+  it('failed lease insertion keeps the first lease and failed remove restores selections', () => {
     add();
-    a.admit(request());
-    refuses(() => b.admit(request({ runId: 'run-00002' })));
-    expect(count('run_bindings')).toBe(1);
+    a.acquireRunLease(request());
+    refuses(() => b.acquireRunLease(request({ runId: 'run-00002' })));
+    expect(count('run_leases')).toBe(1);
     a.select(root, 'main', profileId, -1, 0);
     first.exec(`CREATE TRIGGER reject_selection BEFORE UPDATE ON provider_account_selections
       BEGIN SELECT RAISE(ABORT, 'fixture'); END`);
@@ -566,7 +507,7 @@ describe('ProviderAccountStore transactions', () => {
     add('profile-0002', 'other');
     refuses(() => b.reserveAuth('profile-0002', 0, resolveProviderAccountRoute(join(root, 'other')),
       'auth-00001', 'owner-0002', 'sign-in'));
-    expect(b.get('profile-0002')).toMatchObject({ revision: 0, auth_epoch: 0, state: 'not-signed-in' });
+    expect(b.get('profile-0002')).toMatchObject({ revision: 0, auth_epoch: 0, state: 'signed-in' });
     expect(count('operations')).toBe(1);
   });
 
@@ -576,7 +517,7 @@ describe('ProviderAccountStore transactions', () => {
     first.prepare('UPDATE provider_account_operations SET created_at = 0').run();
     refuses(() => b.reserveAuth(profileId, 1, request().route, 'auth-00002', 'owner-0002', 'sign-in'), 'busy');
     add('profile-0002', 'other');
-    b.admit(request({ profileId: 'profile-0002', route: resolveProviderAccountRoute(join(root, 'other')) }));
+    b.acquireRunLease(request({ profileId: 'profile-0002', route: resolveProviderAccountRoute(join(root, 'other')) }));
     first.prepare('UPDATE provider_account_run_leases SET acquired_at = 0').run();
     a.retain({ reservationId: 'lease-0001', operationId: 'owner-0001', authEpoch: 0 });
     refuses(() => a.release({ reservationId: 'lease-0001', operationId: 'owner-0002', authEpoch: 0, reason: 'timeout' }));
@@ -590,20 +531,22 @@ describe('ProviderAccountStore transactions', () => {
     expect(existsSync(join(root, 'bad'))).toBe(false);
   });
 
-  it('disposal retains an uncertain lease and refuses caller-driven release of a prior host reservation', async () => {
+  it('disposal retains an uncertain lease and refuses caller-driven release after disposal', async () => {
     add();
-    const { reservation } = a.admit(request());
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
-    service.dispose();
-    service.dispose();
-    expect(await service.releaseReservation({ ...reservation, reason: 'disposal' })).toMatchObject({ code: 'conflict' });
+    const { reservation } = a.acquireRunLease(request());
+    const facade = accountService(a);
+    expect(await facade.releaseReservation({ ...reservation, operationId: 'owner-0002', reason: 'disposal' }))
+      .toMatchObject({ code: 'conflict' });
+    facade.dispose();
+    facade.dispose();
+    expect(await facade.releaseReservation({ ...reservation, reason: 'disposal' })).toMatchObject({ code: 'unavailable-storage' });
     expect(count('run_leases')).toBe(1);
-    expect(count('run_bindings')).toBe(1);
+    expect(count('run_bindings')).toBe(0);
     refuses(() => b.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in'), 'busy');
   });
 
   it('executes the metadata facade surfaces against an injected isolated connection', () => {
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const service = accountService(a);
     const profile = service.add('Work');
     expect(service.list()).toEqual([profile]);
     expect(service.selection(root, 'main')).toEqual({ profileId: null, revision: -1 });
@@ -619,27 +562,78 @@ describe('ProviderAccountStore transactions', () => {
   });
 
   it('makes Add idempotent by request ID across a restart: same request returns the stored account', () => {
-    const before = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const before = accountService(a);
     const added = before.add('Work', 'request-0001');
     before.dispose();
     // A new service on a new connection stands in for a host restart.
-    const after = new ProviderAccountService(b, { db: second, dbPath: join(root, 'isolated.sqlite') });
+    const after = accountService(b);
     expect(after.add('Work', 'request-0001')).toEqual(added);
     expect(after.list()).toEqual([added]);
     expect(count('profiles')).toBe(1);
   });
 
   it('creates a new account for a different request ID and refuses a reused one with another label', () => {
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const service = accountService(a);
     const one = service.add('Work', 'request-0001');
-    const two = service.add('Work', 'request-0002');
+    const two = service.add('Home', 'request-0002');
     expect(two.profileId).not.toBe(one.profileId);
     refuses(() => service.add('Personal', 'request-0001'), 'conflict');
     expect(count('profiles')).toBe(2);
   });
 
+  describe('unique account names (D40)', () => {
+    function refusesDuplicate(action: () => unknown): void {
+      expect(action).toThrow(expect.objectContaining({ code: 'conflict', message: PROVIDER_ACCOUNT_DUPLICATE_LABEL_SUMMARY }));
+    }
+
+    it('refuses Add of a live name in another case or with surrounding space, and leaves no row or directory', () => {
+      a.add(profileId, 'Work', join(root, 'account'));
+      refusesDuplicate(() => a.add('profile-0002', 'WORK', join(root, 'upper')));
+      // A padded name never reaches the uniqueness check: the label validator refuses it first.
+      refuses(() => a.add('profile-0002', ' work', join(root, 'spaced')));
+      expect(count('profiles')).toBe(1);
+      expect(existsSync(join(root, 'upper'))).toBe(false);
+      expect(existsSync(join(root, 'spaced'))).toBe(false);
+    });
+
+    it('refuses Add of the reserved ambient name in any case', () => {
+      refusesDuplicate(() => a.add(profileId, PROVIDER_ACCOUNT_RESERVED_LABEL, join(root, 'reserved')));
+      refusesDuplicate(() => a.add(profileId, 'existing claude LOGIN', join(root, 'reserved')));
+      expect(count('profiles')).toBe(0);
+    });
+
+    it('refuses Rename to another live account name or the reserved name, keeping the old name', () => {
+      a.add(profileId, 'Work', join(root, 'account'));
+      const other = a.add('profile-0002', 'Personal', join(root, 'other'));
+      refusesDuplicate(() => a.rename(other.profile_id, other.revision, 'work'));
+      refusesDuplicate(() => a.rename(other.profile_id, other.revision, PROVIDER_ACCOUNT_RESERVED_LABEL));
+      expect(a.get(other.profile_id)).toMatchObject({ label: 'Personal', revision: other.revision });
+    });
+
+    it('allows Rename of an account to its own name in another case', () => {
+      const own = a.add(profileId, 'Work', join(root, 'account'));
+      expect(a.rename(profileId, own.revision, 'WORK').label).toBe('WORK');
+    });
+
+    it('lets a removed account name be used again', () => {
+      const removed = a.add(profileId, 'Work', join(root, 'account'));
+      a.remove(profileId, removed.revision);
+      expect(a.add('profile-0002', 'work', join(root, 'again')).label).toBe('work');
+    });
+
+    it('returns the stored account when the same Add request is replayed', () => {
+      const service = accountService(a);
+      const added = service.add('Work', 'request-0001');
+      expect(service.add('Work', 'request-0001')).toEqual(added);
+      expect(() => service.add('work', 'request-0002')).toThrow(
+        expect.objectContaining({ code: 'conflict' }));
+      expect(count('profiles')).toBe(1);
+      service.dispose();
+    });
+  });
+
   it('does not recreate a removed account when its Add request is replayed', () => {
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const service = accountService(a);
     const added = service.add('Work', 'request-0001');
     service.remove(added.profileId, added.revision);
     refuses(() => service.add('Work', 'request-0001'), 'conflict');
@@ -647,11 +641,163 @@ describe('ProviderAccountStore transactions', () => {
     expect(count('profiles')).toBe(1);
   });
 
-  it('keeps live admission release-held without discovering or spawning a provider command', async () => {
+  /** A lease row as migration 0060 leaves it, plus its binding when `bound`. */
+  function legacyLease(lease: string, run: string, profile: string | null, epoch: number, state: 'live' | 'quarantined', bound: boolean): void {
+    const route = profile === null ? 'f'.repeat(64) : a.get(profile).route_fingerprint;
+    if (bound && profile !== null) {
+      first.prepare(`INSERT INTO provider_account_run_bindings (run_id, provider, profile_id, route_revision, route_fingerprint,
+        auth_epoch, identity_kind, owner_key_hash, created_at) VALUES (?, 'claude', ?, 0, ?, ?, 'known', ?, 1)`)
+        .run(run, profile, route, epoch, ownerKey);
+    }
+    first.prepare(`INSERT INTO provider_account_run_leases (lease_id, run_id, provider, profile_id, route_fingerprint, owner_id,
+      acquired_at, auth_epoch, route_revision, lease_state) VALUES (?, ?, 'claude', ?, ?, 'owner-0001', 1, ?, 0, ?)`)
+      .run(lease, run, profile, route, epoch, state);
+  }
+
+  it('settles a post-migration bound lease only at its own epoch', () => {
     add();
-    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
-    expect(await service.admitClaudeRoute({ provider: 'claude', scope: 'main',
-      selection: { kind: 'named', profileId }, operationId: 'owner-0001', runId: 'run-00001' })).toMatchObject({ code: 'release-held' });
+    first.prepare('UPDATE provider_account_profiles SET auth_epoch = 4 WHERE profile_id = ?').run(profileId);
+    legacyLease('lease-0004', 'run-00004', profileId, 4, 'live', true);
+    refuses(() => a.release({ reservationId: 'lease-0004', operationId: 'owner-0001', authEpoch: 0, reason: 'child-closed' }));
+    expect(a.retain({ reservationId: 'lease-0004', operationId: 'owner-0001', authEpoch: 4 }))
+      .toMatchObject({ phase: 'retained', routeKind: 'named', runId: 'run-00004', authEpoch: 4 });
+    expect(count('run_leases')).toBe(1);
+    expect(a.release({ reservationId: 'lease-0004', operationId: 'owner-0001', authEpoch: 4, reason: 'child-closed' }))
+      .toMatchObject({ phase: 'released', authEpoch: 4 });
     expect(count('run_leases')).toBe(0);
+  });
+
+  it.each([
+    ['named without binding', true],
+    ['ambient with binding', false],
+  ] as const)('a quarantined %s lease is never settled and blocks auth on its route', (_case, named) => {
+    add();
+    legacyLease('lease-0009', 'run-00009', named ? profileId : null, 0, 'quarantined', !named);
+    const keys = { reservationId: 'lease-0009', operationId: 'owner-0001', authEpoch: 0 };
+    refuses(() => a.release({ ...keys, reason: 'child-closed' }));
+    refuses(() => a.retain(keys));
+    expect(count('run_leases')).toBe(1);
+    if (named) refuses(() => a.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0002', 'sign-in'), 'busy');
+  });
+
+  it('releases a pre-binding lease at a nonzero epoch (the old COALESCE read 0 here)', () => {
+    add();
+    let revision = a.get(profileId).revision;
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      const held = a.reserveAuth(profileId, revision, request().route, `auth-0000${cycle}`, 'owner-0002', 'sign-in');
+      a.completeAuth(`auth-0000${cycle}`, 'owner-0002', held.authEpoch, 'signed-in', identityRef);
+      revision = a.get(profileId).revision;
+    }
+    expect(a.get(profileId)).toMatchObject({ auth_epoch: 3, identity_ref: identityRef, state: 'signed-in' });
+    const { reservation, binding } = a.acquireRunLease(request({ expectedRevision: revision }));
+    expect(binding).toBeNull();
+    expect(reservation).toMatchObject({ phase: 'reserved', authEpoch: 3, routeKind: 'named' });
+    a.release({ ...reservation, reason: 'startup-failure' });
+    expect(count('run_leases')).toBe(0);
+  });
+
+  it('refuses a named lease until a signed-in status recorded an identity', () => {
+    a.add(profileId, 'Work', join(root, 'account'));
+    refuses(() => a.acquireRunLease(request()), 'identity-unproved');
+    first.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(profileId);
+    refuses(() => a.acquireRunLease(request()), 'identity-unproved');
+    expect(count('run_leases')).toBe(0);
+    refuses(() => a.completeAuth('auth-00001', 'owner-0001', 1, 'signed-in', 'bad ref'));
+  });
+
+  it('resumes a bound run without a second binding and refuses a second lease for a live run', async () => {
+    add();
+    const held = a.acquireRunLease(request());
+    const binding = await commit(a, held);
+    refuses(() => b.acquireRunLease(request({ reservationId: 'lease-0002' })));
+    a.release({ ...held.reservation, reason: 'child-closed' });
+    const resumed = b.acquireRunLease(request({ reservationId: 'lease-0002' }));
+    expect(resumed.binding).toEqual(binding);
+    await expect(commit(b, resumed)).rejects.toMatchObject({ code: 'conflict' });
+    expect(count('run_bindings')).toBe(1);
+    expect(count('run_leases')).toBe(1);
+  });
+
+  it('three routes hold run leases at once and settle independently', () => {
+    const leases = (['account', 'second', 'third'] as const).map((name, index) => {
+      const id = `profile-000${index + 1}`;
+      add(id, name);
+      return a.acquireRunLease(request({ profileId: id, route: resolveProviderAccountRoute(join(root, name)),
+        runId: `run-0000${index + 1}`, reservationId: `lease-000${index + 1}` }));
+    });
+    expect(count('run_leases')).toBe(3);
+    b.release({ ...leases[2].reservation, reason: 'child-closed' });
+    expect(a.retain(leases[0].reservation).phase).toBe('retained');
+    expect(count('run_leases')).toBe(2);
+  });
+
+  describe('admission', () => {
+    const named = { provider: 'claude' as const, scope: 'main' as const, selection: { kind: 'named' as const, profileId },
+      operationId: 'owner-0001', runId: 'run-00001' };
+
+    it('certifies a leased named route and returns its launch', async () => {
+      add();
+      const certify = certifier();
+      const outcome = await accountService(a, certify).admitClaudeRoute({ ...named, workingDirectory: root });
+      if (outcome.code !== 'ok') throw new Error(`Expected admission, got ${outcome.code}`);
+      expect(outcome.reservation).toMatchObject({ phase: 'reserved', routeKind: 'named', runId: 'run-00001', authEpoch: 0 });
+      expect(outcome.resources).toMatchObject({ kind: 'named', launch, route: { kind: 'named', profileId, runId: 'run-00001' } });
+      expect(certify.certify).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: root, settingSources: ['user', 'project', 'local'], profile: { identityRef } }));
+      expect(count('run_leases')).toBe(1);
+      expect(count('run_bindings')).toBe(0);
+    });
+
+    it.each([
+      [true, 0],
+      [false, 1],
+    ] as const)('a certification refusal with proved child close=%s leaves %d leases', async (terminated, leases) => {
+      add();
+      const outcome = await accountService(a, certifier({ ok: false, code: 'unsupported-source', terminated }))
+        .admitClaudeRoute(named);
+      expect(outcome).toMatchObject({ code: 'unsupported-source' });
+      expect(count('run_leases')).toBe(leases);
+    });
+
+    it('refuses default and malformed requests, and a busy route, before certification', async () => {
+      add();
+      const certify = certifier();
+      const facade = accountService(a, certify);
+      for (const request of [{ ...named, selection: { kind: 'omitted' as const } }, { ...named, workingDirectory: 'relative' }]) {
+        expect(await facade.admitClaudeRoute(request)).toMatchObject({ code: 'conflict' });
+      }
+      a.reserveStatus(profileId, 0, resolveProviderAccountRoute(join(root, 'account')), 'status-0001', 'owner-0002');
+      expect(await facade.admitClaudeRoute(named)).toMatchObject({ code: 'busy' });
+      expect(certify.certify).not.toHaveBeenCalled();
+    });
+
+    it('logs each admission refusal with its code and a fixed stage word only', async () => {
+      add();
+      const logger = { warn: jest.fn() };
+      const refusing = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') },
+        certifier({ ok: false, code: 'unsupported-source', terminated: true }), logger);
+      // A project settings override in another workspace refuses at certification, before any child.
+      expect(await refusing.admitClaudeRoute({ ...named, workingDirectory: join(root, 'other-workspace') }))
+        .toMatchObject({ code: 'unsupported-source' });
+      expect(await refusing.admitClaudeRoute({ ...named, selection: { kind: 'omitted' } }))
+        .toMatchObject({ code: 'conflict' });
+      expect(await refusing.admitClaudeRoute({ ...named, selection: { kind: 'named', profileId: 'absent-profile-0001' } }))
+        .toMatchObject({ code: 'missing-profile' });
+      expect(logger.warn.mock.calls).toEqual([
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'certify', code: 'unsupported-source' }],
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'request', code: 'conflict' }],
+        ['[ProviderAccountService] Claude route admission refused', { stage: 'store', code: 'missing-profile' }],
+      ]);
+      // Fixed text only: no path, profile ID or run ID reaches the log.
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(new RegExp(`${profileId}|run-00001|other-workspace`));
+    });
+
+    it('reads the stored selection for the selection reader', async () => {
+      add();
+      a.select(root, 'lane', profileId, -1, 0);
+      const facade = accountService(a);
+      await expect(facade.readStoredSelection(root, 'lane')).resolves.toEqual({ profileId });
+      await expect(facade.readStoredSelection(root, 'main')).resolves.toEqual({ profileId: null });
+    });
   });
 });

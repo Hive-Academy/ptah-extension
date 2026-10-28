@@ -1,14 +1,19 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
-  ProvidersSettingsStateService, VSCodeService, type ProvidersEffectiveRoute, type ProvidersSettingsCommit, type ProvidersSettingsSection,
+  ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService, VSCodeService, type ClaudeAmbientStatusView,
+  type ProviderAccountActionOutcome, type ProviderAccountChoice, type ProviderAccountsView, type ProvidersEffectiveRoute,
+  type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { By } from '@angular/platform-browser';
 import { NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah-extension/ui';
-import type { ProviderListModelsResult, SettingScope } from '@ptah-extension/shared';
+import type {
+  ProviderAccountSelection, ProviderAccountsSnapshot, ProviderAccountSummary, ProviderListModelsResult, SettingScope,
+} from '@ptah-extension/shared';
 import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
+import { ACCOUNT_COPY, selectionFeedback } from './accounts/account-presentation';
 
 function ready<T>(data: T): ProvidersSettingsSection<T> { return { status: 'ready', data, error: null }; }
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
@@ -630,5 +635,445 @@ describe('MainAgentReassignPopoverComponent', () => {
       expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'model-b', applyTo: 'app' } }, CONTEXT);
       expect(feedback.toast()?.message).toBe(`Saved main agent model to ${label}.`);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// P6 MP: the Account field (Claude CLI main chat account), its save step, the P6-A12 race guard and the P6-A13 lock.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const account = (profileId: string, label: string, state = 'signed-in', revision = 1) =>
+  ({ profileId, label, provider: 'claude', state, owner: { kind: 'ptah' }, revision, activeRunCount: 0 }) as unknown as ProviderAccountSummary;
+const WORK = account('p-work', 'Work'), HOME = account('p-home', 'Home');
+function snapshot(main: ProviderAccountSelection = { kind: 'ambient' }, mainRevision = 1,
+  accounts: readonly ProviderAccountSummary[] = [WORK, HOME]): ProviderAccountsSnapshot {
+  return {
+    revision: 1, accounts,
+    selections: {
+      main: { scope: 'main', selection: main, revision: mainRevision },
+      lane: { scope: 'lane', selection: { kind: 'omitted' }, revision: 1 },
+    },
+  } as unknown as ProviderAccountsSnapshot;
+}
+const readyView = (snap: ProviderAccountsSnapshot | null): ProviderAccountsView =>
+  ({ status: snap ? 'ready' : 'loading', snapshot: snap, stale: false, error: null });
+const AMBIENT_CONNECTED: ClaudeAmbientStatusView = { status: 'ready', result: { state: 'connected', checkedAt: null }, localFailure: false };
+const REFUSED = { status: 'failed', result: { code: 'conflict', summary: 'x' } } as ProviderAccountActionOutcome;
+
+/** The service's own `saved` reply: the host commits the choice and bumps the scope revision. */
+function savedReply(view: WritableSignal<ProviderAccountsView>) {
+  return async (choice: ProviderAccountChoice): Promise<ProviderAccountActionOutcome> => {
+    const current = view().snapshot ?? snapshot();
+    const next = snapshot(choice, current.selections.main.revision + 1, current.accounts);
+    view.set(readyView(next));
+    return { status: 'saved', snapshot: next };
+  };
+}
+
+class AccountsFake {
+  readonly view = signal<ProviderAccountsView>(readyView(snapshot()));
+  readonly state = jest.fn((_provider: 'claude') => this.view.asReadonly());
+  readonly open = jest.fn(async (_provider: 'claude') => undefined);
+  /** The snapshot the service held when `setSelection` was called (its call-time read). */
+  readonly seen: (ProviderAccountsSnapshot | null)[] = [];
+  reply: (choice: ProviderAccountChoice) => Promise<ProviderAccountActionOutcome> = savedReply(this.view);
+  readonly setSelection = jest.fn((_provider: 'claude', _scope: 'main' | 'lane', choice: ProviderAccountChoice) => {
+    this.seen.push(this.view().snapshot);
+    return this.reply(choice);
+  });
+}
+class AmbientFake {
+  readonly view = signal<ClaudeAmbientStatusView>(AMBIENT_CONNECTED);
+  readonly read = jest.fn(async (_refresh: boolean) => undefined);
+}
+
+@Component({
+  standalone: true,
+  imports: [MainAgentReassignPopoverComponent],
+  template: `<ptah-main-agent-reassign-popover [open]="open()" (closed)="closed = closed + 1" (accountSignInRequested)="signIn = signIn + 1" />`,
+})
+class AccountHost {
+  readonly open = signal(true);
+  closed = 0;
+  signIn = 0;
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve: (value: T) => resolve(value) };
+}
+
+describe('MainAgentReassignPopoverComponent: Account (P6 MP)', () => {
+  let fixture: ComponentFixture<AccountHost>;
+  let state: StateStub;
+  let accounts: AccountsFake;
+  let ambient: AmbientFake;
+  let feedback: SettingsSaveFeedbackService;
+  let announce: jest.SpyInstance;
+  let feedbackSave: jest.SpyInstance;
+  const query = <T extends HTMLElement = HTMLElement>(id: string) => document.querySelector<T>(`[data-testid="${id}"]`);
+  const field = () => query<HTMLSelectElement>('main-agent-account');
+  const saveButton = () => query<HTMLButtonElement>('main-agent-save');
+  const optionRows = () => Array.from(field()?.options ?? []).map((option) => [option.value, option.textContent?.trim(), option.disabled]);
+  async function flush() {
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+  function choose(id: string, value: string) {
+    const select = query<HTMLSelectElement>(id);
+    if (!select) throw new Error(`No select ${id}`);
+    select.value = value; select.dispatchEvent(new Event('change')); fixture.detectChanges();
+  }
+  function effort(value: string) {
+    query('main-agent-effort')?.querySelector<HTMLButtonElement>(`[data-effort="${value}"]`)?.click();
+    fixture.detectChanges();
+  }
+  /** The route after a provider save names the new driver (the page re-reads it). */
+  function routeWithDriver(driver: string) {
+    state.route.set(ready({
+      ...ROUTE, driverProviderId: driver,
+      providers: [...ROUTE.providers, { id: 'claude', type: 'cli', status: 'connected' }],
+    } as unknown as ProvidersEffectiveRoute));
+  }
+  /** Drafts the Claude CLI as the new provider and accepts its D6 confirm. */
+  function draftClaudeProvider() {
+    choose('main-agent-provider', 'claude');
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="main-agent-popover"] button'))
+      .find((node) => node.textContent?.trim() === 'Use for main agent')?.click();
+    fixture.detectChanges();
+  }
+  async function clickSave() { saveButton()?.focus(); saveButton()?.click(); await flush(); await flush(); }
+  const announced = () => announce.mock.calls.map(([message, tone]) => `${tone}: ${message}`);
+
+  async function setup(options: { electron?: boolean; driver?: string; view?: ProviderAccountsView } = {}) {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
+    state = new StateStub();
+    state.connections.set(ready([connection('first', 'First'), connection('claude', 'Claude (Subscription)', 'cli'), connection('second', 'Second')]));
+    routeWithDriver(options.driver ?? 'claude');
+    // A saved provider becomes the route's driver, as the page's re-read does.
+    state.activateConnection.mockImplementation(async (id: string) => {
+      routeWithDriver(id);
+      state.commit.set({ ...idle, status: 'saved' });
+      return true;
+    });
+    accounts = new AccountsFake();
+    if (options.view) accounts.view.set(options.view);
+    ambient = new AmbientFake();
+    TestBed.configureTestingModule({
+      imports: [AccountHost],
+      providers: [
+        { provide: ProvidersSettingsStateService, useValue: state },
+        { provide: PROVIDER_MODELS_LOADER, useValue: { listModels: jest.fn(async (): Promise<ProviderListModelsResult> => CATALOGUE) } },
+        { provide: VSCodeService, useValue: { isElectron: options.electron ?? true } },
+        { provide: ProviderAccountsStateService, useValue: accounts },
+        { provide: ClaudeAmbientStatusService, useValue: ambient },
+        SettingsSaveFeedbackService,
+      ],
+    });
+    fixture = TestBed.createComponent(AccountHost);
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
+    announce = jest.spyOn(feedback, 'announce');
+    feedbackSave = jest.spyOn(feedback, 'save');
+    fixture.detectChanges();
+    await flush();
+  }
+  afterEach(() => { feedback?.dismiss(); TestBed.resetTestingModule(); });
+
+  describe('when it shows (M1-M4)', () => {
+    it('is absent outside Electron, and no account service is read', async () => {
+      await setup({ electron: false });
+      expect(field()).toBeNull();
+      expect(accounts.state).not.toHaveBeenCalled();
+      expect(accounts.open).not.toHaveBeenCalled();
+      expect(ambient.read).not.toHaveBeenCalled();
+    });
+
+    it('is absent before the first list read, for another provider, and with no signed-in account and ambient stored', async () => {
+      await setup({ view: readyView(null) });
+      expect(field()).toBeNull();
+      accounts.view.set(readyView(snapshot()));
+      fixture.detectChanges();
+      expect(field()).not.toBeNull();
+      choose('main-agent-provider', 'first');
+      expect(field()).toBeNull();
+      choose('main-agent-provider', 'claude');
+      expect(field()).not.toBeNull();
+      accounts.view.set(readyView(snapshot({ kind: 'ambient' }, 1, [account('p-work', 'Work', 'signed-out')])));
+      fixture.detectChanges();
+      expect(field()).toBeNull();
+    });
+
+    it('reads the list once and the cached ambient status on open; options, order and label follow the presentation rules', async () => {
+      await setup();
+      expect(accounts.open).toHaveBeenCalledTimes(1);
+      expect(accounts.open).toHaveBeenCalledWith('claude');
+      expect(ambient.read).toHaveBeenCalledTimes(1);
+      expect(ambient.read).toHaveBeenCalledWith(false);
+      expect(document.querySelector('label[for="main-agent-account"]')?.textContent?.trim()).toBe('Account');
+      expect(optionRows()).toEqual([
+        ['ambient', 'Existing Claude login', false], ['named:p-work', 'Work', false], ['named:p-home', 'Home', false],
+      ]);
+      expect(field()?.value).toBe('ambient');
+      expect(field()?.title).toBe('Existing Claude login');
+      expect(field()?.getAttribute('aria-invalid')).toBeNull();
+      // Provider before Account, Account before Model.
+      const [provider, accountField, model] = ['main-agent-provider', 'main-agent-account', 'main-agent-model'].map((id) => query(id));
+      expect((provider?.compareDocumentPosition(accountField as Node) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect((accountField?.compareDocumentPosition(model as Node) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('a signed-out stored account is selected and disabled, with a "Sign in" button that asks the page to route (M4a)', async () => {
+      await setup({ view: readyView(snapshot({ kind: 'named', profileId: 'p-work' }, 1, [account('p-work', 'Work', 'signed-out'), HOME])) });
+      expect(optionRows()[0]).toEqual(['stored', 'Work (not signed in)', true]);
+      expect(field()?.value).toBe('stored');
+      const signIn = query<HTMLButtonElement>('main-agent-account-sign-in');
+      expect(signIn?.textContent?.trim()).toBe('Sign in');
+      expect(signIn?.getAttribute('aria-label')).toBe('Sign in to the saved account');
+      expect(signIn?.parentElement?.className).toContain('justify-between');
+      signIn?.click();
+      expect(fixture.componentInstance.signIn).toBe(1);
+      expect(field()?.getAttribute('aria-invalid')).toBeNull();
+      expect(saveButton()?.disabled).toBe(true);
+    });
+
+    it('a removed stored account is said, marked invalid and described; nothing is reassigned (M4b, B-1)', async () => {
+      await setup({ view: readyView(snapshot({ kind: 'named', profileId: 'p-gone' })) });
+      expect(optionRows()[0]).toEqual(['stored', ACCOUNT_COPY.removedOption, true]);
+      expect(field()?.value).toBe('stored');
+      expect(field()?.getAttribute('aria-invalid')).toBe('true');
+      const describedBy = field()?.getAttribute('aria-describedby') ?? '';
+      expect(document.getElementById(describedBy)?.textContent?.trim()).toBe(ACCOUNT_COPY.removedAccount);
+      expect(document.getElementById(describedBy)?.className).toContain('sr-only');
+      expect(query('main-agent-account-sign-in')).toBeNull();
+      expect(saveButton()?.disabled).toBe(true);
+      expect(accounts.setSelection).not.toHaveBeenCalled();
+    });
+
+    it('a disabled pick is never kept: the select re-asserts the shown value and Save stays disabled', async () => {
+      await setup({ view: readyView(snapshot({ kind: 'ambient' }, 1, [WORK, account('p-off', 'Off', 'signed-out')])) });
+      expect(optionRows()).toContainEqual(['named:p-off', 'Off (sign in first)', true]);
+      choose('main-agent-account', 'named:p-off');
+      await flush();
+      expect(field()?.value).toBe('ambient');
+      expect(saveButton()?.disabled).toBe(true);
+    });
+  });
+
+  describe('Save', () => {
+    it('an account-only draft needs no other change: Save writes the main scope, says "Chat uses {name}" and closes', async () => {
+      await setup();
+      expect(saveButton()?.disabled).toBe(true);
+      choose('main-agent-account', 'named:p-home');
+      expect(saveButton()?.disabled).toBe(false);
+      await clickSave();
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+      expect(accounts.setSelection).toHaveBeenCalledWith('claude', 'main', { kind: 'named', profileId: 'p-home' });
+      expect(announced()).toEqual(['status: Chat uses Home']);
+      expect(state.activateConnection).not.toHaveBeenCalled();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+      expect(fixture.componentInstance.closed).toBe(1);
+    });
+
+    it('writes the ambient choice as is', async () => {
+      await setup({ view: readyView(snapshot({ kind: 'named', profileId: 'p-work' })) });
+      expect(field()?.value).toBe('named:p-work');
+      choose('main-agent-account', 'ambient');
+      await clickSave();
+      expect(accounts.setSelection).toHaveBeenCalledWith('claude', 'main', { kind: 'ambient' });
+      expect(announced()).toEqual(['status: Chat uses Existing Claude login']);
+    });
+
+    it('control case: with no push during the provider write, the account is written once against the click-time snapshot', async () => {
+      await setup({ driver: 'first' });
+      draftClaudeProvider();
+      choose('main-agent-account', 'named:p-home');
+      const clickTime = accounts.view().snapshot;
+      await clickSave();
+      expect(state.activateConnection).toHaveBeenCalledTimes(1);
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+      expect(accounts.setSelection).toHaveBeenCalledWith('claude', 'main', { kind: 'named', profileId: 'p-home' });
+      expect(accounts.seen[0]).toBe(clickTime);
+      expect(state.activateConnection.mock.invocationCallOrder[0]).toBeLessThan(accounts.setSelection.mock.invocationCallOrder[0]);
+      expect(fixture.componentInstance.closed).toBe(1);
+    });
+
+    it.each([
+      ['the main selection revision moved', () => snapshot({ kind: 'ambient' }, 2)],
+      ['the named account revision moved', () => snapshot({ kind: 'ambient' }, 1, [WORK, account('p-home', 'Home', 'signed-in', 2)])],
+      ['the account was removed', () => snapshot({ kind: 'ambient' }, 1, [WORK])],
+    ])('race (P6-A12): %s during the provider write -> no account write, one alert, draft cleared, Save locked', async (_name, pushed) => {
+      await setup({ driver: 'first' });
+      draftClaudeProvider();
+      choose('main-agent-account', 'named:p-home');
+      const provider = deferred<boolean>();
+      state.activateConnection.mockImplementationOnce(async (id: string) => {
+        const saved = await provider.promise;
+        routeWithDriver(id);
+        state.commit.set({ ...idle, status: 'saved' });
+        return saved;
+      });
+      saveButton()?.click();
+      await flush();
+      accounts.view.set(readyView(pushed()));
+      provider.resolve(true);
+      await flush(); await flush();
+      expect(accounts.setSelection).not.toHaveBeenCalled();
+      expect(announced()).toEqual([`alert: ${ACCOUNT_COPY.providerSavedAccountNot}`]);
+      expect(field()?.value).toBe('ambient');
+      expect(saveButton()?.disabled).toBe(true);
+      expect(fixture.componentInstance.closed).toBe(0);
+    });
+
+    it('lock (P6-A13): provider + account + effort; a refused account stops effort and locks Save until another account', async () => {
+      await setup({ driver: 'first' });
+      draftClaudeProvider();
+      choose('main-agent-account', 'named:p-home');
+      effort('high');
+      accounts.reply = async () => REFUSED;
+      await clickSave();
+      expect(state.activateConnection).toHaveBeenCalledTimes(1);
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+      expect(announced()).toEqual([`alert: ${ACCOUNT_COPY.providerSavedAccountNot}`]);
+      expect(feedbackSave).not.toHaveBeenCalled();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+      expect(query('main-agent-effort')?.querySelector('[data-effort="high"]')?.getAttribute('aria-pressed')).toBe('true');
+      expect(field()?.value).toBe('ambient');
+      expect(saveButton()?.disabled).toBe(true);
+      // A second click does nothing.
+      await clickSave();
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+      // Another enabled account lifts the lock; the next Save writes the account, then the effort.
+      accounts.reply = savedReply(accounts.view);
+      choose('main-agent-account', 'named:p-work');
+      expect(saveButton()?.disabled).toBe(false);
+      await clickSave();
+      expect(accounts.setSelection).toHaveBeenCalledTimes(2);
+      expect(accounts.setSelection).toHaveBeenLastCalledWith('claude', 'main', { kind: 'named', profileId: 'p-work' });
+      expect(state.saveSettings).toHaveBeenCalledTimes(1);
+      expect(accounts.setSelection.mock.invocationCallOrder[1]).toBeLessThan(state.saveSettings.mock.invocationCallOrder[0]);
+      expect(fixture.componentInstance.closed).toBe(1);
+    });
+
+    it('reopening the popover clears the lock', async () => {
+      await setup();
+      choose('main-agent-account', 'named:p-home');
+      accounts.reply = async () => ({ status: 'unavailable' });
+      await clickSave();
+      expect(announced()).toEqual([`alert: ${ACCOUNT_COPY.saveFailed}`]);
+      effort('high');
+      expect(saveButton()?.disabled).toBe(true);
+      fixture.componentInstance.open.set(false); await flush();
+      fixture.componentInstance.open.set(true); await flush();
+      effort('high');
+      expect(saveButton()?.disabled).toBe(false);
+    });
+
+    describe('B-2 focus at a refusal (P6-A3)', () => {
+      it('focus still on Save -> focus lands on the Account select', async () => {
+        await setup();
+        choose('main-agent-account', 'named:p-home');
+        effort('high');
+        accounts.reply = async () => REFUSED;
+        await clickSave();
+        expect(document.activeElement?.id).toBe('main-agent-account');
+        expect(saveButton()?.disabled).toBe(true);
+      });
+
+      it('focus moved elsewhere during the await -> no focus move', async () => {
+        await setup();
+        choose('main-agent-account', 'named:p-home');
+        effort('high');
+        const reply = deferred<ProviderAccountActionOutcome>();
+        accounts.reply = () => reply.promise;
+        saveButton()?.focus(); saveButton()?.click();
+        await flush();
+        const other = query<HTMLButtonElement>('main-agent-cancel');
+        other?.focus();
+        reply.resolve(REFUSED);
+        await flush(); await flush();
+        expect(document.activeElement).toBe(other);
+        expect(saveButton()?.disabled).toBe(true);
+      });
+
+      it('popover closed mid-write -> no focus move, the alert still announces', async () => {
+        await setup();
+        choose('main-agent-account', 'named:p-home');
+        const reply = deferred<ProviderAccountActionOutcome>();
+        accounts.reply = () => reply.promise;
+        saveButton()?.focus(); saveButton()?.click();
+        await flush();
+        fixture.componentInstance.open.set(false); await flush();
+        const before = document.activeElement;
+        reply.resolve(REFUSED);
+        await flush(); await flush();
+        expect(document.activeElement).toBe(before);
+        expect(document.activeElement?.id).not.toBe('main-agent-account');
+        // An account-only refusal says the host's safe summary (here "x").
+        expect(announced()).toEqual([`alert: ${selectionFeedback(REFUSED, 'main', { providerSaved: false })?.message}`]);
+        expect(announced()).toEqual(['alert: x']);
+      });
+    });
+
+    it('unconfirmed with an effort draft: only the uncertainty alert, no lock, no focus move, Save still enabled', async () => {
+      await setup();
+      choose('main-agent-account', 'named:p-home');
+      effort('high');
+      accounts.reply = async () => ({ status: 'unconfirmed' });
+      await clickSave();
+      expect(announced()).toEqual([`alert: ${ACCOUNT_COPY.unconfirmed}`]);
+      expect(announced().join(' ')).not.toContain('not saved');
+      expect(document.activeElement?.id).not.toBe('main-agent-account');
+      expect(field()?.value).toBe('ambient');
+      expect(state.saveSettings).not.toHaveBeenCalled();
+      expect(saveButton()?.disabled).toBe(false);
+      expect(fixture.componentInstance.closed).toBe(0);
+    });
+
+    it('account saved + effort failed: account draft cleared, stays open, only the effort failure toast', async () => {
+      await setup();
+      choose('main-agent-account', 'named:p-home');
+      effort('high');
+      state.saveSettings.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', unsaved: ['effort'] }); return true; });
+      await clickSave();
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+      expect(announce).not.toHaveBeenCalled();
+      expect(feedback.toast()?.tone).toBe('alert');
+      expect(feedback.toast()?.message).not.toContain('Chat uses');
+      // The draft is gone; the select follows the stored (now saved) account.
+      expect(field()?.value).toBe('named:p-home');
+      expect(accounts.view().snapshot?.selections.main.selection).toEqual({ kind: 'named', profileId: 'p-home' });
+      expect(fixture.componentInstance.closed).toBe(0);
+    });
+
+    it('account saved + effort saved: one toast carrying "Chat uses {name}", whose Undo restores only the effort', async () => {
+      await setup();
+      choose('main-agent-account', 'named:p-home');
+      effort('high');
+      await clickSave();
+      expect(announce).not.toHaveBeenCalled();
+      expect(feedback.toast()?.tone).toBe('status');
+      expect(feedback.toast()?.message).toMatch(/^Saved reasoning effort to .+\. Chat uses Home\.$/);
+      expect(feedback.toast()?.canUndo).toBe(true);
+      expect(fixture.componentInstance.closed).toBe(1);
+      await feedback.undo(); await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith({ effort: { effort: 'medium', applyTo: 'workspace' } }, CONTEXT);
+      expect(accounts.setSelection).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('a stored account pushed during a draft keeps the draft and says "Account changed elsewhere" once', async () => {
+    await setup();
+    choose('main-agent-account', 'named:p-home');
+    accounts.view.set(readyView(snapshot({ kind: 'named', profileId: 'p-work' }, 2)));
+    await flush();
+    expect(announced()).toEqual([`status: ${ACCOUNT_COPY.accountChangedElsewhere}`]);
+    expect(field()?.value).toBe('named:p-home');
+    accounts.view.set(readyView(snapshot({ kind: 'ambient' }, 3)));
+    await flush();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(saveButton()?.disabled).toBe(false);
   });
 });

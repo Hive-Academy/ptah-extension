@@ -117,6 +117,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import type {
   CliSessionReference,
+  ProviderAccountBinding,
   SessionId,
   SessionTurnState,
 } from '@ptah-extension/shared';
@@ -268,6 +269,7 @@ interface MetadataFixture {
   totalTokens: { input: number; output: number };
   cliSessions?: CliSessionReference[];
   workingDirectory?: string;
+  accountBinding?: ProviderAccountBinding;
 }
 
 function makeMetadata(
@@ -652,6 +654,39 @@ describe('SessionRpcHandlers', () => {
       expect(lastPage.total).toBe(5);
       expect(lastPage.hasMore).toBe(false);
       expect(lastPage.sessions).toHaveLength(1);
+    });
+
+    it('reports only the bound profile id as accountProfileId', async () => {
+      const h = makeHarness();
+      const binding: ProviderAccountBinding = {
+        version: 1,
+        provider: 'claude',
+        profileId: 'profile-aaaa1111',
+        runId: 'run-00000001',
+        routeFingerprint: 'f'.repeat(64),
+        routeRevision: 0,
+        authEpoch: 0,
+        identity: { kind: 'known', ownerKey: 'o'.repeat(32) },
+      };
+      h.metadataStore.getForWorkspace.mockResolvedValue([
+        makeMetadata({ sessionId: uuidForRow(0), accountBinding: binding }),
+        makeMetadata({ sessionId: uuidForRow(1) }),
+      ]);
+      h.handlers.register();
+
+      const page = await call<{
+        sessions: Array<{ id: string; accountProfileId?: string }>;
+      }>(h, 'session:list', { workspacePath: WORKSPACE, limit: 10, offset: 0 });
+
+      const bound = page.sessions.find((s) => s.id === uuidForRow(0));
+      const ambient = page.sessions.find((s) => s.id === uuidForRow(1));
+      expect(bound?.accountProfileId).toBe('profile-aaaa1111');
+      expect(ambient).toBeDefined();
+      expect(ambient).not.toHaveProperty('accountProfileId');
+      const wire = JSON.stringify(page.sessions);
+      expect(wire).not.toContain('run-00000001');
+      expect(wire).not.toContain('f'.repeat(64));
+      expect(wire).not.toContain('o'.repeat(32));
     });
 
     it('uses default limit=10 / offset=0 when params omit them', async () => {

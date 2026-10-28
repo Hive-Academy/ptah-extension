@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>P5 r1 - Claude accounts inside the connection drawer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Real token values from apps/ptah-extension-webview/tailwind.config.js: dark = theme "anubis", light = theme "anubis-light" (oklch converted to sRGB hex).
+   Status ink tokens are the app's --state-ink-* values (text-safe); raw success/warning/error are NOT used for text or dots. */
+[data-theme=dark]{--b1:#131317;--b2:#1a1a20;--b3:#242430;--bc:#e8e6e1;--bm:#989291;--pr:#2563eb;--prc:#f8f7f4;--run:#3b82f6;--need:#f97316;--err:#ef4444;--done:#16a34a;--idle:#9ca3af;--bd:#3a3a4a;--shade:rgba(0,0,0,.6)}
+[data-theme=light]{--b1:#faf7f5;--b2:#efeae6;--b3:#e7e2df;--bc:#291334;--bm:#745665;--pr:#44ebd3;--prc:#004a45;--run:#2a56c6;--need:#8f5200;--err:#b4232a;--done:#13713a;--idle:#6b6570;--bd:#c9bfc4;--shade:rgba(30,20,40,.35)}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,"Segoe UI",sans-serif;background:var(--b2);color:var(--bc)}
+.muted{color:var(--bm)}.xs{font-size:12px}
+.proto{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 14px;background:var(--b3);font-size:12px}
+.proto select{background:var(--b1);color:var(--bc);border:1px solid var(--bd);border-radius:6px;padding:3px 6px}
+.page{padding:16px 20px;max-width:760px}
+.card{background:var(--b1);border:1px solid var(--bd);border-radius:10px;padding:14px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{background:var(--b2);border:1px solid var(--bd);border-radius:8px;padding:6px 12px;min-height:34px}
+.btn.pri{background:var(--pr);color:var(--prc);border-color:var(--pr);font-weight:600}
+.btn.dng{border-color:var(--err);color:var(--bc)}
+.btn.sm{padding:3px 10px;min-height:30px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.link{background:none;border:0;padding:2px;text-decoration:underline;color:var(--bc)}
+:focus-visible{outline:2px solid var(--bc);outline-offset:2px}
+.scrim{position:fixed;inset:0;background:var(--shade)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,100vw);background:var(--b1);border-left:1px solid var(--bd);display:flex;flex-direction:column}
+.dh{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--bd)}
+.dh h2{margin:0;font-size:16px}
+.db{flex:1;overflow:auto;padding:14px 16px}
+.df{padding:10px 16px;border-top:1px solid var(--bd);text-align:right}
+.tabs{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--bd);padding:0 12px}
+.tab{background:none;border:0;border-bottom:2px solid transparent;padding:8px 8px;white-space:normal;text-align:left}
+.tab[aria-selected=true]{border-bottom-color:var(--bc);font-weight:600}
+h3{font-size:14px;margin:14px 0 4px}h3:first-child{margin-top:0}
+h4{font-size:13px;margin:0}
+.cell{margin:10px 0}.cell label{font-weight:600;display:block}
+select.s,input.t{width:100%;background:var(--b2);color:var(--bc);border:1px solid var(--bd);border-radius:8px;padding:7px 8px;font:inherit;margin-top:4px}
+input[aria-invalid=true]{border-color:var(--err);border-width:2px}
+.acct{display:flex;gap:10px;align-items:flex-start;background:var(--b2);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0;flex-wrap:wrap}
+.acct.attn{border-left:4px solid var(--err)}
+.acct[role=button]{cursor:pointer}
+.av{width:30px;height:30px;border-radius:50%;background:var(--b3);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
+.grow{flex:1;min-width:150px}.acts{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-block;border:1px solid var(--bd);border-radius:99px;padding:0 8px;font-size:12px;margin:4px 4px 0 0}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:var(--idle)}
+.dot.done{background:var(--done)}.dot.err{background:var(--err)}.dot.need{background:var(--need)}.dot.run{background:var(--run)}
+.note{border:1px solid var(--bd);border-left:4px solid var(--idle);border-radius:8px;padding:10px;margin:10px 0;background:var(--b2)}
+.note.err{border-left-color:var(--err)}.note.need{border-left-color:var(--need)}.note.run{border-left-color:var(--run)}
+pre{background:var(--b3);padding:8px;border-radius:6px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;margin:6px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spin{width:14px;height:14px;border:2px solid var(--bm);border-top-color:var(--bc);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.toast{min-height:20px;margin:6px 0}
+.err-t{color:var(--bc);font-weight:600}
+.dlg{position:absolute;inset:0;background:var(--shade);display:grid;place-items:center;padding:16px}
+.dlg>div{background:var(--b1);border:1px solid var(--bd);border-radius:10px;padding:16px;max-width:380px}
+.sr{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<div class="proto">
+  <label for="state">State</label>
+  <select id="state"></select>
+  <label for="launch">Sign-in launch result</label>
+  <select id="launch"><option value="ok">Window opened</option><option value="fb">Host returned a fallback script</option></select>
+  <label for="wr">Selection write result</label>
+  <select id="wr"><option value="saved">Saved</option><option value="refused">Refused (safe reason)</option><option value="unconfirmed">Unconfirmed</option></select>
+  <label for="theme">Theme</label>
+  <select id="theme"><option value="dark">Dark (anubis)</option><option value="light">Light (anubis-light)</option></select>
+  <span class="muted">Prototype only. No real sign-in or write happens.</span>
+</div>
+<div class="page" id="page"></div>
+<div id="layer"></div>
+<script>
+const $=s=>document.querySelector(s);
+function h(tag,a,...kids){const e=document.createElement(tag);for(const k in a||{}){const v=a[k];if(v===false||v==null)continue;if(k==='on')for(const ev in v)e.addEventListener(ev,v[ev]);else if(k==='class')e.className=v;else if(v===true)e.setAttribute(k,'');else e.setAttribute(k,v)}
+ for(const c of kids.flat())if(c!=null&&c!==false)e.append(c.nodeType?c:document.createTextNode(String(c)));return e}  // every label/script is a text node, never innerHTML
+const P=new URLSearchParams(location.search);if(P.get('bare'))document.write('<style>.proto,.page{display:none}</style>');if(P.get('z'))document.documentElement.style.zoom=P.get('z');
+const STATE_LIST=[
+['a1','Ambient Connected, no named accounts'],['a2','Ambient Not signed in'],['a3','Ambient Unknown (check failed)'],['a4','Ambient Checking'],
+['n1','Named account signed out'],['n2','Named signing in (window opened)'],['n3','Named signing in, fallback available'],['n4','Both signed in, selections made'],
+['n5','Named sign-in failed'],['n6','Named sign-in cancelled'],['sp','Selection pending'],['sr','Selection refused'],['su','Selection unconfirmed'],['sm','Stored selection unavailable'],['om','Omitted selection (never configured)'],
+['st','Stale snapshot (refresh failed)'],['le','First load failed'],['ae','Add form: duplicate name error'],['re','Rename: error'],['rc','Remove confirmation open'],['nr','Signed in with 2 active runs'],['nu','Signed out with 2 bound runs']];
+STATE_LIST.forEach(([v,t])=>$('#state').append(h('option',{value:v},t)));
+let S,view,dtab,dtabMain='accounts',adding,toast,pf,busy,confirmRm,newName='',renameVal='',addErr='',renErr='',selMsg={main:null,lane:null},selBusy={main:false,lane:false};
+const UNC='This action may not have completed. Accounts were reloaded.';
+const eff=v=>(v==null||v==='omitted')?'ambient':v; // omitted = use the existing login; never written implicitly
+const RESERVED='existing claude login';
+function mk(id,name,state,extra){return Object.assign({id,name,state,runs:0,fallback:null},extra||{})}
+function load(v){
+ S={amb:'connected',ambAt:'Last checked 2 minutes ago',accts:[],main:'ambient',lane:'ambient',stale:false,loadErr:false,open:true};
+ const W=()=>mk('w','Work account','not-signed-in');
+ const set={a1:()=>{},a2:()=>{S.amb='signedout'},a3:()=>{S.amb='unknown'},a4:()=>{S.amb='checking'},
+ n1:()=>{S.accts=[W()]},n2:()=>{S.accts=[mk('w','Work account','pending')];view='detail';dtab='access'},
+ n3:()=>{S.accts=[mk('w','Work account','pending',{fallback:'<script text supplied by the host for this operation>'})];view='detail';dtab='access'},
+ n4:()=>{S.accts=[mk('w','Work account','signed-in'),mk('t','Team plan','not-signed-in')];S.main='ambient';S.lane='w'},
+ n5:()=>{S.accts=[mk('w','Work account','failed',{why:'Claude refused the sign-in or the window closed early.'})];view='detail';dtab='access'},
+ n6:()=>{S.accts=[mk('w','Work account','cancelled')];view='detail';dtab='access'},
+ sp:()=>{S.accts=[mk('w','Work account','signed-in')];selBusy.lane=true;S.pendingLane='w'},
+ sr:()=>{S.accts=[mk('w','Work account','signed-in')];selMsg.lane={k:'err',t:'Could not change this setting. That account is not available for Claude lanes right now.'}},
+ su:()=>{S.accts=[mk('w','Work account','signed-in')];S.lane='ambient';selMsg.lane={k:'warn',t:UNC}},
+ om:()=>{S.accts=[mk('w','Work account','signed-in')];S.main='omitted';S.lane='omitted'},
+ sm:()=>{S.accts=[mk('w','Work account','signed-in')];S.lane='missing'},
+ st:()=>{S.accts=[mk('w','Work account','signed-in')];S.stale=true},
+ le:()=>{S.loadErr=true},
+ ae:()=>{S.accts=[mk('w','Work account','signed-in')];adding=true;newName='work account';addErr='dup';pf='[data-fid=newName]'},
+ re:()=>{S.accts=[mk('w','Work account','signed-in'),mk('t','Team plan','signed-in')];view='detail';dtab='profile';renameVal='team plan';renErr='dup'},
+ rc:()=>{S.accts=[mk('w','Work account','signed-in')];view='detail';dtab='profile';confirmRm=true},
+ nu:()=>{S.accts=[mk('w','Work account','signed-out',{runs:2})];S.lane='w';view='detail';dtab='overview'},
+ nr:()=>{S.accts=[mk('w','Work account','signed-in',{runs:2})];S.lane='w';view='detail';dtab='overview'}};
+ view='list';dtab='overview';adding=false;toast='';busy=false;confirmRm=false;newName='';renameVal='';addErr='';renErr='';selMsg={main:null,lane:null};selBusy={main:false,lane:false};
+ pf=null;set[v]();if(v==='a4'&&!P.get('bare'))setTimeout(()=>{S.amb='connected';S.ambAt='Last checked just now';render()},1500);
+ if(!pf)pf=view==='detail'?'[data-fid=heading]':'[data-fid=title]';render()}
+const LBL={'not-signed-in':'Not signed in',pending:'Signing in',failed:'Sign-in failed',cancelled:'Sign-in cancelled','signed-in':'Signed in',disconnected:'Disconnected','signed-out':'Signed out'};
+const INK=s=>s==='signed-in'?'done':(s==='failed'||s==='disconnected')?'err':s==='pending'?'run':'';
+const acct=id=>S.accts.find(a=>a.id===id);
+const nameOf=k=>k==='ambient'?'Existing Claude login':(acct(k)||{name:'Unavailable account'}).name;
+function validName(v,ignoreId){const t=v.trim();if(!t)return 'empty';if(t.length>40||/[<>\\\/\u0000-\u001f]/.test(t))return 'unsafe'; // stand-in for isSafeProviderAccountLabel (same validator, same messages in the real UI)
+ if(t.toLowerCase()===RESERVED||S.accts.some(a=>a.id!==ignoreId&&a.name.toLowerCase()===t.toLowerCase()))return 'dup';return ''}
+const ERRTXT={dup:'That name is already used. Names must be different.',unsafe:'Use up to 40 letters, numbers, spaces or simple punctuation (no slashes or angle brackets).',empty:''};
+/* focus: keep focus through re-render by data-fid */
+function render(){const ae=document.activeElement,fid=ae&&ae.dataset&&ae.dataset.fid;
+ page();drawer();const want=pf||(fid?`[data-fid="${fid}"]`:null);pf=null;if(want){const el=document.querySelector(want);if(el)el.focus()}}
+function page(){$('#page').replaceChildren(h('h1',{style:'font-size:18px'},'Providers'),
+ h('div',{class:'card'},h('div',null,h('b',null,'Claude (Subscription)'),h('div',{class:'xs muted'},'Connection status is shown on this card; accounts live inside it.')),
+ h('button',{class:'btn',id:'manage',on:{click:()=>{S.open=true;dtabMain='overview';view='list';pf='[data-fid=title]';render()}}},'Manage')))}
+function drawer(){const L=$('#layer');if(!S.open){L.replaceChildren();return}
+ const TABS=[['overview','Overview & Used By'],['accounts','Accounts'],['credentials','Credentials'],['models','Models & Tiers']];
+ const body=h('div',{class:'db'},dtabMain==='accounts'?accountsTab():h('p',{class:'muted'},'Existing tab content, unchanged ('+TABS.find(t=>t[0]===dtabMain)[1]+').'));
+ const panel=h('div',{role:'tabpanel',id:'dp-'+dtabMain,'aria-labelledby':'dt-'+dtabMain,tabindex:'0',style:'flex:1;overflow:auto;display:flex;flex-direction:column;min-height:0'},body);
+ const d=h('div',{class:'drawer',role:'dialog','aria-modal':'true','aria-labelledby':'dtitle'},
+  h('div',{class:'dh'},h('h2',{id:'dtitle',tabindex:'-1','data-fid':'title'},'Claude (Subscription)'),h('button',{class:'btn sm',id:'x','aria-label':'Close',on:{click:close}},'×')),
+  tabs(TABS,'dt-','dp-',dtabMain,v=>{dtabMain=v;view='list';render()},'Connection sections'),panel,
+  h('div',{class:'df'},h('button',{class:'btn',on:{click:close}},'Close')));
+ L.replaceChildren(h('div',{class:'scrim',on:{click:close}}),d);
+ if(confirmRm)d.append(confirmDlg())}
+function close(){S.open=false;pf='#manage';render()}
+function tabs(list,pre,ppre,cur,onSel,label,fidp){const tl=h('div',{class:'tabs',role:'tablist','aria-label':label});
+ list.forEach(([v,t],i)=>{const b=h('button',{class:'tab',role:'tab',id:pre+v,'aria-selected':String(v===cur),'aria-controls':ppre+v,tabindex:v===cur?'0':'-1','data-fid':(fidp||'tab-')+v,on:{click:()=>onSel(v),keydown:e=>{let j=null;if(e.key==='ArrowRight')j=(i+1)%list.length;else if(e.key==='ArrowLeft')j=(i-1+list.length)%list.length;else if(e.key==='Home')j=0;else if(e.key==='End')j=list.length-1;if(j!==null){e.preventDefault();pf=`[data-fid="${(fidp||'tab-')+list[j][0]}"]`;onSel(list[j][0])}}}},t);tl.append(b)});return tl}
+function ambRow(){const m={connected:['done','Connected'],signedout:['need','Not signed in'],unknown:['idle','Could not check'],checking:['run','Checking…']}[S.amb];
+ const row=h('div',{class:'acct',role:'group','aria-label':'Existing Claude login'},h('span',{class:'av','aria-hidden':'true'},'E'),
+  h('div',{class:'grow'},h('b',null,'Existing Claude login'),h('div',{class:'xs muted'},'The Claude login already on this computer. Ptah only reads its status here.'),
+   h('div',{class:'st',style:'margin-top:4px'},S.amb==='checking'?h('span',{class:'spin','aria-hidden':'true',style:'margin-right:6px'}):h('span',{class:'dot '+m[0]}),h('span',{role:'status'},m[1])),
+   S.amb==='signedout'&&h('p',{class:'xs',style:'margin:4px 0 0'},'Sign in with the Claude CLI in a terminal. Ptah does not manage this login.'),
+   S.amb==='unknown'&&h('p',{class:'xs',style:'margin:4px 0 0'},'The status could not be read. The Claude CLI may be missing or did not answer in time. This does not mean you are signed out.'),
+   h('div',{class:'xs muted',style:'margin-top:4px'},S.amb==='checking'?'':(S.amb==='unknown'?'Last check failed '+S.ambAt.replace('Last checked ',''):S.ambAt)),
+   chips('ambient')),
+  h('button',{class:'btn sm','data-fid':'amb-refresh','aria-label':'Check the existing Claude login again',disabled:S.amb==='checking',on:{click:()=>{S.amb='checking';pf='[data-fid=amb-refresh]';render();setTimeout(()=>{S.amb=$('#state').value==='a3'?'unknown':$('#state').value==='a2'?'signedout':'connected';S.ambAt='Last checked just now';render()},1200)}}},'Check again'));return row}
+function chips(k){const c=[];if(eff(S.main)===k)c.push('Used for: New chats');if(eff(S.lane)===k)c.push('Used for: Claude lanes');return h('div',null,c.map(t=>h('span',{class:'chip'},t)))}
+function sel(scope,label,hint){const id='sel-'+scope,cur=eff(S[scope]),busyS=selBusy[scope],opts=[];
+ const amb=S.amb==='connected'?'Existing Claude login':S.amb==='signedout'?'Existing Claude login (not signed in)':S.amb==='unknown'?'Existing Claude login (status unknown)':'Existing Claude login';
+ opts.push(h('option',{value:'ambient',selected:cur==='ambient'},amb));
+ [...S.accts].sort((a,b)=>(b.state==='signed-in')-(a.state==='signed-in')).forEach(a=>opts.push(h('option',{value:a.id,selected:cur===a.id,disabled:a.state!=='signed-in'},a.name+(a.state==='signed-in'?'':' (sign in first)'))));
+ if(cur==='missing')opts.unshift(h('option',{value:'missing',selected:true,disabled:true},'Unavailable account - choose another'));
+ const m=selMsg[scope];
+ return h('div',{class:'cell'},h('label',{for:id},label),h('div',{class:'xs muted',id:id+'-h'},hint),
+  h('select',{class:'s',id:id,'data-fid':id,'aria-describedby':id+'-h '+id+'-m',disabled:busyS,'aria-busy':String(busyS),on:{change:e=>write(scope,e.target.value)}},opts),
+  h('div',{class:'xs',id:id+'-m','data-fid':id+'-m',tabindex:'-1',role:m&&m.k==='err'?'alert':'status'},busyS?'Saving…':m?m.t:(cur==='missing'?'The stored account is no longer available. Choose another account. Ptah does not switch to the existing login for you.':'')))}
+function write(scope,val){selBusy[scope]=true;selMsg[scope]=null;pf=`[data-fid=sel-${scope}-m]`;render(); // busy rule: only THIS scope's select is disabled; focus moves to its status text (tabindex -1), restored to the select afterwards
+ const r=$('#wr').value;
+ setTimeout(()=>{selBusy[scope]=false;if(r==='saved'){S[scope]=val;toast=(scope==='main'?'New chats':'Claude lanes')+' will use '+nameOf(val)+' for new sessions.'}
+  else if(r==='refused')selMsg[scope]={k:'err',t:'Could not change this setting. That account is not available for '+(scope==='main'?'new chats':'Claude lanes')+' right now.'};
+  else{selMsg[scope]={k:'warn',t:UNC}} // unconfirmed: S[scope] and chips keep the last authoritative snapshot
+  pf=`[data-fid=sel-${scope}]`;render();
+  if(r==='unconfirmed')setTimeout(()=>{selMsg[scope]=null;toast='Accounts updated from the host.';render()},1800)}, 700)} // next host snapshot reconciles
+function accountsTab(){
+ if(view==='detail'&&acct(S.detailId||S.accts[0]&&S.accts[0].id))return detail(acct(S.detailId||S.accts[0].id));
+ const w=h('div',{role:'region','aria-labelledby':'accH','aria-busy':String(S.amb==='checking')});
+ w.append(h('h3',{id:'accH'},'Use for'),h('p',{class:'xs muted',style:'margin:0 0 4px'},'Pick which account each kind of session uses. Changes apply to new sessions only. Credentials stay on this computer.'),
+  h('p',{class:'xs muted',style:'margin:0'},'This applies only while Claude sign-in is your main route. If you chose another provider as the main route, that provider stays in effect.'));
+ if(S.loadErr){w.append(h('div',{class:'note err',role:'alert'},h('b',null,'Accounts could not be loaded.'),h('div',null,h('button',{class:'btn sm','data-fid':'retry',on:{click:()=>{S.loadErr=false;render()}}},'Try again'))));return w}
+ if(S.stale)w.append(h('div',{class:'note need',role:'status'},'Showing the last loaded accounts. The latest refresh failed. ',h('button',{class:'btn sm','data-fid':'retry',on:{click:()=>{S.stale=false;toast='Accounts refreshed.';render()}}},'Try again')));
+ w.append(sel('main','New chats','The account your next main chat uses.'),sel('lane','Claude lanes','The account the next Claude lane uses.'));
+ w.append(h('div',{class:'toast',role:'status','aria-live':'polite'},toast));
+ w.append(h('h3',null,'Accounts'));const list=h('div',{role:'list','aria-label':'Claude accounts'});
+ const ar=ambRow();ar.setAttribute('role','listitem');list.append(ar);
+ [...S.accts].sort((a,b)=>(b.state==='signed-in')-(a.state==='signed-in')).forEach(a=>{
+  const open=()=>{S.detailId=a.id;view='detail';dtab=a.state==='signed-in'?'overview':'access';pf='[data-fid=heading]';render()};
+  const r=h('div',{class:'acct'+((a.state==='failed'||a.state==='disconnected')?' attn':''),role:'listitem'});
+  const card=h('div',{class:'grow',role:'button',tabindex:'0','aria-label':'Account details for '+a.name,'data-fid':'card-'+a.id,on:{click:open,keydown:e=>{if(e.target===card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();open()}}}},
+   h('b',null,a.name),h('div',{class:'st'},h('span',{class:'dot '+INK(a.state)}),LBL[a.state]),a.runs>0&&h('div',{class:'xs muted'},'Run binding · '+a.runs+' active runs'),chips(a.id));
+  r.append(h('span',{class:'av','aria-hidden':'true'},a.name.trim()[0].toUpperCase()),card,h('div',{class:'acts'},
+   (a.state==='not-signed-in'||a.state==='failed'||a.state==='cancelled')&&h('button',{class:'btn pri sm','aria-label':'Sign in to '+a.name,on:{click:e=>{e.stopPropagation();open()}}},'Sign in'),
+   h('button',{class:'btn sm','data-fid':'manage-'+a.id,'aria-label':'Manage '+a.name,on:{click:e=>{e.stopPropagation();open()}}},'Manage')));list.append(r)});
+ w.append(list);
+ if(adding)w.append(addForm());else w.append(h('div',{style:'margin-top:10px'},h('button',{class:'btn','data-fid':'addBtn',on:{click:()=>{adding=true;newName='';addErr='';pf='[data-fid=newName]';render()}}},'Add another account')));
+ return w}
+function addForm(){const e=validName(newName),show=newName.trim()?e:addErr;const msg=ERRTXT[show]||'';
+ const inp=h('input',{class:'t',id:'newName','data-fid':'newName',maxlength:'40',autocomplete:'off',value:newName,'aria-invalid':String(!!msg),'aria-describedby':'nh nerr',on:{input:ev=>{newName=ev.target.value;addErr='';const b=$('#addGo'),er=$('#nerr'),v=validName(newName);b.disabled=!!v;inp.setAttribute('aria-invalid',String(!!(newName.trim()&&v)));er.textContent=newName.trim()?ERRTXT[v]:''}}});
+ return h('form',{class:'note',on:{submit:ev=>{ev.preventDefault();if(validName(newName))return;const id='n'+Date.now();S.accts.push(mk(id,newName.trim(),'not-signed-in'));adding=false;S.detailId=id;view='detail';dtab='access';toast='Account added. It is not selected for any new chat or lane.';pf='[data-fid=heading]';render()},keydown:ev=>{if(ev.key==='Escape'){ev.stopPropagation();adding=false;pf='[data-fid=addBtn]';render()}}}},
+  h('label',{for:'newName'},h('b',null,'Name this account')),h('p',{class:'xs muted',id:'nh',style:'margin:2px 0 0'},'For example: Work, or Team plan. Only you see this name. Each name must be different.'),inp,
+  h('div',{class:'xs err-t',id:'nerr',role:'alert',style:'min-height:18px'},msg),
+  h('div',{class:'row',style:'justify-content:flex-end'},h('button',{type:'button',class:'btn sm',on:{click:()=>{adding=false;pf='[data-fid=addBtn]';render()}}},'Cancel'),h('button',{class:'btn pri sm',id:'addGo',disabled:!!e},'Add account')))}
+function detail(a){const st=a.state,bz=!!a.busy,lock=st==='pending'||bz;
+ const head=h('div',null,h('button',{class:'link','data-fid':'back',on:{click:()=>{view='list';pf='[data-fid=manage-'+a.id+']';render()}}},'← All accounts'),
+  h('h3',{tabindex:'-1','data-fid':'heading',style:'font-size:16px;margin:8px 0 2px'},a.name),h('div',null,h('span',{class:'dot '+INK(st)}),LBL[st]));
+ const T=[['overview','Overview'],['access','Access'],['profile','Profile']];
+ const tl=tabs(T,'at-','ap-',dtab,v=>{dtab=v;render()},'Account sections','atab-');
+ const p=h('div',{role:'tabpanel',id:'ap-'+dtab,'aria-labelledby':'at-'+dtab,tabindex:'0',style:'padding-top:10px'});
+ const live=h('div',{class:'toast',role:'status','aria-live':'polite',tabindex:'-1','data-fid':'live'},bz?'Working…':toast);
+ if(dtab==='overview'){A(p,h('p',null,'State: ',LBL[st]),
+   h('h4',null,'Running now'),a.runs>0?h('p',null,a.runs+' active runs use this account. Signing out or removing it does not change running work. Resuming those runs may be unavailable.'):h('p',{class:'muted'},'No runs are bound to this account.'),
+   a.runs>0&&st!=='signed-in'&&h('div',{class:'note'},'Resume unavailable: a bound run on an account that is not signed in cannot be resumed until you sign in again.'))}
+ else if(dtab==='access'){
+  if(st==='signed-in')A(p,h('p',null,'Signed in. Credentials stay on this computer and are never shown here.'),h('div',{class:'row'},h('button',{class:'btn dng','data-fid':'so',disabled:bz,on:{click:()=>act(a,'signed-out')}},'Sign out'),h('button',{class:'btn','data-fid':'cs',disabled:bz,on:{click:()=>{toast='Status checked: signed in.';render()}}},'Check status')));
+  else if(st==='pending')A(p,a.fallback?fallbackBlock(a):h('div',{class:'note run',role:'status'},h('div',{class:'row'},h('span',{class:'spin','aria-hidden':'true'}),h('div',null,h('b',null,'Finish sign-in in the Claude window'),h('div',{class:'xs muted'},'Waiting for you. This page updates when you are done.')))),
+    h('div',{class:'row'},h('button',{class:'btn','data-fid':'cancel',disabled:bz,on:{click:()=>act(a,'cancelled')}},'Cancel sign-in'),h('button',{class:'btn','data-fid':'cs',disabled:bz,on:{click:()=>act(a,'signed-in')}},'Check status')));
+  else{ // not-signed-in, failed, cancelled, disconnected, signed-out
+   if(st==='failed')A(p,h('div',{class:'note err',role:'alert'},h('b',null,'Sign-in did not finish'),h('div',{class:'xs'},a.why||'The host did not complete the sign-in.')));
+   else if(st==='cancelled')A(p,h('div',{class:'note',role:'status'},'Sign-in was cancelled. The account is still saved but not signed in.'));
+   else if(st==='disconnected')A(p,h('div',{class:'note err',role:'alert'},'This account was disconnected. Sign in again to use it.'));
+   else A(p,h('p',null,'This account is not signed in yet.'));
+   A(p,h('div',{class:'row'},h('button',{class:'btn pri','data-fid':'si',disabled:lock,on:{click:()=>signIn(a)}},st==='failed'?'Try again':'Sign in'),h('button',{class:'btn','data-fid':'cs',disabled:bz,on:{click:()=>{toast='Status checked: '+LBL[st].toLowerCase()+'.';render()}}},'Check status')))}
+ } else { // profile
+  const ev=renameVal||a.name,er=validName(ev,a.id);const cur0=()=>{const i=document.getElementById('rn');return i?i.value:ev};
+  A(p,lock&&h('p',{class:'xs muted',role:'status'},'Sign-in is in progress. Name and removal are locked until it finishes or is cancelled.'),
+   h('form',{on:{submit:e=>{e.preventDefault();const v=cur0(),e2=validName(v,a.id);renameVal=v;if(lock||v.trim()===a.name)return;if(e2){renErr=e2;pf='[data-fid=rn]';const m=$('#rerr');if(m)m.textContent=ERRTXT[e2]||'';return} // re-read and re-validate at submit; typed value kept on refusal
+    a.name=v.trim();renameVal='';renErr='';toast='Name saved.';render()}}},
+    h('label',{for:'rn'},h('b',null,'Account name')),h('div',{class:'xs muted',id:'rh'},'Only you see this name. Each name must be different.'),
+    h('input',{class:'t',id:'rn','data-fid':'rn',maxlength:'40',value:ev,disabled:lock,'aria-invalid':String(!!(renameVal&&er)),'aria-describedby':'rh rerr',on:{input:e=>{renameVal=e.target.value;const v=validName(renameVal,a.id);$('#rs').disabled=!!v||renameVal.trim()===a.name;$('#rerr').textContent=ERRTXT[v]||'';e.target.setAttribute('aria-invalid',String(!!v))}}}),
+    h('div',{class:'xs err-t',id:'rerr',role:'alert',style:'min-height:18px'},renameVal?(ERRTXT[er]||''):''),
+    h('button',{class:'btn pri sm',id:'rs',disabled:lock||!!er||ev.trim()===a.name},'Save name')),
+   h('h4',{style:'margin-top:16px'},'Remove account'),h('p',{class:'xs muted'},'Removes this account from Ptah. Running work is not changed.'),
+   h('button',{class:'btn dng','data-fid':'rm',disabled:lock,on:{click:()=>{confirmRm=true;pf='[data-fid=cancelRm]';render()}}},'Remove account'))}
+ return h('div',null,head,tl,p,live)}
+function A(el,...k){k.flat().forEach(c=>{if(c!=null&&c!==false)el.append(c)})}
+function fallbackBlock(a){const sid='scr';return h('div',{class:'note need',role:'group','aria-labelledby':'fbt'},h('b',{id:'fbt'},'Sign in from a terminal'),
+ h('p',{class:'xs muted',style:'margin:2px 0'},'The Claude window could not open. Run this in a new terminal window, finish sign-in there, then check status.'),
+ h('pre',{id:sid,tabindex:'0',role:'region','aria-label':'Sign-in script'},a.fallback),  // rendered as text; focusable for keyboard scrolling
+ h('div',{class:'row'},h('button',{class:'btn sm','data-fid':'copy',on:{click:()=>{toast='Copied';render()}}},'Copy script')))}
+function signIn(a){a.busy=true;toast='';pf='[data-fid=live]';render();setTimeout(()=>{a.busy=false;a.state='pending';a.fallback=$('#launch').value==='fb'?'<script text supplied by the host for this operation>':null;toast=a.fallback?'The Claude window could not open. Use the terminal steps below.':'';pf='[data-fid=cancel]';render()},600)}
+function act(a,to){a.busy=true;toast='';pf='[data-fid=live]';render();setTimeout(()=>{a.busy=false;a.state=to;a.fallback=null;toast=to==='signed-in'?'Signed in.':to==='cancelled'?'Sign-in cancelled.':'Signed out.';pf='[data-fid=si],[data-fid=so],[data-fid=cs]';render()},500)}
+function confirmDlg(){const a=acct(S.detailId||S.accts[0].id);
+ const cancel=h('button',{class:'btn','data-fid':'cancelRm',on:{click:()=>{confirmRm=false;pf='[data-fid=rm]';render()}}},'Cancel');
+ const ok=h('button',{class:'btn dng',on:{click:()=>{S.accts=S.accts.filter(x=>x.id!==a.id);['main','lane'].forEach(k=>{if(S[k]===a.id)S[k]='ambient'});confirmRm=false;view='list';toast='Account removed.';pf='[data-fid=addBtn]';render()}}},'Remove');
+ const d=h('div',{class:'dlg',on:{keydown:e=>{if(e.key==='Escape'){e.stopPropagation();confirmRm=false;pf='[data-fid=rm]';render()}else if(e.key==='Tab'){const f=[cancel,ok],i=f.indexOf(document.activeElement);e.preventDefault();f[(i+(e.shiftKey?-1:1)+2)%2].focus()}}}},
+  h('div',{role:'alertdialog','aria-modal':'true','aria-labelledby':'cdt','aria-describedby':'cdd'},h('h4',{id:'cdt'},'Remove '+a.name+'?'),h('p',{id:'cdd',class:'xs'},'This removes the account from Ptah. Running work is not changed. You can add it again later and sign in again.'),h('div',{class:'row',style:'justify-content:flex-end'},cancel,ok)));return d}
+$('#state').onchange=e=>load(e.target.value);
+$('#theme').onchange=e=>document.documentElement.dataset.theme=e.target.value;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&S.open&&!confirmRm&&!adding){close()}});
+const s0=P.get('s')||'a1',t0=P.get('t')||'dark';$('#state').value=s0;$('#theme').value=t0;document.documentElement.dataset.theme=t0;
+dtabMain='accounts';load(s0);
+</script>
+</body>
+</html>
