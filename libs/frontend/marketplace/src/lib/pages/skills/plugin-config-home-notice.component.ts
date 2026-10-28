@@ -178,7 +178,7 @@ export function configHomeFailure(action: ConfigHomeAction): string {
           @for (action of block.actions; track action.key) {
             <button
               type="button"
-              class="btn btn-xs h-auto min-h-6 py-1 [overflow-wrap:anywhere]"
+              class="btn btn-xs h-auto min-h-6 max-w-full justify-start whitespace-normal py-1 text-left [overflow-wrap:anywhere]"
               data-testid="plugin-config-home-action"
               [attr.data-action]="action.action"
               [disabled]="busyKey() !== null"

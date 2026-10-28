@@ -268,7 +268,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                 <ul class="divide-y divide-base-300" role="list">
                   @for (row of group.rows; track row.ref) {
                     <li
-                      class="flex items-center gap-3 px-4 py-2.5"
+                      class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5"
                       [class.surface-3]="row.ref === openRef()"
                       data-testid="installed-skill-row"
                       [attr.data-ref]="row.ref"
@@ -283,7 +283,7 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                         />
                       </span>
                       <a
-                        class="min-w-0 flex-1 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                        class="min-w-[7rem] flex-1 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                         data-testid="installed-skill-open"
                         [attr.data-ref]="row.ref"
                         [routerLink]="detailLinks().get(row.ref)"
@@ -315,8 +315,12 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                           }}{{ row.detail ? ' · ' + row.detail : '' }}
                         </span>
                       </a>
+                      <!-- One line at its full width; when the row is too
+                           narrow it wraps below the name instead of
+                           squeezing it. Very long origins truncate, and the
+                           title carries the full origin. -->
                       <span
-                        class="badge badge-sm h-auto max-w-[40%] shrink-0 border bg-base-300 text-base-content [overflow-wrap:anywhere]"
+                        class="badge badge-sm max-w-full shrink-0 border bg-base-300 text-base-content"
                         [class]="
                           row.provenance.kind === 'plugin'
                             ? 'border-primary'
@@ -324,7 +328,9 @@ const ROW_LINK_SELECTOR = '[data-testid="installed-skill-open"]';
                         "
                         [attr.title]="'Origin: ' + provenanceText(row)"
                         data-testid="installed-skill-provenance"
-                        >{{ provenanceText(row) }}</span
+                        ><span class="min-w-0 truncate">{{
+                          provenanceText(row)
+                        }}</span></span
                       >
                       @if (row.shadowedAgents.length > 0) {
                         <span

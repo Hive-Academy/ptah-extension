@@ -249,6 +249,12 @@ describe('ExternalConsentDialogComponent', () => {
       'Install failed. Ptah removes what it wrote for this install where it ' +
         'can. Check the files listed in the install report, then retry.',
     );
+    // Outside the scrolling body, right above the actions, so a long
+    // local-files list cannot push it below the fold.
+    expect(alert?.closest('.overflow-y-auto')).toBeNull();
+    expect(alert?.nextElementSibling?.classList.contains('modal-action')).toBe(
+      true,
+    );
   });
 
   it('shows a failed confirm as "Install failed" with "Retry install"', () => {

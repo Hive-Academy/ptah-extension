@@ -422,6 +422,15 @@ describe('InstalledSkillsPageComponent', () => {
       'skills.sh: owner/skills',
       'Plugin: lint-kit',
     ]);
+    // Narrow windows: the badge stays one line and truncates, the full
+    // origin stays in its title.
+    const first = q('[data-testid="installed-skill-provenance"]');
+    expect(first?.getAttribute('title')).toBe(
+      'Origin: Plugin: Ptah Release Kit',
+    );
+    expect(first?.querySelector('.truncate')?.textContent).toBe(
+      'Plugin: Ptah Release Kit',
+    );
     expect(group('plugins').textContent).toContain(
       '2 skills · 1 command · 1 agent',
     );

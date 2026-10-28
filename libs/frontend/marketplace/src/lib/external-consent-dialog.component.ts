@@ -454,21 +454,23 @@ function localItemCopy(item: ExternalLocalItem): LocalItemCopy {
               </ul>
             </section>
           }
-
-          @if (installFailed()) {
-            <div
-              class="alert alert-error alert-sm py-1 px-2"
-              role="alert"
-              data-testid="external-consent-error"
-            >
-              <span class="text-xs">
-                <strong>Install failed.</strong> Ptah removes what it wrote for
-                this install where it can. Check the files listed in the install
-                report, then retry.
-              </span>
-            </div>
-          }
         </div>
+
+        <!-- Outside the scroll area, next to the actions: a failed confirm
+             must be visible however long the body is. -->
+        @if (installFailed()) {
+          <div
+            class="alert alert-error alert-sm mt-3 py-1 px-2"
+            role="alert"
+            data-testid="external-consent-error"
+          >
+            <span class="text-xs">
+              <strong>Install failed.</strong> Ptah removes what it wrote for
+              this install where it can. Check the files listed in the install
+              report, then retry.
+            </span>
+          </div>
+        }
 
         <div class="modal-action mt-3">
           <button
