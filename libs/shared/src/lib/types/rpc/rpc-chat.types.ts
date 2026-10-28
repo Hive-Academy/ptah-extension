@@ -125,6 +125,8 @@ export interface ChatStartResult {
 }
 
 export interface ChatContinueParams {
+  /** Opaque client id of the prompt bubble. */
+  readonly clientMessageId?: string;
   /** Per-tab persona for an inactive SDK resume; ignored by an active turn. */
   systemPrompt?: string;
   /** Message content to send */
@@ -167,6 +169,8 @@ export interface ChatContinueParams {
 
 /** Response from chat:continue RPC method */
 export interface ChatContinueResult {
+  /** Present only when the prompt was put into the session queue. */
+  readonly enqueued?: true;
   success: boolean;
   sessionId?: SessionId;
   /** The command completed without starting a stream. */

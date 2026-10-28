@@ -81,6 +81,12 @@ export const ChatStartParamsSchema = z
  */
 export const ChatContinueParamsSchema = z
   .object({
+    clientMessageId: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     systemPrompt: SystemPromptSchema,
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),

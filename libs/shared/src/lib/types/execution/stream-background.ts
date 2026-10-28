@@ -307,6 +307,8 @@ export const TURN_RECAP_MAX_CHARS = 280;
  */
 export interface TurnStateEvent extends FlatStreamEvent, SessionTurnState {
   readonly eventType: 'turn_state';
+  /** Client prompt consumed by this turn; event-only, not stored session state. */
+  readonly consumedClientMessageId?: string;
 }
 
 /**
