@@ -15,7 +15,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, createExecutionChatMessage } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
   MODEL_REFRESH_CONTROL,
@@ -88,6 +88,67 @@ describe('TabManagerService — cross-workspace routing (TASK_2026_154)', () => 
       service.createTab('a');
 
       expect(service.findTabByIdAcrossWorkspaces('nope')).toBeNull();
+    });
+  });
+
+  describe('user echo acknowledgement', () => {
+    const uuid = (n: number): string =>
+      `00000000-0000-4000-8000-${n.toString().padStart(12, '0')}`;
+
+    function prompt(id: string) {
+      return createExecutionChatMessage({
+        id,
+        role: 'user',
+        rawContent: id,
+        sessionId: SessionId.create(),
+      });
+    }
+
+    it.each([false, true])(
+      'acknowledges only the named prompt in its owning workspace (background=%s)',
+      (background) => {
+        service.switchWorkspace(WS_A);
+        const tabId = service.createTab('a');
+        service.setMessages(tabId, [prompt('first'), prompt('second')]);
+        if (background) {
+          service.switchWorkspace(WS_B);
+          service.createTab('b');
+        }
+
+        service.acknowledgeUserPrompt(tabId, 'second', uuid(2));
+        service.acknowledgeUserPrompt(tabId, 'second', uuid(3));
+        service.acknowledgeUserPrompt(tabId, 'missing', uuid(4));
+        service.acknowledgeUserPrompt(tabId, 'first', 'not-a-line-uuid');
+
+        const messages = service.findTabByIdAcrossWorkspaces(tabId)?.tab.messages;
+        expect(messages?.map((message) => message.nativeUuid)).toEqual([
+          undefined,
+          uuid(2),
+        ]);
+        if (background) {
+          expect(service.tabs().find((tab) => tab.id === tabId)).toBeUndefined();
+          expect(service.getWorkspaceTabs(WS_B)[0].messages).toEqual([]);
+        }
+      },
+    );
+
+    it('fallback skips pending ids and works for a background tab', () => {
+      service.switchWorkspace(WS_A);
+      const tabId = service.createTab('a');
+      service.setMessages(tabId, [prompt('pending'), prompt('start')]);
+      service.switchWorkspace(WS_B);
+
+      service.reconcileUserMessageNativeUuid(
+        tabId,
+        uuid(5),
+        new Set(['pending']),
+      );
+
+      expect(
+        service.findTabByIdAcrossWorkspaces(tabId)?.tab.messages.map((m) =>
+          m.nativeUuid,
+        ),
+      ).toEqual([undefined, uuid(5)]);
     });
   });
 

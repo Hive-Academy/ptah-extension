@@ -22,7 +22,9 @@
  * revision) BEFORE any side effect. A stale broadcaster that captured a tab id
  * the tab has since re-used, or a delayed `session:status` probe carrying an
  * older revision, is dropped without finalizing, idling or re-lighting
- * anything (review F1). Sessions that resolve no tab (surface-owned) get the
+ * anything (review F1). Exact prompt retirement is the exception: a terminal
+ * event retires only its `consumedClientMessageId` for each resolved tab,
+ * regardless of revision acceptance. Sessions that resolve no tab get the
  * same revision guard from a small per-session map here.
  *
  * ONE exception, opt-in per call: the terminal heal (TASK_2026_371). A bound
@@ -51,6 +53,7 @@ import {
 import type { TabState } from '@ptah-extension/chat-types';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 
 interface ResolvedTab {
   readonly tab: TabState;
@@ -67,6 +70,7 @@ export class TurnStateApplier {
   private readonly finalization = inject(MessageFinalizationService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly queuedPrompts = inject(QueuedPromptRecord);
   /**
    * Last accepted revision per session for events that resolve no tab. Keyed
    * by session id; bounded by `SURFACE_REVISION_MAP_LIMIT`.
@@ -113,6 +117,13 @@ export class TurnStateApplier {
     });
 
     if (isTerminalTurnPhase(event.phase)) {
+      // Consumption is a backend fact even when a tab rejects this revision.
+      // Never clear other prompts still waiting behind this turn.
+      if (event.consumedClientMessageId) {
+        for (const { tab } of resolved) {
+          this.queuedPrompts.remove(tab.id, event.consumedClientMessageId);
+        }
+      }
       // Finalize FIRST: `applyFinalizedTurn` flips `loaded` only while the tab
       // is still `streaming`, so the backend phase written next is what the
       // tab keeps.

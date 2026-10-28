@@ -3,22 +3,18 @@ import type { ExecutionChatMessage } from '@ptah-extension/shared';
 import { tailUserMessageIds } from './inbound-peer-message';
 
 /**
- * Per tab, the prompts the person sent while a turn was in flight — the only
- * prompts that can wait in the backend queue behind a held peer turn (a lane
- * report or completion). `insertInboundPeerMessage` places a peer message
- * before such a prompt and after any other.
- *
- * The streaming boundary that marks such a prompt does not survive the turn
- * (`applyFinalizedTurn` drops `streamingState`), hence this record. It is
- * pruned to the prompts still at the transcript tail on every write and read,
- * so it stays bounded; an aborted turn clears it, because a prompt from a
- * stopped turn is not queued.
+ * Per tab, prompts sent and not yet consumed: retired by their echo, by the
+ * consuming turn's terminal `consumedClientMessageId`, or by a `chat:continue`
+ * result that did not enqueue. This record lives for this renderer only; a
+ * reload is covered by the backend's `beforeClientMessageId` placement hint.
+ * Tail pruning removes prompts no longer at the transcript tail; abort clears
+ * the record.
  */
 @Injectable({ providedIn: 'root' })
 export class QueuedPromptRecord {
   private readonly byTab = new Map<string, Set<string>>();
 
-  /** Record a prompt that got a live boundary; `messages` already holds it. */
+  /** Record a sent continue prompt; `messages` already holds it. */
   add(
     tabId: string,
     messageId: string,
@@ -29,7 +25,7 @@ export class QueuedPromptRecord {
     this.byTab.set(tabId, ids);
   }
 
-  /** The send failed: the prompt never reached the backend queue. */
+  /** Retire exactly this prompt, whether acknowledged or never enqueued. */
   remove(tabId: string, messageId: string): void {
     const ids = this.byTab.get(tabId);
     if (!ids) return;

@@ -34,6 +34,7 @@ import {
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { TurnStateApplier } from './turn-state-applier.service';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 
 const SESSION_ID = SessionId.create();
 const OTHER_SESSION = SessionId.create();
@@ -85,6 +86,7 @@ describe('TurnStateApplier', () => {
   let markLastAgentAsInterrupted: jest.Mock;
   let markAgentsAsInterruptedByToolCallIds: jest.Mock;
   let consumeHardDenyToolUseIds: jest.Mock;
+  let queuedPrompts: QueuedPromptRecord;
   let liveness: {
     markStreaming: jest.Mock;
     markAwaitingBackground: jest.Mock;
@@ -149,6 +151,7 @@ describe('TurnStateApplier', () => {
     markLastAgentAsInterrupted = jest.fn();
     markAgentsAsInterruptedByToolCallIds = jest.fn();
     consumeHardDenyToolUseIds = jest.fn(() => hardDeny);
+    queuedPrompts = new QueuedPromptRecord();
     liveness = {
       markStreaming: jest.fn(),
       markAwaitingBackground: jest.fn(),
@@ -184,6 +187,7 @@ describe('TurnStateApplier', () => {
           useValue: { consumeHardDenyToolUseIds },
         },
         { provide: SessionLivenessRegistry, useValue: liveness },
+        { provide: QueuedPromptRecord, useValue: queuedPrompts },
       ],
     });
     applier = TestBed.inject(TurnStateApplier);
@@ -196,6 +200,38 @@ describe('TurnStateApplier', () => {
   });
 
   describe('terminal phases', () => {
+    it('two consecutive terminals retire only their own ids', () => {
+      const messages = [
+        { id: 'first', role: 'user' },
+        { id: 'second', role: 'user' },
+      ] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'first', messages);
+      queuedPrompts.add('tab-1', 'second', messages);
+
+      applier.apply(turnState({ consumedClientMessageId: 'first' }), 'tab-1');
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(
+        new Set(['second']),
+      );
+
+      applier.apply(
+        turnState({ revision: 2, consumedClientMessageId: 'second' }),
+        'tab-1',
+      );
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set());
+    });
+
+    it('retires the named id even if the terminal revision is rejected', () => {
+      const messages = [{ id: 'pending', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'pending', messages);
+      canApplyTurnState.mockReturnValue(false);
+
+      applier.apply(turnState({ consumedClientMessageId: 'pending' }), 'tab-1', {
+        ordered: false,
+      });
+
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set());
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+    });
     it('finalizes BEFORE the status flip, then applies the state to the tab', () => {
       const event = turnState({ phase: 'idle' });
 
