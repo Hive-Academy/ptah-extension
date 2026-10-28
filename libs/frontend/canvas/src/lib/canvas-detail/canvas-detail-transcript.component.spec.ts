@@ -251,6 +251,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
             agentsOwnedBySession: () => [],
             panelOpenRequest: signal({ seq: 0, tabId: null }),
             cliOutputDemand: signal([]),
+            pendingHistoryCandidates: signal([]),
             tick: signal(0),
           },
         },
