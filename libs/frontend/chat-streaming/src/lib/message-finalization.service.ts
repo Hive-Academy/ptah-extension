@@ -176,12 +176,8 @@ export class MessageFinalizationService {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
-    // Both abort callers end the SDK session: the explicit stop (`chat:abort`
-    // -> `interruptSession` -> `endSession`) and the CHAT_ERROR fallback. The
-    // session record and its queue are gone, so no prompt sent on it is still
-    // queued behind a later peer turn. A turn that ends while the session
-    // stays alive retires only its own id (TurnStateApplier).
-    if (isAborted) this.queuedPrompts.clear(targetTabId);
+    // isAborted controls only the tree's visual state. A retained session can
+    // interrupt P while Q remains queued; TurnStateApplier retires P by id.
     const targetTab = tabId
       ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
       : this.tabManager.activeTab();
@@ -322,6 +318,11 @@ export class MessageFinalizationService {
     if (this.tabManager.activeTabId() === targetTabId) {
       this.sessionManager.setStatus('loaded');
     }
+  }
+
+  /** Drop the tab's pending identities only after confirmed session teardown. */
+  clearPendingPrompts(tabId: string): void {
+    this.queuedPrompts.clear(tabId);
   }
 
   /**

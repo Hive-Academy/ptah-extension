@@ -132,9 +132,9 @@ export class SessionControl {
         (rec.resultCount ?? 0) === resultCountBefore &&
         rec.turnInFlight
       ) {
-        // Arm for every interrupted in-flight turn, with or without an id, so
-        // its late result can never take the next prompt's id.
-        rec.interruptAwaitingResult = true;
+        // A late result can only be suppressed while this yield remains the
+        // current turn. The next yield drops this guard.
+        rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
         if (interruptedId !== null && rec.currentTurnClientMessageId === interruptedId) {
           rec.interruptRetirement = interruptedId;
           rec.currentTurnClientMessageId = null;

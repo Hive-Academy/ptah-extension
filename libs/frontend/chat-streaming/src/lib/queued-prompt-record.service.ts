@@ -7,8 +7,8 @@ import { tailUserMessageIds } from './inbound-peer-message';
  * consuming turn's terminal `consumedClientMessageId`, or by a `chat:continue`
  * result that did not enqueue. This record lives for this renderer only; a
  * reload is covered by the backend's `beforeClientMessageId` placement hint.
- * Tail pruning removes prompts no longer at the transcript tail; abort clears
- * the record.
+ * Tail pruning removes prompts no longer at the transcript tail; confirmed
+ * session teardown or tab close clears the record.
  */
 @Injectable({ providedIn: 'root' })
 export class QueuedPromptRecord {

@@ -220,6 +220,23 @@ describe('TurnStateApplier', () => {
       expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set());
     });
 
+    it('keeps Q pending when P ends as aborted_streaming in the live session', () => {
+      const messages = [
+        { id: 'P', role: 'user' },
+        { id: 'Q', role: 'user' },
+      ] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages);
+      queuedPrompts.add('tab-1', 'Q', messages);
+
+      applier.apply(turnState({
+        terminalReason: 'aborted_streaming',
+        consumedClientMessageId: 'P',
+      }), 'tab-1');
+
+      expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab-1', true);
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+    });
+
     it('retires the named id even if the terminal revision is rejected', () => {
       const messages = [{ id: 'pending', role: 'user' }] as TabState['messages'];
       queuedPrompts.add('tab-1', 'pending', messages);

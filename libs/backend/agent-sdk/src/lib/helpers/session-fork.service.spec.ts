@@ -639,7 +639,7 @@ describe('SessionForkService', () => {
             awaitingEcho: null,
             currentTurnClientMessageId: null,
             interruptRetirement: null,
-            interruptAwaitingResult: false,
+            interruptAwaitingResultYieldSequence: null,
             resolveNext: null,
             turnInFlight: false,
             activityHold: null,

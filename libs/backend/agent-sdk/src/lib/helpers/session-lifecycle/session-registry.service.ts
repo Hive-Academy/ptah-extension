@@ -83,6 +83,10 @@ export interface SessionRecord {
   messageQueue: QueuedUserTurn[];
   awaitingEcho: QueuedUserTurn | null;
   currentTurnClientMessageId: string | null;
+  /** Increments when the pump yields a turn; identifies result and interrupt ownership. */
+  yieldSequence?: number;
+  /** Yield whose result arrived before its expected echo. */
+  resultYieldSequence?: number | null;
   interruptRetirement: string | null;
   /** Retirements displaced by a later yielded turn, drained in queue order. */
   displacedRetirements?: string[];
@@ -94,7 +98,7 @@ export interface SessionRecord {
    * only with file checkpointing). Without echoes no result may wait for one.
    */
   echoesUserMessages?: boolean;
-  interruptAwaitingResult: boolean;
+  interruptAwaitingResultYieldSequence: number | null;
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
   /**
@@ -301,7 +305,9 @@ export class SessionRegistry {
       awaitingEcho: null,
       currentTurnClientMessageId: null,
       interruptRetirement: null,
-      interruptAwaitingResult: false,
+      interruptAwaitingResultYieldSequence: null,
+      yieldSequence: 0,
+      resultYieldSequence: null,
       resultCount: 0,
       resolveNext: null,
       turnInFlight: false,

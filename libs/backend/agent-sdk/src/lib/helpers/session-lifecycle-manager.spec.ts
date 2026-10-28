@@ -56,6 +56,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { SessionLifecycleManager } from './session-lifecycle-manager';
+import { takeAwaitingEcho } from './session-lifecycle/echo-identity';
 import type { SdkModuleLoader } from './sdk-module-loader';
 import type {
   SdkQueryOptionsBuilder,
@@ -1366,7 +1367,7 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     expect(rec.retirementWake).toBeNull();
   });
 
-  it('keeps P for its own result when an autonomous result arrives before P echo', async () => {
+  it('retires P once through the wake channel when its expected echo never arrives and the pump idles', async () => {
     const h = makeHarness();
     const tab = 'autonomous-result' as SessionId;
     await h.manager.executeQuery({
@@ -1381,11 +1382,15 @@ describe('SessionLifecycleManager turn identity accessors', () => {
       message: { uuid: 'p-echo' },
       clientMessageId: 'P',
     } as never;
+    const wake = jest.fn();
+    rec.retirementWake = wake;
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
-    expect(rec.currentTurnClientMessageId).toBe('P');
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(h.manager.takeInterruptRetirement(tab)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBeNull();
     expect(rec.resultCount).toBe(1);
     rec.awaitingEcho = null;
-    expect(h.manager.takeResultClientMessageId(tab)).toBe('P');
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
   });
 
@@ -1410,6 +1415,41 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     expect(rec.turnInFlight).toBe(false);
   });
 
+  it('settles P after its late echo and keeps P off a later autonomous result', async () => {
+    const h = makeHarness();
+    const tab = 'late-echo-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
+    rec.yieldSequence = 1;
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = { message: { uuid: 'p-echo' }, clientMessageId: 'P' } as never;
+    rec.messageQueue.push({ message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never);
+
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(takeAwaitingEcho(rec, { uuid: 'p-echo' })?.clientMessageId).toBe('P');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+  });
+
+  it('takes Q at Q result after an id-less interrupted peer yielded no late result', async () => {
+    const h = makeHarness();
+    const tab = 'peer-then-q-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.echoesUserMessages = true;
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = null; // Pump cleared peer yield 1 on Q yield.
+    rec.currentTurnClientMessageId = 'Q';
+    rec.awaitingEcho = { message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never;
+    expect(takeAwaitingEcho(rec, { uuid: 'q-echo' })?.clientMessageId).toBe('Q');
+
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+  });
+
   it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {
     const h = makeHarness();
     const tab = 'identity-tab' as SessionId;
@@ -1425,13 +1465,13 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     expect(h.manager.takeResultClientMessageId(realId)).toBe('P');
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
     rec.interruptRetirement = 'P';
-    rec.interruptAwaitingResult = true;
+    rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
     rec.currentTurnClientMessageId = 'Q';
     expect(h.manager.takeInterruptRetirement(realId)).toBe('P');
     expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
     expect(rec.currentTurnClientMessageId).toBe('Q');
-    expect(rec.interruptAwaitingResult).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
     expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
     expect(

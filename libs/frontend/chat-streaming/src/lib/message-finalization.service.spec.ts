@@ -889,7 +889,7 @@ describe('MessageFinalizationService', () => {
       expect(rootTree.children[0].status).toBe('interrupted');
     });
 
-    it('clears pending prompts when an abort ends the session (its queue is gone)', () => {
+    it('keeps Q pending while visually finalizing P as interrupted, then clears on confirmed teardown', () => {
       const p = { id: 'prompt-p', role: 'user' } as ExecutionChatMessage;
       const q = { id: 'prompt-q', role: 'user' } as ExecutionChatMessage;
       const peer = { id: 'peer', role: 'user', inboundPeer: true } as ExecutionChatMessage;
@@ -903,8 +903,10 @@ describe('MessageFinalizationService', () => {
       })]);
       activeTabIdSignal.set('tab-1');
 
-      // chat:abort -> interruptSession -> endSession drops the backend queue.
       service.finalizeCurrentMessage(undefined, true);
+
+      expect(record.queuedAtTail('tab-1', messages)).toEqual(new Set([p.id, q.id]));
+      service.clearPendingPrompts('tab-1');
 
       expect(record.queuedAtTail('tab-1', messages)).toEqual(new Set());
       expect(insertInboundPeerMessage(messages, peer, record.queuedAtTail('tab-1', messages))

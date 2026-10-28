@@ -601,7 +601,7 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     ]);
   });
 
-  it('does not treat a prompt from an aborted turn as queued', () => {
+  it('does not treat a prompt from a confirmed aborted session as queued', () => {
     const { store, service } = setup();
     store.active.set([
       makeTab({ messages: [optimisticPrompt(PROMPT.userId, PROMPT.userText)] }),
@@ -617,6 +617,7 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     service.recordUserPromptBoundary(TAB_ID, bubble);
     // The person stops the turn.
     service.finalizeCurrentMessage(TAB_ID, true);
+    service.clearPendingPrompts(TAB_ID);
 
     runLiveTurn(service, turnEvents(PEER_TURNS[0], 'live', 30));
 

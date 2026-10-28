@@ -163,6 +163,11 @@ export class StreamingHandlerService {
     this.queuedPrompts.remove(tabId, messageId);
   }
 
+  /** Clear identities when the SDK session owning this tab has ended. */
+  clearPendingPrompts(tabId: string): void {
+    this.queuedPrompts.clear(tabId);
+  }
+
   private acknowledgeUserEcho(tabId: string, start: MessageStartEvent): void {
     if (start.clientMessageId) {
       this.tabManager.acknowledgeUserPrompt(

@@ -474,14 +474,19 @@ export class SessionLifecycleManager {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
     rec.resultCount = (rec.resultCount ?? 0) + 1;
-    if (rec.interruptAwaitingResult) {
-      rec.interruptAwaitingResult = false;
+    if (rec.interruptAwaitingResultYieldSequence === (rec.yieldSequence ?? 0)) {
+      rec.interruptAwaitingResultYieldSequence = null;
       return null;
     }
-    // With echoes on, a result before the yielded prompt's echo closes an
-    // autonomous turn. Without echoes there is nothing to wait for. If an
-    // expected echo never arrives, the next yield retires the id (displaced).
+    // An expected echo may lag its result. Retire through the out-of-stream
+    // channel if the pump will idle; otherwise the next yield displaces it.
     if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {
+      rec.resultYieldSequence = rec.yieldSequence ?? 0;
+      if (rec.messageQueue.length === 0 && rec.currentTurnClientMessageId !== null) {
+        (rec.displacedRetirements ??= []).push(rec.currentTurnClientMessageId);
+        rec.currentTurnClientMessageId = null;
+        rec.retirementWake?.();
+      }
       return null;
     }
     const id = rec.currentTurnClientMessageId;

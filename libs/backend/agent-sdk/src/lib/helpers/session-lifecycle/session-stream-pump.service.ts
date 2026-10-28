@@ -86,6 +86,11 @@ export class SessionStreamPump {
               // after one message and blocks any message that arrives while
               // the SDK is generating (TASK_2026_294).
               registry.markTurnStarted(session);
+              session.yieldSequence = (session.yieldSequence ?? 0) + 1;
+              // A result after this yield belongs to the new turn. The SDK
+              // provides no result id with which to revive an older guard.
+              session.interruptAwaitingResultYieldSequence = null;
+              session.resultYieldSequence = null;
               if (session.currentTurnClientMessageId !== null) {
                 (session.displacedRetirements ??= []).push(
                   session.currentTurnClientMessageId,

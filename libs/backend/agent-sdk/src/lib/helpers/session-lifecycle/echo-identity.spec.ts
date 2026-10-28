@@ -77,6 +77,31 @@ describe('takeAwaitingEcho', () => {
     expect(takeAwaitingEcho(rec, other.message)).toBeNull();
     expect(rec.awaitingEcho).toBe(queued);
   });
+
+  it('settles a late P echo after P result so an autonomous result cannot take P', () => {
+    const queued = turn('P');
+    const rec = {
+      awaitingEcho: queued as QueuedUserTurn | null,
+      currentTurnClientMessageId: 'P' as string | null,
+      yieldSequence: 2,
+      resultYieldSequence: 2,
+    };
+
+    expect(takeAwaitingEcho(rec, queued.message)).toBe(queued);
+    expect(rec.currentTurnClientMessageId).toBeNull();
+    expect(takeAwaitingEcho(rec, queued.message)).toBeNull();
+  });
+
+  it('does not acknowledge P twice when an idle missing-echo retirement already emitted', () => {
+    const queued = turn('P');
+    const rec = {
+      awaitingEcho: queued as QueuedUserTurn | null,
+      currentTurnClientMessageId: null,
+      yieldSequence: 2,
+      resultYieldSequence: 2,
+    };
+    expect(takeAwaitingEcho(rec, queued.message)?.clientMessageId).toBeUndefined();
+  });
 });
 
 describe('firstQueuedClientMessageId', () => {

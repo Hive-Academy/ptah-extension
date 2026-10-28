@@ -434,6 +434,27 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
 });
 
 describe('SessionStreamPump turn identity', () => {
+  it('drops an id-less interrupted peer guard when Q is yielded and echoed', async () => {
+    const h = makeHarness();
+    const rec = h.registry.find(TAB);
+    if (!rec) throw new Error('Missing registration');
+    await h.pump.sendMessage(TAB, 'peer', undefined, undefined, {
+      origin: { kind: 'peer', from: 'sender' },
+    });
+    await h.iterator.next();
+    rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
+    h.registry.markTurnEnded(TAB);
+    await h.pump.sendMessage(TAB, 'Q', undefined, undefined, {
+      clientMessageId: 'Q', origin: { kind: 'human' },
+    });
+    const q = await h.iterator.next();
+    expect(rec.yieldSequence).toBe(2);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(takeAwaitingEcho(rec, q.value as SDKUserMessage)?.clientMessageId).toBe('Q');
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    h.abortController.abort();
+  });
+
   it('keeps 66 held entries and promotes each exact factory message with its metadata', async () => {
     const h = makeHarness();
     const rec = h.registry.find(TAB);
@@ -441,7 +462,7 @@ describe('SessionStreamPump turn identity', () => {
     expect(rec.awaitingEcho).toBeNull();
     expect(rec.currentTurnClientMessageId).toBeNull();
     expect(rec.interruptRetirement).toBeNull();
-    expect(rec.interruptAwaitingResult).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
     await h.pump.sendMessage(TAB, 'initial');
     await h.iterator.next();
     expect(rec.currentTurnClientMessageId).toBeNull();
@@ -511,7 +532,7 @@ describe('SessionStreamPump turn identity', () => {
     expect(replacement.awaitingEcho).toBeNull();
     expect(replacement.currentTurnClientMessageId).toBeNull();
     expect(replacement.interruptRetirement).toBeNull();
-    expect(replacement.interruptAwaitingResult).toBe(false);
+    expect(replacement.interruptAwaitingResultYieldSequence).toBeNull();
     expect(takeAwaitingEcho(replacement, old)).toBeNull();
     h.abortController.abort();
     await h.iterator.next();
