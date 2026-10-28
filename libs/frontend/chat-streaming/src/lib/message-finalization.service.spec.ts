@@ -26,6 +26,8 @@ import type {
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
 import { MessageFinalizationService } from './message-finalization.service';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
+import { insertInboundPeerMessage } from './inbound-peer-message';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { SessionManager } from './session-manager.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
@@ -885,6 +887,28 @@ describe('MessageFinalizationService', () => {
       ];
       const rootTree = msgs[0].streamingState as ExecutionNode;
       expect(rootTree.children[0].status).toBe('interrupted');
+    });
+
+    it('clears pending prompts when an abort ends the session (its queue is gone)', () => {
+      const p = { id: 'prompt-p', role: 'user' } as ExecutionChatMessage;
+      const q = { id: 'prompt-q', role: 'user' } as ExecutionChatMessage;
+      const peer = { id: 'peer', role: 'user', inboundPeer: true } as ExecutionChatMessage;
+      const messages = [p, q];
+      const record = TestBed.inject(QueuedPromptRecord);
+      record.add('tab-1', p.id, messages);
+      record.add('tab-1', q.id, messages);
+      tabsSignal.set([makeTab({
+        id: 'tab-1', messages,
+        streamingState: makeStreamingState({ currentMessageId: 'msg-1' }),
+      })]);
+      activeTabIdSignal.set('tab-1');
+
+      // chat:abort -> interruptSession -> endSession drops the backend queue.
+      service.finalizeCurrentMessage(undefined, true);
+
+      expect(record.queuedAtTail('tab-1', messages)).toEqual(new Set());
+      expect(insertInboundPeerMessage(messages, peer, record.queuedAtTail('tab-1', messages))
+        ?.map((message) => message.id)).toEqual([p.id, q.id, peer.id]);
     });
   });
 

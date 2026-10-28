@@ -1,5 +1,5 @@
 import { Injectable, inject, effect, untracked } from '@angular/core';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService, VSCodeService } from '@ptah-extension/core';
 import {
   TabManagerService,
   SessionLivenessRegistry,
@@ -27,6 +27,7 @@ import type { SessionTurnState, TurnStateEvent } from '@ptah-extension/shared';
 @Injectable({ providedIn: 'root' })
 export class SessionLivenessReconcilerService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly logger = inject(LoggingService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
@@ -40,11 +41,29 @@ export class SessionLivenessReconcilerService {
       const tabs = this.tabManager.tabs();
       untracked(() => {
         for (const { sessionId, generation } of candidates) {
-          if (this.probedGenerations.get(sessionId) === generation) continue;
+          if (
+            this.probedGenerations.get(sessionId) === generation ||
+            this.inFlightGenerations.get(sessionId) === generation
+          ) continue;
           const tab = tabs.find((item) => item.claudeSessionId === sessionId);
           if (!tab) continue;
-          this.probedGenerations.set(sessionId, generation);
-          void this.reconcileTab(tab.id, sessionId);
+          this.inFlightGenerations.set(sessionId, generation);
+          const workspacePath =
+            this.tabManager.activeWorkspacePath ??
+            this.vscodeService.config().workspaceRoot ??
+            undefined;
+          void this.probe(tab.id, sessionId, workspacePath).then((known) => {
+            if (
+              known &&
+              this.agentMonitor.pendingHistoryCandidates().some(
+                (candidate) =>
+                  candidate.sessionId === sessionId &&
+                  candidate.generation === generation,
+              )
+            ) this.probedGenerations.set(sessionId, generation);
+            if (this.inFlightGenerations.get(sessionId) === generation)
+              this.inFlightGenerations.delete(sessionId);
+          });
         }
         for (const sessionId of this.probedGenerations.keys()) {
           if (
@@ -57,6 +76,7 @@ export class SessionLivenessReconcilerService {
   }
 
   private readonly probedGenerations = new Map<string, number>();
+  private readonly inFlightGenerations = new Map<string, number>();
 
   async reconcileRestoredTabs(): Promise<void> {
     const workspacePath =
@@ -89,15 +109,16 @@ export class SessionLivenessReconcilerService {
     tabId: string,
     sessionId: string,
     workspacePath: string | undefined,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const generation = this.agentMonitor
       .pendingHistoryCandidates()
       .find((candidate) => candidate.sessionId === sessionId)?.generation;
     try {
       const result = await this.rpc.call('session:status', { sessionId });
-      if (!result?.success || !result.data) return;
+      if (!result?.success || !result.data) return false;
 
       const { isActive, turnState } = result.data;
+      let known = false;
       if (generation !== undefined) {
         const inactive =
           isActive === false ||
@@ -109,7 +130,8 @@ export class SessionLivenessReconcilerService {
           (turnState.phase === 'generating' ||
             turnState.phase === 'awaiting-background' ||
             turnState.backgroundTasks.length > 0);
-        if (inactive || live)
+        known = Boolean(inactive || live);
+        if (known)
           this.agentMonitor.applyHistoryEvidence(
             sessionId,
             generation,
@@ -133,8 +155,10 @@ export class SessionLivenessReconcilerService {
         // Known to the backend but no turn recorded yet: live and idle.
         this.liveness.markIdle(sessionId, workspacePath);
       }
-    } catch {
-      // Failed probes provide no evidence; leave candidates for the next probe.
+      return known;
+    } catch (error: unknown) {
+      this.logger.warn('SessionLivenessReconciler', 'probe failed', error);
+      return false;
     }
   }
 }

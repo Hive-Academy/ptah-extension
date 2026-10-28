@@ -27,6 +27,7 @@ function setup() {
   const tabs = signal<TabState[]>([initial]);
   const tabManager = {
     tabs: computed(() => tabs()), activeTab: computed(() => tabs()[0] ?? null),
+    isTabStreaming: jest.fn(() => false),
     findTabsBySessionId: (session: string) => tabs().filter((tab) => tab.claudeSessionId === session),
     findTabByIdAcrossWorkspaces: (tabId: string) => {
       const tab = tabs().find((item) => item.id === tabId);
@@ -130,5 +131,27 @@ describe('StreamingHandlerService queue release', () => {
       sessionId: sid, turnCost: 0.1, tokens: { input: 1, output: 1 }, duration: 10,
     })).toBeNull();
     expect(h.tabs()[0].queuedContent).toBe('next prompt');
+  });
+
+  it('holds a new draft through late stats and releases it once at terminal turn_state', () => {
+    const h = setup();
+    const send = jest.fn();
+    h.tabs.update((tabs) => tabs.map((tab) => ({
+      ...tab, streamingState: null, status: 'streaming', queuedContent: 'new draft',
+    })));
+    expect(h.service.handleSessionStats({
+      sessionId: sid, turnCost: 0.1, tokens: { input: 1, output: 1 }, duration: 10,
+    })?.queuedContent).toBeNull();
+    expect(h.tabs()[0].queuedContent).toBe('new draft');
+    const release = h.service.processStreamEvent(terminal(1), id)?.queueFlushes;
+    expect(release).toEqual([
+      { tabId: id, content: 'new draft' },
+    ]);
+    release?.forEach(({ tabId, content }) => send(tabId, content));
+    h.tabs.update((tabs) => tabs.map((tab) => ({ ...tab, queuedContent: null })));
+    const duplicate = h.service.processStreamEvent(terminal(1), id)?.queueFlushes;
+    duplicate?.forEach(({ tabId, content }) => send(tabId, content));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(id, 'new draft');
   });
 });

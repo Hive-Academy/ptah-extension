@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { ClaudeRpcService, LoggingService, VSCodeService } from '@ptah-extension/core';
 import {
   TabManagerService,
   SessionLivenessRegistry,
@@ -63,6 +63,7 @@ describe('SessionLivenessReconcilerService', () => {
     readonly { sessionId: string; generation: number }[]
   >([]);
   const applyEvidence = jest.fn();
+  const warnMock = jest.fn();
 
   function rpcResult(data: SessionStatusResponse) {
     return { success: true, data, isSuccess: () => true };
@@ -98,6 +99,7 @@ describe('SessionLivenessReconcilerService', () => {
           },
         },
         { provide: ClaudeRpcService, useValue: rpcMock },
+        { provide: LoggingService, useValue: { warn: warnMock } },
         { provide: VSCodeService, useValue: vscodeMock },
         { provide: TabManagerService, useValue: tabManagerMock },
         { provide: SessionLivenessRegistry, useValue: livenessMock },
@@ -116,6 +118,7 @@ describe('SessionLivenessReconcilerService', () => {
     applyMock = jest.fn();
     candidates.set([]);
     applyEvidence.mockReset();
+    warnMock.mockReset();
     configure(WS);
   });
 
@@ -189,6 +192,26 @@ describe('SessionLivenessReconcilerService', () => {
     TestBed.flushEffects();
     await Promise.resolve();
     expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 2, 'live');
+  });
+
+  it('retries a failed probe once when candidates change at the same generation', async () => {
+    tabs = [makeTab({ claudeSessionId: SESS_IDLE })];
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    callMock.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(
+      rpcResult({ isActive: false, isStreaming: false }),
+    );
+    TestBed.flushEffects();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(callMock).toHaveBeenCalledTimes(1);
+
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    TestBed.flushEffects();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(callMock).toHaveBeenCalledTimes(2);
+    expect(applyEvidence).toHaveBeenCalledWith(SESS_IDLE, 1, 'inactive');
+    candidates.set([{ sessionId: SESS_IDLE, generation: 1 }]);
+    TestBed.flushEffects();
+    expect(callMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not attach a delayed status answer to a newer registration', async () => {
@@ -345,6 +368,9 @@ describe('SessionLivenessReconcilerService', () => {
       expect.objectContaining({ sessionId: SESS_STREAM }),
       `tab-${SESS_STREAM}`,
       { ordered: false },
+    );
+    expect(warnMock).toHaveBeenCalledWith(
+      'SessionLivenessReconciler', 'probe failed', expect.any(Error),
     );
   });
 

@@ -271,7 +271,8 @@ export class StreamingHandlerService {
             if (
               !tab ||
               tab.lastTurnStateRevision !== event.revision ||
-              revision === event.revision
+              revision === event.revision ||
+              this.isTabBusy(tab)
             ) {
               return [];
             }
@@ -703,7 +704,7 @@ export class StreamingHandlerService {
    *   - the tab is still streaming (`streamingState` present) → stash them as
    *     `pendingStats`; finalization consumes them onto the final message;
    *   - the tab is already finalized → merge them onto the last assistant
-   *     message and report the queued content for dispatch.
+   *     message and report queued content only if no newer turn is busy.
    *
    * `turnCost` is that turn's own spend (TASK_2026_575) and becomes the
    * message's `cost`. The backend publishes one payload per new turn, so it
@@ -798,13 +799,29 @@ export class StreamingHandlerService {
       return null;
     }
 
-    // Already finalized: patch the last assistant message and hand the queued
-    // follow-up to the dispatcher (the turn is over, so it can go now).
+    // A late stats result can belong to an earlier turn after a new turn has
+    // started. Patch its footer, but keep the composer held until turn_state.
     this.mergeStatsOntoLastAssistant(primaryTab, stats);
     return {
       tabId: targetTabId,
-      queuedContent: primaryTab.queuedContent ?? null,
+      queuedContent: this.isTabBusy(primaryTab)
+        ? null
+        : (primaryTab.queuedContent ?? null),
     };
+  }
+
+  /** Match the dispatcher's busy signals before releasing a held composer. */
+  private isTabBusy(tab: TabState): boolean {
+    const hasUnsettledTree =
+      tab.streamingState?.currentMessageId != null &&
+      tab.status !== 'awaiting-background' &&
+      tab.status !== 'sleeping';
+    return (
+      tab.status === 'streaming' ||
+      tab.status === 'resuming' ||
+      hasUnsettledTree ||
+      this.tabManager.isTabStreaming(tab.id)
+    );
   }
 
   /**

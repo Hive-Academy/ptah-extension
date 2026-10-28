@@ -176,8 +176,11 @@ export class MessageFinalizationService {
     this.batchedUpdate.flushSync();
     const targetTabId = tabId ?? this.tabManager.activeTabId();
     if (!targetTabId) return;
-    // A stopped or failed turn takes its mid-turn prompts with it: none of
-    // them is still queued behind a later peer turn.
+    // Both abort callers end the SDK session: the explicit stop (`chat:abort`
+    // -> `interruptSession` -> `endSession`) and the CHAT_ERROR fallback. The
+    // session record and its queue are gone, so no prompt sent on it is still
+    // queued behind a later peer turn. A turn that ends while the session
+    // stays alive retires only its own id (TurnStateApplier).
     if (isAborted) this.queuedPrompts.clear(targetTabId);
     const targetTab = tabId
       ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab
