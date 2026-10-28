@@ -1,5 +1,6 @@
 import {
   afterEveryRender,
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -7,12 +8,22 @@ import {
   ElementRef,
   effect,
   inject,
+  Injector,
   signal,
   viewChild,
 } from '@angular/core';
-import { sessionContextCue } from '@ptah-extension/chat-ui';
+import { ArtifactStore } from '@ptah-extension/chat';
+import { VSCodeService } from '@ptah-extension/core';
+import {
+  sessionContextCue,
+  SessionStatsSummaryComponent,
+} from '@ptah-extension/chat-ui';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
-import { CommandCenterStore } from '../model/command-center.store';
+import {
+  CommandCenterStore,
+  type CommandCaption,
+  type CommandWorkNode,
+} from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
@@ -31,6 +42,21 @@ import {
   phaseCountOf,
 } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
+import { CommandCaptionStripComponent } from './command-caption-strip.component';
+import {
+  CommandRailTabsComponent,
+  railPanelId,
+  railTabId,
+  type CommandRailTab,
+} from './command-rail-tabs.component';
+import {
+  CommandLivePanelComponent,
+  type CommandLiveTarget,
+} from './command-live-panel.component';
+import { CommandRailDisplayComponent } from './command-rail-display.component';
+
+/** Scene space kept clear for a one-line stage caption (spec section 4). */
+const CAPTION_RESERVE_PX = 72;
 
 @Component({
   selector: 'ptah-command-center-page',
@@ -48,6 +74,11 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
     CommandCenterStartComponent,
     CommandNodeDetailComponent,
     CommandSessionStatsComponent,
+    CommandCaptionStripComponent,
+    CommandRailTabsComponent,
+    CommandLivePanelComponent,
+    CommandRailDisplayComponent,
+    SessionStatsSummaryComponent,
   ],
   providers: [
     CommandCenterStore,
@@ -157,6 +188,92 @@ export class CommandCenterPageComponent {
     );
   });
 
+  public readonly captionReserve = CAPTION_RESERVE_PX;
+  public readonly activeTab = signal<CommandRailTab>('live');
+  protected readonly tabId = railTabId;
+  protected readonly panelId = railPanelId;
+  private readonly artifactStore = inject(ArtifactStore);
+  /** Electron shell panes are already chrome cards; nested chrome would double the glass. */
+  protected readonly isElectron = inject(VSCodeService).isElectron;
+
+  /**
+   * The Live tab follows the selection up to the nearest node with its own
+   * chat tab: a live child streams its tab, everything else (root, SDK and
+   * CLI agents, tribunals, lanes) streams the root tab, where their cards and
+   * inline bubbles appear. A target whose tab is not open in the
+   * `TabManagerService` (a persisted or finished child) has no live tab.
+   */
+  public readonly liveTarget = computed<CommandLiveTarget>(() => {
+    const openTabIds = new Set<string>(
+      this.page.tabs.tabs().map((tab) => tab.id),
+    );
+    const openTab = (id: string | null | undefined): string | null =>
+      id && openTabIds.has(id) ? id : null;
+    const rootTabId = openTab(this.page.store.markedTabId());
+    const nodes = this.page.projection().nodes;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const selected = byId.get(this.page.store.selectedId() ?? '') ?? null;
+    const root = nodes.find((node) => node.kind === 'root') ?? null;
+    let current: CommandWorkNode | null = selected;
+    const seen = new Set<string>();
+    while (current && current.kind !== 'root' && !seen.has(current.id)) {
+      seen.add(current.id);
+      if (current.kind === 'child') {
+        const tabId = openTab(current.tabId);
+        return {
+          tabId,
+          state: current.state,
+          summary: tabId ? null : (current.task ?? null),
+        };
+      }
+      current = current.parentId ? (byId.get(current.parentId) ?? null) : null;
+    }
+    return {
+      tabId: rootTabId,
+      state: rootTabId ? (root?.state ?? null) : null,
+      summary: null,
+    };
+  });
+
+  public readonly liveTab = computed(() => {
+    const id = this.liveTarget().tabId;
+    return id
+      ? (this.page.tabs.tabs().find((tab) => tab.id === id) ?? null)
+      : null;
+  });
+
+  public readonly displayCount = computed(() => {
+    const id = this.liveTarget().tabId;
+    return id ? (this.artifactStore.records()[id]?.length ?? 0) : 0;
+  });
+
+  /** Spoken or heard words first; otherwise a muted hint for the hovered or selected sphere. */
+  public readonly stageCaption = computed<CommandCaption | null>(() => {
+    const caption = this.page.store.caption();
+    if (caption) return caption;
+    const id = this.page.hoveredNodeId() ?? this.page.store.selectedId();
+    const node = id
+      ? this.page.projection().nodes.find((item) => item.id === id)
+      : undefined;
+    if (!node) return null;
+    return {
+      role: 'status',
+      text: `Selected: ${node.label} · ${node.state}`,
+      seq: 0,
+    };
+  });
+
+  /** A session card asked for an agent: select the sphere whose id or tab carries that key. */
+  public openLane(key: string): void {
+    const node = this.page
+      .projection()
+      .nodes.find(
+        (item) =>
+          item.id === key || item.tabId === key || item.id.endsWith(`:${key}`),
+      );
+    if (node) this.page.store.select(node.id);
+  }
+
   public dismissToast(): void {
     this.page.store.setToast(null);
   }
@@ -169,6 +286,7 @@ export class CommandCenterPageComponent {
     this.answerResult.set({ id: response.id, accepted });
   }
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly scene = viewChild<CommandSceneComponent>('scene');
   protected readonly overflow = computed(() => ({
     completed: this.scene()?.layout().overflowCompleted ?? 0,
@@ -316,7 +434,15 @@ export class CommandCenterPageComponent {
     }
   }
 
+  /** The overlay's "show in list" moves to the Work tab first, then focuses the row once it renders. */
   public focusWorkRow(id: string): void {
+    if (this.activeTab() !== 'work') {
+      this.activeTab.set('work');
+      afterNextRender(() => this.focusWorkRow(id), {
+        injector: this.injector,
+      });
+      return;
+    }
     const list = this.workList();
     const index =
       list?.projection().nodes.findIndex((node) => node.id === id) ?? -1;

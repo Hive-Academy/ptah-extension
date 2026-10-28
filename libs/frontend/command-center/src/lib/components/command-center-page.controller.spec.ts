@@ -424,7 +424,9 @@ describe('CommandCenterPageController', () => {
     TestBed.tick();
     expect(page.turnAbortable()).toBe(false);
     expect(page.store.sessionStatus()).toBe('idle');
-    expect(page.latestReply()).toBe('Done');
+    expect(page.store.caption()).toEqual(
+      expect.objectContaining({ role: 'agent', text: 'Done' }),
+    );
   });
 
   it('keeps running when an older terminal pulse arrives during a second turn', () => {
@@ -818,7 +820,7 @@ describe('CommandCenterPageController', () => {
     TestBed.tick();
     expect(boundary).toHaveBeenCalledTimes(1);
     expect(boundary).toHaveBeenCalledWith('New reply', 2);
-    expect(page.latestReply()).toBe('New reply');
+    expect(page.store.caption()?.text).toBe('New reply');
   });
 
   it('arms a typed send during voice and delivers its pulse boundary once', async () => {

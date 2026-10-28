@@ -23,6 +23,7 @@ import {
   SESSION_CARD_ACTIONS,
   SESSION_CONTEXT,
   SESSION_FOCUSED,
+  SESSION_READ_ONLY,
   SESSION_START_GUARD,
   SESSION_STOP_HANDLER,
   SESSION_VISIBLE,
@@ -69,6 +70,8 @@ export class SessionEmbedComponent implements OnDestroy {
   readonly stopHandler = input<SessionStopHandler | null>(null);
   readonly cardActions = input<SessionCardActions | null>(null);
   readonly retainRailTranscript = input(false);
+  /** Hide the composer: a watch-only transcript that cannot start or stop turns. */
+  readonly readOnly = input(false);
 
   readonly chatView = ChatViewComponent;
   private readonly context = computed<string | null>(() => this.tabId());
@@ -98,6 +101,11 @@ export class SessionEmbedComponent implements OnDestroy {
           this.stopHandler()?.(tabId) ?? 'not-handled',
       },
       { provide: SURFACE_ACTIVE, useValue: this.sessionVisible },
+      {
+        provide: SESSION_READ_ONLY,
+        // Boolean token: ChatView reads this once when its injector creates it.
+        useFactory: () => this.readOnly(),
+      },
       {
         provide: RAIL_TRANSCRIPT_RETENTION,
         // Boolean token: ChatView reads this once when its injector creates it.

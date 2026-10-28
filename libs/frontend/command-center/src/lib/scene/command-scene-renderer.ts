@@ -6,7 +6,12 @@ import {
   type SceneRect,
 } from './scene-layout';
 import { drawRootGlow, drawSceneDecoration } from './command-scene-decoration';
-import { drawStatus, drawVoiceRing } from './command-scene-status';
+import {
+  breathScale,
+  drawStatus,
+  drawVoiceRing,
+  drawWaitingHalo,
+} from './command-scene-status';
 import { VoiceRippleEmitter } from './command-scene-ripples';
 import { drawBackdropTwinkle } from './command-scene-twinkle';
 import { DelegationPulseEmitter } from './command-scene-pulses';
@@ -208,7 +213,8 @@ export class CommandSceneRenderer {
       const node = nodes[index];
       const dx = x - node.x;
       const dy = y - node.y;
-      const radius = node.radius + 8;
+      // The smaller medallion keeps at least a 48px-wide hit circle.
+      const radius = Math.max(node.radius + 8, 24);
       if (dx * dx + dy * dy <= radius * radius) return node.node.id;
     }
     return null;
@@ -506,6 +512,9 @@ export class CommandSceneRenderer {
       this.pulses.update(time);
       this.pulses.draw(context, time, snapshot.inks);
     }
+    let runningCount = 0;
+    for (const node of snapshot.layout.nodes)
+      if (node.node.state === 'running') runningCount++;
     for (const node of snapshot.layout.nodes) {
       if (
         node.kind === 'root' &&
@@ -542,8 +551,10 @@ export class CommandSceneRenderer {
         node.node.kind === 'child' &&
         !node.node.tabId &&
         node.node.state === 'unknown';
+      drawWaitingHalo(context, node, time, snapshot);
       if (sprite) {
-        const paddedSize = node.radius * 2 * 2.2;
+        const paddedSize =
+          node.radius * 2 * 2.2 * breathScale(node, time, snapshot, runningCount);
         if (persistedChild) context.globalAlpha = 0.52;
         context.drawImage(
           sprite,

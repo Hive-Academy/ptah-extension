@@ -86,6 +86,17 @@ export interface CommandVoiceError {
 
 export type CommandTheme = 'light' | 'dark';
 
+/** One line of the stage caption: what Ptah is saying now, or what the user said. */
+export interface CommandCaption {
+  readonly role: 'user' | 'agent' | 'status';
+  readonly text: string;
+  /** Rises on every set, so the strip can crossfade between two equal sentences. */
+  readonly seq: number;
+}
+
+/** How the caption leaves: `fade` after a linger, `cut` on barge-in or stop. */
+export type CommandCaptionExit = 'fade' | 'cut';
+
 /** Page-scoped store provided by CommandCenterPageComponent; the scene renderer owns mutable frame state. */
 // eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- page-scoped, provided by the Command Center page component; see the class note.
 @Injectable()
@@ -144,6 +155,13 @@ export class CommandCenterStore {
   private readonly _reducedMotion = signal(false);
   public readonly reducedMotion = this._reducedMotion.asReadonly();
 
+  private readonly _caption = signal<CommandCaption | null>(null);
+  public readonly caption = this._caption.asReadonly();
+
+  private readonly _captionExit = signal<CommandCaptionExit>('fade');
+  public readonly captionExit = this._captionExit.asReadonly();
+
+  private captionSeq = 0;
   private lastLevelUpdateAt: number | null = null;
 
   public setSession(
@@ -286,6 +304,22 @@ export class CommandCenterStore {
 
   public setReducedMotion(reduced: boolean): void {
     this._reducedMotion.set(reduced);
+  }
+
+  /** Blank text clears the caption, so the strip never shows an empty plate. */
+  public setCaption(role: CommandCaption['role'], text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      this.clearCaption();
+      return;
+    }
+    this._captionExit.set('fade');
+    this._caption.set({ role, text: trimmed, seq: ++this.captionSeq });
+  }
+
+  public clearCaption(exit: CommandCaptionExit = 'fade'): void {
+    this._captionExit.set(exit);
+    this._caption.set(null);
   }
 
   private clampLevel(level: number): number {

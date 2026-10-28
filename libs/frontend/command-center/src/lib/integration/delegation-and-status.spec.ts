@@ -82,6 +82,8 @@ describe('Command Center delegation and status integration', () => {
     const page = fixture.componentInstance.page;
     await page.open();
     page.coordinator.chooseCurrentTab();
+    // The work list lives behind the rail's Work tab.
+    fixture.componentInstance.activeTab.set('work');
     const rootSessionId = page.store.sessionId() ?? '';
     const rootNodeId = `root:${page.store.markedTabId()}`;
     projectionInput.update((input) => ({

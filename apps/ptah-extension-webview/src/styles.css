@@ -3202,6 +3202,20 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] :focus-visible { outline: 2px solid var(--glass-focus); outline-offset: 2px; }
 /* dark glass: the ring is bounded by a dark halo (fills the 2px gap and 1px beyond the ring) so it holds 3:1 even over the brightest backdrop colour */
 :root[data-glass='on'][data-glass-mode='dark'] :focus-visible { box-shadow: 0 0 0 5px oklch(var(--b1) / 0.9); }
+/* Opt-in for elements whose own outline colour (a Tailwind utility or a component rule)
+   would otherwise beat the glass focus ink above. */
+:root[data-glass='on'] [data-glass-focus]:focus-visible { outline-color: var(--glass-focus); }
+/* Shared selection / attention glow (glass on): the solid frame gives way to a tinted
+   1px ring and a blurred halo in --glass-glow-ink (default: the theme secondary).
+   More contrast, reduced transparency and forced colours keep the solid frame. */
+@media (forced-colors: none) and (prefers-contrast: no-preference) and (prefers-reduced-transparency: no-preference) {
+  :root[data-theme][data-glass='on'] .glass-glow {
+    border-color: transparent;
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--glass-glow-ink, oklch(var(--s))) var(--glass-glow-ring, 40%), transparent),
+      0 0 var(--glass-glow-blur, 12px) -2px color-mix(in oklch, var(--glass-glow-ink, oklch(var(--s))) var(--glass-glow-halo, 45%), transparent);
+  }
+}
 :root[data-glass='on'] * { scrollbar-width: thin; scrollbar-color: var(--glass-scroll) transparent; }
 :root[data-glass='on'] ::-webkit-scrollbar { width: 10px; height: 10px; }
 :root[data-glass='on'] ::-webkit-scrollbar-thumb { background: var(--glass-scroll); border-radius: 9999px; border: 3px solid transparent; background-clip: content-box; }

@@ -76,6 +76,7 @@ import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
   SESSION_CONTEXT,
   RAIL_TRANSCRIPT_RETENTION,
+  SESSION_READ_ONLY,
   HIDE_AGENT_SIDEBAR,
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
@@ -792,6 +793,10 @@ export class ChatViewComponent implements OnDestroy {
 
   private readonly _railRetention =
     inject(RAIL_TRANSCRIPT_RETENTION, { optional: true }) ?? false;
+
+  /** A read-only host (e.g. the Command Center rail) renders no composer. */
+  protected readonly readOnly =
+    inject(SESSION_READ_ONLY, { optional: true }) ?? false;
 
   /**
    * Tab ids to render as `<ptah-chat-transcript>` instances. Tile mode
