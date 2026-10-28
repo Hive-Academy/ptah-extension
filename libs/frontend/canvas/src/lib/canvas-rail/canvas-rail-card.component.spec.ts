@@ -288,6 +288,56 @@ describe('CanvasRailCardComponent', () => {
     expect(emitted).toHaveBeenCalledWith({ item, actionId: 'answer' });
     expect(focusTile).not.toHaveBeenCalled();
   });
+  it('offers every permission option inline and grows while the menu and denial form are open', () => {
+    const fixture = mount();
+    const item: AttentionItem = {
+      key: 'permission:full', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
+        { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' },
+        { id: 'open', label: 'Show in canvas' }],
+      actionable: true, soundEligible: false,
+    };
+    const emitted = jest.fn(); fixture.componentInstance.attentionAction.subscribe(emitted);
+    fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="rail-card-needs-you"] button')]
+      .find(candidate => candidate.textContent?.trim() === label);
+    expect(host.dataset['attentionExtra']).toBe('136');
+    button('More')!.click(); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('200');
+    button('Always allow')!.click();
+    expect(emitted).toHaveBeenLastCalledWith({ item, actionId: 'always_allow', reason: undefined });
+    fixture.detectChanges();
+    button('More')!.click(); fixture.detectChanges();
+    button('Deny with message')!.click(); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('248');
+    const reason = host.querySelector<HTMLInputElement>('[data-testid="rail-card-needs-you"] input')!;
+    reason.value = 'Use the staging database'; reason.dispatchEvent(new Event('input'));
+    button('Send denial')!.click();
+    expect(emitted).toHaveBeenLastCalledWith({ item, actionId: 'deny_with_message', reason: 'Use the staging database' });
+  });
+  it('gives the next request fresh controls instead of the previous open form and reason', () => {
+    const fixture = mount();
+    const first: AttentionItem = {
+      key: 'permission:first', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' },
+        { id: 'deny_with_message', label: 'Deny with message' }],
+      actionable: true, soundEligible: false,
+    };
+    fixture.componentRef.setInput('attentionItems', [first]); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="rail-card-needs-you"] button')]
+      .find(candidate => candidate.textContent?.trim() === label);
+    button('More')!.click(); fixture.detectChanges();
+    button('Deny with message')!.click(); fixture.detectChanges();
+    host.querySelector<HTMLInputElement>('[data-testid="rail-card-needs-you"] input')!.value = 'not this repo';
+    expect(host.dataset['attentionExtra']).toBe('248');
+    fixture.componentRef.setInput('attentionItems', [{ ...first, key: 'permission:second' }]); fixture.detectChanges();
+    expect(host.querySelector('[data-testid="rail-card-needs-you"] input')).toBeNull();
+    expect(host.dataset['attentionExtra']).toBe('136');
+  });
   it('reports the larger attention height once and clears it when collapsed', () => {
     const fixture = mount();
     const item: AttentionItem = {

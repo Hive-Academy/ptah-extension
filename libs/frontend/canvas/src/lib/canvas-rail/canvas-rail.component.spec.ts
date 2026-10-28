@@ -32,7 +32,7 @@ class CardStub {
   readonly attentionItems = input<readonly AttentionItem[]>([]);
   readonly submittingKeys = input<ReadonlySet<string>>(new Set());
   readonly blockedKeys = input<ReadonlySet<string>>(new Set());
-  readonly attentionAction = output<{item: AttentionItem; actionId: string}>();
+  readonly attentionAction = output<{item: AttentionItem; actionId: string; reason?: string}>();
   readonly otherRequests = output<void>();
   readonly focusRequested = output<string>(); readonly railState = output<CompactRailState>();
   readonly staleAction = output<string>(); readonly lanesRequested = output<string>();

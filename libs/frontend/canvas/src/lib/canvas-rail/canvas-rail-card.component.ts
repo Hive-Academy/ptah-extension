@@ -34,7 +34,7 @@ import {
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { LoggingService, type AttentionItem } from '@ptah-extension/core';
+import { AttentionPermissionActionsComponent, LoggingService, type AttentionItem } from '@ptah-extension/core';
 import { CircleAlert, LucideAngularModule } from 'lucide-angular';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
@@ -61,6 +61,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     SendToMessagingComponent,
     WorkflowBadgeComponent,
     LucideAngularModule,
+    AttentionPermissionActionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
@@ -179,9 +180,18 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you" [attr.data-attention-key]="attentionItems()[0].key">
               <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
               <span class="ml-1 truncate text-base-content-muted" [title]="attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title">{{ attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title }}</span>
+              @if (attentionItems()[0].kind === 'permission') {
+                <!-- One instance per request, so an open menu or a typed reason never carries over to the next request. -->
+                @for (item of attentionItems().slice(0, 1); track item.key + ':' + item.generation) {
+                  <ptah-attention-permission-actions class="mt-1 block" [item]="item" [compact]="true"
+                    [busy]="submittingKeys().has(item.key) || blockedKeys().has(item.key)"
+                    (selected)="attentionAction.emit({item, actionId: $event.actionId, reason: $event.reason})" />
+                }
+                @if (attentionItems().length > 1) { <button type="button" class="btn btn-ghost btn-xs min-h-11" (click)="otherRequests.emit()">+{{ attentionItems().length - 1 }} more</button> }
+              } @else {
               <div class="mt-1 flex flex-wrap gap-1">
                 @for (action of attentionItems()[0].actions; track action.id) {
-                  @if (action.id.toLowerCase() === 'answer' || action.id.toLowerCase() === 'allow' || action.id.toLowerCase() === 'deny' || action.id.toLowerCase() === 'open') {
+                  @if (action.id === 'answer' || action.id === 'allow' || action.id === 'deny' || action.id === 'open') {
                     <button type="button" class="btn btn-sm min-h-11" [class.btn-primary]="isPrimaryAttentionAction(attentionItems()[0], action)" [class.btn-ghost]="!isPrimaryAttentionAction(attentionItems()[0], action)" [disabled]="!!action.disabledReason || submittingKeys().has(attentionItems()[0].key) || blockedKeys().has(attentionItems()[0].key)"
                       [attr.title]="action.disabledReason ?? null"
                       [attr.aria-describedby]="action.disabledReason ? 'rail-card-attention-reason-' + tabId() : null"
@@ -191,6 +201,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
                 }
                 @if (attentionItems().length > 1) { <button type="button" class="btn btn-ghost btn-xs min-h-11" (click)="otherRequests.emit()">+{{ attentionItems().length - 1 }} more</button> }
               </div>
+              }
               @if (firstDisabledReason(); as reason) { <span class="sr-only" [id]="'rail-card-attention-reason-' + tabId()">{{ reason }}</span> }
             </div>
           </div>
@@ -424,7 +435,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly blockedKeys = input<ReadonlySet<string>>(new Set());
   readonly isPrimaryAttentionAction = isPrimaryAttentionAction;
   readonly needIcon = CircleAlert;
-  readonly attentionAction = output<{item: AttentionItem; actionId: string}>();
+  readonly attentionAction = output<{item: AttentionItem; actionId: string; reason?: string}>();
+  private readonly permissionActions = viewChild(AttentionPermissionActionsComponent);
   readonly otherRequests = output<void>();
   readonly firstDisabledReason = computed(() => this.attentionItems()[0]?.actions.find(action => action.disabledReason)?.disabledReason);
   readonly density = input<CompactRailDensity>('comfortable');
@@ -472,7 +484,12 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly attentionExtra = computed(() => {
     const items = this.attentionItems();
     if (this.collapsed() || items.length === 0) return 0;
-    return items[0].actions.length > 2 || items.length > 1 ? 136 : 88;
+    const permission = this.permissionActions();
+    // The More menu and the denial form open inside the card, so its reserved height grows with them.
+    // The menu can wrap to two rows; the form adds a line when the reason is missing.
+    const open = (permission?.menuOpen() ? 64 : 0) +
+      (permission?.expanded() ? 112 + (permission.reasonError() ? 24 : 0) : 0);
+    return (items[0].actions.length > 2 || items.length > 1 ? 136 : 88) + open;
   });
   readonly tab = computed(
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab ?? null,
