@@ -144,48 +144,59 @@ function mockLogger(): Logger {
   return Object.assign(Object.create(Logger.prototype), createMockLogger());
 }
 
-const turnStarted = () => ({
+const turnStarted = (turn = TURN) => ({
   method: 'turn/started',
   params: {
     threadId: THREAD,
-    turn: { id: TURN, items: [], status: 'inProgress' },
+    turn: { id: turn, items: [], status: 'inProgress' },
   },
 });
-const item = (value: object, completed = false) => ({
+const item = (value: object, completed = false, turn = TURN) => ({
   method: completed ? 'item/completed' : 'item/started',
   params: {
     threadId: THREAD,
-    turnId: TURN,
+    turnId: turn,
     item: value,
     ...(completed ? { completedAtMs: 2 } : { startedAtMs: 1 }),
   },
 });
-const agentText = (text: string) => [
-  item({ type: 'agentMessage', id: 'message-1', text: '' }),
+const agentText = (text: string, turn = TURN, itemId = 'message-1') => [
+  item({ type: 'agentMessage', id: itemId, text: '' }, false, turn),
   {
     method: 'item/agentMessage/delta',
     params: {
       threadId: THREAD,
-      turnId: TURN,
-      itemId: 'message-1',
+      turnId: turn,
+      itemId,
       delta: text,
     },
   },
-  item({ type: 'agentMessage', id: 'message-1', text }, true),
+  item({ type: 'agentMessage', id: itemId, text }, true, turn),
 ];
-const tokenUsage = () => ({
+/** `requests`: the thread total is cumulative, so turn n reports n requests. */
+const tokenUsage = (turn = TURN, requests = 1) => ({
   method: 'thread/tokenUsage/updated',
   params: {
     threadId: THREAD,
-    turnId: TURN,
-    tokenUsage: { last: usage, total: usage, modelContextWindow: 272_000 },
+    turnId: turn,
+    tokenUsage: {
+      last: usage,
+      total: {
+        inputTokens: usage.inputTokens * requests,
+        cachedInputTokens: usage.cachedInputTokens * requests,
+        outputTokens: usage.outputTokens * requests,
+        reasoningOutputTokens: usage.reasoningOutputTokens * requests,
+        totalTokens: usage.totalTokens * requests,
+      },
+      modelContextWindow: 272_000,
+    },
   },
 });
-const turnCompleted = () => ({
+const turnCompleted = (turn = TURN) => ({
   method: 'turn/completed',
   params: {
     threadId: THREAD,
-    turn: { id: TURN, items: [], status: 'completed' },
+    turn: { id: turn, items: [], status: 'completed' },
   },
 });
 const commandItem = (completed: boolean) =>
@@ -222,6 +233,8 @@ class ScriptedAppServer {
   private wake?: () => void;
   /** Notifications the server sends once turn/start is accepted. */
   onTurnStart: () => void = () => undefined;
+  /** The native turn id the next turn/start receipt carries. */
+  turnId = TURN;
   readonly interrupt = jest.fn(async (_turnId: string) => true);
   readonly close = jest.fn(async () => undefined);
 
@@ -241,7 +254,7 @@ class ScriptedAppServer {
       events,
       startTurn: async () => {
         this.onTurnStart();
-        return { threadId: THREAD, turnId: TURN, revision: 1 };
+        return { threadId: THREAD, turnId: this.turnId, revision: 1 };
       },
       steer: async () => ({ threadId: THREAD, turnId: TURN, revision: 2 }),
       interrupt: this.interrupt,
@@ -348,6 +361,8 @@ function codexHarness() {
     error: jest.fn(),
   };
   const scope = container.createChildContainer();
+  // Every runtime open (fresh or resumed) is one App Server context.
+  const open = jest.fn(async () => server.context());
   scope.register(CODEX_RUNTIME_TOKENS.ParityGate, {
     useValue: new CodexParityGate(),
   });
@@ -358,7 +373,7 @@ function codexHarness() {
     useValue: { warn: jest.fn() },
   });
   scope.register(CODEX_RUNTIME_TOKENS.Runtime, {
-    useValue: { open: async () => server.context() },
+    useValue: { open },
   });
   let sink: ApprovalSink | undefined;
   // Production wiring: the router's cancellation goes to the host presentation.
@@ -396,7 +411,11 @@ function codexHarness() {
   // As the Electron composition does: the profile comes from the host session.
   const ports: CodexChatHostPorts = {
     ...host,
-    profile: async () => ({ profile }),
+    profile: async (_config, sessionId) => ({
+      profile,
+      // A resume carries the stored native identity of the thread it reopens.
+      ...(sessionId ? { resume: identity } : {}),
+    }),
   };
   const adapter = new CodexChatAdapter(ports, turnState);
   const {
@@ -415,6 +434,7 @@ function codexHarness() {
   let bridge: InstanceType<typeof CodexApprovalBridge> | undefined;
   return {
     server,
+    open,
     adapter,
     ports: host,
     view,
@@ -457,6 +477,29 @@ function codexHarness() {
         })(),
         TAB,
       );
+    },
+    /** chat:continue on a live session: the turn is published under its id. */
+    followUp(text: string) {
+      return adapter.sendMessageToSession(THREAD, text);
+    },
+    /** chat:continue auto-resume: the broadcaster consumes under the session id. */
+    async resume(prompt: string) {
+      const stream = await adapter.resumeSession(THREAD, {
+        tabId: TAB,
+        prompt,
+      });
+      return broadcaster.streamEventsToWebview(THREAD, stream, TAB);
+    },
+    /** Script the next native turn: one text answer with usage and a terminal. */
+    scriptTurn(turn: string, text: string, requests = 1) {
+      server.turnId = turn;
+      server.onTurnStart = () =>
+        server.notify(
+          turnStarted(turn),
+          ...agentText(text, turn, `message-${turn}`),
+          tokenUsage(turn, requests),
+          turnCompleted(turn),
+        );
     },
     dispose() {
       bridge?.dispose();
@@ -627,23 +670,35 @@ async function claudeReferenceTurn() {
  * the SDK's completed-message echo, not lifecycle, so they are left out and
  * repeated chat:complete entries are folded.
  */
-function lifecycle(view: ReturnType<typeof webview>): string[] {
-  const entries = view.messages().flatMap(({ type, payload }) => {
-    if (type === MESSAGE_TYPES.CHAT_COMPLETE) return ['chat:complete'];
-    if (type !== MESSAGE_TYPES.CHAT_CHUNK || !isChunk(payload)) return [];
-    const event = payload.event;
-    return event.eventType === 'turn_state' || event.source === 'stream'
-      ? [event.eventType]
-      : [];
-  });
+function lifecycle(view: ReturnType<typeof webview>, from = 0): string[] {
+  const entries = view
+    .messages()
+    .slice(from)
+    .flatMap(({ type, payload }) => {
+      if (type === MESSAGE_TYPES.CHAT_COMPLETE) return ['chat:complete'];
+      if (type !== MESSAGE_TYPES.CHAT_CHUNK || !isChunk(payload)) return [];
+      const event = payload.event;
+      return event.eventType === 'turn_state' || event.source === 'stream'
+        ? [event.eventType]
+        : [];
+    });
   return entries.filter(
     (entry, index) => entry !== 'chat:complete' || entries[index - 1] !== entry,
   );
 }
 
-function rootEvents(view: ReturnType<typeof webview>): FlatStreamEventUnion[] {
+function rootEvents(
+  view: ReturnType<typeof webview>,
+  from = 0,
+): FlatStreamEventUnion[] {
   return view
-    .chunks()
+    .messages()
+    .slice(from)
+    .flatMap(({ type, payload }) =>
+      type === MESSAGE_TYPES.CHAT_CHUNK && isChunk(payload)
+        ? [payload.event]
+        : [],
+    )
     .filter(
       (event) => event.eventType === 'turn_state' || event.source === 'stream',
     );
@@ -894,6 +949,114 @@ describe('Native Codex chat contracts end to end', () => {
       await expect(reply).resolves.toMatchObject({
         response: { decision: 'cancel' },
       });
+      expect(h.server.close).toHaveBeenCalledTimes(1);
+    } finally {
+      h.dispose();
+    }
+  });
+});
+
+/**
+ * 8k-5 finding 3 (batch 8l-3). Claude keeps one stream per session, so the
+ * broadcaster ends the record when that stream exits. A native Codex session
+ * streams every turn separately; a follow-up (`ports.publish`), a resume and
+ * /compact are streamed under the session id, where the broadcaster's exit
+ * teardown (`endSessionIfTokenMatches`) finds the adapter's live token. The
+ * thread must outlive each of those turns exactly as it outlives the first.
+ */
+describe('Native Codex chat sessions across turns', () => {
+  const FIRST_LIFECYCLE = [
+    'turn_state',
+    'message_start',
+    'text_delta',
+    'message_delta',
+    'message_complete',
+    'chat:complete',
+    'turn_state',
+  ];
+
+  it('keeps the live thread through follow-ups published under the session id', async () => {
+    const h = codexHarness();
+    h.scriptTurn(TURN, 'Hello');
+    try {
+      await h.start();
+      const firstLifecycle = lifecycle(h.view);
+      const firstShapes = rootEvents(h.view).map(shape);
+      expect(firstLifecycle).toEqual(FIRST_LIFECYCLE);
+
+      const followUpFrom = h.view.messages().length;
+      h.scriptTurn('turn-2', 'Hello', 2);
+      await h.followUp('again');
+
+      // The follow-up turn reaches the webview with the first turn's contract.
+      expect(lifecycle(h.view, followUpFrom)).toEqual(firstLifecycle);
+      expect(rootEvents(h.view, followUpFrom).map(shape)).toEqual(firstShapes);
+      expect(
+        rootEvents(h.view, followUpFrom).filter(
+          (event) => event.eventType === 'turn_state',
+        ),
+      ).toMatchObject([
+        { phase: 'generating', terminalReason: null, sessionId: THREAD },
+        { phase: 'idle', terminalReason: 'completed', sessionId: THREAD },
+      ]);
+
+      // The broadcaster's stream-exit teardown left the native thread open.
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
+      expect(h.adapter.canSendFollowUp(THREAD)).toBe(true);
+      expect(h.server.close).not.toHaveBeenCalled();
+
+      // A third turn runs on the same thread and App Server context.
+      const thirdFrom = h.view.messages().length;
+      h.scriptTurn('turn-3', 'Hello', 3);
+      await h.followUp('third');
+      expect(lifecycle(h.view, thirdFrom)).toEqual(firstLifecycle);
+      expect(
+        rootEvents(h.view, thirdFrom).every(
+          (event) => event.sessionId === THREAD,
+        ),
+      ).toBe(true);
+      expect(h.open).toHaveBeenCalledTimes(1);
+      expect(h.server.close).not.toHaveBeenCalled();
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
+      expect(
+        h.view.messages().some(({ type }) => type === MESSAGE_TYPES.CHAT_ERROR),
+      ).toBe(false);
+      expect(h.callbacks.error).not.toHaveBeenCalled();
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('keeps a resumed thread live after its turn streamed under the session id', async () => {
+    const h = codexHarness();
+    h.scriptTurn(TURN, 'Hello');
+    try {
+      await h.resume('hi');
+      expect(lifecycle(h.view)).toEqual(FIRST_LIFECYCLE);
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
+      expect(h.adapter.canSendFollowUp(THREAD)).toBe(true);
+      expect(h.server.close).not.toHaveBeenCalled();
+
+      const followUpFrom = h.view.messages().length;
+      h.scriptTurn('turn-2', 'Hello', 2);
+      await h.followUp('again');
+      expect(lifecycle(h.view, followUpFrom)).toEqual(FIRST_LIFECYCLE);
+      expect(h.open).toHaveBeenCalledTimes(1);
+      expect(h.server.close).not.toHaveBeenCalled();
+    } finally {
+      h.dispose();
+    }
+  });
+
+  it('still closes the thread when the session is ended explicitly', async () => {
+    const h = codexHarness();
+    h.scriptTurn(TURN, 'Hello');
+    try {
+      await h.start();
+      h.scriptTurn('turn-2', 'Hello', 2);
+      await h.followUp('again');
+      await h.adapter.interruptSession(THREAD);
+      expect(h.adapter.isSessionActive(THREAD)).toBe(false);
       expect(h.server.close).toHaveBeenCalledTimes(1);
     } finally {
       h.dispose();

@@ -212,6 +212,24 @@ describe('SessionRuntimeRouter', () => {
     expect(native.releaseSession).toHaveBeenCalledTimes(1);
     expect(router.canSendFollowUp(id)).toBe(true);
   });
+  it('accepts a stream-less follow-up only for an idle native session', () => {
+    const { router, native, lookup } = setup({ persisted: nativeIdentity });
+    expect(router.acceptsFollowUpWithoutStream(id)).toBe(true);
+    native.canSendFollowUp.mockReturnValue(false);
+    expect(router.acceptsFollowUpWithoutStream(id)).toBe(false);
+    native.canSendFollowUp.mockClear();
+    lookup.mockReturnValue({ persisted: legacyIdentity });
+    expect(router.acceptsFollowUpWithoutStream(id)).toBe(false);
+    const legacy = controls();
+    const unknown = new SessionRuntimeRouter(
+      { lookup: () => undefined },
+      legacy,
+      native,
+    );
+    expect(unknown.acceptsFollowUpWithoutStream(id)).toBe(false);
+    expect(native.canSendFollowUp).not.toHaveBeenCalled();
+  });
+
   it.each([legacyIdentity, nativeIdentity])('forwards persistence scope to $runtime', async (identity) => {
     const { router, legacy, native } = setup({ persisted: identity });
     const target = identity.runtime === 'claude-sdk' ? legacy : native;

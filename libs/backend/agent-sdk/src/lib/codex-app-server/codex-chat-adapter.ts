@@ -576,14 +576,19 @@ export class CodexChatAdapter implements NativeChatAdapter {
           .error('[CodexChatAdapter] runtime-failed: cleanup.');
       });
   }
+  /**
+   * Never closes the native thread. The broadcaster calls this at stream exit
+   * because a Claude query has one long-lived stream; each Codex turn is its
+   * own stream and the thread outlives every turn (8k-5 finding 3). The
+   * turn stream owns mid-turn detachment (`drainInterruptedTurn`);
+   * `interruptSession`, `endSession`, `reset` and `dispose` close explicitly.
+   * `false` makes the broadcaster clear turn state, as after the first turn.
+   */
   async endSessionIfTokenMatches(
-    id: SessionId,
-    token: string,
+    _id: SessionId,
+    _token: string,
   ): Promise<boolean> {
-    const session = this.sessions.get(id);
-    if (!session || session.token !== token) return false;
-    await this.close(session);
-    return true;
+    return false;
   }
   private close(session: Session): Promise<void> {
     if (session.closing) return session.closing;

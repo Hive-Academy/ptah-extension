@@ -497,7 +497,10 @@ describe('CodexChatAdapter', () => {
     const token = adapter.getSessionToken(id);
     if (!token) throw new Error('Expected a token for the active session');
     expect(await adapter.endSessionIfTokenMatches(id, 'stale')).toBe(false);
-    expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(true);
+    // A stream exit never ends the native thread; the explicit end does.
+    expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(false);
+    expect(adapter.isSessionActive(id)).toBe(true);
+    await adapter.interruptSession(id);
     await expect(pending).resolves.toBe('decline');
     expect(
       ports.approvals.respond(
@@ -733,7 +736,76 @@ describe('CodexChatAdapter', () => {
     ).resolves.toBeUndefined();
     await adapter.interruptSession(id);
   });
+  it('keeps the thread when a matching token arrives after a completed turn stream', async () => {
+    const { adapter, context, dispose, lifecycle } = setup();
+    const stream = await adapter.startChatSession({ tabId });
+    for await (const event of stream) void event;
+    await adapter.sendMessageToSession(id, 'follow-up');
+    const token = adapter.getSessionToken(id);
+    if (!token) throw new Error('Expected a token for the active session');
+
+    expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(false);
+    expect(adapter.isSessionActive(id)).toBe(true);
+    expect(adapter.canSendFollowUp(id)).toBe(true);
+    // The stable token native-session-controls compares stays the same.
+    expect(adapter.getSessionToken(id)).toBe(token);
+    expect(context.close).not.toHaveBeenCalled();
+    expect(lifecycle.closed).not.toHaveBeenCalled();
+
+    await adapter.sendMessageToSession(id, 'third');
+    expect(context.startTurn).toHaveBeenCalledTimes(3);
+
+    adapter.endSession(id);
+    await waitFor(() => dispose.mock.calls.length > 0);
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(lifecycle.closed).toHaveBeenCalledWith(id);
+    expect(adapter.isSessionActive(id)).toBe(false);
+  });
+  it('leaves a mid-turn detach to the turn stream, which closes without a terminal', async () => {
+    const { adapter, context } = setup();
+    let finish: () => void = () => undefined;
+    const ended = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    context.events.mockImplementation(() =>
+      (async function* () {
+        yield {
+          ...identity,
+          turnId: 'turn',
+          sequence: 1,
+          type: 'textDelta' as const,
+          itemId: 'item',
+          delta: 'hello',
+        };
+        await ended;
+      })(),
+    );
+    const stream = await adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    await iterator.return?.(undefined);
+    const token = adapter.getSessionToken(id);
+    if (!token) throw new Error('Expected a token for the active session');
+
+    expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(false);
+    await waitFor(() => context.interrupt.mock.calls.length > 0);
+    expect(context.interrupt).toHaveBeenCalledWith('turn');
+    expect(adapter.canSendFollowUp(id)).toBe(false);
+    expect(context.close).not.toHaveBeenCalled();
+
+    finish();
+    await waitFor(() => context.close.mock.calls.length > 0);
+    expect(adapter.isSessionActive(id)).toBe(false);
+  });
 });
+
+async function waitFor(check: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('Timed out waiting for the condition');
+}
 
 it.each(['unconsumed', 'returned', 'publish-failure'] as const)(
   'does not latch busy for %s streams',

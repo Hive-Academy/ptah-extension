@@ -564,6 +564,69 @@ describe('chat native session preparation', () => {
 
 });
 
+/**
+ * A native Codex thread outlives each turn stream: between turns the session
+ * is registered but no broadcast loop is attached. chat:continue must send the
+ * follow-up into that live thread instead of treating it as a dead record.
+ */
+describe('chat:continue after a completed native turn', () => {
+  function followUpHarness(acceptsFollowUp: boolean, streaming = false) {
+    const h = harness();
+    const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
+    const interruptSession = jest.fn().mockResolvedValue(true);
+    const acceptsFollowUpWithoutStream = jest.fn(() => acceptsFollowUp);
+    Object.assign(h.service, {
+      sdkAdapter: {
+        startChatSession: h.startChatSession,
+        resumeSession: h.resumeSession,
+        isSessionActive: () => true,
+        sendMessageToSession,
+        interruptSession,
+      },
+      streamBroadcaster: {
+        streamEventsToWebview: jest.fn(),
+        isStreaming: () => streaming,
+      },
+      sessionRuntimeRouter: { acceptsFollowUpWithoutStream },
+      ptahCli: { handleContinue: async () => ({ error: '__NOT_PTAH_CLI__' }) },
+      slashCommandRouter: { routeFollowUpSlashCommand: async () => null },
+      subagentContextInjector: {
+        injectInterruptedAgentsContext: async (prompt: string) => ({ prompt }),
+      },
+      configManager: { getWithDefault: <T>(_key: string, fallback: T) => fallback },
+    });
+    return { ...h, sendMessageToSession, interruptSession, acceptsFollowUpWithoutStream };
+  }
+
+  it('sends the follow-up into the same live thread without interrupt or resume', async () => {
+    const h = followUpHarness(true);
+    await expect(
+      h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'next' }),
+    ).resolves.toEqual({ success: true, sessionId });
+    expect(h.acceptsFollowUpWithoutStream).toHaveBeenCalledWith(sessionId);
+    expect(h.sendMessageToSession).toHaveBeenCalledWith(sessionId, 'next', { files: [], images: [] });
+    expect(h.interruptSession).not.toHaveBeenCalled();
+    expect(h.resumeSession).not.toHaveBeenCalled();
+    expect(h.startChatSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps the dead-record resume when the runtime refuses a stream-less follow-up', async () => {
+    const h = followUpHarness(false);
+    await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'next' });
+    expect(h.interruptSession).toHaveBeenCalledWith(sessionId);
+    expect(h.resumeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not consult the runtime while a turn stream is attached', async () => {
+    const h = followUpHarness(false, true);
+    await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'next' });
+    expect(h.acceptsFollowUpWithoutStream).not.toHaveBeenCalled();
+    expect(h.interruptSession).not.toHaveBeenCalled();
+    expect(h.resumeSession).not.toHaveBeenCalled();
+    expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
+  });
+});
+
 
 describe('typed Codex RPC failures', () => {
   let workspace: string;

@@ -73,6 +73,20 @@ export class SessionRuntimeRouter implements SessionRuntimeControls {
       : true;
   }
 
+  /**
+   * Whether a registered session can take a follow-up with no turn stream
+   * attached. A native Codex thread outlives each turn stream, and
+   * `sendMessageToSession` publishes that turn's own stream, so an idle,
+   * unblocked native thread is live. A legacy (Claude) session keeps one
+   * long-lived stream; without it the record is dead, so legacy answers false.
+   */
+  acceptsFollowUpWithoutStream(sessionId: SessionId): boolean {
+    return (
+      this.controls(sessionId) === this.native &&
+      this.native.canSendFollowUp(sessionId)
+    );
+  }
+
   /** The router retains no session state; release native lifecycle state if present. */
   releaseSession(sessionId: SessionId): void {
     if (this.controls(sessionId) === this.native)

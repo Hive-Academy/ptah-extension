@@ -220,6 +220,11 @@ interface SdkSessionLaunch {
 /** What `chat:resume` needs from the session budget (N7). */
 type ChatSessionBudget = Pick<SessionBudgetService, 'observeLoaded'>;
 
+/** The slice of `SDK_TOKENS.SESSION_RUNTIME_ROUTER` the liveness check reads. */
+interface StreamlessFollowUpAdmission {
+  acceptsFollowUpWithoutStream(sessionId: SessionId): boolean;
+}
+
 @injectable()
 export class ChatSessionService {
   constructor(
@@ -300,6 +305,12 @@ export class ChatSessionService {
     private readonly activeProvider?: ActiveProviderResolver,
     @inject(CHAT_TOKENS.RUNTIME_PROFILE, { isOptional: true })
     private readonly runtimeProfile?: ChatRuntimeProfileService,
+    /**
+     * Optional, and null on hosts without native runtimes: those keep the
+     * broadcaster-only liveness check of {@link hasLiveSessionStream}.
+     */
+    @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
+    private readonly sessionRuntimeRouter: StreamlessFollowUpAdmission | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -1579,6 +1590,12 @@ export class ChatSessionService {
    * consumer: the turn hangs forever with no events and no error. The stream is
    * keyed by tabId for a session started via `chat:start` and by the real
    * session UUID once resumed, so both keys count as live.
+   *
+   * A native Codex thread is the exception: each turn is its own stream, so
+   * between turns no loop is attached while the thread stays open, and
+   * `sendMessageToSession` publishes the next turn's stream itself. The
+   * runtime router answers that case (idle, unblocked native thread); it
+   * answers false for Claude, and is consulted only when no stream is attached.
    */
   private hasLiveSessionStream(sessionId: SessionId, tabId: string): boolean {
     if (!this.sdkAdapter.isSessionActive(sessionId)) {
@@ -1586,7 +1603,9 @@ export class ChatSessionService {
     }
     return (
       this.streamBroadcaster.isStreaming(sessionId as string) ||
-      this.streamBroadcaster.isStreaming(tabId)
+      this.streamBroadcaster.isStreaming(tabId) ||
+      this.sessionRuntimeRouter?.acceptsFollowUpWithoutStream(sessionId) ===
+        true
     );
   }
 
