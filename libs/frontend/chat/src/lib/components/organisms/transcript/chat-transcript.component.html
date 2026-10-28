@@ -50,6 +50,12 @@
                constant and do not re-render each second. -->
           @let turn = turnContexts().get(slot.id) ?? null;
           @let turnLive = turn !== null && liveTurnIds().has(turn.turnId);
+          @if (laneSlots().get(slot.id); as laneSlot) {
+            @if (laneSlot.kind === 'row') {
+              <ptah-lane-event class="block pb-3" [row]="laneSlot.row" [isSessionActive]="vm().isSessionActive"
+                (branchRequested)="branchRequested.emit($event)" (rewindRequested)="rewindRequested.emit($event)" />
+            }
+          } @else {
           <ptah-message-bubble
             class="block pb-3"
             [message]="slot.record()"
@@ -73,6 +79,7 @@
             (logToggled)="onLogToggled($event)"
             (laneRequested)="onLaneRequested($event)"
           />
+          }
         } @else {
           <div
             class="chat-msg-placeholder"

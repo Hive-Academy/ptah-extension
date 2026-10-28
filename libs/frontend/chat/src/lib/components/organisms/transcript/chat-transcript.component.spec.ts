@@ -51,11 +51,29 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
+describe('ChatTranscriptComponent — lane event slots', () => {
+  it('renders one lane row for peer envelopes and keeps merged slots empty', () => {
+    const h = makeHarness(signal(true));
+    const peer = (id: string, tag: string) => createExecutionChatMessage({
+      id, role: 'user', timestamp: Number(id.slice(1)), inboundPeer: { label: 'codex · Glm' },
+      rawContent: `<${tag} agent-id="lane-1" agent="Glm" cli="codex">Body</${tag}>`,
+    });
+    h.messagesSig.set([peer('m1', 'agent-report'), peer('m2', 'agent-lane-completed')]);
+    h.fixture.detectChanges();
+    const element = h.fixture.nativeElement as HTMLElement;
+    expect(element.querySelectorAll('[data-testid="lane-event"]')).toHaveLength(1);
+    expect(element.querySelectorAll('[data-testid="chat-peer-message"]')).toHaveLength(0);
+    expect(h.slots()).toHaveLength(2);
+    expect(h.slots()[1].querySelector('ptah-message-bubble, ptah-lane-event')).toBeNull();
+  });
+});
+
 import { By } from '@angular/platform-browser';
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 import {
   ALWAYS_MOUNTED_TAIL,
   RENDER_WINDOW_MARGIN_PX,
@@ -72,6 +90,7 @@ import {
 import { STREAM_PRESENTATION_RECORDS_ENABLED } from '../../../services/stream-presentation-store.service';
 import {
   createExecutionNode,
+  createExecutionChatMessage,
   type ExecutionChatMessage,
   type ExecutionNode,
   type PermissionRequest,
@@ -1220,6 +1239,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     configureTranscriptTestBed({ tabs, buildTree: jest.fn(() => []) });
     TestBed.configureTestingModule({
       providers: [
+        { provide: SessionHistoryReplayer, useValue: { replayingTabIds: () => new Set<string>() } },
         {
           provide: SubagentExecutionStore,
           useValue: {

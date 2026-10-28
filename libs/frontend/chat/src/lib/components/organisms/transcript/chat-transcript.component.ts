@@ -100,6 +100,9 @@ import {
   type TurnContexts,
 } from './transcript-turn-contexts';
 import { TranscriptLiveClock } from './transcript-live-clock';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { groupLaneEvents, type LaneSlot } from './transcript-lane-events';
+import { LaneEventRowComponent } from '../../molecules/lane-event/lane-event-row.component';
 
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
@@ -241,6 +244,7 @@ function findAgentNode(
   imports: [
     LucideAngularModule,
     MessageBubbleComponent,
+    LaneEventRowComponent,
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
@@ -299,6 +303,7 @@ export class ChatTranscriptComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly _tabManager = inject(TabManagerService);
   private readonly _treeBuilder = inject(ExecutionTreeBuilderService);
+  private readonly laneMonitor = inject(AgentMonitorStore, { optional: true });
   private readonly presentationRecordsEnabled = inject(
     STREAM_PRESENTATION_RECORDS_ENABLED,
   );
@@ -690,6 +695,17 @@ export class ChatTranscriptComponent {
       return next;
     },
   );
+
+  private frozenLaneSlots: ReadonlyMap<string, LaneSlot> = new Map();
+  protected readonly laneSlots = computed(() => {
+    if (!this.workActive()) return this.frozenLaneSlots;
+    const liveIds = new Set(
+      this.laneMonitor?.agents?.().filter(agent => agent.status === 'running').map(agent => agent.agentId) ?? [],
+    );
+    const next = groupLaneEvents(this.turnMessages(), liveIds);
+    this.frozenLaneSlots = next;
+    return next;
+  });
 
   private readonly turnContextBuilder = new TranscriptTurnContexts();
 

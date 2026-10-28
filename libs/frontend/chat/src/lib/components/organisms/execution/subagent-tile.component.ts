@@ -4,6 +4,7 @@ import {
   computed,
   inject,
   input,
+  Injector,
 } from '@angular/core';
 import {
   Bot,
@@ -20,8 +21,11 @@ import {
   SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { formatAgentElapsed } from '@ptah-extension/chat-ui';
-import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
+import { SESSION_CARD_ACTIONS, SESSION_CONTEXT } from '../../../tokens/session-context.token';
 import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
+import { BackgroundAgentStore } from '@ptah-extension/chat-streaming';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { SessionHistoryReplayer } from '../../../services/chat-store/session-history-replayer.service';
 
 /** One transcript row for an agent. The full execution tree lives in the selected lane. */
 @Component({
@@ -71,6 +75,9 @@ import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
               class="w-3 h-3 text-base-content-muted"
               aria-hidden="true"
             />
+          }
+          @case ('loading') {
+            <span class="w-3 h-3 rounded-full border border-base-content-muted" aria-hidden="true"></span>
           }
           @default {
             <lucide-angular
@@ -131,6 +138,9 @@ export class SubagentTileComponent {
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
   private readonly monitor = inject(AgentMonitorStore, { optional: true });
+  private readonly backgroundAgents = inject(BackgroundAgentStore, { optional: true });
+  private readonly injector = inject(Injector);
+  private readonly context = inject(SESSION_CONTEXT, { optional: true });
   private readonly executions = inject(SubagentExecutionStore);
   private readonly actions = inject(SESSION_CARD_ACTIONS, { optional: true });
 
@@ -187,6 +197,10 @@ export class SubagentTileComponent {
     if (recordStatus === 'stopped' || recordStatus === 'killed')
       return 'stopped';
     if (recordStatus === 'completed') return 'completed';
+    if (this.historyReplaying()) return 'loading';
+    const id = this.node().toolCallId;
+    if (this.node().isBackground || recordStatus === 'background' ||
+      (id && this.backgroundAgents?.isBackgroundAgent(id))) return 'background';
     if (this.node().status === 'error') return 'error';
     if (
       this.node().status === 'interrupted' ||
@@ -194,15 +208,23 @@ export class SubagentTileComponent {
     )
       return 'stopped';
     if (this.node().status === 'complete') return 'completed';
-    if (this.node().isBackground || recordStatus === 'background')
-      return 'background';
     return 'running';
   });
+  private historyReplaying(): boolean {
+    // Isolated tile consumers can omit the session services entirely.
+    try {
+      const tabId = this.context?.() ?? this.injector.get(TabManagerService, null)?.activeTabId();
+      return !!tabId && !!this.injector.get(SessionHistoryReplayer, null)?.replayingTabIds().has(tabId);
+    } catch {
+      return false;
+    }
+  }
   protected readonly statusLabel = computed(
     () =>
       ({
         running: 'Running',
         background: 'In background',
+        loading: 'Loading',
         completed: 'Completed',
         error: 'Failed',
         stopped: 'Stopped',
