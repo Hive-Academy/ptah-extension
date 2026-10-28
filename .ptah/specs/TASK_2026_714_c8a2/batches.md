@@ -2923,7 +2923,7 @@ Edge cases:
   broadcaster's Claude behaviour. Findings 1-2 of 8k-5: recorded only.
 - Verify: the changed projects.
 
-## Round 8m: protocol parity (native Codex chat == Claude UI contracts) — IN_PROGRESS (Wave 1 COMPLETE: 3fe884270, 41c73d47c, d2f2fb2c5; Wave 2 next)
+## Round 8m: protocol parity (native Codex chat == Claude UI contracts) — IN_PROGRESS (Wave 1 COMPLETE: 3fe884270, 41c73d47c, d2f2fb2c5; Wave 2 COMPLETE: 38803702e, d82b252ba, f7a6a31dd; Wave 3 = 8m-7, 8m-8, 8m-9 after the coordinator push)
 
 - Phase: P8 | Phase gate and P8 re-review: the coordinator, after this round (code-logic; style
   only if a new public API appears). The team-leader commits per batch, does not push.
@@ -3103,7 +3103,10 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
 
 ### Wave 2 (after Wave 1 is committed; 3 lanes in parallel; file-disjoint)
 
-### Batch 8m-4: Claude-shaped tool cards and thinking (G2, G1 projection, G3 projection, live L2) — PENDING (Wave 2; planned lane: Glm)
+### Batch 8m-4: Claude-shaped tool cards and thinking (G2, G1 projection, G3 projection, live L2) — COMPLETE (commit 38803702e; verify green 2026-10-28 16:58: `-p agent-sdk,rpc-handlers,ptah-electron` 15/15 after review fix 1 = Glm agent 6fd094a7, CLI session bdae7e2b: strip the output's trailing line breaks before the exit-code line; Wave 2; lane: Glm ptah-cli opus, agent 41d548ee, CLI session 5b1dbe4c-8c2a-422f-bd95-c8348d8c875f; 13m 18s; diff reviewed on disk)
+
+- Result: Bash input = Claude `{command, description?}` (no `cwd`; approval card uses the same helper); `presentCodexToolResult`: cancelled -> Claude's hard-deny tool_result text, isError; failed / non-zero exit -> real output + 'Command failed with exit code N', isError; exit 0 unchanged; MCP error -> `errorText`, isError. Thinking: one thinking_delta per reasoning delta; final published once with source complete (replace-on-final: accumulator-core.service.ts:359-367 sets, never appends); empty reasoning opens no block; the callbacks drop empty content like Claude's stream (stream-event.transformer.ts:463, :503). Write/Edit/Read keep their current shapes (lane decision, accepted).
+- Notes (Minor, recorded, not fixed): `CODEX_DENIED_TOOL_RESULT_TEXT` is an exact copy of the Claude CLI's canned hard-deny string (no repo constant exists; it lives in the CLI binary); every 'cancelled' item uses it, including a deny_with_message decline, a plan-mode policy decline and a Stop, where Claude would show 'Permission denied by user ... User's message: ...' for deny_with_message (card behavior identical: isError true).
 
 - Depends on: 8m-2.
 - Files: A/codex-tool-presentation.ts (+ .spec.ts), A/codex-chat-events.ts (+ .spec.ts),
@@ -3117,7 +3120,12 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
   `sdk-permission-handler.ts`), not with hand-written shapes.
 - Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
 
-### Batch 8m-5: Stop interrupts the turn, the tab stays usable (L1) — PENDING (Wave 2; planned lane: codex; hold released 2026-10-28: coordinator "CODEX OK", the user set agentOrchestration.codexModel to a supported model; no lane model override (never gpt-6.1-*: bundled codex 0.155.1 rejects it))
+### Batch 8m-5: Stop interrupts the turn, the tab stays usable (L1) — COMPLETE (commit d82b252ba; verify green 2026-10-28 16:58: `-p agent-sdk,rpc-handlers,ptah-electron` 15/15; Wave 2; lane: codex, agent e62bf1cb; started 2026-10-28 16:27 UTC; scope adds R/session/chat-slash-command-router.service.ts + new .native.spec.ts only if /compact needs it; the mapping spec goes in R/session/chat-session.native.spec.ts (no chat-session.service.spec.ts exists); hold released 2026-10-28: coordinator "CODEX OK", the user set agentOrchestration.codexModel to a supported model; no lane model override (never gpt-6.1-*: bundled codex 0.155.1 rejects it))
+
+- First pass (codex agent e62bf1cb, CLI session 01a18356-3b74-79b2-98d4-fd13de009e4c, 7m 54s; reviewed on disk): Stop interrupts the turn and keeps the native thread (`stopRequested`), closes only when the interrupt is refused/fails or the runtime's 30 s timer synthesizes a failed terminal; native `/compact` reopens an inactive stored thread with an empty prompt first; `resume-profile-changed` becomes a `CodexChatAdapterError` code and reaches the user as the 'Start a new chat' message (wire code stays CODEX_RUNTIME_FAILED).
+- Team-leader decisions: (1) the message is enough for D14a; a distinct shared error code is deferred (Minor, no shared change). (2) CONFIRMED defect: `/clear` (`chat-slash-command-router.service.ts:230-231`) relied on `interruptSession` closing the native context; after D17 it no longer does, so the next send would continue the cleared Codex thread -> review fix 1 (codex resume, fresh lane with handoff brief, agent 1e2431e3): explicit awaited native close on /clear (Claude path unchanged) + specs; also `instanceof CodexResumeProfileChangedError` instead of name/code duck-typing where the index exports it.
+- Review fix 1 result (codex, fresh lane with handoff brief, agent 1e2431e3, CLI session 01a1835e-227c-7c93-9c09-700ec69b74e9, 5m 14s): native `/clear` (router :231-243) interrupts an active turn, then in `finally` awaits the new `CodexChatAdapter.closeSession` (cancels an opening, closes the context), then broadcasts clear; Claude `/clear` keeps its interrupt path; the router injects `SDK_TOKENS.CODEX_CHAT_ADAPTER` optionally (registered in agent-sdk `codex-runtime-composition.ts`). Specs: router native idle/busy + Claude path, adapter awaited close. `CodexResumeProfileChangedError` is not exported from the codex-runtime index, so the name/code check stays (Minor, recorded; an index export would add a public API).
+- Parity gap found (coordinator check, P8 re-review / P14): 'Deny with message' -> host maps to `decline` and passes `reason` (`codex-chat-host-ports.ts:537`), the sink accepts it (`codex-chat-approval-sink.ts:29`), but the approval bridge never sends a user reason to Codex (its only `reason` is read from the server's request params, `codex-approval-bridge.ts:188`). The typed reason never reaches the Codex model; Claude passes it (`sdk-permission-handler.ts:1059-1073`). Not fixed in Round 8m. p8g live-test item: 'Deny with message: the model's next reply reflects the typed reason' (expected to fail today).
 
 - Files: A/codex-chat-adapter.ts (+ .spec.ts), A/codex-chat-turn-stream.ts, R/session/chat-session.service.ts (+ .spec.ts; added after 8m-1: map `resume-profile-changed` to a clear coded refusal, not CODEX_RUNTIME_FAILED),
   A/codex-chat-turn-lifecycle.spec.ts, R/codex-host/codex-chat-native-contract.spec.ts (this
@@ -3128,7 +3136,9 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
   and `/compact` resume (no CODEX_UNAVAILABLE).
 - Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
 
-### Batch 8m-6: `allowedDecisions` leaves the shared contract (G5 shared/frontend) — PENDING (Wave 2; planned lane: grok or antigravity)
+### Batch 8m-6: `allowedDecisions` leaves the shared contract (G5 shared/frontend) — COMPLETE (commit f7a6a31dd; verify 2026-10-28 16:46-16:48: `-p shared,chat-streaming,chat` 8/9 (chat:lint 2 pre-existing errors, exception recorded), `-t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui` 4/4; lint exception: `chat:lint` 2 pre-existing errors, `no-control-regex` chat-attention-source.service.ts (same line at HEAD :44 and main :27) and `no-useless-escape` attention-context.util.ts (untouched); none new; Wave 2; lane: grok, agent 0e7798d6, CLI session 01a18356-844f-73f3-8612-7d2c8dbb1ef6; 4m 16s; diff reviewed on disk)
+
+- Result: `PermissionRequest.allowedDecisions` removed from libs/shared; dead native-decision paths removed: `APPROVAL_RESPONSE_DECISION` + `handleApprovalDecision` (permission-handler.service.ts), `APPROVAL_DECISION_ACTIONS` + allowed-filtered actions (chat-attention-source.service.ts), the native branch + 'cancel' action id (chat-attention-action-dispatcher.service.ts). Every permission request offers Claude's actions (Allow, Always allow, Deny, Deny with message). No caller left in libs/ or apps/ (grep); remaining `allowedDecisions` mentions are spec assertions that the real parser drops the wire field.
 
 - Depends on: 8m-3 (host no longer sets the field).
 - Files: libs/shared/src/lib/types/permission.types.ts; libs/frontend/chat-streaming/src/lib/
@@ -3143,7 +3153,7 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
 
 ### Wave 3 (after Wave 2 is committed)
 
-### Batch 8m-7: Codex questions use Claude's AskUserQuestion flow (G4, mcpElicitation check) — PENDING (Wave 3; planned lane: codex)
+### Batch 8m-7: Codex questions use Claude's AskUserQuestion flow (G4, mcpElicitation check) — PENDING (Wave 3; planned lane: codex; must NOT edit C/codex-approval-bridge.ts — owned by 8m-9 in Wave 3; report a needed bridge change instead)
 
 - Files: new R/codex-host/codex-chat-user-questions.ts (+ .spec.ts),
   W/apps/ptah-electron/src/di/codex-runtime-composition.ts, R/codex-host/codex-chat-native-contract.spec.ts;
@@ -3165,6 +3175,22 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
 - Tasks: keep the native title (non-empty title sets the name when the stored name is missing or equals the session id; never overwrite a user rename); a native message count/preview source that does not read Claude JSONL (e.g. counted turns recorded in the session record, or the rollout), backend only, no frontend special case; Claude rows unchanged (their specs stay green).
 - File-disjoint from 8m-7 (codex-host user questions, Electron composition, native contract spec, DI guard specs): yes, so both run in parallel in Wave 3.
 - Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
+### Batch 8m-9: Deny with message reaches the Codex model (deny-reason parity) — PENDING (Wave 3; added 2026-10-28 by coordinator decision P8 D19; planned lane: grok)
+
+- Gap (found in 8m-5 review): host maps `deny_with_message` -> `decline` and passes `reason` (`R/codex-host/codex-chat-host-ports.ts:537`), the sink accepts it (`A/codex-chat-approval-sink.ts:29`), but `C/codex-approval-bridge.ts` never sends a user reason to Codex (its only `reason` is the server's request param, :188). Claude passes the typed reason to the model (`sdk-permission-handler.ts:1059-1073`).
+- Approach (D19, in order): (1) native: a reason/message field on the command/file approval decline response or on the turn APIs in the pinned App Server schema; (2) else deliver the typed reason to the model after the decline on the same thread/turn through a native path (`turn/steer` or the next input item), so the next reply reflects it. No frontend change, no second proxy.
+- Files: C/codex-approval-bridge.ts (+ .spec.ts); R/codex-host/codex-chat-host-ports.ts (+ .spec.ts) only if needed; C/codex-runtime.ts (+ spec) only if the steer path needs a runtime method. File ownership in Wave 3: 8m-9 owns `codex-approval-bridge.ts`; 8m-7 must not edit it (it reports any bridge change it needs) -> 8m-7, 8m-8, 8m-9 are file-disjoint and run in parallel.
+- Specs: the typed reason reaches the Codex request; plain Deny unchanged (`cancel`); Allow unchanged; empty reason sends nothing extra.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers`.
+- p8g live-test item: 'Deny with message: the model's next reply reflects the typed reason'.
+### Round 8m follow-ups (Minor, recorded, no lane)
+
+- `tools/evidence-harness.ts` compares `realpathSync(manifest.binaryPath)` with the resolved binary before the digest checks, so a harness run from another checkout fails; the digest already identifies the binary (CodeRabbit on PR #839, revisited in #823). Fix later: drop the path comparison, keep the platform/arch/binary digest and schema digest checks.
+- `CodexResumeProfileChangedError` is not exported from the codex-runtime index; agent-sdk and rpc-handlers detect it by name/code (8m-5).
+- A distinct shared wire code for `resume-profile-changed` (today CODEX_RUNTIME_FAILED with the 'Start a new chat' message) (8m-5).
+- 8m-2: reasoning delta schemas registered in the validator (shadowing the methods export); webSearch/fileChange outputs unbounded; cap per string leaf.
+- 8m-4: every 'cancelled' item uses Claude's hard-deny text, including deny_with_message declines (Claude shows 'Permission denied by user ...').
+
 ### Round 8m closing checks
 
 - `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint --output-style=static`
