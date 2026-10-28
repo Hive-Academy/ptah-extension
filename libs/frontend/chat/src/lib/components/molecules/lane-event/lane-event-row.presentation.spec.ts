@@ -1,4 +1,5 @@
 import { deriveLaneEventPresentation, parseLaneCompletion } from './lane-event-row.presentation';
+import { Check, TriangleAlert } from 'lucide-angular';
 import type { LaneEventRow } from './lane-event-row.types';
 
 const envelope = (lines: string[] = []) => [
@@ -80,13 +81,17 @@ describe('deriveLaneEventPresentation', () => {
     expect(result.files).toEqual([]);
   });
 
-  it.each([
-    ['unverified', 'Completed · unverified'],
-    ['no-deliverable', 'Incomplete · no deliverable'],
-  ])('labels the %s verdict as %s with the warning tone', (verdict, label) => {
-    const result = deriveLaneEventPresentation(row({ events: [{ kind: 'completed', verdict, body: envelope(['Deliverables: none were declared at spawn, so nothing was checked.']), timestamp: 2, messageId: 'c' }] }));
-    expect(result.chip.label).toBe(label);
+  it('shows unverified as completed with a quiet deliverables hint', () => {
+    const result = deriveLaneEventPresentation(row({ events: [{ kind: 'completed', verdict: 'unverified', body: envelope(['Deliverables: none were declared at spawn, so nothing was checked.']), timestamp: 2, messageId: 'c' }] }));
+    expect(result.chip).toEqual({ label: 'Completed', tone: 'done', icon: Check, title: 'deliverables not checked' });
+    expect(result.stats.some(stat => stat.label === 'Verdict' || stat.label === 'Deliverables')).toBe(false);
+  });
+
+  it('keeps no-deliverable incomplete with the warning tone', () => {
+    const result = deriveLaneEventPresentation(row({ events: [{ kind: 'completed', verdict: 'no-deliverable', body: envelope(['Deliverables: none were declared at spawn, so nothing was checked.']), timestamp: 2, messageId: 'c' }] }));
+    expect(result.chip.label).toBe('Incomplete · no deliverable');
     expect(result.chip.tone).toBe('need');
+    expect(result.chip.icon).toBe(TriangleAlert);
     expect(result.stats.some(stat => stat.label === 'Verdict' || stat.label === 'Deliverables')).toBe(false);
   });
 

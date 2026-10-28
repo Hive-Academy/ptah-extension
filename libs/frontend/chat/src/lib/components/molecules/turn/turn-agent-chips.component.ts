@@ -64,8 +64,8 @@ function toChipView(agent: SessionAgent): ChipView {
  * and status word in state ink; a settled run adds its own duration
  * (§3.9 "each chip shows its own `done · {duration}`").
  *
- * The host passes the roster entries owned by the turn (sub-agents and
- * background agents; CLI lanes are not turn-scoped). Activating a chip emits
+ * The host passes roster entries linked to the turn (sub-agents, background
+ * agents, and CLI lanes with a successful spawn tool result). Activating a chip emits
  * the agent's lane key; the host opens the lane.
  *
  * Presentational only: no timer and no service, so a running chip shows its

@@ -1,5 +1,5 @@
 <article data-testid="lane-event"
-  class="group mx-auto my-2 w-full max-w-[min(640px,var(--chat-content-max-width,758px))] min-w-0 rounded-lg border border-base-content/10 bg-base-200/40 px-4 py-3 text-sm leading-5 border-l-[3px]"
+  class="group mx-auto my-2 w-4/5 min-w-[min(100%,20rem)] rounded-lg border border-base-content/10 bg-base-200/40 px-4 py-3 text-sm leading-5 border-l-[3px]"
   [class.border-l-state-run]="tone() === 'run'" [class.border-l-state-done]="tone() === 'done'"
   [class.border-l-state-need]="tone() === 'need'" [class.border-l-state-err]="tone() === 'err'"
   [attr.aria-label]="row().agent + ' lane, ' + chip().label"
@@ -20,6 +20,7 @@
       <span class="min-w-0 truncate font-semibold" [title]="row().agent">{{ row().agent }}</span>
       <span data-testid="lane-event-chip"
         class="inline-flex shrink-0 items-center gap-1 rounded border border-current px-1.5 text-xs leading-5"
+        [attr.title]="chip().title ?? null"
         [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
         [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
         <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" />{{ chip().label }}
@@ -74,7 +75,7 @@
               @if (detail.exitCode !== undefined) { <dt>Exit code</dt><dd>{{ detail.exitCode }}</dd> }
               @if (detail.reports !== undefined) { <dt>Reports</dt><dd>{{ detail.reports }}</dd> }
               @if (detail.deliverables === null) {
-                <dt>Deliverables</dt><dd>none declared</dd>
+                <dt>Deliverables</dt><dd>{{ event.verdict === 'unverified' ? 'deliverables not checked' : 'none declared' }}</dd>
               } @else if (detail.deliverables) {
                 <dt>Deliverables</dt><dd><ul class="min-w-0">
                   @for (file of detail.deliverables; track file.path) { <li class="break-all">{{ file.path }} — {{ file.state }}</li> }

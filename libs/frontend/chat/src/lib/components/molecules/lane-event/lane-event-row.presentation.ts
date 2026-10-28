@@ -1,4 +1,4 @@
-import { Check, CircleHelp, LoaderCircle, TriangleAlert, X } from 'lucide-angular';
+import { Check, LoaderCircle, TriangleAlert, X } from 'lucide-angular';
 import type { LaneEventRow } from './lane-event-row.types';
 
 export type LaneEventTone = 'run' | 'done' | 'need' | 'err' | 'neutral';
@@ -6,6 +6,7 @@ export interface LaneEventChip {
   readonly label: string;
   readonly tone: LaneEventTone;
   readonly icon: typeof Check;
+  readonly title?: string;
 }
 export interface LaneEventStat {
   readonly label: string;
@@ -115,7 +116,8 @@ export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEven
     ? { label: 'Timed out', tone: 'err', icon: TriangleAlert }
     : failed ? { label: 'Failed', tone: 'err', icon: X }
     : completed && noDeliverable ? { label: 'Incomplete · no deliverable', tone: 'need', icon: TriangleAlert }
-    : completed ? { label: unverified ? 'Completed · unverified' : 'Completed', tone: unverified ? 'need' : 'done', icon: unverified ? CircleHelp : Check }
+    : completed ? { label: 'Completed', tone: 'done', icon: Check,
+      ...(unverified ? { title: 'deliverables not checked' } : {}) }
     : { label: 'Running', tone: 'run', icon: LoaderCircle };
 
   const stats: LaneEventStat[] = [];

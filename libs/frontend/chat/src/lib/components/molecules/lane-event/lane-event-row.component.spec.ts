@@ -33,7 +33,11 @@ describe('LaneEventRowComponent', () => {
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelectorAll('[data-testid="lane-event-chip"]')).toHaveLength(1);
-    expect(element.querySelector('[data-testid="lane-event-chip"]')?.textContent).toContain('Completed · unverified');
+    const chip = element.querySelector('[data-testid="lane-event-chip"]')!;
+    expect(chip.textContent).toContain('Completed');
+    expect(chip.textContent).not.toContain('unverified');
+    expect(chip.classList.contains('text-state-done')).toBe(true);
+    expect(chip.getAttribute('title')).toBe('deliverables not checked');
     const second = element.querySelector('[data-testid="lane-event-second-line"]')!;
     expect(second.textContent).toContain('Applied fix');
     expect(second.textContent).toContain('26s · 2 reports');
@@ -47,15 +51,17 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('file.txt');
   });
 
-  it('centers a capped lane card with comfortable two-line spacing', () => {
+  it('centers an 80-percent lane card with a narrow-pane minimum and two-line spacing', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     const card = element.querySelector('article')!;
     expect(card.classList.contains('mx-auto')).toBe(true);
-    expect(card.classList.contains('w-full')).toBe(true);
-    expect(card.classList.contains('max-w-[min(640px,var(--chat-content-max-width,758px))]')).toBe(true);
+    expect(card.classList.contains('w-4/5')).toBe(true);
+    expect(card.classList.contains('min-w-[min(100%,20rem)]')).toBe(true);
+    expect(card.classList.contains('w-full')).toBe(false);
+    expect(card.className).not.toContain('max-w-[min(640px');
     expect(card.classList.contains('px-4')).toBe(true);
     expect(card.classList.contains('py-3')).toBe(true);
     expect(card.classList.contains('text-sm')).toBe(true);
@@ -78,7 +84,7 @@ describe('LaneEventRowComponent', () => {
     expect(element.querySelectorAll('[data-testid="lane-event-body"] markdown')).toHaveLength(2);
     const completion = element.querySelector('[data-testid="lane-event-completion"]')!;
     expect(completion.textContent).toContain('Duration');
-    expect(completion.textContent).toContain('none declared');
+    expect(completion.textContent).toContain('deliverables not checked');
     expect(completion.textContent).toContain('Read alpha.md.');
     expect(completion.textContent).toContain('sess-1');
     expect(completion.textContent).not.toMatch(/Next:|resume_session_id|trust this result/);
