@@ -18,6 +18,14 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
     SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
   },
   AgentContinueError: class AgentContinueError extends Error {},
+  // Same shape as the real class (`lane-resume-gate.ts`): a fixed message
+  // and the refusal code. The handler matches it with `instanceof`.
+  LaneAccountResumeError: class LaneAccountResumeError extends Error {
+    constructor(readonly code: string) {
+      super(`Claude lane account resume refused (${code}).`);
+      this.name = 'LaneAccountResumeError';
+    }
+  },
   MIN_CONCURRENT_AGENTS: 1,
   MAX_CONCURRENT_AGENTS: 10,
 }));
@@ -55,6 +63,7 @@ import type {
   AgentProcessManager,
   PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
+import { LaneAccountResumeError } from '@ptah-extension/cli-agent-runtime';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import type { AgentResumeOutcome } from '@ptah-extension/shared';
 import type { CliModelListService } from '../services/cli-model-list.service';
@@ -377,27 +386,36 @@ describe('AgentRpcHandlers — agent:setConfig serialisation', () => {
 });
 
 /**
- * TASK_2026_712 D25 F3: an account-scoped `claude` lane continue that the
- * resume gate refuses throws `LaneAccountResumeError` (not on the barrel, so
- * built here by name + code, as the handler matches it). The reply carries the
- * whitelisted refusal code only, never the thrown text.
+ * D28: a `claude` lane whose named account the runtime refuses throws
+ * `LaneAccountResumeError`. The handler matches it with `instanceof` and
+ * replies with the dedicated code and fixed text; the thrown text and the
+ * refusal code stay in the host log.
  */
-function laneAccountResumeError(code: string, message: string): Error {
-  const error = Object.assign(new Error(message), { code });
-  error.name = 'LaneAccountResumeError';
+const LANE_ACCOUNT_REFUSED_ERROR =
+  'The Claude account for this agent was refused. The agent did not run on another account.';
+
+/** A refusal whose message carries what must never reach the caller. */
+function laneAccountResumeError(code: string): Error {
+  const error = new LaneAccountResumeError(code);
+  error.message =
+    'EACCES C:/Users/someone/.claude-profiles/work/.credentials.json user@example.com';
   return error;
+}
+
+function expectNoLeak(result: unknown): void {
+  const wire = JSON.stringify(result);
+  for (const leak of ['credentials', 'claude-profiles', 'C:/', '@example.com']) {
+    expect(wire).not.toContain(leak);
+  }
 }
 
 type ContinueResult = { success: boolean; error?: string; code?: string };
 
-describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
-  it('maps LaneAccountResumeError to a typed, path-free refusal', async () => {
+describe('AgentRpcHandlers — agent:continue account refusal (D28)', () => {
+  it('maps LaneAccountResumeError to account_refused with fixed text', async () => {
     const h = makeHarness();
     h.processManager.continueConversation.mockRejectedValueOnce(
-      laneAccountResumeError(
-        'unavailable-storage',
-        'EACCES C:/Users/someone/.claude-profiles/work/.credentials.json',
-      ),
+      laneAccountResumeError('unavailable-storage'),
     );
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
@@ -407,10 +425,10 @@ describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
 
     expect(result).toEqual({
       success: false,
-      code: 'unknown',
-      error: 'Claude lane account resume refused (unavailable-storage).',
+      code: 'account_refused',
+      error: LANE_ACCOUNT_REFUSED_ERROR,
     });
-    expect(JSON.stringify(result)).not.toContain('credentials');
+    expectNoLeak(result);
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:continue account refused',
       { agentId: 'a-1', code: 'unavailable-storage' },
@@ -418,10 +436,10 @@ describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
     expect(h.logger.error).not.toHaveBeenCalled();
   });
 
-  it('keeps the specific refusal code', async () => {
+  it('keeps the specific refusal code in the log, not the reply', async () => {
     const h = makeHarness();
     h.processManager.continueConversation.mockRejectedValueOnce(
-      laneAccountResumeError('identity-unproved', 'refused'),
+      laneAccountResumeError('identity-unproved'),
     );
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
@@ -429,16 +447,45 @@ describe('AgentRpcHandlers — agent:continue account refusal (D25 F3)', () => {
       message: 'next step',
     });
 
-    expect(result.error).toBe(
-      'Claude lane account resume refused (identity-unproved).',
+    expect(result).toEqual({
+      success: false,
+      code: 'account_refused',
+      error: LANE_ACCOUNT_REFUSED_ERROR,
+    });
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:continue account refused',
+      { agentId: 'a-1', code: 'identity-unproved' },
     );
   });
 
-  it('treats a non-whitelisted code as an ordinary failure', async () => {
+  it('logs a non-whitelisted code as unavailable-storage', async () => {
     const h = makeHarness();
     h.processManager.continueConversation.mockRejectedValueOnce(
-      laneAccountResumeError('C:/secret/path', 'C:/secret/path'),
+      laneAccountResumeError('C:/secret/path'),
     );
+
+    const result = await call<ContinueResult>(h, 'agent:continue', {
+      agentId: 'a-1',
+      message: 'next step',
+    });
+
+    expect(result.code).toBe('account_refused');
+    expect(JSON.stringify((h.logger.warn as jest.Mock).mock.calls)).not.toContain(
+      'secret',
+    );
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:continue account refused',
+      { agentId: 'a-1', code: 'unavailable-storage' },
+    );
+  });
+
+  it('treats an error only named LaneAccountResumeError as an ordinary failure', async () => {
+    const h = makeHarness();
+    const impostor = Object.assign(new Error('C:/secret/path'), {
+      code: 'identity-unproved',
+    });
+    impostor.name = 'LaneAccountResumeError';
+    h.processManager.continueConversation.mockRejectedValueOnce(impostor);
 
     const result = await call<ContinueResult>(h, 'agent:continue', {
       agentId: 'a-1',
@@ -703,17 +750,38 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
     expect(h.processManager.spawn).not.toHaveBeenCalled();
   });
 
-  it('lets the runtime keep a restated named binding release-held (D7)', async () => {
+  it('forwards a restated named selection to the runtime for claude', async () => {
+    const h = makeHarness({
+      accountLookup: jest
+        .fn()
+        .mockResolvedValue({ status: 'bound', binding: STORED_BINDING }),
+    });
+
+    const result = await call<ResumeResult>(
+      h,
+      'agent:resumeCliSession',
+      resumeParams('claude', { kind: 'named', profileId: PROFILE_ID }),
+    );
+
+    expect(result).toEqual({ success: true, agentId: 'a-1' });
+    expect(h.processManager.spawn).toHaveBeenCalledTimes(1);
+    expect(h.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cli: 'claude',
+        resumeSessionId: CLI_SESSION_ID,
+        accountSelection: { kind: 'named', profileId: PROFILE_ID },
+      }),
+    );
+  });
+
+  it('maps a runtime LaneAccountResumeError to the fixed refusal text', async () => {
     const h = makeHarness({
       accountLookup: jest
         .fn()
         .mockResolvedValue({ status: 'bound', binding: STORED_BINDING }),
     });
     h.processManager.spawn.mockRejectedValueOnce(
-      laneAccountResumeError(
-        'release-held',
-        'C:/Users/someone/.claude-profiles/work refused',
-      ),
+      laneAccountResumeError('identity-unproved'),
     );
 
     const result = await call<ResumeResult>(
@@ -722,15 +790,16 @@ describe('AgentRpcHandlers — agent:resumeCliSession account selection', () => 
       resumeParams('claude', { kind: 'named', profileId: PROFILE_ID }),
     );
 
-    expect(h.processManager.spawn).toHaveBeenCalledTimes(1);
-    expect(h.processManager.spawn.mock.calls[0][0]).not.toHaveProperty(
-      'accountSelection',
-    );
     expect(result).toEqual({
       success: false,
-      error: 'Agent resume account refused (release-held).',
+      code: 'account_refused',
+      error: LANE_ACCOUNT_REFUSED_ERROR,
     });
-    expect(JSON.stringify(result)).not.toContain('claude-profiles');
+    expectNoLeak(result);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:resumeCliSession account refused',
+      { cli: 'claude', code: 'identity-unproved' },
+    );
     expect(h.logger.error).not.toHaveBeenCalled();
   });
 

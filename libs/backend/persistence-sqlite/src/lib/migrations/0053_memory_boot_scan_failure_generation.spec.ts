@@ -62,7 +62,7 @@ describe('migration 0053_memory_boot_scan_failure_generation — registry and st
     expect(MIGRATIONS.filter((m) => m.version === 53)).toEqual([
       { version: 53, name: '0053_memory_boot_scan_failure_generation', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(59);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(60);
     expect(sql).not.toContain('${');
     expect(sql).not.toMatch(/\b(DELETE|UPDATE|INSERT|DROP TABLE)\b/i);
   });

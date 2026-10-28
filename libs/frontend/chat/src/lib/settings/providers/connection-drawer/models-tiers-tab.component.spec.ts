@@ -72,6 +72,12 @@ describe('ModelsTiersTabComponent', () => {
   }
   /** Microtasks only: `whenStable` would wait out the toast's 8 s auto-dismiss timer. */
   async function flush() { for (let i = 0; i < 10; i += 1) await Promise.resolve(); fixture.detectChanges(); }
+  /** Real-timer wait past the toast's 50 ms announce tick, then the text of an inline live region. */
+  async function announced(region: 'status' | 'alert'): Promise<string | undefined> {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    fixture.detectChanges();
+    return query(`settings-toast-inline-live-${region}`)?.textContent?.trim();
+  }
 
   it('reads this connection\'s main-agent tiers, with a busy skeleton until they load', () => {
     render();
@@ -123,8 +129,9 @@ describe('ModelsTiersTabComponent', () => {
       picker('opus').selectionChange.emit({ provider: 'kimi-code', model: 'kimi-for-coding' });
       await flush();
       expect(state.setMainAgentTier).toHaveBeenCalledWith('kimi-code', 'opus', 'kimi-for-coding', CONTEXT);
-      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('status');
       expect(query('settings-toast-inline')?.textContent).toContain('Saved Kimi Code opus tier model to All Ptah apps.');
+      expect(await announced('status')).toBe('Saved Kimi Code opus tier model to All Ptah apps.');
+      expect(await announced('alert')).toBe('');
       query('settings-toast-inline-undo')?.click();
       await flush();
       expect(state.setMainAgentTier).toHaveBeenLastCalledWith('kimi-code', 'opus', 'k3', CONTEXT);
@@ -155,8 +162,9 @@ describe('ModelsTiersTabComponent', () => {
       });
       picker('opus').selectionChange.emit({ provider: 'kimi-code', model: 'kimi-for-coding' });
       await flush();
-      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('alert');
       expect(query('settings-toast-inline')?.textContent).toContain('Could not save');
+      expect(await announced('alert')).toContain('Could not save');
+      expect(await announced('status')).toBe('');
       expect(query('settings-toast-inline')?.textContent).not.toContain('Saved');
       expect(query('settings-toast-inline-undo')).toBeNull();
     });

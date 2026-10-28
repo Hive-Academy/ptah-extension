@@ -33,6 +33,7 @@ const STORE_WARN_KEY = 'sessionBudget.*';
 /** The configuration every invalid or unreadable value falls back to. */
 export const SESSION_BUDGET_DEFAULT_CONFIG: SessionBudgetConfig = {
   enabled: SESSION_BUDGET_SETTINGS.enabled.default,
+  autoHandoffAtLimit: SESSION_BUDGET_SETTINGS.autoHandoffAtLimit.default,
   unit: SESSION_BUDGET_SETTINGS.unit.default,
   tokens: SESSION_BUDGET_SETTINGS.tokens.default,
   usd: SESSION_BUDGET_SETTINGS.usd.default,
@@ -120,6 +121,10 @@ export class SessionBudgetConfigProvider {
 
     return {
       enabled: this.readBoolean(read, SESSION_BUDGET_SETTINGS.enabled),
+      autoHandoffAtLimit: this.readBoolean(
+        read,
+        SESSION_BUDGET_SETTINGS.autoHandoffAtLimit,
+      ),
       unit: this.readEnum(read, SESSION_BUDGET_SETTINGS.unit),
       tokens: this.readNumber(read, SESSION_BUDGET_SETTINGS.tokens),
       usd: this.readNumber(read, SESSION_BUDGET_SETTINGS.usd),

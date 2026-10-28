@@ -8,10 +8,10 @@
  * The chain: `background_agent_started` reads `agentId` from the subagent
  * registry, whose record only exists once the `SubagentStart` hook has fired —
  * which can be after the placeholder tool_result. Without it the store keys the
- * entry by `toolCallId`. `handleSubagentEnded` is the ONLY terminal signal a
- * background agent has (`background_agent_completed` has no producer anywhere
- * in the repository), and it looks the entry up by the real `agentId`, so a
- * `toolCallId`-keyed entry stayed `running` forever.
+ * entry by `toolCallId`. `handleSubagentEnded` is the main terminal signal a
+ * background agent has (the transformer emits one only for a SendMessage
+ * resume or a user stop), and it looks the entry up by the real `agentId`, so
+ * a `toolCallId`-keyed entry stayed `running` forever.
  *
  * Coverage:
  *   - started with NO agentId, then subagentEnded carrying the real agentId
@@ -137,7 +137,8 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
 
     const entry = store.findByAgentId(REAL_AGENT_ID as BackgroundAgentId);
     expect(entry).not.toBeNull();
-    expect(entry?.status).toBe('stopped');
+    expect(entry?.status).toBe('completed');
+    expect(entry?.result).toBe('plan written');
     expect(store.runningCount()).toBe(0);
   });
 
@@ -168,7 +169,7 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
     expect(entry?.agentId).toBe(REAL_AGENT_ID);
   });
 
-  it('bumps revision once for the re-key and once for the stop', () => {
+  it('bumps revision once for the re-key and once for the completion', () => {
     store.onStarted(startedWithoutAgentId());
     const before = store.revision();
 
@@ -203,10 +204,36 @@ describe('TurnEndHandlerService — background agent identity re-key', () => {
     );
 
     const entry = store.findByAgentId(REAL_AGENT_ID as BackgroundAgentId);
-    expect(entry?.status).toBe('stopped');
+    expect(entry?.status).toBe('completed');
     expect(entry?.toolCallId).toBe(TOOL_CALL_ID);
     // One mutation only: findByAgentId hit, so no re-key was attempted.
     expect(store.revision()).toBe(before + 1);
+  });
+
+  it('keeps a user stop: an entry already stopped is not relabelled completed', () => {
+    store.onStarted(startedWithoutAgentId({ agentId: REAL_AGENT_ID }));
+    // `subagent:stop` → task_notification status 'stopped' → the transformer's
+    // background_agent_stopped, addressed by toolCallId with agentId ''.
+    store.onStopped({
+      id: 'evt-stop',
+      eventType: 'background_agent_stopped',
+      timestamp: 1_700_000_000_500,
+      sessionId: SESS,
+      messageId: '',
+      toolCallId: TOOL_CALL_ID,
+      agentId: '',
+      agentType: 'software-architect',
+    });
+    const before = store.revision();
+
+    service.handleSubagentEnded(
+      makeSubagentEndedPayload({ toolCallId: TOOL_CALL_ID }),
+    );
+
+    const entry = store.findByAgentId(REAL_AGENT_ID as BackgroundAgentId);
+    expect(entry?.status).toBe('stopped');
+    expect(store.totalCount()).toBe(1);
+    expect(store.revision()).toBe(before);
   });
 
   it('does not adopt an entry belonging to a different Task tool call', () => {

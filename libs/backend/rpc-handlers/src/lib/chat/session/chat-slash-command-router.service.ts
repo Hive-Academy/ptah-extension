@@ -12,7 +12,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { randomUUID } from 'node:crypto';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
@@ -76,23 +75,29 @@ function refuseAccount(code: ProviderAccountPortRefusal['code']): never {
   throw { code, summary: 'The session account could not be verified. The conversation was preserved.' } satisfies ProviderAccountPortRefusal;
 }
 
+/** The only selection the gate forwards: a named profile the SDK run admits. */
+export type ResolvedMainAccountSelection = Extract<ProviderAccountSelection, { kind: 'named' }>;
+
 /**
  * Pre-context gate shared by fresh, resume/rewind and slash entry points.
  * Registry lookup precedes local metadata: an index without a profile cannot
  * turn a bound SDK session into an ambient session. Defaults apply ONLY to new
  * native main sessions. No caller-supplied route or identity is accepted.
+ *
+ * Returns the resolved named selection the launch must carry, or `undefined`
+ * for the ambient path. Admission, lease and binding belong to the SDK run
+ * (`NamedAccountQueryAdmission`); the gate never reserves a route itself.
  */
 export async function gateMainSessionAccount(
   dependencies: {
-    accounts?: Pick<ProviderAccountService, 'selection' | 'lookupBySdkSession' | 'admitClaudeRoute' | 'releaseReservation'>;
+    accounts?: Pick<ProviderAccountService, 'selection' | 'lookupBySdkSession'>;
     activeProvider?: Pick<ActiveProviderResolver, 'resolveActiveAuthForPath'>;
     metadata: Pick<SessionMetadataStore, 'get' | 'resolveAccountBinding' | 'getAccountBound'>;
   },
   input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string },
-): Promise<void> {
+): Promise<ResolvedMainAccountSelection | undefined> {
   const { accounts, activeProvider, metadata } = dependencies;
   let selection = input.accountSelection;
-  let runId: string | undefined;
   if (selection !== undefined) {
     const parsed = ProviderAccountSelectionSchema.safeParse(selection);
     if (!parsed.success) refuseAccount('conflict');
@@ -116,8 +121,8 @@ export async function gateMainSessionAccount(
     if (binding.identity.kind !== 'known') refuseAccount('identity-unproved');
     if (selection?.kind === 'ambient' ||
         (selection?.kind === 'named' && selection.profileId !== binding.profileId)) refuseAccount('conflict');
-    selection = { kind: 'named', profileId: binding.profileId };
-    runId = binding.runId;
+    // The run resumes with this stored binding (same runId, no second binding).
+    return { kind: 'named', profileId: binding.profileId };
   } else {
     // Explicit ambient adds no account, auth, model or storage calls.
     if (selection?.kind === 'ambient') return;
@@ -133,23 +138,8 @@ export async function gateMainSessionAccount(
       selection = { kind: 'named', profileId: selected.profileId };
     }
   }
-  if (!accounts || selection?.kind !== 'named') refuseAccount('unavailable-storage');
-  const admission = await accounts.admitClaudeRoute({
-    provider: 'claude', scope: 'main', selection,
-    operationId: randomUUID(), runId: runId ?? randomUUID(),
-  });
-  if (admission.code !== 'ok') throw admission;
-  // D7: the current SDK has no pre-admitted lease transfer or live-turn gate.
-  // Never consume conversation on a future port that becomes enabled before
-  // those contracts are wired. No child was spawned; settle this unused lease.
-  const released = await accounts.releaseReservation({
-    reservationId: admission.reservation.reservationId,
-    operationId: admission.reservation.operationId,
-    authEpoch: admission.reservation.authEpoch,
-    reason: 'startup-failure',
-  });
-  if (released.code !== 'ok') throw released;
-  refuseAccount('release-held');
+  if (selection?.kind !== 'named') refuseAccount('unavailable-storage');
+  return { kind: 'named', profileId: selection.profileId };
 }
 
 @injectable()
@@ -203,9 +193,11 @@ export class ChatSlashCommandRouterService {
       return null; // Not a slash command, caller continues with normal flow
     }
 
+    let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
       if (this.metadata) {
-        await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider, metadata: this.metadata },
+        accountSelection = await gateMainSessionAccount(
+          { accounts: this.accounts, activeProvider: this.activeProvider, metadata: this.metadata },
           { sessionId, workspacePath, accountSelection: params.accountSelection });
       } else if (this.accounts || params.accountSelection?.kind === 'named') {
         refuseAccount('unavailable-storage');
@@ -349,12 +341,20 @@ export class ChatSlashCommandRouterService {
             enhancedPromptsContent,
             tabId,
             providerProfile,
+            // Named only: the relaunch resumes on the session's stored binding.
+            ...(accountSelection ? { accountSelection } : {}),
           },
         );
         this.streamBroadcaster.streamEventsToWebview(sessionId, stream, tabId);
 
         return { success: true, sessionId };
       } catch (slashError) {
+        // A named relaunch's refusal keeps its typed code, not AUTH_REQUIRED.
+        const refusal = mainSessionAccountFailure(slashError);
+        if (refusal) {
+          this.logger.warn('[RPC] slash account admission refused', { code: refusal.accountRefusal.code });
+          return { ...refusal, sessionId };
+        }
         const message =
           slashError instanceof Error ? slashError.message : String(slashError);
         this.logger.warn(

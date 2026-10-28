@@ -53,6 +53,15 @@ const META_SEPARATOR = ' · ';
             >{{ metaParts().join(separator) }}</span
           >
         }
+        @if (account(); as accountText) {
+          <span
+            class="badge badge-sm badge-ghost text-[9px] text-base-content-muted max-w-[10rem] min-w-0 flex-shrink-0"
+            data-testid="lane-account"
+            [title]="accountText"
+          >
+            <span class="truncate">{{ accountText }}</span>
+          </span>
+        }
         <button
           type="button"
           class="inline-flex h-6 shrink-0 items-center gap-0.5 rounded px-1 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
@@ -101,6 +110,8 @@ export class ExecutionHeaderComponent {
   readonly toolCount = input(0);
   readonly extraMeta = input<readonly string[]>([]);
   readonly metaTone = input<'muted' | 'warning'>('muted');
+  /** Resolved lane account text (a label, never an ID); null shows nothing. */
+  readonly account = input<string | null>(null);
   readonly controlsId = input.required<string>();
   readonly open = model(false);
 

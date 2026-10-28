@@ -272,6 +272,424 @@ describe('ProviderAccountsStateService', () => {
     expect(service.operations('claude')()[P1]).toBeUndefined();
   });
 
+  it('keeps a sign-in fallback script only while that sign-in is pending', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1), account(P2)]) }));
+    await service.open('claude');
+    const fallback = { platform: 'win32', script: '& claude /login' };
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        snapshot: snapshot(2, [account(P1, 'pending', 2), account(P2)]),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+        fallback,
+      }),
+    );
+    await service.startSignIn('claude', P1);
+    expect(service.fallbacks('claude')()).toEqual({ [P1]: fallback });
+
+    // Malformed scripts are dropped, like a malformed operation handle.
+    for (const bad of [
+      { platform: 'darwin', script: 'claude /login' },
+      { platform: 'posix', script: '   ' },
+      { platform: 'posix', script: 42 },
+      'claude /login',
+    ]) {
+      rpc.call.mockResolvedValueOnce(
+        ok({
+          snapshot: snapshot(3, [account(P1, 'pending', 2), account(P2, 'pending', 3)]),
+          operation: { operationId: 'op-22223333', kind: 'sign-in' },
+          fallback: bad,
+        }),
+      );
+      await service.startSignIn('claude', P2);
+      expect(service.fallbacks('claude')()[P2]).toBeUndefined();
+    }
+
+    // A status read with no running operation drops the script; one still running keeps it.
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        account: account(P1, 'pending', 2),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+      }),
+    );
+    await service.refreshAccountStatus('claude', P1);
+    expect(service.fallbacks('claude')()[P1]).toEqual(fallback);
+
+    // A snapshot where the profile is no longer pending drops it.
+    push(service, snapshot(4, [account(P1, 'signed-in', 4), account(P2)]));
+    expect(service.fallbacks('claude')()).toEqual({});
+  });
+
+  it('a status read without an operation drops the fallback script', async () => {
+    const { rpc, service } = setup();
+    rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));
+    await service.open('claude');
+    rpc.call.mockResolvedValueOnce(
+      ok({
+        snapshot: snapshot(2, [account(P1, 'pending', 2)]),
+        operation: { operationId: 'op-12345678', kind: 'sign-in' },
+        fallback: { platform: 'posix', script: 'claude /login' },
+      }),
+    );
+    await service.startSignIn('claude', P1);
+    expect(service.fallbacks('claude')()[P1]?.platform).toBe('posix');
+    rpc.call.mockResolvedValueOnce(ok({ account: account(P1, 'failed', 3) }));
+    await service.refreshAccountStatus('claude', P1);
+    expect(service.fallbacks('claude')()[P1]).toBeUndefined();
+  });
+
+  describe('status read outcome (F1)', () => {
+    it('reports read, a safe refusal and a transport failure explicitly, leaving state alone on failure', async () => {
+      const { rpc, service } = setup();
+      rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1, 'signed-in', 1)]) }));
+      await service.open('claude');
+
+      rpc.call.mockResolvedValueOnce(ok({ account: account(P1, 'signed-in', 1) }));
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({ status: 'read' });
+
+      rpc.call.mockResolvedValueOnce(refused('not-found', 'That account is not available.'));
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'failed',
+        result: { code: 'not-found', summary: 'That account is not available.' },
+      });
+
+      rpc.call.mockResolvedValueOnce(rpcError('RPC timeout') as RpcResult<never>);
+      await expect(service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'unavailable',
+      });
+      expect(service.state('claude')().snapshot?.revision).toBe(1);
+      expect(service.operations('claude')()).toEqual({});
+    });
+
+    it('replaces an unsafe refusal sentence and is unavailable on an inert host', async () => {
+      const { rpc, service } = setup();
+      rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1, [account(P1)]) }));
+      await service.open('claude');
+      rpc.call.mockResolvedValueOnce(refused('failed', 'Read C:\\Users\\me\\.claude failed'));
+      const outcome = await service.refreshAccountStatus('claude', P1);
+      expect(outcome.status).toBe('failed');
+      expect(outcome.status === 'failed' && outcome.result.summary).not.toContain('Users');
+
+      TestBed.resetTestingModule();
+      const inert = setup(false);
+      await expect(inert.service.refreshAccountStatus('claude', P1)).resolves.toEqual({
+        status: 'unavailable',
+      });
+      expect(inert.rpc.call).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deferred sign-in replies (response-only handle and script)', () => {
+    const OLD_OP = { operationId: 'op-old11111', kind: 'sign-in' } as const;
+    const NEW_OP = { operationId: 'op-new22222', kind: 'sign-in' } as const;
+    const OLD_SCRIPT = { platform: 'posix', script: 'old-login-script' } as const;
+    const NEW_SCRIPT = { platform: 'win32', script: 'new-login-script' } as const;
+
+    async function openWithIdle(): Promise<{
+      rpc: MockRpcService;
+      service: ProviderAccountsStateService;
+    }> {
+      const ctx = setup();
+      ctx.rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));
+      await ctx.service.open('claude');
+      return ctx;
+    }
+
+    it('keeps the script when the same pending snapshot arrived first by push', async () => {
+      const { rpc, service } = await openWithIdle();
+      const reply = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(reply.promise);
+      const started = service.startSignIn('claude', P1);
+      const pendingSnap = snapshot(2, [account(P1, 'pending', 2)]);
+      push(service, pendingSnap);
+      reply.resolve(ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }));
+      await expect(started).resolves.toEqual({ status: 'saved', snapshot: pendingSnap });
+      expect(service.operations('claude')()).toEqual({ [P1]: OLD_OP });
+      expect(service.fallbacks('claude')()).toEqual({ [P1]: OLD_SCRIPT });
+    });
+
+    it('a newer terminal push before the older reply restores neither handle nor script', async () => {
+      const { rpc, service } = await openWithIdle();
+      const reply = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(reply.promise);
+      const started = service.startSignIn('claude', P1);
+      push(service, snapshot(3, [account(P1, 'cancelled', 3)]));
+      reply.resolve(
+        ok({
+          snapshot: snapshot(2, [account(P1, 'pending', 2)]),
+          operation: OLD_OP,
+          fallback: OLD_SCRIPT,
+        }),
+      );
+      await started;
+      expect(service.state('claude')().snapshot?.revision).toBe(3);
+      expect(service.operations('claude')()).toEqual({});
+      expect(service.fallbacks('claude')()).toEqual({});
+
+      // A later attempt that becomes pending never shows the old script or handle.
+      push(service, snapshot(4, [account(P1, 'pending', 4)]));
+      expect(service.operations('claude')()).toEqual({});
+      expect(service.fallbacks('claude')()).toEqual({});
+    });
+
+    it('a removal push after the reply clears the handle and script', async () => {
+      const { rpc, service } = await openWithIdle();
+      const pendingSnap = snapshot(2, [account(P1, 'pending', 2)]);
+      rpc.call.mockResolvedValueOnce(
+        ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }),
+      );
+      await service.startSignIn('claude', P1);
+      push(service, snapshot(3, [], { kind: 'omitted' }));
+      expect(service.operations('claude')()).toEqual({});
+      expect(service.fallbacks('claude')()).toEqual({});
+    });
+
+    it('a newer sign-in attempt before the older reply wins handle and script', async () => {
+      const { rpc, service } = await openWithIdle();
+      const older = deferred<RpcResult<never>>();
+      const newer = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+      const first = service.startSignIn('claude', P1);
+      const second = service.startSignIn('claude', P1);
+      newer.resolve(
+        ok({
+          snapshot: snapshot(3, [account(P1, 'pending', 3)]),
+          operation: NEW_OP,
+          fallback: NEW_SCRIPT,
+        }),
+      );
+      await second;
+      older.resolve(
+        ok({
+          snapshot: snapshot(2, [account(P1, 'pending', 2)]),
+          operation: OLD_OP,
+          fallback: OLD_SCRIPT,
+        }),
+      );
+      await first;
+      expect(service.operations('claude')()).toEqual({ [P1]: NEW_OP });
+      expect(service.fallbacks('claude')()).toEqual({ [P1]: NEW_SCRIPT });
+    });
+
+    it('a newer sign-in attempt wins even when the older reply carries the same revision', async () => {
+      const { rpc, service } = await openWithIdle();
+      const older = deferred<RpcResult<never>>();
+      const newer = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+      const first = service.startSignIn('claude', P1);
+      const second = service.startSignIn('claude', P1);
+      const pendingSnap = snapshot(3, [account(P1, 'pending', 3)]);
+      newer.resolve(ok({ snapshot: pendingSnap, operation: NEW_OP, fallback: NEW_SCRIPT }));
+      await second;
+      older.resolve(ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }));
+      await first;
+      expect(service.operations('claude')()).toEqual({ [P1]: NEW_OP });
+      expect(service.fallbacks('claude')()).toEqual({ [P1]: NEW_SCRIPT });
+    });
+
+    it('a workspace reset before the older reply restores nothing', async () => {
+      const { rpc, service } = await openWithIdle();
+      const reply = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(reply.promise);
+      const started = service.startSignIn('claude', P1);
+      // Away and back: the slot resets and re-reads the same workspace.
+      const pendingSnap = snapshot(2, [account(P1, 'pending', 2)]);
+      rpc.call.mockResolvedValueOnce(ok({ snapshot: pendingSnap }));
+      const scope = TestBed.inject(WorkspaceScopeService);
+      scope.switchTo('D:/work/other');
+      scope.switchTo(WS);
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(methods(rpc)).toEqual([
+        'provider:listAccounts',
+        'provider:startAccountSignIn',
+        'provider:listAccounts',
+      ]);
+      expect(service.state('claude')().snapshot).toEqual(pendingSnap);
+      reply.resolve(ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }));
+      await started;
+      expect(service.operations('claude')()).toEqual({});
+      expect(service.fallbacks('claude')()).toEqual({});
+    });
+
+    const refusedContenders = (
+      [
+        ['sign-in', 'busy'],
+        ['sign-in', 'conflict'],
+        ['sign-out', 'busy'],
+        ['sign-out', 'conflict'],
+      ] as const
+    ).flatMap(([kind, code]) =>
+      (['before', 'after'] as const).map((order) => [kind, code, order] as const),
+    );
+
+    it.each(refusedContenders)(
+      'a refused %s contender (%s) keeps the pending sign-in when its reply lands %s the refusal',
+      async (kind, code, order) => {
+        const { rpc, service } = await openWithIdle();
+        const signIn = deferred<RpcResult<never>>();
+        const contender = deferred<RpcResult<never>>();
+        rpc.call
+          .mockReturnValueOnce(signIn.promise)
+          .mockReturnValueOnce(contender.promise);
+        const first = service.startSignIn('claude', P1);
+        const second =
+          kind === 'sign-in'
+            ? service.startSignIn('claude', P1)
+            : service.signOut('claude', P1);
+        const pendingSnap = snapshot(2, [account(P1, 'pending', 2)]);
+        const replySignIn = async (): Promise<void> => {
+          signIn.resolve(
+            ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }),
+          );
+          await expect(first).resolves.toEqual({ status: 'saved', snapshot: pendingSnap });
+        };
+        const refuseContender = async (): Promise<void> => {
+          contender.resolve(refused(code, 'Another account action is running.'));
+          await expect(second).resolves.toMatchObject({ status: 'failed' });
+        };
+        if (order === 'before') {
+          await replySignIn();
+          await refuseContender();
+        } else {
+          await refuseContender();
+          await replySignIn();
+        }
+        expect(service.operations('claude')()).toEqual({ [P1]: OLD_OP });
+        expect(service.fallbacks('claude')()).toEqual({ [P1]: OLD_SCRIPT });
+
+        // The kept handle is the one Cancel sends.
+        rpc.call.mockResolvedValueOnce(
+          ok({ snapshot: snapshot(3, [account(P1, 'cancelled', 3)]) }),
+        );
+        await service.cancelSignIn('claude', P1);
+        expect(rpc.call.mock.calls[3][1]).toEqual(
+          expect.objectContaining({ operationId: OLD_OP.operationId }),
+        );
+      },
+    );
+
+    it('a status read that lands before the sign-in reply for the same operation keeps the script', async () => {
+      const { rpc, service } = await openWithIdle();
+      const signIn = deferred<RpcResult<never>>();
+      const status = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(signIn.promise).mockReturnValueOnce(status.promise);
+      const started = service.startSignIn('claude', P1);
+      const read = service.refreshAccountStatus('claude', P1);
+      status.resolve(ok({ account: account(P1, 'pending', 2), operation: OLD_OP }));
+      await read;
+      const pendingSnap = snapshot(2, [account(P1, 'pending', 2)]);
+      signIn.resolve(ok({ snapshot: pendingSnap, operation: OLD_OP, fallback: OLD_SCRIPT }));
+      await started;
+      expect(service.operations('claude')()).toEqual({ [P1]: OLD_OP });
+      expect(service.fallbacks('claude')()).toEqual({ [P1]: OLD_SCRIPT });
+    });
+  });
+
+  describe('deferred status reads (response-only handle)', () => {
+    const OLD_OP = { operationId: 'op-old11111', kind: 'sign-in' } as const;
+    const NEW_OP = { operationId: 'op-new22222', kind: 'sign-in' } as const;
+    const NEW_SCRIPT = { platform: 'win32', script: 'new-login-script' } as const;
+
+    async function openWithIdle(): Promise<{
+      rpc: MockRpcService;
+      service: ProviderAccountsStateService;
+    }> {
+      const ctx = setup();
+      ctx.rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));
+      await ctx.service.open('claude');
+      return ctx;
+    }
+
+    it('a status reply after a workspace reset and a terminal snapshot installs no operation', async () => {
+      const { rpc, service } = await openWithIdle();
+      const status = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(status.promise);
+      const read = service.refreshAccountStatus('claude', P1);
+      rpc.call.mockResolvedValueOnce(
+        ok({ snapshot: snapshot(2, [account(P1, 'pending', 2)]) }),
+      );
+      const scope = TestBed.inject(WorkspaceScopeService);
+      scope.switchTo('D:/work/other');
+      scope.switchTo(WS);
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(methods(rpc)).toEqual([
+        'provider:listAccounts',
+        'provider:getAccountStatus',
+        'provider:listAccounts',
+      ]);
+      push(service, snapshot(3, [account(P1, 'cancelled', 3)]));
+      status.resolve(ok({ account: account(P1, 'pending', 2), operation: OLD_OP }));
+      await read;
+      expect(service.operations('claude')()).toEqual({});
+
+      // A later attempt that becomes pending never exposes the stale handle.
+      push(service, snapshot(4, [account(P1, 'pending', 4)]));
+      expect(service.operations('claude')()).toEqual({});
+    });
+
+    it('a status reply that crossed a terminal snapshot installs no operation', async () => {
+      const { rpc, service } = await openWithIdle();
+      const status = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(status.promise);
+      const read = service.refreshAccountStatus('claude', P1);
+      push(service, snapshot(2, [account(P1, 'cancelled', 2)]));
+      status.resolve(ok({ account: account(P1, 'pending', 1), operation: OLD_OP }));
+      await read;
+      expect(service.operations('claude')()).toEqual({});
+    });
+
+    it('an older status reply without an operation keeps a newer sign-in handle and script', async () => {
+      const { rpc, service } = await openWithIdle();
+      const status = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(status.promise);
+      const read = service.refreshAccountStatus('claude', P1);
+      rpc.call.mockResolvedValueOnce(
+        ok({
+          snapshot: snapshot(2, [account(P1, 'pending', 2)]),
+          operation: NEW_OP,
+          fallback: NEW_SCRIPT,
+        }),
+      );
+      await service.startSignIn('claude', P1);
+      status.resolve(ok({ account: account(P1) }));
+      await read;
+      expect(service.operations('claude')()).toEqual({ [P1]: NEW_OP });
+      expect(service.fallbacks('claude')()).toEqual({ [P1]: NEW_SCRIPT });
+    });
+
+    it('a newer status read wins over an older one, for insertion and deletion', async () => {
+      const { rpc, service } = await openWithIdle();
+      const older = deferred<RpcResult<never>>();
+      const newer = deferred<RpcResult<never>>();
+      rpc.call.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+      const first = service.refreshAccountStatus('claude', P1);
+      const second = service.refreshAccountStatus('claude', P1);
+      newer.resolve(ok({ account: account(P1, 'pending', 2), operation: NEW_OP }));
+      await second;
+      older.resolve(ok({ account: account(P1, 'pending', 1), operation: OLD_OP }));
+      await first;
+      expect(service.operations('claude')()).toEqual({ [P1]: NEW_OP });
+
+      // A newer read that found no operation is not undone by an older one that did.
+      const olderAgain = deferred<RpcResult<never>>();
+      const newerAgain = deferred<RpcResult<never>>();
+      rpc.call
+        .mockReturnValueOnce(olderAgain.promise)
+        .mockReturnValueOnce(newerAgain.promise);
+      const third = service.refreshAccountStatus('claude', P1);
+      const fourth = service.refreshAccountStatus('claude', P1);
+      newerAgain.resolve(ok({ account: account(P1, 'not-signed-in', 3) }));
+      await fourth;
+      olderAgain.resolve(ok({ account: account(P1, 'pending', 2), operation: OLD_OP }));
+      await third;
+      expect(service.operations('claude')()).toEqual({});
+    });
+  });
+
   it('covers rename, sign-out and status reads through the RPC boundary', async () => {
     const { rpc, service } = setup();
     rpc.call.mockResolvedValueOnce(ok({ snapshot: snapshot(1) }));
@@ -360,7 +778,7 @@ describe('ProviderAccountsStateService', () => {
     expect(service.state('claude')().snapshot).toEqual(snapshot(1));
   });
 
-  it('writes main and lane independently and default against one snapshot', async () => {
+  it('writes main and lane independently against one snapshot', async () => {
     const { rpc, service } = setup();
     rpc.call.mockResolvedValueOnce(
       ok({
@@ -374,7 +792,6 @@ describe('ProviderAccountsStateService', () => {
     rpc.call.mockResolvedValue(refused('conflict', 'Refresh and try again.'));
     await service.setSelection('claude', 'lane', { kind: 'named', profileId: P1 });
     await service.setSelection('claude', 'main', { kind: 'ambient' });
-    await service.setDefault('claude', { kind: 'named', profileId: P1 });
     expect(rpc.call.mock.calls[1][1]).toEqual(
       expect.objectContaining({
         scope: 'lane',
@@ -389,17 +806,10 @@ describe('ProviderAccountsStateService', () => {
         expectedSelectionRevision: 2,
       }),
     );
-    expect(rpc.call.mock.calls[3]).toEqual([
-      'provider:setAccountDefault',
-      expect.objectContaining({
-        expectedSelectionRevisions: { main: 2, lane: 9 },
-      }),
-      expect.anything(),
-    ]);
     await expect(
       service.setSelection('claude', 'main', { kind: 'named', profileId: P2 }),
     ).resolves.toEqual({ status: 'unavailable' });
-    expect(rpc.call).toHaveBeenCalledTimes(4);
+    expect(rpc.call).toHaveBeenCalledTimes(3);
   });
 
   it('clears a removed selected profile only from the committed snapshot', async () => {

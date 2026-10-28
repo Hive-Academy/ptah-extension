@@ -59,6 +59,9 @@ export async function withAsvChange(page: Page, tab: 'Advanced' | 'Search & Voic
 
 export const toast = (page: Page): Locator => page.locator('[data-testid="settings-toast"]');
 export const toastMessage = (page: Page): Locator => page.locator('[data-testid="settings-toast-message"]');
+/** The page toast's persistent live regions (P6-A1): the tone lives here, not on the visual card. */
+const liveStatus = (page: Page): Locator => page.locator('[data-testid="settings-toast-live-status"]');
+const liveAlert = (page: Page): Locator => page.locator('[data-testid="settings-toast-live-alert"]');
 
 /**
  * Closes the save toast, so it neither covers nor answers for the next step: it sits over the bottom-right
@@ -87,8 +90,8 @@ export async function expectWrite(page: Page, before: number, method: string, pa
  * second, real write (`undo` params) that toasts again. Dismisses the toast at the end.
  */
 export async function expectSavedThenUndo(page: Page, label: string, method: string, undo: Record<string, unknown>): Promise<void> {
-  await expect(toast(page)).toHaveAttribute('role', 'status');
   await expect(toastMessage(page)).toHaveText(`Saved ${label}.`);
+  await expect(liveStatus(page)).toHaveText(`Saved ${label}.`);
   const before = getFixtureState(page).calls.length;
   const undoButton = page.locator('[data-testid="settings-toast-undo"]');
   await visibleEnabled(undoButton);
@@ -103,8 +106,9 @@ export async function expectSavedThenUndo(page: Page, label: string, method: str
  * no host text), and nothing on the page shows the fixture's raw host text.
  */
 export async function expectFailedWrite(page: Page, sentence: string): Promise<void> {
-  await expect(toast(page)).toHaveAttribute('role', 'alert');
   await expect(toastMessage(page)).toHaveText(sentence);
+  await expect(liveAlert(page)).toHaveText(sentence);
+  await expect(liveStatus(page)).toHaveText('');
   await expect(toastMessage(page)).not.toContainText('Saved');
   await expect(page.locator('body')).not.toContainText(HOST_DETAIL);
 }

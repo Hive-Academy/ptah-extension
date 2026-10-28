@@ -257,6 +257,11 @@ export interface ChatSessionSummary {
   readonly organization?: SessionOrganizationSummary;
   /** Live turn phase when the session is loaded in this host; absent otherwise. */
   readonly livePhase?: SessionTurnPhase;
+  /**
+   * Opaque id of the named account profile bound to this session. Absent
+   * means the default (ambient) route or that no binding is known.
+   */
+  readonly accountProfileId?: string;
 }
 
 /**

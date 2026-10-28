@@ -1222,7 +1222,8 @@ describe('buildResumeCliSessionParams satisfies AgentResumeCliSessionParamsSchem
 
 // ---------------------------------------------------------------------------
 // Batch 34 (TASK_2026_712): optional account selection on `resume`. Only the
-// ambient sentinel is accepted while named admission is release-held (D7).
+// ambient sentinel is accepted: named accounts are not available in the CLI
+// host (D7).
 // ---------------------------------------------------------------------------
 
 const NAMED_PROFILE_ID = 'profile-aaaa1111';
@@ -1231,17 +1232,21 @@ describe('resolveResumeAccountSelection', () => {
   const claude = resolveCliAgentTarget('claude');
 
   it('maps the ambient sentinel to an ambient selection', () => {
-    expect(resolveResumeAccountSelection(AMBIENT_ACCOUNT_SENTINEL, claude)).toEqual({
+    expect(
+      resolveResumeAccountSelection(AMBIENT_ACCOUNT_SENTINEL, claude),
+    ).toEqual({
       status: 'ok',
       selection: { kind: 'ambient' },
     });
   });
 
-  it('refuses an account ID as release-held, without echoing it', () => {
+  it('refuses an account ID in the CLI host, without echoing it', () => {
     const result = resolveResumeAccountSelection(NAMED_PROFILE_ID, claude);
     expect(result.status).toBe('refused');
     expect(JSON.stringify(result)).not.toContain(NAMED_PROFILE_ID);
-    expect(JSON.stringify(result)).toContain('not available yet');
+    expect(JSON.stringify(result)).toContain(
+      'named accounts are not available in the CLI host',
+    );
   });
 
   it.each(['', '   ', 'Ambient', 'C:/Users/someone/.claude', 'default'])(
@@ -1300,7 +1305,9 @@ describe('ptah agent-cli resume --account', () => {
   }
 
   it('serializes the ambient sentinel into a schema-valid request', async () => {
-    const { code, engine } = await resume({ account: AMBIENT_ACCOUNT_SENTINEL });
+    const { code, engine } = await resume({
+      account: AMBIENT_ACCOUNT_SENTINEL,
+    });
 
     expect(code).toBe(ExitCode.Success);
     expect(engine.rpcCalls[0]).toEqual({
@@ -1326,11 +1333,15 @@ describe('ptah agent-cli resume --account', () => {
   });
 
   it('refuses a named account before any RPC, with safe text', async () => {
-    const { code, engine, stderr } = await resume({ account: NAMED_PROFILE_ID });
+    const { code, engine, stderr } = await resume({
+      account: NAMED_PROFILE_ID,
+    });
 
     expect(code).toBe(ExitCode.UsageError);
     expect(engine.invoked.count).toBe(0);
-    expect(stderr).toContain('named accounts are not available yet');
+    expect(stderr).toContain(
+      'named accounts are not available in the CLI host',
+    );
     expect(stderr).not.toContain(NAMED_PROFILE_ID);
   });
 

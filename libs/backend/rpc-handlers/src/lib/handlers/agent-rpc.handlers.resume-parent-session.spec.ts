@@ -34,6 +34,12 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
     SDK_PTAH_CLI_REGISTRY: Symbol.for('PtahCliRegistry'),
   },
   AgentContinueError: class AgentContinueError extends Error {},
+  LaneAccountResumeError: class LaneAccountResumeError extends Error {
+    constructor(readonly code: string) {
+      super(code);
+      this.name = 'LaneAccountResumeError';
+    }
+  },
 }));
 
 jest.mock('@ptah-extension/agent-sdk', () => ({

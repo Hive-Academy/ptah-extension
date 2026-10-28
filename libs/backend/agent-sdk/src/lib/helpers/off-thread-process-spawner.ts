@@ -89,6 +89,7 @@ import {
   type SpawnFailure,
   type SpawnWorkerLease,
   type StderrMode,
+  type StdioMode,
   type WorkerErrorMessage,
   type WorkerMessage,
 } from './spawn-worker-pool';
@@ -144,6 +145,8 @@ interface SpawnPlan {
   readonly detached: boolean;
   readonly windowsHide: boolean;
   readonly windowsVerbatimArguments: boolean;
+  /** `'ignore'` creates no pipe at all; the handle's streams are then `null`. */
+  readonly stdioMode: StdioMode;
   readonly stderrMode: StderrMode;
   /** Re-checked on the creating thread right before the child is created. */
   readonly launchGuard?: SpawnLaunchGuard;
@@ -210,11 +213,12 @@ function stripUndefinedEnv(
  */
 class WorkerBackedProcess
   extends EventEmitter
-  implements PtahSpawnedProcess, SpawnedProcessHandle
+  implements SpawnedProcessHandle
 {
   readonly transport = 'worker' as const;
-  readonly stdin: Writable;
-  readonly stdout: Readable;
+  /** `null` for `stdioMode: 'ignore'`; see {@link hasStdioPipes}. */
+  readonly stdin: Writable | null;
+  readonly stdout: Readable | null;
   /** Present only for `stderrMode: 'stream'`; the SDK seam never asks for it. */
   readonly stderr: Readable | null;
   readonly whenSpawned: Promise<number | null>;
@@ -236,7 +240,7 @@ class WorkerBackedProcess
    */
   private abandoned = false;
   private closed = false;
-  private stdoutEnded = false;
+  private stdoutEnded: boolean;
   private stderrEnded: boolean;
   private graceTimer: NodeJS.Timeout | null = null;
   private readonly onAbort: () => void;
@@ -253,35 +257,25 @@ class WorkerBackedProcess
     // only covers the gap — and the gap is exactly where a spawn failure lands.
     this.on('error', () => undefined);
 
-    this.stdin = new Writable({
-      write: (chunk: Buffer, _encoding, callback) => {
-        const view = new Uint8Array(chunk);
-        this.post({ type: 'stdin', chunk: view }, [view.buffer]);
-        callback();
-      },
-      final: (callback) => {
-        this.post({ type: 'stdin-end' });
-        callback();
-      },
-    });
-    // Defence in depth: stdin is destroyed when the worker is lost, and a
-    // Writable 'error' with no listener would throw on the host's main loop.
-    // A failed write already reaches its caller through the write callback.
-    this.stdin.on('error', () => undefined);
-
-    this.stdout = new Readable({
-      read: () => {
-        this.post({ type: 'resume' });
-      },
-    });
+    const piped = plan.stdioMode === 'pipe';
+    this.stdin = piped ? this.createStdin() : null;
+    this.stdout = piped
+      ? new Readable({
+          read: () => {
+            this.post({ type: 'resume' });
+          },
+        })
+      : null;
 
     // No `read` implementation: nothing on the host can ask the child for more
     // stderr, and stderr is small enough that back-pressure is not worth a
     // second pause/resume channel.
     this.stderr =
-      plan.stderrMode === 'stream'
+      piped && plan.stderrMode === 'stream'
         ? new Readable({ read: () => undefined })
         : null;
+    // A stream that does not exist has nothing to drain.
+    this.stdoutEnded = this.stdout === null;
     this.stderrEnded = this.stderr === null;
 
     this.whenSpawned = new Promise<number | null>((resolve) => {
@@ -305,6 +299,7 @@ class WorkerBackedProcess
       args: [...plan.args],
       cwd: plan.cwd,
       env: plan.env,
+      stdioMode: plan.stdioMode,
       stderrMode: plan.stderrMode,
       detached: plan.detached,
       windowsHide: plan.windowsHide,
@@ -319,6 +314,25 @@ class WorkerBackedProcess
       if (signal.aborted) this.onAbort();
       else signal.addEventListener('abort', this.onAbort, { once: true });
     }
+  }
+
+  private createStdin(): Writable {
+    const stdin = new Writable({
+      write: (chunk: Buffer, _encoding, callback) => {
+        const view = new Uint8Array(chunk);
+        this.post({ type: 'stdin', chunk: view }, [view.buffer]);
+        callback();
+      },
+      final: (callback) => {
+        this.post({ type: 'stdin-end' });
+        callback();
+      },
+    });
+    // Defence in depth: stdin is destroyed when the worker is lost, and a
+    // Writable 'error' with no listener would throw on the host's main loop.
+    // A failed write already reaches its caller through the write callback.
+    stdin.on('error', () => undefined);
+    return stdin;
   }
 
   get killed(): boolean {
@@ -390,7 +404,7 @@ class WorkerBackedProcess
    */
   private endAbnormally(signal: NodeJS.Signals, error: Error | null): void {
     this.abandoned = true;
-    this.stdin.destroy();
+    this.stdin?.destroy();
     if (!this.settled) {
       this.settled = true;
       this.markSignalDeath(signal);
@@ -418,7 +432,7 @@ class WorkerBackedProcess
         return;
       }
       case 'stdout': {
-        if (!this.stdout.push(Buffer.from(message.chunk))) {
+        if (this.stdout && !this.stdout.push(Buffer.from(message.chunk))) {
           this.post({ type: 'pause' });
         }
         return;
@@ -502,7 +516,7 @@ class WorkerBackedProcess
   private endStdout(): void {
     if (this.stdoutEnded) return;
     this.stdoutEnded = true;
-    this.stdout.push(null);
+    this.stdout?.push(null);
   }
 
   private endStderr(): void {
@@ -521,7 +535,7 @@ class WorkerBackedProcess
       this.graceTimer = null;
       // The child's pipes may still be open inside the worker; do not lend it on.
       this.abandoned = true;
-      this.stdin.destroy();
+      this.stdin?.destroy();
       if (!this.exitReported) {
         // Settled by an error, never by an exit: the worker is terminated
         // below, so report it as the forced end it is.
@@ -609,19 +623,23 @@ class WorkerBackedProcess
 /** The inline (blocking) path — exactly what the SDK's own spawner does. */
 class InlineProcess
   extends EventEmitter
-  implements PtahSpawnedProcess, SpawnedProcessHandle
+  implements SpawnedProcessHandle
 {
   readonly transport = 'inline' as const;
-  readonly stdin: Writable;
-  readonly stdout: Readable;
+  /** `null` for `stdioMode: 'ignore'`; see {@link hasStdioPipes}. */
+  readonly stdin: Writable | null;
+  readonly stdout: Readable | null;
   readonly stderr: Readable | null;
   /** An inline spawn already has its pid, so the port's promise is settled. */
   readonly whenSpawned: Promise<number | null>;
 
-  constructor(private readonly child: childProcess.ChildProcess) {
+  constructor(
+    private readonly child: childProcess.ChildProcess,
+    stdioMode: StdioMode,
+  ) {
     super();
     this.on('error', () => undefined);
-    if (!child.stdin || !child.stdout) {
+    if (stdioMode === 'pipe' && (!child.stdin || !child.stdout)) {
       throw new Error('Inline spawn produced a child without stdio pipes.');
     }
     this.stdin = child.stdin;
@@ -656,6 +674,54 @@ class InlineProcess
   }
 }
 
+/**
+ * A request this platform cannot honour: no child, no stream, one `error`.
+ *
+ * Reported the way a failed worker spawn is — `error`, then `close` with no
+ * exit status, and `whenSpawned` resolving `null` — and on a later turn, so a
+ * caller that attaches its listeners after `spawnProcess` returns still sees
+ * both events.
+ */
+class RefusedProcess extends EventEmitter implements SpawnedProcessHandle {
+  readonly stdin = null;
+  readonly stdout = null;
+  readonly stderr = null;
+  readonly whenSpawned = Promise.resolve(null);
+  readonly pid = undefined;
+  readonly killed = false;
+  readonly exitCode = null;
+
+  constructor(error: Error) {
+    super();
+    this.on('error', () => undefined);
+    setImmediate(() => {
+      this.emit('error', error);
+      this.emit('close', null, null);
+    });
+  }
+
+  kill(): boolean {
+    return false;
+  }
+}
+
+/** The `error.code` of a `userConsole` request on a platform other than win32. */
+const USER_CONSOLE_UNSUPPORTED = 'ENOTSUP';
+
+/**
+ * The SDK seam's handles always pipe stdio; this proves it to the compiler
+ * instead of casting. Only `stdioMode: 'ignore'` (the port's `userConsole` or
+ * `ignoreStdio`) produces a handle without pipes, and `spawn()` never asks for it.
+ */
+function hasStdioPipes(
+  target: WorkerBackedProcess | InlineProcess,
+): target is (WorkerBackedProcess | InlineProcess) & {
+  readonly stdin: Writable;
+  readonly stdout: Readable;
+} {
+  return target.stdin !== null && target.stdout !== null;
+}
+
 @injectable()
 export class OffThreadProcessSpawner implements IProcessSpawner {
   private readonly live = new Set<WorkerBackedProcess>();
@@ -688,7 +754,7 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
     // The SDK resolves the CLI path itself and reads only `exit`, so this seam
     // does no command parsing, asks for no console and pipes stderr only when a
     // hook wants it. Unchanged from before `spawnProcess` existed.
-    return this.launch(
+    const spawned = this.launch(
       {
         command: options.command,
         args: options.args,
@@ -698,10 +764,16 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
         detached: false,
         windowsHide: true,
         windowsVerbatimArguments: false,
+        stdioMode: 'pipe',
         stderrMode: hooks.onStderr ? 'callback' : 'ignore',
       },
       hooks,
     );
+    if (!hasStdioPipes(spawned)) {
+      // Unreachable: both handle classes create pipes for `stdioMode: 'pipe'`.
+      throw new Error('SDK spawn produced a child without stdio pipes.');
+    }
+    return spawned;
   }
 
   /**
@@ -713,6 +785,17 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
    * `detached` / `needsConsole` reach the child.
    */
   spawnProcess(request: ProcessSpawnRequest): SpawnedProcessHandle {
+    const userConsole = request.userConsole === true;
+    if (userConsole && process.platform !== 'win32') {
+      const refused: SpawnFailure = new Error(
+        'a user console is available only on Windows',
+      );
+      refused.code = USER_CONSOLE_UNSUPPORTED;
+      return new RefusedProcess(refused);
+    }
+    // A user console's input and output belong to the user; an ignore-stdio
+    // request asks for no pipe on its own. Neither creates one.
+    const noStdio = userConsole || request.ignoreStdio === true;
     const env = stripUndefinedEnv(request.env);
     const parsed = parseCommand(request.command, [...request.args], {
       cwd: request.cwd,
@@ -727,11 +810,13 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
         env,
         detached: request.detached === true,
         // ConPTY's AttachConsole() fails without a console of its own, which is
-        // what breaks shell execution inside the rival CLIs on Windows.
-        windowsHide: request.needsConsole !== true,
+        // what breaks shell execution inside the rival CLIs on Windows. A user
+        // console is a visible one by definition.
+        windowsHide: !userConsole && request.needsConsole !== true,
         windowsVerbatimArguments:
           parsed.options.windowsVerbatimArguments === true,
-        stderrMode: 'stream',
+        stdioMode: noStdio ? 'ignore' : 'pipe',
+        stderrMode: noStdio ? 'ignore' : 'stream',
         ...(request.launchGuard !== undefined
           ? { launchGuard: request.launchGuard }
           : {}),
@@ -808,7 +893,10 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
     const child = childProcess.spawn(plan.command, [...plan.args], {
       cwd: plan.cwd,
       env: plan.env,
-      stdio: ['pipe', 'pipe', plan.stderrMode === 'ignore' ? 'ignore' : 'pipe'],
+      stdio:
+        plan.stdioMode === 'ignore'
+          ? ['ignore', 'ignore', 'ignore']
+          : ['pipe', 'pipe', plan.stderrMode === 'ignore' ? 'ignore' : 'pipe'],
       signal: plan.signal,
       windowsHide: plan.windowsHide,
       detached: plan.detached,
@@ -822,6 +910,6 @@ export class OffThreadProcessSpawner implements IProcessSpawner {
       });
     }
 
-    return new InlineProcess(child);
+    return new InlineProcess(child, plan.stdioMode);
   }
 }

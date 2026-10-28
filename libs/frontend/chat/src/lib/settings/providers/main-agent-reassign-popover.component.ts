@@ -3,7 +3,10 @@ import {
   signal, untracked,
 } from '@angular/core';
 import { X, LucideAngularModule } from 'lucide-angular';
-import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
+import {
+  ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService, VSCodeService, type ProviderAccountActionOutcome,
+  type ProviderAccountChoice, type ProvidersEditContext,
+} from '@ptah-extension/core';
 import {
   DEFAULT_OVERLAY_OFFSET, NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
@@ -13,6 +16,10 @@ import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/dra
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
 import { capPopoverHeight } from './popover-height-cap';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { connectionKind } from './connection-drawer/connection-kind';
+import {
+  ACCOUNT_COPY, accountChoiceOf, accountSelectorModel, selectionFeedback, type AccountSelectorValue,
+} from './accounts/account-presentation';
 
 export type MainAgentFocus = 'main-agent' | 'main-model' | 'main-effort';
 
@@ -37,6 +44,17 @@ interface ModelCatalogue {
 }
 
 type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[0];
+
+/**
+ * The account write Save will make, taken synchronously when Save is clicked (P6-A12): the choice and the revisions it
+ * was made against, so a push during the provider write cannot become the write's expected revision.
+ */
+interface AccountIntent {
+  readonly value: AccountSelectorValue;
+  readonly choice: ProviderAccountChoice;
+  readonly selectionRevision: number;
+  readonly profileRevision: number | null;
+}
 
 /**
  * Main Agent popover (plan :596-609, design-spec §2.1, prototype `#popoverMainAgent`), opened from the
@@ -79,14 +97,16 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
            body and footer share one horizontal padding (px-3), so every row starts on the same left edge. -->
       <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto text-xs"
         [style.max-height.px]="maxHeight()" data-testid="main-agent-popover">
-        <div class="flex shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
-          <h2 id="main-agent-popover-title" class="text-xs font-bold text-base-content">Reassign main agent</h2>
-          <div class="-mr-1 flex items-center gap-1">
-            <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 px-1.5 font-medium text-base-content underline ' + focusRing"
+        <!-- min-w-0 throughout so the header shrinks at narrow widths (245 px): the title and the Check label truncate,
+             and Close (flex-none) always stays in view. -->
+        <div class="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+          <h2 id="main-agent-popover-title" class="min-w-0 flex-1 truncate text-xs font-bold text-base-content" title="Reassign main agent">Reassign main agent</h2>
+          <div class="-mr-1 flex min-w-0 items-center gap-1">
+            <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 min-w-0 flex-nowrap px-1.5 font-medium text-base-content underline ' + focusRing"
               [ptahBusyDisabled]="state.route().status === 'loading'" (click)="state.checkConnection()" data-testid="main-agent-check">
-              {{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}
+              <span class="truncate">{{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}</span>
             </button>
-            <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="cancel()">
+            <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 flex-none ' + focusRing" aria-label="Close" (click)="cancel()">
               <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
@@ -130,6 +150,34 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
               <p [attr.role]="outcome.alert ? 'alert' : 'status'" class="text-base-content" data-testid="main-agent-provider-outcome">{{ outcome.text }}</p>
             }
           </div>
+
+          <!-- Account (P6 MP): the Claude CLI's main-chat account, drafted like the rest and written by Save after the
+               provider. Absent outside Electron, before the first list read, and for any other provider. Busy keeps it
+               focusable (value changes blocked), so it can take focus back after a refused write (P6-A3). -->
+          @if (accountField(); as account) {
+            <div class="grid gap-1" data-testid="main-agent-account-field">
+              @if (account.stored.kind === 'signed-out') {
+                <div class="flex items-center justify-between gap-2">
+                  <label for="main-agent-account" [class]="label">Account</label>
+                  <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-[11px] text-base-content ' + focusRing"
+                    [attr.aria-label]="copy.signInSavedAccount" (click)="accountSignInRequested.emit()"
+                    data-testid="main-agent-account-sign-in">Sign in</button>
+                </div>
+              } @else {
+                <label for="main-agent-account" [class]="label">Account</label>
+              }
+              <select id="main-agent-account" [class]="select" [ptahBusyDisabled]="busy()" [title]="accountText()"
+                [attr.aria-invalid]="accountRemoved() ? 'true' : null" [attr.aria-describedby]="accountRemoved() ? 'main-agent-account-removed' : null"
+                (change)="onAccount($event)" data-testid="main-agent-account">
+                @for (option of account.options; track option.value) {
+                  <option [value]="option.value" [disabled]="option.disabled" [selected]="option.value === accountValue()">{{ option.label }}</option>
+                }
+              </select>
+              @if (accountRemoved()) {
+                <span id="main-agent-account-removed" class="sr-only" data-testid="main-agent-account-removed">{{ copy.removedAccount }}</span>
+              }
+            </div>
+          }
 
           <div class="grid gap-1" data-focus="main-model" tabindex="-1">
             <label for="main-agent-model" [class]="label">Model selection</label>
@@ -236,6 +284,8 @@ export class MainAgentReassignPopoverComponent {
   /** Deep-linked control to focus once open. */
   readonly initialFocus = input<MainAgentFocus | null>(null);
   readonly closed = output<void>();
+  /** The stored main account is signed out: "Sign in" asks the page to open the Claude drawer on Accounts (P6-A10). */
+  readonly accountSignInRequested = output<void>();
 
   // The draft: nothing below is written before Save.
   protected readonly providerChoice = signal<string | null>(null);
@@ -257,6 +307,21 @@ export class MainAgentReassignPopoverComponent {
   protected readonly saving = signal(false);
   /** The popover's height cap in px (`fitToViewport`); `null` until it is positioned. */
   protected readonly maxHeight = signal<number | null>(null);
+  // Account (P6 MP). Electron only, like the Providers page (D34): elsewhere the services are never injected.
+  private readonly accountsAvailable = inject(VSCodeService).isElectron;
+  private readonly accounts = this.accountsAvailable ? inject(ProviderAccountsStateService) : null;
+  private readonly ambient = this.accountsAvailable ? inject(ClaudeAmbientStatusService) : null;
+  protected readonly copy = ACCOUNT_COPY;
+  /** The drafted account; `null` = follow the stored value (pushes included). */
+  protected readonly accountDraft = signal<AccountSelectorValue | null>(null);
+  /**
+   * P6-A13: a confirmed account refusal (failed, unavailable or the P6-A12 conflict) locks Save, even with model or
+   * effort drafted, until the user picks another enabled account or reopens the popover. Never set by `unconfirmed`.
+   */
+  protected readonly accountRefused = signal(false);
+  /** The stored key the current draft was made against, and whether "Account changed elsewhere" was said for it. */
+  private draftBase: string | null = null;
+  private elsewhereAnnounced = false;
   private context: ProvidersEditContext | null = null;
   private session = 0;
   private catalogueRequest = 0;
@@ -356,11 +421,52 @@ export class MainAgentReassignPopoverComponent {
   protected readonly awaitingConfirm = computed(() => this.pendingProvider() !== null && !this.providerConfirmed());
   /** Triggers wait while any save runs (D3). */
   protected readonly busy = computed(() => this.saving() || this.feedback.saving() || this.outcome()?.status === 'saving');
-  /** Save has something to write, somewhere it may go; `busy` is applied separately (focus stays on the button). */
+  /** The draft provider is the Claude CLI connection (the same predicate as the card badge). */
+  private readonly claudeCliDraft = computed(() => {
+    const entry = (this.state.connections().data ?? []).find((connection) => connection.id === this.providerId());
+    return !!entry && connectionKind(entry) === 'claude-cli';
+  });
+  /** The main-scope selector model; `null` outside Electron and before the first account list read. */
+  private readonly accountModel = computed(() =>
+    this.accounts && this.ambient ? accountSelectorModel(this.accounts.state('claude')(), this.ambient.view(), 'main') : null);
+  /** The Account field, when shown: Claude CLI drafted and the model visible (P6-1). */
+  protected readonly accountField = computed(() => {
+    if (!this.claudeCliDraft()) return null;
+    const model = this.accountModel();
+    return model?.visible ? model : null;
+  });
+  /** The value the select shows: an enabled draft, else the stored value. A disabled or `stored` value is never kept. */
+  protected readonly accountValue = computed<AccountSelectorValue | null>(() => {
+    const model = this.accountModel(), draft = this.accountDraft();
+    if (!model) return null;
+    return draft !== null && this.enabledOption(draft) ? draft : model.value;
+  });
+  protected readonly accountText = computed(() => {
+    const value = this.accountValue();
+    return this.accountField()?.options.find((option) => option.value === value)?.label ?? '';
+  });
+  /** M4b: the stored account is gone; the select says so and nothing is reassigned (B-1). */
+  protected readonly accountRemoved = computed(() => this.accountField()?.stored.kind === 'removed' && this.accountValue() === 'stored');
+  /** Identity of the stored main selection, for "Account changed elsewhere" (a sign-in state change is not a change). */
+  private readonly storedKey = computed(() => {
+    const stored = this.accountModel()?.stored;
+    return !stored ? null : stored.kind === 'ambient' ? 'ambient' : `named:${stored.profileId}`;
+  });
+  protected readonly accountChanged = computed(() => {
+    const draft = this.accountDraft();
+    return this.accountField() !== null && draft !== null && draft !== this.accountModel()?.value && this.enabledOption(draft)
+      && accountChoiceOf(draft) !== null;
+  });
+  /**
+   * Save has something to write, somewhere it may go; `busy` is applied separately (focus stays on the button). A refused
+   * account write locks it first (P6-A13). An account-only draft needs no "Save to" target.
+   */
   protected readonly saveReady = computed(() => {
+    if (this.accountRefused()) return false;
     const pending = this.pendingProvider();
     const dirty = pending !== null || this.modelChanged() || this.effortChanged();
-    return dirty && this.targetReady() && !this.awaitingConfirm() && (pending?.writable ?? true);
+    if (dirty) return this.targetReady() && !this.awaitingConfirm() && (pending?.writable ?? true);
+    return this.accountChanged() && !this.awaitingConfirm();
   });
 
   constructor() {
@@ -370,9 +476,30 @@ export class MainAgentReassignPopoverComponent {
         this.session += 1;
         this.context = this.state.reviewContext();
         this.discardDraft();
+        this.accountRefused.set(false);
         this.manual.set(false);
         this.outcome.set(null);
+        // One list read and one cached ambient read per open (no forced probe).
+        void this.accounts?.open('claude');
+        void this.ambient?.read(false);
       });
+    });
+    // Contract 3: a stored account pushed while a draft is held keeps the draft and is said once per draft. Not while a
+    // Save runs: its own outcome (or the P6-A12 refusal) speaks for that write.
+    effect(() => {
+      const key = this.storedKey(), draft = this.accountDraft();
+      if (this.saving()) return;
+      untracked(() => {
+        if (draft === null || key === null || this.elsewhereAnnounced || key === this.draftBase) return;
+        this.elsewhereAnnounced = true;
+        this.feedback.announce(ACCOUNT_COPY.accountChangedElsewhere, 'status');
+      });
+    });
+    // DOM re-assert (B-1): the select's value is always the shown value, never a disabled or `stored` pick.
+    afterRenderEffect(() => {
+      const value = this.accountValue();
+      if (!this.accountField() || value === null) return;
+      untracked(() => this.reassertAccount(value));
     });
     // The draft provider's catalogue, while open; a newer request supersedes an older one.
     effect(() => {
@@ -472,22 +599,45 @@ export class MainAgentReassignPopoverComponent {
       { injector: this.injector });
   }
 
+  /** A new enabled account joins the draft (and lifts the P6-A13 lock); a disabled or `stored` pick is undone. */
+  protected onAccount(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value as AccountSelectorValue;
+    const model = this.accountModel();
+    if (!model || this.busy() || !this.enabledOption(value) || accountChoiceOf(value) === null) {
+      const shown = this.accountValue();
+      if (shown !== null) this.reassertAccount(shown);
+      return;
+    }
+    if (value === model.value) {
+      this.accountDraft.set(null);
+      return;
+    }
+    this.accountDraft.set(value);
+    this.draftBase = this.storedKey();
+    this.elsewhereAnnounced = false;
+    this.accountRefused.set(false);
+  }
+
   protected onEffort(effort: EffortLevel | ''): void {
     if (this.busy() || !this.targetReady()) return;
     this.effortDraft.set(effort);
   }
 
   /**
-   * Writes the draft to "Save to": a confirmed provider change first (`activateConnection`, its own outcome, no Undo,
-   * D6/D15), then the model and effort together (`saveSettings`, with Undo). A step that does not save stops the rest
-   * and keeps the popover open with the remaining draft; a fully saved draft closes it.
+   * Writes the draft: a confirmed provider change first (`activateConnection`, its own outcome, no Undo, D6/D15), then
+   * the Claude CLI account (`setSelection`, P6-A2), then the model and effort together (`saveSettings`, with Undo). A step
+   * that does not save stops the rest and keeps the popover open with the remaining draft; a fully saved draft closes it.
+   * The account intent is taken before the first await and re-checked after the provider write (P6-A12).
    */
   protected async save(): Promise<void> {
     const target = this.target(), pending = this.pendingProvider(), session = this.session;
-    if (!this.saveReady() || this.busy() || !target) return;
+    const writesSettings = pending !== null || this.modelChanged() || this.effortChanged();
+    if (!this.saveReady() || this.busy() || (writesSettings && !target)) return;
+    const intent = this.captureAccountIntent();
+    const saveButton = this.saveButton();
     this.saving.set(true);
     try {
-      if (pending) {
+      if (pending && target) {
         await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context), (outcome) => {
           if (session === this.session) this.outcome.set(outcome);
         });
@@ -497,8 +647,43 @@ export class MainAgentReassignPopoverComponent {
         this.rescope.set(false);
         this.providerConfirmed.set(false);
       }
-      if (this.modelChanged() || this.effortChanged()) {
-        const result = await this.saveModelAndEffort(target);
+      let accountSaved: string | null = null;
+      const accounts = this.accounts;
+      if (intent && accounts) {
+        // A closed or reopened popover drops the intent: nothing more is written.
+        if (session !== this.session || !this.open()) return;
+        const providerSaved = pending !== null;
+        // No await between the check and the call: the service's call-time snapshot read is the checked one.
+        const outcome: ProviderAccountActionOutcome = !providerSaved || this.intentHolds(intent)
+          ? await accounts.setSelection('claude', 'main', intent.choice)
+          : { status: 'unavailable' };
+        const feedback = selectionFeedback(outcome, 'main', { providerSaved });
+        const live = session === this.session && this.open();
+        if (outcome.status !== 'saved') {
+          // D60: a null feedback shows no toast. The toast outlives the popover, so it announces even when closed.
+          if (feedback) this.feedback.announce(feedback.message, feedback.tone);
+          if (!live) return;
+          this.accountDraft.set(null);
+          if (outcome.status === 'unconfirmed') return;
+          // Confirmed refusal: P6-A13 lock; P6-A3 focus only when focus is still on Save (the B-2 waiting target).
+          const focusWasOnSave = !!saveButton && saveButton.ownerDocument.activeElement === saveButton;
+          this.accountRefused.set(true);
+          if (focusWasOnSave) {
+            afterNextRender(() => this.element.nativeElement.querySelector<HTMLSelectElement>('#main-agent-account')?.focus(),
+              { injector: this.injector });
+          }
+          return;
+        }
+        if (live) this.accountDraft.set(null);
+        if (!live || !(this.modelChanged() || this.effortChanged())) {
+          if (feedback) this.feedback.announce(feedback.message, feedback.tone);
+          if (!live) return;
+        } else {
+          accountSaved = feedback?.message ?? null;
+        }
+      }
+      if (target && (this.modelChanged() || this.effortChanged())) {
+        const result = await this.saveModelAndEffort(target, accountSaved);
         if (session !== this.session || result !== 'saved') return;
         this.modelDraft.set(null);
         this.effortDraft.set(null);
@@ -547,7 +732,7 @@ export class MainAgentReassignPopoverComponent {
   }
 
   /** The drafted model and effort in one write; Undo writes the stored values back (none when no model was stored). */
-  private async saveModelAndEffort(applyTo: SettingScope): Promise<SettingsSaveResult | null> {
+  private async saveModelAndEffort(applyTo: SettingScope, accountSaved: string | null): Promise<SettingsSaveResult | null> {
     const context = this.context;
     if (!context) return null;
     const model = this.modelChanged() ? this.selectedModel() : null;
@@ -556,6 +741,8 @@ export class MainAgentReassignPopoverComponent {
     const label = model !== null && effort !== null ? 'main agent model and reasoning effort' : model !== null ? 'main agent model' : 'reasoning effort';
     const result = await this.feedback.save({
       label, scope: applyTo,
+      // P6-A2: a saved account rides on this toast, so its Undo (model and effort only) survives.
+      ...(accountSaved ? { successMessage: `Saved ${label} to ${this.scopeLabels[applyTo]}. ${accountSaved}.` } : {}),
       write: () => this.state.saveSettings(this.patch(model, effort, applyTo), context),
       undo: model !== null && !previousModel ? null
         : () => this.state.saveSettings(this.patch(model !== null ? previousModel : null, effort !== null ? previousEffort : null, applyTo), context),
@@ -578,6 +765,45 @@ export class MainAgentReassignPopoverComponent {
     this.targetChoice.set(null);
     this.modelDraft.set(null);
     this.effortDraft.set(null);
+    this.accountDraft.set(null);
+    this.draftBase = null;
+    this.elsewhereAnnounced = false;
+  }
+
+  private enabledOption(value: AccountSelectorValue): boolean {
+    return this.accountModel()?.options.some((option) => option.value === value && !option.disabled) ?? false;
+  }
+
+  private reassertAccount(value: AccountSelectorValue): void {
+    const select = this.element.nativeElement.querySelector<HTMLSelectElement>('#main-agent-account');
+    if (select && select.value !== value) select.value = value;
+  }
+
+  private saveButton(): HTMLButtonElement | null {
+    return this.element.nativeElement.querySelector<HTMLButtonElement>('[data-testid="main-agent-save"]');
+  }
+
+  /** P6-A12: the account write and the revisions it is made against, taken at the Save click. */
+  private captureAccountIntent(): AccountIntent | null {
+    const value = this.accountDraft();
+    if (!this.accounts || value === null || !this.accountChanged()) return null;
+    const choice = accountChoiceOf(value), snapshot = this.accounts.state('claude')().snapshot;
+    if (!choice || !snapshot) return null;
+    const profile = choice.kind === 'named' ? snapshot.accounts.find((account) => account.profileId === choice.profileId) : null;
+    if (choice.kind === 'named' && !profile) return null;
+    return { value, choice, selectionRevision: snapshot.selections.main.revision, profileRevision: profile?.revision ?? null };
+  }
+
+  /** After the provider write: unchanged scope and profile revisions, and still an enabled option (P6-A12). */
+  private intentHolds(intent: AccountIntent): boolean {
+    const snapshot = this.accounts?.state('claude')().snapshot;
+    if (!snapshot || snapshot.selections.main.revision !== intent.selectionRevision) return false;
+    if (intent.choice.kind === 'named') {
+      const profileId = intent.choice.profileId;
+      const profile = snapshot.accounts.find((account) => account.profileId === profileId);
+      if (!profile || profile.revision !== intent.profileRevision) return false;
+    }
+    return this.enabledOption(intent.value);
   }
 
   /** The runner reads `commit()` and the context this popover reviewed against (taken on open). */

@@ -74,6 +74,13 @@ export const AUTH_PROVIDERS_TOKENS = {
    * Identifies `ProviderAccountActionPort`. Does not perform an auth action.
    */
   SDK_PROVIDER_ACCOUNT_ACTIONS: Symbol.for('SdkProviderAccountActions'),
+  /**
+   * Stored Claude account selection per workspace scope.
+   * Identifies `ClaudeAccountSelectionReader`. Does not admit a route.
+   */
+  SDK_PROVIDER_ACCOUNT_SELECTION_READER: Symbol.for(
+    'SdkProviderAccountSelectionReader',
+  ),
 } as const;
 
 export type AuthProvidersDIToken = keyof typeof AUTH_PROVIDERS_TOKENS;

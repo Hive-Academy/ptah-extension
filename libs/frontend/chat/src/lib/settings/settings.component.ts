@@ -8,6 +8,7 @@ import {
   effect,
   untracked,
 } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
 import {
   LucideAngularModule,
   ArrowLeft,
@@ -15,17 +16,16 @@ import {
   Workflow,
   SlidersHorizontal,
   AudioLines,
+  RotateCw,
 } from 'lucide-angular';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
-import {
-  ProvidersSettingsComponent,
-  type ProvidersSettingsFocusTarget,
-} from './providers/providers-settings.component';
+// Two declarations on purpose: each component import must hold only the `@defer`-only class, or
+// Angular keeps the whole tab (Providers with its named-accounts UI, Orchestration) in the eager chunk.
+import { ProvidersSettingsComponent } from './providers/providers-settings.component';
+import type { ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
 import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from './feedback/settings-toast.component';
-// Two declarations on purpose: the component import must hold only the `@defer`-only class, or
-// Angular keeps the whole Orchestration tab in the eager chunk.
 import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
 import type { OrchestrationSettingsFocusTarget } from './ptah-ai/orchestration-settings.component';
 import { AdvancedSettingsComponent } from './advanced-settings.component';
@@ -97,9 +97,9 @@ const isOrchestrationSection = (
   selector: 'ptah-settings',
   standalone: true,
   imports: [
-    ProvidersSettingsComponent,
     // Used only inside `@defer` in the template, so each tab compiles to its own lazy chunk.
     // Referencing any of these classes anywhere else in this file would make it eager again.
+    ProvidersSettingsComponent,
     OrchestrationSettingsComponent,
     AdvancedSettingsComponent,
     SearchVoiceSettingsComponent,
@@ -175,7 +175,9 @@ export class SettingsComponent implements OnInit {
   private readonly vscodeService = inject(VSCodeService);
   private readonly providersState = inject(ProvidersSettingsStateService);
   readonly authState = inject(AuthStateService);
+  private readonly document = inject(DOCUMENT);
   readonly ArrowLeftIcon = ArrowLeft;
+  readonly RotateCwIcon = RotateCw;
   /** Card tabs, in order. Each label is the button's exact accessible name (live-app scripts use it). */
   readonly settingsTabs = [
     { id: 'claude-auth', label: 'Providers', icon: Plug },
@@ -284,6 +286,15 @@ export class SettingsComponent implements OnInit {
    */
   backToChat(): void {
     this.appState.setCurrentView('chat');
+  }
+
+  /**
+   * Recovery for a Providers chunk that failed to load. Angular and the module
+   * loader cache the failure, so reopening Settings would fail again; a reload
+   * restarts the renderer instead (as electron-shell's welcome screen does).
+   */
+  reloadWindow(): void {
+    this.document.defaultView?.location.reload();
   }
 
   /**

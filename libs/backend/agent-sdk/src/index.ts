@@ -453,4 +453,35 @@ export {
 
 export const AGENT_SDK_VERSION = '0.0.1';
 export { applyClaudeAccountRouteEnv } from './lib/helpers/claude-account-route-env';
+export {
+  CLAUDE_CERTIFIED_ENV_KEYS,
+  CLAUDE_PERSONAL_ACCOUNT_INFO_SUBSCRIPTIONS,
+  CLAUDE_PERSONAL_SUBSCRIPTIONS,
+  CLAUDE_SETTINGS_SAFE_ENV_KEYS,
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
+  buildCertifiedClaudeEnv,
+  claudePersonalLoginCheck,
+  claudePersonalLoginPassed,
+  type ClaudeLoginSubscriptionClass,
+  type ClaudePersonalLoginCheck,
+  type ClaudeRunningLoginInfo,
+  certifiedEnvDigest,
+  certifiedNamedEnv,
+  claudeSettingsOverride,
+  isCertifiedClaudeEnvKey,
+  isClaudeSettingsEnvKeyAllowed,
+  type ClaudeActualLaunch,
+  type ClaudeCertifiedLaunchRefusalCode,
+  type ClaudeRunPolicyKey,
+} from './lib/helpers/claude-certified-launch';
+export { claudeIdentityReference } from './lib/helpers/claude-identity-reference';
 export * from './lib/helpers/named-account-prompt-gate';
+// Named Claude account host bindings (TASK_2026_719 B17): a certifying host
+// replaces the null defaults `registerSdkServices` binds to these tokens.
+export { SDK_NAMED_ACCOUNT_PERSISTENCE } from './lib/helpers/sdk-query-runner.service';
+export type { NamedAccountPersistencePort } from './lib/helpers/session-lifecycle/session-query-executor.service';
+export {
+  SDK_SESSION_IMPORT_BINDING_LOOKUP,
+  type SessionImportBindingLookup,
+} from './lib/session-importer.service';

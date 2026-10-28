@@ -159,11 +159,42 @@
           </p>
         </div>
       }
-      <ptah-providers-settings
-        [focusTarget]="providersTarget()"
-        [requestedProviderId]="requestedProviderId() ?? ''"
-        (requestedProviderConsumed)="consumeRequestedProvider($event)"
-      />
+      <!-- Deferred like tabs 2-4: the Providers page (with its named-accounts UI) is its own chunk, so the
+           eager route stays inside its bundle budget. Deep links apply once the page renders. -->
+      @defer (on immediate) {
+        <ptah-providers-settings
+          [focusTarget]="providersTarget()"
+          [requestedProviderId]="requestedProviderId() ?? ''"
+          (requestedProviderConsumed)="consumeRequestedProvider($event)"
+        />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      } @error {
+        <!-- The boot auth check lands here when no credential is set, so a failed chunk must stay
+             recoverable. A remount would fail again (the failure is cached): Reload restarts the renderer. -->
+        <div
+          class="flex flex-col items-start gap-3 rounded-lg border border-base-300 p-4"
+          data-testid="providers-settings-load-error"
+          role="alert"
+        >
+          <p class="text-sm text-base-content">
+            The Providers page could not load. Reload the window to try again.
+          </p>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary gap-1.5"
+            data-testid="providers-settings-reload"
+            (click)="reloadWindow()"
+          >
+            <lucide-angular
+              [img]="RotateCwIcon"
+              class="w-3.5 h-3.5"
+              aria-hidden="true"
+            />
+            Reload
+          </button>
+        </div>
+      }
     }
 
     <!-- ============================================ -->

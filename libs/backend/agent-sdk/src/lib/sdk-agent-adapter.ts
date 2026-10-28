@@ -475,6 +475,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private handleWorkspaceChanged(): void {
     if (!this.initialized) {
+      this.retryInitializeForWorkspace();
       return;
     }
 
@@ -536,6 +537,65 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.logger.warn(
         '[SdkAgentAdapter] Auth reconfigure after workspace change failed',
         err instanceof Error ? err : new Error(String(err)),
+      );
+    });
+  }
+
+  /**
+   * A set-up that failed for the previous workspace (for example an API-key
+   * route with no key stored) leaves the adapter not initialized. Without this
+   * retry a switch to a workspace whose route is usable kept every chat start
+   * failing with `AuthRequiredError` until a restart.
+   *
+   * The zero-folders rule above holds here too: with no folder open the
+   * resolver falls through to the global default, so nothing is attempted.
+   * The retry runs through `queueAdapterPass`, behind any reset or config
+   * re-initialization. A pass already in flight captured the PREVIOUS
+   * workspace's auth route, so the retry never joins it: it drains it first,
+   * then acts for the route that is current now. If that pass succeeded, the
+   * route change is reconciled through `reconfigureAuthIfChanged()` like any
+   * initialized switch; otherwise exactly one fresh pass runs. The folder
+   * count is checked again right before that, because the last folder can
+   * close while the retry waits in the queue. A failed retry leaves the
+   * adapter not initialized with the health error the failed pass recorded,
+   * which `notInitializedError()` surfaces.
+   */
+  private retryInitializeForWorkspace(): void {
+    if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+      return;
+    }
+    void this.queueAdapterPass(async () => {
+      // Each awaited pass is one that something else started; this drains
+      // them, it never starts one. It ends once no pass is in flight.
+      while (this.initInFlight !== null) {
+        // degradation-audit: reported - the drained pass belongs to its own
+        // caller, which receives its result or rejection; this retry only
+        // waits for it to settle.
+        await this.initInFlight.catch(() => false);
+      }
+      if (this.workspaceProvider.getWorkspaceFolders().length === 0) {
+        this.logger.debug(
+          '[SdkAgentAdapter] Last folder closed before the set-up retry ran — keeping the current auth configuration',
+        );
+        return;
+      }
+      if (this.initialized) {
+        await this.reconfigureAuthIfChanged();
+        return;
+      }
+      this.logger.info(
+        '[SdkAgentAdapter] Workspace changed while not initialized — retrying set-up for the new workspace',
+      );
+      const ok = await this.initialize();
+      if (!ok) {
+        this.logger.warn(
+          '[SdkAgentAdapter] Set-up retry after workspace change did not initialize the adapter',
+        );
+      }
+    }).catch((error: unknown) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Set-up retry after workspace change failed',
+        error instanceof Error ? error : new Error(String(error)),
       );
     });
   }
@@ -904,6 +964,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       includePartialMessages?: boolean;
       mcpServersOverride?: Record<string, McpHttpServerOverride>;
       providerProfile?: ProviderProfile;
+      /** See `ExecuteQueryConfig.admissionDeadline` (named admission only). */
+      admissionDeadline?: number;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -988,6 +1050,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       includePartialMessages,
       mcpServersOverride,
       authEnvOverride: effectiveAuthEnv,
+      admissionDeadline: config.admissionDeadline,
     });
     // A brand-new session has a known-empty history and nothing saved to
     // restore. It is keyed by the tab id until the SDK reports the canonical
@@ -1163,6 +1226,31 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return tap;
   }
 
+  /**
+   * Account precedence for a live continuation. Omitted (or the bound profile
+   * itself) continues on the owner's lease; the owner re-checks its route and
+   * identity before every turn it admits. Anything else would need a second
+   * route on a running child, so it refuses `conflict` and keeps the session.
+   */
+  private async assertLiveAccountSelection(
+    sessionId: SessionId,
+    live: { readonly provider: string; readonly routeFingerprint: string } | undefined,
+    selection: ProviderAccountSelection | undefined,
+  ): Promise<void> {
+    if (!live) {
+      if (selection?.kind === 'named') throw namedAccountRefusal('conflict');
+      return;
+    }
+    if (selection === undefined || selection.kind === 'omitted') return;
+    if (selection.kind === 'ambient') throw namedAccountRefusal('conflict');
+    const stored = (await this.metadataStore.get(sessionId))?.accountBinding;
+    if (!stored || stored.provider !== live.provider ||
+        stored.routeFingerprint !== live.routeFingerprint) {
+      throw namedAccountRefusal('invalid-bound');
+    }
+    if (stored.profileId !== selection.profileId) throw namedAccountRefusal('conflict');
+  }
+
   async resumeSession(
     sessionId: SessionId,
     config?: AISessionConfig & {
@@ -1173,6 +1261,8 @@ export class SdkAgentAdapter implements IAgentAdapter {
       permissionLevel?: PermissionLevel;
       includePartialMessages?: boolean;
       providerProfile?: ProviderProfile;
+      /** See `ExecuteQueryConfig.admissionDeadline` (named admission only). */
+      admissionDeadline?: number;
     },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -1180,11 +1270,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
     }
 
     const existingSession = this.sessionLifecycle.find(sessionId as string);
-    if (existingSession && existingSession.query && config?.accountSelection?.kind === 'named') {
-      // A live continuation needs Batch 18's bound-turn route revalidation.
-      throw namedAccountRefusal();
-    }
     if (existingSession && existingSession.query) {
+      // The live owner keeps its lease; this call never admits a second one.
+      await this.assertLiveAccountSelection(
+        sessionId,
+        existingSession.accountBinding,
+        config?.accountSelection,
+      );
       this.logger.info(
         `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
       );
@@ -1293,6 +1385,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       pathToClaudeCodeExecutable: effectiveCliJsPath || undefined,
       includePartialMessages,
       authEnvOverride: effectiveAuthEnv,
+      admissionDeadline: config?.admissionDeadline,
     });
     this.statsOwner.beginRun(
       sessionId as string,
@@ -1650,12 +1743,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
       throw this.notInitializedError();
     }
 
-    if (config.accountSelection?.kind === 'named') throw namedAccountRefusal();
-
     // Same per-session provider pinning as start/resume: the relaunch runs on
     // the profile's isolated auth env, model and cli.js when one is supplied.
-    const { providerProfile } = config;
-    const sessionConfig =
+    const { providerProfile, accountSelection } = config;
+    const profiledConfig =
       providerProfile && config.sessionConfig
         ? {
             ...config.sessionConfig,
@@ -1665,6 +1756,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
               : {}),
           }
         : config.sessionConfig;
+    // The router resolved the selection from the session's binding. A named
+    // relaunch resumes through the certified named lifecycle with that stored
+    // binding; ambient relaunches keep their config object unchanged.
+    const sessionConfig: (AISessionConfig & {
+      accountSelection?: ProviderAccountSelection;
+    }) | undefined =
+      accountSelection?.kind === 'named'
+        ? { ...profiledConfig, accountSelection }
+        : profiledConfig;
 
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,

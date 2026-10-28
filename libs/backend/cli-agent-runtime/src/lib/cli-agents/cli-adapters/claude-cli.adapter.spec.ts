@@ -10,10 +10,14 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import type {
   ClaudeAccountAdmissionRequest,
+  ClaudeCertifiedLaunchContext,
+  ClaudeLaunchBoundaryOutcome,
   ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import {
   buildSafeEnv,
+  certifiedEnvDigest,
+  claudeIdentityReference,
   unverifiedCapabilityPolicy,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
@@ -265,6 +269,23 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     await expect(next?.done).resolves.toBe(0);
   });
 
+  it('reports adapter capabilities that match the handle it returns (D39)', async () => {
+    const f = fixture();
+    const handle = await f.adapter.runSdk({ ...f.input, agentId: 'lane-id' });
+    const reported = f.adapter.capabilities();
+    expect(reported).toEqual({
+      continuation: handle.supportsContinuation?.() === true,
+      steer: typeof handle.steer === 'function',
+      interrupt: typeof handle.interrupt === 'function',
+    });
+    // Listing and messaging read these flags: a lane that reports
+    // continuation must accept a follow-up message, and one that reports no
+    // steer or interrupt must not expose either.
+    expect(typeof handle.continue === 'function').toBe(reported.continuation);
+    f.finish(0);
+    await expect(handle.done).resolves.toBe(0);
+  });
+
   it.each([
     ['max', 'high', 'low', 'max'],
     ['unsupported', 'high', 'low', 'high'],
@@ -393,7 +414,9 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     });
     await expect(
       f.adapter.runSdk({ ...f.input, accountAdmission }),
-    ).rejects.toThrow('prompt gate is not available');
+    ).rejects.toThrow(
+      'Claude account refused (unavailable-storage): account storage is not available',
+    );
     expect(admitClaudeRoute).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
@@ -418,8 +441,58 @@ describe('ClaudeCliAdapter native SDK execution', () => {
   });
 });
 
+// A personal claude.ai login: passes the post-init tripwire.
+const personalLogin = {
+  tokenSource: 'claude.ai',
+  subscriptionType: 'max',
+  apiProvider: 'firstParty',
+};
+
+/** Certified launch matching the fixture route, executable and workspace. */
+function certifiedLaunch(): ClaudeCertifiedLaunchContext {
+  const env = {
+    PATH: 'D:/bin',
+    CLAUDE_CONFIG_DIR: 'D:/accounts/selected',
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: 'D:/accounts/selected',
+  };
+  return {
+    executable: {
+      command: 'D:/cli/claude.exe',
+      prefixArgs: [],
+      sdkExecutablePath: '/claude/cli.js',
+      version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 },
+    },
+    env,
+    envDigest: certifiedEnvDigest(env),
+    cwd: '/workspace',
+    settingSources: ['user', 'project', 'local'],
+    policy: {
+      coverage: 'win32@2.1.310',
+      managedFile: 'absent',
+      managedDropIn: 'absent',
+      registry: 'absent',
+      remoteSignals: 'absent',
+    },
+    accountClass: 'personal',
+    identityReference:
+      claudeIdentityReference('owner@example.test', 'org') ?? '',
+  };
+}
+
 function namedFixture() {
   const f = fixture();
+  const launch = certifiedLaunch();
+  const initVersion = { value: launch.executable.version };
+  // Init `apiKeySource`; `undefined` models a child that omits the field.
+  const initKeySource: { value: string | undefined } = { value: 'none' };
+  // CLI 2.1.278 streaming input (D68): the final child emits `system/init`
+  // only after it consumed the first user message.
+  const initAfterFirstTurn = { value: false };
+  // Turns the final child consumed before init, and the permission answers
+  // it got for a tool call made in that window.
+  const turnsBeforeInit = jest.fn();
+  const permissionsBeforeInit: Array<Promise<unknown> | undefined> = [];
   const route = {
     kind: 'named',
     provider: 'claude',
@@ -465,6 +538,7 @@ function namedFixture() {
         route,
         accountDataDir: 'D:/accounts/data',
         filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+        launch: launch as ClaudeCertifiedLaunchContext | undefined,
       },
       reservation,
     })),
@@ -495,6 +569,9 @@ function namedFixture() {
     >(async () => ({ status: 'attached' })),
     saveAccountBound: jest.fn(async () => undefined),
     assertRouteCurrent: jest.fn(async () => undefined),
+    checkLaunchBoundary: jest.fn(
+      async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true }),
+    ),
     onAuthEpochChanged: jest.fn(
       (listener: (route: ClaudeAccountNamedRoute) => void) => {
         epoch = listener;
@@ -543,16 +620,38 @@ function namedFixture() {
       signal: new AbortController().signal,
     });
     const process = processes[processes.length - 1];
-    const accountInfo = jest.fn(async () => ({
+    const accountInfo = jest.fn(async (): Promise<Record<string, unknown>> => ({
+      ...personalLogin,
       email: 'owner@example.test',
       organization: 'org',
     }));
     const close = jest.fn(() => process.emit('exit', 0, null));
+    const final = children.length > 0;
+    const canUseTool = options.canUseTool;
     const stream = (async function* () {
+      if (final && initAfterFirstTurn.value) {
+        const turn = await prompt[Symbol.asyncIterator]().next();
+        turnsBeforeInit(turn.value);
+        permissionsBeforeInit.push(
+          canUseTool?.(
+            'fixture',
+            {},
+            {
+              signal: new AbortController().signal,
+              toolUseID: 'pre-init-tool',
+              requestId: 'pre-init-request',
+            },
+          ),
+        );
+      }
       yield {
         type: 'system',
         subtype: 'init',
         session_id: 'sdk-session',
+        claude_code_version: initVersion.value,
+        ...(initKeySource.value === undefined
+          ? {}
+          : { apiKeySource: initKeySource.value }),
       } as import('@ptah-extension/agent-sdk').SDKMessage;
     })();
     const query = Object.assign(stream, {
@@ -578,6 +677,12 @@ function namedFixture() {
     children,
     unsubscribe,
     epoch: () => epoch?.({ ...route, authEpoch: 1 }),
+    launch,
+    initVersion,
+    initKeySource,
+    initAfterFirstTurn,
+    turnsBeforeInit,
+    permissionsBeforeInit,
   };
 }
 
@@ -586,14 +691,44 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.persistence.available = false;
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'unavailable-storage',
     });
     expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    expect(f.logger.warn).toHaveBeenCalledWith(
+      '[ClaudeCliAdapter] Named lane refused',
+      { stage: 'request', code: 'unavailable-storage' },
+    );
+  });
+
+  it('logs the admission port refusal code with a fixed stage word before refusing', async () => {
+    const f = namedFixture();
+    // A project settings override in the run's working directory refuses at
+    // certification, before any child (the TASK_2026_719 lane refusal).
+    Object.assign(f.admission, {
+      admitClaudeRoute: jest.fn(async () => ({
+        code: 'unsupported-source' as const,
+        summary: 'fixture summary',
+      })),
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'unsupported-source',
+      message: expect.stringMatching(/^Claude account refused \(unsupported-source\): /),
+    });
+    expect(f.logger.warn).toHaveBeenCalledWith(
+      '[ClaudeCliAdapter] Named lane refused',
+      { stage: 'admission', code: 'unsupported-source' },
+    );
+    // Code and stage only: no summary, path or account value is logged.
+    expect(JSON.stringify(jest.mocked(f.logger.warn).mock.calls)).not.toMatch(
+      /fixture summary|workspace|profile/,
+    );
+    expect(f.query).not.toHaveBeenCalled();
   });
 
   it('bootstraps without task options and awaits both stores and the receipt callback on a fresh final gate', async () => {
     const f = namedFixture();
+    f.initAfterFirstTurn.value = true;
     let release!: () => void;
     let reached!: () => void;
     const checkpoint = new Promise<void>((resolve) => {
@@ -629,32 +764,46 @@ describe('named Claude lane admission', () => {
     expect(f.persistence.attachSdkSession).toHaveBeenCalledTimes(1);
     expect(f.persistence.saveAccountBound).toHaveBeenCalledTimes(1);
     expect(f.persistence.persistReference).toHaveBeenCalledTimes(1);
-    const yielded = jest.fn();
-    const first = f.children[1].prompt[Symbol.asyncIterator]()
-      .next()
-      .then((value) => {
-        yielded(value);
-        return value;
-      });
-    await Promise.resolve();
-    expect(yielded).not.toHaveBeenCalled();
-    const permission = f.query.mock.calls[1][0].options?.canUseTool;
-    expect(
-      await permission?.(
-        'fixture',
-        {},
-        {
-          signal: new AbortController().signal,
-          toolUseID: 'tool',
-          requestId: 'request',
-        },
-      ),
-    ).toMatchObject({ behavior: 'deny' });
-    release();
-    const handle = await run;
-    expect((await first).value).toMatchObject({
+    // D68: the final child consumed the task (released right after it proved
+    // the account) before it emitted init; the binding followed init.
+    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
+    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
       message: { content: f.input.task },
     });
+    const consumed = f.turnsBeforeInit.mock.invocationCallOrder[0];
+    expect(f.children[1].accountInfo.mock.invocationCallOrder[0]).toBeLessThan(
+      consumed,
+    );
+    expect(
+      f.persistence.commitRunBinding.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(consumed);
+    // A tool call before init is denied; no output reaches the runner yet.
+    expect(f.permissionsBeforeInit).toHaveLength(1);
+    expect(await f.permissionsBeforeInit[0]).toMatchObject({
+      behavior: 'deny',
+    });
+    expect(f.run).not.toHaveBeenCalled();
+    // After init, a tool call waits for the binding instead of running.
+    const permission = f.query.mock.calls[1][0].options?.canUseTool;
+    const settled = jest.fn();
+    const held = permission?.(
+      'fixture',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'tool',
+        requestId: 'request',
+      },
+    );
+    void held?.then(settled);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).not.toHaveBeenCalled();
+    release();
+    const handle = await run;
+    await held;
+    expect(settled).toHaveBeenCalledTimes(1);
+    // The task travelled once, with the launch; nothing else is queued.
+    expect(f.turnsBeforeInit).toHaveBeenCalledTimes(1);
     expect(handle.accountBinding).toEqual(f.binding);
     expect(handle.accountBindingId).toBe('run');
     expect(f.callbacks).toHaveBeenCalledWith(
@@ -677,7 +826,7 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.persistence[method].mockRejectedValue(new Error('private failure'));
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -691,7 +840,7 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.callbacks.mockRejectedValue(new Error('private callback failure'));
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -703,11 +852,12 @@ describe('named Claude lane admission', () => {
     const f = namedFixture();
     f.callbacks.mockImplementation(async () => {
       f.children[1].accountInfo.mockResolvedValue({
+        ...personalLogin,
         email: 'other@example.test',
       });
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(
       await f.children[1].prompt[Symbol.asyncIterator]().next(),
@@ -725,7 +875,7 @@ describe('named Claude lane admission', () => {
     await expect(handle.done).resolves.toBe(1);
     await expect(next?.done).resolves.toBe(1);
     await expect(handle.continue?.('late')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     f.finish(0);
     await Promise.resolve();
@@ -737,17 +887,24 @@ describe('named Claude lane admission', () => {
 
   it('revalidates queued input at consumption and retains an uncertain child exit', async () => {
     const f = namedFixture();
+    f.initAfterFirstTurn.value = true;
     const handle = await f.adapter.runSdk(f.input);
+    // The first turn travelled with the launch, before init (D68).
+    expect(f.turnsBeforeInit.mock.calls[0][0]).toMatchObject({
+      message: { content: f.input.task },
+    });
     f.children[1].close.mockImplementation(() =>
       f.children[1].process.emit('exit', null, 'SIGKILL'),
     );
     await handle.continue?.('queued');
     f.children[1].accountInfo.mockResolvedValue({
+      ...personalLogin,
       email: 'other@example.test',
     });
+    // The queued turn is the next one consumed, and it is revalidated.
     await expect(
       f.children[1].prompt[Symbol.asyncIterator]().next(),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     await expect(handle.done).resolves.toBe(1);
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
@@ -766,7 +923,7 @@ describe('named Claude lane admission', () => {
     f.persistence.validateResume.mockResolvedValue({ code: 'not-found' });
     expect(handle.abort.signal.aborted).toBe(false);
     await expect(handle.continue?.('deleted')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(await prompt.next()).toMatchObject({ done: true });
     await expect(handle.done).resolves.toBe(1);
@@ -780,7 +937,7 @@ describe('named Claude lane admission', () => {
     });
     await expect(
       f.adapter.runSdk({ ...f.input, resumeSessionId: 'sdk-session' }),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     const handle = await f.adapter.runSdk({
       ...f.input,
@@ -800,7 +957,7 @@ describe('named Claude failure and isolation regressions', () => {
       Object.assign(new Error('held'), { code: 'release-held' }),
     );
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
     expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
@@ -817,7 +974,7 @@ describe('named Claude failure and isolation regressions', () => {
       return query;
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.query).toHaveBeenCalledTimes(1);
     expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
@@ -835,12 +992,13 @@ describe('named Claude failure and isolation regressions', () => {
       const query = invoke(args);
       if (f.children.length === 2)
         f.children[1].accountInfo.mockResolvedValue({
-          email: 'other@example.test',
+          ...personalLogin,
+        email: 'other@example.test',
         });
       return query;
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
     expect(f.callbacks).not.toHaveBeenCalled();
@@ -854,7 +1012,7 @@ describe('named Claude failure and isolation regressions', () => {
       throw new Error('private SDK failure');
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
     expect(f.admission.releaseReservation).not.toHaveBeenCalled();
@@ -870,7 +1028,7 @@ describe('named Claude failure and isolation regressions', () => {
       });
     });
     await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     finish();
     expect(
@@ -888,7 +1046,7 @@ describe('named Claude failure and isolation regressions', () => {
         accountAdmission: undefined,
         accountBinding: f.binding,
       }),
-    ).rejects.toMatchObject({ code: 'release-held' });
+    ).rejects.toMatchObject({ code: 'identity-unproved' });
     const first = await f.adapter.runSdk(f.input);
     first.abort.abort();
     await first.done;
@@ -902,5 +1060,313 @@ describe('named Claude failure and isolation regressions', () => {
     ).toMatchObject({ message: { content: f.input.task } });
     second.abort.abort();
     await second.done;
+  });
+});
+
+describe('named Claude lane certified launch boundaries', () => {
+  function admitted(
+    f: ReturnType<typeof namedFixture>,
+    launch: ClaudeCertifiedLaunchContext | undefined,
+  ) {
+    return {
+      code: 'ok' as const,
+      resources: {
+        kind: 'named' as const,
+        route: f.route,
+        accountDataDir: 'D:/accounts/data',
+        filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+        launch,
+      },
+      reservation: {
+        kind: 'run' as const,
+        phase: 'reserved' as const,
+        provider: 'claude' as const,
+        routeKind: 'named' as const,
+        routeFingerprint: f.route.routeFingerprint,
+        routeRevision: 0,
+        authEpoch: 0,
+        runId: 'run',
+        operationId: 'operation',
+        reservationId: 'reservation',
+      },
+    };
+  }
+
+  it('refuses a named lane without a certified launch before any SDK call', async () => {
+    const f = namedFixture();
+    f.admission.admitClaudeRoute.mockResolvedValueOnce(admitted(f, undefined));
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.query).not.toHaveBeenCalled();
+    expect(f.persistence.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('awaits both boundary checks, each before its own child opens', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk(f.input);
+    const check = f.persistence.checkLaunchBoundary;
+    expect(check.mock.calls.map((call) => (call as unknown[])[2])).toEqual([
+      'bootstrap',
+      'final',
+    ]);
+    expect(check.mock.invocationCallOrder[0]).toBeLessThan(
+      f.query.mock.invocationCallOrder[0],
+    );
+    expect(check.mock.invocationCallOrder[1]).toBeGreaterThan(
+      f.query.mock.invocationCallOrder[0],
+    );
+    expect(check.mock.invocationCallOrder[1]).toBeLessThan(
+      f.query.mock.invocationCallOrder[1],
+    );
+    const final = f.query.mock.calls[1][0].options;
+    expect(final?.cwd).toBe(f.launch.cwd);
+    expect(final?.settingSources).toEqual(f.launch.settingSources);
+    expect(final?.env).toEqual(f.launch.env);
+    expect(final).not.toHaveProperty('managedSettings');
+    expect(Object.keys(final?.extraArgs ?? {})).not.toContain(
+      'managed-settings',
+    );
+    f.finish(0);
+    await handle.done;
+  });
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a bootstrap boundary refusal before any child (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = namedFixture();
+      f.persistence.checkLaunchBoundary.mockResolvedValueOnce({
+        ok: false,
+        code: 'unsupported-source',
+        terminated,
+      });
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      expect(f.logger.warn).toHaveBeenCalledWith(
+        '[ClaudeCliAdapter] Named lane refused',
+        // Fixed sub-stage words only; a lane refusal carries no foreign class.
+        {
+          stage: 'launch',
+          code: 'unsupported-source',
+          hostStep: 'bootstrap',
+          phase: 'bootstrap',
+          step: 'boundary',
+        },
+      );
+      expect(f.query).not.toHaveBeenCalled();
+      expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
+      expect(f.admission[settled]).toHaveBeenCalledTimes(1);
+      expect(f.admission[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a source that appears between bootstrap and final with no task text (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = namedFixture();
+      f.persistence.checkLaunchBoundary
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValueOnce({
+          ok: false,
+          code: 'unsupported-source',
+          terminated,
+        });
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      // Only the bootstrap child opened, and it closed with an exit proof.
+      expect(f.query).toHaveBeenCalledTimes(1);
+      expect(f.children[0].close).toHaveBeenCalledTimes(1);
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.callbacks).not.toHaveBeenCalled();
+      expect(f.run).not.toHaveBeenCalled();
+      expect(f.admission[settled]).toHaveBeenCalledTimes(1);
+      expect(f.admission[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  // Without direct execution the certified executable is the installation
+  // path, which differs from the loader's CLI JS path.
+  it('starts both named children on the certified executable, not the loader path', async () => {
+    const f = namedFixture();
+    f.loader.getCliJsPath.mockResolvedValue('/sdk/bundled/cli.js');
+    const handle = await f.adapter.runSdk(f.input);
+    expect(f.query).toHaveBeenCalledTimes(2);
+    for (const [call] of f.query.mock.calls) {
+      expect(call.options?.pathToClaudeCodeExecutable).toBe('/claude/cli.js');
+    }
+    expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+    f.finish(0);
+    await handle.done;
+  });
+
+  it('refuses a final child of another CLI version before binding or task text', async () => {
+    const f = namedFixture();
+    f.initVersion.value = '2.1.311';
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it.each(['none', 'oauth'])(
+    'accepts init apiKeySource %s and completes the named lifecycle',
+    async (source) => {
+      const f = namedFixture();
+      f.initKeySource.value = source;
+      const handle = await f.adapter.runSdk(f.input);
+      expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+      expect(handle.accountBinding).toEqual(f.binding);
+      f.finish(0);
+      await handle.done;
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each<[string, string | undefined]>([
+    ['a missing', undefined],
+    ['an ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'],
+    ['an apiKeyHelper', 'apiKeyHelper'],
+  ])(
+    'refuses %s init apiKeySource despite valid account info, before binding or task text',
+    async (_label, source) => {
+      const f = namedFixture();
+      f.initKeySource.value = source;
+      await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+        code: 'identity-unproved',
+      });
+      expect(f.children[1].accountInfo).toHaveBeenCalled();
+      expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+      expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+      expect(f.callbacks).not.toHaveBeenCalled();
+      expect(
+        await f.children[1].prompt[Symbol.asyncIterator]().next(),
+      ).toMatchObject({ done: true });
+      expect(f.children[1].close).toHaveBeenCalled();
+    },
+  );
+
+  it('accepts account-info apiKeySource none through bootstrap and final', async () => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      f.children[f.children.length - 1].accountInfo.mockResolvedValue({
+        ...personalLogin,
+        email: 'owner@example.test',
+        organization: 'org',
+        apiKeySource: 'none',
+      });
+      return query;
+    });
+    const handle = await f.adapter.runSdk(f.input);
+    expect(f.children).toHaveLength(2);
+    expect(f.children[0].accountInfo).toHaveBeenCalled();
+    expect(f.children[1].accountInfo).toHaveBeenCalled();
+    expect(handle.accountBinding).toEqual(f.binding);
+    f.finish(0);
+    await handle.done;
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['a non-claude.ai token source', { tokenSource: 'console' }],
+    ['an apiKeyHelper key source', { apiKeySource: 'apiKeyHelper' }],
+    ['a team subscription', { subscriptionType: 'team' }],
+  ])('trips on %s in the final child before the gate', async (_label, change) => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      if (f.children.length === 2)
+        f.children[1].accountInfo.mockResolvedValue({
+          ...personalLogin,
+          email: 'owner@example.test',
+          organization: 'org',
+          ...change,
+        });
+      return query;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it('settles once when cancelled during commitRunBinding, even if the commit lands late', async () => {
+    const f = namedFixture();
+    let land!: () => void;
+    f.persistence.commitRunBinding.mockImplementation(async () => {
+      f.epoch();
+      await new Promise<void>((resolve) => {
+        land = resolve;
+      });
+      return f.binding;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    land();
+    await new Promise((resolve) => setImmediate(resolve));
+    const settlements =
+      f.admission.releaseReservation.mock.calls.length +
+      f.admission.retainUnresolvedReservation.mock.calls.length;
+    expect(settlements).toBe(1);
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.callbacks).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
+    ['the same named account', { kind: 'named', profileId: 'profile' }],
+    ['an omitted selection', { kind: 'omitted' }],
+  ])('resumes a bound lane on the stored run without a second binding (%s)', async (_label, selection) => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk({
+      ...f.input,
+      ...f.binding && { accountBinding: f.binding, accountBindingId: 'run' },
+      accountAdmission: { ...f.input.accountAdmission!, selection },
+      resumeSessionId: 'sdk-session',
+    });
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledTimes(1);
+    expect(f.admission.admitClaudeRoute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run',
+        selection: { kind: 'named', profileId: 'profile' },
+      }),
+    );
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(handle.accountBinding).toEqual(f.binding);
+    f.finish(0);
+    await handle.done;
+  });
+
+  it.each<[string, ClaudeAccountAdmissionRequest['selection']]>([
+    ['another named account', { kind: 'named', profileId: 'other-profile' }],
+    ['explicit ambient', { kind: 'ambient' }],
+  ])('refuses a resume selecting %s against the stored binding with conflict', async (_label, selection) => {
+    const f = namedFixture();
+    await expect(
+      f.adapter.runSdk({
+        ...f.input,
+        accountAdmission: { ...f.input.accountAdmission!, selection },
+        resumeSessionId: 'sdk-session',
+      }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
   });
 });

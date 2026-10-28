@@ -93,6 +93,8 @@ export interface SessionBudgetState {
   readonly window?: SessionBudgetWindow;
   /** Present while the session-rotation advisory is in force. */
   readonly rotation?: SessionBudgetRotation;
+  /** True when `sessionBudget.autoHandoffAtLimit` is on (opt-in). */
+  readonly autoHandoff: boolean;
 }
 
 /** The validated settings the backend reader returns. */
@@ -113,6 +115,8 @@ export interface SessionBudgetConfig {
   readonly handoffAfterCompactions: number;
   /** Auto-compact window applied at `tighten`; `null` = advisory only. */
   readonly tightenWindowTokens: number | null;
+  /** Queue `/session-handoff` once when the session reaches `limit`. */
+  readonly autoHandoffAtLimit: boolean;
 }
 
 /** A numeric setting; `integer` settings reject fractions. */
@@ -220,6 +224,11 @@ export const SESSION_BUDGET_SETTINGS = {
     integer: true,
     nullable: true,
     default: null,
+  },
+  autoHandoffAtLimit: {
+    key: 'sessionBudget.autoHandoffAtLimit',
+    kind: 'boolean',
+    default: false,
   },
 } as const satisfies {
   readonly [

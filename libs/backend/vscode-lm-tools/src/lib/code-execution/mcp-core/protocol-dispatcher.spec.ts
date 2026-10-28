@@ -8398,6 +8398,8 @@ describe('protocol-handlers › ptah_session_handoff', () => {
       workspaceRoot: '/repo',
       cwd: '/repo',
       tabOpened: true,
+      adoptedLanes: [],
+      adoptedChildSessions: [],
     });
     const res = await handleMCPRequest(
       makeRequest({
