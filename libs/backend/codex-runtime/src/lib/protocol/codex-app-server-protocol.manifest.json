@@ -1,13 +1,13 @@
 {
   "formatVersion": 1,
-  "pinnedVersion": "0.155.1",
-  "version": "codex-cli 0.155.1",
-  "binaryPath": "D:\\projects\\ptah-extension\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
-  "binarySha256": "eba0f32c976667cb9298efafd98513e823eeda7b576a03ec658bb8be8d336316",
-  "schemaSha256": "d912e0edc7dace2843be975bee0ca39c3f9f37f11cad07101bd32eb622adf3db",
+  "pinnedVersion": "0.165.0",
+  "version": "codex-cli 0.165.0",
+  "binaryPath": "D:projectsptah-extension\node_modules@openaicodex-win32-x64\u000bendor_64-pc-windows-msvc\bincodex.exe",
+  "binarySha256": "d4b2e6a054ea1dfe53217f9d8942c5f8a9f4b76171a1e0bb76ced5759915300a",
+  "schemaSha256": "127cc06ba9656187dbb3e3acceda86acfa22ebf056b2abdaedbb1d1fa6ab9618",
   "platform": "win32",
   "arch": "x64",
-  "generatedAt": "2026-10-22T20:33:36.630Z",
+  "generatedAt": "2026-10-28T16:14:45.790Z",
   "command": [
     "app-server",
     "generate-json-schema",
@@ -16,6 +16,9 @@
   ],
   "methods": {
     "requests": [
+      "account/gatewayOAuth/cancel",
+      "account/gatewayOAuth/login",
+      "account/gatewayOAuth/read",
       "account/login/cancel",
       "account/login/start",
       "account/logout",
@@ -43,6 +46,7 @@
       "externalAgentConfig/import",
       "externalAgentConfig/import/readHistories",
       "externalAgentConfig/import/recordHistory",
+      "feedback/save",
       "feedback/upload",
       "fs/copy",
       "fs/createDirectory",
@@ -87,6 +91,7 @@
       "thread/attachment/add",
       "thread/attachment/list",
       "thread/attachment/remove",
+      "thread/attachmentOwner/list",
       "thread/compact/start",
       "thread/delete",
       "thread/fork",
@@ -102,7 +107,6 @@
       "thread/read",
       "thread/resume",
       "thread/revert",
-      "thread/rollback",
       "thread/section/move",
       "thread/shellCommand",
       "thread/start",
@@ -135,6 +139,7 @@
       "initialized"
     ],
     "serverNotifications": [
+      "account/gatewayOAuth/changed",
       "account/login/completed",
       "account/rateLimits/updated",
       "account/updated",
@@ -190,8 +195,10 @@
       "thread/goal/cleared",
       "thread/goal/updated",
       "thread/name/updated",
+      "thread/prediction/updated",
       "thread/project/updated",
       "thread/queue/changed",
+      "thread/readState/changed",
       "thread/realtime/closed",
       "thread/realtime/error",
       "thread/realtime/item/completed",
@@ -223,8 +230,8 @@
     {
       "platform": "win32",
       "arch": "x64",
-      "binarySha256": "eba0f32c976667cb9298efafd98513e823eeda7b576a03ec658bb8be8d336316",
-      "schemaSha256": "d912e0edc7dace2843be975bee0ca39c3f9f37f11cad07101bd32eb622adf3db"
+      "binarySha256": "d4b2e6a054ea1dfe53217f9d8942c5f8a9f4b76171a1e0bb76ced5759915300a",
+      "schemaSha256": "127cc06ba9656187dbb3e3acceda86acfa22ebf056b2abdaedbb1d1fa6ab9618"
     }
   ],
   "provenance": "offline binary schema export; no behavioral proof"
