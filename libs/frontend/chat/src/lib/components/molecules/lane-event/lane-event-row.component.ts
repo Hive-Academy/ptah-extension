@@ -56,6 +56,8 @@ export class LaneEventRowComponent {
   protected markdown(body: string): string { return toUserMessageMarkdown(body); }
   protected completionFor(body: string) { return parseLaneCompletion(body); }
   protected fileName(path: string): string { return path.split(/[/\\]/).at(-1) || path; }
+  protected readonly canOpenLane = computed(() =>
+    this.actions?.canOpenLane?.(laneKey('cli', this.row().agentId)) ?? true);
   protected openLane(): void { this.actions?.openLane(laneKey('cli', this.row().agentId)); }
   protected requestRewind(): void { if (this.isSessionActive()) this.rewindRequested.emit(this.lastMessageId()); }
 }

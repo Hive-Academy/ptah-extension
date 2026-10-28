@@ -1591,7 +1591,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     expect(t.notice()).toBe('This agent is not available in this conversation.');
   });
 
-  it('shows a notice when the Electron dock cannot render a CLI card', () => {
+  it('offers no CLI lane action when the Electron dock cannot render a CLI card', () => {
     configure();
     const requestPanelOpen = jest.fn();
     const toggleAgentExpanded = jest.fn();
@@ -1601,11 +1601,12 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     TestBed.overrideProvider(DisplayDockState, { useValue: new DisplayDockState() });
     const fixture = mountHost(SingleChatHost);
     const t = transcriptOf(fixture);
+    expect(t.descendantActions()?.canOpenLane?.('cli:agent-1')).toBe(false);
+    expect(t.descendantActions()?.canOpenLane?.('sub:agent-1')).toBe(true);
     t.descendantActions()?.openLane('cli:agent-1');
     fixture.detectChanges();
     expect(requestPanelOpen).not.toHaveBeenCalled();
     expect(toggleAgentExpanded).not.toHaveBeenCalled();
-    expect(t.notice()).toBe('Open this lane from the Agents panel.');
   });
 
   it('an agent gone from the open conversation closes the view, restores the transcript and announces', () => {

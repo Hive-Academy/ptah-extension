@@ -908,7 +908,17 @@ export class ChatTranscriptComponent {
     return {
       openLane: (key) => this.openSubagentLane(key),
       openSession: () => this.closeSubagent(),
+      canOpenLane: (key) => this.canOpenLaneHere(key),
     };
+  }
+
+  /**
+   * The Electron display dock has no agent-card view, so a CLI lane has no
+   * surface in a single chat view there: its chip and "Open lane" button
+   * show status only. The canvas Rail provides its own actions and opens it.
+   */
+  private canOpenLaneHere(key: string): boolean {
+    return parseLaneKey(key)?.kind !== 'cli' || this.displayDock === null;
   }
 
   /**
@@ -981,16 +991,14 @@ export class ChatTranscriptComponent {
   private openSubagentLane(key: string): void {
     const lane = parseLaneKey(key);
     if (lane?.kind === 'cli') {
+      // No surface here (see canOpenLaneHere): the UI offers no action.
+      if (!this.canOpenLaneHere(key)) return;
       const agent = this.laneMonitor?.agents().find((item) =>
         item.agentId === lane.id && item.parentSessionId === this.sessionId());
       if (!agent) {
         this.subagentNotice.set(
           'This agent is not available in this conversation.',
         );
-        return;
-      }
-      if (this.displayDock) {
-        this.subagentNotice.set('Open this lane from the Agents panel.');
         return;
       }
       this.subagentNotice.set('');

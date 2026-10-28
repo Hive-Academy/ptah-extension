@@ -40,7 +40,7 @@
         data-testid="lane-event-rewind" (click)="requestRewind()">
         <lucide-angular [img]="RewindIcon" class="h-3.5 w-3.5" aria-hidden="true" />
       </button>
-      @if (actions && row().cli !== 'ptah-session') {
+      @if (actions && row().cli !== 'ptah-session' && canOpenLane()) {
         <button type="button" data-testid="lane-event-open"
           class="btn btn-ghost btn-xs gap-1 text-base-content-muted hover:bg-base-content/10 hover:text-base-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           [attr.aria-label]="'Open ' + row().agent + ' agent lane'" (click)="openLane()">

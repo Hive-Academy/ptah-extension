@@ -146,6 +146,21 @@ describe('LaneEventRowComponent', () => {
     expect(toggle.querySelector(':scope > lucide-angular')).toBeNull();
   });
 
+  it('hides Open lane when the host cannot open the lane', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [
+      provideMarkdown(),
+      { provide: SURFACE_ACTIVE, useValue: signal(false) },
+      { provide: SESSION_CARD_ACTIONS, useValue: { openLane, canOpenLane: () => false } },
+    ] });
+    const fixture = TestBed.createComponent(LaneEventRowComponent);
+    fixture.componentRef.setInput('row', row);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="lane-event-open"]')).toBeNull();
+    expect(element.querySelector('[data-testid="lane-event-branch"]')).not.toBeNull();
+  });
+
   it('hides Open lane when no session actions are provided', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ imports: [LaneEventRowComponent], providers: [provideMarkdown(), { provide: SURFACE_ACTIVE, useValue: signal(false) }] });
