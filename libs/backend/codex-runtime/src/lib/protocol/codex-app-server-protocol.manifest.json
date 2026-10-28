@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "pinnedVersion": "0.165.0",
   "version": "codex-cli 0.165.0",
-  "binaryPath": "D:projectsptah-extension\node_modules@openaicodex-win32-x64\u000bendor_64-pc-windows-msvc\bincodex.exe",
+  "binaryPath": "D:\\projects\\ptah-extension\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
   "binarySha256": "d4b2e6a054ea1dfe53217f9d8942c5f8a9f4b76171a1e0bb76ced5759915300a",
   "schemaSha256": "127cc06ba9656187dbb3e3acceda86acfa22ebf056b2abdaedbb1d1fa6ab9618",
   "platform": "win32",
