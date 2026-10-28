@@ -13,6 +13,7 @@ import {
   type CodexApprovalBridgeOptions,
 } from './codex-approval-bridge';
 import { CodexEventTranslator } from './codex-event-translator';
+import { buildCodexMcpConfigOverrides } from './codex-mcp-config';
 import {
   CodexPermissionRuleStore,
   type CodexPermissionRuleTarget,
@@ -37,6 +38,8 @@ import type {
   CodexContext,
   CodexModelInfo,
   CodexExecutionProfile,
+  CodexJsonValue,
+  CodexMcpSecrets,
   CodexRuntime as RuntimePort,
   CodexRuntimeEvent,
   CodexThreadIdentity,
@@ -68,6 +71,7 @@ export class CodexRuntime implements RuntimePort {
   async open(
     profile: CodexExecutionProfile,
     resume?: CodexThreadIdentity,
+    secrets?: CodexMcpSecrets,
   ): Promise<CodexContext> {
     if (this.closed) throw new Error('Codex runtime is closed');
     if (this.contexts.has(profile.contextId))
@@ -87,9 +91,9 @@ export class CodexRuntime implements RuntimePort {
       ).some((key) => resume[key] !== profile[key])
     )
       throw new Error('Codex resume identity mismatch');
-    // Secret resolution and lane budget/tool enforcement are not present at this boundary.
+    // Lane budget/tool enforcement is not present at this boundary; MCP
+    // servers are applied natively as config overrides on the thread frame.
     if (
-      profile.mcpServers.length ||
       profile.lane?.suppressedTools.length ||
       profile.lane?.maxTurns ||
       profile.lane?.maxBudgetUsd ||
@@ -98,6 +102,8 @@ export class CodexRuntime implements RuntimePort {
       throw new Error(
         'Codex profile requires unsupported runtime configuration',
       );
+    // Built before any spawn; an unresolved secret reference refuses the open.
+    const mcpConfig = buildCodexMcpConfigOverrides(profile.mcpServers, secrets);
     const generation =
       Math.max(
         this.generations.get(profile.contextId) ?? 0,
@@ -109,6 +115,7 @@ export class CodexRuntime implements RuntimePort {
       this.rules,
       profile,
       generation,
+      mcpConfig,
       () => {
         if (this.contexts.get(profile.contextId) === context)
           this.contexts.delete(profile.contextId);
@@ -216,6 +223,8 @@ class RuntimeContext implements CodexContext {
     private readonly rules: CodexPermissionRuleStore,
     private readonly profile: CodexExecutionProfile,
     private readonly generation: number,
+    /** Resolved MCP config overrides; dropped once the start/resume frame is sent. */
+    private mcpConfig: Record<string, CodexJsonValue> | undefined,
     private readonly release: () => void,
   ) {
     this.settings = {
@@ -312,6 +321,7 @@ class RuntimeContext implements CodexContext {
     ]
       .filter(Boolean)
       .join('\n\n');
+    const mcpConfig = this.mcpConfig;
     const params = codexRequestSchemas['thread/start'].params.parse({
       cwd: this.profile.cwd,
       model: this.profile.model,
@@ -322,6 +332,9 @@ class RuntimeContext implements CodexContext {
         ? { baseInstructions: this.profile.systemPrompt }
         : {}),
       ...(instructions ? { developerInstructions: instructions } : {}),
+      ...(mcpConfig && Object.keys(mcpConfig).length > 0
+        ? { config: mcpConfig }
+        : {}),
     });
     const result = resume
       ? await this.process.request('thread/resume', {
@@ -329,6 +342,8 @@ class RuntimeContext implements CodexContext {
           threadId: resume.threadId,
         })
       : await this.process.request('thread/start', params);
+    // The sent frame was the secrets' only destination; the context drops them.
+    this.mcpConfig = undefined;
     if (resume && result.thread.id !== resume.threadId)
       throw new Error('Codex resumed a different thread');
     if (this.isClosed()) throw new Error('Codex context closed');

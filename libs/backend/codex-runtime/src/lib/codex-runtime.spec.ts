@@ -8,9 +8,11 @@ import {
   CodexRequestRejectedError,
 } from './codex-app-server-process';
 import { CodexProtocolError } from './codex-protocol-validator';
+import { CodexMcpConfigError } from './codex-mcp-config';
 import { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime';
 import type {
   CodexExecutionProfile,
+  CodexMcpServer,
   CodexThreadIdentity,
 } from './codex-runtime.types';
 import {
@@ -56,6 +58,14 @@ const catalogModel = {
     { reasoningEffort: 'medium', description: 'Balanced' },
     { reasoningEffort: 'high', description: 'Thorough' },
   ],
+};
+const ptahUrl = 'http://localhost:4823/session/tab-1/workspace/D%3A%5Cws';
+const ptahServer: CodexMcpServer = {
+  name: 'ptah',
+  transport: 'http',
+  url: ptahUrl,
+  headerReferences: {},
+  toolTimeoutSec: 960,
 };
 
 class FakeChild extends EventEmitter implements SpawnedProcessHandle {
@@ -1113,6 +1123,137 @@ describe('CodexRuntime', () => {
       }),
     ).rejects.toThrow('unsupported');
     expect(children).toHaveLength(0);
+  });
+
+  it('sends profile MCP servers as native config overrides on thread/start', async () => {
+    await runtime.open({ ...profile, mcpServers: [ptahServer] });
+    const params = children[0].frames.find(
+      (frame) => frame['method'] === 'thread/start',
+    )?.['params'];
+    expect(params).toEqual(
+      expect.objectContaining({
+        config: {
+          'mcp_servers.ptah': { url: ptahUrl, tool_timeout_sec: 960 },
+        },
+      }),
+    );
+    expect(params).not.toHaveProperty('mcp_servers');
+  });
+
+  it('sends the same config overrides on thread/resume', async () => {
+    const context = await runtime.open({
+      ...profile,
+      mcpServers: [ptahServer],
+    });
+    const identity = context.identity;
+    await context.close();
+    const resumedRuntime = new CodexRuntime({
+      ...options,
+      spawner: {
+        spawnProcess: () => {
+          const child = new FakeChild(identity.threadId);
+          children.push(child);
+          return child;
+        },
+      },
+    });
+    await resumedRuntime.open(
+      { ...profile, mcpServers: [ptahServer] },
+      identity,
+    );
+    const resumedParams = children[1].frames.find(
+      (frame) => frame['method'] === 'thread/resume',
+    )?.['params'];
+    expect(resumedParams).toEqual(
+      expect.objectContaining({
+        threadId: identity.threadId,
+        config: {
+          'mcp_servers.ptah': { url: ptahUrl, tool_timeout_sec: 960 },
+        },
+      }),
+    );
+    await resumedRuntime.close();
+  });
+
+  it('resolves MCP header secrets into the frame only', async () => {
+    const headerProfile: CodexExecutionProfile = {
+      ...profile,
+      mcpServers: [
+        {
+          name: 'ptah',
+          transport: 'http',
+          url: ptahUrl,
+          headerReferences: { Authorization: 'ref:auth' },
+          toolTimeoutSec: 960,
+        },
+      ],
+    };
+    await runtime.open(
+      headerProfile,
+      undefined,
+      new Map([['ref:auth', 'Bearer sk-SECRET-123']]),
+    );
+    const params = children[0].frames.find(
+      (frame) => frame['method'] === 'thread/start',
+    )?.['params'];
+    expect(params).toEqual(
+      expect.objectContaining({
+        config: {
+          'mcp_servers.ptah': {
+            url: ptahUrl,
+            http_headers: { Authorization: 'Bearer sk-SECRET-123' },
+            tool_timeout_sec: 960,
+          },
+        },
+      }),
+    );
+    for (const log of Object.values(options.logger))
+      expect(JSON.stringify(jest.mocked(log).mock.calls)).not.toContain(
+        'sk-SECRET-123',
+      );
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(persist.mock.calls)).not.toContain('sk-SECRET-123');
+    expect(JSON.stringify(headerProfile)).not.toContain('sk-SECRET-123');
+    expect(headerProfile.profileFingerprint).not.toContain('sk-SECRET-123');
+  });
+
+  it('refuses an unresolved MCP secret reference before spawning a child', async () => {
+    const failure: unknown = await runtime
+      .open(
+        {
+          ...profile,
+          mcpServers: [
+            {
+              name: 'ptah',
+              transport: 'http',
+              url: ptahUrl,
+              headerReferences: { Authorization: 'ref:auth' },
+            },
+          ],
+        },
+        undefined,
+        new Map(),
+      )
+      .catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(CodexMcpConfigError);
+    if (!(failure instanceof CodexMcpConfigError))
+      throw new Error('Expected a CodexMcpConfigError');
+    expect(failure.code).toBe('unresolved-reference');
+    expect(failure.serverName).toBe('ptah');
+    expect(failure.message).not.toContain('ref:auth');
+    expect(options.spawner.spawnProcess).not.toHaveBeenCalled();
+    expect(children).toHaveLength(0);
+    expect(persist).not.toHaveBeenCalled();
+    expect(options.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('omits the config key when the profile has no MCP servers', async () => {
+    await runtime.open(profile);
+    const params = children[0].frames.find(
+      (frame) => frame['method'] === 'thread/start',
+    )?.['params'];
+    expect(params).toMatchObject({ cwd: '/work', model: 'model' });
+    expect(params).not.toHaveProperty('config');
   });
 
   it('uses valid pinned handshake fixtures', async () => {

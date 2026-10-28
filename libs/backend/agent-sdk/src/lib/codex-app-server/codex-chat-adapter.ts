@@ -13,6 +13,7 @@ import {
   type CodexContext,
   type CodexExecutionProfile,
   type CodexModelInfo,
+  type CodexMcpSecrets,
   type CodexParityPlatform,
   type CodexThreadIdentity,
   type CodexTurnInput,
@@ -96,6 +97,8 @@ export interface CodexChatAdapterPorts {
   ): Promise<{
     readonly profile: CodexExecutionProfile;
     readonly resume?: CodexThreadIdentity;
+    /** Resolved MCP secrets for this open only; never stored, logged or persisted. */
+    readonly secrets?: CodexMcpSecrets;
   }>;
   createScope(sink: ApprovalSink): CodexChatScope;
   readonly metadata: CodexChatMetadataPort;
@@ -340,7 +343,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
       'chat',
       this.ports.platform,
     );
-    return runtime.open(prepared.profile, prepared.resume);
+    return runtime.open(prepared.profile, prepared.resume, prepared.secrets);
   }
 
   private persistMetadata(

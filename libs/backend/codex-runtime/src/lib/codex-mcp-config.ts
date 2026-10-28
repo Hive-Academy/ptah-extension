@@ -110,18 +110,15 @@ function stdioTable(
   server: StdioMcpServer,
   secrets: CodexMcpSecrets,
 ): Record<string, CodexJsonValue> {
-  const table: Record<string, CodexJsonValue> = {
+  const env = resolveReferences(server, secrets, server.envReferences);
+  return {
     command: server.command,
     args: [...server.args],
+    ...(env.size > 0 ? { env: sortedRecord(env) } : {}),
+    ...(server.toolTimeoutSec !== undefined
+      ? { tool_timeout_sec: server.toolTimeoutSec }
+      : {}),
   };
-  const env = resolveReferences(server, secrets, server.envReferences);
-  if (env.size > 0) {
-    table.env = sortedRecord(env);
-  }
-  if (server.toolTimeoutSec !== undefined) {
-    table.tool_timeout_sec = server.toolTimeoutSec;
-  }
-  return table;
 }
 
 function httpTable(
@@ -143,16 +140,13 @@ function httpTable(
       `Bearer ${resolveSecret(server, secrets, server.authReference)}`,
     );
   }
-  const table: Record<string, CodexJsonValue> = {
+  return {
     url: httpUrl(server, secrets),
+    ...(headers.size > 0 ? { http_headers: sortedRecord(headers) } : {}),
+    ...(server.toolTimeoutSec !== undefined
+      ? { tool_timeout_sec: server.toolTimeoutSec }
+      : {}),
   };
-  if (headers.size > 0) {
-    table.http_headers = sortedRecord(headers);
-  }
-  if (server.toolTimeoutSec !== undefined) {
-    table.tool_timeout_sec = server.toolTimeoutSec;
-  }
-  return table;
 }
 
 /**

@@ -369,7 +369,7 @@ describe('CodexChatAdapter', () => {
     const { adapter, open, context } = setup();
     const stream = await adapter.resumeSession(id, { prompt: 'continue' });
     for await (const event of stream) void event;
-    expect(open).toHaveBeenCalledWith(profile, identity);
+    expect(open).toHaveBeenCalledWith(profile, identity, undefined);
     await adapter.setSessionPermissionLevel(id, 'yolo');
     await adapter.setSessionModel(id, 'next');
     await adapter.setSessionEffort(id, undefined);
@@ -384,6 +384,51 @@ describe('CodexChatAdapter', () => {
     ).rejects.toMatchObject({ code: 'unsupported' });
     await adapter.interruptSession(id);
   });
+
+  it('passes resolved MCP secrets only to runtime.open on start and resume', async () => {
+    // Closing the started session disposes its scope, so the resume must open
+    // from a fresh container: chain one setup per createScope call, as the
+    // losing-context test below does for two opens on one adapter.
+    const first = setup();
+    const second = setup();
+    first.ports.createScope = jest
+      .fn()
+      .mockImplementationOnce(first.ports.createScope)
+      .mockImplementationOnce(second.ports.createScope);
+    const secrets = new Map([['ref:auth', 'Bearer sk-SECRET-123']]);
+    first.ports.profile = jest.fn(async (_config, resumeId) => ({
+      profile,
+      ...(resumeId ? { resume: identity } : {}),
+      secrets,
+    }));
+    const start = await first.adapter.startChatSession({
+      tabId,
+      prompt: 'hello',
+    });
+    for await (const event of start) void event;
+    expect(first.open).toHaveBeenCalledTimes(1);
+    expect(first.open).toHaveBeenCalledWith(profile, undefined, secrets);
+    await first.adapter.interruptSession(id);
+    const resumed = await first.adapter.resumeSession(id, {
+      prompt: 'continue',
+    });
+    for await (const event of resumed) void event;
+    expect(first.open).toHaveBeenCalledTimes(1);
+    expect(second.open).toHaveBeenCalledTimes(1);
+    expect(second.open).toHaveBeenCalledWith(profile, identity, secrets);
+    // The tracked session and the metadata save never see the secrets map:
+    // a turn through the session carries only its input, a save only identity.
+    await first.adapter.sendMessageToSession(id, 'follow-up');
+    expect(second.context.startTurn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: 'follow-up', attachments: [] }),
+    );
+    expect(jest.mocked(first.ports.metadata.save).mock.calls).toEqual([
+      [id, identity, undefined],
+      [id, identity, undefined],
+    ]);
+    await first.adapter.interruptSession(id);
+  });
+
   it('fails unsupported methods visibly', async () => {
     const { adapter } = setup();
     for (const action of [
@@ -1185,6 +1230,7 @@ it('uses execution slugs and prefers the default catalog entry for duplicate slu
   for await (const event of stream) void event;
   expect(open).toHaveBeenCalledWith(
     expect.objectContaining({ model: 'gpt' }),
+    undefined,
     undefined,
   );
   const models = await adapter.listSessionModels(id);
