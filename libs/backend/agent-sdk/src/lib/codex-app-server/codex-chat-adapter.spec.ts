@@ -156,7 +156,7 @@ function setup(override = true) {
       sink = value;
       return { container: scope, dispose };
     },
-    metadata: { save: jest.fn(async () => undefined) },
+    metadata: { save: jest.fn(async () => undefined), completedTurn: jest.fn(async () => undefined) },
     approvals,
     presentation: {
       present: jest.fn(),
@@ -186,6 +186,43 @@ function setup(override = true) {
 }
 
 describe('CodexChatAdapter', () => {
+  it.each(['failed', 'interrupted'] as const)('does not count a %s native turn', async (status) => {
+    const h = setup();
+    h.context.events.mockImplementation(() => (async function* () {
+      yield { ...terminal, status };
+    })());
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
+    for await (const event of stream) void event;
+    expect(h.ports.metadata.completedTurn).not.toHaveBeenCalled();
+    await h.adapter.dispose();
+  });
+
+  it('still presents the turn result when the message-count write fails', async () => {
+    const h = setup();
+    const completedTurn = jest.fn(async (_id: SessionId): Promise<void> => {
+      throw new Error('disk full');
+    });
+    h.ports.metadata.completedTurn = completedTurn;
+    const stream = await h.adapter.startChatSession({ tabId, prompt: 'hello' });
+    const output: string[] = [];
+    for await (const event of stream) output.push(event.eventType);
+    expect(completedTurn).toHaveBeenCalledTimes(1);
+    expect(h.callbacks.result).toHaveBeenCalledTimes(1);
+    expect(output).toContain('message_complete');
+    expect(h.ports.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('message-count-write-failed'),
+      { error: 'disk full' },
+    );
+    await h.adapter.dispose();
+  });
+
+  it('does not count a native session opened without a turn', async () => {
+    const h = setup();
+    await h.adapter.startChatSession({ tabId });
+    expect(h.ports.metadata.completedTurn).not.toHaveBeenCalled();
+    await h.adapter.dispose();
+  });
+
   it('awaits explicit native close before a cleared tab can start fresh', async () => {
     const h = setup();
     await h.adapter.startChatSession({ tabId });
@@ -255,6 +292,8 @@ describe('CodexChatAdapter', () => {
       'turn_state',
     ]);
     expect(callbacks.result).toHaveBeenCalledTimes(1);
+    expect(ports.metadata.completedTurn).toHaveBeenCalledTimes(1);
+    expect(ports.metadata.completedTurn).toHaveBeenCalledWith(id);
     // Callbacks are bound to the native turn id from the turn/start receipt.
     expect(ports.callbacks).toHaveBeenCalledWith(
       id,

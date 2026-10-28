@@ -68,12 +68,13 @@ export function isCodexChatAdapterError(
 }
 
 export interface CodexChatMetadataPort {
-  /** Title is not persisted until the metadata writer contract gains a title field. */
   save(
     sessionId: SessionId,
     identity: CodexThreadIdentity,
     title?: string,
   ): Promise<void>;
+  /** Called once for a completed native turn. Optional for older host fakes. */
+  completedTurn?(sessionId: SessionId): Promise<void>;
 }
 
 /** Composition owns registration; every scope must bind this sink before resolving runtime. */
@@ -521,6 +522,7 @@ export class CodexChatAdapter implements NativeChatAdapter {
     return streamCodexChatTurn(session, input, {
       turnState: this.turnState,
       logger: this.ports.logger,
+      completedTurn: (id) => this.ports.metadata.completedTurn?.(id) ?? Promise.resolve(),
       callbacks: (id, turn) => this.ports.callbacks(id, turn),
       stats: (result) => this.stats?.(result),
       interrupt: (id) => this.interruptCurrentTurn(id),

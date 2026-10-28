@@ -11,7 +11,8 @@ describe('native metadata port', () => {
         Parameters<SessionMetadataStore['updateCodexExecution']>
       >()
       .mockResolvedValue(undefined);
-    const port = createCodexChatMetadataPort({ updateCodexExecution });
+    const incrementCodexMessageCount = jest.fn(async () => undefined);
+    const port = createCodexChatMetadataPort({ updateCodexExecution, incrementCodexMessageCount });
     const sessionId = SessionId.from('33333333-3333-4333-8333-333333333333');
     const identity = {
       threadId: sessionId,
@@ -22,8 +23,13 @@ describe('native metadata port', () => {
       providerId: 'openai-codex',
       profileFingerprint: 'profile',
     };
-    await port.save(sessionId, identity);
+    await port.save(sessionId, identity, '  Native chat  ');
     expect(updateCodexExecution).toHaveBeenCalledTimes(1);
+    await port.completedTurn?.(sessionId);
+    expect(incrementCodexMessageCount).toHaveBeenCalledTimes(1);
+    expect(incrementCodexMessageCount).toHaveBeenCalledWith(sessionId);
+    expect(updateCodexExecution.mock.calls[0][2]).toBeUndefined();
+    expect(updateCodexExecution.mock.calls[0][3]).toBe('  Native chat  ');
     expect(updateCodexExecution.mock.calls[0][1](undefined)).toEqual({
       version: 1,
       sessionId,

@@ -2085,6 +2085,51 @@ describe('Codex metadata identity', () => {
     },
   );
 
+  it.each([false, true])(
+    'uses a trimmed native title on first save and replaces an id placeholder (async=%s)',
+    async (asyncStorage) => {
+      const { store } = fixture(asyncStorage);
+      await store.updateCodexExecution(threadId, () => execution, undefined, '  First title  ');
+      expect((await store.get(threadId))?.name).toBe('First title');
+
+      await store.rename(threadId, threadId);
+      await store.updateCodexExecution(threadId, () => execution, undefined, '  New title  ');
+      expect((await store.get(threadId))?.name).toBe('New title');
+    },
+  );
+
+  it.each([false, true])('increments native visible messages from a legacy record without a count (async=%s)', async (asyncStorage) => {
+    const { store } = fixture(asyncStorage);
+    await store.updateCodexExecution(threadId, () => execution);
+    expect((await store.get(threadId))?.codexMessageCount).toBeUndefined();
+    await Promise.all([
+      store.incrementCodexMessageCount(threadId),
+      store.incrementCodexMessageCount(threadId),
+    ]);
+    expect((await store.get(threadId))?.codexMessageCount).toBe(4);
+    expect((await store.getForWorkspace(canonicalWorkspace))[0]?.codexMessageCount).toBe(4);
+  });
+
+  it('refuses to count messages for a Claude session', async () => {
+    const { store } = fixture();
+    await store.create(threadId, workspaceId, 'Claude');
+    await expect(store.incrementCodexMessageCount(threadId)).rejects.toBeInstanceOf(CodexSessionMetadataError);
+    expect((await store.get(threadId))?.codexMessageCount).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    'preserves a user rename and ignores empty native titles (async=%s)',
+    async (asyncStorage) => {
+      const { store } = fixture(asyncStorage);
+      await store.updateCodexExecution(threadId, () => execution, undefined, '   ');
+      expect((await store.get(threadId))?.name).toBe(threadId);
+
+      await store.rename(threadId, 'My renamed chat');
+      await store.updateCodexExecution(threadId, () => execution, undefined, 'Later title');
+      expect((await store.get(threadId))?.name).toBe('My renamed chat');
+    },
+  );
+
   it('never converts a legacy row, including malformed account rows', async () => {
     const { store, storage } = fixture();
     await store.create(threadId, WORKSPACE, 'Legacy');

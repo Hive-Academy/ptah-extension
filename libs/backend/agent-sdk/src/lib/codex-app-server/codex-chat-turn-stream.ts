@@ -56,6 +56,7 @@ interface CodexChatTurnDependencies {
     'markGenerating' | 'settleTurn' | 'recordFailure' | 'forceIdle'
   >;
   readonly logger: Logger;
+  completedTurn(id: SessionId): Promise<void>;
   callbacks: CodexChatAdapterPorts['callbacks'];
   stats: Parameters<IAgentAdapter['setResultStatsCallback']>[0];
   interrupt(id: SessionId): Promise<boolean>;
@@ -81,6 +82,7 @@ export async function* streamCodexChatTurn(
   session.abort.signal.addEventListener('abort', abort, { once: true });
   let terminal = false;
   let terminalStatus: CodexChatResult['status'] | undefined;
+  let countedCompletedTurn = false;
   let turnSettled = false;
   const settleTurn = () => {
     if (turnSettled || terminalStatus === undefined) return;
@@ -135,6 +137,23 @@ export async function* streamCodexChatTurn(
       result: async (result) => {
         terminal = true;
         terminalStatus = result.status;
+        if (
+          result.status === 'completed' &&
+          !result.error &&
+          !countedCompletedTurn
+        ) {
+          countedCompletedTurn = true;
+          // The sessions-rail count is metadata; a failed write must never
+          // block or fail the turn result itself.
+          try {
+            await deps.completedTurn(session.id);
+          } catch (error) {
+            deps.logger.warn(
+              '[CodexChatAdapter] message-count-write-failed: completed turn not counted.',
+              { error: error instanceof Error ? error.message : String(error) },
+            );
+          }
+        }
         await callbacks.result(result);
         const usage = result.usage;
         if (

@@ -50,15 +50,19 @@ describe('persisted runtime identity cache', () => {
         listener = callback;
         return unsubscribe;
       },
-      updateCodexExecution: jest.fn(
+      updateCodexExecution: jest.fn<
+        ReturnType<SessionMetadataStore['updateCodexExecution']>,
+        Parameters<SessionMetadataStore['updateCodexExecution']>
+      >(
         async (
-          _id: string,
+          _id,
           updater: Parameters<SessionMetadataStore['updateCodexExecution']>[1],
         ) => {
           const execution = updater(undefined);
           get.mockResolvedValue({ ...row(), codexExecution: execution });
         },
       ),
+      incrementCodexMessageCount: jest.fn(async () => undefined),
     };
     return {
       store,
@@ -195,6 +199,15 @@ describe('persisted runtime identity cache', () => {
     resolveRead(row('stale'));
     await drain();
     expect(lookup.lookup(id)?.persisted?.providerId).toBe('openai-codex');
+    lookup.dispose();
+  });
+
+  it('forwards the optional native title through the routing cache writer', async () => {
+    const f = fixture([]);
+    const lookup = await initializeSessionRuntimeIdentityLookup(f.store, mockLogger());
+    await lookup.updateCodexExecution(id, () => identity, undefined, 'Native title');
+    expect(f.store.updateCodexExecution.mock.calls[0][3]).toBe('Native title');
+    expect(lookup.lookup(id)?.persisted).toEqual(identity);
     lookup.dispose();
   });
 

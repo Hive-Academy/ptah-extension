@@ -10,6 +10,7 @@ import type {
 export interface InitializedSessionRuntimeIdentityLookup extends SessionRuntimeIdentityLookup {
   /** All native identity writes must use this port before publishing the session. */
   updateCodexExecution: SessionMetadataStore['updateCodexExecution'];
+  incrementCodexMessageCount: SessionMetadataStore['incrementCodexMessageCount'];
   releaseSession(sessionId: SessionId): void;
   dispose(): void;
 }
@@ -18,7 +19,7 @@ export interface InitializedSessionRuntimeIdentityLookup extends SessionRuntimeI
 export async function initializeSessionRuntimeIdentityLookup(
   store: Pick<
     SessionMetadataStore,
-    'getAll' | 'get' | 'onMetadataChanged' | 'updateCodexExecution'
+    'getAll' | 'get' | 'onMetadataChanged' | 'updateCodexExecution' | 'incrementCodexMessageCount'
   >,
   logger: Logger,
 ): Promise<InitializedSessionRuntimeIdentityLookup> {
@@ -108,7 +109,7 @@ export async function initializeSessionRuntimeIdentityLookup(
         ? { persisted, workspacePath: workspacePaths.get(id) }
         : undefined;
     },
-    updateCodexExecution: async (id, updater, thread) => {
+    updateCodexExecution: async (id, updater, thread, title) => {
       if (disposed)
         throw new CodexRuntimeCompositionError('identity-lookup-disposed');
       const write = {};
@@ -123,6 +124,7 @@ export async function initializeSessionRuntimeIdentityLookup(
             return proposed;
           },
           thread,
+          title,
         );
         if (disposed || writes.get(id) !== write) return;
         // Commit only after persistence succeeds; prefer the normalized re-read when available.
@@ -153,6 +155,7 @@ export async function initializeSessionRuntimeIdentityLookup(
         if (writes.get(id) === write) writes.delete(id);
       }
     },
+    incrementCodexMessageCount: (id) => store.incrementCodexMessageCount(id),
     releaseSession: (id) => {
       if (entries.get(id)?.runtime === 'codex-app-server') return;
       entries.delete(id);

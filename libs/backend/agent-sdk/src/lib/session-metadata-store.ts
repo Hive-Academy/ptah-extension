@@ -145,6 +145,23 @@ function sameCodexWorkspace(workspacePath: string, key: string): boolean {
   return normalizeCodexWorkspaceKey(workspacePath, process.platform) === key;
 }
 
+/** Keep a user rename; use a supplied title only for an unnamed native row. */
+function codexSessionName(
+  current: string | undefined,
+  sessionId: string,
+  title: string | undefined,
+): string {
+  if (current?.trim() && current !== sessionId) return current;
+  return title?.trim() || current?.trim() || sessionId;
+}
+
+const codexMessageCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional();
+
+function codexMessageCount(value: unknown): number {
+  const parsed = codexMessageCountSchema.safeParse(value);
+  return parsed.success ? parsed.data ?? 0 : 0;
+}
+
 export class SessionAccountBindingError extends Error {
   constructor(
     readonly code:
@@ -246,6 +263,9 @@ export interface SessionMetadata {
 
   /** Context-to-thread mapping for native resume; written with `codexExecution`. */
   readonly codexThread?: CodexThreadRecord;
+
+  /** Two visible messages per completed native turn: user prompt and assistant reply. */
+  readonly codexMessageCount?: number;
 
   /**
    * Real SDK session UUID (from system 'init' message)
@@ -913,11 +933,17 @@ export class SessionMetadataStore {
     return binding;
   }
 
-  /** The only writer of native runtime identity. The session key is the thread id. */
+  /**
+   * The only writer of native runtime identity. The session key is the thread id.
+   * A non-empty `title` (the caller's chat title, the way `create` receives the
+   * Claude name) fills a missing name and replaces a name that is still the
+   * session id; a stored name that differs from the session id always wins.
+   */
   async updateCodexExecution(
     sessionId: SessionId,
     updater: (current: CodexExecution | undefined) => CodexExecution,
     thread?: CodexThreadRecordUpdater,
+    title?: string,
   ): Promise<void> {
     let kind: SessionMetadataChangeKind = 'created';
     let workspaceId = '';
@@ -1030,7 +1056,7 @@ export class SessionMetadataStore {
       const detail: SessionMetadata = {
         ...existing,
         sessionId,
-        name: existing?.name ?? sessionId,
+        name: codexSessionName(existing?.name, sessionId, title),
         workspaceId: execution.workspaceId,
         providerId: execution.providerId,
         codexExecution: execution,
@@ -1045,6 +1071,33 @@ export class SessionMetadataStore {
       await this.flush();
     });
     if (!skipped) this.emitChange(kind, sessionId, workspaceId);
+  }
+
+  /** Serialize native turn counts with all other metadata writes. Legacy rows start at zero. */
+  async incrementCodexMessageCount(sessionId: SessionId): Promise<void> {
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const current = await this.get(sessionId);
+      if (current?.codexExecution?.runtime !== 'codex-app-server') {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Cannot count messages for a non-native Codex session',
+        );
+      }
+      const previous = codexMessageCount(current.codexMessageCount);
+      if (previous > Number.MAX_SAFE_INTEGER - 2) {
+        throw new CodexSessionMetadataError(
+          'invalid-identity',
+          'Native Codex message count overflow',
+        );
+      }
+      workspaceId = current.workspaceId;
+      await this.persistMetadata({
+        ...current,
+        codexMessageCount: previous + 2,
+      });
+    });
+    if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
   }
 
   /**
@@ -1064,7 +1117,9 @@ export class SessionMetadataStore {
           JSON.stringify(existing?.codexExecution)) ||
       (metadata.codexThread !== undefined &&
         JSON.stringify(metadata.codexThread) !==
-          JSON.stringify(existing?.codexThread))
+          JSON.stringify(existing?.codexThread)) ||
+      (metadata.codexMessageCount !== undefined &&
+        metadata.codexMessageCount !== existing?.codexMessageCount)
     ) {
       throw new CodexSessionMetadataError(
         'direct-runtime-write',
@@ -1104,6 +1159,9 @@ export class SessionMetadataStore {
           }
         : {}),
       ...(existing?.codexThread ? { codexThread: existing.codexThread } : {}),
+      ...(existing?.codexExecution && existing.codexMessageCount !== undefined
+        ? { codexMessageCount: existing.codexMessageCount }
+        : {}),
       ...(existing?.accountBinding
         ? { accountBinding: existing.accountBinding }
         : {}),

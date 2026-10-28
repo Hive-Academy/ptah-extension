@@ -40,6 +40,7 @@ export interface ElectronCodexBindingInput extends ElectronCodexRoutingInput {
 
 export interface ElectronCodexIdentityLookup extends SessionRuntimeIdentityLookup {
   updateCodexExecution: SessionMetadataStore['updateCodexExecution'];
+  incrementCodexMessageCount: SessionMetadataStore['incrementCodexMessageCount'];
   releaseSession(sessionId: SessionId): void;
   dispose(): void;
 }

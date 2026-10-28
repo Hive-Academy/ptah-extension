@@ -19,7 +19,7 @@ const workspace = process.platform === 'win32' ? 'D:/workspace' : '/workspace';
 const home = process.platform === 'win32' ? 'd:\\home' : '/home';
 
 describe('Codex runtime composition', () => {
-  it('keeps name equal to sessionId when the native adapter supplies a title', async () => {
+  it('persists the native adapter title through the initialized lookup', async () => {
     const store = new SessionMetadataStore(
       createMockStateStorage(),
       mockLogger(),
@@ -44,7 +44,7 @@ describe('Codex runtime composition', () => {
         },
         'Requested native title',
       );
-      expect((await store.get(sessionId))?.name).toBe(sessionId);
+      expect((await store.get(sessionId))?.name).toBe('Requested native title');
       expect(lookup.lookup(sessionId)?.persisted?.runtime).toBe(
         'codex-app-server',
       );

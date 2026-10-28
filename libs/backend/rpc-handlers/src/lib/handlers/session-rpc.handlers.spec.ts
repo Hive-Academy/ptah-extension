@@ -119,10 +119,9 @@ import {
 import type {
   CliSessionReference,
   ProviderAccountBinding,
-  SessionId,
   SessionTurnState,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, SessionId } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -965,6 +964,40 @@ describe('SessionRpcHandlers', () => {
         };
         const countOf = (result: ListResult, id: string) =>
           result.sessions.find((s) => s.id === id)?.messageCount;
+
+        it('uses stored native count while Claude still uses the transcript counter', async () => {
+          const nativeId = uuidForRow(86);
+          const claudeId = uuidForRow(87);
+          const h = makeHarness({ transcriptLines: [userPrompt('hi'), assistant('hello')] });
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            {
+              ...makeMetadata({ sessionId: nativeId }),
+              codexMessageCount: 6,
+              codexExecution: {
+                version: 1,
+                sessionId: SessionId.from(nativeId),
+                runtime: 'codex-app-server',
+                providerId: 'openai-codex',
+                workspaceId: WORKSPACE,
+                codex: { normalizedHome: '/home/codex' },
+              },
+            },
+            makeMetadata({ sessionId: claudeId }),
+          ]);
+          stubProjectsDir([nativeId, claudeId]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.handlers.register();
+          const cold = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          expect(countOf(cold, nativeId)).toBe(6);
+          await settleWarm();
+          const warm = await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          expect(countOf(warm, nativeId)).toBe(6);
+          expect(countOf(warm, claudeId)).toBe(2);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledWith(
+            expect.stringContaining(`${claudeId}.jsonl`), expect.any(Function), expect.any(Object),
+          );
+        });
 
         it('returns a cold page at once with 0 and never waits for the reader', async () => {
           const h = makeHarness();

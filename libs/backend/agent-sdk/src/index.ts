@@ -148,6 +148,7 @@ export {
 } from './lib/di/register';
 export { initializeSessionRuntimeIdentityLookup } from './lib/wiring/session-runtime-identity-cache';
 export { createCodexThreadIdentityStore } from './lib/wiring/codex-thread-identity-store';
+export { createCodexChatMetadataPort } from './lib/wiring/codex-chat-metadata-port';
 export { SessionUnavailableError } from './lib/helpers/session-lifecycle/session-control.service';
 export type { LegacySessionControlPorts } from './lib/wiring/legacy-session-controls-composition';
 export type { AuthOperationContext } from './lib/auth-env.port';

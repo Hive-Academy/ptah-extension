@@ -33,6 +33,7 @@ import {
   SDK_TOKENS,
   type SdkPermissionHandler,
   createCodexThreadIdentityStore,
+  createCodexChatMetadataPort,
   type SessionMetadataStore,
   type CodexChatAdapterPorts,
   initializeSessionRuntimeIdentityLookup,
@@ -510,17 +511,8 @@ function createElectronCodexAdapterPorts(
         functionCalling: true,
       },
     },
-    metadata: {
-      save: (id, identity) =>
-        lookup.updateCodexExecution(id, () => ({
-          version: 1,
-          runtime: 'codex-app-server',
-          sessionId: id,
-          providerId: identity.providerId,
-          workspaceId: identity.workspaceId,
-          codex: { normalizedHome: identity.normalizedHome },
-        })),
-    },
+    // The shared port keeps the native title and counts completed turns (8m-8).
+    metadata: createCodexChatMetadataPort(lookup),
     approvals: {
       register: (...args) =>
         container

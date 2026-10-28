@@ -496,6 +496,7 @@ export class SessionRpcHandlers {
           // without a count keeps 0, which hides "N msgs".
           const messageCounts = this.messageCounter.peekAndWarm(
             paginated.flatMap((s): SessionTranscriptRef[] => {
+              if (s.codexExecution?.runtime === 'codex-app-server') return [];
               const index = transcriptIndexOf(s.sessionId);
               return index && index.ids.has(s.sessionId)
                 ? [
@@ -551,7 +552,11 @@ export class SessionRpcHandlers {
                 name: s.name,
                 lastActivityAt: s.lastActiveAt,
                 createdAt: s.createdAt,
-                messageCount: messageCounts.get(s.sessionId) ?? 0,
+                messageCount: s.codexExecution?.runtime === 'codex-app-server'
+                  ? Number.isSafeInteger(s.codexMessageCount) && (s.codexMessageCount ?? -1) >= 0
+                    ? s.codexMessageCount ?? 0
+                    : 0
+                  : messageCounts.get(s.sessionId) ?? 0,
                 isActive: false, // Listed sessions are not currently active
                 ...(transcriptIndex
                   ? { hasTranscript: transcriptIndex.ids.has(s.sessionId) }
