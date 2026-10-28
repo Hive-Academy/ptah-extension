@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -10,9 +11,10 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
-import { History, MessageCircleQuestion, ShieldQuestion, CircleAlert, LucideAngularModule } from 'lucide-angular';
-import { ATTENTION_ACTION_DISPATCHER, NotificationService, AttentionPermissionActionsComponent, type AttentionItem } from '@ptah-extension/core';
+import { History, LucideAngularModule } from 'lucide-angular';
+import { ATTENTION_ACTION_DISPATCHER, NotificationService, type AttentionItem } from '@ptah-extension/core';
 import { DOCUMENT } from '@angular/common';
 import { TabManagerService } from '@ptah-extension/chat';
 import type {
@@ -30,7 +32,6 @@ import {
   SPLIT_ALREADY_FOCUSED_REASON,
 } from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
-import { isPrimaryAttentionAction } from './rail-attention-action';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 const AUTO_COLLAPSE_REASON = 'Widen the canvas to expand the Rail';
@@ -45,7 +46,7 @@ const CHIP_STATES = [
 @Component({
   selector: 'ptah-canvas-rail',
   standalone: true,
-  imports: [CanvasRailCardComponent, LucideAngularModule, AttentionPermissionActionsComponent],
+  imports: [CanvasRailCardComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   styles: [
@@ -184,44 +185,11 @@ const CHIP_STATES = [
         [class.rail-scroll-collapsed]="collapsed()"
         (scroll)="onScroll($event)"
       >
-        @if (!collapsed() && localNeedsYou().length) {
-          <section class="px-2 pb-2" aria-labelledby="rail-needs-you-heading" data-testid="rail-needs-you">
-            <h2 id="rail-needs-you-heading" class="flex justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-base-content-muted">
-              <span>Needs you</span><span>{{ localNeedsYou().length }}</span>
-            </h2>
-            <ul role="list" class="mt-2 flex max-h-[260px] flex-col gap-2 overflow-y-auto">
-              @for (item of localNeedsYou().slice(0, 3); track item.key) {
-                <li class="surface-2 rounded-lg border border-[color:var(--surface-border)] p-2" [attr.data-attention-key]="item.key">
-                  <div class="flex items-center gap-2 text-state-need">
-                    <lucide-angular [img]="kindIcon(item)" class="size-4 shrink-0" aria-hidden="true" />
-                    <span class="truncate text-[11px] font-semibold uppercase tracking-[0.08em]">{{ kindLabel(item) }}</span>
-                  </div>
-                  <div class="truncate text-xs font-semibold text-base-content" [title]="item.sessionTitle || 'Session unavailable'">{{ item.sessionTitle || 'Session unavailable' }}</div>
-                  <p class="mt-1 truncate text-xs text-base-content-muted" [title]="item.detail ?? item.context ?? item.title">{{ item.detail ?? item.context ?? item.title }}</p>
-                  @if (item.kind === 'permission') {
-                    <ptah-attention-permission-actions [item]="item" [busy]="submitting().has(item.key) || isBlocked(item)" (selected)="activate(item, $event.actionId, $event.reason)" />
-                  } @else { <div class="mt-2 flex flex-wrap gap-1">
-                    @for (action of item.actions; track action.id) {
-                      <button type="button" class="btn btn-sm min-h-11 focus-visible:outline-2 focus-visible:outline-primary"
-                        [class.btn-primary]="isPrimaryAttentionAction(item, action)"
-                        [class.btn-ghost]="!isPrimaryAttentionAction(item, action)"
-                        [disabled]="!!action.disabledReason || submitting().has(item.key) || isBlocked(item)"
-                        [attr.title]="action.disabledReason ?? null"
-                        [attr.aria-label]="action.label + ' for ' + (item.sessionTitle || 'Session unavailable') + ' in ' + (item.workspaceName || 'Workspace unavailable')"
-                        [attr.aria-describedby]="action.disabledReason ? 'rail-action-reason-' + item.key : null"
-                        (click)="activate(item, action.id)">{{ action.label }}</button>
-                    }
-                  </div> }
-                  @if (attentionDisabledReason(item); as reason) { <p class="mt-1 text-xs text-base-content-muted" [id]="'rail-action-reason-' + item.key">{{ reason }}</p> }
-                  @if (statusFor(item); as status) { <p class="mt-1 text-xs text-base-content-muted" role="status">{{ status }}</p> }
-                </li>
-              }
-            </ul>
-            @if (localNeedsYou().length > 3) {
-              <button type="button" class="btn btn-ghost btn-xs mt-1 min-h-11" (click)="openNotifications()">+{{ localNeedsYou().length - 3 }} more</button>
-            }
-            @if (notificationOpenError()) { <p role="status" class="mt-1 text-xs text-base-content-muted">{{ notificationOpenError() }}</p> }
-          </section>
+        @if (!collapsed() && (actionStatusMessages().length || notificationOpenError())) {
+          <div class="px-2 pb-2" role="status" data-testid="rail-attention-status">
+            @for (message of actionStatusMessages(); track $index) { <p class="text-xs text-base-content-muted">{{ message }}</p> }
+            @if (notificationOpenError()) { <p class="text-xs text-base-content-muted">{{ notificationOpenError() }}</p> }
+          </div>
         }
         @if (orderedTiles().length === 0) {
           @if (collapsed()) {
@@ -347,16 +315,31 @@ export class CanvasRailComponent {
   readonly notificationOpenError = signal('');
   readonly submitting = signal<ReadonlySet<string>>(new Set());
   readonly actionStatus = signal<ReadonlyMap<string, { generation: number; message: string }>>(new Map());
-  private readonly focusAfterAction = signal<{ key: string; index: number } | null>(null);
+  private readonly focusAfterAction = signal<{ key: string; tabId: string } | null>(null);
   readonly localNeedsYou = computed(() => {
     const tiles = this.tiles();
     return this.notifications.needsYou()
       .filter(item => item.workspacePath === this.workspacePath() &&
-        (item.kind === 'permission' && !item.tabId || tiles.some(tile => this.matches(item, tile))))
+        tiles.some(tile => this.matches(item, tile)))
       .reverse();
   });
   readonly blockedKeys = computed(() => new Set(this.localNeedsYou()
     .filter(item => this.isBlocked(item)).map(item => item.key)));
+  /** Each card shows its first request inline, so the open rail stands in for that request's snackbar. */
+  private readonly railShownKeys = computed(() => this.surfaceActive() && !this.collapsed()
+    ? new Set(this.orderedTiles().flatMap(tile => this.needsFor(tile).slice(0, 1))
+      .filter(item => this.actionableInline(item)).map(item => item.key))
+    : new Set<string>());
+  private railSuppressed = new Set<string>();
+  private readonly syncSnackbarSuppression = effect(() => {
+    const shown = this.railShownKeys();
+    untracked(() => this.suppressSnackbars(shown));
+  });
+  readonly actionStatusMessages = computed(() => this.localNeedsYou()
+    .flatMap(item => {
+      const message = this.statusFor(item);
+      return message ? [`${item.sessionTitle || 'Session unavailable'}: ${message}`] : [];
+    }));
   private readonly pruneActionStatus = effect(() => {
     const current = this.localNeedsYou();
     const statuses = this.actionStatus();
@@ -370,20 +353,20 @@ export class CanvasRailComponent {
     this.focusAfterAction.set(null);
     afterNextRender(() => {
       if (this.document.activeElement !== this.document.body && this.document.activeElement?.isConnected) return;
-      const rows = this.host.nativeElement.querySelectorAll<HTMLElement>('[data-attention-key]');
-      const target = rows[Math.min(pending.index, rows.length - 1)]?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      const card = this.host.nativeElement.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(pending.tabId)}"]`);
+      const target = card?.querySelector<HTMLButtonElement>('[data-attention-key] button:not(:disabled)')
+        ?? card?.querySelector<HTMLButtonElement>('button:not(:disabled)')
         ?? this.host.nativeElement.querySelector<HTMLElement>('#rail-sessions-heading');
       target?.focus();
     }, { injector: this.injector });
   });
-  protected readonly questionIcon = MessageCircleQuestion;
-  protected readonly permissionIcon = ShieldQuestion;
-  protected readonly laneIcon = CircleAlert;
-  kindIcon(item: AttentionItem) {
-    return item.kind === 'question' ? this.questionIcon : item.kind === 'lane-permission' ? this.laneIcon : this.permissionIcon;
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.suppressSnackbars(new Set()));
   }
-  kindLabel(item: AttentionItem): string {
-    return item.kind === 'question' ? 'Question needs an answer' : item.kind === 'lane-permission' ? 'Lane permission required' : 'Permission required';
+  private suppressSnackbars(shown: ReadonlySet<string>): void {
+    for (const key of this.railSuppressed) if (!shown.has(key)) this.notifications.setSnackbarSuppressed(key, false, 'rail');
+    for (const key of shown) this.notifications.setSnackbarSuppressed(key, true, 'rail');
+    this.railSuppressed = new Set(shown);
   }
   needsFor(tile: CanvasTile): readonly AttentionItem[] {
     return this.localNeedsYou().filter(item => this.matches(item, tile));
@@ -395,20 +378,22 @@ export class CanvasRailComponent {
       this.tabs.findTabByIdAcrossWorkspaces(current.tabId)?.tab.claudeSessionId === item.sessionId);
     return firstMatch?.tabId === tile.tabId;
   }
-  readonly isPrimaryAttentionAction = isPrimaryAttentionAction;
   statusFor(item: AttentionItem): string | undefined {
     const status = this.actionStatus().get(item.key);
     return status?.generation === item.generation ? status.message : undefined;
   }
   isBlocked(item: AttentionItem): boolean { return !!this.statusFor(item); }
-  attentionDisabledReason(item: AttentionItem): string | undefined {
-    return item.actions.find(action => action.disabledReason)?.disabledReason;
+  /** A blocked or busy callout cannot take the request's place, so its snackbar stays. */
+  private actionableInline(item: AttentionItem): boolean {
+    return !this.isBlocked(item) && !this.submitting().has(item.key) &&
+      item.actions.some(action => !action.disabledReason);
   }
   async activate(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
     const current = this.notifications.needsYou().find(candidate => candidate.key === item.key && candidate.generation === item.generation);
     if (!current?.actions.some(action => action.id === actionId && !action.disabledReason) || this.submitting().has(item.key) || this.isBlocked(item)) return;
-    if (actionId === 'allow' || actionId === 'always_allow' || actionId === 'deny' || actionId === 'deny_with_message') {
-      this.focusAfterAction.set({ key: item.key, index: this.localNeedsYou().findIndex(candidate => candidate.key === item.key) });
+    const tabId = this.orderedTiles().find(tile => this.matches(item, tile))?.tabId;
+    if (tabId && (actionId === 'allow' || actionId === 'always_allow' || actionId === 'deny' || actionId === 'deny_with_message')) {
+      this.focusAfterAction.set({ key: item.key, tabId });
     }
     this.submitting.update(keys => new Set([...keys, item.key]));
     try {

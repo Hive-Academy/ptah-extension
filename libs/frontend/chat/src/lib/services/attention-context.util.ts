@@ -1,4 +1,4 @@
-const UNSAFE_CONTEXT = /(?:[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|\s)\/(?:[^\s/]+\/[^\s]+|(?:tmp|etc|var|usr|home|opt|root|bin|sbin|dev|proc|mnt|srv|Users|private|Volumes|System)(?=$|\s|[\/.,!?;:)\]}]))|(?:^|\s)~\/[^\s]+|(?:^|\s)(?:[\w.-]+\/)+[\w.-]+\.[A-Za-z0-9]+(?=\s|$)|\bsk-[\w-]{8,}\b|\bAKIA[0-9A-Z]{16}\b|\bghp_[A-Za-z0-9_]+\b|\bxoxb-[A-Za-z0-9-]+\b|\b[0-9a-f]{32,}\b|\b[A-Za-z0-9+/_-]{40,}={0,2}\b)/i;
+const UNSAFE_CONTEXT = /(?:[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|\s)\/(?:[^\s/]+\/[^\s]+|(?:tmp|etc|var|usr|home|opt|root|bin|sbin|dev|proc|mnt|srv|Users|private|Volumes|System)(?=$|\s|[/.,!?;:)\]}]))|(?:^|\s)~\/[^\s]+|(?:^|\s)(?:[\w.-]+\/)+[\w.-]+\.[A-Za-z0-9]+(?=\s|$)|\bsk-[\w-]{8,}\b|\bAKIA[0-9A-Z]{16}\b|\bghp_[A-Za-z0-9_]+\b|\bxoxb-[A-Za-z0-9-]+\b|\b[0-9a-f]{32,}\b|\b[A-Za-z0-9+/_-]{40,}={0,2}\b)/i;
 
 export const isUnsafeAttentionContext = (value: string): boolean => UNSAFE_CONTEXT.test(value);
 

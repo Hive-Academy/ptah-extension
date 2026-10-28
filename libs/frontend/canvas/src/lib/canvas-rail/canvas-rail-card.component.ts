@@ -176,7 +176,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         @if (attentionItems().length) {
           <div class="rail-attention-frame relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-base-content/10 bg-base-200" data-testid="rail-attention-frame">
             <ng-container [ngTemplateOutlet]="expandedCard" />
-            <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you">
+            <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you" [attr.data-attention-key]="attentionItems()[0].key">
               <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
               <span class="ml-1 truncate text-base-content-muted" [title]="attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title">{{ attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title }}</span>
               <div class="mt-1 flex flex-wrap gap-1">
