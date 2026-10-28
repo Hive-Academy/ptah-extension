@@ -1,6 +1,6 @@
 # Onboarding module: design specification (revision 2)
 
-Host: Electron webview first. Stack: Angular signals, Tailwind + DaisyUI, existing tokens. Prototype: `prototype/index.html` (Home, Analyze generating, New project proposal, Team builder start and review, state gallery, dark/light toggle; `narrow.html` frames any view at a chosen width).
+Host: Electron webview first. Stack: Angular signals, Tailwind + DaisyUI, existing tokens. Scope addition 2026-10-28: "Get ready" pre-steps before Home are specified in section 12 (prototype views `Get ready 1` and `Get ready 2`, plus the Home warning banner). Prototype: `prototype/index.html` (Home, Analyze generating, New project proposal, Team builder start and review, state gallery, dark/light toggle; `narrow.html` frames any view at a chosen width).
 
 Tokens (nothing invented): `apps/ptah-extension-webview/tailwind.config.js` (themes `anubis`, `anubis-light`; `--state-ink-*`), `apps/ptah-extension-webview/src/styles.css` (`--ptah-ease-soft`, `--ptah-motion-in/out`, `--surface-0..3`, `--surface-border*`, `--ptah-gold*`). Use `bg-surface-1`, `border-surface-border`, `text-base-content-muted`, `text-state-run|need|err|done|idle`. The prototype copies token values into CSS variables only because it is static.
 
@@ -52,7 +52,7 @@ Precedence table (what the user sees on boot):
 | Superseded navigation | newer navigation wins; flag untouched |
 | VS Code host or any non-Electron | guard returns `true`; no automatic onboarding |
 
-Flag: `ptah.onboarding.v1 = { shownAt?, dismissedAt?, completedAt? }`, try/catch wrapper. `dismissedAt`: Home "Skip for now" or "Back to chat". `completedAt`: Analyze reaches Done, or a harness Apply succeeds. In-flight work after an automatic entry is recovered from the Home resume banner. Re-entry (configuration menu item and Settings row "Run onboarding again") calls `setCurrentView('onboarding')` (readiness-gated) and ignores the flag; the menu keeps the stable selector `config-menu-item-setup-hub` with the label "Setup". VS Code: no automatic onboarding; its launcher opens Onboarding Home (1.3). TUI has no Angular surface and is unaffected.
+Flag: `ptah.onboarding.v1 = { shownAt?, dismissedAt?, completedAt?, ready? }` (the optional `ready` object and the guard's redirect target for first run are defined in section 12.4), try/catch wrapper. `dismissedAt`: Home "Skip for now" or "Back to chat". `completedAt`: Analyze reaches Done, or a harness Apply succeeds. In-flight work after an automatic entry is recovered from the Home resume banner. Re-entry (configuration menu item and Settings row "Run onboarding again") calls `setCurrentView('onboarding')` (readiness-gated) and ignores the flag; the menu keeps the stable selector `config-menu-item-setup-hub` with the label "Setup". VS Code: no automatic onboarding; its launcher opens Onboarding Home (1.3). TUI has no Angular surface and is unaffected.
 
 ### 1.3 Host and route migration (recovery, not wire compatibility)
 Retired UIs are not kept. Legacy view ids and URLs are **normalised to Onboarding Home**; nothing promises a child path.
@@ -333,3 +333,298 @@ No other removal is proposed.
 | 2 Migration | 1.3 rewritten as recovery: alias map at `webview-surface.types.ts:95` and `app-state.service.ts:362-364`, saved-route bases and children to Home, launchers open Home only, `surface-routes.ts:44` validator moved to `?tab=`; Decision 15 |
 | 3 Reload sources | 3.6: analysis completed via `?analysis`/`list-analyses` + `load-analysis`, unfinished discovery separate and never substituted; guidance sections only from the retained final response, omitted after reload; completed generation cards from `result.agentOutcomes`/`counts`; resume banner limited to the latest pair |
 | 4 Field sources | section 4 split into proposal config, intake facts (new project only, session-retained, hidden after reload and in team builder), generated document labelled separately; 3.3/3.4 updated; diffs over folded config snapshots; controller record extended; Decision 17; prototype: team-builder proposal hides plugins/toolchain, Document labelled |
+
+## 12. Get ready pre-steps (scope addition 2026-10-28)
+
+Source: `context.md`, "Scope addition: Get ready pre-steps", user decisions **D10** (install is guided, no backend) and **D11** (warn, but allow skip). Prototype: `prototype/index.html` views "Get ready 1: Claude Code", "Get ready 2: Settings", Home (warning banner), and the state switch "Claude Code state" (checking, ready, missing, signed out, error/timeout). `narrow.html?view=ready&state=missing&w=400` frames any of them. Screenshots: `prototype/screenshots/get-ready-*.png` (dark and light; narrow 400px in dark and light).
+
+Rules: Electron first (the whole section is gated by `vscodeService.isElectron`; VS Code and TUI unchanged). No backend change: only existing RPCs. Tokens are the ones already in this spec (section header); no new token, no new colour.
+
+### 12.1 Flow
+
+| Stage | Route | What the user does | Exit |
+|---|---|---|---|
+| 1 Claude Code | `/onboarding/ready` | Sees whether `claude` is installed (path, version) and signed in; installs or signs in by copying a command; presses Re-check | Continue (ready) or Continue anyway (not ready) |
+| 2 Providers and tools | `/onboarding/ready/settings` | Connects providers and reviews detected CLI tools in the existing settings components; may skip | Continue to setup or Skip for now |
+| 3 Choose a path | `/onboarding` (existing Home, 3.1) | Picks Analyze, New project or Team builder | existing flows |
+
+Stage 3 is the approved Home, unchanged apart from the strip (12.6) and the warning banner (12.3). Both pre-steps are skippable (D11); nothing blocks Home. "Back" on stage 2 goes to stage 1; the first crumb ("Onboarding") on both goes to Home, which is the skip path.
+
+### 12.2 Claude Code check (stage 1)
+
+**Data (existing RPCs only).**
+- Installed, path, version: `agent:detectClis` returns `CliDetectionResult[]` (`libs/shared/src/lib/types/agent-process.types.ts:414`). Use the row whose `cli` is the Claude CLI: `installed`, `path?`, `version?`. Re-detect goes through the same call the settings page already uses (`ProvidersSettingsStateService.redetectClis()`, `libs/frontend/core/src/lib/services/providers-settings-state.service.ts`; `agent-orchestration-config.component.ts:578` calls it).
+- Signed in: `ClaudeAmbientStatusService.read(refresh)` (`libs/frontend/core/src/lib/services/claude-ambient-status.service.ts`) wrapping `provider:getAmbientClaudeStatus`. View: `status` (`inert|idle|checking|ready`), `result.state` (`connected|signed-out|unknown`), `result.reason` (`cli-missing|timeout|unreadable`), `localFailure`. `unknown` is never read as signed out (`provider-account.types.ts:264-281`). Enter: `read(false)` (host cache); Re-check: detect plus `read(true)` (fresh probe; the service allows 30 s).
+- Host `inert` (not Electron): the stage is not shown at all.
+
+**State derivation** (first match wins):
+
+| UI state | When |
+|---|---|
+| checking | detect call in flight, or ambient `status` is `checking` or `idle` with a read pending |
+| missing | Claude row `installed === false`, or ambient `unknown` with `reason: 'cli-missing'` |
+| error | detect call failed, or ambient `localFailure`, or ambient `unknown` with `reason` `timeout` or `unreadable` |
+| signed-out | `installed` and ambient `state: 'signed-out'` |
+| ready | `installed` and ambient `state: 'connected'` |
+
+**Layout.** One status panel (`panel`, 3.7 chips): header (title, one-line subtitle, state chip), a definition list (Installed, Version, Signed in), then one state-specific block, then the action row. State is always shown as chip text plus a line, never colour alone.
+
+**Copy per state** (exact strings; the prototype shows them):
+
+| State | Chip | Installed / Version / Signed in lines | Block | Actions (one primary) |
+|---|---|---|---|---|
+| checking | "Checking" (pulsing dot) | skeleton bars (`sr`: "Checking") | none | left text "Checking your computer..."; "Continue anyway" (ghost) |
+| ready | "Ready" | path in mono, version in mono, "Yes. Your Claude account is connected." | none | **Continue** (primary) |
+| missing | "Not installed" | "No `claude` command was found." / "Not available" / "Install Claude Code first." | Install block (below) | **Re-check** (primary), "Continue anyway" (ghost) |
+| signed-out | "Not signed in" | path / version / "No. Sign in to use Claude Code." | Sign-in block (below) | **Re-check**, "Continue anyway" |
+| error / timeout | "Could not check" | "Unknown" / "Not available" / "Claude Code did not answer in time (30 s). Your sign-in could not be read." | "Ptah could not read Claude Code": "The check timed out. This is not the same as being signed out. Press Re-check. If it keeps failing, run `claude doctor` in a terminal." plus disclosure "Install or sign in by hand" with the docs link | **Re-check**, "Continue anyway" |
+
+Error copy variants (same layout, one sentence changes): `timeout` "...did not answer in time (30 s)."; `unreadable` "Ptah could not read the Claude Code sign-in."; `localFailure` or detect failure "Ptah could not ask this computer about Claude Code."
+
+Under the panel in missing, signed-out and error: "You can continue without it. A warning stays on the next screens until Claude Code is ready." (D11).
+
+**Install block (missing, D10, no backend).** Heading "Install Claude Code"; line "Open a terminal, paste the command for your system, press Enter. The installer prints nothing while it downloads. When the prompt returns, press Re-check." A tablist ("Operating system"): **macOS / Linux** (default; the tab preselected from the OS Electron reports, user can switch), **Windows**, **npm**. Each command is a `cmd` row: mono `code` (wraps, never scrolls sideways) and a Copy button (label "Copy", becomes "Copied" for 2 s; `aria-label` names the command; a polite status region announces "Command copied"). Commands are the official ones (verified 2026-10-28, see Sources):
+
+| Tab | Label | Command |
+|---|---|---|
+| macOS / Linux | macOS, Linux, WSL (Terminal) | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| Windows | Windows PowerShell (prompt starts with PS) | `irm https://claude.ai/install.ps1 \| iex` |
+| Windows | Windows CMD (prompt has no PS) | `curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd` |
+| npm | Any system with Node.js 22 or later (do not use sudo) | `npm install -g @anthropic-ai/claude-code` |
+
+Below the tabs: "Still not found after installing? Open a new terminal, and if Re-check keeps failing, restart Ptah so it picks up the updated PATH." and a ghost link "Open the official install guide" to `https://code.claude.com/docs/en/setup`, opened in the system browser through the external-link path the settings drawers already use (`kimi-code-login-progress.component.ts` `installUrl`). Homebrew, WinGet and Linux package managers are in the docs and deliberately not repeated here (Decision 12.D3).
+
+**Sign-in block (signed-out).** The existing settings path for the ambient Claude login is the Claude CLI card in the connection drawer, Credentials tab: it shows the CLI command with Copy and a "Check again" button (`libs/frontend/chat/src/lib/settings/providers/connection-drawer/credentials-tab.component.ts:91`, `:126-140`, `:412`; the card is rendered by `providers-settings.component.ts`). Onboarding reuses that path: same copy-the-command pattern, same re-check (`ClaudeAmbientStatusService.read(true)`). Heading "Sign in to Claude Code"; line "Run this in a terminal and follow the browser prompts. Claude Code needs a Pro, Max, Team, Enterprise or Console account. Then press Re-check."; command `claude` (official docs: "log in by running `claude` and following the browser prompts"). Secondary line: "Prefer a separate Claude account for Ptah? Add a named account in Providers. The check above still reads your main Claude Code login." The link goes to stage 2, Providers tab, and the implementation opens the Claude (Subscription) drawer on its Accounts tab, as `ProvidersSettingsComponent.openAccountSignIn()` does (`providers-settings.component.ts:1220`; Accounts UI: `providers/accounts/accounts-tab.component.ts`, RPCs `provider:addAccount` and `provider:startAccountSignIn` through `ProviderAccountsStateService`). Named accounts do not change the stage-1 verdict (Decision 12.D5).
+
+**Re-check.** Disabled and relabelled "Checking..." while in flight; the panel gets `aria-busy`; state returns to the derived state. A late reply is ignored if a newer check started (the ambient service already drops stale replies). Focus stays on the Re-check button; the result is announced in the `status` region ("Claude Code is ready" / "Claude Code is still not installed" / "Claude Code is still not signed in").
+
+### 12.3 Persistent warning (D11)
+
+Component `ClaudeReadinessBanner` (`role="status"`, not `alert`: it is not an interruption). Shown on **Get ready 2** and **Home** whenever the derived state is `missing`, `signed-out` or `error`; hidden for `checking` and `ready`. Full 1px border in the `--need` tint with a 10% `--need` background wash over `surface-1`, a filled "!" glyph (not colour alone), no side stripe. Text: bold lead "Claude Code is not installed." / "Claude Code is not signed in." / "Ptah could not check Claude Code." then "Analysis and agent generation may fail until it is ready. You can still pick a path." (Home) or "You can keep going; some steps may fail until it is ready." (stage 2). One action button: "Install Claude Code" / "Sign in" / "Check again" on Home, "Fix Claude Code" on stage 2; it goes to stage 1. It cannot be dismissed (persistent) and clears itself the moment a re-read returns `ready`. State is re-read (`read(false)` plus detect) each time Home or stage 2 mounts, so the banner is never stale. Not added to chat or other surfaces (Lane-introduced constraint L3).
+
+### 12.4 Routing, persistence and re-entry
+
+Keep one storage key. `ptah.onboarding.v1 = { shownAt?, dismissedAt?, completedAt?, ready?: { claudeAt?, settingsAt?, skippedAt? } }`, same try/catch wrapper and same storage-failure rule (failure means no redirect, never a loop). `ready.claudeAt` is written when stage 1 is left with state `ready`; `ready.settingsAt` when stage 2 is left by Continue; `ready.skippedAt` when either stage is left by Continue anyway or Skip for now. The Claude state itself is never persisted: it is re-derived live (12.2), so a user who fixes Claude later sees the banner disappear without any flag write. No sibling key (Decision 12.D1).
+
+| Case | Result |
+|---|---|
+| First run: `shownAt` absent (existing guard, 1.2) | The guard's `UrlTree` target changes from `/onboarding` to `/onboarding/ready` when `ready` has no `claudeAt` and no `skippedAt`; otherwise `/onboarding`. Everything else in 1.2 (eligibility, `shownAt` commit on `NavigationEnd` to any `/onboarding...` URL, supersession, storage failure) is unchanged. |
+| Upgrading user (flag `v1`, no `shownAt`) | Same rule: sees stage 1 once. |
+| Home reached by menu "Setup", by Settings "Run onboarding again" or by a resume banner (1.2 re-entry) | Always lands on `/onboarding` (Home); the flag is ignored. Home shows the strip (12.6) and the banner. "Review Claude Code and settings" in the Home footer re-opens stage 1 at any time. |
+| Stage 1 or 2 opened directly (deep link, reload) | Allowed. Reload re-derives state; no recovery screen is needed because nothing in the stages is session-bound. |
+| Stage 1 Continue or Continue anyway | `navigate('/onboarding/ready/settings')`. |
+| Stage 2 Continue to setup or Skip for now | `navigate('/onboarding')`. |
+| "Back to chat" | Home only, as 3.1; the stages offer the "Onboarding" crumb (to Home). `dismissedAt` semantics are unchanged. |
+| Re-entry from Settings | Settings keeps "Run onboarding again" (1.2); it goes to Home, never to stage 1, so a returning user does not repeat the pre-steps. Settings may add a second row, "Check Claude Code" to `/onboarding/ready` (Lane-introduced L4). |
+| Legacy URL normalisation (1.3) | `/onboarding/ready*` is a new child; the alias map still sends retired ids to Home. |
+
+Surface registry: add the two child paths to the `onboarding` entry in `libs/shared/src/lib/types/webview-surface.types.ts` alongside 1.1 (route table rows below); focus router and stepper treat them as the `ready` flow.
+
+| Path | Screen | Identity in URL |
+|---|---|---|
+| `/onboarding/ready` | Stage 1 Claude Code | none |
+| `/onboarding/ready/settings` | Stage 2 Providers and tools | optional `?tab=providers` or `?tab=cli` (so the stage-1 named-account link opens the Providers tab) |
+
+### 12.5 Providers and tools (stage 2): reuse, not new UI
+
+Survey of `libs/frontend/chat/src/lib/settings/**` and the decision. Embed two existing components unchanged, each as one tab of a tablist ("Settings area"); everything else stays in Settings (linked, not embedded).
+
+| Tab | Existing component (embedded as is) | File | Why this is the minimum |
+|---|---|---|---|
+| Providers | `ptah-providers-settings` | `libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts` | Already the single place for connection cards, the detail drawer (Credentials, Accounts, Models), named Claude accounts, catalog and Kimi login. Its Claude card carries the ambient badge. |
+| CLI tools | `ptah-cli-orchestration-matrix` | `libs/frontend/chat/src/lib/settings/ptah-ai/cli-orchestration-matrix.component.ts` | Lists every detected CLI (Codex, Gemini, Copilot, Cursor, Claude and the rest) with installed, version and "use" state, and ptah-cli provider instances. It already hosts `ptah-agent-orchestration-config` (`agent-orchestration-config.component.ts`, Re-detect via `state.redetectClis()`) and `ptah-add-cli-instance-modal` (`providers/add-cli-instance-modal.component.ts`, the "Add a Ptah CLI instance" flow with its Copilot inline sign-in). Do not embed `orchestration-settings.component.ts`: it adds budgets, TTL, lane guards and voice that are not first-run decisions. |
+
+Not embedded, reachable later from the footer line "More options (voice, search, lane guards) are in Settings after setup.": Advanced, Search and voice, License, Output style, Pro features, Feedback, and the orchestration extras (`orchestration-settings`, `lane-guards-settings`, `session-budget-settings`, `voice-config`).
+
+The prototype draws both tabs as specimens (a dashed note on the page says so); the production stage mounts the real components with no new inputs, outputs or services. Whatever each component loads on mount (connections list, `agent:detectClis`) is the existing behaviour. Because `ptah-providers-settings` and the matrix are deferred chunks in settings, the stage mounts them in `@defer (on immediate)` with the same `aria-busy` placeholder and Reload-on-error fallback the settings page uses (`settings.component.html:162-200`).
+
+Layout: tablist ("Providers", "CLI tools"; arrow keys move, roving tabindex), then the tabpanel. Action row: "Back" (ghost, left), "Skip for now" (ghost) and **Continue to setup** (primary). Skipping and continuing differ only by the flag write (12.4). Warning banner above the tabs when Claude is not ready (12.3).
+
+States inside the embedded components (loading, empty, error, drawers, modals) are those of the settings page and are not redesigned here. Dialog focus restore: the embedded drawer and modal already return focus to their openers.
+
+### 12.6 Stepper and progress with the existing home and guard
+
+The approved vertical `OnboardingStepper` (section 2) is per flow (Analyze, New project). The pre-steps get the same component in a horizontal "strip" mode with three labelled items shown on all three screens: **1 Claude Code**, **2 Providers and tools**, **3 Choose a path**. It is a progress and orientation aid, not a lock: items are not links; navigation is by the screen's own buttons. Each item carries a state word under its label: item 1 shows the live state ("Checking", "Ready", "Needs install", "Needs sign-in", "Could not check"); item 2 shows "Next" before, "Done" after (`settingsAt`) or "Skipped" (`skippedAt`); item 3 shows "Next". Markers: current = gold ring (as 3.2), ready/done = filled green with a check, needs attention = filled `--need` with "!" , so status survives without colour. `aria-label="Setup progress"`, current item `aria-current="step"`, hidden text is not used for state (the small text is real text). Below 720px non-current items collapse to their number marker, the current item keeps its label (same collapse rule as the vertical stepper at 720px, section 8).
+
+On Home (stage 3) the strip appears above the h1; the Analyze, New project and Team builder flows keep their own steppers and do not show the strip. The Home resume banner (3.1) and the Claude banner can show together: resume banner first (work in progress) below the Claude banner.
+
+### 12.7 Accessibility
+
+- One h1 per screen ("Check Claude Code", "Connect providers and tools"), focused on route entry like every other route (section 8); status text and chips never rely on colour alone.
+- Result announcements: one polite `status` region (`aria-live="polite"`) for checking start, finished and "Command copied"; the panel carries `aria-busy` while checking. The banner is `role="status"`.
+- Command rows: the command is selectable text; Copy has a specific accessible name ("Copy macOS and Linux install command"); focus stays on the button after copy.
+- Tablists (OS and Settings area): `role=tablist/tab/tabpanel`, `aria-selected`, `aria-controls`, roving `tabindex`, Left/Right arrows wrap; tabpanels are focusable (`tabindex=0`).
+- Hit targets 32px minimum (Copy, list buttons) and 36px for page buttons; focus ring is the existing `:focus-visible` gold ring.
+- Reduced motion: only the existing view fade and chip pulse; both already neutralised by the global `prefers-reduced-motion` rule.
+- Contrast (criterion WCAG 2.2 AA, text 4.5:1, large 3:1, UI glyphs 3:1). Measured with the prototype token values on `surface-1` (the panel and banner base): dark, body 14.0, muted 7.4, need 6.2, "bc on need-wash banner" 12.3, err 4.65, done 5.3, run 4.8, idle 6.9, white on primary 5.2, `surface-0` on the `--need` marker 6.6. Light (oklch tokens converted to sRGB, approximate): body 14.8, muted 6.2, need 5.3, "bc on need-wash banner" 12.9, err 5.5, done 5.1, run 5.5, idle 4.8, white on primary above 6. All pairs pass 4.5:1. Implementation gate: Playwright plus axe per state and theme (not run here).
+
+### 12.8 Narrow layout (400px, docked sidebar)
+
+Checked at 400px in `narrow.html` (screenshots `get-ready-1-missing-narrow-dark.png`, `get-ready-2-providers-narrow-light.png`). Page padding 14px (existing 720px rule). Strip collapses to the current label plus numbered markers. The state chip drops under the panel title. The definition list becomes one column (label above value) below 480px. Command rows stack: code on its own full-width line (wraps at any character), Copy button right-aligned beneath it. The OS tablist stays one row (three short labels). Provider and CLI list rows wrap: name block, then chip and action. Action row: buttons share a full-width group; primary last. Banner: text then button, stacked. The 52px docked answer bar from the harness flows does not apply (no dock on these screens).
+
+### 12.9 Component additions and reuse
+
+New (lib `libs/frontend/onboarding`, standalone, OnPush): `ClaudeReadinessStore` (derives the state in 12.2 from `ProvidersSettingsStateService` detect results and `ClaudeAmbientStatusService.view()`), `ReadyClaudeStep`, `ReadySettingsStep`, `ClaudeReadinessBanner`, `CommandCopyRow` (code plus Copy, clipboard with a visible failure fallback "Select the text and copy it"), `ReadyStrip` (horizontal stepper mode of `OnboardingStepper`), and a `ready` slice in `OnboardingFlagService`. Reused unchanged: `ProvidersSettingsComponent`, `CliOrchestrationMatrixComponent` (with its embedded `AgentOrchestrationConfigComponent` and `AddCliInstanceModalComponent`), `ClaudeAmbientStatusService`, `ProvidersSettingsStateService`, `ProviderAccountsStateService` and the Claude connection drawer (Credentials and Accounts tabs).
+
+### 12.10 Decisions
+
+| # | Decision | Options | Evidence | Reversible |
+|---|---|---|---|---|
+| 12.D1 | Pre-step progress lives in the existing `ptah.onboarding.v1` object as `ready: {claudeAt, settingsAt, skippedAt}`; no sibling key | (a) nested object in v1 (chosen); (b) sibling `ptah.onboarding.ready.v1` | One wrapper and one storage-failure rule already exist (1.2); the guard reads one place; a sibling doubles the failure paths | Yes, a flag shape change |
+| 12.D2 | Home reached by menu or Settings re-entry never repeats the pre-steps; only the first-run guard targets `/onboarding/ready` | (a) re-entry to Home (chosen); (b) re-entry to stage 1 | 1.2 already states re-entry ignores the flag and opens Home; the Home footer link covers a deliberate re-check | Yes |
+| 12.D3 | Show only the three user-requested install tabs (macOS/Linux, Windows, npm); Homebrew, WinGet and apt/dnf/apk stay in the docs link | (a) three tabs (chosen); (b) all methods | User asked for the three; the docs list the package managers, which do not auto-update and need more caveats | Yes |
+| 12.D4 | Sign-in command is `claude`, per the current official docs. The settings Credentials tab still shows `claude login` and the install command `npm install -g @anthropic-ai/claude-code` (`credentials-tab.component.ts:91-93`). The implementation takes both strings from one shared constant, so settings and onboarding cannot drift | (a) `claude` per docs (chosen); (b) copy `claude login` from settings | Docs "Authenticate": "log in by running `claude` and following the browser prompts"; I could not verify that `claude login` still exists, so I did not copy it. Needs confirmation from the owner of settings copy | Yes |
+| 12.D5 | Stage 1 verdict reads the ambient (unnamed) Claude login only; a named account signed in through Providers does not turn the banner off | (a) ambient only (chosen); (b) any connected Claude account | `provider:getAmbientClaudeStatus` is ambient by contract (`provider-account.types.ts:264`); named accounts are separate routes. Choosing (b) needs a rule that is not in the contracts | Yes |
+| 12.D6 | Embed the full `ptah-providers-settings` and `ptah-cli-orchestration-matrix` instead of building a reduced onboarding subset | (a) embed both (chosen); (b) new compact lists; (c) only link to Settings | The brief says reuse; a reduced list would duplicate sign-in, drawer and add-instance logic. The cost is a heavier second screen, mitigated by skip and deferred loading | Yes, pending visual review of the real embed |
+| 12.D7 | A timeout or unreadable result is an error state, never "signed out" | (a) separate error state (chosen); (b) fold into signed-out | The contract states `unknown` is never read as signed out | No (contract) |
+| 12.D8 | Continue anyway is available in every non-ready state including checking (D11) | (a) always (chosen); (b) wait for the first result | D11: warn but allow skip; a slow probe can last 30 s and must not trap the user | Yes |
+| 12.D9 | Re-check runs both detect and a fresh ambient read (`read(true)`); entry uses the cached read | (a) as stated (chosen); (b) always fresh | The service documents `refresh:false` for host cache and `true` for a new probe; entering with cache is fast | Yes |
+
+Sources for the install section (read 2026-10-28): Claude Code docs "Advanced setup" `https://code.claude.com/docs/en/setup` (native installer commands for macOS/Linux/WSL, PowerShell and CMD; npm requires Node.js 22 or later and no sudo; verify with `claude --version`; "Authenticate": run `claude` and follow the browser prompts; account types Pro, Max, Team, Enterprise or Console).
+
+### 12.11 Lane-introduced constraints
+
+Nothing here was asked for by the user beyond D10 and D11; these are the lane's own and need confirmation before implementation:
+
+- **L1 `[lane-proposed]`** The first-run guard redirects to `/onboarding/ready` (not Home) until a pre-step flag exists, so every new and upgrading user sees stage 1 once. Alternative: keep redirecting to Home and show only the banner.
+- **L2 `[lane-proposed]`** The `ready` sub-object in `ptah.onboarding.v1` (12.D1).
+- **L3 `[lane-proposed]`** The persistent warning appears on stage 2 and Home only; it is not added to chat, the status bar or other surfaces. D11 says "persistent"; a chat-level banner would be a separate, user-visible change.
+- **L4 `[lane-proposed]`** An optional second Settings row "Check Claude Code" linking to stage 1.
+- **L5 `[lane-proposed]`** Copy text, state words and the PATH/restart hint ("restart Ptah so it picks up the updated PATH") are proposals; the restart hint is a plausible cause, not a measured one, and should be checked against how Electron resolves `PATH` before shipping.
+- **L6 `[lane-proposed]`** Settings-copy alignment (12.D4) touches `credentials-tab.component.ts` strings, a change outside the onboarding lib.
+- **L7 `[lane-proposed]`** Both pre-steps also appear to users who already have Claude Code ready; for them stage 1 is a one-click "Continue" screen. Alternative: auto-skip stage 1 when the first check returns `ready`.
+
+### 12.12 Revision log
+
+| Date | Change |
+|---|---|
+| 2026-10-28 | Section 12 added; cross-references in the page header and in 1.2 (flag shape, guard target). Prototype: two views, Home banner and strip, Claude state switch, `narrow.html` `state` parameter. Approved sections otherwise unchanged. |
+
+
+## 13. Visual revision: icons and glass (user request 2026-10-28)
+
+Scope: visual layer only. Layout, copy, states, routes and every decision in sections 1-12 are unchanged. The prototype (`prototype/index.html`) now defaults to `ptah-glass`; the bar switches between the four themes below. Electron is the reference host.
+
+### 13.1 Themes covered
+
+| Prototype label | `data-theme` | `data-glass` / `data-glass-mode` | Real source |
+|---|---|---|---|
+| Glass dark | `ptah-glass` | `on` / `dark` | `tailwind.config.js:225` (palette), `theme.service.ts:101` (`DAISYUI_THEMES`, `glass: true`) |
+| Glass light | `ptah-glass-light` | `on` / `light` | `tailwind.config.js:270`, `theme.service.ts:102` |
+| Plain dark | `anubis` | absent | `tailwind.config.js:80`, `theme.service.ts:103` (the app's own non-glass dark; `dark` and `light` are stock DaisyUI themes and are not the product pair) |
+| Plain light | `anubis-light` | absent | `tailwind.config.js:149`, `theme.service.ts:104` |
+
+`ThemeName`, `DAISYUI_THEMES`, `ACCENT_COLORS` (accents `gold|rose|moonstone`) and scenes (`aurora|ember|tide|horizon`) live in `libs/frontend/core/src/lib/services/theme.service.ts:19-106`. Onboarding adds no theme and no token: it only sets `data-glass-surface` on its own elements and uses the existing `--glass-*`, `--b1..b3`, `--bc`, `--bcm` and `--state-ink-*` variables. Measurements below are for the default gold accent and the default `aurora` scene (`DEFAULT_ACCENT`, `DEFAULT_SCENE`, `theme.service.ts:68,71`).
+
+### 13.2 Icons
+
+Library: `lucide-angular` 1.0.0 (root `package.json:185`). Every name below was checked against `node_modules/lucide-angular/icons`. Size is `1.1em` inline (16px at 14px body), larger where stated; stroke is the Lucide default 2 (3 inside a status badge). In the app the icons register through the app's existing Lucide provider; the prototype inlines the same path data as `<symbol>`s.
+
+Aria rule for all icons: decorative, `aria-hidden="true"` and not focusable, because a visible text label always sits next to the icon. The only icon-only meaning is state, and state always also has a text word (chip text, `Needs install`, `Ready`), so no icon carries information alone. No icon-only buttons are introduced.
+
+| Surface | Lucide name | Size / treatment | Aria |
+|---|---|---|---|
+| Stepper, step 1 Claude Code | `terminal` | 24px ring `.n`; ring colour follows state | decorative; step label + state word is the name |
+| Stepper, step 2 Providers and tools | `plug-zap` | same | same |
+| Stepper, step 3 Choose a path | `route` | same | same |
+| Stepper state badge (corner, 17px) | `check` (ready/done), `triangle-alert` (needs action), `loader` (checking, spins) | stroke 3, state-ink fill | decorative; the state word under the label carries it |
+| Page title tile (h1) | same glyph as its step (`terminal`, `plug-zap`, `route`; `layers` Proposal, `shield-check` Review, `message-square` Intake, `list-checks` States) | 44px tile (38px at 480px), glyph 1.35rem | decorative |
+| Home card Analyze | `scan-search` | 48px tile, glyph 1.35rem | decorative; the h2 is the link name |
+| Home card New project | `folder-plus` | same | same |
+| Home card AI team builder | `users` | same | same |
+| Analyze card checklist | `scan-search`, `list-checks`, `wand-sparkles`, `book-open` | 1.1em | decorative |
+| Card CTA affordance | `arrow-right` | 1.1em after label | decorative |
+| Warning banner (D11) | `triangle-alert`; action `download` (missing), `log-in` (signed out), `refresh-cw` (error) | 1.1em | decorative; banner is `role="status"` with the sentence |
+| Fix / Re-check / Copy / Open guide | `terminal`, `refresh-cw`, `copy` (`check` after copy), `external-link` | 1.1em inside the button | decorative; button text is the name |
+| Resume strip | `loader` (chip), `play` (Resume) | 1.1em | decorative |
+| Status chips | `circle-check` Connected / Installed / Ready; `unplug` Not connected; `log-in` Signed out; `download` Not installed; `circle-alert` error; `clock` queued; `loader` running; `ban` cancelled; `pause` paused; `circle-x` failed; `circle-dashed` pending | 1.1em at 12px text | decorative; chip text names the state |
+| Analyze / New project / Team sections | Agents `bot`, Skills `sparkles`, MCP `plug-zap`, Plugins `puzzle`, Toolchain `wrench`, reply panel `message-square`, send `send`, Review `shield-check`, Launch `rocket`, add `plus`, rollback `rotate-ccw`, files `file-text`, edit `pencil`, settings `settings`, specimen `cpu`/`server` | 1.1em | decorative |
+
+Dark/light/plain: icon colour is `currentColor`, taken from `--bc` on neutral tiles and the `--state-ink-*` tokens on state icons (same tokens as the text they sit beside, so icon contrast equals the text pairs in 13.5). In forced-colors mode icon tiles fall back to `CanvasText` on `Canvas` with a 1px border (prototype `@media (forced-colors:active)`).
+
+#### Provider icons and fallback
+
+Finding that changes the earlier assumption: **the repo already ships provider artwork.** `ptah-brand-mark` (`libs/frontend/ui/src/lib/native/brand-mark/brand-mark.component.ts`), its monogram fallback `ptah-monogram-tile`, the slug table `PROVIDER_BRAND_SLUGS` (`brand-slugs.ts:74-95`) and `ptah-provider-mark` (`libs/frontend/ui/src/lib/native/provider-mark/provider-mark.component.ts:67`) are vendored from theSVG with per-icon licences recorded in `provider-brand-art.vendored.ts:5-8`, and shipped notices in `brand-icons-notices.txt`. Onboarding must reuse them and must not vendor or hand-draw any logo. The prototype `m-*` symbols are the same vendored path data, drawn on the existing tile rule (`tileFor`: theme tile, or a white tile when the mark needs one).
+
+| Row | Provider id -> slug (`brand-slugs.ts`) | Artwork | Fallback if the slug has no art |
+|---|---|---|---|
+| Claude (subscription) / Claude Code tool | `claude-cli` -> `claude` | vendored mark, CC0-1.0 | monogram tile `C` |
+| OpenAI Codex | `codex` / `openai-codex` -> `codex` | vendored mark; licence "brand-use, nominative use only" (`provider-brand-art.vendored.ts:8`) | monogram `C` |
+| GitHub Copilot | `github-copilot` | vendored, MIT | monogram `G` |
+| OpenRouter | `openrouter` | vendored, CC0-1.0 | monogram `O` |
+| Kimi Code | `kimi-code` -> `moonshot` | vendored, MIT | monogram `K` |
+| Anthropic API key | `anthropic` | vendored, CC0-1.0 | monogram `A` |
+| Gemini, Ptah CLI instances, any provider without a slug | none | none | `ptah-monogram-tile` with the first letter, deterministic tint (`monogramTintClass`); for CLI tools without a slug the prototype uses the Lucide `terminal` glyph on a neutral tile |
+
+Treatment: the prototype draws a 38px tile; production uses `ptah-brand-mark size="md"` (`MARK_TILE_BOX_CLASS`: 32px tile, 20px art; `lg` is 56px and too large for a list row), so 32px is the implementation value and the 6px difference is accepted; tile corner `--glass-radius-sm` (10px), tile fill `--glass-fill-tile` plus an 18% tint of the provider accent and a 45% accent hairline. The accent is decoration only; brand colours never carry state. The provider name is the visible text next to the tile; `ptah-brand-mark` already sets `aria-hidden="true"`.
+
+Licensing and trademark rules (from the repo's own notices, to keep): (1) use only marks already in `brand-marks.vendored.ts` / `provider-brand-art.vendored.ts`, regenerated with `npm run vendor:brand-icons`, never edited by hand; (2) nominative use only: the mark appears only next to the product name it identifies, never as Ptah branding and with no implied endorsement; (3) no `.svg` files and no vendor names in non-JS files (VS Code Marketplace scanner guard stated in both vendored headers), so the marks stay TypeScript path data; (4) `ptah-brand-mark` pulls the full artwork table, so render it only from lazy routes: the onboarding routes are lazy; eagerly loaded hosts use `ptah-monogram-tile` or the small `PROVIDER_BRAND_ART` subset via `ptah-provider-mark`. Open: Codex is "brand-use, nominative only" while the others are MIT or CC0; confirm that the legal reading matches the existing Providers screen, which already shows it.
+
+### 13.3 Glass recipe
+
+Onboarding adds no CSS tokens. It tags surfaces, and `styles.css` section 2 (`styles.css:2585-2588` documents the surface roles) supplies the recipe. Values in the table are the real ones, "dark" from the `data-glass-mode='dark'` block (`styles.css:2659-2694`), "light" from the base block (`styles.css:2598-2656`).
+
+| Onboarding element | `data-glass-surface` | Fill | Blur | Border | Shadow |
+|---|---|---|---|---|---|
+| Top bar, stepper current pill, warning banner, resume strip, dock | `chrome` (banner and dock add a 70% state-colour border) | dark `--glass-fill` = `bc` 6% (`:2665`); light `b1` 44% (`:2618`) | `--glass-blur` 16px, saturation 1.16 / 1.15, brightness 1.06 dark (`:2605`, `:2660`) | 1px `--glass-line`: dark white 12% (`:2680`), light white 85% (`:2642`); top edge highlight `--glass-edge-top` 38% dark (`:2678`) / 80% light (`:2640`) | `--glass-shadow` dark `0 18px 46px -20px rgb(5 8 14 / .38)` (`:2684`); light `0 18px 44px -20px rgb(86 68 132 / .24)` (`:2646`) |
+| Panels, path cards, provider list, command box | `content` | stable fill, no blur (`:2936`): `--glass-fill-raised` dark `bc` 20% (`:2666`), light `b1` 72% (`:2619`) | none | `--glass-line` | `--glass-shadow` |
+| Nested tiles: icon tiles, chips, agent/skill cards, log | `tile` | `--glass-fill-tile`, light 50% of `b1`; no blur (`:2943`, light variant `:2950`) | none | `--glass-line-strong` (`bc` 28-30%) | none; 1px inset `--glass-glint` on icon tiles |
+| Reply dock opened over content | `overlay` | `--glass-fill-overlay` dark `b2` 88%, light `b1` 90% | `--glass-blur-overlay` 22px | `--glass-line` | `--glass-shadow-overlay` |
+
+Radii: panels and cards `--glass-radius` 22px, banner/resume/dock `--glass-radius-inner` 14px, tiles `--glass-radius-sm` 10px, chips and tabs pill. Page backdrop: the shared scene layer (`:root[data-glass='on']::before`, `styles.css:2800-2820`) with `--glass-tint` (alpha 0.7 dark, 0.5 light); onboarding does not paint its own background, so blur always has local light behind it. Primary buttons use the existing gold gradient with dark ink (`--g-gold-a/b`, `--g-gold-ink`, `styles.css:3217-3224`). Focus uses `--g-ptah-focus` / `--glass-focus`, unchanged.
+
+Plain themes (`anubis`, `anubis-light`): no `data-glass`, so every `--glass-*` rule is dormant; the same markup renders on `--b1..b3`, 1px `--line` borders and no blur, exactly as sections 1-12 specified. The glass look is purely additive.
+
+### 13.4 Fallbacks
+
+- `prefers-reduced-transparency: reduce` or `prefers-contrast: more`: `styles.css:2716-2745` and `:3352` make every glass fill opaque (`--glass-fill` = `b1`, raised = `b2`, tile = `b2`), set `--glass-filter` to `none`, hide the scene (`:root[data-glass='on']::before { display: none }`), drop shadows and glint, and raise borders to `bc` 35% (60% for `more`). Onboarding inherits it with no rule of its own. Specimen: the bar's "Reduced transparency" switch and `?rt=reduce`; screenshots `v2-providers-missing-reduced-transparency-glass-*.png`.
+- `forced-colors: active`: `styles.css:2757-2770` turns every `[data-glass-surface]` into `Canvas` / `CanvasText` with a 1px border; icons use `forced-color-adjust: auto`.
+- No `backdrop-filter` support: the fill alphas above are high enough that text stays readable on `--glass-tint` alone (the measurements in 13.5 include the scene and tint, not a flat colour).
+- Plain themes: see 13.3.
+- Reduced motion: the only motion added is the 1.6s `loader` spin on the checking badge and chips. The global rule at `styles.css:2775-2781` (and the app's `:839` rule) collapses animation and transition durations to 0.01ms, so the spinner becomes static while the text "Checking" remains. No blur, parallax or entrance animation was added.
+
+### 13.5 Measured contrast
+
+Method: the prototype was rendered in headless Google Chrome (Playwright, 1280px, default accent, `aurora` scene). For each visible element (up to 3 per selector, four views: Home with banner, Get ready stage 1 missing, stage 2 providers, New project proposal), its own text was made transparent and the element's inner area (inset 8px horizontally, 22% vertically, to exclude borders and rounded corners) was screenshotted, which includes the real blur, scene, tint and fill. The text colour was resolved to RGB (alpha composited) and the contrast ratio per WCAG 2.2 (relative luminance, `(L1+0.05)/(L2+0.05)`) was computed against the 3rd-percentile darkest and 97th-percentile lightest pixel; the lower ratio is reported. 100 samples per theme (56 selector-and-view combinations). Criterion: WCAG 2.2 AA, 4.5:1 for text under 24px (or under 18.66px bold), 3:1 for large text and UI glyphs.
+
+| Theme | Headings (min) | Body and muted text (min) | Status chips (min) | Buttons, tabs (min) | Failures |
+|---|---|---|---|---|---|
+| Glass dark | 7.18 | 5.75 (card checklist) | 7.45 | 7.81 | 0 |
+| Glass light | 12.34 | 5.19 (card checklist) | 5.48 | 5.38 (ghost "Skip for now") | 0 |
+| Plain dark | 11.15 | 5.84 | 4.76 ("In progress") | 5.17 (primary "Resume") | 0 |
+| Plain light | 12.52 | 5.45 | 4.80 | 6.28 | 0 |
+
+Icons: neutral icons are `--bc` on `--glass-fill-tile`, the same pair as the headings row (7.18 or higher); state icons share colour with their chip text (4.76 or higher), and the state ink tokens are independently guarded on all four themes over base-100..300 by `apps/ptah-extension-webview/src/app/state-ink-contrast.spec.ts`. Brand marks are identification, not information, and the name is always beside them.
+
+Limits: only the `aurora` scene was measured; `ember`, `tide` and `horizon` shift `--glass-tint-alpha` (`styles.css:2830-2835`) and were not re-measured for onboarding screens. Because text sits on `content`/`tile` surfaces with 20%-72% fills plus the 0.5-0.7 tint, not directly on the scene, the margin (at least 0.7 above the 4.5 floor in the worst case) is the evidence; a scene sweep belongs in the implementation visual gate. Measured values are pixel samples of a prototype, not guarantees for production; the implementation gate repeats them on the real components.
+
+### 13.6 Decisions
+
+| # | Decision | Options | Evidence | Reversible |
+|---|---|---|---|---|
+| 13.D1 | Plain pair is `anubis` / `anubis-light` | (a) anubis pair (chosen); (b) stock `dark` / `light` | `theme.service.ts:103-106`: `dark` is glass-flagged and stock; anubis is the product's own non-glass themes | Yes |
+| 13.D2 | Reuse `ptah-brand-mark`, `ptah-monogram-tile`, `ptah-provider-mark`; no new logos | (a) reuse (chosen); (b) new brand SVGs; (c) Lucide only | Artwork, notices and licence records exist in `libs/frontend/ui/.../brand-mark`; a second set would split licence tracking | Yes |
+| 13.D3 | No icon-only meaning and no icon-only buttons; all icons `aria-hidden` | (a) as stated (chosen); (b) labelled icons | Every icon has an adjacent text label in sections 3 and 12 | Yes |
+| 13.D4 | No new tokens or components for glass; tag surfaces only | (a) tag only (chosen); (b) onboarding-specific glass CSS | `styles.css` section 2 already covers all four surface roles, fallbacks and forced colours | Yes |
+| 13.D5 | Measure on the default scene and accent only | (a) default (chosen); (b) 4 scenes x 3 accents now | Cost; scene sweep deferred to implementation visual gate (recorded as risk in 13.5) | Yes |
+
+### 13.7 Lane-introduced constraints
+
+None beyond section 12.11. Everything in this section restyles with existing tokens; it adds no behaviour, copy or rule.
+
+### 13.8 Screenshot index
+
+All in `prototype/screenshots/`, 1280px wide unless noted, suffix `-glass-dark`, `-glass-light`, `-plain-dark`, `-plain-light`:
+
+- Stage 1: `v2-get-ready-checking`, `v2-get-ready-ready`, `v2-get-ready-missing`, `v2-get-ready-signed-out`, `v2-get-ready-error`
+- Stage 2: `v2-providers-missing` (provider rows with Claude warning), `v2-cli-tools-ready` (CLI tools tab)
+- Home: `v2-home-ready` (three cards, progress strip, resume), `v2-home-missing` (warning banner)
+- Step UIs: `v2-analyze-generating`, `v2-project-proposal`, `v2-review-apply`, `v2-team-start`, `v2-team-proposal`, `v2-states`
+- Narrow 400px, glass dark and glass light only: `v2-get-ready-missing-narrow`, `v2-providers-narrow`
+- Reduced transparency, glass dark and light: `v2-providers-missing-reduced-transparency`
+
+### 13.9 Revision log
+
+| Date | Change |
+|---|---|
+| 2026-10-28 | Section 13 added. Prototype: glass default, four-theme switch, reduced-transparency specimen, icon system, vendored provider marks. |

@@ -450,6 +450,102 @@ Citations in this addendum are at `65499f2c`. After PR 832 merges and this branc
    on `main` after the merge, record it in each batch's test plan as pre-existing rather than fixing
    it inside this task.
 
+### Post-merge revalidation (2026-10-28, main 35203f1d8)
+
+Basis: PR 832 merged as `fdbb632da`; the branch is rebased onto `35203f1d8`. `git diff
+fdbb632da 35203f1d8` touches no file below. Method: every `file:line` citation in the plan (basis
+`0e17912e3`) and in this addendum (basis `65499f2c`) was mapped to HEAD through the `git diff -U0`
+hunks, and each moved or touched range was opened at HEAD. Setup-wizard commits after `65499f2c`:
+`f2a312631`, `9e25520c2`, `82cb4b699` (new narrow entry `@ptah-extension/setup-wizard/app`),
+`762c1421d` (preview dialog becomes a native `<dialog>`). The rest of the `65499f2c..main` delta
+in item 1 (278 files) is other PRs merged through `main`. It only shifts lines in the files below.
+
+Results of items 1-8:
+
+- Item 1: the diff is non-empty. This subsection is the amendment.
+- Item 2: the barrel is unchanged since `65499f2c`. It still exports `CommunityPacksPanelComponent`
+  (`:17`), `AgentPreviewDialogComponent` (`:18`) and `AgentNextStepsComponent` (`:22`), and none of
+  the B2/B3a/B3b additions. `provideSetupWizardFocusRouter` is still at `:10`.
+- Items 3-4: see the table. `wizard-rpc.service.ts`, `generation-workflow.store.ts`,
+  `generation-preview.store.ts`, `wizard-analysis-runner.service.ts`, `rpc-setup.types.ts`,
+  `rpc-setup-decisions.types.ts`, `phase.ts`, `wizard-generation-rpc.handlers.ts` and
+  `generation-preview.service.ts` are byte-identical to `65499f2c`. `:490` is still
+  `requirePreview: !!tabBinding` and `:1112` is still `key: previewKeyFor(binding?.tabId)`. The D9
+  files (guidance supervisor, `enhanced-prompts-rpc.handlers.ts`, `enhanced-prompts.service.ts`)
+  are unchanged versus `0e17912e3`.
+- Item 5: `GenerationPreviewModalComponent` is found only in the modal, its spec and
+  `agent-selection.component.ts`. `previewGeneration(` is found in `generation-preview.store.ts`,
+  plus its definition in `wizard-rpc.service.ts` and that file's spec. Both match the expectation.
+- Items 6-8: not run in this pass. They are B5b acceptance and per-batch test-plan items.
+
+| Plan citation | Old location | Current location (HEAD) | Impact |
+| --- | --- | --- | --- |
+| `S/rpc.types.ts:1253-1256` (`enhancedPrompts:getPromptContent`, D9) | `0e17912e3` `:1253-1256` | `:1290-1293`, same shape `{ workspacePath } → { content: string \| null; error? }` | citation-only |
+| `S/rpc.types.ts:1103-1106`, `:3187` (`wizard:plan-pack-install`) | `65499f2c` | `:1129-1132`, `:3234` | citation-only |
+| `register-shared-rpc-handlers.ts:76` (guidance supervisor singleton) | `65499f2c` `:76` | `:79`, still `registerSingleton(GuidanceGenerationRunSupervisor)` | citation-only |
+| `completion.component.ts:455-459` (`SETUP_WIZARD_COMPLETE`, L7) | `65499f2c` | `:458-462` (`MESSAGE_TYPES.SETUP_WIZARD_COMPLETE` at `:460`); still deleted in B5b | citation-only |
+| `outcome-summary.component.ts:24-30` (five labels, C-B2, AD5) | `65499f2c` | `:15-21` (`OUTCOME_LABELS`), labels unchanged | citation-only |
+| `outcome-summary.component.ts:39-48` (`libraryReachable`, `OutcomeFileRow`) | `65499f2c` | moved to `W/components/completion/outcome-rows.ts` (`OutcomeFileRow` `:10-17`, `libraryReachable` `:24-30`). `outcome-summary` imports both and does not re-export them. | citation-only. B3b's barrel exports `libraryReachable` and `type OutcomeFileRow` from `./lib/components/completion/outcome-rows`. `completion/outcome-rows.ts` joins the B5b "reused through the barrel" list. |
+| `agent-next-steps.component.ts:58-73` (summary + grade + stale block) | `65499f2c` | `:58-76`. The block now sits inside `@defer (on immediate)` (`:61`); its inputs are unchanged. | citation-only. Onboarding page specs that assert `ptah-outcome-summary` through `AgentNextSteps` must let the defer block render. |
+| `agent-next-steps.component.ts:32-39`, `:157`, `:160-163`, `:160-191`, `:165-178` | `65499f2c` | `:32-39` unchanged; `:160` (`isElectron`), `:163-166`, `:163-194`, `:168-181` | citation-only |
+| `agent-preview-dialog.component.ts:271-285` (inputs/outputs) | `65499f2c` | `:290-304`. The same 8 inputs and 5 outputs. Since `762c1421d` it renders as a native `<dialog>` (`showModal()`) in the top layer. | citation-only. `libs/frontend/onboarding/src/test-setup.ts` needs the `HTMLDialogElement` `showModal`/`close` stub that `setup-wizard/src/test-setup.ts:8-15` added, for `choose-agents.page.spec.ts` (B1 creates the file; the stub lands no later than B3a). |
+| `agent-selection-list.component.ts:161-162`, `:319-444`, `:335-338`, `:362-415` | `65499f2c` | `:159-160`, `:318-443`, `:334-337`, `:361-414` | citation-only |
+| `community-packs-panel.component.ts:194` (pack prompt) | `65499f2c` | `:195-202`, prompt inside `@defer (when request() !== null)` | citation-only |
+| `app.routes.ts:9-12` (old static imports) | `0e17912e3` | same lines; they now import from `@ptah-extension/setup-wizard/app` | citation-only. B5b file list grows; see the note below. |
+| `app.routes.ts:81-98`, `:99-112`, `:127-162`, `:231-232` | `0e17912e3` | unchanged | none |
+| `app.config.ts:90-107`, `:101-107` ("`setup-wizard` is eager, wide barrel") | `0e17912e3` | `:91-103`, `:97-103`. Eager code now imports the narrow `/app` entry (comment `:91-96`). | citation-only. For plan l.46 and l.118, read "narrow `/app` entry" instead of "wide barrel". setup-wizard is still eager and still hosts `MESSAGE_HANDLERS`, so D1 holds. |
+| `app.config.ts:47-60`, `:189-191`, `:220-226`, `:232-238`, `:240-248`, `:394-397` | `0e17912e3` | `:48-61`, `:188-190`, `:219-225`, `:231-237`, `:239-247`, `:393-396` | citation-only |
+| `eslint.config.mjs:258-287`, `:279-287` (dynamic-import exceptions) | `0e17912e3` | `:258-292`, `:279-292` (`@ptah-extension/shared` added at `:287-291`) | citation-only |
+| `eslint.config.mjs:298-300`, `:408-416` | `0e17912e3` | `:303-305`, `:413-421` | citation-only |
+| `tsconfig.base.json:202-206` | `0e17912e3` | `:205-209`; new path `@ptah-extension/setup-wizard/app` at `:236-238` | citation-only |
+| `electron-shell.component.ts:534-550`, `:288-306`, `:616-618` | `0e17912e3` | `:588-604`, `:295-313`, `:678-680` (content identical) | citation-only |
+| `setup-status.store.ts:9-60`, `:112-125`, `:117` | `0e17912e3` | class `:54`, `launchWizard` `:217-230`, `setup-wizard:launch` call `:222`. The store now has three checks (Skills, Scan, Agents) and a separate `scanError` signal (`2af42c828`). | citation-only. D13 holds. Home "Status unavailable, Retry" should treat `error` or `scanError` as a failed chip. |
+| `S/rpc/rpc-setup.types.ts` (all), `S/rpc/rpc-setup-decisions.types.ts`, `S/wizard/phase.ts` | `65499f2c` | unchanged | none |
+| `W/services/*` (`wizard-rpc.service.ts`, `generation-workflow.store.ts`, `generation-preview.store.ts`, `wizard-analysis-runner.service.ts`, `pack-install.store.ts`), `W/utils/safe-failure-copy.ts`, `preview-decisions/*`, `pack-install-prompt.component.ts` | `65499f2c` | unchanged | none |
+| `B/wizard-generation-rpc.handlers.ts:479-490`, `:490`, `:1078-1117`, `:1112`; `B/wizard-generation/generation-preview.service.ts:88`, `:325-418`, `:364-365`; `guidance-generation-run.supervisor.spec.ts:43-44` | `65499f2c` | unchanged | none |
+| `setup-wizard/src/index.ts:10`, `:17`, `:18`, `:22`, `:37`, `:38`, `:40` | `65499f2c` | unchanged | none |
+| `app-state.service.ts` (all plan citations, `:1082`), `message-dispatch.service.ts:181-229`, all other plan citations in `core`, `chat`, `chat-ui`, `harness-builder`, `shared` | `0e17912e3` | unchanged at the cited lines | none |
+| `_router-chunk.mjs:1879-1883` (Angular router v22.2.3) | `0e17912e3` | the installed version is still 22.2.3 | none |
+
+Totals: 19 citation-only rows, 7 rows with no change, 0 decision-affecting.
+
+**Webview 4 MB budget (`@defer`).** The plan does not undo the fix:
+
+- `/onboarding` is a `loadChildren` entry (plan §A2). Onboarding's static imports of the wide
+  `@ptah-extension/setup-wizard` barrel (dialog, packs panel, completion components, stores) land in
+  the lazy chunk, not in the initial bundle.
+- The eager edges are `app.routes.ts`, `app.config.ts` and `initial-navigation.ts`. They reach only
+  `@ptah-extension/onboarding/services`. The plan stages these contents in it: flag, tracker,
+  guard, first-run provider and the focus router. None of them needs setup-wizard. The two routers
+  being merged import only `@angular/core`, `@ptah-extension/chat-state` and
+  `@ptah-extension/core` (`setup-wizard-focus-router.service.ts:1-3`,
+  `harness-builder-focus-router.service.ts:1-3`).
+
+Constraint added to B1 and B5a acceptance: nothing reachable from `onboarding/src/services.ts`
+imports `@ptah-extension/setup-wizard` (wide or `/app`). Check it with
+`git grep -n "@ptah-extension/setup-wizard" libs/frontend/onboarding/src/services.ts
+libs/frontend/onboarding/src/lib/first-run libs/frontend/onboarding/src/lib/focus`; the expected
+result is empty. The reused components keep their own `@defer` blocks inside the onboarding chunk.
+
+**File-list additions (no decision change).** These come from `82cb4b699` and are needed for
+`B5b`:
+
+- `libs/frontend/setup-wizard/src/app.ts` (MODIFY). Drop the exports of
+  `WizardViewComponent`, `GenerationWorkflowShellComponent` and `provideSetupWizardFocusRouter`,
+  because their files are deleted (ledger rows 1, 16-17, 35-37).
+- `apps/ptah-extension-webview/src/app/setup-wizard-entry.spec.ts` (MODIFY). Trim
+  `ALLOWED_EXPORT_SOURCES` to match. After B5b, `app.routes.ts` imports no setup-wizard entry, so
+  its `it.each` case (`toBeGreaterThan(0)`) would fail. Keep the `app.config.ts` case, which still
+  imports `SetupWizardStateService`, `SetupGenerationOpenHandler`, `GenerationRunEventAdapter` and
+  `provideWizardInternalState` from `/app`. Replace the `app.routes.ts` case with a check that it
+  imports no wide `@ptah-extension/setup-wizard`.
+- B5a removes `provideSetupWizardFocusRouter` from the `/app` import in `app.config.ts`. The
+  remaining setup-wizard import must stay on `/app`, because the spec above pins it.
+- `tsconfig.base.json`'s `@ptah-extension/setup-wizard/app` path stays.
+
+Decision-affecting items: none. No new clarification is needed. PR-R1 and AD1-AD9 stand as
+approved.
+
 ## Review r0 follow-ups (orchestrator)
 
 - Codex review r0: APPROVED (`implementation-plan.addendum-pr832-review.md`). Non-blocking 1 and 2

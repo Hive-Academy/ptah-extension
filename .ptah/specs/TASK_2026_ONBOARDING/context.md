@@ -31,6 +31,48 @@ UI is flawed. The workflows need dedicated UI/UX instead of streaming everything
 - Audience: everyone sees onboarding once per version (`ptah.onboarding.v1`), including users
   who upgrade.
 
+## Scope addition: "Get ready" pre-steps (user, 2026-10-28, after #832 merged)
+
+- Before the 3 cards, onboarding adds initial steps:
+  1. **Claude Code check.** Claude Code is a system requirement. Detect it with the existing
+     RPCs (`agent:detectClis` and `provider:getAmbientClaudeStatus`, whose `reason` may be
+     `cli-missing`). Also show its sign-in state.
+  2. **Main settings.** Providers and other CLI tools.
+- D10 (user): the install is **guided, with no backend**. Show the official install command
+  per OS with a copy button and a docs link, plus a "Re-check" button. The no-backend-changes
+  rule stays.
+- D11 (user): **warn, but allow skip.** If Claude Code is missing or signed out, show a
+  persistent warning. The user can still continue to settings and the cards.
+
+- **Design gate for Get ready (user, 2026-10-28): approve all.** Approved: design-spec §12,
+  including the lane items L1–L7 and decisions D1–D9 in §12.10–12.11. This covers aligning
+  `credentials-tab.component.ts` with the shared install and sign-in command constant.
+
+- **Visual revision (user, 2026-10-28):** more icons, especially for providers and the main
+  steps. Design for glassmorphism, using the existing `ptah-glass` and `ptah-glass-light`
+  themes; this applies across the whole onboarding module. It goes into design-spec §13.
+  Screenshots are needed in the glass themes as well as plain dark and light.
+
+- **Prereqs addendum review r0 (codex): REVISE.** Orchestrator decisions, both reversible:
+  1. The approved Accounts-drawer destination wins over the self-imposed "reuse settings
+     unchanged" constraint. B1b adds a minimal public drawer input to `providers-settings`.
+  2. No screenshot waivers. Every state in all 4 themes is captured with mocked-RPC fixtures.
+- **Prereqs addendum review r1 (codex lane 10195ca7…): REVISE.** Both r0 findings resolved. Open:
+  stage-2 checking and error captures missing; error-local fixture must use a resolver for
+  `rpcError`; the screenshot command must match the harness e2e target. Revise r2 is the last round.
+- **Prereqs addendum review r2 (codex lane 1b23ce47…): APPROVED.** One minor wording fix (stage-1
+  readiness ids exclude `checking-ambient`) applied by the orchestrator. r1 kept as
+  `implementation-plan.addendum-prereqs-review.r1.md`. Plan gate complete; implementation starts
+  with B1.
+- **§13 visual gate (user, 2026-10-28): APPROVED.** `design-spec.md` §13 and the 66
+  `prototype/screenshots/v2-*` captures are the visual target. Plain themes are `anubis` and
+  `anubis-light`. Reuse the vendored `ptah-provider-mark` / `ptah-monogram-tile`; vendor no logos.
+- **Screenshot build/e2e (user, 2026-10-28): ALLOWED** for screenshot steps only: a webview build
+  plus the `webview-e2e-harness` e2e capture, run under `node scripts/verify.mjs --exec`. Never
+  part of `npm run verify`, and no other build, serve or e2e use.
+- **Contrast scope (user, 2026-10-28):** the other glass scenes and the rose/moonstone accents
+  are measured at the implementation visual gate, not now.
+
 ## Project rules (project-rule)
 
 - Electron first. Keep the VS Code host and the TUI compiling.

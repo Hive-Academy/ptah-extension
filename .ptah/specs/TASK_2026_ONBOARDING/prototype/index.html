@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="anubis">
+<html lang="en" data-theme="ptah-glass" data-glass="on" data-glass-mode="dark" data-scene="aurora">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -176,13 +176,401 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+
+/* ===== GET READY pre-steps (spec section 12). Same tokens as above; nothing new invented. ===== */
+.hsteps{list-style:none;margin:0 0 1.25rem;padding:0;display:flex;flex-wrap:wrap;gap:.25rem .25rem;align-items:center}
+.hsteps li{display:flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.88rem;padding:.3rem .55rem;border-radius:var(--r-btn)}
+.hsteps li+li::before{content:"";width:1.1rem;height:1px;background:var(--line-strong);margin-right:.35rem}
+.hsteps .n{width:1.5rem;height:1.5rem;border-radius:50%;border:1.5px solid currentColor;display:grid;place-items:center;font-size:.72rem;font-weight:600;flex:none}
+.hsteps small{display:block;font-size:.75rem;line-height:1.2;color:var(--muted);font-weight:400}
+.hsteps .cur{color:var(--bc);background:var(--hi);font-weight:600}
+.hsteps .cur .n{border-color:var(--gold);color:var(--gold)}
+.hsteps .ok{color:var(--done)} .hsteps .ok .n{background:var(--done);border-color:var(--done);color:var(--s0)}
+.hsteps .warn{color:var(--need)} .hsteps .warn .n{background:var(--need);border-color:var(--need);color:var(--s0);font-weight:800}
+.hsteps .ok .lbl,.hsteps .warn .lbl{color:var(--bc)}
+.cwarn{display:flex;flex-wrap:wrap;gap:.6rem .9rem;align-items:center;margin:1rem 0;padding:.7rem .9rem;border:1px solid color-mix(in oklch,var(--need) 55%,transparent);border-radius:var(--r-box);background:color-mix(in oklch,var(--need) 10%,var(--s1))}
+.cwarn .ic{width:1.5rem;height:1.5rem;border-radius:50%;background:var(--need);color:var(--s0);display:grid;place-items:center;font-weight:800;font-size:.85rem;flex:none}
+.cwarn p{flex:1 1 22ch;font-size:.9rem;margin:0}
+.cwarn.err{border-color:color-mix(in oklch,var(--err) 55%,transparent);background:color-mix(in oklch,var(--err) 9%,var(--s1))}
+.cwarn.err .ic{background:var(--err)}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.6rem 1.5rem;margin:0;padding:1.1rem}
+.kv dt{color:var(--muted);font-size:.88rem}
+.kv dd{margin:0;overflow-wrap:anywhere}
+.sub{font-size:.88rem;color:var(--muted)}
+.skel{display:inline-block;height:.9rem;width:9rem;border-radius:var(--r-badge);background:var(--hi)}
+.block{padding:1.1rem;border-top:1px solid var(--line)}
+.block h3{margin-bottom:.15rem}
+.cmdlabel{font-size:.82rem;color:var(--muted);margin:.8rem 0 .3rem}
+.cmd{display:flex;gap:.6rem;align-items:flex-start;justify-content:space-between;padding:.5rem .6rem .5rem .75rem;border:1px solid var(--line-strong);border-radius:var(--r-btn);background:var(--s0)}
+.cmd code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.82rem;white-space:pre-wrap;overflow-wrap:anywhere;flex:1;min-width:0;padding-top:.3rem}
+.cmd .btn{min-height:32px;padding:.2rem .65rem;font-size:.82rem;flex:none}
+.tablist{margin-top:.8rem}
+.ready-actions{display:flex;flex-wrap:wrap;gap:.75rem;justify-content:space-between;align-items:center;margin-top:1.25rem}
+.ready-actions .grp{display:flex;flex-wrap:wrap;gap:.5rem;margin-left:auto}
+.lst{list-style:none;margin:0;padding:0}
+.lst>li{display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:center;padding:.8rem 1.1rem;border-top:1px solid var(--line)}
+.lst>li:first-child{border-top:0}
+.lst .who{flex:1 1 16rem;min-width:0}
+.lst .who b{font-weight:600}
+.lst .who span{display:block;font-size:.82rem;color:var(--muted);overflow-wrap:anywhere}
+.lst .act{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.lst .btn{min-height:32px;padding:.2rem .7rem;font-size:.85rem}
+.switch{display:inline-flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--muted)}
+.switch input{width:1rem;height:1rem;accent-color:var(--primary)}
+.embed-note{margin-top:.75rem;font-size:.78rem;color:var(--muted);border:1px dashed var(--line-strong);border-radius:var(--r-btn);padding:.4rem .65rem}
+a.btn{color:inherit}
+a.btn-ghost{color:var(--muted)}
+a.btn-primary{color:var(--primary-ink)}
+.panel-t{padding:.9rem 1.1rem .4rem}
+.seg button[aria-selected="true"]{background:var(--gold-soft);color:var(--bc);font-weight:600;box-shadow:inset 0 -2px 0 var(--gold)}
+.seg [role=tab]{min-height:36px}
+@media (max-width:720px){
+  .hsteps li:not(.cur) .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .hsteps li:not(.cur) small{display:none}
+  .hsteps li{padding:.3rem .35rem}
+}
+@media (max-width:480px){
+  .kv{grid-template-columns:1fr;gap:.1rem}
+  .kv dt{margin-top:.5rem}
+  .cmd{flex-direction:column}
+  .cmd .btn{align-self:flex-end}
+  .ready-actions .grp{width:100%;margin-left:0}
+  .ready-actions .grp .btn{flex:1 1 auto;justify-content:center}
+}
+
+/* =====================================================================
+   VISUAL REVISION v2 (spec section 13): icons + glass.
+   Glass themes ptah-glass / ptah-glass-light are first class; anubis /
+   anubis-light stay as the plain fallback. Token names below are the real
+   names from apps/ptah-extension-webview/src/styles.css (section 1, lines
+   2598-2694); values are the same colour-mix equivalents of oklch(var(--b1) / a).
+   ===================================================================== */
+
+/* ---- glass theme palettes: tailwind.config.js ptah-glass (225-268) / ptah-glass-light (270-316) ---- */
+[data-theme="ptah-glass"]{
+  color-scheme:dark;
+  --b1:#17191d; --b2:#202329; --b3:#2a2e35; --bc:#f2f2f1;
+  --muted:oklch(90.05% .0071 268.54);            /* --bcm */
+  --primary:#e4b94a; --primary-ink:#1b1403;
+  --gold:#e4b94a; --gold-soft:rgba(228,185,74,.14);
+  --run:#93bdff; --need:#ffb066; --err:#ff9696; --done:#5fe0a0; --idle:#dcdee3;   /* --state-ink-* */
+  --ring:#f2f2f1;
+}
+[data-theme="ptah-glass-light"]{
+  color-scheme:light;
+  --b1:#f7f3fd; --b2:#eee8f8; --b3:#e2daf1; --bc:#1e1936;
+  --muted:oklch(46.559% .0614 293.53);           /* --bcm */
+  --primary:#7c5700; --primary-ink:#fff8e6;
+  --gold:#7c5700; --gold-soft:rgba(124,87,0,.12);
+  --run:#2449b0; --need:#8f5200; --err:#a31f26; --done:#0f6434; --idle:#5f5878;   /* --state-ink-* */
+  --ring:#1e1936;
+}
+
+/* ---- glass tokens (styles.css:2598 light/base block, :2659 dark block) ---- */
+:root[data-glass="on"]{
+  --glass-blur:16px; --glass-blur-overlay:22px; --glass-saturation:1.15; --glass-brightness:1;
+  --glass-filter:blur(var(--glass-blur)) saturate(var(--glass-saturation)) brightness(var(--glass-brightness));
+  --glass-filter-overlay:blur(var(--glass-blur-overlay)) saturate(var(--glass-saturation));
+  --glass-radius:22px; --glass-radius-inner:14px; --glass-radius-sm:10px;
+  --glass-under:transparent; --glass-under-bar:transparent;
+  --glass-plate:color-mix(in oklch,var(--b1) 50%,transparent);
+  --glass-fill:color-mix(in oklch,var(--b1) 44%,transparent);
+  --glass-fill-raised:color-mix(in oklch,var(--b1) 72%,transparent);
+  --glass-fill-overlay:color-mix(in oklch,var(--b1) 90%,transparent);
+  --glass-fill-tile:color-mix(in oklch,var(--b1) 50%,transparent);
+  --glass-fill-input:color-mix(in oklch,var(--b1) 66%,transparent);
+  --glass-tint-alpha:.5;
+  --glass-tint:color-mix(in oklch,var(--b1) calc(var(--glass-tint-alpha) * 100%),transparent);
+  --glass-scrim-text:color-mix(in oklch,var(--b1) 50%,transparent);
+  --glass-edge-top:rgb(255 255 255 / .8); --glass-edge-bottom:rgb(255 255 255 / .18);
+  --glass-line:rgb(255 255 255 / .85);
+  --glass-line-strong:color-mix(in oklch,var(--bc) 30%,transparent);
+  --glass-input-edge:color-mix(in oklch,var(--bc) 64%,transparent);
+  --glass-glint:rgb(255 255 255 / .8);
+  --glass-shadow:0 18px 44px -20px rgb(86 68 132 / .24),0 2px 8px rgb(86 68 132 / .08);
+  --glass-shadow-overlay:0 30px 70px -26px rgb(70 50 130 / .4),0 4px 14px rgb(70 50 130 / .12);
+  --glass-divider:color-mix(in oklch,var(--bc) 14%,transparent);
+  --glass-scrim:color-mix(in oklch,var(--bc) 28%,transparent);
+  --glass-focus:var(--bc);
+  --glass-grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+}
+:root[data-glass="on"][data-glass-mode="dark"]{
+  --glass-saturation:1.16; --glass-brightness:1.06;
+  --glass-under:color-mix(in oklch,var(--b1) 18%,transparent);
+  --glass-under-bar:color-mix(in oklch,var(--b1) 60%,transparent);
+  --glass-fill:color-mix(in oklch,var(--bc) 6%,transparent);
+  --glass-fill-raised:color-mix(in oklch,var(--bc) 20%,transparent);
+  --glass-fill-overlay:color-mix(in oklch,var(--b2) 88%,transparent);
+  --glass-fill-input:color-mix(in oklch,var(--b1) 58%,transparent);
+  --glass-tint-alpha:.7;
+  --glass-scrim-text:color-mix(in oklch,var(--b1) 62%,transparent);
+  --glass-edge-top:rgb(255 255 255 / .38); --glass-edge-bottom:rgb(255 255 255 / .06);
+  --glass-line:rgb(255 255 255 / .12);
+  --glass-line-strong:color-mix(in oklch,var(--bc) 28%,transparent);
+  --glass-input-edge:color-mix(in oklch,var(--bc) 62%,transparent);
+  --glass-glint:rgb(255 255 255 / .24);
+  --glass-shadow:0 18px 46px -20px rgb(5 8 14 / .38),0 2px 8px rgb(5 8 14 / .18);
+  --glass-shadow-overlay:0 30px 72px -24px rgb(5 8 14 / .5),0 4px 14px rgb(5 8 14 / .25);
+  --glass-divider:rgb(255 255 255 / .1);
+  --glass-scrim:rgb(8 10 14 / .5);
+  --glass-grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+}
+:root[data-theme="ptah-glass"][data-glass="on"]{--glass-scene:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%232b2e34%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%2317191d%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%2326292f%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%2711%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%200.85%200%200%200%200%200.87%200%200%200%200%200.9%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27600%27%20rx%3D%27320%27%20ry%3D%27340%27%20fill%3D%27%23b43fc4%27%20opacity%3D%270.85%27%2F%3E%3Cellipse%20cx%3D%27560%27%20cy%3D%27320%27%20rx%3D%27430%27%20ry%3D%27280%27%20fill%3D%27%238a9bd0%27%20opacity%3D%270.38%27%2F%3E%3Cellipse%20cx%3D%271000%27%20cy%3D%27610%27%20rx%3D%27380%27%20ry%3D%27170%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27220%27%20rx%3D%27300%27%20ry%3D%27250%27%20fill%3D%27%2314b2d8%27%20opacity%3D%270.95%27%2F%3E%3Cellipse%20cx%3D%271430%27%20cy%3D%27650%27%20rx%3D%27300%27%20ry%3D%27190%27%20fill%3D%27%23f07a1a%27%20opacity%3D%270.85%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.07%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%2334373d%27%20opacity%3D%270.8%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%2324262b%27%20opacity%3D%270.9%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%2317191d%27%20opacity%3D%270.96%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E")}
+:root[data-theme="ptah-glass-light"][data-glass="on"]{--glass-scene:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%201600%201000%27%20preserveAspectRatio%3D%27xMidYMid%20slice%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27s%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23e9e1fb%27%2F%3E%3Cstop%20offset%3D%27.62%27%20stop-color%3D%27%23f6edf8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23fde9df%27%2F%3E%3C%2FlinearGradient%3E%3Cfilter%20id%3D%27g%27%20x%3D%27-50%25%27%20y%3D%27-50%25%27%20width%3D%27200%25%27%20height%3D%27200%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%2770%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r0%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%277%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r1%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%275%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27r2%27%20x%3D%27-5%25%27%20y%3D%27-20%25%27%20width%3D%27110%25%27%20height%3D%27140%25%27%3E%3CfeGaussianBlur%20stdDeviation%3D%273%27%2F%3E%3C%2Ffilter%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.0032%20.0055%27%20numOctaves%3D%273%27%20seed%3D%275%27%2F%3E%3CfeColorMatrix%20type%3D%27matrix%27%20values%3D%270%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-.55%27%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20fill%3D%27url(%23s)%27%2F%3E%3Cg%20filter%3D%27url(%23g)%27%3E%3Cellipse%20cx%3D%27150%27%20cy%3D%27220%27%20rx%3D%27330%27%20ry%3D%27300%27%20fill%3D%27%23b8a3f5%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27620%27%20cy%3D%27360%27%20rx%3D%27420%27%20ry%3D%27280%27%20fill%3D%27%23ffd9bd%27%20opacity%3D%270.55%27%2F%3E%3Cellipse%20cx%3D%271400%27%20cy%3D%27160%27%20rx%3D%27330%27%20ry%3D%27260%27%20fill%3D%27%23a9c8ff%27%20opacity%3D%270.65%27%2F%3E%3Cellipse%20cx%3D%271050%27%20cy%3D%27800%27%20rx%3D%27420%27%20ry%3D%27260%27%20fill%3D%27%23ffbf9c%27%20opacity%3D%270.7%27%2F%3E%3Cellipse%20cx%3D%27180%27%20cy%3D%27820%27%20rx%3D%27320%27%20ry%3D%27240%27%20fill%3D%27%23ffb3d0%27%20opacity%3D%270.5%27%2F%3E%3C%2Fg%3E%3Crect%20width%3D%271600%27%20height%3D%271000%27%20filter%3D%27url(%23n)%27%20opacity%3D%270.35%27%2F%3E%3Cpath%20d%3D%27M0%20640%20C140%20590%20260%20560%20400%20590%20S640%20660%20800%20610%20S1100%20520%201280%20570%20S1500%20640%201600%20600%20V1000%20H0Z%27%20fill%3D%27%23d7c9f2%27%20opacity%3D%270.5%27%20filter%3D%27url(%23r0)%27%2F%3E%3Cpath%20d%3D%27M0%20770%20C180%20700%20340%20690%20520%20735%20S820%20810%201000%20745%20S1320%20660%201480%20715%20S1560%20745%201600%20735%20V1000%20H0Z%27%20fill%3D%27%23e6d3ea%27%20opacity%3D%270.55%27%20filter%3D%27url(%23r1)%27%2F%3E%3Cpath%20d%3D%27M0%20890%20C200%20845%20420%20855%20640%20885%20S1020%20925%201240%20872%20S1500%20835%201600%20865%20V1000%20H0Z%27%20fill%3D%27%23f3ddd8%27%20opacity%3D%270.65%27%20filter%3D%27url(%23r2)%27%2F%3E%3C%2Fsvg%3E")}
+
+/* escape hatches as TOKEN changes (styles.css:2699 @supports, :2716 reduced transparency / more contrast).
+   [data-rt="reduce"] is the prototype's manual switch for the same block. */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  :root[data-glass="on"]{
+    --glass-fill:color-mix(in oklch,var(--b1) 94%,transparent);
+    --glass-fill-raised:color-mix(in oklch,var(--b1) 96%,transparent);
+    --glass-fill-overlay:color-mix(in oklch,var(--b1) 98%,transparent);
+    --glass-under:color-mix(in oklch,var(--b1) 60%,transparent);
+    --glass-under-bar:color-mix(in oklch,var(--b1) 60%,transparent);
+    --glass-plate:var(--b1); --glass-tint:var(--b1);
+    --glass-scrim-text:color-mix(in oklch,var(--b1) 90%,transparent);
+    --glass-filter:none; --glass-filter-overlay:none;
+  }
+}
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+  :root[data-glass="on"]{
+    --glass-tint:var(--b1); --glass-scrim-text:var(--b1); --glass-fill:var(--b1); --glass-fill-raised:var(--b2);
+    --glass-fill-overlay:var(--b1); --glass-fill-tile:var(--b2); --glass-plate:var(--b1);
+    --glass-under:transparent; --glass-under-bar:transparent; --glass-fill-input:var(--b1);
+    --glass-filter:none; --glass-filter-overlay:none; --glass-grain:none;
+    --glass-edge-top:color-mix(in oklch,var(--bc) 50%,transparent); --glass-edge-bottom:color-mix(in oklch,var(--bc) 50%,transparent);
+    --glass-line:color-mix(in oklch,var(--bc) 35%,transparent); --glass-glint:transparent;
+  }
+}
+:root[data-glass="on"][data-rt="reduce"]{
+  --glass-tint:var(--b1); --glass-scrim-text:var(--b1); --glass-fill:var(--b1); --glass-fill-raised:var(--b2);
+  --glass-fill-overlay:var(--b1); --glass-fill-tile:var(--b2); --glass-plate:var(--b1);
+  --glass-under:transparent; --glass-under-bar:transparent; --glass-fill-input:var(--b1);
+  --glass-filter:none; --glass-filter-overlay:none; --glass-grain:none;
+  --glass-edge-top:color-mix(in oklch,var(--bc) 50%,transparent); --glass-edge-bottom:color-mix(in oklch,var(--bc) 50%,transparent);
+  --glass-line:color-mix(in oklch,var(--bc) 35%,transparent); --glass-glint:transparent;
+}
+
+/* ---- backdrop scene + tint (styles.css:2793-2804) ---- */
+:root[data-glass="on"]{background-color:var(--b1);color:var(--bc);--r-box:var(--glass-radius-inner);--r-btn:var(--glass-radius-sm);--r-badge:8px}
+:root[data-glass="on"] body{background:transparent}
+:root[data-glass="on"]::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(var(--glass-tint),var(--glass-tint)),var(--glass-scene,none) center / cover no-repeat}
+
+/* ---- surface roles (styles.css:2870-2990). Blur + fill sit on ::after so a fixed child is never clipped (TASK_2026_716). ---- */
+:where([data-glass-surface]){position:relative;isolation:isolate}
+:root[data-glass="on"] :is([data-glass-surface="chrome"],[data-glass-surface="bar"]){
+  background:transparent;border-radius:var(--glass-radius);color:var(--bc);
+  box-shadow:inset 0 1px 0 var(--glass-glint),var(--glass-shadow)}
+:root[data-glass="on"] :is([data-glass-surface="chrome"],[data-glass-surface="bar"])::after{
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;
+  background:var(--glass-grain),linear-gradient(var(--glass-fill),var(--glass-fill)),linear-gradient(var(--glass-under),var(--glass-under));
+  background-size:160px 160px,auto,auto;
+  -webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter)}
+:root[data-glass="on"] [data-glass-surface="bar"]::after{
+  background:var(--glass-grain),linear-gradient(var(--glass-fill),var(--glass-fill)),linear-gradient(var(--glass-under-bar),var(--glass-under-bar));
+  background-size:160px 160px,auto,auto}
+:root[data-glass="on"] :is([data-glass-surface="chrome"],[data-glass-surface="bar"],[data-glass-surface="overlay"],[data-glass-surface="content"])::before{
+  content:"";position:absolute;inset:0;z-index:1;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(145deg,var(--glass-edge-top),var(--glass-edge-bottom) 70%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+:root[data-glass="on"] [data-glass-surface="overlay"]{background:transparent;border-radius:var(--glass-radius);color:var(--bc);box-shadow:inset 0 1px 0 var(--glass-glint),var(--glass-shadow-overlay)}
+:root[data-glass="on"] [data-glass-surface="overlay"]::after{
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;
+  background:var(--glass-grain),var(--glass-fill-overlay);background-size:160px 160px,auto;
+  -webkit-backdrop-filter:var(--glass-filter-overlay);backdrop-filter:var(--glass-filter-overlay)}
+:root[data-glass="on"] [data-glass-surface="tile"]{
+  background:var(--glass-fill-tile);border:1px solid var(--glass-line);border-radius:var(--glass-radius-inner);
+  box-shadow:inset 0 1px 0 var(--glass-glint);color:var(--bc)}
+:root[data-glass="on"][data-glass-mode="light"] [data-glass-surface="tile"]{box-shadow:inset 0 1px 0 var(--glass-glint),0 8px 18px -12px rgb(86 68 132 / .3)}
+:root[data-glass="on"] [data-glass-surface="plate"]{background:var(--glass-plate);border-radius:var(--glass-radius-inner);color:var(--bc)}
+
+/* ---- prototype bindings: which class takes which role ---- */
+:root[data-glass="on"] .panel{border-color:transparent}
+:root[data-glass="on"] .path:not(.main),:root[data-glass="on"] .resume{border-color:transparent}
+:root[data-glass="on"] .path.main{border-color:color-mix(in oklch,var(--gold) 55%,transparent)}
+:root[data-glass="on"] .path.main::after{background:var(--glass-grain),linear-gradient(var(--gold-soft),var(--gold-soft)),linear-gradient(var(--glass-fill),var(--glass-fill)),linear-gradient(var(--glass-under),var(--glass-under))}
+:root[data-glass="on"] .path:hover::after{background:var(--glass-grain),linear-gradient(var(--glass-fill-raised),var(--glass-fill-raised))}
+:root[data-glass="on"] .panel,:root[data-glass="on"] .path{border-radius:var(--glass-radius)}
+:root[data-glass="on"] :is(.cwarn,.resume,.dock){border-radius:var(--glass-radius-inner)}
+:root[data-glass="on"] .cwarn{border-color:color-mix(in oklch,var(--need) 70%,transparent)}
+:root[data-glass="on"] .dock{border-color:color-mix(in oklch,var(--need) 70%,transparent)}
+:root[data-glass="on"] .panel-h,:root[data-glass="on"] .sec,:root[data-glass="on"] .block,:root[data-glass="on"] .lst>li,:root[data-glass="on"] .panel-b{border-color:var(--glass-divider)}
+:root[data-glass="on"] .lst>li{border-top-color:var(--glass-divider)}
+:root[data-glass="on"] [data-glass-surface="tile"].acard.running{border-color:color-mix(in oklch,var(--run) 70%,transparent)}
+:root[data-glass="on"] [data-glass-surface="tile"].acard.failed{border-color:color-mix(in oklch,var(--err) 70%,transparent)}
+:root[data-glass="on"] [data-glass-surface="tile"].item.new{border-color:color-mix(in oklch,var(--gold) 70%,transparent);background:linear-gradient(var(--gold-soft),var(--gold-soft)),var(--glass-fill-tile)}
+:root[data-glass="on"] details.log{background:var(--glass-fill-tile);border-color:var(--glass-line)}
+:root[data-glass="on"] details.log pre{border-top-color:var(--glass-divider)}
+:root[data-glass="on"] .meter{background:color-mix(in oklch,var(--bc) 14%,transparent)}
+:root[data-glass="on"] .note,:root[data-glass="on"] .msg,:root[data-glass="on"] .pill{background:var(--glass-plate);border:1px solid var(--glass-line)}
+:root[data-glass="on"] .hsteps .cur,:root[data-glass="on"] .steps .cur{background:var(--glass-plate)}
+:root[data-glass="on"] textarea{background:var(--glass-fill-input);border-color:var(--glass-input-edge)}
+:root[data-glass="on"] .cmd{background:var(--glass-fill-input);border-color:var(--glass-input-edge)}
+:root[data-glass="on"] .btn{border-radius:9999px;border-color:var(--glass-line-strong)}
+:root[data-glass="on"] .btn:not(.btn-primary):not(.btn-ghost):not(.btn-danger){background:var(--glass-fill-tile)}
+:root[data-glass="on"] .btn:not(.btn-primary):hover{background:var(--glass-fill-raised)}
+:root[data-glass="on"] .btn-primary{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+:root[data-glass="on"] .btn-primary:hover{background:color-mix(in oklch,var(--primary) 88%,var(--bc))}
+:root[data-glass="on"] .chip{border-radius:9999px;background:var(--glass-fill-tile);border-color:var(--glass-line-strong)}
+:root[data-glass="on"] .seg{border-radius:9999px;border-color:var(--glass-line-strong);background:var(--glass-fill-tile)}
+:root[data-glass="on"] .seg button[aria-pressed="true"],:root[data-glass="on"] .seg button[aria-selected="true"]{background:var(--gold-soft)}
+:root[data-glass="on"] .proto-bar{border-radius:0;border-bottom:1px solid var(--glass-divider);box-shadow:none}
+:root[data-glass="on"] .proto-bar::before{display:none}
+:root[data-glass="on"] .dockbar{background:transparent;border-top:0;border-radius:var(--glass-radius) var(--glass-radius) 0 0}
+:root[data-glass="on"] .dockbar::after{background:var(--glass-grain),var(--glass-fill-overlay);-webkit-backdrop-filter:var(--glass-filter-overlay);backdrop-filter:var(--glass-filter-overlay)}
+@media (max-width:720px){
+  /* open sheet = overlay role (near opaque, blur 22px); scrim stays flat and unblurred (TASK_2026_716) */
+  :root[data-glass="on"] .dock.open{border-radius:var(--glass-radius) var(--glass-radius) 0 0;background:transparent}
+  :root[data-glass="on"] .dock.open::after{background:var(--glass-grain),var(--glass-fill-overlay);background-size:160px 160px,auto;-webkit-backdrop-filter:var(--glass-filter-overlay);backdrop-filter:var(--glass-filter-overlay)}
+  :root[data-glass="on"] .scrim{background:var(--glass-scrim)}
+}
+:root[data-glass="on"] .skel{background:color-mix(in oklch,var(--bc) 16%,transparent)}
+:root[data-glass="on"] :focus-visible{outline-color:var(--glass-focus)}
+:root[data-glass="on"] .embed-note{background:var(--glass-plate)}
+
+/* ---- ICON SYSTEM ---- */
+svg.g{width:1.1em;height:1.1em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.15em}
+svg.g.brand{fill:currentColor;stroke:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.chip .g{width:.95rem;height:.95rem}
+.chip.run .g{animation:spin 1.6s linear infinite}
+.btn .g{width:1rem;height:1rem}
+.btn span>.g{margin-right:.4rem}
+.path ol{list-style:none;padding-left:0;display:grid;gap:.35rem}
+.path ol li{display:flex;align-items:center;gap:.5rem}
+.path ol li .g{color:var(--bc);width:1rem;height:1rem}
+.h-row{display:flex;align-items:center;gap:.8rem}
+.steps+.h-row{margin-top:1rem}
+.h-row h1{margin:0!important}
+.h-ic{width:2.75rem;height:2.75rem;border-radius:var(--r-box);display:grid;place-items:center;flex:none;color:var(--bc);
+  background:color-mix(in oklch,var(--gold) 16%,var(--s1));border:1px solid color-mix(in oklch,var(--gold) 42%,transparent)}
+.h-ic .g{width:1.45rem;height:1.45rem}
+.mk{display:inline-grid;place-items:center;width:2.4rem;height:2.4rem;flex:none;border-radius:var(--r-box);color:var(--bc);
+  background:color-mix(in oklch,var(--acc,var(--idle)) 16%,var(--s0));border:1px solid color-mix(in oklch,var(--acc,var(--idle)) 40%,transparent)}
+.mk .g{width:1.35rem;height:1.35rem}
+.mk.off{opacity:.78}
+:root[data-glass="on"] .mk{background:color-mix(in oklch,var(--acc,var(--idle)) 18%,var(--glass-fill-tile));border-color:color-mix(in oklch,var(--acc,var(--idle)) 45%,transparent)}
+:root[data-glass="on"] .h-ic{background:color-mix(in oklch,var(--gold) 18%,var(--glass-fill-tile));border-color:color-mix(in oklch,var(--gold) 50%,transparent);box-shadow:inset 0 1px 0 var(--glass-glint)}
+.lst .who{display:block}
+.lst>li .mk+.who{flex:1 1 11rem}
+.lst .who b{display:inline-flex;align-items:center;gap:.35rem}
+.pill .g{width:1rem;height:1rem}
+.path .icon{width:3rem;height:3rem;border-radius:var(--r-box);background:var(--hi);border:1px solid var(--line-strong);color:var(--bc)}
+.path .icon .g{width:1.6rem;height:1.6rem}
+.path.main .icon{background:color-mix(in oklch,var(--gold) 20%,transparent);border-color:color-mix(in oklch,var(--gold) 55%,transparent)}
+:root[data-glass="on"] .path .icon{background:var(--glass-fill-tile);border-color:var(--glass-line-strong);box-shadow:inset 0 1px 0 var(--glass-glint)}
+:root[data-glass="on"] .path.main .icon{background:color-mix(in oklch,var(--gold) 22%,var(--glass-fill-tile));border-color:color-mix(in oklch,var(--gold) 60%,transparent)}
+.path .go .g{width:1rem;height:1rem}
+.cwarn .ic{background:transparent;color:var(--need);width:1.6rem;height:1.6rem}
+.cwarn .ic .g{width:1.5rem;height:1.5rem}
+.sec-h h2,.panel-h h2{display:flex;align-items:center;gap:.45rem}
+.sec-h h2 .g,.panel-h h2 .g{width:1.15rem;height:1.15rem;color:var(--muted)}
+.acard h3{display:flex;align-items:center;gap:.4rem;min-width:0}
+.acard h3 .g{color:var(--muted);width:1.05rem;height:1.05rem}
+
+/* stepper nodes: step glyph in a circle, state as a corner badge (shape + colour) */
+.hsteps .n,.steps .n{position:relative;width:2.1rem;height:2.1rem;overflow:visible}
+.hsteps .n .g,.steps .n .g{width:1.05rem;height:1.05rem}
+.hsteps li .n,.steps li .n{background:var(--s1);border:1.5px solid currentColor;color:inherit}
+:root[data-glass="on"] .hsteps li .n,:root[data-glass="on"] .steps li .n{background:var(--glass-fill-tile)}
+.hsteps li.cur .n,.steps .cur .n{border-color:var(--gold);color:var(--bc);background:color-mix(in oklch,var(--gold) 20%,var(--s1))}
+:root[data-glass="on"] .hsteps li.cur .n,:root[data-glass="on"] .steps .cur .n{background:color-mix(in oklch,var(--gold) 22%,var(--glass-fill-tile))}
+.hsteps li.ok .n{background:var(--s1);border-color:var(--done);color:var(--bc)}
+.hsteps li.warn .n{background:var(--s1);border-color:var(--need);color:var(--bc)}
+:root[data-glass="on"] .hsteps li.ok .n,:root[data-glass="on"] .hsteps li.warn .n{background:var(--glass-fill-tile)}
+.steps .done .n{background:var(--s1);border-color:var(--done);color:var(--bc)}
+:root[data-glass="on"] .steps .done .n{background:var(--glass-fill-tile)}
+.bdg{position:absolute;right:-.35rem;bottom:-.35rem;width:1.05rem;height:1.05rem;border-radius:50%;display:none;place-items:center;color:var(--b1);box-shadow:0 0 0 2px var(--b1)}
+.bdg .g{width:.72rem;height:.72rem;stroke-width:3}
+.bdg.b-ok{background:var(--done)} .bdg.b-warn{background:var(--need)} .bdg.b-run{background:var(--run)}
+.hsteps li[data-st="ok"] .b-ok,.hsteps li[data-st="warn"] .b-warn,.hsteps li[data-st="run"] .b-run,.steps .done .b-ok{display:grid}
+.hsteps li[data-st="run"] .b-run .g{animation:spin 1.6s linear infinite}
+.hsteps li.ok .lbl,.hsteps li.warn .lbl{color:var(--bc)}
+
+/* forced colours / high contrast: shape-bearing icons keep their system colours */
+@media (forced-colors:active){
+  svg.g{forced-color-adjust:auto}
+  .mk,.h-ic,.chip,.hsteps .n,.steps .n,.bdg{border:1px solid CanvasText;background:Canvas;color:CanvasText}
+}
+@media (prefers-reduced-motion:reduce){
+  .chip.run .g,.hsteps li[data-st="run"] .b-run .g{animation:none}
+}
+@media (max-width:720px){
+  .hsteps li:not(.cur) .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+}
+@media (max-width:480px){
+  .h-ic{width:2.4rem;height:2.4rem}
+  .h-row{gap:.6rem}
+  .mk{width:2.2rem;height:2.2rem}
+}
+
+.agents{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.acard h3{font-size:.92rem}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="m-claude" viewBox="0 0 24 24"><path d="m4.71 15.96 4.72-2.65.08-.23-.08-.13H9.2l-.79-.05-2.7-.07-2.33-.1-2.27-.12-.57-.12-.53-.7.05-.36.48-.32.69.06 1.52.1 2.27.16 1.66.1 2.44.25h.4l.05-.15-.14-.1-.1-.1-2.36-1.6-2.55-1.68-1.33-.97-.73-.5L2 6.22l-.16-1 .66-.73.88.06.22.06.9.69 1.9 1.48L8.9 8.6l.36.3.14-.1.02-.07-.16-.28L7.9 6.02l-1.44-2.5L5.8 2.5l-.17-.62c-.06-.26-.1-.47-.1-.73L6.29.13 6.7 0l1 .13.41.37.62 1.41 1 2.23 1.56 3.03.45.9.25.83.09.26h.16V9l.12-1.7.24-2.1.23-2.7.08-.76.38-.9.74-.5.59.28.48.69-.07.44-.29 1.85-.55 2.9-.37 1.95h.21l.25-.25.98-1.3 1.65-2.07.73-.81.85-.9.55-.44h1.03l.76 1.13-.34 1.16-1.06 1.35-.89 1.14-1.26 1.7-.79 1.36.08.11.18-.02 2.86-.6 1.54-.28 1.84-.32.83.4.1.39-.34.8-1.96.49-2.31.46-3.44.81-.04.03.05.07 1.55.14.66.04h1.62l3.02.22.79.52.47.64-.08.49-1.21.62-1.64-.4-3.83-.9-1.3-.33h-.19v.1l1.1 1.08 2 1.8 2.5 2.34.13.57-.32.46-.34-.05-2.2-1.66-.85-.74-1.93-1.62h-.13v.17l.45.65 2.34 3.52.12 1.08-.17.35-.6.21-.67-.12-1.38-1.92-1.41-2.17-1.14-1.94-.14.08-.68 7.25-.31.37-.73.28-.6-.46-.33-.75.32-1.47.4-1.93.3-1.53.3-1.9.16-.63v-.04l-.15.02-1.43 1.96-2.18 2.95-1.73 1.84-.4.17-.72-.37.06-.66.4-.6 2.39-3.03 1.44-1.88.93-1.09v-.16h-.06l-6.34 4.12-1.13.15-.49-.46.06-.75.23-.24 1.91-1.31Z"/></symbol>
+<symbol id="m-codex" viewBox="0 0 24 24"><path d="M8.09.46a6 6 0 0 1 3.04-.42q2 .24 3.57 1.7a.1.1 0 0 0 .1.03 6 6 0 0 1 4.06.37l.07.03.15.07a6.1 6.1 0 0 1 3.34 5.33 6 6 0 0 1-.18 1.63.2.2 0 0 0 .04.15 6 6 0 0 1 1.58 2.9 6 6 0 0 1-1.19 5.13l-.18.22a6 6 0 0 1-2.93 1.85.2.2 0 0 0-.1.1A6.05 6.05 0 0 1 13.52 24a6 6 0 0 1-4.22-1.73.14.14 0 0 0-.14-.03c-.52.17-1.04.2-1.6.19a6 6 0 0 1-2.6-.63 6 6 0 0 1-2.15-1.78q-.31-.39-.55-.82a8 8 0 0 1-.5-1.28 6 6 0 0 1-.01-3.06v-.08l-.03-.06a6 6 0 0 1-1.38-2.2 5 5 0 0 1-.33-1.6A7 7 0 0 1 .2 8.79a6.3 6.3 0 0 1 3.38-3.93q.44-.18.86-.3a.1.1 0 0 0 .1-.09 6 6 0 0 1 1.1-2.15A6 6 0 0 1 8.09.46m-.8 7.85a.85.85 0 0 0-1.48.84l1.7 2.96-1.7 2.85a.85.85 0 0 0 1.47.87l1.94-3.28a.9.9 0 0 0 0-.85zm5.44 6.24a.85.85 0 0 0 0 1.7h4.85a.85.85 0 0 0 0-1.7z" fill-rule="evenodd"/></symbol>
+<symbol id="m-github-copilot" viewBox="0 0 24 24"><path d="M23.92 17c-.86 1.5-5.86 5.02-11.92 5.02S.94 18.49.08 17L0 16.74v-2.87l.05-.22c.38-.93 1.35-2.29 2.6-2.65.18-.43.42-1.06.65-1.52a10 10 0 0 1-.05-1.09c0-1.33.28-2.5 1.13-3.37q.6-.6 1.48-.95a9.5 9.5 0 0 1 6.12-2.09c2.73 0 4.76.96 6.16 2.1q.88.34 1.48.95c.85.86 1.13 2.03 1.13 3.36q0 .56-.05 1.09c.23.46.48 1.09.64 1.52 1.26.36 2.23 1.72 2.6 2.65l.06.22v2.87zm-11.75-6h-.34a4 4 0 0 1-.36.51c-.77.95-1.91 1.5-3.5 1.5-1.73 0-3-.36-3.79-1.26l-.08-.1-.1.1v6.58c1.44.78 4.51 2.18 8 2.18s6.57-1.4 8-2.18v-6.58l-.1-.1-.08.1c-.8.9-2.06 1.25-3.78 1.25-1.6 0-2.74-.54-3.51-1.49a4 4 0 0 1-.36-.5m2.33 3.25a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1 1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1m-5 0a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1 1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1m3.31-6.18c.14 1.06.4 1.91.88 2.5.44.54 1.14.93 2.35.93 1.57 0 2.29-.33 2.65-.75.39-.43.56-1.15.56-2.36 0-1.14-.24-1.84-.7-2.32-.48-.48-1.32-.86-2.83-1.02-1.49-.16-2.2.14-2.53.53q-.42.43-.44 1.58v.02q0 .4.06.89m-1.62 0q.06-.5.06-.9v-.01c0-.77-.17-1.27-.44-1.58-.34-.4-1.04-.7-2.53-.53-1.5.16-2.35.54-2.82 1.02s-.71 1.18-.71 2.32c0 1.21.18 1.93.56 2.36.36.42 1.08.76 2.66.76 1.2 0 1.9-.4 2.34-.94q.69-.9.88-2.5"/></symbol>
+<symbol id="m-openrouter" viewBox="0 0 24 24"><path d="M16.78 1.84v1.92l-1.14-.03q-.7 0-1.42.04C12.3 3.89 10.2 4.5 8.08 6 5.16 8.07 5.34 7.96 3.94 8.75c-.4.22-1.35.57-2.19.8-.84.22-1.75.33-1.75.33v4.22s.77.11 1.61.34c.84.22 1.79.57 2.18.8 1.41.8 1.23.68 4.14 2.75a12 12 0 0 0 6.15 2.23q1.31.07 2.56 0v1.93l7.22-4.17-7.22-4.17v2.17q-1.28.08-2.28.02a7 7 0 0 1-3.98-1.46 53 53 0 0 0-3.68-2.5 51 51 0 0 0 3.82-2.6A7 7 0 0 1 14.5 8q1-.06 2.28.02v2.17L24 6.01Z"/></symbol>
+<symbol id="m-moonshot" viewBox="0 0 24 24"><path d="m1.05 16.92 9.54 2.55a21 21 0 0 0 .06 2.03l5.96 1.6a12 12 0 0 1-5.59.86l-.18-.02h-.04l-.09-.01-.1-.01-.15-.02-.1-.01-.11-.02-.32-.05h-.05l-.07-.02-.1-.02-.08-.02-.1-.02-.07-.01-.1-.02-.09-.02-.1-.03-.06-.01-.09-.03-.09-.02-.1-.02-.08-.03-.1-.03-.07-.02-.08-.02-.1-.03-.1-.03-.06-.02-.08-.03-.09-.03-.06-.02-.05-.02-.06-.02-.1-.04-.06-.02-.08-.03-.09-.04-.09-.03-.08-.04-.1-.04-.05-.02-.07-.03-.04-.02-.06-.03-.1-.05-.06-.02-.1-.05-.06-.03-.08-.04-.09-.04-.1-.05-.04-.02-.1-.06-.06-.03-.06-.03-.05-.03-.1-.05-.05-.03-.05-.03-.07-.04-.09-.05-.09-.06-.05-.03-.08-.06-.07-.03-.07-.05-.07-.05-.06-.04-.05-.03-.05-.03-.04-.03-.04-.03-.06-.04-.07-.05-.07-.05-.08-.06-.05-.04-.08-.06-.07-.06-.09-.06-.04-.04-.07-.05-.07-.06-.1-.07-.04-.04-.04-.04-.05-.04-.04-.04-.06-.05-.07-.06-.07-.06-.06-.06-.07-.06-.05-.05-.1-.09-.09-.1-.03-.02-.04-.04-.07-.07-.05-.06-.05-.05-.17-.18-.08-.09-.06-.07-.07-.08-.04-.04-.05-.07-.06-.06-.05-.06-.03-.03-.04-.06-.07-.08-.04-.05-.05-.07-.02-.02a12 12 0 0 1-1.44-2.4m-1.02-5.8 11.36 3.04a21 21 0 0 0-.47 2.01l10.81 2.9a12 12 0 0 1-1.84 2L.66 15.92l-.02-.04-.03-.1-.05-.16-.01-.02-.2-.74-.04-.13-.02-.08-.02-.1-.02-.08-.01-.09-.02-.08-.02-.1-.07-.42-.02-.12v-.08l-.02-.1-.02-.17v-.04a12 12 0 0 1-.04-2.15m1.6-5.15 11.94 3.2q-.54.9-1 1.87l11.29 3.03q-.22 1.22-.67 2.36l-11.55-3.09L.12 10.26l.02-.1v-.05l.02-.07.01-.08.02-.1.09-.44.03-.13.02-.08.02-.1.07-.27.03-.1.02-.08.03-.1.03-.08.03-.1.02-.08.03-.1a12 12 0 0 1 1.01-2.23zm4.44-4.4L17.35 4.6a21 21 0 0 0-1.69 1.72l7.83 2.1q.4 1.28.51 2.66L2.1 5.2l.05-.06.03-.04.04-.06.04-.06.06-.08.05-.07.07-.09.05-.06.05-.07.06-.07.06-.08.05-.07.07-.07.05-.07.07-.08.05-.06.07-.08.06-.06.06-.07.06-.06.07-.08.06-.06.06-.07.17-.17.1-.1.06-.05.07-.07a12 12 0 0 1 2.28-1.68M12.02 0h.41l.08.01h.16l.09.01h.1l.15.02h.08l.05.01h.08l.08.02h.04l.1.01.06.01.1.01.09.01.04.01.06.01.2.03.08.01.06.02.14.02.1.02.1.02.05.01.08.02h.04l.06.02.04.01.07.02h.05l.07.02.1.03.1.03.12.03.11.03.05.02.07.02.08.02.07.02.05.02.05.01.08.03.1.03.1.04.05.02.06.02.1.03.1.04.12.05.1.04.05.02.06.02.04.02.06.03.04.01.06.03.1.05.1.04.08.04.08.03.06.03.09.05.09.04.1.06.05.02.05.03.05.02.06.04.04.02.05.03.1.05.1.06.08.05.06.03.05.03.1.06.09.06.1.06.03.02.07.05.08.05.04.03.06.04.06.04.03.02.16.11.08.06.07.05.05.05.09.06.08.06.04.03.05.05.09.06.07.07.09.07q1.07.9 1.9 2.03L7.23 1l.06-.02.07-.03.08-.04.09-.03q.15-.07.34-.13l.1-.04.09-.03.08-.03.1-.03.26-.09.1-.02.08-.03.1-.03.08-.02.1-.03.09-.02.09-.02.1-.02.09-.03.09-.02.1-.02.08-.02.1-.02.1-.01.1-.02.08-.02.1-.02h.1l.09-.02.1-.02.1-.01.08-.01.11-.01.09-.01.1-.01.29-.03h.1l.1-.01h.1l.1-.01h.29z" fill-rule="evenodd"/></symbol>
+<symbol id="m-anthropic" viewBox="0 0 24 24"><path d="M17.3 3.54h-3.67l6.7 16.92H24Zm-10.6 0L0 20.46h3.74l1.37-3.55h7l1.38 3.55h3.74l-6.7-16.92Zm-.38 10.22 2.3-5.94 2.29 5.94Z"/></symbol>
+<symbol id="m-ptah-cli" viewBox="0 0 24 24"><path d="M8 21 L8 3 L14.5 3 C17.5 3 19.5 5 19.5 8 C19.5 11 17.5 13 14.5 13 L8 13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+<symbol id="i-plug-zap" viewBox="0 0 24 24"><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m2 22 3-3"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m18 3-4 4h6l-4 4"/></symbol>
+<symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></symbol>
+<symbol id="i-scan-search" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></symbol>
+<symbol id="i-list-checks" viewBox="0 0 24 24"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/></symbol>
+<symbol id="i-wand-sparkles" viewBox="0 0 24 24"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></symbol>
+<symbol id="i-book-open" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+<symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-triangle-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-loader" viewBox="0 0 24 24"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></symbol>
+<symbol id="i-circle-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></symbol>
+<symbol id="i-circle-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="i-circle-dashed" viewBox="0 0 24 24"><path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/></symbol>
+<symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+<symbol id="i-server" viewBox="0 0 24 24"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><path d="M12 20v2"/><path d="M12 2v2"/><path d="M17 20v2"/><path d="M17 2v2"/><path d="M2 12h2"/><path d="M2 17h2"/><path d="M2 7h2"/><path d="M20 12h2"/><path d="M20 17h2"/><path d="M20 7h2"/><path d="M7 20v2"/><path d="M7 2v2"/><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="8" y="8" width="8" height="8" rx="1"/></symbol>
+<symbol id="i-bot" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+<symbol id="i-log-in" viewBox="0 0 24 24"><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+<symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/></symbol>
+<symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+<symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+<symbol id="i-rocket" viewBox="0 0 24 24"><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09"/><path d="M9 12a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 .05 5 .05"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-file-text" viewBox="0 0 24 24"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="i-external-link" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
+<symbol id="i-unplug" viewBox="0 0 24 24"><path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="M7.5 13.5 10 11"/><path d="M10.5 16.5 13 14"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/></symbol>
+<symbol id="i-message-square" viewBox="0 0 24 24"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></symbol>
+<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+</defs></svg>
 
-<div class="proto-bar" role="region" aria-label="Prototype controls">
+
+<div class="proto-bar" data-glass-surface="bar" role="region" aria-label="Prototype controls">
   <strong>Prototype</strong>
   <div class="seg" role="group" aria-label="Screen">
+    <button data-go="ready" aria-pressed="false">Get ready 1: Claude Code</button>
+    <button data-go="readyset" aria-pressed="false">Get ready 2: Settings</button>
     <button data-go="home" aria-pressed="true">Home</button>
     <button data-go="analyze" aria-pressed="false">Analyze: generating</button>
     <button data-go="project" aria-pressed="false">New project: proposal</button>
@@ -192,9 +580,22 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
     <button data-go="states" aria-pressed="false">States</button>
   </div>
   <span class="sp"></span>
+  <div class="seg" role="group" aria-label="Claude Code state (specimen)">
+    <button data-cs-set="checking" aria-pressed="false">Checking</button>
+    <button data-cs-set="ready" aria-pressed="true">Ready</button>
+    <button data-cs-set="missing" aria-pressed="false">Missing</button>
+    <button data-cs-set="signed-out" aria-pressed="false">Signed out</button>
+    <button data-cs-set="error" aria-pressed="false">Error / timeout</button>
+  </div>
   <div class="seg" role="group" aria-label="Theme">
-    <button data-theme-set="anubis" aria-pressed="true">Dark</button>
+    <button data-theme-set="ptah-glass" aria-pressed="true">Glass dark</button>
+    <button data-theme-set="ptah-glass-light" aria-pressed="false">Glass light</button>
+    <button data-theme-set="anubis" aria-pressed="false">Dark</button>
     <button data-theme-set="anubis-light" aria-pressed="false">Light</button>
+  </div>
+  <div class="seg" role="group" aria-label="Transparency (specimen of prefers-reduced-transparency)">
+    <button data-rt-set="no-preference" aria-pressed="true">Transparent</button>
+    <button data-rt-set="reduce" aria-pressed="false">Reduced transparency</button>
   </div>
 </div>
 
@@ -203,40 +604,51 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
 <!-- ================= HOME  /onboarding ================= -->
 <section id="home" class="view" aria-labelledby="home-h">
   <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="chat">Back to chat</a></nav></div>
-  <h1 id="home-h">Set up Ptah for your work</h1>
-  <p class="lede">Pick the situation you are in. Each path walks you through the steps and shows what is happening; you never need to read an agent transcript.</p>
 
-  <div class="resume" role="status">
-    <div><span class="chip run"><span class="dot"></span>In progress</span>
+  <ol class="hsteps" aria-label="Setup progress">
+    <li class="s1 auto"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Claude Code<small class="s1t"></small></span></li>
+    <li class="ok" data-st="ok"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plug-zap"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Providers and tools<small>Done</small></span></li>
+    <li class="cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-route"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Choose a path<small></small></span></li>
+  </ol>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-route"/></svg></span><h1 id="home-h">Set up Ptah for your work</h1></div>
+  <p class="lede">Pick the situation you are in. Each path walks you through the steps and shows what is happening; you never need to read an agent transcript.</p>
+  <div class="cwarn" data-cs="missing signed-out error" role="status" data-glass-surface="chrome">
+    <span class="ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span>
+    <p><strong data-cs="missing">Claude Code is not installed.</strong><strong data-cs="signed-out">Claude Code is not signed in.</strong><strong data-cs="error">Ptah could not check Claude Code.</strong> Analysis and agent generation may fail until it is ready. You can still pick a path.</p>
+    <a class="btn" href="#" data-go="ready"><span data-cs="missing"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-download"/></svg>Install Claude Code</span><span data-cs="signed-out"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-log-in"/></svg>Sign in</span><span data-cs="error"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>Check again</span></a>
+  </div>
+
+  <div class="resume" role="status" data-glass-surface="chrome">
+    <div><span class="chip run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>In progress</span>
       <strong style="margin-left:.5rem">Agent generation for ptah-extension</strong>
       <span class="muted"> &middot; 6 of 9 agents written</span></div>
-    <a class="btn btn-primary" href="#" data-go="analyze">Resume</a>
+    <a class="btn btn-primary" href="#" data-go="analyze"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-play"/></svg>Resume</a>
   </div>
 
   <div class="paths">
-    <a class="path main" href="#" data-go="analyze" aria-describedby="p1d">
-      <span class="icon" aria-hidden="true">&#9906;</span>
+    <a class="path main" href="#" data-go="analyze" aria-describedby="p1d" data-glass-surface="chrome">
+      <span class="icon" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-scan-search"/></svg></span>
       <h2>Analyze current project</h2>
       <p id="p1d" class="muted">Best when you already have code. Ptah reads your workspace, recommends agents, writes them and prepares project guidance.</p>
-      <ol><li>Analyze workspace</li><li>Choose agents</li><li>Generate agents</li><li>Project guidance</li></ol>
-      <span class="go">Start analysis <span aria-hidden="true">&rarr;</span></span>
+      <ol><li><svg class="g" aria-hidden="true" focusable="false"><use href="#i-scan-search"/></svg>Analyze workspace</li><li><svg class="g" aria-hidden="true" focusable="false"><use href="#i-list-checks"/></svg>Choose agents</li><li><svg class="g" aria-hidden="true" focusable="false"><use href="#i-wand-sparkles"/></svg>Generate agents</li><li><svg class="g" aria-hidden="true" focusable="false"><use href="#i-book-open"/></svg>Project guidance</li></ol>
+      <span class="go">Start analysis <svg class="g" aria-hidden="true" focusable="false"><use href="#i-arrow-right"/></svg></span>
     </a>
-    <a class="path b" href="#" data-go="project">
-      <span class="icon" aria-hidden="true">+</span>
+    <a class="path b" href="#" data-go="project" data-glass-surface="chrome">
+      <span class="icon" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-folder-plus"/></svg></span>
       <h2>New project</h2>
       <p class="muted">Answer five short questions and review a proposed agent, skill and toolchain setup.</p>
-      <span class="go">Start a project <span aria-hidden="true">&rarr;</span></span>
+      <span class="go">Start a project <svg class="g" aria-hidden="true" focusable="false"><use href="#i-arrow-right"/></svg></span>
     </a>
-    <a class="path c" href="#" data-go="project">
-      <span class="icon" aria-hidden="true">&#9776;</span>
+    <a class="path c" href="#" data-go="project" data-glass-surface="chrome">
+      <span class="icon" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-users"/></svg></span>
       <h2>AI team builder</h2>
       <p class="muted">Describe the team you want and tune the proposed configuration with the agent.</p>
-      <span class="go">Build a team <span aria-hidden="true">&rarr;</span></span>
+      <span class="go">Build a team <svg class="g" aria-hidden="true" focusable="false"><use href="#i-arrow-right"/></svg></span>
     </a>
   </div>
 
   <div class="foot">
-    <span class="muted">Reopen this anytime from the configuration menu: Setup.</span>
+    <span class="muted">Reopen this anytime from the configuration menu: Setup. <a href="#" data-go="ready">Review Claude Code and settings</a>.</span>
     <button class="btn btn-ghost" data-go="chat">Skip for now</button>
   </div>
 </section>
@@ -246,25 +658,25 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
   <div class="topbar">
     <nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>Analyze current project</span></nav>
     <span style="flex:1"></span>
-    <span class="pill" title="Provider and model for this run">Anthropic &middot; claude-sonnet</span>
+    <span class="pill" title="Provider and model for this run" data-glass-surface="tile"><svg class="g brand" aria-hidden="true" focusable="false"><use href="#m-anthropic"/></svg>Anthropic &middot; claude-sonnet</span>
   </div>
   <div class="flow">
     <ol class="steps" aria-label="Progress">
-      <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Analyze<small>4 phases</small></span><span class="sr"> (completed)</span></a></li>
-      <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Choose agents<small>9 selected</small></span><span class="sr"> (completed)</span></a></li>
-      <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">3</span><span class="label">Generate agents<small>Running</small></span></span></li>
-      <li><span class="st"><span class="n" aria-hidden="true">4</span><span class="label">Project guidance<small>Next</small></span></span></li>
-      <li><span class="st"><span class="n" aria-hidden="true">5</span><span class="label">Done</span></span></li>
+      <li><a href="#" class="done"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-scan-search"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span></span><span class="label">Analyze<small>4 phases</small></span><span class="sr"> (completed)</span></a></li>
+      <li><a href="#" class="done"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-list-checks"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span></span><span class="label">Choose agents<small>9 selected</small></span><span class="sr"> (completed)</span></a></li>
+      <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-wand-sparkles"/></svg></span><span class="label">Generate agents<small>Running</small></span></span></li>
+      <li><span class="st"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-book-open"/></svg></span><span class="label">Project guidance<small>Next</small></span></span></li>
+      <li><span class="st"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-sparkles"/></svg></span><span class="label">Done</span></span></li>
     </ol>
 
     <div>
-      <h1 id="an-h" tabindex="-1">Generating your agents</h1>
+      <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-wand-sparkles"/></svg></span><h1 id="an-h" tabindex="-1">Generating your agents</h1></div>
       <p class="lede">Specimen counts. Writing 9 agents into <span class="mono">.claude/agents</span>. You can leave this page; the run keeps going.</p>
 
-      <div class="panel" style="margin-top:1.1rem">
+      <div class="panel" style="margin-top:1.1rem" data-glass-surface="chrome">
         <div class="panel-h">
           <div>
-            <span class="chip run"><span class="dot"></span>Running</span>
+            <span class="chip run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Running</span>
             <span class="muted" style="margin-left:.5rem">Phase: tailoring sections</span>
           </div>
           <button class="btn btn-danger" id="stop-btn">Stop</button>
@@ -273,12 +685,12 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
           <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:.35rem"><span>6 of 9 agents</span><span id="pct">67%</span></div>
           <div class="meter" role="progressbar" aria-label="Agent generation progress" aria-valuenow="67" aria-valuemin="0" aria-valuemax="100"><i style="width:67%"></i></div>
           <div class="agents">
-            <article class="acard"><header><h3>backend-developer</h3><span class="chip done"><span class="dot"></span>Written</span></header><p class="path-line mono">.claude/agents/backend-developer.md</p></article>
-            <article class="acard"><header><h3>frontend-developer</h3><span class="chip done"><span class="dot"></span>Written</span></header><p class="path-line mono">.claude/agents/frontend-developer.md</p></article>
-            <article class="acard"><header><h3>software-architect</h3><span class="chip idle"><span class="dot"></span>Unchanged</span></header><p class="path-line mono">.claude/agents/software-architect.md</p></article>
-            <article class="acard running"><header><h3>senior-tester</h3><span class="chip run"><span class="dot"></span>Writing</span></header><p class="path-line">Tailoring 3 of 5 sections</p></article>
-            <article class="acard failed"><header><h3>devops-engineer</h3><span class="chip err"><span class="dot"></span>Failed</span></header><p class="err-line">Model returned an empty section. Retry available.</p><div><button class="btn">Retry this agent</button></div></article>
-            <article class="acard"><header><h3>code-style-reviewer</h3><span class="chip idle"><span class="dot"></span>Waiting</span></header><p class="path-line">Queued</p></article>
+            <article class="acard" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>backend-developer</h3><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Written</span></header><p class="path-line mono">.claude/agents/backend-developer.md</p></article>
+            <article class="acard" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>frontend-developer</h3><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Written</span></header><p class="path-line mono">.claude/agents/frontend-developer.md</p></article>
+            <article class="acard" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>software-architect</h3><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-dashed"/></svg>Unchanged</span></header><p class="path-line mono">.claude/agents/software-architect.md</p></article>
+            <article class="acard running" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>senior-tester</h3><span class="chip run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Writing</span></header><p class="path-line">Tailoring 3 of 5 sections</p></article>
+            <article class="acard failed" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>devops-engineer</h3><span class="chip err"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-x"/></svg>Failed</span></header><p class="err-line">Model returned an empty section. Retry available.</p><div><button class="btn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-rotate-ccw"/></svg>Retry this agent</button></div></article>
+            <article class="acard" data-glass-surface="tile"><header><h3><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>code-style-reviewer</h3><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-clock"/></svg>Waiting</span></header><p class="path-line">Queued</p></article>
           </div>
           <div class="facts"><span><b>6</b> files produced</span><span><b>2</b> will overwrite existing</span><span><b>4m 12s</b> elapsed</span></div>
         </div>
@@ -290,7 +702,7 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
 [10:41:09] senior-tester: tool Read libs/shared/src/index.ts
 [10:41:14] senior-tester: tailoring section "Testing conventions"</pre>
       </details>
-      <p class="note muted">Next: Ptah starts project guidance automatically in 5 seconds after agents finish. You can skip it.</p>
+      <p class="note muted" data-glass-surface="tile">Next: Ptah starts project guidance automatically in 5 seconds after agents finish. You can skip it.</p>
     </div>
   </div>
 </section>
@@ -303,45 +715,45 @@ textarea{width:100%;min-height:76px;resize:vertical;border-radius:var(--r-btn);b
     <button class="btn btn-ghost">Save draft</button>
   </div>
   <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
-    <li><a href="#" class="done"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Intake</span></a></li>
-    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">2</span><span class="label">Proposal</span></span></li>
-    <li><span class="st"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+    <li><a href="#" class="done"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span></span><span class="label">Intake</span></a></li>
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-layers"/></svg></span><span class="label">Proposal</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-shield-check"/></svg></span><span class="label">Review &amp; apply</span></span></li>
   </ol>
-  <h1 id="pj-h" tabindex="-1" style="margin-top:1rem">Proposed setup for "B2B invoicing web app"</h1>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-layers"/></svg></span><h1 id="pj-h" tabindex="-1">Proposed setup for "B2B invoicing web app"</h1></div>
   <p class="lede">The agent is shaping this from your answers. Items highlighted changed in the latest revision.</p>
 
   <div class="pw" id="pw">
-    <div class="panel">
-      <div class="panel-h"><span class="chip need"><span class="dot"></span>Agent still refining</span><span class="rev muted">Revision 3 (specimen)</span></div>
-      <div class="sec"><div class="sec-h"><h2>Agents (4)</h2><button class="btn btn-ghost">Edit</button></div>
+    <div class="panel" data-glass-surface="chrome">
+      <div class="panel-h"><span class="chip need"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Agent still refining</span><span class="rev muted">Revision 3 (specimen)</span></div>
+      <div class="sec"><div class="sec-h"><h2><svg class="g" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg>Agents (4)</h2><button class="btn btn-ghost">Edit</button></div>
         <div class="items">
-          <div class="item new"><strong>software-architect <span class="tag">New</span></strong><small>Plans modules and data model</small></div>
-          <div class="item"><strong>frontend-developer</strong><small>Angular, Tailwind</small></div>
-          <div class="item"><strong>backend-developer</strong><small>NestJS, Postgres</small></div>
-          <div class="item new"><strong>senior-tester <span class="tag">Changed</span></strong><small>Jest, Playwright</small></div>
+          <div class="item new" data-glass-surface="tile"><strong>software-architect <span class="tag">New</span></strong><small>Plans modules and data model</small></div>
+          <div class="item" data-glass-surface="tile"><strong>frontend-developer</strong><small>Angular, Tailwind</small></div>
+          <div class="item" data-glass-surface="tile"><strong>backend-developer</strong><small>NestJS, Postgres</small></div>
+          <div class="item new" data-glass-surface="tile"><strong>senior-tester <span class="tag">Changed</span></strong><small>Jest, Playwright</small></div>
         </div></div>
-      <div class="sec"><div class="sec-h"><h2>Skills (3)</h2><button class="btn btn-ghost">Edit</button></div>
-        <div class="items"><div class="item"><strong>nestjs-backend-patterns</strong><small>Catalog skill</small></div><div class="item"><strong>angular-frontend-patterns</strong></div><div class="item new"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
-      <div class="sec"><div class="sec-h"><h2>MCP (1)</h2><button class="btn btn-ghost">Edit</button></div>
-        <div class="items"><div class="item"><strong>postgres-mcp</strong><small>Enabled</small></div></div></div>
-      <div class="sec intake-only"><div class="sec-h"><h2>Plugins <span class="tag">From your intake</span></h2></div>
-        <div class="items"><div class="item"><strong>github</strong><small>Install required</small></div></div></div>
-      <div class="sec intake-only"><div class="sec-h"><h2>Toolchain <span class="tag">From your intake</span></h2></div>
+      <div class="sec"><div class="sec-h"><h2><svg class="g" aria-hidden="true" focusable="false"><use href="#i-sparkles"/></svg>Skills (3)</h2><button class="btn btn-ghost">Edit</button></div>
+        <div class="items"><div class="item" data-glass-surface="tile"><strong>nestjs-backend-patterns</strong><small>Catalog skill</small></div><div class="item" data-glass-surface="tile"><strong>angular-frontend-patterns</strong></div><div class="item new" data-glass-surface="tile"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
+      <div class="sec"><div class="sec-h"><h2><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plug-zap"/></svg>MCP (1)</h2><button class="btn btn-ghost">Edit</button></div>
+        <div class="items"><div class="item" data-glass-surface="tile"><strong>postgres-mcp</strong><small>Enabled</small></div></div></div>
+      <div class="sec intake-only"><div class="sec-h"><h2><svg class="g" aria-hidden="true" focusable="false"><use href="#i-puzzle"/></svg>Plugins <span class="tag">From your intake</span></h2></div>
+        <div class="items"><div class="item" data-glass-surface="tile"><strong>github</strong><small>Install required</small></div></div></div>
+      <div class="sec intake-only"><div class="sec-h"><h2><svg class="g" aria-hidden="true" focusable="false"><use href="#i-wrench"/></svg>Toolchain <span class="tag">From your intake</span></h2></div>
         <p class="muted">Nx monorepo &middot; TypeScript &middot; Jest &middot; ESLint</p></div>
       <details class="log" style="margin:1rem;margin-top:0"><summary>Conversation log</summary><pre>agent: Which payment provider do you plan to use?
 you: Stripe
 agent: Added saas-platform-patterns skill.</pre></details>
     </div>
 
-    <aside class="dock" id="dock" aria-labelledby="dock-h">
-      <div class="panel-h"><h2 id="dock-h">Reply to the agent</h2><span class="chip idle"><span class="dot"></span>Agent replied</span></div>
+    <aside class="dock" id="dock" aria-labelledby="dock-h" data-glass-surface="chrome">
+      <div class="panel-h"><h2 id="dock-h"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg>Reply to the agent</h2><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg>Agent replied</span></div>
       <div class="panel-b">
         <p class="muted" style="font-size:.8rem">Latest message</p>
-        <blockquote class="msg">Do users sign in with SSO, or email and password? I added the saas-platform-patterns skill for billing.</blockquote>
+        <blockquote class="msg" data-glass-surface="tile">Do users sign in with SSO, or email and password? I added the saas-platform-patterns skill for billing.</blockquote>
         <button class="btn btn-ghost" type="button">Show full message in log</button>
         <label for="reply" class="sr">Your reply</label>
         <textarea id="reply" placeholder="Reply to the agent"></textarea>
-        <div style="display:flex;gap:.5rem"><button class="btn btn-primary" id="send-btn" type="button">Send reply</button><button class="btn dock-close" id="dock-close" type="button">Close</button></div>
+        <div style="display:flex;gap:.5rem"><button class="btn btn-primary" id="send-btn" type="button"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-send"/></svg>Send reply</button><button class="btn dock-close" id="dock-close" type="button">Close</button></div>
       </div>
     </aside>
   </div>
@@ -350,7 +762,7 @@ agent: Added saas-platform-patterns skill.</pre></details>
     <span class="muted">Review is available once a proposal exists. The agent has not marked it complete.</span>
     <div style="display:flex;gap:.5rem"><button class="btn">Save draft</button><button class="btn">Save as preset</button><button class="btn btn-primary" data-go="review">Review</button></div>
   </div>
-  <button class="dockbar" id="dockbar" type="button" aria-expanded="false" aria-controls="dock"><span class="chip idle"><span class="dot"></span>Agent replied</span><span class="dockbar-t">Do users sign in with SSO, or email and password?</span><strong>Reply</strong></button>
+  <button class="dockbar" id="dockbar" type="button" aria-expanded="false" aria-controls="dock" data-glass-surface="bar"><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg>Agent replied</span><span class="dockbar-t">Do users sign in with SSO, or email and password?</span><strong>Reply</strong></button>
 </section>
 
 
@@ -358,33 +770,33 @@ agent: Added saas-platform-patterns skill.</pre></details>
 <section id="review" class="view" hidden aria-labelledby="rv-h">
   <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><a href="#" data-go="project">New project</a><span aria-hidden="true">/</span><span>Review</span></nav></div>
   <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
-    <li><a href="#" class="done" data-go="home"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Intake<span class="sr">, completed</span></span></a></li>
-    <li><a href="#" class="done" data-go="project"><span class="n" aria-hidden="true">&#10003;</span><span class="label">Proposal<span class="sr">, completed</span></span></a></li>
-    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+    <li><a href="#" class="done" data-go="home"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span></span><span class="label">Intake<span class="sr">, completed</span></span></a></li>
+    <li><a href="#" class="done" data-go="project"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-layers"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span></span><span class="label">Proposal<span class="sr">, completed</span></span></a></li>
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-shield-check"/></svg></span><span class="label">Review &amp; apply</span></span></li>
   </ol>
-  <h1 id="rv-h" tabindex="-1" style="margin-top:1rem">Review revision 3</h1>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-shield-check"/></svg></span><h1 id="rv-h" tabindex="-1">Review revision 3</h1></div>
   <p class="lede">Applying writes the proposal to <span class="mono">~/work/invoicing</span>.</p>
-  <div class="note" role="note"><strong>The agent has not marked this complete.</strong> You are applying revision 3. You can still apply.</div>
-  <div class="note" role="status">Revision 4 is available. <button class="btn" type="button">Update review</button></div>
-  <div class="panel" style="margin-top:1rem">
+  <div class="note" role="note" data-glass-surface="tile"><strong>The agent has not marked this complete.</strong> You are applying revision 3. You can still apply.</div>
+  <div class="note" role="status" data-glass-surface="tile">Revision 4 is available. <button class="btn" type="button">Update review</button></div>
+  <div class="panel" style="margin-top:1rem" data-glass-surface="chrome">
     <div class="panel-h"><h2>Changes since revision 2</h2><span class="muted rev">Compared revision to revision</span></div>
-    <div class="sec"><div class="items"><div class="item new"><strong>software-architect <span class="tag">New</span></strong><small>Agent</small></div><div class="item new"><strong>senior-tester <span class="tag">Changed</span></strong><small>Agent</small></div><div class="item new"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
+    <div class="sec"><div class="items"><div class="item new" data-glass-surface="tile"><strong>software-architect <span class="tag">New</span></strong><small>Agent</small></div><div class="item new" data-glass-surface="tile"><strong>senior-tester <span class="tag">Changed</span></strong><small>Agent</small></div><div class="item new" data-glass-surface="tile"><strong>saas-platform-patterns <span class="tag">New</span></strong><small>Created skill</small></div></div></div>
     <div class="sec"><h3>Unchanged (6)</h3><p class="muted">frontend-developer, backend-developer, 2 skills, postgres-mcp, toolchain</p></div>
     <div class="sec"><h3>CLAUDE.md <span class="tag">Proposal</span></h3><p class="muted">From the proposal configuration</p></div>
     <div class="sec"><h3>Generated document <span class="tag">Helper output</span></h3><p class="muted">Separate from CLAUDE.md. 412 words (specimen).</p><button class="btn" type="button">Review</button> <button class="btn" type="button">Copy</button></div>
   </div>
-  <div class="apply-bar"><span class="muted">Pinned workspace: ~/work/invoicing</span><div style="display:flex;gap:.5rem"><button class="btn" data-go="project">Back to proposal</button><button class="btn btn-primary">Apply to invoicing</button></div></div>
+  <div class="apply-bar"><span class="muted">Pinned workspace: ~/work/invoicing</span><div style="display:flex;gap:.5rem"><button class="btn" data-go="project">Back to proposal</button><button class="btn btn-primary"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-rocket"/></svg>Apply to invoicing</button></div></div>
 </section>
 
 <!-- ================= TEAM BUILDER START ================= -->
 <section id="team" class="view" hidden aria-labelledby="tb-h">
   <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>AI team builder</span></nav></div>
   <ol class="steps" aria-label="Progress" style="position:static;flex-direction:row;gap:.25rem;flex-wrap:wrap">
-    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true">1</span><span class="label">Describe</span></span></li>
-    <li><span class="st"><span class="n" aria-hidden="true">2</span><span class="label">Proposal</span></span></li>
-    <li><span class="st"><span class="n" aria-hidden="true">3</span><span class="label">Review &amp; apply</span></span></li>
+    <li><span class="st cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-message-square"/></svg></span><span class="label">Describe</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-layers"/></svg></span><span class="label">Proposal</span></span></li>
+    <li><span class="st"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-shield-check"/></svg></span><span class="label">Review &amp; apply</span></span></li>
   </ol>
-  <h1 id="tb-h" tabindex="-1" style="margin-top:1rem">Describe the team you want</h1>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-users"/></svg></span><h1 id="tb-h" tabindex="-1">Describe the team you want</h1></div>
   <p class="lede">The agent proposes a configuration for <span class="mono">~/work/invoicing</span>. You review it before anything is written.</p>
   <form class="panel" style="margin-top:1rem;max-width:620px" onsubmit="return false">
     <div class="panel-b" style="display:flex;flex-direction:column;gap:.75rem">
@@ -392,25 +804,194 @@ agent: Added saas-platform-patterns skill.</pre></details>
       <textarea id="tb-t" aria-describedby="tb-e" aria-invalid="true" style="min-height:110px"></textarea>
       <p id="tb-e" class="err-line" style="color:var(--err);font-size:.85rem">Describe the team in at least a sentence.</p>
       <details class="log" style="margin:0"><summary>Advanced: provider and model</summary><div class="panel-b muted">Provider and model selector (existing picker)</div></details>
-      <div style="display:flex;gap:.5rem;justify-content:space-between"><button class="btn" type="button">Load preset</button><div style="display:flex;gap:.5rem"><button class="btn" type="button" data-go="home">Cancel</button><button class="btn btn-primary" type="button" data-go="project">Create proposal</button></div></div>
+      <div style="display:flex;gap:.5rem;justify-content:space-between"><button class="btn" type="button">Load preset</button><div style="display:flex;gap:.5rem"><button class="btn" type="button" data-go="home">Cancel</button><button class="btn btn-primary" type="button" data-go="project"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-wand-sparkles"/></svg>Create proposal</button></div></div>
     </div>
   </form>
 </section>
 
+
+<!-- ================= GET READY 1: CLAUDE CODE  /onboarding/ready ================= -->
+<section id="ready" class="view" hidden aria-labelledby="rd-h">
+  <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><span>Get ready</span></nav></div>
+  <ol class="hsteps" aria-label="Setup progress">
+    <li class="s1 cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Claude Code<small class="s1t"></small></span></li>
+    <li class=""><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plug-zap"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Providers and tools<small>Next</small></span></li>
+    <li class=""><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-route"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Choose a path<small>Next</small></span></li>
+  </ol>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg></span><h1 id="rd-h">Check Claude Code</h1></div>
+  <p class="lede">Ptah is built on Claude Code. Make sure it is installed and signed in. If you skip this, you can fix it later.</p>
+
+  <div class="panel" id="cc-panel" aria-live="polite" aria-busy="false" style="margin-top:1.25rem" data-glass-surface="chrome">
+    <div class="panel-h">
+      <div><h2>Claude Code</h2><p class="sub">The <span class="mono">claude</span> command on this computer</p></div>
+      <span class="chip run" data-cs="checking"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Checking</span>
+      <span class="chip done" data-cs="ready"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Ready</span>
+      <span class="chip need" data-cs="missing"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-download"/></svg>Not installed</span>
+      <span class="chip need" data-cs="signed-out"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-log-in"/></svg>Not signed in</span>
+      <span class="chip err" data-cs="error"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-alert"/></svg>Could not check</span>
+    </div>
+    <dl class="kv">
+      <dt>Installed</dt>
+      <dd>
+        <span data-cs="checking"><span class="skel" aria-hidden="true"></span><span class="sr">Checking</span></span>
+        <span data-cs="ready signed-out"><span class="mono">~/.local/bin/claude</span></span>
+        <span data-cs="missing">No <span class="mono">claude</span> command was found.</span>
+        <span data-cs="error">Unknown</span>
+      </dd>
+      <dt>Version</dt>
+      <dd>
+        <span data-cs="checking"><span class="skel" aria-hidden="true" style="width:4rem"></span></span>
+        <span data-cs="ready signed-out"><span class="mono">2.1.211</span></span>
+        <span data-cs="missing error">Not available</span>
+      </dd>
+      <dt>Signed in</dt>
+      <dd>
+        <span data-cs="checking"><span class="skel" aria-hidden="true" style="width:6rem"></span></span>
+        <span data-cs="ready">Yes. Your Claude account is connected.</span>
+        <span data-cs="signed-out">No. Sign in to use Claude Code.</span>
+        <span data-cs="missing">Install Claude Code first.</span>
+        <span data-cs="error">Claude Code did not answer in time (30 s). Your sign-in could not be read.</span>
+      </dd>
+    </dl>
+
+    <!-- MISSING: guided install, no backend -->
+    <div class="block" data-cs="missing">
+      <h3>Install Claude Code</h3>
+      <p class="sub">Open a terminal, paste the command for your system, press Enter. The installer prints nothing while it downloads. When the prompt returns, press Re-check.</p>
+      <div class="seg tablist" role="tablist" aria-label="Operating system">
+        <button role="tab" id="os-mac" aria-controls="osp-mac" aria-selected="true">macOS / Linux</button>
+        <button role="tab" id="os-win" aria-controls="osp-win" aria-selected="false" tabindex="-1">Windows</button>
+        <button role="tab" id="os-npm" aria-controls="osp-npm" aria-selected="false" tabindex="-1">npm</button>
+      </div>
+      <div role="tabpanel" id="osp-mac" aria-labelledby="os-mac" tabindex="0">
+        <p class="cmdlabel">macOS, Linux, WSL (Terminal)</p>
+        <div class="cmd"><code>curl -fsSL https://claude.ai/install.sh | bash</code><button class="btn" type="button" data-copy="curl -fsSL https://claude.ai/install.sh | bash" aria-label="Copy macOS and Linux install command">Copy</button></div>
+      </div>
+      <div role="tabpanel" id="osp-win" aria-labelledby="os-win" tabindex="0" hidden>
+        <p class="cmdlabel">Windows PowerShell (prompt starts with PS)</p>
+        <div class="cmd"><code>irm https://claude.ai/install.ps1 | iex</code><button class="btn" type="button" data-copy="irm https://claude.ai/install.ps1 | iex" aria-label="Copy Windows PowerShell install command">Copy</button></div>
+        <p class="cmdlabel">Windows CMD (prompt has no PS)</p>
+        <div class="cmd"><code>curl -fsSL https://claude.ai/install.cmd -o install.cmd &amp;&amp; install.cmd &amp;&amp; del install.cmd</code><button class="btn" type="button" data-copy="curl -fsSL https://claude.ai/install.cmd -o install.cmd &amp;&amp; install.cmd &amp;&amp; del install.cmd" aria-label="Copy Windows CMD install command">Copy</button></div>
+      </div>
+      <div role="tabpanel" id="osp-npm" aria-labelledby="os-npm" tabindex="0" hidden>
+        <p class="cmdlabel">Any system with Node.js 22 or later (do not use sudo)</p>
+        <div class="cmd"><code>npm install -g @anthropic-ai/claude-code</code><button class="btn" type="button" data-copy="npm install -g @anthropic-ai/claude-code" aria-label="Copy npm install command">Copy</button></div>
+      </div>
+      <p class="sub" style="margin-top:.9rem">Still not found after installing? Open a new terminal, and if Re-check keeps failing, restart Ptah so it picks up the updated PATH.</p>
+      <p style="margin-top:.6rem"><a class="btn btn-ghost" href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Open the official install guide <svg class="g" aria-hidden="true" focusable="false"><use href="#i-external-link"/></svg></a></p>
+    </div>
+
+    <!-- SIGNED OUT: existing sign-in path (credentials-tab claude-cli case) -->
+    <div class="block" data-cs="signed-out">
+      <h3>Sign in to Claude Code</h3>
+      <p class="sub">Run this in a terminal and follow the browser prompts. Claude Code needs a Pro, Max, Team, Enterprise or Console account. Then press Re-check.</p>
+      <p class="cmdlabel">Terminal</p>
+      <div class="cmd"><code>claude</code><button class="btn" type="button" data-copy="claude" aria-label="Copy sign-in command">Copy</button></div>
+      <p class="sub" style="margin-top:.9rem">Prefer a separate Claude account for Ptah? <a href="#" data-go="readyset" data-tab="providers">Add a named account in Providers</a>. The check above still reads your main Claude Code login.</p>
+    </div>
+
+    <!-- ERROR / TIMEOUT -->
+    <div class="block" data-cs="error">
+      <h3>Ptah could not read Claude Code</h3>
+      <p class="sub">The check timed out. This is not the same as being signed out. Press Re-check. If it keeps failing, run <span class="mono">claude doctor</span> in a terminal.</p>
+      <details style="margin-top:.8rem"><summary>Install or sign in by hand</summary>
+        <p class="sub" style="margin-top:.5rem">Install guide and sign-in steps are in the official docs.</p>
+        <p style="margin-top:.4rem"><a class="btn btn-ghost" href="https://code.claude.com/docs/en/setup" target="_blank" rel="noopener">Open the official install guide <svg class="g" aria-hidden="true" focusable="false"><use href="#i-external-link"/></svg></a></p>
+      </details>
+    </div>
+  </div>
+
+  <p class="sub" data-cs="missing signed-out error" style="margin-top:1rem">You can continue without it. A warning stays on the next screens until Claude Code is ready.</p>
+  <div class="ready-actions">
+    <span class="muted sub" data-cs="checking">Checking your computer&hellip;</span>
+    <div class="grp">
+      <button class="btn btn-primary" type="button" id="recheck" data-cs="missing signed-out error"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>Re-check</button>
+      <button class="btn btn-ghost" type="button" data-go="readyset" data-cs="checking missing signed-out error">Continue anyway</button>
+      <button class="btn btn-primary" type="button" data-go="readyset" data-cs="ready">Continue</button>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GET READY 2: PROVIDERS AND CLI TOOLS  /onboarding/ready/settings ================= -->
+<section id="readyset" class="view" hidden aria-labelledby="rs-h">
+  <div class="topbar"><nav class="crumb" aria-label="Breadcrumb"><a href="#" data-go="home">Onboarding</a><span aria-hidden="true">/</span><a href="#" data-go="ready">Get ready</a><span aria-hidden="true">/</span><span>Providers and tools</span></nav></div>
+  <ol class="hsteps" aria-label="Setup progress">
+    <li class="s1 auto"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Claude Code<small class="s1t"></small></span></li>
+    <li class="cur" aria-current="step"><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plug-zap"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Providers and tools<small></small></span></li>
+    <li class=""><span class="n" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-route"/></svg><span class="bdg b-ok"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></span><span class="bdg b-warn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span><span class="bdg b-run"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg></span></span><span class="lbl">Choose a path<small>Next</small></span></li>
+  </ol>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plug-zap"/></svg></span><h1 id="rs-h">Connect providers and tools</h1></div>
+  <p class="lede">Choose what Ptah can use besides Claude Code. This is the same screen as Settings, so you can skip now and come back any time.</p>
+
+  <div class="cwarn" data-cs="missing signed-out error" role="status" data-glass-surface="chrome">
+    <span class="ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-triangle-alert"/></svg></span>
+    <p><strong data-cs="missing">Claude Code is not installed.</strong><strong data-cs="signed-out">Claude Code is not signed in.</strong><strong data-cs="error">Ptah could not check Claude Code.</strong> You can keep going; some steps may fail until it is ready.</p>
+    <a class="btn" href="#" data-go="ready"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-terminal"/></svg>Fix Claude Code</a>
+  </div>
+
+  <div class="panel" style="margin-top:1rem" data-glass-surface="chrome">
+    <div class="panel-t"><div class="seg" role="tablist" aria-label="Settings area">
+      <button role="tab" id="st-prov" aria-controls="stp-prov" aria-selected="true">Providers</button>
+      <button role="tab" id="st-cli" aria-controls="stp-cli" aria-selected="false" tabindex="-1">CLI tools</button>
+    </div></div>
+
+    <div role="tabpanel" id="stp-prov" aria-labelledby="st-prov" tabindex="0">
+      <ul class="lst" aria-label="Providers">
+        <li><span class="mk" style="--acc:#d97757" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-claude"/></svg></span><div class="who"><b>Claude (subscription)</b><span>Uses your Claude Code login</span></div>
+          <span class="chip done" data-cs="ready"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Connected</span>
+          <span class="chip need" data-cs="signed-out missing"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-unplug"/></svg>Not connected</span>
+          <span class="chip run" data-cs="checking"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Checking</span>
+          <span class="chip err" data-cs="error"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-alert"/></svg>Unknown</span>
+          <span class="act"><button class="btn" type="button">Manage</button></span></li>
+        <li><span class="mk" style="--acc:#10a37f" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-codex"/></svg></span><div class="who"><b>OpenAI Codex</b><span>Signed in with the Codex CLI</span></div><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Connected</span><span class="act"><button class="btn" type="button">Manage</button></span></li>
+        <li><span class="mk" style="--acc:#8957e5" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-github-copilot"/></svg></span><div class="who"><b>GitHub Copilot</b><span>Sign in with GitHub</span></div><span class="chip need"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-log-in"/></svg>Signed out</span><span class="act"><button class="btn" type="button">Sign in</button></span></li>
+        <li><span class="mk" style="--acc:#6d28d9" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-openrouter"/></svg></span><div class="who"><b>OpenRouter</b><span>API key</span></div><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-unplug"/></svg>Not connected</span><span class="act"><button class="btn" type="button">Connect</button></span></li>
+        <li><span class="mk" style="--acc:#4f46e5" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-moonshot"/></svg></span><div class="who"><b>Kimi Code</b><span>CLI login or API key</span></div><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-unplug"/></svg>Not connected</span><span class="act"><button class="btn" type="button">Connect</button></span></li>
+      </ul>
+      <p class="embed-note" style="margin:0 1.1rem 1.1rem">Specimen. Production embeds the existing <span class="mono">ptah-providers-settings</span> unchanged (cards, detail drawer, named Claude accounts, catalog).</p>
+    </div>
+
+    <div role="tabpanel" id="stp-cli" aria-labelledby="st-cli" tabindex="0" hidden>
+      <div style="display:flex;flex-wrap:wrap;gap:.5rem;justify-content:space-between;align-items:center;padding:.8rem 1.1rem 0">
+        <p class="sub">Detected on this computer. Ptah can hand work to the ones you turn on.</p>
+        <button class="btn" type="button"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-refresh-cw"/></svg>Re-detect</button>
+      </div>
+      <ul class="lst" aria-label="CLI tools" style="margin-top:.6rem">
+        <li><span class="mk" style="--acc:#d97757" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-claude"/></svg></span><div class="who"><b>Claude Code</b><span class="mono">2.1.211 &middot; ~/.local/bin/claude</span></div><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Installed</span><label class="switch"><input type="checkbox" checked> Use</label></li>
+        <li><span class="mk" style="--acc:#10a37f" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-codex"/></svg></span><div class="who"><b>Codex</b><span class="mono">0.58.0 &middot; /usr/local/bin/codex</span></div><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Installed</span><label class="switch"><input type="checkbox" checked> Use</label></li>
+        <li><span class="mk" style="--acc:#8957e5" aria-hidden="true" data-glass-surface="tile"><svg class="g brand" focusable="false"><use href="#m-github-copilot"/></svg></span><div class="who"><b>GitHub Copilot</b><span class="mono">1.0.12 &middot; /usr/local/bin/copilot</span></div><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Installed</span><label class="switch"><input type="checkbox"> Use</label></li>
+        <li><span class="mk off" style="--acc:#9ca3af" aria-hidden="true" data-glass-surface="tile"><svg class="g" focusable="false"><use href="#i-terminal"/></svg></span><div class="who"><b>Gemini</b><span>Not found on this computer</span></div><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-download"/></svg>Not installed</span></li>
+        <li><span class="mk" style="--acc:#4f46e5" aria-hidden="true" data-glass-surface="tile"><svg class="g" focusable="false"><use href="#m-ptah-cli"/></svg></span><div class="who"><b>Ptah CLI: kimi-main</b><span>Provider: Kimi Code</span></div><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Ready</span><label class="switch"><input type="checkbox" checked> Use</label></li>
+      </ul>
+      <div style="padding:.9rem 1.1rem 1.1rem"><button class="btn" type="button"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-plus"/></svg>Add a Ptah CLI instance</button></div>
+      <p class="embed-note" style="margin:0 1.1rem 1.1rem">Specimen. Production embeds the existing <span class="mono">ptah-cli-orchestration-matrix</span> (which already hosts <span class="mono">ptah-agent-orchestration-config</span> and <span class="mono">ptah-add-cli-instance-modal</span>) unchanged.</p>
+    </div>
+  </div>
+
+  <div class="ready-actions">
+    <a href="#" data-go="ready" class="btn btn-ghost">Back</a>
+    <div class="grp">
+      <button class="btn btn-ghost" type="button" data-go="home">Skip for now</button>
+      <button class="btn btn-primary" type="button" data-go="home">Continue to setup</button>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:1rem">More options (voice, search, lane guards) are in Settings after setup.</p>
+</section>
+
 <!-- ================= STATE GALLERY ================= -->
 <section id="states" class="view" hidden aria-labelledby="st-h">
-  <h1 id="st-h" tabindex="-1">Shared states</h1>
+  <div class="h-row"><span class="h-ic" aria-hidden="true"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-list-checks"/></svg></span><h1 id="st-h" tabindex="-1">Shared states</h1></div>
   <p class="lede">Specimens of the run, loading, empty, error, recovery and done states each flow reuses.</p>
   <div class="agents" style="margin-top:1.25rem">
-    <article class="acard"><header><h3>Loading</h3><span class="chip idle"><span class="dot"></span>Loading</span></header><div class="meter" style="height:.9rem;opacity:.6"></div><div class="meter" style="height:.9rem;width:70%;opacity:.4"></div></article>
-    <article class="acard"><header><h3>Empty (no saved analyses)</h3></header><p class="muted">No saved analyses yet. Start an analysis to create one.</p><div><button class="btn btn-primary">Start analysis</button></div></article>
-    <article class="acard"><header><h3>Cancelling</h3><span class="chip need"><span class="dot"></span>Stopping</span></header><p class="muted">Waiting for the run to stop. Actions are disabled.</p><div><button class="btn" disabled>Stop</button></div></article>
-    <article class="acard failed"><header><h3>Failed</h3><span class="chip err"><span class="dot"></span>Failed</span></header><p class="err-line">Generation failed for 2 agents.</p><div style="display:flex;gap:.5rem"><button class="btn">Retry failed</button><button class="btn btn-ghost">Start over</button></div></article>
-    <article class="acard"><header><h3>Resumable</h3><span class="chip need"><span class="dot"></span>Interrupted</span></header><p class="muted">Stopped after 6 agents were written.</p><div style="display:flex;gap:.5rem"><button class="btn btn-primary">Resume</button><button class="btn btn-ghost">Start over</button></div></article>
-    <article class="acard"><header><h3>Cancelled, no checkpoint</h3><span class="chip idle"><span class="dot"></span>Stopped</span></header><p class="muted">Nothing to resume.</p><div><button class="btn">Start over</button></div></article>
-    <article class="acard failed"><header><h3>Session missing (recovery)</h3><span class="chip err"><span class="dot"></span>Unavailable</span></header><p class="err-line">This session is no longer available.</p><div style="display:flex;gap:.5rem"><button class="btn">Restore from draft</button><button class="btn btn-ghost">Start over</button></div></article>
-    <article class="acard"><header><h3>Owner conflict</h3><span class="chip need"><span class="dot"></span>Blocked</span></header><p class="muted">Another run is active in this workspace.</p><div style="display:flex;gap:.5rem"><button class="btn">Open it</button><button class="btn btn-ghost">Retry</button></div></article>
-    <article class="acard"><header><h3>Done</h3><span class="chip done"><span class="dot"></span>Done</span></header><p class="muted">9 written, 1 unchanged (specimen).</p><div><button class="btn btn-primary">Continue</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Loading</h3><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-clock"/></svg>Loading</span></header><div class="meter" style="height:.9rem;opacity:.6"></div><div class="meter" style="height:.9rem;width:70%;opacity:.4"></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Empty (no saved analyses)</h3></header><p class="muted">No saved analyses yet. Start an analysis to create one.</p><div><button class="btn btn-primary">Start analysis</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Cancelling</h3><span class="chip need"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-loader"/></svg>Stopping</span></header><p class="muted">Waiting for the run to stop. Actions are disabled.</p><div><button class="btn" disabled>Stop</button></div></article>
+    <article class="acard failed" data-glass-surface="tile"><header><h3>Failed</h3><span class="chip err"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-x"/></svg>Failed</span></header><p class="err-line">Generation failed for 2 agents.</p><div style="display:flex;gap:.5rem"><button class="btn"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-rotate-ccw"/></svg>Retry failed</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Resumable</h3><span class="chip need"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-pause"/></svg>Interrupted</span></header><p class="muted">Stopped after 6 agents were written.</p><div style="display:flex;gap:.5rem"><button class="btn btn-primary"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-play"/></svg>Resume</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Cancelled, no checkpoint</h3><span class="chip idle"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-ban"/></svg>Stopped</span></header><p class="muted">Nothing to resume.</p><div><button class="btn">Start over</button></div></article>
+    <article class="acard failed" data-glass-surface="tile"><header><h3>Session missing (recovery)</h3><span class="chip err"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-x"/></svg>Unavailable</span></header><p class="err-line">This session is no longer available.</p><div style="display:flex;gap:.5rem"><button class="btn">Restore from draft</button><button class="btn btn-ghost">Start over</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Owner conflict</h3><span class="chip need"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-ban"/></svg>Blocked</span></header><p class="muted">Another run is active in this workspace.</p><div style="display:flex;gap:.5rem"><button class="btn">Open it</button><button class="btn btn-ghost">Retry</button></div></article>
+    <article class="acard" data-glass-surface="tile"><header><h3>Done</h3><span class="chip done"><svg class="g" aria-hidden="true" focusable="false"><use href="#i-circle-check"/></svg>Done</span></header><p class="muted">9 written, 1 unchanged (specimen).</p><div><button class="btn btn-primary">Continue</button></div></article>
   </div>
 </section>
 
@@ -418,7 +999,7 @@ agent: Added saas-platform-patterns skill.</pre></details>
 <p id="status-region" class="sr" role="status"></p>
 
 <script>
-const views=['home','analyze','project','review','team','states'];
+const views=['ready','readyset','home','analyze','project','review','team','states'];
 const MODES={teamproposal:'team'};
 function setTeam(t){document.querySelector('#project .crumb span:last-child').textContent=t?'AI team builder':'New project';document.querySelector('#project .steps li:first-child .label').childNodes[0].textContent=t?'Describe':'Intake';}
 function show(id){
@@ -435,13 +1016,21 @@ function show(id){
 document.addEventListener('click',e=>{
   const g=e.target.closest('[data-go]'); if(g){e.preventDefault();show(g.dataset.go);}
   const t=e.target.closest('[data-theme-set]'); if(t){
-    document.documentElement.dataset.theme=t.dataset.themeSet;
+    setTheme(t.dataset.themeSet);
     document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',b===t));
   }
   if(e.target.id==='stop-btn'){e.target.textContent='Stopping...';e.target.disabled=true;}
 });
 
 const dock=document.getElementById('dock'),bar=document.getElementById('dockbar'),pw=document.getElementById('pw');
+const GLASS_MODE={'ptah-glass':'dark','ptah-glass-light':'light'};
+function setTheme(name){const r=document.documentElement;r.dataset.theme=name;
+  if(GLASS_MODE[name]){r.dataset.glass='on';r.dataset.glassMode=GLASS_MODE[name];r.dataset.scene='aurora';}
+  else{delete r.dataset.glass;delete r.dataset.glassMode;delete r.dataset.scene;}
+  document.querySelectorAll('[data-theme-set]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.themeSet===name));}
+function setRt(v){const r=document.documentElement;if(v==='reduce')r.dataset.rt='reduce';else delete r.dataset.rt;
+  document.querySelectorAll('[data-rt-set]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.rtSet===v));}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-rt-set]');if(b)setRt(b.dataset.rtSet);});
 let scrim;
 function openDock(){dock.classList.add('open');bar.setAttribute('aria-expanded','true');
   dock.setAttribute('role','dialog');dock.setAttribute('aria-modal','true');
@@ -463,8 +1052,49 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Tab'&&dock.classList.contains('open')){const f=[...dock.querySelectorAll('button,textarea')].filter(x=>!x.disabled&&x.offsetParent);const a=f[0],z=f[f.length-1];
     if(e.shiftKey&&document.activeElement===a){e.preventDefault();z.focus()}else if(!e.shiftKey&&document.activeElement===z){e.preventDefault();a.focus()}}
 });
+/* ---- Get ready: Claude Code state (specimen switch; production derives it from agent:detectClis + provider:getAmbientClaudeStatus) ---- */
+let cs=new URLSearchParams(location.search).get('state')||'ready', csTimer;
+const CS_LABEL={checking:'Checking',ready:'Ready',missing:'Needs install','signed-out':'Needs sign-in',error:'Could not check'};
+function renderCs(){
+  document.body.dataset.cs=cs;
+  document.querySelectorAll('[data-cs]').forEach(n=>{n.hidden=!n.dataset.cs.split(' ').includes(cs)});
+  document.querySelectorAll('[data-cs-set]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.csSet===cs));
+  document.getElementById('cc-panel').setAttribute('aria-busy',cs==='checking');
+  document.querySelectorAll('.hsteps .s1').forEach(li=>{
+    const cur=!!li.closest('#ready');
+    li.classList.remove('ok','warn','cur');
+    if(cur)li.classList.add('cur'); else if(cs==='ready')li.classList.add('ok'); else if(cs!=='checking')li.classList.add('warn');
+    li.dataset.st=cs==='ready'?'ok':cs==='checking'?'run':'warn';
+    li.querySelector('.s1t').textContent=CS_LABEL[cs];
+  });
+}
+function setCs(v){cs=v;renderCs();}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-cs-set]'); if(b){clearTimeout(csTimer);setCs(b.dataset.csSet);}
+  if(e.target.closest('#recheck')){const back=cs;setCs('checking');document.getElementById('status-region').textContent='Checking Claude Code';csTimer=setTimeout(()=>{setCs(back);document.getElementById('status-region').textContent='Check finished';},1200);}
+  const c=e.target.closest('[data-copy]'); if(c){
+    const t=c.dataset.copy.replace(/&amp;/g,'&'); navigator.clipboard&&navigator.clipboard.writeText(t).catch(()=>{});
+    const o=c.textContent; c.textContent='Copied'; document.getElementById('status-region').textContent='Command copied';
+    setTimeout(()=>{c.textContent=o},2000);
+  }
+  const tab=e.target.closest('[role=tab]'); if(tab)selectTab(tab);
+  const dt=e.target.closest('[data-tab="providers"]'); if(dt){selectTab(document.getElementById('st-prov'));}
+});
+function selectTab(tab){
+  const list=tab.closest('[role=tablist]');
+  list.querySelectorAll('[role=tab]').forEach(t=>{const on=t===tab;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;
+    const p=document.getElementById(t.getAttribute('aria-controls')); if(p)p.hidden=!on;});
+}
+document.addEventListener('keydown',e=>{
+  const tab=e.target.closest&&e.target.closest('[role=tab]'); if(!tab||!/Arrow(Left|Right)/.test(e.key))return;
+  const ts=[...tab.closest('[role=tablist]').querySelectorAll('[role=tab]')];
+  const n=ts[(ts.indexOf(tab)+(e.key==='ArrowRight'?1:-1)+ts.length)%ts.length]; selectTab(n); n.focus();
+});
+renderCs();
+
 const h=location.hash.slice(1); if(views.includes(h)) show(h);
-const q=new URLSearchParams(location.search).get('theme'); if(q) document.querySelector('[data-theme-set="'+q+'"]')?.click();
+const q=new URLSearchParams(location.search).get('theme'); if(q) setTheme(q);
+if(new URLSearchParams(location.search).get('rt')==='reduce') setRt('reduce');
 </script>
 </body>
 </html>
