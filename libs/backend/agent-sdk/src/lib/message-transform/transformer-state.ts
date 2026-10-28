@@ -7,14 +7,22 @@ import type {
 export type TransformerSessionId = SessionId | HarnessStreamId | WizardPhaseId;
 
 /**
- * Which system message announced a task as background. Only `task_started`
- * announcements (the SendMessage-resume path) earn a transformer-produced
- * terminal event: a task backgrounded mid-run via `task_updated` has a
+ * Which message announced a task as background. Only `task_started`
+ * announcements of a task with no Task tool_use (the SendMessage-resume
+ * path) earn a transformer-produced terminal event. Every other origin has a
  * registry record under the same tool_use id, so the `SubagentStop` hook
  * path already ends its tray entry — a second terminal event would insert
- * a duplicate entry.
+ * a duplicate entry:
+ *  - `task_updated`: backgrounded mid-run (Ctrl+B / subagent:background).
+ *  - `task_tool`: a Task tool spawn that starts in the background — either
+ *    `run_in_background: true` (announced from the placeholder tool_result)
+ *    or the SDK's default backgrounding, which omits that input (announced
+ *    from `task_started.is_backgrounded`).
  */
-export type BackgroundAnnounceOrigin = 'task_started' | 'task_updated';
+export type BackgroundAnnounceOrigin =
+  | 'task_started'
+  | 'task_updated'
+  | 'task_tool';
 
 /**
  * Correlation record for a single `Workflow` tool run.

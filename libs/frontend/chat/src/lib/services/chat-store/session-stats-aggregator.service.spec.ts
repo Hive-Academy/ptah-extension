@@ -1014,6 +1014,7 @@ describe('SessionStatsAggregatorService', () => {
       lowerBound: false,
       revision: 7,
       compactions: 0,
+      autoHandoff: false,
     };
 
     it('installs the budget with the snapshot of a turn result', () => {

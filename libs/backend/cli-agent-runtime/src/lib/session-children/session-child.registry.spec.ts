@@ -236,6 +236,54 @@ describe('SessionChildRegistry', () => {
     });
   });
 
+  describe('reparent (handoff adoption)', () => {
+    const SUCCESSOR = '33333333-2222-4333-8444-555555555555';
+    const SUCCESSOR_SDK = '44444444-2222-4333-8444-555555555555';
+
+    it('moves the child to the new parent and clears the old parent SDK id', () => {
+      const registry = new SessionChildRegistry();
+      const before = addChild(registry, 'a', {
+        parentSdkSessionId: PARENT_SDK,
+      });
+
+      const after = registry.reparent('a', SUCCESSOR, undefined);
+
+      expect(after).not.toBe(before);
+      expect(after?.parentSessionId).toBe(SUCCESSOR);
+      expect(after && 'parentSdkSessionId' in after).toBe(false);
+      expect(registry.childrenOf([PARENT, PARENT_SDK])).toEqual([]);
+      expect(
+        registry.childrenOf([SUCCESSOR]).map((r) => r.childSessionId),
+      ).toEqual(['a']);
+      // The old reference is untouched: records are replaced, never mutated.
+      expect(before.parentSessionId).toBe(PARENT);
+    });
+
+    it('records the new parent SDK id when given', () => {
+      const registry = new SessionChildRegistry();
+      addChild(registry, 'a');
+
+      registry.reparent('a', SUCCESSOR, SUCCESSOR_SDK);
+
+      expect(registry.get('a')).toMatchObject({
+        parentSessionId: SUCCESSOR,
+        parentSdkSessionId: SUCCESSOR_SDK,
+      });
+      expect(
+        registry.childrenOf([SUCCESSOR_SDK]).map((r) => r.childSessionId),
+      ).toEqual(['a']);
+    });
+
+    it('returns undefined for an unknown child or a blank parent, changing nothing', () => {
+      const registry = new SessionChildRegistry();
+      addChild(registry, 'a');
+
+      expect(registry.reparent('missing', SUCCESSOR, undefined)).toBeUndefined();
+      expect(registry.reparent('a', '  ', undefined)).toBeUndefined();
+      expect(registry.get('a')?.parentSessionId).toBe(PARENT);
+    });
+  });
+
   describe('counters and updates', () => {
     it('counts delivered and refused reports and keeps the last refused summary', () => {
       const registry = new SessionChildRegistry();

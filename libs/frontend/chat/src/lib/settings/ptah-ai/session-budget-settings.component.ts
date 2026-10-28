@@ -28,7 +28,7 @@ type NumberKey =
   | 'handoffPercent'
   | 'handoffAfterCompactions'
   | 'tightenWindowTokens';
-type BooleanKey = 'enabled';
+type BooleanKey = 'enabled' | 'autoHandoffAtLimit';
 
 type Parsed =
   | { readonly ok: true; readonly value: number | null }
@@ -108,6 +108,13 @@ const NUMBER_FIELDS: readonly NumberField[] = [
 
 const BOOLEAN_LABELS: Readonly<Record<BooleanKey, string>> = {
   enabled: 'Track a budget for each chat session',
+  autoHandoffAtLimit: 'Hand off automatically at 100%',
+};
+
+const BOOLEAN_HELP: Readonly<Record<BooleanKey, string>> = {
+  enabled: 'Enable this limit for the current chat.',
+  autoHandoffAtLimit:
+    'Queues /session-handoff after the current turn, once per session; cancel it from the banner.',
 };
 
 const LABELS: Readonly<Record<BudgetKey, string>> = {
@@ -228,12 +235,16 @@ function storedNumberIsValid(
                     [ptahBusyDisabled]="busy()"
                     (change)="toggle(key, $event)"
                     [attr.aria-label]="labels[key]"
+                    [attr.aria-describedby]="'session-budget-' + key + '-help'"
                     [attr.data-testid]="'session-budget-' + key"
                   />
                   <span>Enabled</span>
                 </label>
-                <p class="text-[11px] text-base-content-muted">
-                  Enable this limit for the current chat.
+                <p
+                  [id]="'session-budget-' + key + '-help'"
+                  class="text-[11px] text-base-content-muted"
+                >
+                  {{ booleanHelp[key] }}
                 </p>
               </div>
             }
@@ -370,7 +381,11 @@ export class SessionBudgetSettingsComponent implements OnInit {
   protected readonly settings = SESSION_BUDGET_SETTINGS;
   protected readonly labels = LABELS;
   protected readonly numberFields = NUMBER_FIELDS;
-  protected readonly booleanKeys: readonly BooleanKey[] = ['enabled'];
+  protected readonly booleanKeys: readonly BooleanKey[] = [
+    'enabled',
+    'autoHandoffAtLimit',
+  ];
+  protected readonly booleanHelp = BOOLEAN_HELP;
   protected readonly units = SESSION_BUDGET_SETTINGS.unit.values;
   protected readonly unitLabels = UNIT_LABELS;
 
@@ -399,7 +414,7 @@ export class SessionBudgetSettingsComponent implements OnInit {
     void this.reload();
   }
 
-  /** Reads all ten keys; any failed read shows the load error with Retry. */
+  /** Reads every `sessionBudget.*` key; any failed read shows the load error with Retry. */
   async reload(): Promise<void> {
     this.load.set('loading');
     try {

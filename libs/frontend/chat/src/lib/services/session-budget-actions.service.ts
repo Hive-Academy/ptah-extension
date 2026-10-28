@@ -1,8 +1,10 @@
 import {
   Injectable,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   type Signal,
 } from '@angular/core';
 import type { SessionStatus } from '@ptah-extension/chat-types';
@@ -23,6 +25,8 @@ import {
 } from '../components/molecules/notifications/session-budget-format';
 import { ActionBannerService } from './action-banner.service';
 import { ChatStore } from './chat.store';
+import { SessionAutoHandoffService } from './session-auto-handoff.service';
+import { SESSION_START_GUARD } from '../tokens/session-context.token';
 
 /** The chat view's resolved tab and session, as the budget banner sees them. */
 export interface SessionBudgetView {
@@ -32,9 +36,13 @@ export interface SessionBudgetView {
     readonly status?: SessionStatus;
     /** Display-only stage from the live feed (TASK_2026_627 D25). */
     readonly liveBudgetStage?: 'handoff' | 'limit' | null;
+    /** The tab's queued message, to tell a queued automatic hand-off. */
+    readonly queuedContent?: string | null;
   } | null>;
   readonly tabId: Signal<string | null>;
   readonly sessionId: Signal<string | null>;
+  /** True while this view shows the budget banner, and so its Cancel. */
+  readonly bannerVisible: Signal<boolean>;
 }
 
 /**
@@ -77,6 +85,7 @@ const NO_VIEW: SessionBudgetView = {
   activeTab: signal(null),
   tabId: signal(null),
   sessionId: signal(null),
+  bannerVisible: signal(false),
 };
 
 /**
@@ -89,6 +98,15 @@ const NO_VIEW: SessionBudgetView = {
  * the `session-handoff` skill, which opens the continuation session itself;
  * otherwise it is the inline {@link SESSION_WRAP_UP_PROMPT}.
  *
+ * With `sessionBudget.autoHandoffAtLimit` on (`budget.autoHandoff`), the
+ * same request goes out by itself once per session when the display stage
+ * reaches `limit` and the skill is available (never the inline prompt). A
+ * running turn queues it like the button does. It waits while the tab has a
+ * pending permission prompt, which a queued message would deny, and fires once
+ * the prompt is answered. {@link SessionAutoHandoffService} keeps it to one
+ * run per session across views (claimed when it is sent); a failed send does
+ * not re-arm it, and {@link cancelAutoHandoff} withdraws it while queued.
+ *
  * Provided by the chat view, one instance per view. The view calls
  * {@link connect} once with its resolved tab and session.
  */
@@ -98,6 +116,10 @@ export class SessionBudgetActionsService {
   private readonly chatStore = inject(ChatStore);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly autoHandoff = inject(SessionAutoHandoffService);
+  private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
+    optional: true,
+  });
 
   private readonly view = signal<SessionBudgetView>(NO_VIEW);
 
@@ -105,6 +127,12 @@ export class SessionBudgetActionsService {
   private readonly dismissedStages = signal<
     ReadonlyMap<string, SessionBudgetStage>
   >(new Map());
+
+  /**
+   * Sessions this view found without the `session-handoff` skill: the
+   * automatic hand-off does not probe them again (no RPC loop).
+   */
+  private readonly autoSkillMissing = new Set<string>();
 
   /** Sessions whose wrap-up prompt was sent from this view. */
   private readonly wrapUpSessions = signal<ReadonlySet<string>>(new Set());
@@ -144,15 +172,72 @@ export class SessionBudgetActionsService {
     return sessionId ? (this.dismissedStages().get(sessionId) ?? null) : null;
   });
 
-  /** True once the wrap-up prompt was sent for the shown session. */
+  /**
+   * True while the shown session's automatic hand-off is queued and not yet
+   * sent: held behind other queued text, or the start of the tab's queued
+   * message.
+   */
+  readonly autoHandoffQueued = computed(() => {
+    const sessionId = this.budget()?.sessionId;
+    const entry = sessionId ? this.autoHandoff.entry(sessionId) : null;
+    if (entry?.state !== 'fired' || !entry.queued) return false;
+    if (entry.held) return true;
+    // Read here so a queue change re-evaluates; matched by identity below.
+    if (!this.view().activeTab()?.queuedContent) return false;
+    return this.chatStore.isQueuedCommand(entry.queued);
+  });
+
+  /** True once the wrap-up prompt was sent (or auto-queued) for the shown session. */
   readonly wrapUpSent = computed(() => {
     const sessionId = this.budget()?.sessionId;
-    return !!sessionId && this.wrapUpSessions().has(sessionId);
+    return (
+      (!!sessionId && this.wrapUpSessions().has(sessionId)) ||
+      this.autoHandoffQueued()
+    );
   });
+
+  constructor() {
+    // The automatic hand-off: armed by the setting, fired once per session.
+    effect(() => {
+      const budget = this.budget();
+      const tabId = this.view().tabId();
+      if (
+        budget?.autoHandoff !== true ||
+        this.displayStage() !== 'limit' ||
+        !tabId ||
+        // Only where the banner shows: the user must be able to cancel it.
+        !this.view().bannerVisible() ||
+        this.wrapUpSent() ||
+        this.autoHandoff.entry(budget.sessionId) !== null ||
+        this.autoSkillMissing.has(budget.sessionId) ||
+        this.sessionStartGuard?.() ||
+        // A queued message would deny the prompt; re-run once it is answered.
+        this.chatStore.hasPendingPermissionForTab(tabId)
+      ) {
+        return;
+      }
+      untracked(() => void this.requestWrapUp(true));
+    });
+  }
 
   /** Binds this service to the view's resolved tab and session. */
   connect(view: SessionBudgetView): void {
     this.view.set(view);
+  }
+
+  /**
+   * Cancel the shown session's queued automatic hand-off: withdraw the
+   * command from the tab's queue (the rest of the queue stays) and never fire
+   * it again for the session. The button becomes available again.
+   */
+  cancelAutoHandoff(): void {
+    const sessionId = this.budget()?.sessionId;
+    if (!sessionId || !this.autoHandoffQueued()) return;
+    const queued = this.autoHandoff.entry(sessionId)?.queued;
+    if (!queued || !this.chatStore.withdrawQueuedCommand(queued)) return;
+    // A held entry's drop settles after this; `cancelled` keeps it silent.
+    this.autoHandoff.cancel(sessionId);
+    this.setWrapUpSent(sessionId, false);
   }
 
   /** Hide the banner for the shown session until its stage rises. */
@@ -179,31 +264,68 @@ export class SessionBudgetActionsService {
    * as its own turn. The button stays disabled meanwhile; if the command is
    * dropped (Stop, failed turn), it is enabled again with a notice.
    */
-  async sendWrapUp(): Promise<void> {
+  sendWrapUp(): Promise<void> {
+    return this.requestWrapUp(false);
+  }
+
+  /**
+   * The button's send, or with `auto` the automatic hand-off's: that one
+   * sends only the slash command, records what it queued for
+   * {@link autoHandoffQueued}, and stays silent when the user cancelled it.
+   */
+  private async requestWrapUp(auto: boolean): Promise<void> {
     const tabId = this.view().tabId();
     const budget = this.budget();
     const sessionId = budget?.sessionId;
-    if (!tabId || !sessionId || this.wrapUpSessions().has(sessionId)) return;
+    if (!tabId || !sessionId || this.wrapUpSent()) return;
     this.setWrapUpSent(sessionId, true);
     try {
-      const prompt = (await this.handoffSkillAvailable())
+      const skill = await this.handoffSkillAvailable();
+      // The probe is asynchronous: the view may show another tab or session
+      // now, or the session may no longer qualify. Never send into those.
+      if (
+        !this.stillTargets(tabId, sessionId, auto) ||
+        (auto && !this.claimAutoHandoff(sessionId, tabId, skill))
+      ) {
+        this.setWrapUpSent(sessionId, false);
+        return;
+      }
+      const prompt = skill
         ? buildHandoffCommand(budget)
         : buildWrapUpPrompt(budget);
       const outcome = await this.chatStore.sendOrQueueMessage(prompt, {
         tabId,
       });
+      if (auto) {
+        this.autoHandoff.recordQueued(
+          sessionId,
+          outcome?.queuedCommand ?? null,
+          !!outcome?.heldCommand,
+        );
+      }
       // The send path already shows its own failure notice in the transcript.
       if (!outcome?.success) {
         this.setWrapUpSent(sessionId, false);
         return;
       }
-      if (outcome.heldCommand && !(await outcome.heldCommand)) {
-        this.setWrapUpSent(sessionId, false);
-        this.actionBanner.showError(
-          'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
-          tabId,
+      if (!outcome.heldCommand) return;
+      const queued = await outcome.heldCommand;
+      if (auto) {
+        this.autoHandoff.recordQueued(
+          sessionId,
+          outcome.queuedCommand ?? null,
+          false,
         );
       }
+      if (queued) return;
+      this.setWrapUpSent(sessionId, false);
+      if (auto && this.autoHandoff.entry(sessionId)?.state === 'cancelled') {
+        return;
+      }
+      this.actionBanner.showError(
+        'The wrap-up request was not sent: the queued messages before it were stopped or failed.',
+        tabId,
+      );
     } catch (error: unknown) {
       this.setWrapUpSent(sessionId, false);
       this.actionBanner.showError(
@@ -237,6 +359,47 @@ export class SessionBudgetActionsService {
       // inline wrap-up prompt, which does the same job without the skill.
       return false;
     }
+  }
+
+  /**
+   * The automatic hand-off's last checks before it sends, then the claim:
+   * the skill is there, no permission prompt arrived during the probe, and no
+   * other view claimed the session meanwhile. False means do not send.
+   */
+  private claimAutoHandoff(
+    sessionId: string,
+    tabId: string,
+    skill: boolean,
+  ): boolean {
+    if (!skill) {
+      this.autoSkillMissing.add(sessionId);
+      return false;
+    }
+    if (this.chatStore.hasPendingPermissionForTab(tabId)) return false;
+    return this.autoHandoff.claim(sessionId);
+  }
+
+  /**
+   * After an await: the view still shows the captured tab and session, and,
+   * for the automatic hand-off, the session still qualifies (limit stage,
+   * setting on, a session may be started).
+   */
+  private stillTargets(
+    tabId: string,
+    sessionId: string,
+    auto: boolean,
+  ): boolean {
+    const budget = this.budget();
+    if (this.view().tabId() !== tabId || budget?.sessionId !== sessionId) {
+      return false;
+    }
+    if (!auto) return true;
+    return (
+      budget.autoHandoff === true &&
+      this.displayStage() === 'limit' &&
+      this.view().bannerVisible() &&
+      !this.sessionStartGuard?.()
+    );
   }
 
   private setWrapUpSent(sessionId: string, sent: boolean): void {

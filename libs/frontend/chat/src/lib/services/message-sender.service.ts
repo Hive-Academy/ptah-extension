@@ -51,6 +51,7 @@ import {
 import { MessageValidationService } from './message-validation.service';
 import { UltracodeStateService } from './ultracode-state.service';
 import type { SendMessageOptions } from '@ptah-extension/chat-types';
+import type { QueuedCommand } from './chat-store/conversation.service';
 
 /**
  * Structured outcome of a send attempt.
@@ -72,6 +73,11 @@ export interface SendOutcome {
    * tab's queued message, `false` when it is dropped (Stop, failed turn).
    */
   heldCommand?: Promise<boolean>;
+  /**
+   * Set when a slash command was queued (held or as the queued message): its
+   * identity, for `ChatStore.withdrawQueuedCommand` / `isQueuedCommand`.
+   */
+  queuedCommand?: QueuedCommand;
 }
 
 /**

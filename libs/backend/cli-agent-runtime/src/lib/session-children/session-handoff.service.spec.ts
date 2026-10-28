@@ -23,6 +23,10 @@ import type {
   HandoffChatSessionStartInput,
 } from './child-chat-session-host.port';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import {
+  SessionChildRegistry,
+  type SessionChildRecord,
+} from './session-child.registry';
 
 const CALLER = '11111111-2222-4333-8444-555555555555';
 const CALLER_SDK = '22222222-3333-4444-8555-666666666666';
@@ -74,8 +78,27 @@ function makeHarness() {
   });
   const lifecycle = { find: jest.fn((id: string) => records.get(id)) };
   const children = new Set<string>();
+  // The depth guard is faked; the parent links are a real registry.
+  const links = new SessionChildRegistry();
   const registry = {
     isChild: jest.fn((id: string | undefined) => !!id && children.has(id)),
+    childrenOf: jest.fn((ids: readonly (string | undefined)[]) =>
+      links.childrenOf(ids),
+    ),
+    reparent: jest.fn(
+      (childId: string, parent: string, parentSdk: string | undefined) =>
+        links.reparent(childId, parent, parentSdk),
+    ),
+    get: jest.fn((id: string | undefined) => links.get(id)),
+  };
+  const agents = {
+    adoptLanes: jest.fn(
+      (_from: readonly string[], _to: string): string[] => [],
+    ),
+    settleLaneAdoption: jest.fn(
+      (_ids: readonly string[], _outcome: 'kept' | 'reverted'): void =>
+        undefined,
+    ),
   };
   const workspace = { getWorkspaceFolders: jest.fn(() => [root]) };
   const lines: string[] = [];
@@ -127,6 +150,7 @@ function makeHarness() {
       lifecycle as never,
       workspace as never,
       output as never,
+      agents as never,
       ('adapter' in overrides ? overrides.adapter : adapter) as never,
       'container' in overrides
         ? (overrides.container ?? null)
@@ -155,7 +179,40 @@ function makeHarness() {
     lines,
     output,
     mcpStatus,
+    registry,
+    links,
+    agents,
   };
+}
+
+/** A child record of `parent`, stored through a real reservation. */
+function addLink(
+  links: SessionChildRegistry,
+  childSessionId: string,
+  overrides: Partial<SessionChildRecord> = {},
+): SessionChildRecord {
+  const reservation = links.reserveSlot(Number.MAX_SAFE_INTEGER);
+  if (!reservation) throw new Error('no slot');
+  return links.add(
+    {
+      childSessionId,
+      parentSessionId: CALLER,
+      label: `child ${childSessionId}`,
+      task: 'do the thing',
+      branch: `feat/${childSessionId}`,
+      baseRef: 'abc123',
+      workspaceRoot: root,
+      worktreePath: join(root, childSessionId),
+      deliverables: [],
+      subagentPtahTools: 'available',
+      startedAt: '2026-10-01T10:00:00.000Z',
+      turnsSettled: 0,
+      reportsDelivered: 0,
+      reportsRefused: 0,
+      ...overrides,
+    },
+    reservation,
+  );
 }
 
 describe('SessionHandoffService', () => {
@@ -171,6 +228,8 @@ describe('SessionHandoffService', () => {
       workspaceRoot: root,
       cwd: root,
       tabOpened: true,
+      adoptedLanes: [],
+      adoptedChildSessions: [],
     });
     expect(h.host.startHandoffSession).toHaveBeenCalledTimes(1);
     const input = h.host.startHandoffSession.mock.calls[0][0];
@@ -570,6 +629,27 @@ describe('SessionHandoffService', () => {
       expect(jest.getTimerCount()).toBe(0);
     });
 
+    it('gives the work back at the deadline; a late success adopts nothing', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live');
+
+      const { result, settle } = await startHanging(h);
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'reverted',
+      );
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+
+      settle({ started: true, uiAnnounced: true });
+      await flush();
+
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledTimes(1);
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+    });
+
     it('keeps the caller reserved until a late success, then records it', async () => {
       const h = makeHarness();
       const { settle } = await startHanging(h);
@@ -634,6 +714,172 @@ describe('SessionHandoffService', () => {
         ok: false,
         refusal: 'handoff-file-missing',
       });
+    });
+  });
+
+  describe("adopting the caller's background work", () => {
+    const OTHER_PARENT = '44444444-5555-4666-8777-888888888888';
+
+    it('re-parents running lanes by both caller ids to the new tab and lists them', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a', 'lane-b']);
+
+      const result = await h.service.handoff(h.request());
+
+      if (!result.ok) throw new Error('handoff should start');
+      expect(h.agents.adoptLanes).toHaveBeenCalledTimes(1);
+      expect(h.agents.adoptLanes).toHaveBeenCalledWith(
+        [CALLER, CALLER_SDK],
+        result.tabId,
+      );
+      expect(result.adoptedLanes).toEqual(['lane-a', 'lane-b']);
+    });
+
+    it('adopts before the host start is awaited, then keeps the adoption', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live', { parentSdkSessionId: CALLER_SDK });
+      let parentDuringStart: string | undefined;
+      let lanesAdoptedBeforeStart = false;
+      h.host.startHandoffSession.mockImplementationOnce(async () => {
+        parentDuringStart = h.links.get('child-live')?.parentSessionId;
+        lanesAdoptedBeforeStart = h.agents.adoptLanes.mock.calls.length === 1;
+        return { started: true, uiAnnounced: true };
+      });
+
+      const result = await h.service.handoff(h.request());
+
+      if (!result.ok) throw new Error('handoff should start');
+      expect(parentDuringStart).toBe(result.tabId);
+      expect(lanesAdoptedBeforeStart).toBe(true);
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledTimes(1);
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'kept',
+      );
+      expect(h.links.get('child-live')?.parentSessionId).toBe(result.tabId);
+    });
+
+    it('gives the work back to the caller when the start fails', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockReturnValue(['lane-a']);
+      addLink(h.links, 'child-live', { parentSdkSessionId: CALLER_SDK });
+      h.host.startHandoffSession.mockResolvedValueOnce({
+        started: false,
+        error: 'boom',
+      });
+
+      const result = await h.service.handoff(h.request());
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith(
+        ['lane-a'],
+        'reverted',
+      );
+      expect(h.links.get('child-live')).toMatchObject({
+        parentSessionId: CALLER,
+        parentSdkSessionId: CALLER_SDK,
+      });
+    });
+
+    it('gives the work back to the caller when the host start throws', async () => {
+      const h = makeHarness();
+      addLink(h.links, 'child-live');
+      h.host.startHandoffSession.mockRejectedValueOnce(new Error('boom'));
+
+      const result = await h.service.handoff(h.request());
+
+      expect(result).toMatchObject({ ok: false });
+      expect(h.agents.settleLaneAdoption).toHaveBeenCalledWith([], 'reverted');
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+      expect(h.links.get('child-live')).not.toHaveProperty(
+        'parentSdkSessionId',
+      );
+    });
+
+    it('re-parents live children and ended children with a held completion; leaves the rest', async () => {
+      const h = makeHarness();
+      addLink(h.links, 'child-by-tab', { parentSdkSessionId: CALLER_SDK });
+      // Started while the caller ran under an older tab of the same SDK session.
+      addLink(h.links, 'child-by-sdk', {
+        parentSessionId: OTHER_PARENT,
+        parentSdkSessionId: CALLER_SDK,
+      });
+      addLink(h.links, 'child-held');
+      h.links.update('child-held', {
+        heldCompletion: {
+          heldSince: '2026-10-01T11:00:00.000Z',
+          envelope: {
+            childSessionId: 'child-held',
+            turn: 1,
+            verdict: 'unverified',
+            text: '<agent-lane-completed/>',
+          },
+        },
+      });
+      h.links.markEnded('child-held', 'ended', 'done');
+      addLink(h.links, 'child-ended');
+      h.links.markEnded('child-ended', 'ended', 'done');
+      addLink(h.links, 'child-of-other', { parentSessionId: OTHER_PARENT });
+
+      const result = await h.service.handoff(h.request());
+
+      if (!result.ok) throw new Error('handoff should start');
+      expect(result.adoptedChildSessions).toEqual([
+        'child-by-tab',
+        'child-by-sdk',
+        'child-held',
+      ]);
+      for (const id of ['child-by-tab', 'child-by-sdk', 'child-held']) {
+        const child = h.links.get(id);
+        expect(child?.parentSessionId).toBe(result.tabId);
+        // The new session has no SDK id yet: readers follow its tab.
+        expect(child && 'parentSdkSessionId' in child).toBe(false);
+      }
+      expect(h.links.get('child-ended')?.parentSessionId).toBe(CALLER);
+      expect(h.links.get('child-of-other')?.parentSessionId).toBe(OTHER_PARENT);
+      expect(
+        h.links.childrenOf([CALLER, CALLER_SDK]).map((c) => c.childSessionId),
+      ).toEqual(['child-ended']);
+      expect(
+        h.links.childrenOf([result.tabId]).map((c) => c.childSessionId),
+      ).toEqual(['child-by-tab', 'child-by-sdk', 'child-held']);
+    });
+
+    it('adopts nothing when the handoff is refused before the start', async () => {
+      const h = makeHarness();
+      addLink(h.links, 'child-live');
+
+      const result = await h.service.handoff(
+        h.request({ handoffPath: 'HANDOFF.md' }),
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'handoff-file-missing',
+      });
+      expect(h.agents.adoptLanes).not.toHaveBeenCalled();
+      expect(h.registry.reparent).not.toHaveBeenCalled();
+      expect(h.links.get('child-live')?.parentSessionId).toBe(CALLER);
+    });
+
+    it('still adopts the children and succeeds when lane adoption throws', async () => {
+      const h = makeHarness();
+      h.agents.adoptLanes.mockImplementation(() => {
+        throw new Error('manager fault');
+      });
+      addLink(h.links, 'child-live');
+
+      const result = await h.service.handoff(h.request());
+
+      expect(result).toMatchObject({
+        ok: true,
+        adoptedLanes: [],
+        adoptedChildSessions: ['child-live'],
+      });
+      expect(h.lines.some((l) => l.includes('lane adoption faulted'))).toBe(
+        true,
+      );
     });
   });
 

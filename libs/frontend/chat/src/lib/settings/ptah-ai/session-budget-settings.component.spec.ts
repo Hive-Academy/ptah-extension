@@ -126,7 +126,7 @@ describe('SessionBudgetSettingsComponent', () => {
   });
 
   describe('load', () => {
-    it('reads all nine sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
+    it('reads all ten sessionBudget keys and shows the saved values (TOKENS, 50M default)', async () => {
       await create();
       const read = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
@@ -137,7 +137,7 @@ describe('SessionBudgetSettingsComponent', () => {
           .map((setting) => setting.key)
           .sort(),
       );
-      expect(read).toHaveLength(9);
+      expect(read).toHaveLength(10);
       expect(field('tokens').value).toBe('50000000');
       expect(field('tokens').className).toContain('input-sm');
       expect(field('tokens').className).toContain('flex-1');
@@ -159,7 +159,7 @@ describe('SessionBudgetSettingsComponent', () => {
       const readTimeouts = mockRpcCall.mock.calls
         .filter((call) => call[1] === 'settings:get')
         .map((call) => call[3]);
-      expect(readTimeouts).toEqual(Array(9).fill(5_000));
+      expect(readTimeouts).toEqual(Array(10).fill(5_000));
     });
 
     it('shows a load error with Retry when a read fails, and Retry reads again', async () => {
@@ -487,6 +487,26 @@ describe('SessionBudgetSettingsComponent', () => {
         { key: 'sessionBudget.enabled', value: true },
       ]);
       expect(box.checked).toBe(true);
+    });
+
+    it('writes "Hand off automatically at 100%" (off by default) and keeps the banners', async () => {
+      await create();
+      const box = field('autoHandoffAtLimit');
+      expect(box.checked).toBe(false);
+      expect(box.getAttribute('aria-label')).toBe(
+        'Hand off automatically at 100%',
+      );
+      expect(
+        byTestId('settings-section-session-budget')?.textContent,
+      ).toContain('once per session');
+      box.checked = true;
+      box.dispatchEvent(new Event('change'));
+      await settle();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.autoHandoffAtLimit', value: true },
+      ]);
+      expect(box.checked).toBe(true);
+      expect(tabManager.clearSessionBudgets).not.toHaveBeenCalled();
     });
 
     // TASK_2026_614 F.4 / F-D: turning the budget off clears every tab's banner.

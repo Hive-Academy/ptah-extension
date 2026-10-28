@@ -149,6 +149,19 @@ function liveStageLogs(h: Harness): unknown[][] {
 }
 
 describe('SessionBudgetService.observe', () => {
+  it.each([true, false])(
+    'carries autoHandoff=%s on composed states',
+    (value) => {
+      const h = harness({ autoHandoffAtLimit: value });
+      expect(h.service.observe(at(100, 1))?.autoHandoff).toBe(value);
+      expect(h.service.observeLoaded(at(100, 2))?.autoHandoff).toBe(value);
+      h.setConfig({ autoHandoffAtLimit: !value });
+      expect(h.service.observe(at(100, 1))?.autoHandoff).toBe(!value);
+      h.setConfig({ enabled: false, autoHandoffAtLimit: value });
+      expect(h.service.observe(at(100, 3))?.autoHandoff).toBe(value);
+    },
+  );
+
   it('an absent snapshot returns undefined (the consumer keeps its state)', () => {
     const h = harness();
     expect(h.service.observe(undefined)).toBeUndefined();

@@ -652,12 +652,17 @@ describe('MessageDispatchService', () => {
 
     it('streaming: returns the held-command promise with the queued outcome', async () => {
       const held = Promise.resolve(true);
-      queueOrAppendMock.mockReturnValueOnce(held);
+      const queued = { held };
+      queueOrAppendMock.mockReturnValueOnce(queued);
       activeTabStatus.set('streaming');
 
       const outcome = await service.sendOrQueueMessage('/session-handoff x');
 
-      expect(outcome).toEqual({ success: true, heldCommand: held });
+      expect(outcome).toEqual({
+        success: true,
+        queuedCommand: queued,
+        heldCommand: held,
+      });
     });
 
     it('forwards stored queuedOptions (files + images) to the dedicated queue-flush method', async () => {

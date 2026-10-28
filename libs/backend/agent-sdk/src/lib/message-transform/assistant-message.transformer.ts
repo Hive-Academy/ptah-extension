@@ -24,7 +24,7 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import { generateEventId } from './message-transform-helpers';
 import { toTurnStateEvent } from '../helpers/session-turn-state.registry';
-import { buildBackgroundAgentStartedEvent } from './background-started-event';
+import { takeBackgroundAgentStartedEvent } from './background-started-event';
 import { bindTaskResultToHeldStart } from './task-result-agent-binding';
 import type {
   TransformerState,
@@ -287,17 +287,16 @@ export class AssistantMessageTransformer {
         // missed, the agent card showed `completed` while the agent kept
         // working. Do not reorder these two pushes.
         bindTaskResultToHeldStart(block.tool_use_id, block.content, helpers);
-        if (state.hasBackgroundTaskToolUseId(block.tool_use_id)) {
-          const bgEvent = buildBackgroundAgentStartedEvent({
-            toolCallId: block.tool_use_id,
-            content: block.content,
-            messageId,
-            sessionId,
-            parentToolUseId: parent_tool_use_id ?? undefined,
-            state,
-            helpers,
-          });
-          state.removeBackgroundTaskToolUseId(block.tool_use_id);
+        const bgEvent = takeBackgroundAgentStartedEvent({
+          toolCallId: block.tool_use_id,
+          content: block.content,
+          messageId,
+          sessionId,
+          parentToolUseId: parent_tool_use_id ?? undefined,
+          state,
+          helpers,
+        });
+        if (bgEvent) {
           events.push(bgEvent);
 
           helpers.logger.debug(

@@ -16,6 +16,7 @@ const BASE: SessionBudgetState = {
   lowerBound: false,
   revision: 7,
   compactions: 0,
+  autoHandoff: false,
 };
 
 describe('SessionBudgetBannerComponent', () => {
@@ -26,6 +27,7 @@ describe('SessionBudgetBannerComponent', () => {
     extra: {
       dismissedStage?: SessionBudgetStage | null;
       wrapUpSent?: boolean;
+      autoHandoffQueued?: boolean;
     } = {},
   ): HTMLElement {
     TestBed.configureTestingModule({ imports: [SessionBudgetBannerComponent] });
@@ -37,6 +39,12 @@ describe('SessionBudgetBannerComponent', () => {
     }
     if (extra.wrapUpSent !== undefined) {
       fixture.componentRef.setInput('wrapUpSent', extra.wrapUpSent);
+    }
+    if (extra.autoHandoffQueued !== undefined) {
+      fixture.componentRef.setInput(
+        'autoHandoffQueued',
+        extra.autoHandoffQueued,
+      );
     }
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
@@ -52,6 +60,43 @@ describe('SessionBudgetBannerComponent', () => {
   afterEach(() => {
     fixture?.destroy();
     TestBed.resetTestingModule();
+  });
+
+  describe('automatic hand-off', () => {
+    const LIMIT: SessionBudgetState = { ...BASE, stage: 'limit' };
+
+    it('shows nothing about it unless it is queued', () => {
+      const host = render(LIMIT);
+      expect(byTestId(host, 'session-budget-auto-queued')).toBeNull();
+    });
+
+    it('says it is queued inside the alert and emits Cancel', () => {
+      const host = render(LIMIT, { autoHandoffQueued: true, wrapUpSent: true });
+      const notice = byTestId(host, 'session-budget-auto-queued');
+      expect(notice?.textContent).toContain('Auto hand-off queued');
+      expect(
+        byTestId(host, 'session-budget-banner')?.getAttribute('role'),
+      ).toBe('alert');
+      const cancel = byTestId<HTMLButtonElement>(
+        host,
+        'session-budget-auto-cancel',
+      );
+      expect(cancel?.getAttribute('aria-label')).toBe(
+        'Cancel the automatic hand-off',
+      );
+      let cancelled = 0;
+      fixture.componentInstance.cancelAutoHandoff.subscribe(() => cancelled++);
+      cancel?.click();
+      expect(cancelled).toBe(1);
+    });
+
+    it('stays visible while queued even when the limit notice was dismissed', () => {
+      const host = render(LIMIT, {
+        dismissedStage: 'limit',
+        autoHandoffQueued: true,
+      });
+      expect(byTestId(host, 'session-budget-auto-cancel')).not.toBeNull();
+    });
   });
 
   it.each(['normal', 'tighten', 'unknown'] as const)(
