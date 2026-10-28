@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import { PTAH_UI_HINT, type SessionApprovalRouter } from '@ptah-extension/agent-sdk';
 import type { ResolvedExecutionProfile } from '@ptah-extension/auth-providers';
-import type {
-  CodexApprovalRequest,
-  CodexThreadIdentity,
+import {
+  buildCodexMcpConfigOverrides,
+  type CodexApprovalRequest,
+  type CodexThreadIdentity,
 } from '@ptah-extension/codex-runtime';
 import {
   SessionId,
@@ -21,6 +22,8 @@ import {
   createCodexChatHostPorts,
   createCodexRuntimeAdmission,
   CodexChatRoutingError,
+  CodexChatMcpServerNameError,
+  CodexChatMcpServerUrlError,
   type CodexChatHostPortsDeps,
 } from './codex-chat-host-ports';
 import { CodexChatOptionError } from './codex-chat-profile-options';
@@ -254,21 +257,26 @@ describe('Codex chat host ports', () => {
   it('strips ambient options before preparation and logs names without secret values', async () => {
     const h = harness();
     const prepare = jest.spyOn(ChatRuntimeProfileService.prototype, 'prepare');
+    const mcpServersOverride = {
+      smithery: { type: 'http' as const, url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+      oauth: { type: 'http' as const, url: 'https://example.invalid/oauth' },
+    };
     try {
       await expect(h.ports.profile({
         ...config(),
-        mcpServersOverride: {
-          smithery: { type: 'http', url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
-          oauth: { type: 'http', url: 'https://example.invalid/oauth' },
-        },
+        mcpServersOverride,
         thinking: { type: 'adaptive' },
         outputStyleName: 'Explanatory',
       })).resolves.toHaveProperty('profile');
-      expect(prepare.mock.calls[0][0]).toEqual(config());
+      expect(prepare.mock.calls[0][0]).toEqual({ ...config(), mcpServersOverride });
       expect(h.logger.info).toHaveBeenCalledTimes(3);
       expect(h.logger.info).toHaveBeenCalledWith(
+        'User MCP servers are attached to Codex chat.',
+        { code: 'codex-user-mcp-attached', serverNames: ['oauth', 'smithery'], transports: ['http'] },
+      );
+      expect(h.logger.info).not.toHaveBeenCalledWith(
         'User MCP servers are not attached to Codex chat.',
-        { code: 'codex-user-mcp-not-attached', serverNames: ['oauth', 'smithery'] },
+        expect.anything(),
       );
       expect(h.logger.info).toHaveBeenCalledWith(
         'Thinking is not applied to Codex chat; Codex uses native effort.',
@@ -312,7 +320,7 @@ describe('Codex chat host ports', () => {
     });
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
-  it.each([true, false])('strips host flags without an MCP notice (running %s)', async (mcpServerRunning) => {
+  it.each([true, false])('strips host flags and keeps MCP keys without a notice (running %s)', async (mcpServerRunning) => {
     const h = harness();
     const input = {
       ...config(),
@@ -328,7 +336,9 @@ describe('Codex chat host ports', () => {
     try {
       const { profile } = await h.ports.profile(input);
       expect(profile.model).toBe('gpt-5');
-      expect(prepare.mock.calls[0][0]).toEqual(config());
+      expect(prepare.mock.calls[0][0]).toEqual({
+        ...config(), mcpServerRunning, mcpServersOverride: {},
+      });
       expect(h.logger.info).not.toHaveBeenCalled();
       expect(profile.mcpServers.map((server) => server.name)).toEqual(
         mcpServerRunning ? ['ptah'] : [],
@@ -401,6 +411,207 @@ describe('Codex chat host ports', () => {
       code: 'ptah-mcp-routing-id-missing',
     });
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
+  });
+  describe('user MCP servers (D8)', () => {
+    const token = 'secret-token-oauth';
+    const configToken = 'secret-config-value';
+    const apiKey = 'secret-api-key';
+    const queryUrl = `https://server.smithery.ai/acme/mcp?config=${configToken}&api_key=${apiKey}`;
+    const secretValues = [token, `Bearer ${token}`, configToken, apiKey, queryUrl];
+
+    it('attaches an http server with headers as references and returns the values as secrets', async () => {
+      const { profile, secrets } = await harness().ports.profile({
+        ...config(),
+        mcpServersOverride: {
+          notion: {
+            type: 'http',
+            url: 'https://mcp.notion.com/mcp',
+            headers: { Authorization: `Bearer ${token}`, 'X-Team': 'team-1' },
+          },
+        },
+      });
+      expect(profile.mcpServers).toEqual([
+        {
+          name: 'notion',
+          transport: 'http',
+          url: 'https://mcp.notion.com/mcp',
+          headerReferences: {
+            Authorization: 'mcp.notion.header.0',
+            'X-Team': 'mcp.notion.header.1',
+          },
+        },
+      ]);
+      expect(profile.mcpServers[0]).not.toHaveProperty('toolTimeoutSec');
+      expect(profile.mcpServers[0]).not.toHaveProperty('urlReference');
+      expect(secrets).toEqual(new Map([
+        ['mcp.notion.header.0', `Bearer ${token}`],
+        ['mcp.notion.header.1', 'team-1'],
+      ]));
+      expect(JSON.stringify(profile)).not.toContain(token);
+      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual({
+        'mcp_servers.notion': {
+          url: 'https://mcp.notion.com/mcp',
+          http_headers: { Authorization: `Bearer ${token}`, 'X-Team': 'team-1' },
+        },
+      });
+    });
+
+    it('moves a query URL into a url reference that the real config builder restores', async () => {
+      const { profile, secrets } = await harness().ports.profile({
+        ...config(),
+        mcpServersOverride: { smithery: { type: 'http', url: queryUrl } },
+      });
+      expect(profile.mcpServers).toEqual([
+        {
+          name: 'smithery',
+          transport: 'http',
+          url: 'https://server.smithery.ai/acme/mcp',
+          urlReference: 'mcp.smithery.url',
+          headerReferences: {},
+        },
+      ]);
+      expect(secrets).toEqual(new Map([['mcp.smithery.url', queryUrl]]));
+      expect(JSON.stringify(profile)).not.toContain(configToken);
+      expect(JSON.stringify(profile)).not.toContain(apiKey);
+      expect(buildCodexMcpConfigOverrides(profile.mcpServers, secrets)).toEqual({
+        'mcp_servers.smithery': { url: queryUrl },
+      });
+    });
+
+    it('maps a dotted OAuth key to a safe Codex server name', async () => {
+      const { profile, secrets } = await harness().ports.profile({
+        ...config(),
+        mcpServersOverride: {
+          'oauth.mcp.linear.app': {
+            type: 'http',
+            url: 'https://mcp.linear.app/mcp',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        },
+      });
+      expect(profile.mcpServers.map((server) => server.name)).toEqual(['oauth_mcp_linear_app']);
+      expect(profile.mcpServers[0]).toMatchObject({
+        headerReferences: { Authorization: 'mcp.oauth_mcp_linear_app.header.0' },
+      });
+      expect(secrets?.get('mcp.oauth_mcp_linear_app.header.0')).toBe(`Bearer ${token}`);
+    });
+
+    it('refuses two servers whose names collide after mapping, naming servers only', async () => {
+      const h = harness();
+      const result = h.ports.profile({
+        ...config(),
+        mcpServersOverride: {
+          'a.b': { type: 'http', url: queryUrl, headers: { Authorization: `Bearer ${token}` } },
+          a_b: { type: 'http', url: 'https://example.invalid/mcp' },
+        },
+      });
+      await expect(result).rejects.toBeInstanceOf(CodexChatMcpServerNameError);
+      const error = await result.catch((reason: unknown) => reason);
+      expect(error).toMatchObject({
+        code: 'codex-mcp-server-name-collision',
+        serverNames: ['a.b', 'a_b'],
+      });
+      const message = error instanceof Error ? error.message : '';
+      expect(message).toContain('"a.b"');
+      expect(message).toContain('"a_b"');
+      for (const value of [...secretValues, 'example.invalid']) {
+        expect(message).not.toContain(value);
+      }
+      expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      `not a url ${apiKey}`,
+      `ftp://files.example.invalid/mcp?api_key=${apiKey}`,
+    ])('refuses an invalid or non-http URL with a coded error naming the server only: %s', async (url) => {
+      const h = harness();
+      const result = h.ports.profile({
+        ...config(),
+        mcpServersOverride: { broken: { type: 'http', url } },
+      });
+      await expect(result).rejects.toBeInstanceOf(CodexChatMcpServerUrlError);
+      await expect(result).rejects.toMatchObject({
+        code: 'codex-mcp-server-url-invalid',
+        serverName: 'broken',
+      });
+      const error = await result.catch((reason: unknown) => reason);
+      expect(error instanceof Error ? error.message : '').not.toContain(apiKey);
+      expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
+    });
+
+    it('lets a user server named ptah replace the Ptah entry (caller wins)', async () => {
+      const { profile, secrets } = await harness().ports.profile({
+        ...config(),
+        mcpServerRunning: true,
+        mcpServersOverride: {
+          ptah: { type: 'http', url: 'https://proxy.example.invalid/ptah', headers: { Authorization: `Bearer ${token}` } },
+          other: { type: 'http', url: 'https://other.example.invalid/mcp' },
+        },
+      });
+      expect(profile.mcpServers).toEqual([
+        {
+          name: 'ptah',
+          transport: 'http',
+          url: 'https://proxy.example.invalid/ptah',
+          headerReferences: { Authorization: 'mcp.ptah.header.0' },
+        },
+        {
+          name: 'other',
+          transport: 'http',
+          url: 'https://other.example.invalid/mcp',
+          headerReferences: {},
+        },
+      ]);
+      expect(secrets?.get('mcp.ptah.header.0')).toBe(`Bearer ${token}`);
+    });
+
+    it('returns no secrets when no user server needs one', async () => {
+      const prepared = await harness().ports.profile({
+        ...config(),
+        mcpServerRunning: true,
+        mcpServersOverride: { open: { type: 'http', url: 'https://open.example.invalid/mcp' } },
+      });
+      expect(prepared.secrets).toBeUndefined();
+      expect(prepared.profile.mcpServers.map((server) => server.name)).toEqual(['ptah', 'open']);
+    });
+
+    it('keeps every secret value out of logs, profile, fingerprint, identity, metadata and notices', async () => {
+      const h = harness();
+      const original = await resumable(h);
+      const prepared = await h.ports.profile({
+        ...config(),
+        mcpServerRunning: true,
+        mcpServersOverride: {
+          smithery: { type: 'http', url: queryUrl },
+          'oauth.mcp.linear.app': {
+            type: 'http',
+            url: 'https://mcp.linear.app/mcp',
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        },
+        thinking: { type: 'adaptive' },
+        outputStyleName: 'Explanatory',
+      }, id);
+      expect(prepared.resume?.threadId).toBe(id);
+      // MCP servers and their references stay outside the fingerprint.
+      expect(prepared.profile.profileFingerprint).toBe(original.profileFingerprint);
+      expect([...(prepared.secrets?.values() ?? [])]).toEqual(
+        expect.arrayContaining([queryUrl, `Bearer ${token}`]),
+      );
+      const observed = JSON.stringify([
+        jest.mocked(h.logger.info).mock.calls,
+        jest.mocked(h.logger.warn).mock.calls,
+        jest.mocked(h.logger.debug).mock.calls,
+        jest.mocked(h.logger.error).mock.calls,
+        prepared.profile,
+        prepared.profile.profileFingerprint,
+        prepared.resume,
+        h.readResumeIdentity.mock.calls,
+        jest.mocked(h.deps.metadata.save).mock.calls,
+        h.broadcastMessage.mock.calls,
+      ]);
+      for (const value of secretValues) expect(observed).not.toContain(value);
+    });
   });
   it('uses the same provider resolver for admission', async () => {
     const h = harness();

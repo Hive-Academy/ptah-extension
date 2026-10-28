@@ -161,12 +161,6 @@ export class ChatRuntimeProfileService {
       }
     }
     const { config } = execution;
-    if ('mcpServersOverride' in config && config.mcpServersOverride) {
-      const names = Object.keys(config.mcpServersOverride).sort();
-      if (names.length > 0) {
-        lines.push(`Codex chat: MCP servers not attached: ${names.join(', ')}`);
-      }
-    }
     if (typeof config.outputStyleName === 'string' && config.outputStyleName.length > 0) {
       lines.push(`Codex chat: output style '${config.outputStyleName}' is not applied`);
     }

@@ -24,11 +24,15 @@ describe('classifyCodexChatOptions', () => {
       outputStyleBody: 'style',
       files: ['file.ts'],
       images: [{ data: 'image', mediaType: 'image/png' }],
+      mcpServerRunning: true,
+      mcpServersOverride: {
+        smithery: { type: 'http', url: 'https://example.invalid/mcp' },
+      },
     });
     expect(classifyCodexChatOptions(config)).toEqual({
       supported: config,
       stripped: [],
-      rejected: [], mcpServerNames: [],
+      rejected: [],
     });
     expect(classifyCodexChatOptions(config).supported).not.toBe(config);
   });
@@ -36,7 +40,7 @@ describe('classifyCodexChatOptions', () => {
   it('accepts the coding tool profile for the UI hint gate', () => {
     const mcpToolProfile = 'coding';
     expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
-      supported: { ptahUiFence: true, mcpToolProfile }, stripped: [], rejected: [], mcpServerNames: [],
+      supported: { ptahUiFence: true, mcpToolProfile }, stripped: [], rejected: [],
     });
   });
 
@@ -46,18 +50,18 @@ describe('classifyCodexChatOptions', () => {
       expect(classifyCodexChatOptions({ ptahUiFence: true, mcpToolProfile })).toEqual({
         supported: { ptahUiFence: true },
         stripped: [],
-        rejected: ['mcpToolProfile'], mcpServerNames: [],
+        rejected: ['mcpToolProfile'],
       });
     },
   );
 
   it.each([true, false])('accepts the UI fence when %s', (ptahUiFence) => {
     expect(classifyCodexChatOptions({ ptahUiFence })).toEqual({
-      supported: { ptahUiFence }, stripped: [], rejected: [], mcpServerNames: [],
+      supported: { ptahUiFence }, stripped: [], rejected: [],
     });
   });
 
-  it.each([true, false])('strips host and Claude flags when %s', (value) => {
+  it.each([true, false])('strips host and Claude flags but keeps MCP keys when %s', (value) => {
     const config = Object.freeze({
       tabId: 'tab',
       mcpServerRunning: value,
@@ -66,14 +70,9 @@ describe('classifyCodexChatOptions', () => {
       mcpServersOverride: {},
     });
     expect(classifyCodexChatOptions(config)).toEqual({
-      supported: { tabId: 'tab' },
-      stripped: [
-        'mcpServerRunning',
-        'workflowsDisabled',
-        'includePartialMessages',
-        'mcpServersOverride',
-      ],
-      rejected: [], mcpServerNames: [],
+      supported: { tabId: 'tab', mcpServerRunning: value, mcpServersOverride: {} },
+      stripped: ['workflowsDisabled', 'includePartialMessages'],
+      rejected: [],
     });
     expect(config.mcpServerRunning).toBe(value);
   });
@@ -89,27 +88,30 @@ describe('classifyCodexChatOptions', () => {
     expect(classifyCodexChatOptions({ [key]: value })).toEqual({
       supported: {},
       stripped: [],
-      rejected: [key], mcpServerNames: [],
+      rejected: [key],
     });
   });
 
-  it('strips ambient options and exposes only sorted MCP server names', () => {
+  it('supports MCP servers and strips only the remaining ambient options', () => {
+    const mcpServersOverride = {
+      smithery: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+      oauth: { url: 'https://example.invalid/oauth' },
+    };
     const config = Object.freeze({
-      mcpServersOverride: {
-        smithery: { url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
-        oauth: { url: 'https://example.invalid/oauth' },
-      },
+      mcpServersOverride,
       thinking: { type: 'adaptive' },
       outputStyleName: 'Explanatory',
       effort: 'high',
       outputStyleBody: 'style',
     });
-    expect(classifyCodexChatOptions(config)).toEqual({
-      supported: { effort: 'high', outputStyleBody: 'style' },
-      stripped: ['mcpServersOverride', 'thinking', 'outputStyleName'],
+    const result = classifyCodexChatOptions(config);
+    expect(result).toEqual({
+      supported: { mcpServersOverride, effort: 'high', outputStyleBody: 'style' },
+      stripped: ['thinking', 'outputStyleName'],
       rejected: [],
-      mcpServerNames: ['oauth', 'smithery'],
     });
+    expect(result.stripped).not.toContain('mcpServersOverride');
+    expect(result.stripped).not.toContain('mcpServerRunning');
   });
 
   it('ignores undefined supported, stripped, rejected and future options', () => {
@@ -122,7 +124,7 @@ describe('classifyCodexChatOptions', () => {
       outputStyleName: undefined,
       mcpServersOverride: undefined,
       futureOption: undefined,
-    })).toEqual({ supported: {}, stripped: [], rejected: [], mcpServerNames: [] });
+    })).toEqual({ supported: {}, stripped: [], rejected: [] });
   });
 
   it('exports a coded error naming only the rejected key', () => {

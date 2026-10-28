@@ -20,6 +20,7 @@ import {
   buildCodexExecutionProfile,
   normalizeCodexWorkspaceKey,
   type CodexExecutionProfileInput,
+  type CodexMcpServer,
   type CodexThreadIdentity,
   type CodexApprovalRequest,
 } from '@ptah-extension/codex-runtime';
@@ -30,6 +31,7 @@ import type {
 import {
   MESSAGE_TYPES,
   attentionRequestKey,
+  type McpHttpServerOverride,
   type PermissionRequest,
   type PermissionResponse,
   type RuntimeHostCapabilities,
@@ -91,6 +93,93 @@ export class CodexChatRoutingError extends Error {
     );
     this.name = 'CodexChatRoutingError';
   }
+}
+
+/** Two user MCP servers map to the same Codex server name; the message names originals only. */
+export class CodexChatMcpServerNameError extends Error {
+  readonly code = 'codex-mcp-server-name-collision';
+
+  constructor(readonly serverNames: readonly string[]) {
+    super(
+      `Codex chat cannot attach MCP servers ${serverNames.map((name) => `"${name}"`).join(', ')}: their names map to the same Codex server name.`,
+    );
+    this.name = 'CodexChatMcpServerNameError';
+  }
+}
+
+/** A user MCP server URL is not a valid http(s) URL; the message names the server only. */
+export class CodexChatMcpServerUrlError extends Error {
+  readonly code = 'codex-mcp-server-url-invalid';
+
+  constructor(readonly serverName: string) {
+    super(
+      `Codex chat cannot attach MCP server "${serverName}": its URL is not a valid http(s) URL.`,
+    );
+    this.name = 'CodexChatMcpServerUrlError';
+  }
+}
+
+type CodexHttpMcpServer = Extract<CodexMcpServer, { readonly transport: 'http' | 'sse' }>;
+
+interface CodexUserMcpServers {
+  readonly servers: readonly CodexHttpMcpServer[];
+  readonly secrets: ReadonlyMap<string, string>;
+}
+
+/**
+ * Map the user's MCP servers (Smithery, OAuth, caller overrides) to Codex http
+ * servers. The profile keeps references only; every header value and any URL
+ * that carries a query, userinfo or hash travels in the returned secrets.
+ */
+function userMcpServers(
+  overrides: Readonly<Record<string, McpHttpServerOverride>> | undefined,
+): CodexUserMcpServers {
+  const servers: CodexHttpMcpServer[] = [];
+  const secrets = new Map<string, string>();
+  const originals = new Map<string, string>();
+  for (const [original, override] of Object.entries(overrides ?? {})) {
+    // Codex applies server names as dotted config keys (OAuth keys carry dots).
+    const name = original.replace(/[^A-Za-z0-9_-]/g, '_');
+    const previous = originals.get(name);
+    if (previous !== undefined)
+      throw new CodexChatMcpServerNameError([previous, original].sort());
+    originals.set(name, original);
+    let parsed: URL;
+    try {
+      parsed = new URL(override.url);
+    } catch {
+      // The parser's message may echo the URL; name the server only.
+      throw new CodexChatMcpServerUrlError(original);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      throw new CodexChatMcpServerUrlError(original);
+    const secretUrl =
+      parsed.search !== '' ||
+      parsed.hash !== '' ||
+      parsed.username !== '' ||
+      parsed.password !== '';
+    let urlReference: string | undefined;
+    if (secretUrl) {
+      urlReference = `mcp.${name}.url`;
+      secrets.set(urlReference, override.url);
+    }
+    const headerReferences: Record<string, string> = {};
+    Object.entries(override.headers ?? {}).forEach(([header, value], index) => {
+      // An empty header carries nothing and the runtime refuses empty secrets.
+      if (value === '') return;
+      const reference = `mcp.${name}.header.${index}`;
+      headerReferences[header] = reference;
+      secrets.set(reference, value);
+    });
+    servers.push({
+      name,
+      transport: 'http',
+      url: secretUrl ? `${parsed.origin}${parsed.pathname}` : override.url,
+      ...(urlReference !== undefined ? { urlReference } : {}),
+      headerReferences,
+    });
+  }
+  return { servers, secrets };
 }
 
 function profiles(deps: CodexRuntimeAdmissionDeps) {
@@ -179,15 +268,8 @@ export function createCodexChatHostPorts(
       // Profile notices belong to session preparation and must not repeat per turn.
     },
     async profile(input, sessionId) {
-      const { supported: config, rejected, stripped, mcpServerNames } = classifyCodexChatOptions(input);
-      // Read from `input`: classification strips `mcpServerRunning` from config.
+      const { supported: config, rejected, stripped } = classifyCodexChatOptions(input);
       const attachPtahMcp = input.mcpServerRunning === true;
-      if (mcpServerNames.length > 0) {
-        deps.logger.info('User MCP servers are not attached to Codex chat.', {
-          code: 'codex-user-mcp-not-attached',
-          serverNames: mcpServerNames,
-        });
-      }
       if (stripped.includes('thinking')) {
         deps.logger.info('Thinking is not applied to Codex chat; Codex uses native effort.', {
           code: 'codex-thinking-not-applied',
@@ -206,6 +288,18 @@ export function createCodexChatHostPorts(
           ? input.tabId
           : sessionId;
       if (attachPtahMcp && !routingId) throw new CodexChatRoutingError();
+      // Map before any resolution so a bad server fails fast, like a rejected option.
+      const user = userMcpServers(
+        'mcpServersOverride' in input ? input.mcpServersOverride : undefined,
+      );
+      if (user.servers.length > 0) {
+        // Names and transports only; URLs and headers may carry secrets.
+        deps.logger.info('User MCP servers are attached to Codex chat.', {
+          code: 'codex-user-mcp-attached',
+          serverNames: user.servers.map((server) => server.name).sort(),
+          transports: [...new Set(user.servers.map((server) => server.transport))],
+        });
+      }
       const resume = sessionId
         ? await deps.readResumeIdentity(sessionId)
         : undefined;
@@ -228,6 +322,19 @@ export function createCodexChatHostPorts(
       if (execution.runtime !== 'codex-app-server')
         throw new Error('Native provider required');
       const { seed, cwd, workspacePath } = execution;
+      // Claude `mergeMcpOverride` parity: a user server named `ptah` wins.
+      const mcpServers = new Map<string, CodexHttpMcpServer>();
+      if (attachPtahMcp && routingId) {
+        mcpServers.set('ptah', {
+          name: 'ptah',
+          transport: 'http',
+          // Live binding: read the port the host bound at open time.
+          url: ptahMcpSessionUrl(PTAH_MCP_PORT, routingId, cwd),
+          headerReferences: {},
+          toolTimeoutSec: CODEX_PTAH_TOOL_TIMEOUT_SEC,
+        });
+      }
+      for (const server of user.servers) mcpServers.set(server.name, server);
       const entries: CodexExecutionProfileInput['paths']['entries'] = {};
       const paths = [
         cwd,
@@ -283,20 +390,7 @@ export function createCodexChatHostPorts(
               (image) => ({ type: 'image' as const, ...image }),
             ),
           ],
-          ...(attachPtahMcp && routingId
-            ? {
-                mcpServers: [
-                  {
-                    name: 'ptah',
-                    transport: 'http' as const,
-                    // Live binding: read the port the host bound at open time.
-                    url: ptahMcpSessionUrl(PTAH_MCP_PORT, routingId, cwd),
-                    headerReferences: {},
-                    toolTimeoutSec: CODEX_PTAH_TOOL_TIMEOUT_SEC,
-                  },
-                ],
-              }
-            : {}),
+          ...(mcpServers.size > 0 ? { mcpServers: [...mcpServers.values()] } : {}),
         },
       };
       let developerPrompt = profileInput.session.developerPrompt;
@@ -321,7 +415,9 @@ export function createCodexChatHostPorts(
           resume.providerId !== profile.providerId)
       )
         throw new Error('Native resume identity mismatch');
-      return { profile, resume };
+      return user.secrets.size > 0
+        ? { profile, resume, secrets: user.secrets }
+        : { profile, resume };
     },
     presentation: {
       present(sessionId, request) {

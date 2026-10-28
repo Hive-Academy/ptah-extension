@@ -230,13 +230,15 @@ describe('chat native session preparation', () => {
           jest.mocked(logger.debug).mock.calls, jest.mocked(logger.error).mock.calls,
         ]),
       ]);
-      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y']) {
+      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y', 'secret-config-z', 'secret-key-z']) {
         expect(serialized).not.toContain(value);
       }
     };
     const thinking = ambient ? { type: 'adaptive' as const } : undefined;
+    // Legacy Smithery URLs carry `config` and `api_key` in the query.
+    const smitheryUrl = 'https://example.invalid/mcp?config=secret-config-z&api_key=secret-key-z';
     const smitheryOverrides = {
-      smithery: { type: 'http' as const, url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+      smithery: { type: 'http' as const, url: smitheryUrl, headers: { Authorization: 'Bearer secret-token-x' } },
     };
     const oauthOverrides = {
       oauth: { type: 'http' as const, url: 'https://example.invalid/oauth', headers: { Authorization: 'Bearer secret-token-y' } },
@@ -277,9 +279,11 @@ describe('chat native session preparation', () => {
       expect(buildSmitheryOverrides).toHaveBeenCalledTimes(1);
       expect(buildOAuthOverrides).toHaveBeenCalledTimes(1);
       expect(started.mcpServersOverride).toEqual({ ...smitheryOverrides, ...oauthOverrides });
-      expect(classifyCodexChatOptions(started).stripped).toEqual(
-        expect.arrayContaining(['mcpServersOverride', 'thinking', 'outputStyleName']),
-      );
+      const { stripped, supported } = classifyCodexChatOptions(started);
+      expect(stripped).toEqual(expect.arrayContaining(['thinking', 'outputStyleName']));
+      expect(stripped).not.toContain('mcpServersOverride');
+      expect(stripped).not.toContain('mcpServerRunning');
+      expect(supported).toMatchObject({ mcpServerRunning: true, mcpServersOverride: started.mcpServersOverride });
     } else {
       expect(started.mcpServersOverride).toBeUndefined();
     }
@@ -291,8 +295,50 @@ describe('chat native session preparation', () => {
     expect(started.effort).toBeUndefined();
     expect(started.systemPrompt).toBeUndefined();
     expect(classifyCodexChatOptions(started).rejected).toEqual([]);
-    expect((await ports.profile(started)).profile.developerPrompt).toContain(PTAH_UI_HINT);
-    expectNotice("Codex chat: MCP servers not attached: oauth, smithery\nCodex chat: output style 'Explanatory' is not applied");
+    const startedProfile = await ports.profile(started);
+    expect(startedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT);
+    // D8: the Smithery and OAuth servers the session layer resolved attach natively,
+    // beside Ptah MCP; the profile keeps references and the values travel as secrets.
+    expect(startedProfile.profile.mcpServers).toEqual([
+      expect.objectContaining({ name: 'ptah', transport: 'http' }),
+      ...(ambient
+        ? [
+            {
+              name: 'smithery',
+              transport: 'http',
+              url: 'https://example.invalid/mcp',
+              urlReference: 'mcp.smithery.url',
+              headerReferences: { Authorization: 'mcp.smithery.header.0' },
+            },
+            {
+              name: 'oauth',
+              transport: 'http',
+              url: 'https://example.invalid/oauth',
+              headerReferences: { Authorization: 'mcp.oauth.header.0' },
+            },
+          ]
+        : []),
+    ]);
+    if (ambient) {
+      expect(startedProfile.secrets).toEqual(new Map([
+        ['mcp.smithery.url', smitheryUrl],
+        ['mcp.smithery.header.0', 'Bearer secret-token-x'],
+        ['mcp.oauth.header.0', 'Bearer secret-token-y'],
+      ]));
+      const profileJson = JSON.stringify(startedProfile.profile);
+      for (const value of ['secret-token-x', 'secret-token-y', 'secret-config-z', 'secret-key-z']) {
+        expect(profileJson).not.toContain(value);
+        expect(startedProfile.profile.profileFingerprint).not.toContain(value);
+      }
+      expect(deps.logger.info).toHaveBeenCalledWith(
+        'User MCP servers are attached to Codex chat.',
+        { code: 'codex-user-mcp-attached', serverNames: ['oauth', 'smithery'], transports: ['http'] },
+      );
+    } else {
+      expect(startedProfile.secrets).toBeUndefined();
+    }
+    // No MCP notice line any more: only the output-style line remains.
+    expectNotice("Codex chat: output style 'Explanatory' is not applied");
     broadcastMessage.mockClear();
 
     await expect(
@@ -318,16 +364,19 @@ describe('chat native session preparation', () => {
       );
     }
     expect(classifyCodexChatOptions(resumed).rejected).toEqual([]);
-    expect((await ports.profile(resumed)).profile.developerPrompt).toContain(PTAH_UI_HINT);
-    // Resume config carries the style but does not assemble MCP overrides.
+    const resumedProfile = await ports.profile(resumed);
+    expect(resumedProfile.profile.developerPrompt).toContain(PTAH_UI_HINT);
+    // Resume config carries the style but does not assemble user MCP overrides
+    // (Claude resume parity); Ptah MCP still attaches.
+    expect(resumedProfile.profile.mcpServers.map((server) => server.name)).toEqual(['ptah']);
     expectNotice("Codex chat: output style 'Explanatory' is not applied");
     if (ambient) {
-      expect(deps.logger.info).toHaveBeenCalledWith(
+      expect(deps.logger.info).not.toHaveBeenCalledWith(
         'User MCP servers are not attached to Codex chat.',
-        { code: 'codex-user-mcp-not-attached', serverNames: ['oauth', 'smithery'] },
+        expect.anything(),
       );
       const logs = JSON.stringify(jest.mocked(deps.logger.info).mock.calls);
-      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y', 'adaptive', 'Explanatory']) {
+      for (const value of ['https://example.invalid', 'Authorization', 'Bearer', 'secret-token-x', 'secret-token-y', 'secret-config-z', 'secret-key-z', 'adaptive', 'Explanatory']) {
         expect(logs).not.toContain(value);
       }
     }

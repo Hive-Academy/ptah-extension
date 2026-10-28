@@ -256,9 +256,9 @@ describe('ChatRuntimeProfileService', () => {
   });
 
   it.each([
-    { mcp: true, style: false, text: 'Codex chat: MCP servers not attached: oauth, smithery' },
     { mcp: false, style: true, text: "Codex chat: output style 'Explanatory' is not applied" },
-    { mcp: true, style: true, text: "Codex chat: MCP servers not attached: oauth, smithery\nCodex chat: output style 'Explanatory' is not applied" },
+    // User MCP servers are attached natively (D8): they never add a notice line.
+    { mcp: true, style: true, text: "Codex chat: output style 'Explanatory' is not applied" },
   ])('publishes ambient notices once: $text', async ({ mcp, style, text }) => {
     const h = harness();
     const result = await h.service.prepare({
@@ -309,9 +309,21 @@ describe('ChatRuntimeProfileService', () => {
     expect(h.broadcastMessage).toHaveBeenNthCalledWith(2, 'chat:chunk',
       expect.objectContaining({ event: expect.objectContaining({
         eventType: 'text_delta',
-        delta: 'Model notice: requested "unknown-model"; using "gpt-5".\nCodex chat: MCP servers not attached: smithery\nCodex chat: output style \'Explanatory\' is not applied',
+        delta: 'Model notice: requested "unknown-model"; using "gpt-5".\nCodex chat: output style \'Explanatory\' is not applied',
       }) }),
     );
+  });
+
+  it('publishes no notice for user MCP servers alone (attached natively)', async () => {
+    const h = harness();
+    const result = await h.service.prepare({
+      workspaceId: workspace,
+      mcpServersOverride: {
+        smithery: { type: 'http', url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token-x' } },
+      },
+    });
+    await h.service.publishRuntimeNotices(result, { tabId: 'tab' });
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
   });
 
   it('does not publish notices without applicable lines', async () => {

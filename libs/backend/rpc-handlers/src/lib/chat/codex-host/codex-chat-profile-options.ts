@@ -17,14 +17,15 @@ const supportedKeys = [
   'outputStyleBody',
   'files',
   'images',
+  // Ptah MCP and the user's MCP servers attach natively (D8 parity).
+  'mcpServerRunning',
+  'mcpServersOverride',
 ] as const;
 
 const supported = new Set<string>(supportedKeys);
 const stripped = new Set([
-  'mcpServerRunning',
   'workflowsDisabled',
   'includePartialMessages',
-  'mcpServersOverride',
   'thinking',
   'outputStyleName',
 ]);
@@ -47,16 +48,12 @@ export function classifyCodexChatOptions<T extends object>(config: T) {
   const entries: [string, unknown][] = [];
   const strippedKeys: string[] = [];
   const rejected: string[] = [];
-  let mcpServerNames: string[] = [];
   for (const [key, value] of Object.entries(config)) {
     if (value === undefined) continue;
     if (supported.has(key) || (key === 'mcpToolProfile' && value === 'coding')) {
       entries.push([key, value]);
     } else if (stripped.has(key)) {
       strippedKeys.push(key);
-      if (key === 'mcpServersOverride' && value !== null && typeof value === 'object') {
-        mcpServerNames = Object.keys(value).sort();
-      }
     } else {
       rejected.push(key);
     }
@@ -65,6 +62,5 @@ export function classifyCodexChatOptions<T extends object>(config: T) {
     supported: Object.fromEntries(entries) as SupportedOptions<T>,
     stripped: strippedKeys,
     rejected,
-    mcpServerNames,
   };
 }
