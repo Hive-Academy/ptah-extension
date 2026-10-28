@@ -46,14 +46,20 @@ export type CodexMcpServer =
       readonly command: string;
       readonly args: readonly string[];
       readonly envReferences: Readonly<Record<string, string>>;
+      readonly toolTimeoutSec?: number;
     }
   | {
       readonly name: string;
       readonly transport: 'http' | 'sse';
       readonly url: string;
+      /** Reference to the full url when the real url carries a secret query; `url` then holds only origin and path. */
+      readonly urlReference?: string;
       readonly headerReferences: Readonly<Record<string, string>>;
       readonly authReference?: string;
+      readonly toolTimeoutSec?: number;
     };
+/** Reference -> secret value, built by the host per open; never stored, logged or fingerprinted. */
+export type CodexMcpSecrets = ReadonlyMap<string, string>;
 /**
  * Validated and deeply frozen by buildCodexExecutionProfile (the profile-builder batch).
  * Home, identity and workspace stay fixed on resume. Secrets are excluded from the
@@ -247,6 +253,7 @@ export interface CodexRuntime {
   open(
     profile: CodexExecutionProfile,
     resume?: CodexThreadIdentity,
+    secrets?: CodexMcpSecrets,
   ): Promise<CodexContext>;
 }
 export interface CodexModelInfo {

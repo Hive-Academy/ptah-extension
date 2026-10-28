@@ -8,6 +8,7 @@ export type {
   CodexAttachment,
   CodexInstructionSource,
   CodexMcpServer,
+  CodexMcpSecrets,
   CodexExecutionProfile,
   CodexThreadIdentity,
   CodexTurnInput,
@@ -68,6 +69,10 @@ export {
   type CodexExecutionProfileInput,
   type BuiltCodexExecutionProfile,
 } from './lib/codex-execution-profile';
+export {
+  buildCodexMcpConfigOverrides,
+  CodexMcpConfigError,
+} from './lib/codex-mcp-config';
 // CodexExecutableManifestRow (ports above) is the canonical public pin; the
 // process and validator remain implementation details.
 export type { CodexBinaryIdentity } from './lib/codex-protocol-manifest';

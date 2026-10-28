@@ -12,6 +12,8 @@ const text = z
   .min(1)
   .refine((value) => value.trim().length > 0 && !value.includes('\0'));
 const references = z.record(text, text);
+// Codex applies server names as dotted config keys, so separators are unsafe.
+const serverName = text.refine((value) => /^[A-Za-z0-9_-]+$/.test(value));
 const settings = z.strictObject({
   contextId: text,
   consumer: z.enum(['chat', 'gateway', 'lane', 'usage']),
@@ -40,14 +42,15 @@ const settings = z.strictObject({
     .array(
       z.discriminatedUnion('transport', [
         z.strictObject({
-          name: text,
+          name: serverName,
           transport: z.literal('stdio'),
           command: text,
           args: z.array(z.string()),
           envReferences: references,
+          toolTimeoutSec: z.number().int().positive().optional(),
         }),
         z.strictObject({
-          name: text,
+          name: serverName,
           transport: z.enum(['http', 'sse']),
           url: z.url().refine((value) => {
             const url = new URL(value);
@@ -59,8 +62,10 @@ const settings = z.strictObject({
               !url.hash
             );
           }),
+          urlReference: text.optional(),
           headerReferences: references,
           authReference: text.optional(),
+          toolTimeoutSec: z.number().int().positive().optional(),
         }),
       ]),
     )
@@ -251,7 +256,11 @@ export function buildCodexExecutionProfile(
     approvalsReviewer: 'user',
     fullAccessStatus: 'unproved-disabled',
   };
-  // Thread identity excludes next-turn model, effort, prompt and attachments.
+  // Thread identity covers thread policy and instructions; it excludes the
+  // next-turn model, effort, prompt and attachments. MCP servers and their
+  // references are re-applied natively on every open, start and resume, so
+  // they are not part of identity and a changed tab id or added user server
+  // never makes a session unresumable.
   const identity = {
     contextId: profile.contextId,
     consumer: profile.consumer,
@@ -263,17 +272,15 @@ export function buildCodexExecutionProfile(
     permissionLevel: profile.permissionLevel,
     sandboxPolicy: profile.sandboxPolicy,
     approvalPolicy: profile.approvalPolicy,
-    mcpServers: [...profile.mcpServers].sort((a, b) =>
-      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-    ),
     systemPrompt: profile.systemPrompt,
     developerPrompt: profile.developerPrompt,
     outputStyle: profile.outputStyle,
     instructionSources: profile.instructionSources,
     lane: profile.lane,
   };
-  // Only validated configuration and opaque auth references enter this digest. No
-  // secret resolver is available here. JSON parsing removes absent optional fields.
+  // Only validated thread policy and instructions enter this digest; MCP
+  // servers and their references are applied per open. No secret resolver is
+  // available here. JSON parsing removes absent optional fields.
   const fingerprint = createHash('sha256')
     .update(canonical(parse(z.json(), JSON.parse(JSON.stringify(identity)))))
     .digest('hex');

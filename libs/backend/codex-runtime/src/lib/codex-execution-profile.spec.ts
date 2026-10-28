@@ -252,29 +252,49 @@ describe('buildCodexExecutionProfile', () => {
     }
   });
 
-  it('fingerprints canonical configuration, distinguishing same-home sessions and references', () => {
+  it('fingerprints thread policy and instructions, ignoring per-open MCP servers', () => {
     const source = input();
-    const make = (headerReferences: Record<string, string>) =>
+    const fingerprint = (session: Partial<CodexProfileSettings> = {}): string =>
       buildCodexExecutionProfile({
         ...source,
-        session: {
-          ...source.session,
-          mcpServers: [
-            {
-              name: 'remote',
-              transport: 'http',
-              url: 'https://example.com',
-              headerReferences,
-            },
-          ],
-        },
-      });
-    expect(make({ A: 'ref:a', B: 'ref:b' }).profileFingerprint).toBe(
-      make({ B: 'ref:b', A: 'ref:a' }).profileFingerprint,
-    );
-    expect(make({ A: 'ref:a' }).profileFingerprint).not.toBe(
-      make({ A: 'ref:c' }).profileFingerprint,
-    );
+        session: { ...source.session, ...session },
+      }).profileFingerprint;
+    const baseline = fingerprint();
+    // DL3: servers, references, urls and timeouts are re-applied per open, so
+    // a changed tab id or an added user server never blocks resume.
+    expect(
+      fingerprint({
+        mcpServers: [
+          {
+            name: 'remote',
+            transport: 'http',
+            url: 'https://example.com',
+            headerReferences: { A: 'ref:a', B: 'ref:b' },
+          },
+        ],
+      }),
+    ).toBe(baseline);
+    expect(
+      fingerprint({
+        mcpServers: [
+          {
+            name: 'remote',
+            transport: 'http',
+            url: 'https://other.example.com/path',
+            urlReference: 'vault:url',
+            headerReferences: { B: 'ref:b', A: 'ref:c' },
+            toolTimeoutSec: 960,
+          },
+          {
+            name: 'local',
+            transport: 'stdio',
+            command: 'server',
+            args: ['--flag'],
+            envReferences: { TOKEN: 'vault:token' },
+          },
+        ],
+      }),
+    ).toBe(baseline);
     const original = buildCodexExecutionProfile(source);
     const other = buildCodexExecutionProfile({
       ...source,
@@ -283,6 +303,79 @@ describe('buildCodexExecutionProfile', () => {
     expect(original.normalizedHome).toBe(other.normalizedHome);
     expect(original.profileFingerprint).not.toBe(other.profileFingerprint);
     expect(original.profileFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it('accepts tool timeouts and url references and rejects unsafe server names', () => {
+    const source = input();
+    const profile = buildCodexExecutionProfile({
+      ...source,
+      session: {
+        ...source.session,
+        mcpServers: [
+          {
+            name: 'remote-1',
+            transport: 'http',
+            url: 'https://example.com/mcp',
+            urlReference: 'vault:url',
+            headerReferences: { 'X-Api-Key': 'vault:key' },
+            authReference: 'oauth:account',
+            toolTimeoutSec: 30,
+          },
+          {
+            name: 'local_server',
+            transport: 'stdio',
+            command: 'server',
+            args: ['--flag'],
+            envReferences: { TOKEN: 'vault:token' },
+            toolTimeoutSec: 960,
+          },
+        ],
+      },
+    });
+    expect(profile.mcpServers).toEqual([
+      {
+        name: 'remote-1',
+        transport: 'http',
+        url: 'https://example.com/mcp',
+        urlReference: 'vault:url',
+        headerReferences: { 'X-Api-Key': 'vault:key' },
+        authReference: 'oauth:account',
+        toolTimeoutSec: 30,
+      },
+      {
+        name: 'local_server',
+        transport: 'stdio',
+        command: 'server',
+        args: ['--flag'],
+        envReferences: { TOKEN: 'vault:token' },
+        toolTimeoutSec: 960,
+      },
+    ]);
+    const assertFrozen = (value: unknown): void => {
+      if (value !== null && typeof value === 'object') {
+        expect(Object.isFrozen(value)).toBe(true);
+        Object.values(value).forEach(assertFrozen);
+      }
+    };
+    assertFrozen(profile.mcpServers);
+    for (const name of ['two words', 'ptah.server', 'naïve', 'name\ttab']) {
+      expect(() =>
+        buildCodexExecutionProfile({
+          ...source,
+          session: {
+            ...source.session,
+            mcpServers: [
+              {
+                name,
+                transport: 'http',
+                url: 'https://example.com/mcp',
+                headerReferences: {},
+              },
+            ],
+          },
+        }),
+      ).toThrow('Invalid Codex execution profile input');
+    }
   });
 
   it('changes identity when thread policy or instructions change', () => {
