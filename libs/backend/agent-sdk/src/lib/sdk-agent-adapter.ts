@@ -1101,6 +1101,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       turnIdentity: {
         takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(trackingId),
         takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(trackingId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(trackingId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1307,6 +1308,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         turnIdentity: {
           takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
           takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+          subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
         },
         onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
@@ -1477,6 +1479,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       turnIdentity: {
         takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
         takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
@@ -1872,6 +1875,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       turnIdentity: {
         takeAtResult: () => this.sessionLifecycle.takeResultClientMessageId(sessionId),
         takeInterruptRetirement: () => this.sessionLifecycle.takeInterruptRetirement(sessionId),
+        subscribeRetirement: (wake) => this.sessionLifecycle.subscribeRetirement(sessionId, wake),
       },
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
@@ -2186,7 +2190,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private releaseTurnOnResult(sessionId: SessionId): () => void {
     return () => {
-      this.sessionLifecycle.onTurnTerminal(sessionId);
+      this.sessionLifecycle.onResultTurnTerminal(sessionId);
     };
   }
 }

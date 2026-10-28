@@ -123,6 +123,7 @@ describe('SessionControl.interruptCurrentTurn', () => {
     });
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
     rec.currentTurnClientMessageId = 'P';
+    rec.turnInFlight = true;
     const held = { message: { uuid: 'q', origin: { kind: 'human' } }, clientMessageId: 'Q' } as never;
     rec.messageQueue.push(held);
     rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
@@ -134,6 +135,8 @@ describe('SessionControl.interruptCurrentTurn', () => {
     const terminal = jest.fn();
     const h = makeHarness(null, terminal);
     const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.currentTurnClientMessageId = 'P';
+    rec.turnInFlight = true;
     rec.query = {
       interrupt: jest.fn().mockResolvedValue(undefined),
     } as unknown as typeof rec.query;
@@ -141,6 +144,36 @@ describe('SessionControl.interruptCurrentTurn', () => {
     await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
 
     expect(terminal).toHaveBeenCalledWith(KEY_ID);
+  });
+
+  it('leaves the next prompt untouched when the result lands during interrupt await', async () => {
+    const terminal = jest.fn();
+    const h = makeHarness(null, terminal);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.currentTurnClientMessageId = 'P';
+    rec.turnInFlight = true;
+    let resolveInterrupt: (() => void) | undefined;
+    rec.query = { interrupt: () => new Promise<void>((resolve) => { resolveInterrupt = resolve; }) } as unknown as typeof rec.query;
+    const interruption = h.control.interruptCurrentTurn(KEY_ID);
+    rec.resultCount = 1;
+    rec.currentTurnClientMessageId = null;
+    rec.turnInFlight = false;
+    resolveInterrupt?.();
+    await expect(interruption).resolves.toBe(true);
+    expect(rec.interruptAwaitingResult).toBe(false);
+    expect(rec.interruptRetirement).toBeNull();
+    expect(terminal).not.toHaveBeenCalled();
+  });
+
+  it('does not arm retirement on an idle record', async () => {
+    const terminal = jest.fn();
+    const h = makeHarness(null, terminal);
+    const rec = h.registry.register(KEY, makeConfig(), new AbortController());
+    rec.query = { interrupt: jest.fn().mockResolvedValue(undefined) } as unknown as typeof rec.query;
+    await expect(h.control.interruptCurrentTurn(KEY_ID)).resolves.toBe(true);
+    expect(rec.interruptAwaitingResult).toBe(false);
+    expect(rec.interruptRetirement).toBeNull();
+    expect(terminal).not.toHaveBeenCalled();
   });
 });
 

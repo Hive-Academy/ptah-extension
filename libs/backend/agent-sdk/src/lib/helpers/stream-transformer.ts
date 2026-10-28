@@ -236,6 +236,7 @@ export interface StreamTransformConfig {
   turnIdentity?: {
     takeAtResult(): string | null;
     takeInterruptRetirement(): string | null;
+    subscribeRetirement?(wake: () => void): () => void;
   };
   /**
    * Fired once per `compact_boundary` message in THIS stream (the main loop;
@@ -400,6 +401,42 @@ function runGuardedCallback(
  *
  * Does NOT store messages - SDK handles persistence natively.
  */
+const RETIREMENT_TICK = Symbol('retirement-tick');
+
+/** Wake a parked SDK read without starting a second read or losing its result. */
+async function* withRetirementWake(
+  source: AsyncIterable<SDKMessage>,
+  subscribe?: (wake: () => void) => () => void,
+): AsyncGenerator<SDKMessage | typeof RETIREMENT_TICK> {
+  const iterator = source[Symbol.asyncIterator]();
+  let resolveWake: (() => void) | null = null;
+  const makeWake = (): Promise<void> =>
+    new Promise<void>((resolve) => { resolveWake = resolve; });
+  let wake = makeWake();
+  let pending: Promise<IteratorResult<SDKMessage>> | null = null;
+  const unsubscribe = subscribe?.(() => resolveWake?.());
+  try {
+    while (true) {
+      pending ??= iterator.next();
+      const next = await Promise.race([
+        pending.then((value) => ({ kind: 'sdk' as const, value })),
+        wake.then(() => ({ kind: 'wake' as const })),
+      ]);
+      if (next.kind === 'wake') {
+        wake = makeWake();
+        yield RETIREMENT_TICK;
+        continue;
+      }
+      pending = null;
+      if (next.value.done) return;
+      yield next.value.value;
+    }
+  } finally {
+    unsubscribe?.();
+    await iterator.return?.();
+  }
+}
+
 @injectable()
 export class StreamTransformer {
   constructor(
@@ -541,12 +578,14 @@ export class StreamTransformer {
         activityWatchdog?.start();
 
         try {
-          for await (const sdkMessage of sdkQuery) {
-            const interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
-            if (interruptClientMessageId !== null) {
+          for await (const sdkMessage of withRetirementWake(sdkQuery, turnIdentity?.subscribeRetirement)) {
+            let interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+            while (interruptClientMessageId !== null) {
               yieldedEventCount++;
               yield messageTransformer.settleInterruptedTurn(effectiveSessionId, interruptClientMessageId);
+              interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
             }
+            if (sdkMessage === RETIREMENT_TICK) continue;
             let resultConsumedClientMessageId: string | null = null;
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
@@ -1043,24 +1082,47 @@ export class StreamTransformer {
               isTaskUpdated(sdkMessage) ||
               isTaskNotification(sdkMessage)
             ) {
-              const flatEvents = messageTransformer.transform(
-                sdkMessage,
-                effectiveSessionId,
-              );
+              let flatEvents: FlatStreamEventUnion[];
+              try {
+                flatEvents = messageTransformer.transform(
+                  sdkMessage,
+                  effectiveSessionId,
+                );
+              } catch (error: unknown) {
+                if (resultConsumedClientMessageId === null) throw error;
+                logger.warn('[StreamTransformer] Result transform failed; settling turn', {
+                  errorName: error instanceof Error ? error.name : 'Unknown',
+                });
+                flatEvents = [];
+              }
 
+              let emittedTerminal = false;
               for (const event of flatEvents) {
                 yieldedEventCount++;
-                yield resultConsumedClientMessageId !== null && event.eventType === 'turn_state'
-                  ? { ...event, consumedClientMessageId: resultConsumedClientMessageId }
-                  : event;
+                if (event.eventType === 'turn_state') {
+                  if (!emittedTerminal && resultConsumedClientMessageId !== null) {
+                    emittedTerminal = true;
+                    yield { ...event, consumedClientMessageId: resultConsumedClientMessageId };
+                  } else {
+                    emittedTerminal = true;
+                    yield event;
+                  }
+                } else {
+                  yield event;
+                }
+              }
+              if (resultConsumedClientMessageId !== null && !emittedTerminal) {
+                yieldedEventCount++;
+                yield messageTransformer.settleInterruptedTurn(effectiveSessionId, resultConsumedClientMessageId);
               }
             }
           }
 
-          const finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
-          if (finalInterruptClientMessageId !== null) {
+          let finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
+          while (finalInterruptClientMessageId !== null) {
             yieldedEventCount++;
             yield messageTransformer.settleInterruptedTurn(effectiveSessionId, finalInterruptClientMessageId);
+            finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
           }
 
           logger.debug(

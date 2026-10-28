@@ -23,8 +23,7 @@ export function firstQueuedClientMessageId(
   rec: Pick<SessionRecord, 'messageQueue'> | null | undefined,
 ): string | undefined {
   return rec?.messageQueue.find(
-    ({ message, clientMessageId }) =>
-      (message.origin === undefined || message.origin.kind === 'human') &&
-      clientMessageId !== undefined,
+    ({ message }) =>
+      message.origin === undefined || message.origin.kind === 'human',
   )?.clientMessageId;
 }

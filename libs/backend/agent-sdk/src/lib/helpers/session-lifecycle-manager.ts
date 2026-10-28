@@ -473,10 +473,13 @@ export class SessionLifecycleManager {
   takeResultClientMessageId(sessionId: SessionId): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
+    rec.resultCount = (rec.resultCount ?? 0) + 1;
     if (rec.interruptAwaitingResult) {
       rec.interruptAwaitingResult = false;
       return null;
     }
+    // The result before the yielded prompt's echo closes an autonomous turn.
+    if (rec.awaitingEcho !== null) return null;
     const id = rec.currentTurnClientMessageId;
     rec.currentTurnClientMessageId = null;
     return id;
@@ -486,9 +489,21 @@ export class SessionLifecycleManager {
   takeInterruptRetirement(sessionId: SessionId): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
+    const displaced = rec.displacedRetirements?.shift();
+    if (displaced) return displaced;
     const id = rec.interruptRetirement;
     rec.interruptRetirement = null;
     return id;
+  }
+
+  subscribeRetirement(sessionId: SessionId, wake: () => void): () => void {
+    const rec = this._registry.find(sessionId as string);
+    if (!rec) return () => undefined;
+    rec.retirementWake = wake;
+    if (rec.interruptRetirement || rec.displacedRetirements?.length) wake();
+    return () => {
+      if (rec.retirementWake === wake) rec.retirementWake = null;
+    };
   }
 
   /**
@@ -500,6 +515,13 @@ export class SessionLifecycleManager {
     const budgetSessionId = rec?.realSessionId ?? (sessionId as string);
     this.sessionBudget?.onTurnTerminal(budgetSessionId);
     this._registry.markTurnEnded(sessionId as string);
+  }
+
+  /** An autonomous result must not release a yielded prompt before its echo. */
+  onResultTurnTerminal(sessionId: SessionId): void {
+    const rec = this._registry.find(sessionId as string);
+    if (rec?.awaitingEcho && rec.currentTurnClientMessageId !== null) return;
+    this.onTurnTerminal(sessionId);
   }
 
   /**

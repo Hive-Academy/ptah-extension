@@ -70,20 +70,20 @@ interface TaskNotification {
 function parseTaskNotification(text: string): TaskNotification | null {
   const root = '<task-notification>';
   const endRoot = '</task-notification>';
-  if (!text.trimStart().startsWith(root)) return null;
-  const bodyStart = text.indexOf(root) + root.length;
-  const bodyEnd = text.indexOf(endRoot, bodyStart);
-  if (bodyEnd < 0 || bodyEnd - bodyStart > 32_768) return null;
-  const body = text.slice(bodyStart, bodyEnd);
-  const field = (tag: string, limit: number): string | null => {
+  const head = text.slice(0, 65_536).trimStart();
+  if (!head.startsWith(root)) return null;
+  const bodyStart = root.length;
+  const bodyEnd = head.indexOf(endRoot, bodyStart);
+  const body = head.slice(bodyStart, bodyEnd < 0 ? undefined : bodyEnd);
+  const field = (tag: string, limit: number, allowTruncated = false): string | null => {
     const startTag = `<${tag}>`;
     const endTag = `</${tag}>`;
     const start = body.indexOf(startTag);
     if (start < 0) return null;
     const valueStart = start + startTag.length;
     const end = body.indexOf(endTag, valueStart);
-    if (end < 0 || end - valueStart > limit) return null;
-    return body.slice(valueStart, end).trim();
+    if ((end < 0 && !allowTruncated) || (!allowTruncated && end - valueStart > limit)) return null;
+    return body.slice(valueStart, Math.min(end < 0 ? body.length : end, valueStart + limit)).trim();
   };
   const taskId = field('task-id', 128);
   const toolUseId = field('tool-use-id', 128);
@@ -104,8 +104,8 @@ function parseTaskNotification(text: string): TaskNotification | null {
     taskId,
     toolUseId: toolUseId || undefined,
     status,
-    summary: (field('summary', 32_768) ?? '').slice(0, 240),
-    outputFile: field('output-file', 2048) ?? '',
+    summary: field('summary', 240, true) ?? '',
+    outputFile: field('output-file', 2048, true) ?? '',
   };
 }
 
@@ -177,6 +177,7 @@ export class SessionReplayService {
       agentDataMap,
     );
     const emittedAgentStarts = new Map<string, { agentId?: string }>();
+    const completedTaskIds = new Set<string>();
     const allToolResults =
       this.correlationService.extractAllToolResults(effectiveMessages);
     let currentMessageId: string | null = null;
@@ -214,7 +215,7 @@ export class SessionReplayService {
           continue;
         }
         const rawText = this.eventFactory.extractTextContent(contentRaw);
-        if (rawText && rawText.trimStart().startsWith('<task-notification>')) {
+        if (rawText && rawText.slice(0, 1024).trimStart().startsWith('<task-notification>')) {
           // A typed user message may contain an XML-looking example.
           if (msg.origin?.kind === 'human' || msg.turnOrigin === 'human')
             continue;
@@ -231,7 +232,8 @@ export class SessionReplayService {
             const started = toolUseId
               ? emittedAgentStarts.get(toolUseId)
               : undefined;
-            if (toolUseId && started) {
+            if (toolUseId && started && !completedTaskIds.has(notification.taskId)) {
+              completedTaskIds.add(notification.taskId);
               const parsedTimestamp = Date.parse(msg.timestamp ?? '');
               const event: AgentCompletedEvent = {
                 id: `history-task-${msg.uuid ?? `${notification.taskId}-${eventIndex}`}`,

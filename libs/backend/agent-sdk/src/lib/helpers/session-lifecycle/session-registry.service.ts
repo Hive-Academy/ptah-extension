@@ -84,6 +84,11 @@ export interface SessionRecord {
   awaitingEcho: QueuedUserTurn | null;
   currentTurnClientMessageId: string | null;
   interruptRetirement: string | null;
+  /** Retirements displaced by a later yielded turn, drained in queue order. */
+  displacedRetirements?: string[];
+  /** Wakes the flat-event stream while its SDK iterator is parked. */
+  retirementWake?: (() => void) | null;
+  resultCount?: number;
   interruptAwaitingResult: boolean;
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
@@ -292,6 +297,7 @@ export class SessionRegistry {
       currentTurnClientMessageId: null,
       interruptRetirement: null,
       interruptAwaitingResult: false,
+      resultCount: 0,
       resolveNext: null,
       turnInFlight: false,
       currentModel: config.model || '',

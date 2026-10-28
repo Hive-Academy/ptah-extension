@@ -86,6 +86,12 @@ export class SessionStreamPump {
               // after one message and blocks any message that arrives while
               // the SDK is generating (TASK_2026_294).
               registry.markTurnStarted(session);
+              if (session.currentTurnClientMessageId !== null) {
+                (session.displacedRetirements ??= []).push(
+                  session.currentTurnClientMessageId,
+                );
+                session.retirementWake?.();
+              }
               if (session.awaitingEcho !== null) {
                 logger.debug(
                   '[SessionLifecycle] Replacing unechoed turn',

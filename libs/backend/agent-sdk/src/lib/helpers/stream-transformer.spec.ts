@@ -2095,6 +2095,67 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     expect(events).toEqual([expect.objectContaining({ consumedClientMessageId: 'P', terminalReason: 'aborted_streaming' })]);
   });
 
+  it('retires an interrupted prompt once while the SDK stream stays parked', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    messageTransformer.settleInterruptedTurn.mockImplementation((_sessionId, id) =>
+      ({ eventType: 'turn_state', terminalReason: 'aborted_streaming', consumedClientMessageId: id }) as never,
+    );
+    let pending: string | null = null;
+    let wake: (() => void) | undefined;
+    const sdkQuery: AsyncIterable<SDKMessage> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<SDKMessage>>(() => undefined),
+        return: async () => ({ done: true, value: undefined }),
+      }),
+    };
+    const iterator = transformer.transform({
+      sdkQuery,
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      turnIdentity: {
+        takeAtResult: () => null,
+        takeInterruptRetirement: () => { const id = pending; pending = null; return id; },
+        subscribeRetirement: (callback) => { wake = callback; return () => { wake = undefined; }; },
+      },
+    })[Symbol.asyncIterator]();
+    const first = iterator.next();
+    await Promise.resolve();
+    pending = 'P';
+    wake?.();
+    expect((await first).value).toMatchObject({ eventType: 'turn_state', consumedClientMessageId: 'P' });
+    expect(messageTransformer.settleInterruptedTurn).toHaveBeenCalledTimes(1);
+    await iterator.return?.();
+  });
+
+  it.each(['empty', 'throw'] as const)('settles a consumed result when transform is %s', async (failure) => {
+    const { transformer, messageTransformer } = makeHarness();
+    messageTransformer.settleInterruptedTurn.mockImplementation((_sessionId, id) =>
+      ({ eventType: 'turn_state', terminalReason: 'aborted_streaming', consumedClientMessageId: id }) as never,
+    );
+    if (failure === 'throw') messageTransformer.transform.mockImplementation(() => { throw new Error('transform failed'); });
+    const events: FlatStreamEventUnion[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 })]),
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      turnIdentity: { takeAtResult: () => 'P', takeInterruptRetirement: () => null },
+    })) events.push(event);
+    expect(events).toEqual([expect.objectContaining({ eventType: 'turn_state', consumedClientMessageId: 'P' })]);
+  });
+
+  it('stamps a consumed id on only the first terminal event of a result', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    messageTransformer.transform.mockReturnValue([
+      { eventType: 'turn_state' } as never,
+      { eventType: 'turn_state' } as never,
+    ]);
+    const events: FlatStreamEventUnion[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 })]),
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      turnIdentity: { takeAtResult: () => 'P', takeInterruptRetirement: () => null },
+    })) events.push(event);
+    expect(events.filter((event) => 'consumedClientMessageId' in event)).toHaveLength(1);
+  });
+
   it('cases 19/20: retires an interrupt before Q, and leaves a late result without an id', async () => {
     const { transformer, messageTransformer } = makeHarness();
     let pending = 'P';

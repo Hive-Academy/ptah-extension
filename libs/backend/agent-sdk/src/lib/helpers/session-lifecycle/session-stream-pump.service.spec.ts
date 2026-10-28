@@ -491,6 +491,7 @@ describe('SessionStreamPump turn identity', () => {
     expect(takeAwaitingEcho(rec, old.message)).toBeNull();
     expect(takeAwaitingEcho(rec, next.message)).toBe(next);
     expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(rec.displacedRetirements).toEqual(['P']);
     h.abortController.abort();
     await h.iterator.next();
   });

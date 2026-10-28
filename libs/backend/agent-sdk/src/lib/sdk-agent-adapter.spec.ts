@@ -218,6 +218,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     | 'interruptCurrentTurn'
     | 'markTurnEnded'
     | 'onTurnTerminal'
+    | 'onResultTurnTerminal'
     | 'setSessionPermissionLevel'
     | 'setSessionModel'
     | 'getSessionToken'
@@ -243,6 +244,7 @@ function createMockSessionLifecycle(): jest.Mocked<
     interruptCurrentTurn: jest.fn().mockResolvedValue(true),
     markTurnEnded: jest.fn().mockReturnValue(true),
     onTurnTerminal: jest.fn(),
+    onResultTurnTerminal: jest.fn(),
     setSessionPermissionLevel: jest.fn().mockResolvedValue(undefined),
     setSessionModel: jest.fn().mockResolvedValue(undefined),
     getSessionToken: jest.fn().mockReturnValue(null),
@@ -3127,7 +3129,7 @@ describe('SdkAgentAdapter', () => {
       const h = makeAdapter();
       const arg = await startNewSession(h);
       const callOrder: string[] = [];
-      h.sessionLifecycle.onTurnTerminal.mockImplementation((sessionId) => {
+      h.sessionLifecycle.onResultTurnTerminal.mockImplementation((sessionId) => {
         callOrder.push('terminal');
         h.sessionLifecycle.markTurnEnded(sessionId);
       });
@@ -3138,7 +3140,7 @@ describe('SdkAgentAdapter', () => {
 
       (arg.onTurnEnd as () => void)();
 
-      expect(h.sessionLifecycle.onTurnTerminal).toHaveBeenCalledWith('tab_1');
+      expect(h.sessionLifecycle.onResultTurnTerminal).toHaveBeenCalledWith('tab_1');
       expect(callOrder).toEqual(['terminal', 'markTurnEnded']);
     });
 

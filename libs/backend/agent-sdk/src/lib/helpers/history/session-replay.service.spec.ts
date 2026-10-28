@@ -709,6 +709,32 @@ describe('SessionReplayService', () => {
       )).toBe(false);
     });
 
+    it('parses a notification with a large summary from a bounded head', () => {
+      const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+      const notification = parent[parent.length - 2];
+      const content = notification.message?.content;
+      if (typeof content !== 'string') throw new Error('Expected text notification fixture');
+      const expanded = { ...notification, message: {
+        role: 'user',
+        content: content.replace('Agent "First check" finished', 'x'.repeat(40_000)),
+      } };
+      const events = service.replayToStreamEvents('history-bg', [...parent.slice(0, 3), expanded], []);
+      expect(events.find((event) => event.eventType === 'agent_completed')).toMatchObject({
+        taskId: 'bgone', summary: 'x'.repeat(240),
+      });
+    });
+
+    it('emits one completion for duplicate notifications of the same task', () => {
+      const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+      const notification = parent[parent.length - 2];
+      const events = service.replayToStreamEvents(
+        'history-bg',
+        [...parent.slice(0, 3), notification, { ...notification, uuid: 'duplicate-task' }],
+        [],
+      );
+      expect(events.filter((event) => event.eventType === 'agent_completed' && event.taskId === 'bgone')).toHaveLength(1);
+    });
+
     it('drops unmatched and malformed notifications and ignores a human-typed example', () => {
       const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
       const notification = parent[parent.length - 2];

@@ -1347,6 +1347,44 @@ describe('SessionLifecycleManager', () => {
 
 
 describe('SessionLifecycleManager turn identity accessors', () => {
+  it('drains displaced ids once and wakes the stream', async () => {
+    const h = makeHarness();
+    const tab = 'displaced-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    const wake = jest.fn();
+    const unsubscribe = h.manager.subscribeRetirement(tab, wake);
+    rec.displacedRetirements = ['P'];
+    rec.retirementWake?.();
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(h.manager.takeInterruptRetirement(tab)).toBe('P');
+    expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
+    unsubscribe();
+    expect(rec.retirementWake).toBeNull();
+  });
+
+  it('keeps P for its own result when an autonomous result arrives before P echo', async () => {
+    const h = makeHarness();
+    const tab = 'autonomous-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.currentTurnClientMessageId = 'P';
+    rec.awaitingEcho = { message: { uuid: 'p-echo' }, clientMessageId: 'P' } as never;
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBe('P');
+    expect(rec.resultCount).toBe(1);
+    rec.turnInFlight = true;
+    h.manager.onResultTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(true);
+    rec.awaitingEcho = null;
+    expect(h.manager.takeResultClientMessageId(tab)).toBe('P');
+    h.manager.onResultTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+  });
+
   it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {
     const h = makeHarness();
     const tab = 'identity-tab' as SessionId;

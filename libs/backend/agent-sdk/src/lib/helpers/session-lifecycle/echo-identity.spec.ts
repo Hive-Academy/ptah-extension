@@ -80,7 +80,7 @@ describe('takeAwaitingEcho', () => {
 });
 
 describe('firstQueuedClientMessageId', () => {
-  it('skips peers, channels and humans without ids in queue order', () => {
+  it('stops at the first human even when it has no client id', () => {
     const rec = {
       messageQueue: [
         turn('peer', { kind: 'peer', from: 'sender' }),
@@ -90,9 +90,9 @@ describe('firstQueuedClientMessageId', () => {
         turn('second', { kind: 'human' }),
       ],
     };
+    expect(firstQueuedClientMessageId(rec)).toBeUndefined();
+    rec.messageQueue.splice(2, 1);
     expect(firstQueuedClientMessageId(rec)).toBe('first');
-    rec.messageQueue.splice(3, 1);
-    expect(firstQueuedClientMessageId(rec)).toBe('second');
   });
 
   it('reads entries added after yield and returns no hint when no human id exists', () => {
