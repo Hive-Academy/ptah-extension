@@ -2923,7 +2923,7 @@ Edge cases:
   broadcaster's Claude behaviour. Findings 1-2 of 8k-5: recorded only.
 - Verify: the changed projects.
 
-## Round 8m: protocol parity (native Codex chat == Claude UI contracts) — PLANNED, NO BATCH STARTED (session budget wrap-up; next session runs Wave 1)
+## Round 8m: protocol parity (native Codex chat == Claude UI contracts) — IN_PROGRESS (Wave 1 COMPLETE: 3fe884270, 41c73d47c, d2f2fb2c5; Wave 2 next)
 
 - Phase: P8 | Phase gate and P8 re-review: the coordinator, after this round (code-logic; style
   only if a new public API appears). The team-leader commits per batch, does not push.
@@ -3043,7 +3043,17 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
 
 ### Wave 1 (3 lanes in parallel; file-disjoint)
 
-### Batch 8m-1: Manual-mode approvals before execution (G6, highest priority) — PENDING (Wave 1; planned lane: codex)
+### Batch 8m-1: Manual-mode approvals before execution (G6, highest priority) — COMPLETE (commit 3fe884270; verify 4 green 2026-10-28 16:25: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers` 6/6 tasks; `-t typecheck -p @ptah-extension/agent-sdk` 1/1; Wave 1; lane: codex, agent 82984c64, CLI session 01a18323-a5a9-7ca2-975e-2f6b0a5e3b05; 6m 32s; diff reviewed on disk; scope added C/codex-runtime.ts for the resume fingerprint pin)
+
+- Result: D14 in the profile and harness `policy()`; resume with a changed fingerprint -> named, logged `CodexResumeProfileChangedError` (code `resume-profile-changed`) before spawn; specs for profile per level, thread/turn frames, resume refusal, pre-start file/command Allow/Deny.
+- Verify 1 (2026-10-28 15:50, `-p codex-runtime,rpc-handlers`): FAILED 3/6 — (1) `tools/evidence-harness.ts:1015` TS2322, the harness `ApprovalPolicy` type lacks 'untrusted' (also blocks evidence-harness.spec, evidence-cases-round.spec, codex-execution-profile.spec); (2) `R/codex-host/codex-chat-native-contract.spec.ts:811` the 4 pre-start approval cases time out at 5 s. 8m-2/8m-3 parts green (codex-runtime 688/688 of compiled suites; rpc-handlers 4995 pass, only these 4 fail).
+- Fix round 1: codex resume (agent 2edcf452) started a fresh lane on model `gpt-6.1-terra` from `agentOrchestration.codexModel` -> `model_not_found` for the ChatGPT account, exit 1 after 4 s, no work. Fallback (coordinator-approved; other family, same capability): Glm ptah-cli opus, agent 18224cc8, report `batch-8m-1-fix-report.md`. User settings not edited.
+- Fix round 1 result (Glm agent 18224cc8, CLI session 44d17a59-173c-4750-b06d-59a0721baaf5, 8m 4s; `batch-8m-1-fix-report.md`): harness `ApprovalPolicy` gains 'untrusted'; `evidence-harness.spec`/`evidence-cases-round.spec` expectations follow D14 (no level uses granular any more); the pre-start spec waited for a `message_start` that is only synthesized with the first item event -> it now waits for the turn start; its deny cases send `deny_with_message` (-> Codex `decline`, turn continues). Team-leader check: Deny button sends `deny` (permission-request-card.component.ts:128); Claude `deny` = `interrupt: true` and `deny_with_message` = `interrupt: false` (sdk-permission-handler.ts:1059-1114); host `deny`->`cancel`, `deny_with_message`->`decline` is parity, pre-existing, no fix. Minor gap recorded: no pre-start plain-deny -> cancel case (8m-5 owns interrupt).
+- Verify 2 (2026-10-28 16:04, `-p codex-runtime,rpc-handlers`): 5/6 green; codex-runtime:test FAILED — every round-7a case in `tools/evidence-cases-round.spec.ts` throws 'Effective config differs from bounded profile': `tools/evidence-cases-round.ts:173` (override `sandbox_mode=\"read-only\"`) and `:418` (config check) still hard-code the old ask sandbox. Fix round 2: Glm (fresh lane with handoff brief, agent 05249472), scope `evidence-cases-round.ts` + its spec. Verify B (`-t typecheck -p agent-sdk`): green.
+- Verify 3 (2026-10-28 16:15): 5/6 green; codex-runtime:test 922/925 — 3 fail in `tools/evidence-harness.spec.ts` 'ask-command-edit evidence flow' (marker-read / read-approval) with 'Unexpected command' (`evidence-harness.ts:1701`): under 'untrusted' a read command now requests approval, which the old granular+read-only flow never did. Fix round 2 (Glm 05249472, CLI session 45eaa266, 2m 9s) had aligned `evidence-cases-round.ts` :173/:418/:483-490 with `selected.sandbox` (verified). Fix round 3: Glm (fresh lane, handoff brief) agent 4d74c841, scope evidence-harness.ts + spec; identity gates must stay.
+- Follow-ups (team-leader decisions): (a) `CodexChatAdapter.failure` wraps the refusal as runtime-failed and `ChatSessionService.codexFailure` shows CODEX_RUNTIME_FAILED 'Codex chat could not complete the operation.' -> the user-facing mapping moves to 8m-5 (owner of the adapter and `chat-session.service.ts` in Wave 2). (b) The harness accepts a file approval outside `policy()` only with `validatedFileItems`; pre-item-start requests may not fit -> p8g live-test checklist item.
+- Fix round 3 result (Glm agent 4d74c841, CLI session ffb20c40-341b-4d76-8abf-fde6cdb1f786, 5m 42s): root cause was the tolerated marker-read gate (`evidence-harness.ts` ~:1817) requiring `selected.sandbox === 'read-only'`, so the marker read fell to the identity gate (~:1849, 'Unexpected command'). The gate now requires `approvalPolicy === 'untrusted'` with the same bounds (ask-command-edit only, one read, before the first approval, marker-read shape); the read approval keeps its identity checks and is always declined; note text 'untrusted ask: no approval request observed'; spec labels updated.
+- p8g live-test checklist (coordinator): count Manual-mode approval prompts for plain read commands (untrusted may ask for reads outside Codex's known-safe list) and compare with Claude Manual.
 
 - Files (declared deliverables): C/codex-execution-profile.ts, C/codex-execution-profile.spec.ts,
   C/codex-runtime.spec.ts (thread/start + turn/start frames),
@@ -3058,7 +3068,10 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
   is declined and never completes as success. MCP untouched.
 - Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers`.
 
-### Batch 8m-2: core passes real tool results and reasoning deltas (G1 core, G3 core) — PENDING (Wave 1; planned lane: Glm)
+### Batch 8m-2: core passes real tool results and reasoning deltas (G1 core, G3 core) — COMPLETE (commit 41c73d47c; verify 4 green 2026-10-28 16:25: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers` 6/6 tasks; `-t typecheck -p @ptah-extension/agent-sdk` 1/1; Wave 1; lane: Glm ptah-cli Ollama Cloud, opus tier, agent aa286ef2, CLI session 92a570f6-2ba7-49d7-bed9-7e6ec4cc9250; 12m 18s; diff reviewed on disk)
+
+- Result: commandExecution forwards bounded `aggregatedOutput` + optional `exitCode`; mcpToolCall forwards result content (`_meta` dropped) + bounded `errorText`; dynamicToolCall forwards its content items; cap `MAX_TOOL_OUTPUT_CHARS` 10000 per string leaf with `\n[output truncated]`; retry/terminal errors stay sanitized. `item/reasoning/summaryTextDelta` / `textDelta` -> reasoning `delta` events (empty -> none; textDelta silent per item once a summary delta streamed); final reasoning still emitted (consumer contract for 8m-4: replace-on-final per itemId, in the batch report).
+- Notes (Minor, recorded, not fixed): the two delta schemas are registered in `codex-protocol-validator.ts`, which shadows the `codex-protocol-methods.ts` export (every importer uses the validator; a pure move into methods is a later cleanup); `webSearch` results and `fileChange` diffs are not length-bounded (outside G1 scope); the bound is per string leaf, not per whole payload.
 
 - Files: C/codex-event-translator.ts, C/codex-event-translator.spec.ts, C/codex-runtime.types.ts,
   C/codex-protocol-schemas.ts, C/codex-protocol-validator.ts (+ .spec.ts if the unmodeled list
@@ -3073,7 +3086,11 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
 - Verify: `npm run verify -- -p @ptah-extension/codex-runtime` and
   `npm run verify -- -t typecheck -p @ptah-extension/agent-sdk`.
 
-### Batch 8m-3: host prompt lifecycle and MCP logs (G5 host, L3, L2b check) — PENDING (Wave 1; planned lane: grok, else antigravity)
+### Batch 8m-3: host prompt lifecycle and MCP logs (G5 host, L3, L2b check) — COMPLETE (commit d2f2fb2c5; verify 4 green 2026-10-28 16:25: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers` 6/6 tasks; `-t typecheck -p @ptah-extension/agent-sdk` 1/1; Wave 1; lane: grok, agent 32155fda, CLI session 01a18324-2d6b-77d3-8d8c-66e3023e059f; 7m 59s; review fix 1 resumed as agent 0f8a906a)
+
+- Result: no PERMISSION_AUTO_RESOLVED after a delivered user answer (wire id settled before `respond`; still one when dismissed without an answer or the answer cannot be delivered); `allowedDecisions` no longer sent; `ptah-mcp-attached` log with URL pathname only; user servers logged as `codex-user-mcp-configured`.
+- Review fix 1 (team-leader): `R/session/chat-session.native.spec.ts:335` still asserted `codex-user-mcp-attached` -> scope extended to that spec, lane resumed (agent 0f8a906a, 40s): expectation now `codex-user-mcp-configured`; verified on disk, only that hunk changed.
+- L2b deferred (not in this file): native sessions are named with the thread id because `createCodexChatMetadataPort` (`agent-sdk/src/lib/wiring/codex-chat-metadata-port.ts:10-23`) drops the title and `updateCodexExecution` (`session-metadata-store.ts` ~:1030) sets `name: existing?.name ?? sessionId`; `messageCount` reads only Claude JSONL. Proposed: pass the title into `updateCodexExecution` without overwriting a user rename. Owner: follow-up batch (not in Round 8m scope).
 
 - Files: R/codex-host/codex-chat-host-ports.ts, R/codex-host/codex-chat-host-ports.spec.ts.
 - Tasks: no PERMISSION_AUTO_RESOLVED after a user answer (still sent when the answer cannot be
@@ -3100,9 +3117,9 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
   `sdk-permission-handler.ts`), not with hand-written shapes.
 - Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
 
-### Batch 8m-5: Stop interrupts the turn, the tab stays usable (L1) — PENDING (Wave 2; planned lane: codex)
+### Batch 8m-5: Stop interrupts the turn, the tab stays usable (L1) — PENDING (Wave 2; planned lane: codex; hold released 2026-10-28: coordinator "CODEX OK", the user set agentOrchestration.codexModel to a supported model; no lane model override (never gpt-6.1-*: bundled codex 0.155.1 rejects it))
 
-- Files: A/codex-chat-adapter.ts (+ .spec.ts), A/codex-chat-turn-stream.ts,
+- Files: A/codex-chat-adapter.ts (+ .spec.ts), A/codex-chat-turn-stream.ts, R/session/chat-session.service.ts (+ .spec.ts; added after 8m-1: map `resume-profile-changed` to a clear coded refusal, not CODEX_RUNTIME_FAILED),
   A/codex-chat-turn-lifecycle.spec.ts, R/codex-host/codex-chat-native-contract.spec.ts (this
   wave's only writer).
 - Tasks: D17; update the 8k-5 Stop spec (no `context.close`, bridge `cancel`, same UI events);
@@ -3140,6 +3157,14 @@ with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> au
   `mcpServer/elicitation/request` against Claude's elicitation path; fix or record deferred.
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron`.
 
+### Batch 8m-8: native sessions rail keeps a real title and count (L2b backend) — PENDING (Wave 3; added 2026-10-28 by coordinator decision; planned lane: Glm, else grok)
+
+- Depends on: 8m-5 (owns `A/codex-chat-adapter.ts` `persistMetadata` in Wave 2; 8m-8 reads it, does not edit it).
+- Cause (8m-3 report): `W/libs/backend/agent-sdk/src/lib/wiring/codex-chat-metadata-port.ts:10-23` ignores the title that `CodexChatAdapter.persistMetadata` passes; `updateCodexExecution` (`W/libs/backend/agent-sdk/src/lib/session-metadata-store.ts` ~:1030) sets `name: existing?.name ?? sessionId`, so the rail shows the thread id; `messageCount` in `session:list` comes only from Claude JSONL (`W/libs/backend/rpc-handlers/src/lib/handlers/session-message-count.ts`; `session-rpc.handlers.ts` ~:497-554), so native rows stay at 0.
+- Files: the metadata port (+ new .spec.ts), `session-metadata-store.ts` (+ `session-metadata-store.spec.ts`), `session-message-count.ts` (+ .spec.ts); `session-rpc.handlers.ts` only if the native count source cannot live behind the count helper. Exception: up to 7 files, 2 projects.
+- Tasks: keep the native title (non-empty title sets the name when the stored name is missing or equals the session id; never overwrite a user rename); a native message count/preview source that does not read Claude JSONL (e.g. counted turns recorded in the session record, or the rollout), backend only, no frontend special case; Claude rows unchanged (their specs stay green).
+- File-disjoint from 8m-7 (codex-host user questions, Electron composition, native contract spec, DI guard specs): yes, so both run in parallel in Wave 3.
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
 ### Round 8m closing checks
 
 - `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint --output-style=static`
