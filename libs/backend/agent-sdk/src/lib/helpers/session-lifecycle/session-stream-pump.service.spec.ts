@@ -455,6 +455,26 @@ describe('SessionStreamPump turn identity', () => {
     h.abortController.abort();
   });
 
+  it('expires an owed interrupt guard by the second yield', async () => {
+    const h = makeHarness();
+    const rec = h.registry.find(TAB);
+    if (!rec) throw new Error('Missing registration');
+    await h.pump.sendMessage(TAB, 'P');
+    await h.iterator.next();
+    rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
+    rec.interruptedTurnUserMessageUuid = rec.currentTurnUserMessageUuid;
+    h.registry.markTurnEnded(TAB);
+    await h.pump.sendMessage(TAB, 'Q');
+    await h.iterator.next();
+    expect(rec.interruptAwaitingResultYieldSequence).toBe(1);
+    h.registry.markTurnEnded(TAB);
+    await h.pump.sendMessage(TAB, 'R');
+    await h.iterator.next();
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(rec.interruptedTurnUserMessageUuid).toBeNull();
+    h.abortController.abort();
+  });
+
   it('keeps 66 held entries and promotes each exact factory message with its metadata', async () => {
     const h = makeHarness();
     const rec = h.registry.find(TAB);

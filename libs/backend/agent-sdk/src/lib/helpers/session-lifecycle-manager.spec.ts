@@ -1433,7 +1433,7 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
   });
 
-  it('takes Q at Q result after an id-less interrupted peer yielded no late result', async () => {
+  it('releases the guard without consuming Q for an id-less result after Q yields', async () => {
     const h = makeHarness();
     const tab = 'peer-then-q-result' as SessionId;
     await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
@@ -1446,9 +1446,10 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     rec.awaitingEcho = { message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never;
     expect(takeAwaitingEcho(rec, { uuid: 'q-echo' })?.clientMessageId).toBe('Q');
 
-    expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
-    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(rec.currentTurnClientMessageId).toBe('Q');
   });
 
   it('does not consume Q when P emits an aborted result after Q was yielded', async () => {
@@ -1459,13 +1460,77 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     if (!rec) throw new Error('Missing registration');
     rec.yieldSequence = 2;
     rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
     rec.currentTurnClientMessageId = 'Q';
     rec.currentTurnUserMessageUuid = 'q-uuid';
-    expect(h.manager.takeResultClientMessageId(tab, { terminal_reason: 'aborted_streaming' })).toBeNull();
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'p-uuid' })).toBeNull();
     expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(true);
     expect(rec.currentTurnClientMessageId).toBe('Q');
-    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'q-uuid', terminal_reason: 'completed' })).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'q-uuid' })).toBe('Q');
     expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+  });
+
+  it.each([
+    ['error_during_execution', { user_message_uuid: 'q-uuid' }],
+    [
+      'batch uuid list',
+      { user_message_uuid: 'last-in-batch', user_message_uuids: ['q-uuid', 'last-in-batch'] },
+    ],
+  ])('releases Q on its %s result while the interrupt guard is owed', async (_case, result) => {
+    const h = makeHarness();
+    const tab = 'q-result-with-guard' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab, result)).toBe('Q');
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+  });
+
+  it('releases Q without consuming its id for a late uuid-less P success', async () => {
+    const h = makeHarness();
+    const tab = 'ambiguous-late-success' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+  });
+
+  it('releases Q without consuming its id for a result with an unrelated uuid', async () => {
+    const h = makeHarness();
+    const tab = 'ambiguous-other-uuid' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.interruptedTurnUserMessageUuid = 'p-uuid';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    rec.currentTurnClientMessageId = 'Q';
+    rec.turnInFlight = true;
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'other' })).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
+    h.manager.onTurnTerminal(tab);
+    expect(rec.turnInFlight).toBe(false);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
   });
 
   it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {

@@ -2150,6 +2150,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
   it('ignores P late result without releasing Q, then releases Q at its own result', async () => {
     const { transformer, messageTransformer } = makeHarness();
     const onTurnEnd = jest.fn();
+    const onResultStats = jest.fn();
     let resultCount = 0;
     let late = false;
     messageTransformer.transform.mockReturnValue([{ eventType: 'turn_state' } as never]);
@@ -2163,6 +2164,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
       sdkQuery: asAsyncIterable([pResult, qResult]),
       sessionId: 'sess-1' as SessionId, initialModel: MODEL,
       onTurnEnd,
+      onResultStats,
       turnIdentity: {
         takeAtResult: () => { late = ++resultCount === 1; return late ? null : 'Q'; },
         wasLastResultInterruptedLate: () => late,
@@ -2170,6 +2172,7 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
       },
     })) events.push(event);
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
+    expect(onResultStats).toHaveBeenCalledTimes(2);
     expect(events).toEqual([expect.objectContaining({ consumedClientMessageId: 'Q' })]);
   });
 

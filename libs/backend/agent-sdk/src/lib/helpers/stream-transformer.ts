@@ -234,7 +234,10 @@ export interface StreamTransformConfig {
    */
   onTurnEnd?: () => void;
   turnIdentity?: {
-    takeAtResult(result?: { readonly user_message_uuid?: string; readonly terminal_reason?: string; readonly subtype?: string }): string | null;
+    takeAtResult(result?: {
+      readonly user_message_uuid?: string;
+      readonly user_message_uuids?: readonly string[];
+    }): string | null;
     wasLastResultInterruptedLate?(): boolean;
     takeInterruptRetirement(): string | null;
     takeDisplacedRetirement?(): string | null;
@@ -595,6 +598,7 @@ export class StreamTransformer {
             }
             if (sdkMessage === RETIREMENT_TICK) continue;
             let resultConsumedClientMessageId: string | null = null;
+            let skippedLateResult = false;
             // Any stream activity — message, partial/streaming delta, tool_use,
             // tool_result, thinking — resets the inactivity window.
             activityWatchdog?.observe(sdkMessage);
@@ -755,11 +759,11 @@ export class StreamTransformer {
             }
             if (isResultMessage(sdkMessage)) {
               const consumedClientMessageId = turnIdentity?.takeAtResult(sdkMessage) ?? null;
-              if (turnIdentity?.wasLastResultInterruptedLate?.()) continue;
+              skippedLateResult = turnIdentity?.wasLastResultInterruptedLate?.() ?? false;
               resultConsumedClientMessageId = consumedClientMessageId;
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
-              onTurnEnd?.();
+              if (!skippedLateResult) onTurnEnd?.();
               // Before any await: the turn's estimate is dropped now, so every
               // authoritative snapshot built below supersedes every live one.
               livePublisher.onResult();
@@ -1083,7 +1087,7 @@ export class StreamTransformer {
               sdkMessage.type === 'user' ||
               // The result's `turn_state` must travel IN the stream, after the
               // last chunk of the turn it closes (TASK_2026_360).
-              isResultMessage(sdkMessage) ||
+              (isResultMessage(sdkMessage) && !skippedLateResult) ||
               isCompactBoundary(sdkMessage) ||
               isLocalCommandOutput(sdkMessage) ||
               isTaskStarted(sdkMessage) ||

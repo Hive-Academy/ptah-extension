@@ -132,9 +132,10 @@ export class SessionControl {
         (rec.resultCount ?? 0) === resultCountBefore &&
         rec.turnInFlight
       ) {
-        // A late result can only be suppressed while this yield remains the
-        // current turn. The next yield drops this guard.
+        // Keep the interrupted turn's identity after Q is yielded so only a
+        // result positively naming P can be suppressed.
         rec.interruptAwaitingResultYieldSequence = rec.yieldSequence ?? 0;
+        rec.interruptedTurnUserMessageUuid = rec.currentTurnUserMessageUuid ?? null;
         if (interruptedId !== null && rec.currentTurnClientMessageId === interruptedId) {
           rec.interruptRetirement = interruptedId;
           rec.currentTurnClientMessageId = null;

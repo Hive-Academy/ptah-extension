@@ -218,6 +218,18 @@ describe('TurnStateApplier', () => {
       queuedPrompts.clearSession('tab-1', 'old-session');
       expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
     });
+    it.each(['confirmed session end', 'confirmed abort success'])(
+      'clears ownerless ids on %s while keeping a newer session id', () => {
+        const messages = [
+          { id: 'P', role: 'user' },
+          { id: 'Q', role: 'user' },
+        ] as TabState['messages'];
+        queuedPrompts.add('tab-1', 'P', messages);
+        queuedPrompts.add('tab-1', 'Q', messages, 'new-session');
+        queuedPrompts.clearSession('tab-1', 'old-session');
+        expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+      },
+    );
     it('two consecutive terminals retire only their own ids', () => {
       const messages = [
         { id: 'first', role: 'user' },

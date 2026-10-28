@@ -87,6 +87,13 @@ export class SessionStreamPump {
               // the SDK is generating (TASK_2026_294).
               registry.markTurnStarted(session);
               session.yieldSequence = (session.yieldSequence ?? 0) + 1;
+              if (
+                session.interruptAwaitingResultYieldSequence !== null &&
+                session.yieldSequence > session.interruptAwaitingResultYieldSequence + 1
+              ) {
+                session.interruptAwaitingResultYieldSequence = null;
+                session.interruptedTurnUserMessageUuid = null;
+              }
               // Keep an owed interrupt result until result metadata identifies
               // either that result or the new turn's result.
               session.resultYieldSequence = null;

@@ -101,6 +101,7 @@ export interface SessionRecord {
    */
   echoesUserMessages?: boolean;
   interruptAwaitingResultYieldSequence: number | null;
+  interruptedTurnUserMessageUuid?: string | null;
   /** Callback to wake the streaming iterator when a message arrives. */
   resolveNext: (() => void) | null;
   /**

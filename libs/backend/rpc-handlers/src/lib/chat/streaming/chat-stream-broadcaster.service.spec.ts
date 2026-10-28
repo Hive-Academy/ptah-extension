@@ -421,6 +421,36 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
     );
   });
 
+  it('broadcasts the real SDK id on fresh-session end', async () => {
+    const h = makeHarness();
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield { ...makeEvent('message_start'), sessionId: SESSION_ID };
+    }
+    await h.broadcaster.streamEventsToWebview(TAB_ID as SessionId, stream(), TAB_ID);
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.CHAT_SESSION_ENDED,
+      { tabId: TAB_ID, sessionId: SESSION_ID },
+    );
+  });
+
+  it('logs a failed session-end broadcast without rejecting the completed stream', async () => {
+    const h = makeHarness();
+    const failure = new Error('webview gone');
+    h.sdkAdapter.getSessionToken.mockReturnValue('T1');
+    h.webviewManager.broadcastMessage.mockImplementation((type) =>
+      type === MESSAGE_TYPES.CHAT_SESSION_ENDED ? Promise.reject(failure) : Promise.resolve(),
+    );
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield makeEvent('message_start');
+    }
+    await expect(h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID)).resolves.toBeUndefined();
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to broadcast session end'),
+      failure,
+    );
+  });
+
   it('still ends the session after a clean stream exit', async () => {
     const h = makeHarness();
     h.sdkAdapter.getSessionToken.mockReturnValue('T1');

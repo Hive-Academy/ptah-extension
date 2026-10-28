@@ -472,26 +472,38 @@ export class SessionLifecycleManager {
   /** Capture synchronously before releasing the pump or awaiting result work. */
   takeResultClientMessageId(
     sessionId: SessionId,
-    result?: { readonly user_message_uuid?: string; readonly terminal_reason?: string; readonly subtype?: string },
+    result?: { readonly user_message_uuid?: string; readonly user_message_uuids?: readonly string[] },
   ): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
     rec.resultCount = (rec.resultCount ?? 0) + 1;
     rec.lastResultWasInterruptedLate = false;
-    const owed = rec.interruptAwaitingResultYieldSequence !== null;
-    const matchesCurrent = result?.user_message_uuid != null &&
-      result.user_message_uuid === rec.currentTurnUserMessageUuid;
-    if (owed && !matchesCurrent && (
-      rec.interruptAwaitingResultYieldSequence === (rec.yieldSequence ?? 0) ||
-      result?.user_message_uuid != null ||
-      result?.terminal_reason === 'aborted_streaming' ||
-      result?.subtype === 'error_during_execution'
-    )) {
+    const interruptedYield = rec.interruptAwaitingResultYieldSequence;
+    const interruptedUuid = rec.interruptedTurnUserMessageUuid;
+    const resultUuids = [
+      ...(result?.user_message_uuids ?? []),
+      ...(result?.user_message_uuid ? [result.user_message_uuid] : []),
+    ];
+    const isInterruptedResult = interruptedYield !== null && (
+      interruptedYield === (rec.yieldSequence ?? 0) ||
+      (interruptedUuid != null && resultUuids.includes(interruptedUuid))
+    );
+    if (isInterruptedResult) {
       rec.interruptAwaitingResultYieldSequence = null;
+      rec.interruptedTurnUserMessageUuid = null;
       rec.lastResultWasInterruptedLate = true;
       return null;
     }
-    if (owed) rec.interruptAwaitingResultYieldSequence = null;
+    if (interruptedYield !== null) {
+      rec.interruptAwaitingResultYieldSequence = null;
+      rec.interruptedTurnUserMessageUuid = null;
+      // A result without identity after Q was yielded could belong to either
+      // turn. Release the pump, but leave Q's id for later echo or teardown.
+      if (
+        rec.currentTurnUserMessageUuid == null ||
+        !resultUuids.includes(rec.currentTurnUserMessageUuid)
+      ) return null;
+    }
     // An expected echo may lag its result. Retire through the out-of-stream
     // channel if the pump will idle; otherwise the next yield displaces it.
     if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {

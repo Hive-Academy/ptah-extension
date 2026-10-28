@@ -463,7 +463,17 @@ export class ChatStreamBroadcaster {
         this.turnState.clear(turnSessionId);
         this.turnState.clear(sessionId);
         if (sessionConfirmedEnded) {
-          await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_SESSION_ENDED, { tabId, sessionId });
+          try {
+            await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_SESSION_ENDED, {
+              tabId,
+              sessionId: turnSessionId,
+            });
+          } catch (error: unknown) {
+            this.logger.warn(
+              `[RPC] Failed to broadcast session end for ${turnSessionId}`,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
         }
       }
     }

@@ -48,9 +48,9 @@ export class QueuedPromptRecord {
 
   clearSession(tabId: string, sessionId: string): void {
     const owners = this.sessionById.get(tabId);
-    if (!owners) return;
-    for (const [id, owner] of owners) {
-      if (owner === sessionId) this.remove(tabId, id);
+    for (const id of [...(this.byTab.get(tabId) ?? [])]) {
+      const owner = owners?.get(id);
+      if (owner === undefined || owner === sessionId) this.remove(tabId, id);
     }
   }
 
