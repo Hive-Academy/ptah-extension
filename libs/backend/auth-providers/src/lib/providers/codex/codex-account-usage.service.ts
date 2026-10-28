@@ -6,6 +6,7 @@ import type {
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
+  CODEX_INITIALIZE_TIMEOUT_MS,
   normalizeCodexHomeKey,
   type CodexAccountUsageClient,
 } from '@ptah-extension/codex-runtime';
@@ -304,9 +305,14 @@ export class CodexAccountUsageService
     let stage = 'initialize';
     try {
       const initialized = codexInitializeResponseSchema.parse(
-        await rpc.request(1, 'initialize', {
-          clientInfo: { name: 'ptah', version: '1' },
-        }),
+        await rpc.request(
+          1,
+          'initialize',
+          {
+            clientInfo: { name: 'ptah', version: '1' },
+          },
+          CODEX_INITIALIZE_TIMEOUT_MS,
+        ),
       );
       stage = 'home';
       if (!samePath(initialized.codexHome, this.codexHome.path))
@@ -428,7 +434,12 @@ export class CodexAccountUsageService
     child: SpawnedProcessHandle,
     signal?: AbortSignal,
   ): {
-    request: (id: number, method: string, params?: unknown) => Promise<unknown>;
+    request: (
+      id: number,
+      method: string,
+      params?: unknown,
+      timeoutMs?: number,
+    ) => Promise<unknown>;
     notify: (method: string) => void;
   } {
     let buffer = '';
@@ -487,12 +498,12 @@ export class CodexAccountUsageService
     const write = (value: object) =>
       child.stdin?.write(`${JSON.stringify(value)}\n`);
     return {
-      request: (id, method, params) =>
+      request: (id, method, params, timeoutMs = REQUEST_TIMEOUT_MS) =>
         new Promise((resolve, reject) => {
           const timer = setTimeout(() => {
             pending.delete(id);
             reject(new AppServerError('unavailable'));
-          }, REQUEST_TIMEOUT_MS);
+          }, timeoutMs);
           timer.unref?.();
           pending.set(id, {
             method,

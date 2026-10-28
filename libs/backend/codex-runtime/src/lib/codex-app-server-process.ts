@@ -29,7 +29,7 @@ const MAX_PENDING = 128;
 const MAX_BUFFERED_NOTIFICATIONS = 64;
 const MAX_UNKNOWN_NOTIFICATION_METHODS = 64;
 // Includes OS process start-up before the initialize response arrives.
-const INITIALIZE_TIMEOUT_MS = 60_000;
+export const CODEX_INITIALIZE_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 type RequestMethod = Exclude<keyof typeof codexRequestSchemas, 'initialize'>;
 type ServerRequest = Extract<
@@ -215,7 +215,7 @@ export class CodexAppServerProcess {
             // The pinned schema requires true, including for granular approval policy.
             capabilities: { experimentalApi: true },
           },
-          INITIALIZE_TIMEOUT_MS,
+          CODEX_INITIALIZE_TIMEOUT_MS,
         ),
       );
       const startupDurationMs = Date.now() - spawnStartedAt;
@@ -554,7 +554,7 @@ export class CodexAppServerProcess {
         ...(initializeTimeout && spawnStartedAt !== undefined
           ? {
               elapsedMs: Date.now() - spawnStartedAt,
-              timeoutMs: INITIALIZE_TIMEOUT_MS,
+              timeoutMs: CODEX_INITIALIZE_TIMEOUT_MS,
             }
           : {}),
         stderrTail: this.stderrTail(2048),

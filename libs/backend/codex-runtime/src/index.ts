@@ -82,4 +82,7 @@ export {
   normalizeCodexWorkspaceKey,
 } from './lib/codex-home-path';
 
-export { CodexProcessFailureError } from './lib/codex-app-server-process';
+export {
+  CodexProcessFailureError,
+  CODEX_INITIALIZE_TIMEOUT_MS,
+} from './lib/codex-app-server-process';
