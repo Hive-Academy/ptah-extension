@@ -598,8 +598,9 @@ export class MarketplaceInventoryStore {
         scopeRoot: result.data.scopeRoot ?? null,
       };
     } catch {
-      // degradation-audit: decoration only — the rows render without the
-      // "Shadowed" marks, which is the state before any Library existed.
+      // degradation-audit: optional-capability — decoration only; the rows
+      // render without the "Shadowed" marks, which is the state before any
+      // Library existed.
       return NO_LIBRARY_COPIES;
     }
   }

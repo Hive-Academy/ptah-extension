@@ -673,7 +673,8 @@ export class KeptItemsRepairPromptComponent {
       this.result.set(response.data);
       this.replaced.emit(response.data);
     } catch {
-      // A thrown transport error carries no user-facing text; fixed copy only.
+      // degradation-audit: reported — fixed copy in the prompt; a thrown
+      // transport error carries no user-facing text.
       if (this.destroyed) return;
       this.errorMessage.set(REPLACE_FAILED_COPY);
     } finally {

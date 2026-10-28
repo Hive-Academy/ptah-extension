@@ -20,6 +20,7 @@
  * page.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
+import type { SkillSynthesisListClonesResult } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Host config injectors
@@ -970,7 +971,23 @@ export function baseMarketplaceFixtures(
     'harness:get-skill-selection': SKILL_SELECTION_FIXTURE,
     'harness:health': HARNESS_HEALTH_FIXTURE,
     'capabilities:getState': CAPABILITY_STATE_FIXTURE,
+    'skillSynthesis:listClones': libraryClonesFixture(workspaceFolders[0]),
   };
+}
+
+/**
+ * `skillSynthesis:listClones` — an empty Library scoped to the active
+ * workspace. Electron's `MarketplaceInventoryStore` reads it alongside the
+ * plugin catalogue for the plugins slice (Library shadow marks), so without
+ * an answer that slice waits out the 30s RPC timeout and the Overview's
+ * "Skills & plugins" stat card stays `aria-busy`, which `waitForSettled`
+ * rejects. Empty, so no shadow or orphan marks change the captures.
+ * Shape: `SkillSynthesisListClonesResult` in `@ptah-extension/shared`.
+ */
+export function libraryClonesFixture(
+  scopeRoot: string | undefined,
+): SkillSynthesisListClonesResult {
+  return scopeRoot === undefined ? { clones: [] } : { clones: [], scopeRoot };
 }
 
 /**

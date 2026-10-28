@@ -883,8 +883,7 @@ export class ExternalMarketplacesComponent implements OnInit {
       );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
-        // degradation-audit: reported — fixed copy in the dialog; the host
-        // logged the original error.
+        // Fixed copy in the dialog; the host logged the original error.
         this.consentFailed.set(true);
         return;
       }
