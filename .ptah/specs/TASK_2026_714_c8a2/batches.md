@@ -2545,7 +2545,7 @@ Assumptions:
   notification there stays fatal. Accepted: unknown methods carry no state Ptah reads.
 - Pre-existing agent-sdk lint errors from main (see 8i deferred).
 
-## Batch 8k: P8 fix round 6 (live-test-p8e.md D8, D10, D11, D12, tool naming, session stats) — IN_PROGRESS (8k-1, 8k-2, 8k-4 COMPLETE; 8k-3 host ports NOT ACCEPTED; 8k-5 PENDING; phase gate PASS)
+## Batch 8k: P8 fix round 6 (live-test-p8e.md D8, D10, D11, D12, tool naming, session stats) — IN_PROGRESS (8k-1..8k-5 COMPLETE; phase gate re-run and P8 re-review pending, coordinator, after 8l)
 
 - Phase: P8 | Phase gate once after 8k-5: degradation-audit lint, di-lint lint, 4-host typecheck,
   vscode-core host-attention-ingress test. Phase review: the coordinator's P8 re-review (reviewer
@@ -2669,7 +2669,7 @@ Deferred / not this round:
   codex-runtime.types.ts, codex-approval-bridge.spec.ts.
 - Report: batch-8k-2-report.md.
 
-### Batch 8k-3: host approval wire contract (D11, D12 host side), session:validate (D10), tool names in the projection — IN_PROGRESS (D10 + projection COMPLETE 785de99ef; host ports NOT ACCEPTED, uncommitted)
+### Batch 8k-3: host approval wire contract (D11, D12 host side), session:validate (D10), tool names in the projection — COMPLETE (785de99ef D10 + projection; 5598b15c1 host ports D11)
 
 - NOT ACCEPTED part: W/libs/backend/rpc-handlers/src/lib/chat/codex-host/codex-chat-host-ports.ts
   + .spec.ts stay uncommitted in the worktree. rpc-handlers typecheck (source) passed; the spec
@@ -2725,7 +2725,15 @@ Deferred / not this round:
 - degradation-audit:lint PASS; di-lint:lint PASS; typecheck ptah-electron, ptah-extension-vscode,
   ptah-cli, ptah-tui PASS (4 tasks); vscode-core host-attention-ingress test PASS.
 
-### Batch 8k-5: end-to-end contract specs (host + translator + projection) — PENDING (deferred: session wrap-up; the coordinator stopped new lanes after 8k-4)
+### Batch 8k-5: end-to-end contract specs (host + translator + projection) — COMPLETE (c1b2a1364)
+
+- Executor: team-leader (Claude, in-process; no lane). Specs only, no production change.
+- Verify: `npm run verify -- -t test -p @ptah-extension/rpc-handlers` PASS; `npm run verify -- -p
+  @ptah-extension/rpc-handlers` PASS (lint 0 errors / 52 pre-existing warnings, none in the new
+  file; typecheck; test 188 suites, 4852 passed, 7 skipped). New file: 3 tests pass.
+- Findings (no production change): see batch-8k-5-report.md (renderer parser drops
+  `allowedDecisions`; answered native prompt also broadcasts PERMISSION_AUTO_RESOLVED; follow-up
+  turns published by session id are ended by the broadcaster teardown).
 
 - Coverage already landed per path, but per unit, not end to end: turn lifecycle ordering with a
   real registry (codex-chat-turn-lifecycle.spec.ts), approval payload through the REAL
