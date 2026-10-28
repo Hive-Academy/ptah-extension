@@ -26,7 +26,10 @@ import {
   SessionTurnStateRegistry,
   SubagentStopNotices,
   isCodexChatAdapterError,
+  AskUserQuestionService,
+  PendingResponseRegistry,
   type CodexChatEventCallbacks,
+  type SdkPermissionHandler,
   type SDKMessage,
 } from '@ptah-extension/agent-sdk';
 import {
@@ -44,11 +47,15 @@ import {
   attentionRequestKey,
   findModelPricing,
   parsePermissionRequest,
+  parseAskUserQuestionRequest,
   type BatchMessagePayload,
   type FlatStreamEventUnion,
   type IAgentAdapter,
   type ProviderInfo,
+  type AskUserQuestionRequest,
+  type AskUserQuestionResponse,
 } from '@ptah-extension/shared';
+import { createCodexChatUserQuestions } from './codex-chat-user-questions';
 import {
   createCodexChatHostPorts,
   type CodexChatHostPorts,
@@ -1172,6 +1179,101 @@ describe('Native Codex chat sessions across turns', () => {
       expect(h.server.close).toHaveBeenCalledTimes(1);
     } finally {
       h.dispose();
+    }
+  });
+
+  it('turns native requestUserInput into the Claude question wire contract and returns id-keyed answers', async () => {
+    const logger = mockLogger();
+    const sent: Array<{ type: string; payload: unknown }> = [];
+    const registry = new PendingResponseRegistry<AskUserQuestionResponse, AskUserQuestionRequest>(logger);
+    const service = new AskUserQuestionService({
+      sendMessage: async (_view, type, payload) => {
+        sent.push({ type, payload });
+        return true;
+      },
+    }, logger, registry);
+    const permissionHandler: Pick<SdkPermissionHandler, 'createCallback'> = {
+      createCallback: (sessionId, _agent, tabId) =>
+        async (_tool, input, options) =>
+          service.handleAskUserQuestion(input, options.toolUseID, sessionId, options.signal, tabId),
+    };
+    const ask = createCodexChatUserQuestions({ permissionHandler, tabId: () => TAB, logger });
+    const clock: CodexClock = {
+      now: Date.now,
+      setTimeout: (callback, ms) => {
+        const timer = setTimeout(callback, ms);
+        return { dispose: () => clearTimeout(timer) };
+      },
+    };
+    const bridge = new CodexApprovalBridge({
+      identity,
+      sink: { request: async () => 'decline' },
+      rules: new CodexPermissionRuleStore(),
+      clock,
+      permissionLevel: () => 'ask',
+      isCurrent: () => true,
+      isWritable: () => true,
+      close: jest.fn(),
+      timeoutMs: 360_000,
+      requestUserInput: ask,
+    });
+    try {
+      const pending = bridge.handle({
+        id: 42,
+        method: 'item/tool/requestUserInput',
+        params: {
+          threadId: THREAD,
+          turnId: TURN,
+          itemId: 'question-item',
+          isBlocking: true,
+          questions: [{ id: 'model', header: 'Model', question: 'Pick a model',
+            options: [{ label: 'Fast', description: 'Quick response' }], isOther: true }],
+        },
+      }, TURN, new AbortController().signal);
+      await eventually(() => sent.length === 1, 'shared AskUserQuestion request');
+      expect(sent[0].type).toBe(MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST);
+      expect(sent[0].payload).toEqual({
+        id: expect.any(String),
+        toolName: 'AskUserQuestion',
+        questions: [{ question: 'Pick a model', header: 'Model',
+          options: [{ label: 'Fast', description: 'Quick response' }], multiSelect: false }],
+        toolUseId: '42',
+        timestamp: expect.any(Number),
+        timeoutAt: 0,
+        sessionId: THREAD,
+        tabId: TAB,
+      });
+      const wire = parseAskUserQuestionRequest(sent[0].payload);
+      expect(wire).toMatchObject({
+        toolName: 'AskUserQuestion', sessionId: THREAD, tabId: TAB,
+        questions: [{ question: 'Pick a model', header: 'Model',
+          options: [{ label: 'Fast', description: 'Quick response' }], multiSelect: false }],
+      });
+      expect(wire).not.toBeNull();
+      expect(service.listPendingBySession(THREAD)).toEqual([wire]);
+      service.handleQuestionResponse({ id: wire?.id ?? '', answers: { 'Pick a model': 'Fast' } });
+      await expect(pending).resolves.toMatchObject({
+        response: { answers: { model: { answers: ['Fast'] } } },
+      });
+      expect(registry.size).toBe(0);
+
+      const controller = new AbortController();
+      const cancelled = bridge.handle({
+        id: 43,
+        method: 'item/tool/requestUserInput',
+        params: {
+          threadId: THREAD, turnId: TURN, itemId: 'second-question',
+          isBlocking: true,
+          questions: [{ id: 'confirm', header: 'Confirm', question: 'Continue?',
+            options: [{ label: 'Yes', description: 'Continue' }] }],
+        },
+      }, TURN, controller.signal);
+      await eventually(() => registry.size === 1, 'second pending question');
+      controller.abort();
+      await expect(cancelled).resolves.toMatchObject({ response: { answers: {} } });
+      expect(registry.size).toBe(0);
+    } finally {
+      bridge.dispose();
     }
   });
 });

@@ -176,6 +176,12 @@ export {
   presentCodexTool,
 } from './lib/codex-app-server/codex-tool-presentation';
 export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
+// Native Codex questions reuse Claude's AskUserQuestion service and registry.
+export {
+  AskUserQuestionService,
+  ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
+} from './lib/permission/ask-user-question.service';
+export { PendingResponseRegistry } from './lib/permission/pending-response-registry';
 export type { SdkDIToken } from './lib/di/tokens';
 export {
   SubagentMessageDispatcher,

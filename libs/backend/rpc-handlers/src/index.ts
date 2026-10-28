@@ -149,6 +149,7 @@ export {
   type CodexChatHostPortsDeps,
   type CodexRuntimeAdmissionDeps,
 } from './lib/chat/codex-host/codex-chat-host-ports';
+export { createCodexChatUserQuestions, type CodexChatUserQuestionsDeps } from './lib/chat/codex-host/codex-chat-user-questions';
 export {
   createNativeSessionControls,
   createLegacySessionControlPorts,

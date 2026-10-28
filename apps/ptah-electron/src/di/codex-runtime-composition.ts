@@ -19,6 +19,7 @@ import {
 import {
   CHAT_TOKENS,
   createCodexChatHostPorts,
+  createCodexChatUserQuestions,
   createCodexRuntimeAdmission,
   createCodexChatEventCallbacks,
   createCodexSessionSettingsRecord,
@@ -30,6 +31,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   SDK_TOKENS,
+  type SdkPermissionHandler,
   createCodexThreadIdentityStore,
   type SessionMetadataStore,
   type CodexChatAdapterPorts,
@@ -399,6 +401,13 @@ function createElectronCodexScopePorts(context: BindingContext): ScopePorts {
       ports: {
         binary,
         store,
+        requestUserInput: createCodexChatUserQuestions({
+          permissionHandler: container.resolve<SdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          ),
+          tabId: context.state.tabId,
+          logger,
+        }),
         spawner: container.resolve<CodexRuntimeRegistrationPorts['spawner']>(
           SDK_TOKENS.SDK_PROCESS_SPAWNER,
         ),
