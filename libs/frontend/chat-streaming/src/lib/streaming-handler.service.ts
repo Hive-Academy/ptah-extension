@@ -269,11 +269,13 @@ export class StreamingHandlerService {
           ({ tabId: targetTabId, revision }) => {
             const tab =
               this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
+            // No busy check here: this terminal is the tab's newest state, and
+            // its finalized tree clears only in a later microtask, so the
+            // tree would read as busy and hold the prompt forever.
             if (
               !tab ||
               tab.lastTurnStateRevision !== event.revision ||
-              revision === event.revision ||
-              this.isTabBusy(tab)
+              revision === event.revision
             ) {
               return [];
             }

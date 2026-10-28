@@ -125,6 +125,24 @@ describe('StreamingHandlerService queue release', () => {
     expect(h.service.processStreamEvent(terminal(1), id)).toBeNull();
   });
 
+  it.each([
+    ['completed', 'completed'],
+    ['interrupted', 'aborted_streaming'],
+  ] as const)(
+    'releases the held prompt at a %s terminal while the finalized tree waits for its microtask',
+    (_case, terminalReason) => {
+      const h = setup();
+      // applyFinalizedTurn clears streamingState only in a later microtask.
+      h.tabs.update((tabs) => tabs.map((tab) => ({
+        ...tab,
+        streamingState: { ...tab.streamingState, currentMessageId: 'msg-1' },
+      }) as TabState));
+      expect(
+        h.service.processStreamEvent({ ...terminal(2), terminalReason }, id)?.queueFlushes,
+      ).toEqual([{ tabId: id, content: 'next prompt' }]);
+    },
+  );
+
   it('keeps stats from releasing while the turn is still streaming', () => {
     const h = setup();
     expect(h.service.handleSessionStats({
