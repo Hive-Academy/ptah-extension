@@ -52,13 +52,7 @@ function outputOf(fixture: { nativeElement: HTMLElement }): HTMLElement {
   return output as HTMLElement;
 }
 
-function detailsOf(output: HTMLElement): HTMLDetailsElement {
-  const details = output.querySelector('details');
-  expect(details).not.toBeNull();
-  return details as HTMLDetailsElement;
-}
-
-describe('raw stdout disclosure', () => {
+describe('raw stdout fallback', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent],
@@ -95,7 +89,7 @@ describe('raw stdout disclosure', () => {
     });
   });
 
-  it('opens while raw stdout is the only content the agent has', async () => {
+  it('shows raw stdout without a disclosure while it is the only content', async () => {
     const fixture = await render(
       makeAgent({
         stdout:
@@ -105,16 +99,16 @@ describe('raw stdout disclosure', () => {
 
     const output = outputOf(fixture);
     expect(output.textContent).toContain('Initializing sandbox environment');
-    // Asserts presentation, not just DOM presence: <details> keeps its children
-    // in the DOM when closed, so a textContent check alone cannot tell the two
-    // states apart.
-    expect(detailsOf(output).open).toBe(true);
+    expect(output.querySelector('details')).toBeNull();
+    expect(output.textContent).not.toContain('Raw stdout');
   });
 
-  it('collapses once the first structured content arrives', async () => {
+  it('drops raw stdout once the first structured content arrives', async () => {
     const agent = makeAgent({ stdout: 'Initializing sandbox environment' });
     const fixture = await render(agent);
-    expect(detailsOf(outputOf(fixture)).open).toBe(true);
+    expect(outputOf(fixture).textContent).toContain(
+      'Initializing sandbox environment',
+    );
 
     fixture.componentRef.setInput('agent', {
       ...agent,
@@ -126,77 +120,15 @@ describe('raw stdout disclosure', () => {
     fixture.detectChanges();
 
     const output = outputOf(fixture);
-    expect(detailsOf(output).open).toBe(false);
-    // Collapsed, but never lost.
-    expect(output.textContent).toContain('Initializing sandbox environment');
+    expect(output.textContent).not.toContain(
+      'Initializing sandbox environment',
+    );
+    expect(output.textContent).toContain('I have inspected the repository.');
   });
 
-  it('never overrides a manual toggle after the one auto-collapse', async () => {
-    const agent = makeAgent({ stdout: 'Initializing sandbox environment' });
-    const withText: MonitoredAgent = {
-      ...agent,
-      segments: [{ type: 'text', content: 'first' }],
-    };
-    const fixture = await render(withText);
-
-    const details = detailsOf(outputOf(fixture));
-    expect(details.open).toBe(false);
-
-    details.open = true;
-    details.dispatchEvent(new Event('toggle'));
-    fixture.detectChanges();
-
-    fixture.componentRef.setInput('agent', {
-      ...agent,
-      segments: [
-        { type: 'text', content: 'first' },
-        { type: 'text', content: 'second' },
-      ],
-    });
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    fixture.detectChanges();
-
-    expect(detailsOf(outputOf(fixture)).open).toBe(true);
-  });
-
-  it('keeps a manually opened disclosure open across a card collapse', async () => {
-    const agent = makeAgent({
-      stdout: 'Initializing sandbox environment',
-      segments: [{ type: 'text', content: 'first' }],
-    });
-    const fixture = await render(agent);
-
-    const details = detailsOf(outputOf(fixture));
-    expect(details.open).toBe(false);
-
-    details.open = true;
-    details.dispatchEvent(new Event('toggle'));
-    fixture.detectChanges();
-
-    // Collapsing the card unmounts the output component entirely.
-    fixture.componentRef.setInput('agent', { ...agent, expanded: false });
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(
-      fixture.nativeElement.querySelector('ptah-cli-agent-output'),
-    ).toBeNull();
-
-    fixture.componentRef.setInput('agent', { ...agent, expanded: true });
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    fixture.detectChanges();
-
-    expect(detailsOf(outputOf(fixture)).open).toBe(true);
-  });
-
-  it('keeps crash error segments visible outside the raw stdout disclosure', async () => {
+  it('keeps crash error segments visible in the tree', async () => {
     // The opencode crash path (opencode-cli.adapter.ts:550) emits an error
-    // SEGMENT, which must render in the always-visible tree region rather than
-    // only inside the raw stdout block.
+    // SEGMENT, which must render in the always-visible tree region.
     const fixture = await render(
       makeAgent({
         status: 'failed',
@@ -207,9 +139,7 @@ describe('raw stdout disclosure', () => {
       }),
     );
 
-    const output = outputOf(fixture);
-    const node = output.querySelector('ptah-execution-node');
-    expect(detailsOf(output).contains(node)).toBe(false);
+    const node = outputOf(fixture).querySelector('ptah-execution-node');
     expect(node?.textContent).toContain('opencode CLI exited with code 1');
   });
 });

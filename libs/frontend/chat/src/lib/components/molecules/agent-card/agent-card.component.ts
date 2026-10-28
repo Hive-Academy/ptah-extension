@@ -250,8 +250,6 @@ import {
             [isStreaming]="agent().status === 'running'"
             [scrollTrigger]="scrollTrigger()"
             [presentation]="presentation()"
-            [(rawStdoutOpen)]="rawStdoutOpen"
-            [(rawStdoutAutoCollapsed)]="rawStdoutAutoCollapsed"
           />
         }
       }
@@ -277,12 +275,6 @@ export class AgentCardComponent {
 
   readonly isStopping = signal(false);
   readonly isResuming = signal(false);
-
-  /** Raw stdout disclosure state. Held here rather than in the output component
-   *  because `@if (agent().expanded)` unmounts that component on card collapse,
-   *  which would discard a disclosure the user had opened. */
-  readonly rawStdoutOpen = signal(true);
-  readonly rawStdoutAutoCollapsed = signal(false);
 
   /**
    * Elapsed time display derived from the store's shared tick signal.

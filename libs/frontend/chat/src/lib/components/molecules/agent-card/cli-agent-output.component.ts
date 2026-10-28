@@ -6,7 +6,6 @@ import {
   inject,
   ChangeDetectionStrategy,
   ElementRef,
-  model,
   viewChild,
 } from '@angular/core';
 import type {
@@ -79,33 +78,15 @@ import {
         </div>
       }
 
-      <!-- Raw stdout stays reachable but collapsed: adapters emit it alongside
-           the structured segments, so leaving it open would duplicate the tree
-           in the flat style this component exists to replace. -->
-      @if (stdoutSegments().length > 0) {
+      <!-- Raw stdout duplicates the structured tree, so it shows only for a
+           lane that has nothing structured to show. -->
+      @if (showStdoutFallback()) {
         <div [class]="rowClass()">
-        <details
-          class="mx-2 mt-1 bg-base-200/30 rounded border border-base-content/5 overflow-hidden"
-          [class.!mx-0]="presentation() === 'flat'"
-          [class.!border-0]="presentation() === 'flat'"
-          [class.!rounded-none]="presentation() === 'flat'"
-          [class.!bg-transparent]="presentation() === 'flat'"
-          [open]="rawStdoutOpen()"
-          (toggle)="onRawStdoutToggle($event)"
-        >
-          <summary
-            class="flex items-center gap-1.5 px-2 py-1 cursor-pointer select-none hover:bg-base-200/50 transition-colors"
-          >
-            <span class="text-[10px] font-medium text-base-content-muted"
-              >Raw stdout</span
-            >
-          </summary>
           <ptah-agent-card-output
             [segments]="stdoutSegments()"
             [stderrSegments]="[]"
             [embedded]="true"
           />
-        </details>
         </div>
       }
 
@@ -189,32 +170,17 @@ export class CliAgentOutputComponent {
 
   readonly modelStats = computed(() => extractCliAgentStats(this.segments()));
 
-  /** Whether the raw stdout disclosure is open. Starts open so a lane that has
-   *  only stdout shows its output instead of an empty-looking card. Owned by
-   *  the card, which outlives this component's remount on card collapse. */
-  readonly rawStdoutOpen = model(true);
-
-  /** Latches once the auto-collapse has fired, so it never overrides a later
-   *  manual toggle. Lifted alongside `rawStdoutOpen` — a latch that reset on
-   *  remount would re-collapse a disclosure the user had opened. */
-  readonly rawStdoutAutoCollapsed = model(false);
+  /** Stdout is the output only for a lane that emits no structured content. */
+  protected readonly showStdoutFallback = computed(
+    () =>
+      this.stdoutSegments().length > 0 && this.executionNodes().length === 0,
+  );
 
   /** Auto-scroll container reference */
   private readonly outputContainer =
     viewChild<ElementRef<HTMLDivElement>>('outputContainer');
 
   constructor() {
-    // Collapse the raw transcript exactly once, as the first structured content
-    // arrives — that is the moment it would start duplicating the tree.
-    effect(() => {
-      const hasRichContent =
-        this.executionNodes().length > 0 || this.stderrSegments().length > 0;
-      if (hasRichContent && !this.rawStdoutAutoCollapsed()) {
-        this.rawStdoutAutoCollapsed.set(true);
-        this.rawStdoutOpen.set(false);
-      }
-    });
-
     effect(() => {
       this.executionNodes();
       this.stdoutSegments();
@@ -226,15 +192,6 @@ export class CliAgentOutputComponent {
         });
       }
     });
-  }
-
-  /** Keep the signal and the DOM in step so a manual toggle survives the next
-   *  change-detection pass, which would otherwise reapply `[open]`. */
-  onRawStdoutToggle(event: Event): void {
-    const target = event.target;
-    if (target instanceof HTMLDetailsElement) {
-      this.rawStdoutOpen.set(target.open);
-    }
   }
 
   /** Format token count for template use */
