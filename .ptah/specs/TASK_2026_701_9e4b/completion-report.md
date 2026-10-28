@@ -148,3 +148,10 @@ Hand off to QA. I recommend skipping a further tester pass. Every phase passed i
 verify and an independent code-logic review, and both Electron visual reviews have been run.
 The work left is the deferred list above, which belongs to the user's wizard revamp and the
 named later tasks.
+
+## Update after D51
+
+The user overturned D50 for Serious 1. It is FIXED in this PR (D51): the sidebar preview dialog
+is a top-layer native `<dialog>` capped to the viewport, and focus returns to the opener on
+Escape and Cancel. Electron re-check PASS (`reviews/visual-rereview-dialog.md`). The other D50
+items stay deferred.

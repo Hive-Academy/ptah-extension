@@ -169,9 +169,7 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
         class="btn btn-sm w-full"
         [class.btn-primary]="primary()"
         [class.btn-outline]="!primary()"
-        [disabled]="
-          !selected().size || store.isBound() || loading() || previewOpen()
-        "
+        [disabled]="!selected().size || store.isBound() || loading()"
         (click)="openPreview()"
       >
         Generate {{ selected().size }} agents
