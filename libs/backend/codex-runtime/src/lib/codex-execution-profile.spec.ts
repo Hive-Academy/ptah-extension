@@ -40,6 +40,7 @@ describe('buildCodexExecutionProfile', () => {
         session: { ...source.session, permissionLevel },
       });
       const observed = policy(permissionLevel);
+      expect(profile.consumer).toBe('chat');
       expect(profile.approvalPolicy).toEqual(observed.approvalPolicy);
       expect(profile.approvalPolicy).toBe(
         permissionLevel === 'ask' || permissionLevel === 'auto-edit'
@@ -57,6 +58,50 @@ describe('buildCodexExecutionProfile', () => {
       expect(profile.sandboxPolicy.writableRoots).toEqual(
         permissionLevel === 'plan' ? [] : ['/real/work'],
       );
+    },
+  );
+
+  it.each(['lane', 'gateway', 'usage'] as const)(
+    'keeps the pre-8m-1 auto-edit mapping for %s',
+    (consumer) => {
+      const source = input();
+      const profile = buildCodexExecutionProfile({
+        ...source,
+        session: {
+          ...source.session,
+          consumer,
+          permissionLevel: 'auto-edit',
+        },
+      });
+      expect(profile.approvalPolicy).toBe('on-request');
+      expect(profile.sandboxPolicy).toEqual({
+        mode: 'workspace-write',
+        networkAccess: false,
+        writableRoots: ['/real/work'],
+      });
+      expect(profile.fullAccessStatus).toBe('unproved-disabled');
+    },
+  );
+
+  it.each(['lane', 'gateway', 'usage'] as const)(
+    'keeps the pre-8m-1 ask mapping for %s',
+    (consumer) => {
+      const source = input();
+      const profile = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer, permissionLevel: 'ask' },
+      });
+      expect(profile.approvalPolicy).toEqual({
+        granular: {
+          sandbox_approval: true,
+          rules: true,
+          skill_approval: true,
+          request_permissions: true,
+          mcp_elicitations: true,
+        },
+      });
+      expect(profile.sandboxPolicy.mode).toBe('read-only');
+      expect(profile.sandboxPolicy.writableRoots).toEqual([]);
     },
   );
 

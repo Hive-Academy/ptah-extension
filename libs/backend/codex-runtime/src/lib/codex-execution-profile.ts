@@ -3,6 +3,7 @@ import { posix, win32 } from 'node:path';
 import { z } from 'zod';
 import { normalizeCodexHomeKey } from './codex-home-path';
 import type {
+  CodexApprovalPolicy,
   CodexExecutionProfile,
   CodexJsonValue,
 } from './codex-runtime.types';
@@ -137,6 +138,30 @@ function freeze<T>(value: T): T {
   return value;
 }
 
+/** Chat uses D14. Every other consumer uses the pre-8m-1 approval mapping. */
+function resolveApprovalPolicy(
+  chat: boolean,
+  permissionLevel: CodexProfileSettings['permissionLevel'],
+): CodexApprovalPolicy {
+  if (chat) {
+    return permissionLevel === 'ask' || permissionLevel === 'auto-edit'
+      ? 'untrusted'
+      : 'on-request';
+  }
+  if (permissionLevel === 'ask') {
+    return {
+      granular: {
+        sandbox_approval: true,
+        rules: true,
+        skill_approval: true,
+        request_permissions: true,
+        mcp_elicitations: true,
+      },
+    };
+  }
+  return 'on-request';
+}
+
 function canonical(value: CodexJsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -223,10 +248,16 @@ export function buildCodexExecutionProfile(
     )
       throw new Error('Resume paths cannot change');
   }
+  // D14 (untrusted before edits and commands) is main chat only. It mirrors
+  // evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
+  // Lane, gateway and usage keep the pre-8m-1 mapping: ask is granular and
+  // read-only; auto-edit is on-request with workspace-write.
+  const chat = selected.consumer === 'chat';
   const writable =
-    selected.permissionLevel === 'ask' ||
     selected.permissionLevel === 'auto-edit' ||
-    selected.permissionLevel === 'yolo';
+    selected.permissionLevel === 'yolo' ||
+    (chat && selected.permissionLevel === 'ask');
+  const approvalPolicy = resolveApprovalPolicy(chat, selected.permissionLevel);
   const profile: Omit<BuiltCodexExecutionProfile, 'profileFingerprint'> = {
     ...selected,
     normalizedHome,
@@ -236,13 +267,7 @@ export function buildCodexExecutionProfile(
         ? { ...attachment, path: normalize(attachment.path) }
         : attachment,
     ),
-    // D14: untrusted requests approval before edits and untrusted commands.
-    // Mirror evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
-    approvalPolicy:
-      selected.permissionLevel === 'ask' ||
-      selected.permissionLevel === 'auto-edit'
-        ? 'untrusted'
-        : 'on-request',
+    approvalPolicy,
     sandboxPolicy: {
       mode: writable ? 'workspace-write' : 'read-only',
       networkAccess: false,
