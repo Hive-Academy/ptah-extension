@@ -33,6 +33,12 @@ export interface OwnedAgent {
 /** Keep scene plates legible; the full task remains available at its source. */
 export const WORK_LABEL_MAX_LENGTH = 28;
 const START_CLOCK_SKEW_MS = 30_000;
+// Lanes stand in for their bound CLI agents, which get no node of their own.
+const WORK_KINDS: ReadonlySet<CommandWorkNode['kind']> = new Set([
+  'agent',
+  'child',
+  'lane',
+]);
 const ACTIVE_STATES: ReadonlySet<CommandWorkState> = new Set([
   'running',
   'starting',
@@ -299,9 +305,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   if (
     unique[0].state === 'idle' &&
     unique.some(
-      (node) =>
-        (node.kind === 'agent' || node.kind === 'child') &&
-        ACTIVE_STATES.has(node.state),
+      (node) => WORK_KINDS.has(node.kind) && ACTIVE_STATES.has(node.state),
     )
   )
     unique[0] = { ...unique[0], state: 'running' };

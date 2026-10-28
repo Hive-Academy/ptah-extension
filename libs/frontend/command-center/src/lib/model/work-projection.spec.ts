@@ -314,6 +314,7 @@ describe('projectOwnedWork', () => {
         },
       ],
     });
+    expect(result.nodes[0]?.state).toBe('running');
     expect(
       result.nodes.filter((node) => node.parentId === 'tribunal:run'),
     ).toEqual([
