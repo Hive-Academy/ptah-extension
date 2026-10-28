@@ -44,6 +44,7 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
   PluginCatalogService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import {
@@ -51,12 +52,15 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import type { InstalledServerGroup } from '@ptah-extension/chat-ui';
-import type {
-  ExternalPluginListing,
-  InstalledMcpServer,
-  InstalledSkill,
-  PluginInfo,
+import {
+  MESSAGE_TYPES,
+  type CloneSummary,
+  type ExternalPluginListing,
+  type InstalledMcpServer,
+  type InstalledSkill,
+  type PluginInfo,
 } from '@ptah-extension/shared';
+import { LibraryChangeFeed } from '../services/library-change-feed';
 import {
   MarketplaceInventoryStore,
   removalIdOf,
@@ -1276,6 +1280,293 @@ describe('MarketplaceInventoryStore', () => {
       await settle();
 
       expect(store.community().data.map((s) => s.name)).toEqual(['from-b']);
+    });
+  });
+
+  // ── Library copies for the agent shadow state (F7f) ────────────────────────
+
+  describe('library copies (F7f)', () => {
+    const clone = (slug: string): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      provenance: { kind: 'setup-wizard' },
+    });
+
+    const asElectron = (): void => {
+      jest
+        .spyOn(TestBed.inject(VSCodeService), 'isElectron', 'get')
+        .mockReturnValue(true);
+    };
+
+    it('reads nothing outside Electron', async () => {
+      await store.ensure('plugins');
+      await settle();
+
+      expect(methodsCalled()).not.toContain('skillSynthesis:listClones');
+      expect(store.libraryClones()).toEqual([]);
+    });
+
+    it('reads the copies with the plugins slice in Electron', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [clone('release-manager')] }),
+      );
+      await store.ensure('plugins');
+      await settle();
+
+      expect(methodsCalled()).toEqual(['skillSynthesis:listClones']);
+      expect(store.plugins().state).toBe('ready');
+      expect(store.libraryClones().map((c) => c.slug)).toEqual([
+        'release-manager',
+      ]);
+    });
+
+    it('degrades to no copies when the read fails, keeping the plugins', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () => fail('no library'));
+      enabledPlugins.set([plugin('ptah-core', 'Ptah Core')]);
+      await store.ensure('plugins');
+      await settle();
+
+      expect(store.plugins().state).toBe('ready');
+      expect(store.plugins().data).toHaveLength(1);
+      expect(store.libraryClones()).toEqual([]);
+    });
+
+    it('drops the copies on a workspace switch and reads the new ones', async () => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [clone('from-a')] }),
+      );
+      await store.ensure('plugins');
+      await settle();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual(['from-a']);
+
+      const gate = deferred<unknown>();
+      responders.set('skillSynthesis:listClones', () => gate.promise);
+      scope.switchTo('/workspace/b');
+      TestBed.tick();
+
+      // Gone the moment the switch lands, before the new read answers.
+      expect(store.libraryClones()).toEqual([]);
+
+      gate.resolve(ok({ clones: [clone('from-b')] }));
+      await settle();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual(['from-b']);
+    });
+  });
+
+  // ── library:changed pushes and the failed-pass state (P3 L2) ────────────────
+
+  describe('library:changed pushes', () => {
+    const ROOT = '/workspace/a';
+    const copy = (slug: string): CloneSummary => ({
+      slug,
+      kind: 'agent',
+      cloneStatus: 'clone',
+      diverged: false,
+      invocationCount: 0,
+      successRate: null,
+      lastEnhancedAt: null,
+      historyCount: 0,
+      pendingSourceHash: null,
+      enhanceMinInvocations: 3,
+      enhanceCooldownUntil: null,
+      provenance: { kind: 'workspace' },
+    });
+
+    const asElectron = (): void => {
+      jest
+        .spyOn(TestBed.inject(VSCodeService), 'isElectron', 'get')
+        .mockReturnValue(true);
+    };
+    const push = (status: 'updated' | 'failed', workspaceRoot = ROOT): void => {
+      TestBed.inject(LibraryChangeFeed).handleMessage({
+        type: MESSAGE_TYPES.LIBRARY_CHANGED,
+        payload: { workspaceRoot, status, reasons: ['setup-wizard'] },
+      });
+      TestBed.tick();
+    };
+    const listCloneCalls = (): number =>
+      methodsCalled().filter((m) => m === 'skillSynthesis:listClones').length;
+
+    beforeEach(() => {
+      asElectron();
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [copy('from-a')], scopeRoot: ROOT }),
+      );
+    });
+
+    it('reads nothing for a push before any slice was requested', async () => {
+      push('failed');
+      await settle();
+
+      expect(calls).toEqual([]);
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('reloads only the requested slices and clears the autocomplete cache', async () => {
+      await store.ensure('plugins');
+      await store.ensure('community');
+      await settle();
+      calls.length = 0;
+
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [copy('from-a'), copy('new-one')], scopeRoot: ROOT }),
+      );
+      push('updated');
+      await settle();
+
+      expect([...methodsCalled()].sort()).toEqual([
+        'skillSynthesis:listClones',
+        'skillsSh:listInstalled',
+      ]);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(clearCache).toHaveBeenCalled();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual([
+        'from-a',
+        'new-one',
+      ]);
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('ignores the push the feed held before the store existed', async () => {
+      push('failed');
+      const injector = createEnvironmentInjector(
+        [MarketplaceInventoryStore],
+        TestBed.inject(EnvironmentInjector),
+      );
+      const fresh = injector.get(MarketplaceInventoryStore);
+      await fresh.ensure('plugins');
+      await settle();
+      TestBed.tick();
+      await settle();
+
+      expect(listCloneCalls()).toBe(1);
+      expect(fresh.libraryPassFailed()).toBe(false);
+      injector.destroy();
+    });
+
+    it('sets the failed-pass state for a failed pass of this root, clears it on a good one', async () => {
+      await store.ensure('plugins');
+      await settle();
+
+      push('failed');
+      await settle();
+      expect(listCloneCalls()).toBe(2);
+      expect(store.libraryPassFailed()).toBe(true);
+
+      push('updated');
+      await settle();
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('leaves the state alone for a pass of another root', async () => {
+      await store.ensure('plugins');
+      await settle();
+
+      push('failed', '/workspace/other');
+      await settle();
+
+      expect(listCloneCalls()).toBe(2);
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('records nothing when the host sends no scopeRoot', async () => {
+      responders.set('skillSynthesis:listClones', () =>
+        ok({ clones: [copy('from-a')] }),
+      );
+      await store.ensure('plugins');
+      await settle();
+
+      push('failed');
+      await settle();
+
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('drops the reply of a reload that a workspace switch overtook', async () => {
+      await store.ensure('plugins');
+      await settle();
+
+      const stale = deferred<unknown>();
+      responders.set('skillSynthesis:listClones', () => stale.promise);
+      push('failed');
+
+      // The switch lands while the push's read is in flight.
+      const fresh = deferred<unknown>();
+      responders.set('skillSynthesis:listClones', () => fresh.promise);
+      scope.switchTo('/workspace/b');
+      TestBed.tick();
+
+      stale.resolve(ok({ clones: [copy('stale-a')], scopeRoot: ROOT }));
+      await settle();
+      expect(store.libraryClones()).toEqual([]);
+      expect(store.libraryPassFailed()).toBe(false);
+
+      fresh.resolve(
+        ok({ clones: [copy('from-b')], scopeRoot: '/workspace/b' }),
+      );
+      await settle();
+      expect(store.libraryClones().map((c) => c.slug)).toEqual(['from-b']);
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    it('clears the failed-pass state on a workspace switch', async () => {
+      await store.ensure('plugins');
+      await settle();
+      push('failed');
+      await settle();
+      expect(store.libraryPassFailed()).toBe(true);
+
+      scope.switchTo('/workspace/b');
+      TestBed.tick();
+
+      expect(store.libraryPassFailed()).toBe(false);
+    });
+
+    describe('recordLibraryPass', () => {
+      it('sets the state for the current workspace and clears it on updated', () => {
+        const generation = scope.generation();
+        store.recordLibraryPass('failed', generation);
+        expect(store.libraryPassFailed()).toBe(true);
+
+        store.recordLibraryPass('not-applicable', generation);
+        store.recordLibraryPass(undefined, generation);
+        expect(store.libraryPassFailed()).toBe(true);
+
+        store.recordLibraryPass('updated', generation);
+        expect(store.libraryPassFailed()).toBe(false);
+      });
+
+      it('drops an answer for a workspace that is no longer active', () => {
+        const generation = scope.generation();
+        scope.switchTo('/workspace/b');
+        TestBed.tick();
+
+        store.recordLibraryPass('failed', generation);
+
+        expect(store.libraryPassFailed()).toBe(false);
+      });
+
+      it('records nothing outside Electron', () => {
+        jest
+          .spyOn(TestBed.inject(VSCodeService), 'isElectron', 'get')
+          .mockReturnValue(false);
+
+        store.recordLibraryPass('failed', scope.generation());
+
+        expect(store.libraryPassFailed()).toBe(false);
+      });
     });
   });
 

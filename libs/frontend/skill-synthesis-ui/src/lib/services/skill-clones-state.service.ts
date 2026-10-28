@@ -1,4 +1,16 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import {
+  Injectable,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
+import {
+  LibraryChangeFeed,
+  type LibraryChange,
+} from '@ptah-extension/marketplace/services';
+import { provenanceLabel } from '@ptah-extension/shared';
 import type {
   AgentOutcomeSignals,
   AgentScorecard,
@@ -17,11 +29,59 @@ export interface SkillCloneDetail {
   readonly history: SkillCloneHistoryEntry[];
 }
 
+/**
+ * The one line the Library shows after a `library:changed` push.
+ *
+ * `updated` is a `role=status` line ("Library updated: ..."); `failed` is the
+ * C10 refresh-failure notice (`role=alert`). Both clear on the next push, on a
+ * harness-root change and when a card is opened.
+ */
+export interface LibraryChangeNotice {
+  readonly kind: 'updated' | 'failed';
+  readonly message: string;
+}
+
+/** Design-spec 5, "refresh" failure string (C10). */
+export const LIBRARY_REFRESH_FAILED_COPY =
+  'Could not refresh the Library. The agents on disk are unchanged. It will update on the next refresh.';
+
+/**
+ * Design-spec 5, "refresh": "Library updated: <n> agents added by the setup
+ * wizard." / "... by plugin <name>." The origin comes from the ADDED clones'
+ * recorded provenance, never from the push's reasons, so the line only names
+ * what the current list actually gained. Mixed or unrecorded origins name no
+ * origin.
+ */
+export function libraryUpdatedCopy(added: readonly CloneSummary[]): string {
+  const noun = added.length === 1 ? 'agent' : 'agents';
+  const labels = new Set(added.map((c) => provenanceLabel(c.provenance)));
+  const first = added[0]?.provenance;
+  let origin = '';
+  if (labels.size === 1 && first?.kind === 'setup-wizard') {
+    origin = ' by the setup wizard';
+  } else if (labels.size === 1 && first?.kind === 'plugin') {
+    origin = ` by plugin ${first.name}`;
+  }
+  return `Library updated: ${added.length} ${noun} added${origin}.`;
+}
+
+const cloneKey = (c: CloneSummary): string => `${c.kind}:${c.slug}`;
+
+/**
+ * A list reply that was applied, with the list it replaced. `previous` is
+ * `null` when no list for the same harness root was on screen before.
+ */
+interface AppliedList {
+  readonly previous: readonly CloneSummary[] | null;
+  readonly list: readonly CloneSummary[];
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class SkillClonesStateService {
   private readonly rpc = inject(SkillSynthesisRpcService);
+  private readonly feed = inject(LibraryChangeFeed);
 
   public readonly clones = signal<CloneSummary[]>([]);
   public readonly loading = signal<boolean>(false);
@@ -66,20 +126,141 @@ export class SkillClonesStateService {
     () => this.clones().filter((c) => c.diverged).length,
   );
 
+  /**
+   * The "Library updated" / C10 line for the current list, or `null`. Set only
+   * by a `library:changed` push (see the constructor), never by a manual
+   * refresh.
+   */
+  public readonly libraryNotice = signal<LibraryChangeNotice | null>(null);
+
+  /**
+   * Monotonically increasing id of the most recently STARTED list request
+   * (8.2b). A push, the view's workspace-switch refresh and a manual Refresh
+   * can overlap, and their replies can land out of order; only the reply whose
+   * epoch is still current touches any state: the list, the scorecards, the
+   * outcome signals, `error` and `loading`.
+   */
+  private listEpoch = 0;
+
+  /**
+   * Harness root the last APPLIED list was scoped to (`scopeRoot`, B13).
+   * `null` before the first list lands, and on hosts that do not send it.
+   */
+  private lastScopeRoot: string | null = null;
+
+  /** True once any list request started: the Library has been opened. */
+  private listRequested = false;
+
+  /** True once a list reply was applied; until then there is nothing to diff. */
+  private listApplied = false;
+
+  public constructor() {
+    // Every `library:changed` push re-reads the CURRENT workspace's list,
+    // whichever root the push names: the list call is scoped by the host, not
+    // by the push. Before the Library was ever opened there is no list to keep
+    // current, and the first open reads it anyway.
+    //
+    // The first run only records the value the feed already held: that push
+    // predates this service, and the list read that follows the first open
+    // already reflects it. Acting on it would refresh twice and diff the
+    // first list against an empty one.
+    let firstRun = true;
+    effect(() => {
+      const change = this.feed.latest();
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+      if (change === null) return;
+      untracked(() => {
+        if (!this.listRequested) return;
+        void this.onLibraryChanged(change);
+      });
+    });
+  }
+
   public async refreshClones(): Promise<void> {
+    await this.reloadList();
+  }
+
+  /** Hide the push line (a card was opened). */
+  public clearLibraryNotice(): void {
+    this.libraryNotice.set(null);
+  }
+
+  /**
+   * One push: drop the previous line, refresh, then say what changed.
+   *
+   * - `updated`: a line only when the CURRENT list gained agents. The diff is
+   *   between the list on screen when the reply landed and that reply, so a
+   *   push for another root, or one that added nothing here, says nothing.
+   * - `failed`: the C10 notice only when the push names the root the current
+   *   list is scoped to. A failure for another root is not this Library's.
+   */
+  private async onLibraryChanged(change: LibraryChange): Promise<void> {
+    this.libraryNotice.set(null);
+    const applied = await this.reloadList();
+    if (applied === null) return;
+    if (change.status === 'failed') {
+      if (
+        this.lastScopeRoot !== null &&
+        change.workspaceRoot === this.lastScopeRoot
+      ) {
+        this.libraryNotice.set({
+          kind: 'failed',
+          message: LIBRARY_REFRESH_FAILED_COPY,
+        });
+      }
+      return;
+    }
+    // No earlier list for this root: nothing to diff against, so no claim.
+    if (applied.previous === null) return;
+    const before = new Set(applied.previous.map(cloneKey));
+    const added = applied.list.filter(
+      (c) => c.kind === 'agent' && !before.has(cloneKey(c)),
+    );
+    if (added.length === 0) return;
+    this.libraryNotice.set({
+      kind: 'updated',
+      message: libraryUpdatedCopy(added),
+    });
+  }
+
+  /**
+   * Read the list under a fresh epoch. Resolves with the list it applied and
+   * the one it replaced, or `null` when the request failed or a newer one
+   * superseded it.
+   */
+  private async reloadList(): Promise<AppliedList | null> {
+    const epoch = ++this.listEpoch;
+    this.listRequested = true;
     this.loading.set(true);
     this.error.set(null);
     try {
-      const list = await this.rpc.listClones();
-      this.clones.set(list);
+      const result = await this.rpc.listClones();
+      if (epoch !== this.listEpoch) return null;
+      const scopeRoot = result.scopeRoot ?? null;
+      const sameRoot = this.listApplied && scopeRoot === this.lastScopeRoot;
+      const previous = sameRoot ? this.clones() : null;
+      if (!sameRoot) {
+        // Another harness root: the last line described the previous one.
+        this.libraryNotice.set(null);
+      }
+      this.lastScopeRoot = scopeRoot;
+      this.listApplied = true;
+      this.clones.set(result.clones);
       await Promise.all([
-        this.loadScorecards(list),
-        this.loadAgentOutcomeSignals(list),
+        this.loadScorecards(result.clones, epoch),
+        this.loadAgentOutcomeSignals(result.clones, epoch),
       ]);
+      return epoch === this.listEpoch
+        ? { previous, list: result.clones }
+        : null;
     } catch (err) {
-      this.error.set(this.toMessage(err));
+      if (epoch === this.listEpoch) this.error.set(this.toMessage(err));
+      return null;
     } finally {
-      this.loading.set(false);
+      if (epoch === this.listEpoch) this.loading.set(false);
     }
   }
 
@@ -89,7 +270,10 @@ export class SkillClonesStateService {
    * (usage-only cards) rather than blanking the whole Library — the clone
    * table has already rendered successfully.
    */
-  private async loadScorecards(list: CloneSummary[]): Promise<void> {
+  private async loadScorecards(
+    list: CloneSummary[],
+    epoch: number,
+  ): Promise<void> {
     const slugs = list.filter((c) => c.kind === 'agent').map((c) => c.slug);
     if (slugs.length === 0) {
       this.scorecards.set({});
@@ -97,9 +281,9 @@ export class SkillClonesStateService {
     }
     try {
       const map = await this.rpc.getScorecards(slugs);
-      this.scorecards.set(map);
+      if (epoch === this.listEpoch) this.scorecards.set(map);
     } catch {
-      this.scorecards.set({});
+      if (epoch === this.listEpoch) this.scorecards.set({});
     }
   }
 
@@ -108,7 +292,10 @@ export class SkillClonesStateService {
    * the same post-list step as {@link loadScorecards}.
    * Skills and commands are not part of the request.
    */
-  private async loadAgentOutcomeSignals(list: CloneSummary[]): Promise<void> {
+  private async loadAgentOutcomeSignals(
+    list: CloneSummary[],
+    epoch: number,
+  ): Promise<void> {
     const slugs = list.filter((c) => c.kind === 'agent').map((c) => c.slug);
     if (slugs.length === 0) {
       this.agentOutcomeSignals.set({});
@@ -119,12 +306,14 @@ export class SkillClonesStateService {
     this.outcomeStatus.set('loading');
     try {
       const result = await this.rpc.getAgentOutcomeSignals(slugs);
+      if (epoch !== this.listEpoch) return;
       this.agentOutcomeSignals.set(result.signals);
       this.outcomeWindowDays.set(result.windowDays);
       this.outcomeStatus.set(result.persistent ? 'ready' : 'not-persistent');
     } catch {
       // degradation-audit: reported — outcomeStatus and outcomeReadFailures
       // carry the failure; keep the last good figures during a transient read.
+      if (epoch !== this.listEpoch) return;
       this.outcomeReadFailures.update((count) => count + 1);
       this.outcomeStatus.set('unavailable');
     }

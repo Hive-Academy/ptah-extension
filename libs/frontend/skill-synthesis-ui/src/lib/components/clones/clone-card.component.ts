@@ -19,6 +19,10 @@
  * `modelGuard`, an agent card also hosts the model section; that child owns its
  * own RPC and state.
  *
+ * The meta row starts with the provenance badge (C7, TASK_2026_701_9e4b); a
+ * diverged card adds the reason line (C8) and a turned-off or uninstalled
+ * plugin copy its plugin-state sentence.
+ *
  * Presentational: `input()` signals in, `output()` events out, no service
  * injection and no RPC in the card itself. `OnPush`.
  */
@@ -30,11 +34,13 @@ import {
   output,
 } from '@angular/core';
 import { NativeCardComponent, NativeCardTone } from '@ptah-extension/ui';
-import type {
-  AgentOutcomeSignals,
-  AgentScorecard,
-  CloneSummary,
-  SkillCloneStatus,
+import {
+  orphanedText,
+  provenanceLabel,
+  type AgentOutcomeSignals,
+  type AgentScorecard,
+  type CloneSummary,
+  type SkillCloneStatus,
 } from '@ptah-extension/shared';
 
 import {
@@ -53,6 +59,11 @@ import {
 import type { AgentSyncChip, AgentSyncChipState } from './agent-sync-chips';
 import { AgentModelEditorComponent } from './agent-model-editor.component';
 import type { ReconcileGuardComponent } from './reconcile-guard';
+import { ProvenanceBadgeComponent } from './provenance-badge.component';
+import {
+  DivergedReasonComponent,
+  divergenceUpstreamNote,
+} from './diverged-reason.component';
 
 interface SyncChipView extends AgentSyncChip {
   readonly toneClass: string;
@@ -120,6 +131,26 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
   diverged: 'Upstream changed since this copy was made.',
 };
 
+/**
+ * The status hint when the entry has a recorded origin. The origin, not the
+ * stored status, says where the entry came from, so no line here claims "no
+ * upstream source" or "from a plugin" (A-hint: the rebase gating in
+ * `clone-action-gating.ts` is unchanged).
+ */
+const STATUS_HINT_WITH_ORIGIN: Record<SkillCloneStatus, string> = {
+  authored: 'Built in this workspace or by you.',
+  clone: 'Source changes can be rebased in.',
+  synth: 'Materialised from an accepted recommendation.',
+  diverged: 'The source changed since this copy was made.',
+};
+
+/** Status hint for one entry; see {@link STATUS_HINT_WITH_ORIGIN}. */
+function cloneStatusHint(clone: CloneSummary): string {
+  const status = cloneStatusLabel(clone);
+  if (clone.provenance === undefined) return STATUS_HINT[status];
+  return `Origin: ${provenanceLabel(clone.provenance)}. ${STATUS_HINT_WITH_ORIGIN[status]}`;
+}
+
 @Component({
   selector: 'ptah-clone-card',
   standalone: true,
@@ -128,6 +159,8 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
     NativeCardComponent,
     ScorecardBadgeComponent,
     AgentModelEditorComponent,
+    ProvenanceBadgeComponent,
+    DivergedReasonComponent,
   ],
   // The metric grid takes its column count from the CARD's width, not the
   // viewport: a `sm:grid-cols-4` grid squeezed each cell to about 33 px in
@@ -164,7 +197,9 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
       [clickable]="true"
       [disabled]="busy()"
       density="compact"
-      [ariaLabel]="'Open details for ' + clone().slug"
+      [ariaLabel]="
+        'Open details for ' + clone().slug + ', ' + provenanceText()
+      "
       data-testid="clone-card"
       (activated)="opened.emit(clone())"
     >
@@ -173,7 +208,11 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           <p class="truncate font-mono text-sm font-medium">
             {{ clone().slug }}
           </p>
-          <p class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <p
+            class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]"
+            data-testid="clone-card-meta"
+          >
+            <ptah-provenance-badge [provenance]="clone().provenance" />
             <span
               class="inline-block size-1.5 rounded-full"
               [class]="dotClass()"
@@ -208,6 +247,18 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           ></span>
         }
       </div>
+
+      @if (clone().diverged) {
+        <ptah-diverged-reason [reason]="clone().divergedReason" />
+      }
+      @if (pluginStateNote(); as note) {
+        <p
+          class="rounded-md bg-base-300 px-2 py-1.5 text-[11px] text-base-content"
+          data-testid="clone-card-plugin-state"
+        >
+          {{ note }}
+        </p>
+      }
 
       @if (metrics().length === 0) {
         <p
@@ -313,7 +364,7 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
         </p>
       }
 
-      @if (actions().upstreamNote; as note) {
+      @if (upstreamNote(); as note) {
         <p
           class="rounded-lg bg-base-300/40 px-2 py-1.5 text-[11px] text-base-content-muted"
           data-testid="clone-card-upstream-note"
@@ -465,8 +516,23 @@ export class CloneCardComponent {
 
   protected readonly dotClass = computed(() => STATUS_DOT[this.statusLabel()]);
 
-  protected readonly statusHint = computed(
-    () => STATUS_HINT[this.statusLabel()],
+  protected readonly statusHint = computed(() =>
+    cloneStatusHint(this.clone()),
+  );
+
+  /** Origin label, also part of the card's accessible name. */
+  protected readonly provenanceText = computed(() =>
+    provenanceLabel(this.clone().provenance),
+  );
+
+  /** Turned-off / uninstalled plugin sentence, or null. */
+  protected readonly pluginStateNote = computed(() =>
+    orphanedText(this.clone().provenance),
+  );
+
+  /** The gated "cannot rebase" note, worded for a recorded origin. */
+  protected readonly upstreamNote = computed(() =>
+    divergenceUpstreamNote(this.clone(), this.actions().upstreamNote),
   );
 
   protected readonly eligibilityTitle = computed(() => {

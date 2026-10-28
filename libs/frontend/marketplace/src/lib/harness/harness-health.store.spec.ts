@@ -71,7 +71,7 @@ function makeTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 12,
     ...over,

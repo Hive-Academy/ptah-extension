@@ -6,7 +6,10 @@ import type {
   SetupGenerationRunState,
   SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
-import { WizardRpcService } from './wizard-rpc.service';
+import {
+  WizardRpcService,
+  type BoundAgentDecisions,
+} from './wizard-rpc.service';
 import { findBoundGenerationTab } from './bound-generation-tab';
 
 export type GenerationViewState =
@@ -93,7 +96,15 @@ export class GenerationWorkflowStore {
     this.stateValue.set('idle');
   }
 
-  async startAgents(selectedAgentIds: string[]): Promise<void> {
+  /**
+   * Start generation for the bound tab. `decisions` carries a confirmed
+   * preview's token, replace entries and target; without it the server keeps
+   * every existing file and writes to the harness root.
+   */
+  async startAgents(
+    selectedAgentIds: string[],
+    decisions?: BoundAgentDecisions,
+  ): Promise<void> {
     const binding = this.bindingValue();
     if (
       !binding ||
@@ -106,10 +117,14 @@ export class GenerationWorkflowStore {
     this.rejectionValue.set(null);
     this.startError.set(null);
     try {
-      const response = await this.rpc.startBoundAgents(
-        binding,
-        selectedAgentIds,
-      );
+      const response = decisions
+        ? await this.rpc.startBoundAgents(
+            binding,
+            selectedAgentIds,
+            false,
+            decisions,
+          )
+        : await this.rpc.startBoundAgents(binding, selectedAgentIds);
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);

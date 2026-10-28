@@ -233,6 +233,9 @@
       "@ptah-extension/setup-wizard": [
         "./libs/frontend/setup-wizard/src/index.ts"
       ],
+      "@ptah-extension/setup-wizard/app": [
+        "./libs/frontend/setup-wizard/src/app.ts"
+      ],
       "@ptah-extension/shared": ["./libs/shared/src/index.ts"],
       "@ptah-extension/shared/angular": ["./libs/shared/src/angular/index.ts"],
       "@ptah-extension/shared/testing": ["./libs/shared/src/testing/index.ts"],

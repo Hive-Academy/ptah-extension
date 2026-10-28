@@ -4,6 +4,7 @@ import type {
   AgentScorecard,
   CloneSummary,
 } from '@ptah-extension/shared';
+import { makeLibraryAgreementFixtures } from '@ptah-extension/shared/testing';
 
 import { CloneCardComponent } from './clone-card.component';
 import type { AgentSyncChip } from './agent-sync-chips';
@@ -260,6 +261,112 @@ describe('CloneCardComponent', () => {
     expect(q<HTMLButtonElement>('clones-revert-btn')?.disabled).toBe(true);
     expect(q<HTMLButtonElement>('clones-rebase-btn')?.disabled).toBe(true);
     expect(q<HTMLButtonElement>('clones-keep-btn')?.disabled).toBe(true);
+  });
+
+  // ── Provenance and diverged reason (TASK_2026_701_9e4b, C7/C8) ───────────
+
+  describe('provenance', () => {
+    const fixtures = makeLibraryAgreementFixtures;
+
+    it('puts the provenance badge first in the meta row', () => {
+      render(clone({ provenance: { kind: 'setup-wizard' } }));
+      const meta = q('clone-card-meta');
+      const first = meta?.firstElementChild;
+      expect(first?.tagName.toLowerCase()).toBe('ptah-provenance-badge');
+      expect(
+        first?.querySelector('[data-testid="provenance-badge"]')?.textContent?.trim(),
+      ).toBe('Setup wizard');
+    });
+
+    it('reads "Workspace file" when the host sent no provenance', () => {
+      render(clone());
+      expect(q('provenance-badge')?.textContent?.trim()).toBe('Workspace file');
+    });
+
+    it('shows the shared fixture label on every agreement clone', () => {
+      for (const scenario of Object.values(fixtures())) {
+        for (const c of scenario.listClones.clones) {
+          render(c);
+          expect(q('provenance-badge')?.textContent?.trim()).toBe(
+            scenario.expectedLabels[`${c.kind}:${c.slug}`],
+          );
+        }
+      }
+    });
+
+    it('names the origin in the card accessible name', () => {
+      render(fixtures().communitySkill.listClones.clones[0]);
+      expect(
+        el().querySelector('[role="button"]')?.getAttribute('aria-label'),
+      ).toBe('Open details for tailwind-v4, skills.sh: acme/skills');
+    });
+
+    it('keeps the "no upstream source" hint only when no provenance is recorded', () => {
+      render(clone({ cloneStatus: 'authored' }));
+      expect(q('clones-status-badge')?.getAttribute('title')).toContain(
+        'no upstream source',
+      );
+
+      render(
+        clone({ cloneStatus: 'authored', provenance: { kind: 'setup-wizard' } }),
+      );
+      const title = q('clones-status-badge')?.getAttribute('title') ?? '';
+      expect(title).not.toContain('no upstream source');
+      expect(title).toContain('Origin: Setup wizard.');
+    });
+
+    it('rewords the upstream note for a recorded origin, still without a Rebase button (A-hint)', () => {
+      render(
+        clone({
+          diverged: true,
+          cloneStatus: 'authored',
+          provenance: { kind: 'setup-wizard' },
+          divergedReason: { kind: 'setup-wizard' },
+        }),
+      );
+      expect(q('clones-rebase-btn')).toBeNull();
+      expect(q('clones-keep-btn')).toBeTruthy();
+      const note = q('clone-card-upstream-note')?.textContent ?? '';
+      expect(note).not.toContain('no upstream source');
+      expect(note).toContain('Rebase is not available');
+    });
+
+    it('shows the plugin-update reason line on a diverged plugin copy', () => {
+      const { pluginUpdateDiverged } = fixtures();
+      render(pluginUpdateDiverged.listClones.clones[0]);
+      expect(q('diverged-reason')?.textContent?.trim()).toBe(
+        'Source updated by the plugin Acme Toolkit. Your edits are kept in the Library copy.',
+      );
+      expect(q('clones-rebase-btn')).toBeTruthy();
+    });
+
+    it('shows no reason line on a clean card even if a reason is present', () => {
+      render(clone({ divergedReason: { kind: 'setup-wizard' } }));
+      expect(q('diverged-reason')).toBeNull();
+    });
+
+    it('keeps the former label on an orphan and says the plugin is gone', () => {
+      const { uninstalledPluginEditedClone } = fixtures();
+      render(uninstalledPluginEditedClone.listClones.clones[0]);
+      expect(q('provenance-badge')?.textContent?.trim()).toBe(
+        'Plugin: Former Helper',
+      );
+      expect(q('provenance-plugin-state')?.textContent?.trim()).toBe('Orphaned');
+      expect(q('clone-card-plugin-state')?.textContent?.trim()).toBe(
+        'The plugin "Former Helper" is no longer installed. Your edits are kept here.',
+      );
+    });
+
+    it('uses different copy for a turned-off plugin', () => {
+      const { disabledPluginEditedClone } = fixtures();
+      render(disabledPluginEditedClone.listClones.clones[0]);
+      expect(q('provenance-plugin-state')?.textContent?.trim()).toBe(
+        'Plugin turned off',
+      );
+      expect(q('clone-card-plugin-state')?.textContent?.trim()).toBe(
+        'The plugin "Old Helper" is turned off. Your edits are kept here.',
+      );
+    });
   });
 
   // ── Provider sync chips and ownership (TASK_2026_609) ────────────────────

@@ -10,10 +10,12 @@
  * aborts the pass and strands the manifest half-written.
  *
  * A managed skill directory is replaced wholesale rather than merged, so a file
- * deleted upstream does not linger in the target forever. The replacement is
- * `rm -r` + copy, and it is only ever aimed at a path the manifest owns — the
- * caller has already proven ownership and already unlinked any junction, so
- * `rm -r` cannot follow a link out of the workspace.
+ * deleted upstream does not linger in the target forever. Both targets detach
+ * the owned copy first (`artifact-retirement.ts`) and then publish with the
+ * `exclusive` mode below, so a save landing between plan and apply is never
+ * overwritten. The non-exclusive `rm -r` + copy mode of
+ * {@link copyDirectoryTransformed} remains only for an adopted copy, whose path
+ * is occupied by design.
  *
  * {@link hashTransformedDir} lives here too, and only here: it answers "what
  * hash would {@link copyDirectoryTransformed} produce" and is therefore correct
@@ -55,12 +57,19 @@ export { describeError, withWindowsRetry } from '../fs/windows-retry';
  *
  * Ignored entries (`.ptah-origin.json`, `.history/`, `_candidates`) are skipped,
  * which is what keeps the copy's content hash equal to the source's.
+ *
+ * Always publishes, never replaces (P1 review A1): `targetDir` is created with
+ * a non-recursive `mkdir`, so a directory already there — a save that landed
+ * after the caller detached the previous copy, or one the user created at a
+ * path the plan saw vacant — fails with EEXIST and is never deleted or written
+ * into. The caller detaches an owned copy first (`artifact-retirement.ts`).
  */
 export async function copyDirectory(
   sourceDir: string,
   targetDir: string,
 ): Promise<void> {
-  await withWindowsRetry(() => rm(targetDir, { recursive: true, force: true }));
+  await withWindowsRetry(() => mkdir(dirname(targetDir), { recursive: true }));
+  await withWindowsRetry(() => mkdir(targetDir));
   await copyTree(sourceDir, targetDir, 0);
 }
 

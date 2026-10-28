@@ -28,14 +28,21 @@ import { WizardRpcService } from './wizard-rpc.service';
  * cancel or a reset invalidates a run; a destroyed view does not.
  */
 /**
+ * Checkpoint statuses a resume does not rerun: the file was written, already
+ * current, or left as the user's (`kept`, `changed-since-preview`).
+ */
+const SETTLED_ON_RESUME: ReadonlySet<ResumableGenerationAgent['status']> =
+  new Set(['written', 'unchanged', 'kept', 'changed-since-preview']);
+
+/**
  * Map a persisted checkpoint agent onto an item-progress entry. Agents whose
- * file is already terminal (`written`/`unchanged`) show as complete; every
- * other status re-runs on resume and starts as pending.
+ * file is settled show as complete; `pending`, `running` and `failed` re-run
+ * on resume and start as pending.
  */
 function toProgressItem(
   agent: ResumableGenerationAgent,
 ): SkillGenerationProgressItem {
-  const done = agent.status === 'written' || agent.status === 'unchanged';
+  const done = SETTLED_ON_RESUME.has(agent.status);
   const fileName = agent.filePath.split(/[\\/]/).pop();
   return {
     id: agent.agentId,

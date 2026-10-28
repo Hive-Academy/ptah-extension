@@ -31,6 +31,17 @@ export { AnalysisStorageService } from './lib/services/analysis-storage.service'
 export { AnalysisFreshnessService } from './lib/services/analysis-freshness.service';
 export type { ResumableRun } from './lib/services/analysis-storage.service';
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
+export type {
+  AgentFileGuard,
+  WrittenAgentFile,
+} from './lib/types/core.types';
+export type {
+  AgentWriteBaseline,
+  AgentWriteGuard,
+  AgentWriteResult,
+  AgentWriteStatus,
+} from './lib/interfaces/agent-file-writer.interface';
+export { resolveClaudeAgentModel } from './lib/services/agent-model-resolution';
 export {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
@@ -102,7 +113,10 @@ export type {
   RegeneratePromptsResponse,
   IMultiPhaseAnalysisReader,
 } from './lib/services/enhanced-prompts';
-export { UserLayerMirrorService } from './lib/services/user-layer/user-layer-mirror.service';
+export {
+  UserLayerMirrorService,
+  userLayerPassFailures,
+} from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   UserLayerRoots,
   MirrorSources,
@@ -128,6 +142,9 @@ export type {
   QuarantinedAgentsListing,
   QuarantineRestoreOutcome,
   QuarantineRestoreResult,
+  MirrorPluginDescriptor,
+  MirrorPluginDescriptors,
+  CloneEditState,
 } from './lib/services/user-layer/user-layer-mirror.service';
 export type {
   OriginSidecar,
@@ -139,3 +156,8 @@ export {
   collectUpstreamLiveness,
 } from './lib/services/user-layer/user-layer-orphan-reaper';
 export { UserLayerFsOps } from './lib/services/user-layer/user-layer-fs-ops';
+export { WizardAgentOriginStore } from './lib/services/wizard-agent-origin.store';
+export type {
+  AgentOriginEntry,
+  AgentOrigins,
+} from './lib/services/wizard-agent-origin.store';

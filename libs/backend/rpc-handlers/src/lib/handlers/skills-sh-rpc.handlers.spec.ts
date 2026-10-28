@@ -21,7 +21,8 @@ import 'reflect-metadata';
 import { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 import type { SkillsShSourceRootService } from '../skills-sh/skills-sh-source-root.service';
 import type { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
-import type { SkillShEntry } from '@ptah-extension/shared';
+import type { KeptItem, SkillShEntry } from '@ptah-extension/shared';
+import { resolveHarnessWorkspaceRoot } from '@ptah-extension/harness-sync';
 
 jest.mock('@ptah-extension/cli-agent-runtime', () => ({
   SkillsShApiClient: class {},
@@ -91,8 +92,30 @@ class StubSourceRoots {
   installedSlugs = jest.fn(async () => new Set<string>());
 }
 
+/** The harness root a `/repo` workspace propagates (8.1). */
+const HARNESS_ROOT = resolveHarnessWorkspaceRoot('/repo');
+
+const CLEAN_HEALTH = {
+  workspaceRoot: HARNESS_ROOT,
+  generatedAt: '2026-01-01T00:00:00.000Z',
+  mode: 'full',
+  reason: 'test',
+  sources: 'ok',
+  targets: [],
+  collisions: [],
+};
+
 class StubPropagation {
-  propagate = jest.fn(async () => undefined);
+  propagateWithReport = jest.fn(
+    async (): Promise<{
+      health: typeof CLEAN_HEALTH | null;
+      userLayer: 'refreshed' | 'failed' | 'skipped';
+    }> => ({ health: CLEAN_HEALTH, userLayer: 'refreshed' }),
+  );
+}
+
+class StubLocalItems {
+  keptReport = jest.fn(async (): Promise<KeptItem[]> => []);
 }
 
 interface Harness {
@@ -102,6 +125,7 @@ interface Harness {
   api: StubApiClient;
   sourceRoots: StubSourceRoots;
   propagation: StubPropagation;
+  localItems: StubLocalItems;
 }
 
 function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
@@ -110,6 +134,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
   const api = new StubApiClient();
   const sourceRoots = new StubSourceRoots();
   const propagation = new StubPropagation();
+  const localItems = new StubLocalItems();
   const handlers = new SkillsShRpcHandlers(
     logger as unknown as never,
     rpc as unknown as never,
@@ -117,9 +142,10 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     api as unknown as SkillsShApiClient,
     sourceRoots as unknown as SkillsShSourceRootService,
     propagation as unknown as never,
+    localItems as unknown as never,
   );
   handlers.register();
-  return { handlers, rpc, logger, api, sourceRoots, propagation };
+  return { handlers, rpc, logger, api, sourceRoots, propagation, localItems };
 }
 
 function makeFakeChild(
@@ -286,12 +312,12 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
 
     await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
 
-    expect(h.propagation.propagate).toHaveBeenCalledWith(
-      '/repo',
+    expect(h.propagation.propagateWithReport).toHaveBeenCalledWith(
+      HARNESS_ROOT,
       'skillsSh:install',
     );
     expect(h.sourceRoots.install.mock.invocationCallOrder[0]).toBeLessThan(
-      h.propagation.propagate.mock.invocationCallOrder[0],
+      h.propagation.propagateWithReport.mock.invocationCallOrder[0],
     );
   });
 
@@ -312,12 +338,14 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
     await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
 
     expect(h.sourceRoots.install).toHaveBeenCalled();
-    expect(h.propagation.propagate).not.toHaveBeenCalled();
+    expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
   });
 
   it('still reports success when propagation fails — the bytes are on disk', async () => {
     const h = makeHarness({ workspaceRoot: '/repo' });
-    h.propagation.propagate.mockRejectedValue(new Error('reconcile exploded'));
+    h.propagation.propagateWithReport.mockRejectedValue(
+      new Error('reconcile exploded'),
+    );
 
     const result = await h.rpc.call<ActionResult>('skillsSh:install', {
       source: 'anthropics/skills',
@@ -325,6 +353,8 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
 
     expect(result.success).toBe(true);
     expect(h.logger.warn).toHaveBeenCalled();
+    // Primary success, failed pass after it (8.10a).
+    expect(result).toMatchObject({ libraryPass: 'failed' });
   });
 
   it('does not propagate when the install itself failed', async () => {
@@ -339,7 +369,9 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
     });
 
     expect(result).toEqual({ success: false, error: 'network down' });
-    expect(h.propagation.propagate).not.toHaveBeenCalled();
+    expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
+    // A primary failure carries no kept report (8.10).
+    expect(h.localItems.keptReport).not.toHaveBeenCalled();
   });
 
   it('logs the failure reason, so a failed install is diagnosable from the log', async () => {
@@ -362,6 +394,86 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
   });
 });
 
+describe('SkillsShRpcHandlers — install reports kept local items (TASK_2026_701 B12)', () => {
+  const keptItem: KeptItem = {
+    approvalId: '7f1c0a52-3b7e-4b8a-9f43-2a1d5c6e7f80',
+    family: 'skills-sh',
+    target: 'claude',
+    relPath: '.claude/skills/frontend-design',
+    reason: 'owned-edited',
+  };
+
+  it('asks for the kept report of THIS install, at the harness root', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+
+    await h.rpc.call('skillsSh:install', { source: 'anthropics/skills' });
+
+    expect(h.localItems.keptReport).toHaveBeenCalledWith({
+      harnessRoot: HARNESS_ROOT,
+      sourceRef: 'skills-sh:ptah-skillssh-anthropics-skills',
+      slugs: { skills: ['frontend-design'], commands: [], agents: [] },
+      health: CLEAN_HEALTH,
+      fileFamily: 'skills-sh',
+    });
+  });
+
+  it('returns the kept items and an updated Library pass', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.localItems.keptReport.mockResolvedValue([keptItem]);
+
+    const result = await h.rpc.call<{
+      success: boolean;
+      kept?: KeptItem[];
+      libraryPass?: string;
+    }>('skillsSh:install', { source: 'anthropics/skills' });
+
+    expect(result).toEqual({
+      success: true,
+      kept: [keptItem],
+      libraryPass: 'updated',
+    });
+  });
+
+  it('reports libraryPass failed when the user-layer refresh failed', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.propagation.propagateWithReport.mockResolvedValue({
+      health: CLEAN_HEALTH,
+      userLayer: 'failed',
+    });
+
+    const result = await h.rpc.call<{ success: boolean; libraryPass?: string }>(
+      'skillsSh:install',
+      { source: 'anthropics/skills' },
+    );
+
+    expect(result).toMatchObject({ success: true, libraryPass: 'failed' });
+  });
+
+  it('still succeeds with no kept items when the report itself fails', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.localItems.keptReport.mockRejectedValue(new Error('scan exploded'));
+
+    const result = await h.rpc.call<{ success: boolean; kept?: KeptItem[] }>(
+      'skillsSh:install',
+      { source: 'anthropics/skills' },
+    );
+
+    expect(result).toMatchObject({ success: true, kept: [] });
+  });
+
+  it('reports nothing when there is no workspace', async () => {
+    const h = makeHarness();
+
+    const result = await h.rpc.call<{ success: boolean; kept?: KeptItem[] }>(
+      'skillsSh:install',
+      { source: 'anthropics/skills' },
+    );
+
+    expect(result).toMatchObject({ success: true, kept: [] });
+    expect(h.localItems.keptReport).not.toHaveBeenCalled();
+  });
+});
+
 describe('SkillsShRpcHandlers — uninstall reaps', () => {
   it('removes from the source root and propagates so the reap sweep runs', async () => {
     const h = makeHarness({ workspaceRoot: '/repo' });
@@ -372,12 +484,12 @@ describe('SkillsShRpcHandlers — uninstall reaps', () => {
 
     expect(result.success).toBe(true);
     expect(h.sourceRoots.uninstall).toHaveBeenCalledWith('frontend-design');
-    expect(h.propagation.propagate).toHaveBeenCalledWith(
-      '/repo',
+    expect(h.propagation.propagateWithReport).toHaveBeenCalledWith(
+      HARNESS_ROOT,
       'skillsSh:uninstall',
     );
     expect(h.sourceRoots.uninstall.mock.invocationCallOrder[0]).toBeLessThan(
-      h.propagation.propagate.mock.invocationCallOrder[0],
+      h.propagation.propagateWithReport.mock.invocationCallOrder[0],
     );
     expect(h.api.invalidateInstallCaches).toHaveBeenCalled();
   });
@@ -394,7 +506,7 @@ describe('SkillsShRpcHandlers — uninstall reaps', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(h.propagation.propagate).not.toHaveBeenCalled();
+    expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
   });
 });
 
@@ -422,7 +534,7 @@ describe('SkillsShRpcHandlers — hostile input is refused at the boundary', () 
 
     expect(result.success).toBe(false);
     expect(h.sourceRoots.install).not.toHaveBeenCalled();
-    expect(h.propagation.propagate).not.toHaveBeenCalled();
+    expect(h.propagation.propagateWithReport).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
 

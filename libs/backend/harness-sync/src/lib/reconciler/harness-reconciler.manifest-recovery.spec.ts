@@ -230,7 +230,7 @@ describe('HarnessReconcilerService — a manifest that could not be persisted', 
     // Adopted, not rewritten: nothing was reported as an overwritten local edit,
     // which is what a naive comparison against the SOURCE hash would produce for
     // every transformed copy on every pass.
-    expect(codex.overwrittenLocalEdit).toEqual([]);
+    expect(codex.keptLocalEdit).toEqual([]);
     expect(readFileSync(copied, 'utf-8')).toBe(bytesBefore);
 
     const entry = healthyStore.load(ws, 'codex').entries[

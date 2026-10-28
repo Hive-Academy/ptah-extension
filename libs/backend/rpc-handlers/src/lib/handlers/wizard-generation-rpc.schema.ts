@@ -46,10 +46,35 @@ export const WizardAgentIdSchema = z
     message: 'Agent id must not contain path traversal.',
   });
 
+/** Where generated agents are written. Absent = the harness root. */
+export const GenerationTargetChoiceSchema = z.enum([
+  'harness-root',
+  'opened-folder',
+]);
+
+/** Most selected agents a request may carry (same cap as `selectedAgentIds`). */
+const MAX_AGENTS = 200;
+
+/** One file's keep/replace decision with the opaque revision its row carried. */
+export const FileDecisionEntrySchema = z.object({
+  decision: z.enum(['keep', 'replace']),
+  revision: z.string().min(1).max(128).optional(),
+});
+
+/**
+ * Decisions keyed by agent id. Keys pass {@link WizardAgentIdSchema}, so no
+ * key can be a prototype name or a path; at most {@link MAX_AGENTS} entries.
+ */
+export const FileDecisionsSchema = z
+  .record(WizardAgentIdSchema, FileDecisionEntrySchema)
+  .refine((decisions) => Object.keys(decisions).length <= MAX_AGENTS, {
+    message: `At most ${MAX_AGENTS} file decisions are allowed.`,
+  });
+
 export const WizardSubmitSelectionParamsSchema = z.object({
   tabBinding: WizardTabBindingSchema.optional(),
   /** Empty or absent is allowed only together with `resume: true`. */
-  selectedAgentIds: z.array(WizardAgentIdSchema).max(200).optional(),
+  selectedAgentIds: z.array(WizardAgentIdSchema).max(MAX_AGENTS).optional(),
   threshold: z.number().min(0).max(100).optional(),
   variableOverrides: z.record(z.string().min(1), z.string()).optional(),
   // degradation-audit: optional-capability - a malformed analysis payload is
@@ -59,6 +84,10 @@ export const WizardSubmitSelectionParamsSchema = z.object({
   model: z.string().min(1).max(200).optional(),
   analysisDir: z.string().min(1).max(4096).optional(),
   resume: z.boolean().optional(),
+  /** Token of the preview these decisions were made on; random, server-held. */
+  previewToken: z.string().uuid().optional(),
+  fileDecisions: FileDecisionsSchema.optional(),
+  target: GenerationTargetChoiceSchema.optional(),
 });
 export type WizardSubmitSelectionParsedParams = z.infer<
   typeof WizardSubmitSelectionParamsSchema
@@ -71,7 +100,8 @@ export type WizardSubmitSelectionParsedParams = z.infer<
  */
 export const WizardPreviewGenerationParamsSchema = z.object({
   tabBinding: WizardTabBindingSchema.optional(),
-  selectedAgentIds: z.array(WizardAgentIdSchema).min(1).max(200),
+  selectedAgentIds: z.array(WizardAgentIdSchema).min(1).max(MAX_AGENTS),
+  target: GenerationTargetChoiceSchema.optional(),
 });
 
 export const WizardCancelParamsSchema = z.object({

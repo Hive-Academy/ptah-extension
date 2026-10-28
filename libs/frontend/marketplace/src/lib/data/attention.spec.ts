@@ -103,7 +103,7 @@ function harnessTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 1,
     ...overrides,
@@ -205,9 +205,9 @@ describe('needsAttention — harness', () => {
       'error',
     ],
     [
-      'overwritten local edits',
-      harnessTarget('claude', { overwrittenLocalEdit: ['CLAUDE.md'] }),
-      '1 local edits replaced',
+      'kept local edits',
+      harnessTarget('claude', { keptLocalEdit: ['CLAUDE.md'] }),
+      '1 local edits kept',
       'warning',
     ],
   ])('flags a target with %s', (_case, target, detail, severity) => {

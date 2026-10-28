@@ -34,12 +34,14 @@
  *
  * Two things this module deliberately does NOT do:
  *
- * - **It does not mirror into `~/.ptah/user/skills`.** The user layer is the
- *   BASE and it wins every collision, and `UserLayerMirrorService` clones
- *   create-if-absent. A clone would therefore SURVIVE uninstall: deleting the
- *   source root would leave the user-layer copy in the desired state, and the
- *   skill would keep propagating into every target forever. Overlay-only is
- *   what makes `skillsSh:uninstall` actually reap.
+ * - **It does not write into `~/.ptah/user/skills` itself.** The hosts list
+ *   every source root in the user-layer mirror's plugin roots
+ *   (TASK_2026_701), so each skill also gets a Library clone with a sidecar
+ *   naming `ptah-skillssh-<owner>-<repo>` and `sourceRef` `skills-sh:<dir>`.
+ *   Uninstall still reaps: once `skillsSh:uninstall` deletes the source root,
+ *   the mirror's deleted-upstream sweep finds the plugin directory gone and
+ *   removes every unedited clone (snapshotted to `.history/` first). A clone
+ *   the user edited is kept and flagged `orphaned`, keeping its source label.
  * - **It does not decide scope.** There is no project-scoped source root in the
  *   reconciler's model — the desired state is `~/.ptah/user` plus the plugin
  *   overlay, both user-global by construction. See `SKILLS_SH_SCOPE` below.

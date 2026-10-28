@@ -371,4 +371,42 @@ describe('WizardAnalysisRunner', () => {
       expect(byId.get('frontend-developer')?.status).toBe('complete');
     });
   });
+
+  describe('resumeGeneration with settled kept files', () => {
+    it('shows kept and changed-since-preview agents as settled, not pending', async () => {
+      const agent = (
+        agentId: string,
+        status: ResumableGenerationRun['agents'][number]['status'],
+      ): ResumableGenerationRun['agents'][number] => ({
+        agentId,
+        filePath: `/mock/.claude/agents/${agentId}.md`,
+        status,
+        rejectedSections: 0,
+        tailoredSections: 0,
+      });
+      (mockRpcService.getResumableRun as jest.Mock).mockResolvedValue({
+        analysis: completedAnalysis,
+        generation: {
+          ...mockGenerationRun,
+          agents: [
+            agent('planner', 'kept'),
+            agent('data-engineer', 'changed-since-preview'),
+            agent('tester', 'failed'),
+          ],
+        },
+      });
+      await runner.ensureStarted();
+
+      await runner.resumeGeneration();
+
+      const calls = (mockStateService.setSkillGenerationProgress as jest.Mock)
+        .mock.calls;
+      const items = calls[calls.length - 1][0] as SkillGenerationProgressItem[];
+      expect(items.map((item) => [item.id, item.status])).toEqual([
+        ['planner', 'complete'],
+        ['data-engineer', 'complete'],
+        ['tester', 'pending'],
+      ]);
+    });
+  });
 });

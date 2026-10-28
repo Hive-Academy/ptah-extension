@@ -13,6 +13,14 @@
  * - plugins:browse-marketplace
  * - plugins:install-external / :uninstall-external
  *
+ * ...and the local-item guard around them (TASK_2026_701 B12):
+ * - plugins:replace-kept-items - replace items a no-dialog action kept
+ * - plugins:resolve-config-home - adopt or dismiss a folder's saved settings
+ *
+ * Every config read and write, and every reconcile, runs for the HARNESS ROOT
+ * of the open folder (8.1): a sub-folder workspace configures, mirrors and
+ * reconciles the repository it sits in, never a second copy of its own.
+ *
  * Activation asymmetry these handlers must preserve: bundled plugins are
  * opt-in via `enabledPluginIds`, harness-authored ones are opt-out via
  * `disabledPluginIds`. External plugins are opt-in like bundled, and a
@@ -29,12 +37,18 @@
 
 import { injectable, inject } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  RpcUserError,
+  TOKENS,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import {
   HARNESS_SYNC_TOKENS,
   NO_CLI_DETECTOR,
+  resolveHarnessWorkspaceRoot,
   type HarnessPropagationService,
   type HarnessReconcilerService,
   type IHarnessCliDetector,
@@ -49,6 +63,7 @@ import {
   MarketplaceRegistryService,
   PLUGIN_MARKETPLACE_TOKENS,
   PluginMarketplaceError,
+  type ConfirmedExternalInstall,
 } from '@ptah-extension/plugin-marketplace';
 import {
   EXTERNAL_PLUGIN_MCP_TOKEN,
@@ -58,11 +73,16 @@ import {
 import type {
   HarnessHealth,
   PluginInfo,
-  PluginConfigState,
+  PluginConfigStateWithHome,
   PluginSkillEntry,
   ExternalConsentReason,
   ExternalInstallResponse,
-  ExternalInstallResult,
+  FileDecision,
+  KeptItem,
+  LibraryPassStatus,
+  LocalItemFamily,
+  PluginsReplaceKeptItemsResult,
+  PluginsResolveConfigHomeResult,
   ExternalMarketplace,
   ExternalMarketplaceBrowseResult,
   ExternalPluginMcpServer,
@@ -76,7 +96,30 @@ import {
   ExternalUninstallParamsSchema,
   MarketplaceBrowseParamsSchema,
   MarketplaceSourceParamsSchema,
+  ReplaceKeptItemsParamsSchema,
+  ResolveConfigHomeParamsSchema,
 } from './plugin-rpc.schema';
+import { LocalItemApprovals } from './marketplace/local-item-approvals';
+import { InstallLocalItemsService } from './marketplace/install-local-items.service';
+import { PluginLocalItemsService } from './marketplace/plugin-local-items.service';
+
+/**
+ * The families whose kept reports `plugins:replace-kept-items` may act on: the
+ * actions that show no dialog (R1-3, A30). An external install's items are
+ * decided in its consent dialog and applied by its own confirm, so an
+ * `external` approval id is refused here.
+ */
+const KEPT_REPORT_FAMILIES: readonly LocalItemFamily[] = [
+  'skills-sh',
+  'plugin-enable',
+  'plugin-agent',
+];
+
+/** One reconcile's health and what it means for the Library. */
+interface HarnessPassOutcome {
+  health: HarnessHealth | null;
+  libraryPass: LibraryPassStatus;
+}
 
 /**
  * Resolve the MCP installer for external plugins, or build the shipping one.
@@ -138,6 +181,8 @@ export class PluginRpcHandlers {
     'plugins:browse-marketplace',
     'plugins:install-external',
     'plugins:uninstall-external',
+    'plugins:replace-kept-items',
+    'plugins:resolve-config-home',
   ] as const satisfies readonly RpcMethodName[];
 
   /**
@@ -177,6 +222,15 @@ export class PluginRpcHandlers {
     private readonly externalState: ExternalPluginStateStore,
     @inject(PLATFORM_TOKENS.DI_CONTAINER)
     container: DependencyContainer,
+    /** The local-item steps of a plan, a confirm and a save (A17). */
+    @inject(PluginLocalItemsService)
+    private readonly localItems: PluginLocalItemsService,
+    /** Applies replace decisions, each through its own family's route. */
+    @inject(InstallLocalItemsService)
+    private readonly installLocalItems: InstallLocalItemsService,
+    /** Read-only here: which family issued an approval id. */
+    @inject(LocalItemApprovals)
+    private readonly approvals: LocalItemApprovals,
   ) {
     this.externalMcp = resolveExternalPluginMcpService(container, this.logger);
   }
@@ -195,6 +249,8 @@ export class PluginRpcHandlers {
     this.registerBrowseMarketplace();
     this.registerInstallExternal();
     this.registerUninstallExternal();
+    this.registerReplaceKeptItems();
+    this.registerResolveConfigHome();
 
     this.logger.debug('Plugin RPC handlers registered', {
       methods: PluginRpcHandlers.METHODS,
@@ -241,38 +297,47 @@ export class PluginRpcHandlers {
   /**
    * plugins:get-config - Get per-workspace plugin configuration
    *
-   * Returns the current workspace plugin configuration including
-   * enabled plugin IDs and the last update timestamp.
-   * Returns default empty config if no configuration has been saved.
+   * Returns the plugin configuration of the open folder's harness root,
+   * including enabled plugin IDs and the last update timestamp, and the
+   * config-home notice (D14) when one applies. Returns default empty config
+   * if no configuration has been saved.
    */
   private registerGetConfig(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, PluginConfigState>(
-      'plugins:get-config',
-      async () => {
-        try {
-          this.logger.debug('RPC: plugins:get-config called');
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      PluginConfigStateWithHome
+    >('plugins:get-config', async () => {
+      try {
+        this.logger.debug('RPC: plugins:get-config called');
 
-          const config = this.pluginLoader.getWorkspacePluginConfig();
+        const harnessRoot = this.harnessRoot();
+        const config = this.pluginLoader.getWorkspacePluginConfig(
+          this.configRoot(harnessRoot),
+        );
+        const configHome =
+          harnessRoot === undefined
+            ? null
+            : this.pluginLoader.getConfigHomeStatus(harnessRoot);
 
-          this.logger.debug('RPC: plugins:get-config success', {
-            enabledCount: config.enabledPluginIds.length,
-            lastUpdated: config.lastUpdated,
-          });
+        this.logger.debug('RPC: plugins:get-config success', {
+          enabledCount: config.enabledPluginIds.length,
+          lastUpdated: config.lastUpdated,
+          configHome: configHome?.state,
+        });
 
-          return config;
-        } catch (error) {
-          this.logger.error(
-            'RPC: plugins:get-config failed',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            { errorSource: 'PluginRpcHandlers.registerGetConfig' },
-          );
-          throw error;
-        }
-      },
-    );
+        return configHome === null ? config : { ...config, configHome };
+      } catch (error) {
+        this.logger.error(
+          'RPC: plugins:get-config failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        this.sentryService.captureException(
+          error instanceof Error ? error : new Error(String(error)),
+          { errorSource: 'PluginRpcHandlers.registerGetConfig' },
+        );
+        throw error;
+      }
+    });
   }
 
   /**
@@ -285,7 +350,10 @@ export class PluginRpcHandlers {
    * @param params.disabledSkillIds - Array of skill IDs to disable (optional, preserves existing if omitted)
    * @param params.disabledPluginIds - Array of default-enabled (harness) plugin IDs to disable
    *   (optional, preserves existing if omitted)
-   * @returns Success status with optional error message
+   * @returns Success status with optional error message, the local items the
+   *   newly enabled plugins left as the user's (`kept`), and `libraryPass:
+   *   'failed'` when the reconcile after a successful save did not complete.
+   *   A failed save returns the error and no kept report (8.10).
    */
   private registerSaveConfig(): void {
     this.rpcHandler.registerMethod<
@@ -294,9 +362,18 @@ export class PluginRpcHandlers {
         disabledSkillIds?: string[];
         disabledPluginIds?: string[];
       },
-      { success: boolean; error?: string }
+      {
+        success: boolean;
+        error?: string;
+        kept?: KeptItem[];
+        libraryPass?: LibraryPassStatus;
+      }
     >('plugins:save-config', async (params) => {
       try {
+        const harnessRoot = this.harnessRoot();
+        const configRoot = this.configRoot(harnessRoot);
+        const existingConfig =
+          this.pluginLoader.getWorkspacePluginConfig(configRoot);
         const rawIds = params?.enabledPluginIds ?? [];
         // Includes the discovered ptah-harness-* directories, so a harness ID
         // survives this filter while a genuinely unknown ID is still dropped.
@@ -337,7 +414,6 @@ export class PluginRpcHandlers {
             ),
           ];
         } else {
-          const existingConfig = this.pluginLoader.getWorkspacePluginConfig();
           disabledSkillIds = existingConfig.disabledSkillIds;
         }
         // Skill IDs are validated against the enabled bundled plugins PLUS
@@ -373,11 +449,14 @@ export class PluginRpcHandlers {
           disabledPluginIds,
         });
 
-        await this.pluginLoader.saveWorkspacePluginConfig({
-          enabledPluginIds,
-          disabledSkillIds: validatedDisabledSkillIds,
-          disabledPluginIds,
-        });
+        await this.pluginLoader.saveWorkspacePluginConfig(
+          {
+            enabledPluginIds,
+            disabledSkillIds: validatedDisabledSkillIds,
+            disabledPluginIds,
+          },
+          configRoot,
+        );
         this.commandDiscovery.invalidateCache();
         // The reconciler re-reads the config we just saved through its source
         // resolver, so the newly disabled skills are reaped and the newly
@@ -388,18 +467,46 @@ export class PluginRpcHandlers {
         // the desired state FILTERS IN, never what any source contains. Paying
         // for a full mirror + reconcileAll on every checkbox toggle would make
         // the Plugins panel feel broken for no gain.
-        await this.reconcileHarness('plugins:save-config', {
-          skipUserLayerRefresh: true,
-        });
+        const pass = await this.reconcileHarness(
+          harnessRoot,
+          'plugins:save-config',
+          { skipUserLayerRefresh: true },
+        );
+        // ...but a plugin that owns agents still needs its Library copy, so
+        // the user layer catches up in the background (A13) and the Library
+        // change signal reports it. The toggle answers without waiting.
+        if (harnessRoot !== undefined) {
+          this.harnessPropagation.refreshUserLayerInBackground(
+            harnessRoot,
+            'plugins:save-config',
+          );
+        }
+        const kept =
+          harnessRoot === undefined
+            ? []
+            : await this.localItems.keptForSave({
+                harnessRoot,
+                previous: existingConfig,
+                enabledPluginIds,
+                disabledPluginIds,
+                health: pass.health,
+              });
 
         this.logger.debug('RPC: plugins:save-config success', {
           enabledCount: enabledPluginIds.length,
           disabledSkillCount: validatedDisabledSkillIds.length,
           disabledPluginCount: disabledPluginIds?.length,
           pluginPaths: pluginPaths.length,
+          kept: kept.length,
         });
 
-        return { success: true };
+        return {
+          success: true,
+          kept,
+          ...(pass.libraryPass === 'failed'
+            ? { libraryPass: pass.libraryPass }
+            : {}),
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -543,10 +650,23 @@ export class PluginRpcHandlers {
    * edited into a bypass. What the handler adds is the two things the
    * installer cannot know — which skills are currently junctioned (for the
    * collision warning) and how to activate the plugin once it is on disk.
+   *
+   * Local items (B12): the plan lists what stands where the plugin would land,
+   * each under a server-issued `approvalId`. After a SUCCESSFUL confirm and
+   * activation, the ids the user chose to replace — and only ids this plan
+   * issued — are applied through `PluginLocalItemsService`. When any item was
+   * replaced, one more awaited pass runs and is the `libraryPass` reported.
+   * A failed confirm throws before that step, so a failure never carries a
+   * kept report.
    */
   private registerInstallExternal(): void {
     this.rpcHandler.registerMethod<
-      { source: string; plugin: string; consentToken?: string },
+      {
+        source: string;
+        plugin: string;
+        consentToken?: string;
+        localItemDecisions?: Record<string, FileDecision>;
+      },
       ExternalInstallResponse
     >('plugins:install-external', async (params) => {
       const parsed = ExternalInstallParamsSchema.parse(params);
@@ -560,9 +680,9 @@ export class PluginRpcHandlers {
           );
         }
 
-        let result: ExternalInstallResult;
+        let confirmed: ConfirmedExternalInstall;
         try {
-          result = await this.externalInstaller.confirmInstall(
+          confirmed = await this.externalInstaller.confirmInstall(
             parsed.consentToken,
           );
         } catch (error: unknown) {
@@ -589,8 +709,32 @@ export class PluginRpcHandlers {
         // desired MCP state IS `~/.ptah/mcp-installed.json`, so an intent
         // recorded after the pass would not be applied until some later
         // trigger fired.
+        const { planLocalItems, ...result } = confirmed;
+        const harnessRoot = this.harnessRoot();
         const mcp = await this.installDeclaredMcpServers(result.pluginId);
-        const collisions = await this.activateExternalPlugin(result.pluginId);
+        const activation = await this.activateExternalPlugin(
+          result.pluginId,
+          harnessRoot,
+        );
+        const collisions = activation.collisions;
+        const localReport = await this.localItems.applyPlanDecisions(
+          harnessRoot,
+          planLocalItems,
+          parsed.localItemDecisions ?? {},
+        );
+        // A replaced item changes a source the Library mirrors (an agent, a
+        // clone) or a target copy AFTER the activation pass, so one more
+        // awaited full pass brings both up to date and is the one reported.
+        // The install stays a success when it fails (`libraryPass: 'failed'`).
+        const libraryPass =
+          localReport.replaced.length === 0
+            ? activation.libraryPass
+            : (
+                await this.reconcileHarness(
+                  harnessRoot,
+                  'plugins:install-external',
+                )
+              ).libraryPass;
 
         this.logger.debug('RPC: plugins:install-external installed', {
           pluginId: result.pluginId,
@@ -600,6 +744,8 @@ export class PluginRpcHandlers {
           collisions: collisions.length,
           mcpServers: mcp.serverKeys.length,
           mcpWarnings: mcp.warnings.length,
+          replaced: localReport.replaced.length,
+          kept: localReport.kept.length,
         });
 
         return {
@@ -609,6 +755,9 @@ export class PluginRpcHandlers {
             collisions,
             mcpServersInstalled: mcp.serverKeys,
             mcpWarnings: mcp.warnings,
+            kept: localReport.kept,
+            replaced: localReport.replaced,
+            libraryPass,
           },
         };
       });
@@ -731,12 +880,17 @@ export class PluginRpcHandlers {
     reason: ExternalConsentReason,
   ): Promise<ExternalInstallResponse> {
     const plan = await this.externalInstaller.planInstall(source, plugin);
+    const localItems = await this.localItems.planForInstall(
+      this.harnessRoot(),
+      plan,
+    );
     return {
       status: 'consent-required',
       reason,
       plan: {
         ...plan,
         collisions: this.predictCollisions(plan.pluginId, plan.skills),
+        ...(localItems.length > 0 ? { localItems } : {}),
       },
     };
   }
@@ -748,36 +902,49 @@ export class PluginRpcHandlers {
    * the scripts and the declared MCP servers, so making the user find a second
    * switch afterwards would add ceremony without adding a decision.
    *
-   * @returns the skills that ended up shadowed by an already-active skill.
+   * @returns the skills that ended up shadowed by an already-active skill,
+   *   and whether the Library pass after the install completed.
    */
   private async activateExternalPlugin(
     pluginId: string,
-  ): Promise<ExternalSkillCollision[]> {
-    const config = this.pluginLoader.getWorkspacePluginConfig();
+    harnessRoot: string | undefined,
+  ): Promise<{
+    collisions: ExternalSkillCollision[];
+    libraryPass: LibraryPassStatus;
+  }> {
+    const configRoot = this.configRoot(harnessRoot);
+    const config = this.pluginLoader.getWorkspacePluginConfig(configRoot);
     const enabledPluginIds = [
       ...new Set([...config.enabledPluginIds, pluginId]),
     ];
 
-    await this.pluginLoader.saveWorkspacePluginConfig({
-      enabledPluginIds,
-      disabledSkillIds: config.disabledSkillIds,
-      // Undefined preserves the persisted denylist — see saveWorkspacePluginConfig.
-      disabledPluginIds: undefined,
-    });
+    await this.pluginLoader.saveWorkspacePluginConfig(
+      {
+        enabledPluginIds,
+        disabledSkillIds: config.disabledSkillIds,
+        // Undefined preserves the persisted denylist — see saveWorkspacePluginConfig.
+        disabledPluginIds: undefined,
+      },
+      configRoot,
+    );
 
     this.commandDiscovery.invalidateCache();
-    const health = await this.reconcileHarness('plugins:install-external');
+    const { health, libraryPass } = await this.reconcileHarness(
+      harnessRoot,
+      'plugins:install-external',
+    );
 
     // Now that the copies have been rebuilt, report what actually lost, rather
     // than what we predicted would lose. The reconciler records a collision for
     // every source that could not claim its slug; we only care about the ones
     // this plugin brought.
-    return (health?.collisions ?? [])
+    const collisions = (health?.collisions ?? [])
       .filter((collision) => collision.shadowedPluginId === pluginId)
       .map((collision) => ({
         skillName: collision.slug,
         shadowedBy: this.findSkillOwner(collision.slug) ?? 'another plugin',
       }));
+    return { collisions, libraryPass };
   }
 
   /**
@@ -793,18 +960,212 @@ export class PluginRpcHandlers {
    * runs, is the only thing that removes them.
    */
   private async deactivateExternalPlugin(pluginId: string): Promise<void> {
-    const config = this.pluginLoader.getWorkspacePluginConfig();
+    const harnessRoot = this.harnessRoot();
+    const configRoot = this.configRoot(harnessRoot);
+    const config = this.pluginLoader.getWorkspacePluginConfig(configRoot);
 
-    await this.pluginLoader.saveWorkspacePluginConfig({
-      enabledPluginIds: config.enabledPluginIds.filter((id) => id !== pluginId),
-      disabledSkillIds: config.disabledSkillIds,
-      disabledPluginIds: (config.disabledPluginIds ?? []).filter(
-        (id) => id !== pluginId,
-      ),
-    });
+    await this.pluginLoader.saveWorkspacePluginConfig(
+      {
+        enabledPluginIds: config.enabledPluginIds.filter(
+          (id) => id !== pluginId,
+        ),
+        disabledSkillIds: config.disabledSkillIds,
+        disabledPluginIds: (config.disabledPluginIds ?? []).filter(
+          (id) => id !== pluginId,
+        ),
+      },
+      configRoot,
+    );
 
     this.commandDiscovery.invalidateCache();
-    await this.reconcileHarness('plugins:uninstall-external');
+    await this.reconcileHarness(harnessRoot, 'plugins:uninstall-external');
+  }
+
+  /**
+   * plugins:replace-kept-items - replace items a no-dialog action kept.
+   *
+   * Accepts only server-issued approval ids from a kept report of a no-dialog
+   * family (skills.sh install, plugin enable, plugin agents), issued for this
+   * harness root. Each id is applied through its OWN family's route; an id
+   * that is unknown, expired, already used, issued for another repository or
+   * issued to the external consent dialog rejects the whole request before
+   * anything is written.
+   */
+  private registerReplaceKeptItems(): void {
+    this.rpcHandler.registerMethod<
+      { decisions: Record<string, FileDecision> },
+      PluginsReplaceKeptItemsResult
+    >('plugins:replace-kept-items', async (params) => {
+      const parsed = ReplaceKeptItemsParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(
+          'That replace request is not valid.',
+          'INVALID_PARAMS',
+        );
+      }
+      const harnessRoot = this.requireHarnessRoot();
+      const replaceIds = Object.entries(parsed.data.decisions)
+        .filter(([, decision]) => decision === 'replace')
+        .map(([approvalId]) => approvalId);
+      if (replaceIds.length === 0) {
+        return { replaced: [], kept: [], libraryPass: 'not-applicable' };
+      }
+
+      const byFamily = new Map<LocalItemFamily, string[]>();
+      const offered = new Map<string, KeptItem>();
+      for (const approvalId of replaceIds) {
+        const approval =
+          KEPT_REPORT_FAMILIES.map((candidate) =>
+            this.approvals.peek(approvalId, candidate, harnessRoot),
+          ).find((entry) => entry !== null) ?? null;
+        if (approval === null) {
+          throw new RpcUserError(
+            'Some of these items can no longer be replaced from here. Run the action again to review them.',
+            'INVALID_PARAMS',
+          );
+        }
+        const family = approval.family;
+        byFamily.set(family, [...(byFamily.get(family) ?? []), approvalId]);
+        offered.set(approvalId, {
+          approvalId,
+          family,
+          ...(approval.target !== undefined ? { target: approval.target } : {}),
+          relPath: approval.relPath,
+          reason: 'changed-since-approval',
+        });
+      }
+
+      return this.guard('registerReplaceKeptItems', async () => {
+        const replaced: KeptItem[] = [];
+        const kept: Array<KeptItem & { error?: string }> = [];
+        for (const [family, approvalIds] of byFamily) {
+          const report = await this.installLocalItems.apply({
+            family,
+            harnessRoot,
+            approvalIds,
+          });
+          replaced.push(...report.replaced);
+          kept.push(...report.kept);
+          // An id that lapsed between the check above and the apply.
+          for (const approvalId of report.unknown) {
+            const item = offered.get(approvalId);
+            if (item !== undefined) kept.push(item);
+          }
+        }
+        // A replaced item changes a source the Library mirrors (an agent, a
+        // clone) or a target copy; one full pass brings both up to date.
+        const libraryPass =
+          replaced.length === 0
+            ? 'not-applicable'
+            : (
+                await this.reconcileHarness(
+                  harnessRoot,
+                  'plugins:replace-kept-items',
+                )
+              ).libraryPass;
+        return { replaced, kept, libraryPass };
+      });
+    });
+  }
+
+  /**
+   * plugins:resolve-config-home - adopt or dismiss one folder's saved plugin
+   * settings for the open repository (D14).
+   *
+   * `folder` is accepted only when it is one of the server's own candidates
+   * for this harness root, and the candidate's value — never the client's —
+   * is what is passed on. `adopt` copies that folder's configuration to the
+   * repository home, then runs the same awaited reconcile and background
+   * Library refresh as `plugins:save-config`. Both answer the new status.
+   */
+  private registerResolveConfigHome(): void {
+    this.rpcHandler.registerMethod<
+      { action: 'adopt' | 'dismiss'; folder: string },
+      PluginsResolveConfigHomeResult
+    >('plugins:resolve-config-home', async (params) => {
+      const parsed = ResolveConfigHomeParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        throw new RpcUserError(
+          'That plugin settings request is not valid.',
+          'INVALID_PARAMS',
+        );
+      }
+      const harnessRoot = this.requireHarnessRoot();
+      const candidate = this.pluginLoader
+        .getConfigHomeStatus(harnessRoot)
+        ?.candidates.find((entry) => entry.folder === parsed.data.folder);
+      if (candidate === undefined) {
+        throw new RpcUserError(
+          'That folder has no saved plugin settings for this repository.',
+          'INVALID_PARAMS',
+        );
+      }
+
+      return this.guard('registerResolveConfigHome', async () => {
+        let libraryPass: LibraryPassStatus | undefined;
+        if (parsed.data.action === 'adopt') {
+          await this.pluginLoader.adoptFolderConfig(
+            harnessRoot,
+            candidate.folder,
+          );
+          this.commandDiscovery.invalidateCache();
+          const pass = await this.reconcileHarness(
+            harnessRoot,
+            'plugins:resolve-config-home',
+            { skipUserLayerRefresh: true },
+          );
+          this.harnessPropagation.refreshUserLayerInBackground(
+            harnessRoot,
+            'plugins:resolve-config-home',
+          );
+          if (pass.libraryPass === 'failed') libraryPass = pass.libraryPass;
+        } else {
+          await this.pluginLoader.dismissFolderConfig(
+            harnessRoot,
+            candidate.folder,
+          );
+        }
+        const configHome = this.pluginLoader.getConfigHomeStatus(harnessRoot);
+        return {
+          ...(configHome !== null ? { configHome } : {}),
+          ...(libraryPass !== undefined ? { libraryPass } : {}),
+        };
+      });
+    });
+  }
+
+  /** Harness root of the open folder (8.1), or undefined with none open. */
+  private harnessRoot(): string | undefined {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    return workspaceRoot === undefined ||
+      workspaceRoot === null ||
+      workspaceRoot === ''
+      ? undefined
+      : resolveHarnessWorkspaceRoot(workspaceRoot);
+  }
+
+  private requireHarnessRoot(): string {
+    const harnessRoot = this.harnessRoot();
+    if (harnessRoot === undefined) {
+      throw new RpcUserError(
+        'Open a folder to change its plugins.',
+        'WORKSPACE_NOT_OPEN',
+      );
+    }
+    return harnessRoot;
+  }
+
+  /**
+   * The root plugin configuration is read and written for: the harness root
+   * when this host keeps state for it (always, with the D14 config home), else
+   * the open folder's own state — a host without the home has nowhere to put
+   * a configuration for a root it never registered.
+   */
+  private configRoot(harnessRoot: string | undefined): string | undefined {
+    if (harnessRoot === undefined) return undefined;
+    return this.pluginLoader.hasWorkspaceState(harnessRoot)
+      ? harnessRoot
+      : undefined;
   }
 
   /**
@@ -813,29 +1174,40 @@ export class PluginRpcHandlers {
    * Non-fatal: an RPC that saved the user's plugin selection must report
    * success even if the workspace copy failed, because the selection IS saved
    * and the next activation heals the copy. Returns the health report so
-   * callers can read the collision list, or `null` when there is no workspace.
+   * callers can read the collision list (`null` when there is no workspace or
+   * the pass failed), and `libraryPass`: `failed` when the reconcile or the
+   * user-layer refresh did not complete (8.10a).
    */
   private async reconcileHarness(
+    harnessRoot: string | undefined,
     reason: string,
     options: { skipUserLayerRefresh?: boolean } = {},
-  ): Promise<HarnessHealth | null> {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-    if (workspaceRoot === undefined || workspaceRoot === null) return null;
+  ): Promise<HarnessPassOutcome> {
+    if (harnessRoot === undefined) {
+      return { health: null, libraryPass: 'not-applicable' };
+    }
     try {
-      return await this.harnessPropagation.propagate(
-        workspaceRoot,
+      const report = await this.harnessPropagation.propagateWithReport(
+        harnessRoot,
         reason,
         options,
       );
+      const libraryPass: LibraryPassStatus =
+        report.health === null || report.userLayer === 'failed'
+          ? 'failed'
+          : report.userLayer === 'refreshed'
+            ? 'updated'
+            : 'not-applicable';
+      return { health: report.health, libraryPass };
     } catch (error: unknown) {
-      // degradation-audit: optional-capability - the harness copy is a derived
-      // artifact the next activation heals; null reports no health report while
-      // the user's plugin selection stays saved.
+      // Non-fatal: the harness copy is a derived
+      // artifact the next activation heals; the caller reports
+      // libraryPass 'failed' while the user's plugin selection stays saved.
       this.logger.warn('Harness reconcile failed (non-fatal)', {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      return { health: null, libraryPass: 'failed' };
     }
   }
 

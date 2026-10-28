@@ -20,6 +20,7 @@ import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { ExternalLocalItem } from '@ptah-extension/shared';
 import type {
   FetchedBlob,
   GitTreeEntry,
@@ -295,6 +296,62 @@ describe('ExternalPluginInstallerService', () => {
       await expect(
         installer.confirmInstall(plan.consentToken),
       ).rejects.toMatchObject({ code: 'consent-required' });
+    });
+  });
+
+  describe('local items ride beside the token (TASK_2026_701 A-plan)', () => {
+    const item: ExternalLocalItem = {
+      approvalId: '7f1c0a52-3b7e-4b8a-9f43-2a1d5c6e7f80',
+      target: 'claude',
+      relPath: '.claude/skills/run-tests',
+      family: 'external',
+      kind: 'owned-edited',
+    };
+
+    it('lists the skill, command and agent slugs the plan would install', async () => {
+      github.files = {
+        ...healthyRepoFiles(),
+        [`${SUBTREE}/commands/build.md`]: '# build',
+        [`${SUBTREE}/agents/test-reviewer.md`]: '# reviewer',
+        // Not directly under agents/: never an agent slug.
+        [`${SUBTREE}/agents/nested/deep.md`]: '# nested',
+      };
+      const plan = await installer.planInstall(SOURCE, PLUGIN);
+
+      expect(installer.planItemSlugs(plan.consentToken)).toEqual({
+        skills: ['debug-tests', 'run-tests'],
+        commands: ['build'],
+        agents: ['test-reviewer'],
+      });
+    });
+
+    it('answers null for a token it never minted', () => {
+      expect(installer.planItemSlugs('f'.repeat(64))).toBeNull();
+      expect(installer.attachLocalItems('f'.repeat(64), [item])).toBe(false);
+    });
+
+    it('returns the attached items from the confirm, without changing the token', async () => {
+      const plan = await installer.planInstall(SOURCE, PLUGIN);
+
+      expect(installer.attachLocalItems(plan.consentToken, [item])).toBe(true);
+      const result = await installer.confirmInstall(plan.consentToken);
+
+      expect(result.planLocalItems).toEqual([item]);
+      expect(result.pluginId).toBe(PLUGIN_ID);
+    });
+
+    it('returns no items when nothing was attached', async () => {
+      const plan = await installer.planInstall(SOURCE, PLUGIN);
+      const result = await installer.confirmInstall(plan.consentToken);
+
+      expect(result.planLocalItems).toEqual([]);
+    });
+
+    it('attaches nothing to a plan that was already confirmed', async () => {
+      const plan = await installer.planInstall(SOURCE, PLUGIN);
+      await installer.confirmInstall(plan.consentToken);
+
+      expect(installer.attachLocalItems(plan.consentToken, [item])).toBe(false);
     });
   });
 

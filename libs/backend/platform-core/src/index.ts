@@ -224,6 +224,11 @@ export type {
 export { planGlobWatch } from './utils/glob-watch-plan';
 export { collectBounded } from './utils/bounded-collect';
 export {
+  DestinationWriteLock,
+  destinationLockKey,
+  destinationWriteLock,
+} from './utils/destination-write-lock';
+export {
   IncompleteFileSearchError,
   createFailureTally,
   searchRootError,
@@ -370,11 +375,18 @@ export type {
   ContentDownloadResult,
   ContentProgressCallback,
 } from './content-download.service';
-export { AgentPackDownloadService } from './agent-pack-download.service';
+export {
+  AgentPackDownloadService,
+  hashPackContent,
+} from './agent-pack-download.service';
 export type {
   AgentPackInfo,
   AgentPackEntry,
-  AgentPackDownloadResult,
+  AgentPackFilePlan,
+  AgentPackPlanResult,
+  AgentPackInstallItem,
+  AgentPackInstallOutcome,
+  PackFileGuard,
 } from './agent-pack-download.service';
 export { resolveAuthProviderKey } from './settings-auth-key';
 export {

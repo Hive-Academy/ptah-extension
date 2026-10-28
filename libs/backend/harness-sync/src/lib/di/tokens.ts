@@ -71,6 +71,13 @@ export const HARNESS_SYNC_TOKENS = {
    * The one caller is the `harness:repairBlocked` RPC.
    */
   BLOCKED_REPAIR: Symbol.for('HarnessSyncBlockedRepair'),
+  /**
+   * `HarnessDestinationScanner` — read-only: what sits at each detected
+   * target's path for a skill, command or agent slug, with its current content
+   * digest (TASK_2026_701 B9). Callers record that digest when they offer a
+   * replace; the repair re-checks it under the lock (A21).
+   */
+  DESTINATION_SCANNER: Symbol.for('HarnessSyncDestinationScanner'),
 } as const;
 
 export type HarnessSyncDIToken = keyof typeof HARNESS_SYNC_TOKENS;

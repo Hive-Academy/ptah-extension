@@ -39,6 +39,11 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
     await fs.writeFile(filePath, content, 'utf-8');
   }
 
+  /** `open(2)` with `wx`: fails with EEXIST in the same syscall. */
+  async writeFileExclusive(filePath: string, content: string): Promise<void> {
+    await fs.writeFile(filePath, content, { encoding: 'utf-8', flag: 'wx' });
+  }
+
   async writeFileBytes(filePath: string, content: Uint8Array): Promise<void> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, content);

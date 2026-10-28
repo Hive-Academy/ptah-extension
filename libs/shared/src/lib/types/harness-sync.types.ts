@@ -49,9 +49,7 @@ export type HarnessFacet = 'skills' | 'commands' | 'agents' | 'mcp';
  * doing so would feed derived output back into the source layer.
  */
 export type HarnessFacetSupport =
-  | 'supported'
-  | 'unsupported'
-  | 'source-managed';
+  'supported' | 'unsupported' | 'source-managed';
 
 /** Per-facet capability of one target. */
 export type HarnessFacetMatrix = Readonly<
@@ -75,10 +73,7 @@ export type HarnessFacetMatrix = Readonly<
  *   `degraded`, like every other non-`ok` sources status.
  */
 export type HarnessSourcesStatus =
-  | 'ok'
-  | 'sources-missing'
-  | 'pending-download'
-  | 'policy-unknown';
+  'ok' | 'sources-missing' | 'pending-download' | 'policy-unknown';
 
 /** Why a desired entry could not be written. */
 export interface HarnessWriteFailure {
@@ -143,8 +138,17 @@ export interface HarnessTargetHealth {
   /** Paths that exist but are not manifest-owned — never touched. */
   foreign: string[];
   writeFailed: HarnessWriteFailure[];
-  /** Manifest-owned paths whose local edits were overwritten (source wins). */
-  overwrittenLocalEdit: string[];
+  /**
+   * Manifest-owned paths that were hand-edited and are KEPT as they are: no
+   * sync pass writes over them, and their ownership record keeps the hash Ptah
+   * wrote, so every later pass keeps them again until the user chooses to
+   * replace them (D8). Counted in neither {@link found} nor {@link missing}.
+   *
+   * A read-only report names the same paths a reconcile would keep. A `full`
+   * report also names a copy saved between that pass's plan and its write,
+   * which the write found edited and put back untouched.
+   */
+  keptLocalEdit: string[];
   /** Manifest-owned paths deleted because the source disappeared. */
   removed: string[];
   /**
@@ -172,12 +176,9 @@ export interface HarnessTargetHealth {
   adopted?: string[];
   /**
    * Manifest-owned paths, of any facet, whose on-disk copy no longer matches
-   * what Ptah wrote — a hand edit. On a read-only report these are what a
-   * repair WOULD overwrite; on a `full` report they are what this pass found
-   * edited, whether or not the overwrite then landed (see
-   * {@link overwrittenLocalEdit} for the ones that did). Every overwrite saves
-   * the edited copy to `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`
-   * first (TASK_2026_609).
+   * what Ptah wrote — a hand edit — as the pass's plan found them. Every one is
+   * kept, never overwritten (see {@link keptLocalEdit}), on a read-only report
+   * and a `full` one alike, so the two name the same paths over one tree.
    *
    * Optional for the same reason as {@link adopted}.
    */
@@ -517,8 +518,26 @@ export interface HarnessRemoveResult {
 /** One path the user has explicitly consented to repair. */
 export interface HarnessRepairBlockedPath {
   target: HarnessTargetId;
-  /** Workspace-relative POSIX path, exactly as it appears in `blocked`. */
+  /**
+   * Workspace-relative POSIX path, exactly as it appears in `blocked` or in
+   * {@link HarnessTargetHealth.keptLocalEdit}.
+   */
   relPath: string;
+  /**
+   * The strict approval fingerprint (content plus filesystem identity, from
+   * harness-sync's `approval-fingerprint.ts`) of what the user approved
+   * replacing — taken at approval time, never the synchronization hash
+   * (`hashFile`/`hashDir`) nor the manifest ownership hash. **Internal only**: recorded server-side
+   * when the item is offered and never accepted from a client
+   * (`harness:repairBlocked` strips it at its schema).
+   *
+   * Required for a `keptLocalEdit` path; optional for a blocked one. When it
+   * is present the repair re-digests the path under the workspace lock
+   * immediately before moving it, and any difference — edited again, deleted,
+   * recreated, now unreadable — leaves the path as it is with outcome
+   * `changed-since-approval`.
+   */
+  expectedDigest?: string;
 }
 
 /**
@@ -547,12 +566,16 @@ export interface HarnessRepairBlockedParams {
  *   and it could not be put back. The user's directory exists at
  *   {@link HarnessRepairPathResult.quarantinePath} and nowhere else, so that
  *   field is always populated for this outcome.
- * - `not-blocked` — the path is not in the reconciler's current blocked set.
- *   Refused, untouched. This is what stops the RPC being a general-purpose
- *   "move this directory" primitive.
+ * - `not-blocked` — the path is not in the reconciler's current blocked set
+ *   (nor a kept local edit carrying an approval digest). Refused, untouched.
+ *   This is what stops the RPC being a general-purpose "move this directory"
+ *   primitive.
  * - `not-a-path` — a blocked MCP fragment key (`.mcp.json#github`). It is a key
  *   inside a config file the user also writes, not a file, so there is nothing
  *   to move aside and this repair does not apply to it.
+ * - `changed-since-approval` — the path carried an approval digest and its
+ *   content no longer matches it (edited again, deleted, recreated or now
+ *   unreadable). Kept exactly as it is; nothing was moved or written.
  */
 export type HarnessRepairOutcome =
   | 'repaired'
@@ -560,7 +583,8 @@ export type HarnessRepairOutcome =
   | 'move-failed'
   | 'restore-failed'
   | 'not-blocked'
-  | 'not-a-path';
+  | 'not-a-path'
+  | 'changed-since-approval';
 
 /** Per-path outcome, one entry per requested path, in request order. */
 export interface HarnessRepairPathResult {

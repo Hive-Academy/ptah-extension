@@ -94,7 +94,6 @@ class PartialFailureTarget implements IHarnessTarget {
           hash: 'hash-ok',
           isDirectory: true,
           reason: 'create' as const,
-          overwritesLocalEdit: false,
         },
         {
           relPath: 'bad-entry',
@@ -103,7 +102,6 @@ class PartialFailureTarget implements IHarnessTarget {
           hash: 'hash-bad',
           isDirectory: true,
           reason: 'create' as const,
-          overwritesLocalEdit: false,
         },
       ],
       removals: [],
@@ -112,6 +110,7 @@ class PartialFailureTarget implements IHarnessTarget {
       collisions: [],
       migrations: [],
       adopted: [],
+      keptLocalEdit: [],
       baseEntries: { ...manifest.entries },
       unchanged: 0,
       expected: 2,
@@ -123,7 +122,7 @@ class PartialFailureTarget implements IHarnessTarget {
       written: { 'ok-entry': managedEntry('hash-ok', '/src/ok', 'skill') },
       removed: [],
       writeFailed: [{ relPath: 'bad-entry', reason: 'simulated failure' }],
-      overwrittenLocalEdit: [],
+      keptLocalEdit: [],
     };
   }
 

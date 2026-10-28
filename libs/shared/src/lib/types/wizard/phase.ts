@@ -4,6 +4,7 @@ import type {
   SetupGenerationResultFacts,
   SetupGenerationTerminalStatus,
 } from '../rpc/rpc-setup.types';
+import type { FileOutcome } from '../rpc/rpc-setup-decisions.types';
 
 /**
  * Setup Wizard message types, analysis phases, and payload types.
@@ -182,11 +183,7 @@ export interface GenerationProgressPayload {
   progress: {
     /** Current phase of generation */
     phase:
-      | 'analysis'
-      | 'selection'
-      | 'customization'
-      | 'rendering'
-      | 'complete';
+      'analysis' | 'selection' | 'customization' | 'rendering' | 'complete';
     /** Percentage complete (0-100) */
     percentComplete: number;
     /** Files scanned (during analysis phase) */
@@ -198,11 +195,15 @@ export interface GenerationProgressPayload {
   };
 }
 
-/** Terminal outcome for one generated agent file. */
+/**
+ * Terminal outcome for one generated agent file. `kept` and
+ * `changed-since-preview` agents were neither rendered into the file nor
+ * failed: the user's file was left as it was.
+ */
 export interface GenerationAgentOutcome {
   agentId: string;
   filePath: string;
-  status: 'written' | 'unchanged' | 'failed';
+  status: FileOutcome;
   rejectedSections: number;
   tailoredSections: number;
   error?: string;
@@ -226,6 +227,16 @@ export interface GenerationCompletePayload {
   unchangedCount: number;
   /** Number of agents whose generation failed. */
   failedCount: number;
+  /**
+   * Number of existing files kept as the user's. Absent on payloads from
+   * older hosts.
+   */
+  keptCount?: number;
+  /**
+   * Number of files not replaced because they changed after the preview.
+   * Absent on payloads from older hosts.
+   */
+  changedSincePreviewCount?: number;
   /** Aggregate count of LLM sections rejected by output validation. */
   rejectedSections: number;
   /** Aggregate count of accepted, non-empty LLM section replacements. */
@@ -293,5 +304,8 @@ export type WizardMessage =
       payload: GenerationCompletePayload;
     }
   | { type: 'setup-wizard:generation-stream'; payload: GenerationStreamPayload }
-  | { type: 'setup-wizard:enhance-stream'; payload: EnhancedGenerationStreamPayload }
+  | {
+      type: 'setup-wizard:enhance-stream';
+      payload: EnhancedGenerationStreamPayload;
+    }
   | { type: 'setup-wizard:error'; payload: WizardErrorPayload };

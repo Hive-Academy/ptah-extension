@@ -240,7 +240,7 @@ function makeTarget(
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 4,
     ...overrides,

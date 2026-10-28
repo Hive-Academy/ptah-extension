@@ -61,10 +61,7 @@
 
 /** The surfaces that tell a user how to clear a blocked harness path. */
 export type HarnessBlockedSurface =
-  | 'reconcile-warn'
-  | 'marketplace-popover'
-  | 'repair-dialog'
-  | 'health-store';
+  'reconcile-warn' | 'marketplace-popover' | 'repair-dialog' | 'health-store';
 
 /**
  * The fixed head of the "clear it yourself" sentence.
@@ -196,6 +193,9 @@ export const HARNESS_REPAIR_REASONS = {
   /** `not-blocked`. Fixed. */
   notBlocked:
     'this path is not in the current blocked set, so it was left untouched',
+  /** `changed-since-approval`. Fixed. */
+  changedSinceApproval:
+    'this changed after you approved it, so it was kept exactly as it is and nothing was moved or written',
 } as const satisfies Readonly<Record<string, string>>;
 
 /**
@@ -316,6 +316,8 @@ export const HARNESS_BLOCKED_APPROVED_PROSE: Readonly<
     'No longer blocked, so Ptah refused it and left it untouched.',
     'A server key inside a config file you also write, not a file. There is ' +
       'nothing to move aside, so this one does not apply.',
+    'Kept: changed since approval. It no longer matches what you approved, ' +
+      'so Ptah left it exactly as it is.',
     'Move aside and install',
     'aside and install',
     'Moving…',

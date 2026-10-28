@@ -10,6 +10,8 @@
  * 3. Runs for one key never overlap, and a trigger that arrives mid-run joins
  *    the single batch queued behind it rather than starting a third.
  * 4. Different keys are independent, and a rejected run poisons nothing.
+ * 5. Every request gets ITS batch's outcome — `ran`, `skipped` or `threw`
+ *    (TASK_2026_701 A24).
  */
 
 import { createCoalescedJob } from './coalesced-job';
@@ -288,7 +290,7 @@ describe('createCoalescedJob — isolation', () => {
     const request = job.request(KEY, 'activation', undefined);
     jest.advanceTimersByTime(WINDOW);
 
-    await expect(request).resolves.toBeUndefined();
+    await expect(request).resolves.toEqual({ kind: 'threw' });
     expect(onError).toHaveBeenCalledTimes(1);
     expect((onError.mock.calls[0][0] as Error).message).toBe('EPERM');
     expect(onError.mock.calls[0][1]).toEqual({
@@ -308,7 +310,7 @@ describe('createCoalescedJob — isolation', () => {
 
     const request = job.request(KEY, 'activation', undefined);
     jest.advanceTimersByTime(WINDOW);
-    await expect(request).resolves.toBeUndefined();
+    await expect(request).resolves.toEqual({ kind: 'threw' });
 
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining('Coalesced job failed'),
@@ -455,7 +457,7 @@ describe('createCoalescedJob — admission gate', () => {
     jest.advanceTimersByTime(WINDOW);
     await flushMicrotasks();
     g.answer('skip');
-    await expect(skipped).resolves.toBeUndefined();
+    await expect(skipped).resolves.toEqual({ kind: 'skipped' });
     expect(runs).toEqual([]);
     expect(job.pendingReasons(KEY)).toEqual([]);
 
@@ -491,5 +493,116 @@ describe('createCoalescedJob — admission gate', () => {
       reasons: ['background'],
       payload: undefined,
     });
+  });
+});
+
+/**
+ * TASK_2026_701 A24 — the per-batch outcome. The outcome travels on the
+ * batch's own promise, so no request can be answered with another batch's
+ * result.
+ */
+describe('createCoalescedJob — per-batch outcome', () => {
+  it("resolves a request with { kind: 'ran', result } when its run resolves", async () => {
+    const job = createCoalescedJob<undefined, string>({
+      windowMs: WINDOW,
+      run: async ({ reasons }) => `ran:${reasons.join('+')}`,
+    });
+
+    const request = job.request(KEY, 'activation', undefined);
+    jest.advanceTimersByTime(WINDOW);
+
+    await expect(request).resolves.toEqual({
+      kind: 'ran',
+      result: 'ran:activation',
+    });
+  });
+
+  it('answers a skipped batch with skipped, not the earlier success', async () => {
+    const verdicts: Array<'run' | 'skip'> = ['run', 'skip'];
+    const job = createCoalescedJob<undefined, string>({
+      windowMs: WINDOW,
+      run: async () => 'updated',
+      admit: async () => verdicts.shift() ?? 'run',
+    });
+
+    const first = job.request(KEY, 'activation', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await expect(first).resolves.toEqual({ kind: 'ran', result: 'updated' });
+
+    const second = job.request(KEY, 'background', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await expect(second).resolves.toEqual({ kind: 'skipped' });
+  });
+
+  it('gives a request made during a running pass the NEXT batch outcome', async () => {
+    const gate = deferred();
+    let call = 0;
+    const job = createCoalescedJob<undefined, number>({
+      windowMs: WINDOW,
+      run: async () => {
+        call += 1;
+        const mine = call;
+        if (mine === 1) await gate.promise;
+        return mine;
+      },
+    });
+
+    const first = job.request(KEY, 'activation', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+
+    // Arrives while run 1 is in flight: it joins batch 2.
+    const second = job.request(KEY, 'plugin-toggle', undefined);
+    jest.advanceTimersByTime(WINDOW);
+    await flushMicrotasks();
+
+    gate.resolve();
+    await expect(first).resolves.toEqual({ kind: 'ran', result: 1 });
+    await expect(second).resolves.toEqual({ kind: 'ran', result: 2 });
+  });
+
+  it('gives every request merged into one batch the same outcome', async () => {
+    const run = jest.fn(async () => 'once');
+    const job = createCoalescedJob<undefined, string>({
+      windowMs: WINDOW,
+      run,
+    });
+
+    const merged = Promise.all([
+      job.request(KEY, 'activation', undefined),
+      job.request(KEY, 'workspace-folders-changed', undefined),
+      job.request(KEY, 'content-download-complete', undefined),
+    ]);
+    jest.advanceTimersByTime(WINDOW);
+    const [a, b, c] = await merged;
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(a).toEqual({ kind: 'ran', result: 'once' });
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it("answers a run that threw with { kind: 'threw' } and still reports it", async () => {
+    const onError = jest.fn();
+    const job = createCoalescedJob<undefined, string>({
+      windowMs: WINDOW,
+      run: async () => {
+        throw new Error('EACCES');
+      },
+      onError,
+    });
+
+    const merged = Promise.all([
+      job.request(KEY, 'activation', undefined),
+      job.request(KEY, 'switch', undefined),
+    ]);
+    jest.advanceTimersByTime(WINDOW);
+
+    await expect(merged).resolves.toEqual([
+      { kind: 'threw' },
+      { kind: 'threw' },
+    ]);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect((onError.mock.calls[0][0] as Error).message).toBe('EACCES');
   });
 });

@@ -1,0 +1,58 @@
+{
+ "shots": [
+  {
+   "file": "wizard__wizard__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis",
+   "over": [],
+   "extra": null
+  },
+  {
+   "file": "wizard__wizard__dark__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-wizard-view.[]432",
+    "div.wizard-container h-full flex flex-col bg-base-100[]432",
+    "div.wizard-progress p-3 border-b border-base-300[]432"
+   ],
+   "extra": null
+  },
+  {
+   "file": "wizard__wizard__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "theme": "anubis-light",
+   "over": [],
+   "extra": null
+  },
+  {
+   "file": "wizard__wizard__light__narrow.png",
+   "iw": 400,
+   "sw": 400,
+   "theme": "anubis-light",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-wizard-view.[]432",
+    "div.wizard-container h-full flex flex-col bg-base-100[]432",
+    "div.wizard-progress p-3 border-b border-base-300[]432"
+   ],
+   "extra": null
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T03:33:21.374Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "Angular Error: TypeError: Cannot read properties of undefined (reading 'length')\n    at WizardLandingComponent_Template (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/main.js:1928:95)\n    at executeTemplate (file:///D:/projects/ptah-ex",
+  "Angular Error: TypeError: Cannot read properties of undefined (reading 'length')\n    at WizardLandingComponent_Template (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/main.js:1928:95)\n    at executeTemplate (file:///D:/projects/ptah-ex",
+  "[ModelStateService] Failed to load models: undefined",
+  "Angular Error: TypeError: Cannot read properties of undefined (reading 'length')\n    at WelcomeComponent_Template (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/main.js:1141:78)\n    at executeTemplate (file:///D:/projects/ptah-extensio"
+ ],
+ "wizardText": "Welcome\nScan\nAnalysis\nSelect\nGenerate\nEnhance\nComplete\nSetup Wizard\nWhat do you want to set up?\n\nEach workflow runs on its own. Generation uses a current analysis when one exists and otherwise reads your workspace.\n\nGenerate agents\n\nCreate a team of agents for this workspace.\n\nGenerate agents\nGenerate project guidance\n\nCreate project instructions for your workspace.\n\nGenerate guidance\nWorkspace an"
+}

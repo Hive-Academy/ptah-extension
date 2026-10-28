@@ -22,6 +22,13 @@
       }
     },
     "test": {
+      "//": "The inputs repeat the @nx/jest targetDefaults entry in nx.json and add the rubric that generation-prompt-rules.spec.ts pins, so a rubric-only edit marks this test affected.",
+      "inputs": [
+        "default",
+        "^production",
+        "jestRuntime",
+        "{workspaceRoot}/.claude/skills/skill-creator/references/prompt-authoring-rubric.md"
+      ],
       "options": {
         "passWithNoTests": true
       }

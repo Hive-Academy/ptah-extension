@@ -167,7 +167,7 @@ stdin is sufficient.
 `mcp-serve` also registers `session.describe` and `session.methods`. Use
 `session.describe` to read the live method + tool catalog without parsing
 `tools/list`; in this mode the result carries `mode: "mcp-serve"`,
-`schemaVersion: "0.2"` and `capabilities: ["mcp"]`. See
+`schemaVersion: "1.0"` and `capabilities: ["mcp"]`. See
 `references/jsonrpc.md` § 5.
 
 ---

@@ -2,7 +2,13 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
-import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ModelStateService,
+  ThemeService,
+  VSCodeService,
+} from '@ptah-extension/core';
+import type { WizardPreviewGenerationResponse } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
@@ -52,6 +58,41 @@ const changed = {
     },
   ],
 };
+
+const target = {
+  harnessRoot: '/workspace',
+  openedFolder: '/workspace/packages/web',
+  chosen: 'harness-root' as const,
+  openedIsHarnessRoot: false,
+};
+
+function existing(
+  revision: string,
+  token: string,
+  chosen: 'harness-root' | 'opened-folder' = 'harness-root',
+  localState: 'exists' | 'unreadable' = 'exists',
+): WizardPreviewGenerationResponse {
+  return {
+    previewToken: token,
+    target: { ...target, chosen },
+    rivalStatus: 'listed',
+    agents: [
+      {
+        agentId: agent.agentId,
+        files: [
+          {
+            target: 'claude',
+            relPath: '.claude/agents/front.md',
+            certainty: 'definite',
+            willOverwrite: true,
+            localState,
+            ...(localState === 'exists' ? { revision } : {}),
+          },
+        ],
+      },
+    ],
+  };
+}
 
 describe('AgentSelectionListComponent', () => {
   const rejection = signal<{
@@ -118,6 +159,8 @@ describe('AgentSelectionListComponent', () => {
           provide: ModelStateService,
           useValue: { availableModels: signal([]), currentModel: signal('') },
         },
+        { provide: VSCodeService, useValue: { isElectron: true } },
+        { provide: ThemeService, useValue: { isDarkMode: signal(true) } },
         {
           provide: GenerationWorkflowLauncherService,
           useValue: {
@@ -189,7 +232,166 @@ describe('AgentSelectionListComponent', () => {
     expect(fixture.componentInstance['targetsChanged']()).toBe(true);
     expect(startAgents).not.toHaveBeenCalled();
     await fixture.componentInstance['confirmPreview']();
-    expect(startAgents).toHaveBeenCalledWith([agent.agentId]);
+    expect(startAgents).toHaveBeenCalledWith([agent.agentId], {
+      fileDecisions: {},
+    });
+  });
+
+  /** Queue preview responses; the catalog call keeps answering the list. */
+  function previews(...values: WizardPreviewGenerationResponse[]): void {
+    call.mockImplementation((method: string) =>
+      Promise.resolve({
+        isSuccess: () => true,
+        data:
+          method === 'wizard:recommend-agents'
+            ? [agent]
+            : values.length > 1
+              ? values.shift()
+              : values[0],
+      }),
+    );
+  }
+  const previewCalls = () =>
+    call.mock.calls.filter(
+      ([method]) => method === 'wizard:preview-generation',
+    );
+
+  async function openWithSelection() {
+    const fixture = create();
+    await fixture.whenStable();
+    fixture.componentInstance['toggle'](agent.agentId);
+    await fixture.componentInstance['openPreview']();
+    // Render until the deferred preview dialog has loaded.
+    for (let pass = 0; pass < 3; pass++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('starts every existing file on Keep and submits the fresh token, Replace and target', async () => {
+    previews(existing('r1', 'token-1'), existing('r1', 'token-2'));
+    const fixture = await openWithSelection();
+    const component = fixture.componentInstance;
+    expect(component['decisions']()?.rows[0].decision).toBe('keep');
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-testid="preview-confirm"]')
+        ?.textContent?.trim(),
+    ).toBe('Confirm and generate');
+    component['setRowDecision']({ id: agent.agentId, decision: 'replace' });
+    await component['confirmPreview']();
+    expect(startAgents).toHaveBeenCalledWith([agent.agentId], {
+      fileDecisions: {
+        [agent.agentId]: { decision: 'replace', revision: 'r1' },
+      },
+      previewToken: 'token-2',
+      target: 'harness-root',
+    });
+  });
+
+  it('asks for another review when a replaced file changed before confirm', async () => {
+    previews(existing('r1', 'token-1'), existing('r2', 'token-2'));
+    const fixture = await openWithSelection();
+    const component = fixture.componentInstance;
+    component['setRowDecision']({ id: agent.agentId, decision: 'replace' });
+    await component['confirmPreview']();
+    expect(startAgents).not.toHaveBeenCalled();
+    expect(component['targetsChanged']()).toBe(true);
+    expect(component['decisions']()?.rows[0].decision).toBe('keep');
+    await component['confirmPreview']();
+    expect(startAgents).toHaveBeenCalledWith([agent.agentId], {
+      fileDecisions: {},
+      previewToken: 'token-2',
+      target: 'harness-root',
+    });
+  });
+
+  it('never sends Replace for an unreadable file', async () => {
+    previews(existing('r1', 'token-1', 'harness-root', 'unreadable'));
+    const fixture = await openWithSelection();
+    const component = fixture.componentInstance;
+    expect(component['decisions']()?.rows[0].forcedKeep).toBe(true);
+    component['setRowDecision']({ id: agent.agentId, decision: 'replace' });
+    component['setAllRowDecisions']('replace');
+    expect(component['decisions']()?.rows[0].decision).toBe('keep');
+    await component['confirmPreview']();
+    expect(startAgents).toHaveBeenCalledWith([agent.agentId], {
+      fileDecisions: {},
+      previewToken: 'token-1',
+      target: 'harness-root',
+    });
+  });
+
+  it('re-runs the comparison for another target and resets every choice to Keep', async () => {
+    previews(
+      existing('r1', 'token-1'),
+      existing('r1', 'token-2', 'opened-folder'),
+      existing('r1', 'token-3', 'opened-folder'),
+    );
+    const fixture = await openWithSelection();
+    const component = fixture.componentInstance;
+    component['setRowDecision']({ id: agent.agentId, decision: 'replace' });
+    await component['changeTarget']('opened-folder');
+    expect(previewCalls()[1][1]).toEqual({
+      selectedAgentIds: [agent.agentId],
+      tabBinding: binding,
+      target: 'opened-folder',
+    });
+    const snapshot = component['decisions']();
+    expect(snapshot?.rows[0].decision).toBe('keep');
+    expect(snapshot?.target).toBe('opened-folder');
+    expect(snapshot?.status).toContain('every choice is reset to Keep');
+    await component['confirmPreview']();
+    expect(previewCalls()[2][1]).toEqual(
+      expect.objectContaining({ target: 'opened-folder' }),
+    );
+    expect(startAgents).toHaveBeenCalledWith([agent.agentId], {
+      fileDecisions: {},
+      previewToken: 'token-3',
+      target: 'opened-folder',
+    });
+  });
+
+  it('drops a stale preview reply after Cancel', async () => {
+    previews(existing('r1', 'token-1'));
+    const fixture = create();
+    await fixture.whenStable();
+    const component = fixture.componentInstance;
+    component['toggle'](agent.agentId);
+    const opening = component['openPreview']();
+    component['closePreview']();
+    await opening;
+    expect(component['preview']()).toBeNull();
+    expect(component['decisions']()).toBeNull();
+    expect(component['previewOpen']()).toBe(false);
+  });
+
+  it('re-previews with choices reset and the target kept after preview-required', async () => {
+    previews(
+      existing('r1', 'token-1'),
+      existing('r1', 'token-2', 'opened-folder'),
+      existing('r1', 'token-3', 'opened-folder'),
+      existing('r1', 'token-4', 'opened-folder'),
+    );
+    startAgents.mockImplementation(() => {
+      rejection.set({ reason: 'preview-required' });
+      return Promise.resolve();
+    });
+    const fixture = await openWithSelection();
+    const component = fixture.componentInstance;
+    await component['changeTarget']('opened-folder');
+    component['setRowDecision']({ id: agent.agentId, decision: 'replace' });
+    await component['confirmPreview']();
+    expect(startAgents).toHaveBeenCalledTimes(1);
+    expect(component['previewOpen']()).toBe(true);
+    expect(previewCalls()[3][1]).toEqual(
+      expect.objectContaining({ target: 'opened-folder' }),
+    );
+    const snapshot = component['decisions']();
+    expect(snapshot?.rows[0].decision).toBe('keep');
+    expect(snapshot?.status).toBeNull();
   });
 
   it('reopens preview after preview-required rejection and shows same-workspace owner', async () => {

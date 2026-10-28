@@ -148,6 +148,19 @@ export const OriginSidecarSchema = z.object({
    * its own clones without user action.
    */
   orphaned: z.boolean().optional(),
+  /**
+   * Durable identity of the source this clone was copied from (A28):
+   * `ptah:<id>`, `external:<owner>/<repo>/<plugin>`, `skills-sh:<root dir>` or
+   * `harness:<dir>`. Unlike `pluginId`, two external plugins that share a
+   * directory basename never share a `sourceRef`. Absent on sidecars written
+   * before it existed; those still parse.
+   */
+  sourceRef: z.string().optional(),
+  /**
+   * Display name of the source at the last create/reconcile. Kept after the
+   * source is removed, so an orphaned clone still shows its former name.
+   */
+  sourceLabel: z.string().optional(),
 });
 
 export type OriginSidecar = z.infer<typeof OriginSidecarSchema>;

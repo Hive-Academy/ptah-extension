@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Focus states (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Focus states (keep / replace control)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">Keyboard focus on the keep / replace control (outer 2px ring, 2px offset, base-content; not clipped by the control)</h2>
+<div class="frame w-modal stack">
+<div class="file" style="max-width:520px"><p class="file-note" style="margin:0 0 8px">Selected Keep, focused (previously a 1.00:1 inner ring)</p><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/a.md">
+  <button type="button" role="radio" class="is-keep force-focus" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/a.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/a.md with generated version">Replace with generated</button></div></div>
+<div class="file" style="max-width:520px"><p class="file-note" style="margin:0 0 8px">Selected Replace, focused</p><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/b.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="false" tabindex="-1" aria-label="Keep my file .claude/agents/b.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace force-focus" aria-checked="true" tabindex="0" aria-label="Replace .claude/agents/b.md with generated version">Replace with generated</button></div></div>
+<div class="file" style="max-width:520px"><p class="file-note" style="margin:0 0 8px">Unselected Replace, focused (arrow key preview)</p><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/c.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/c.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace force-focus" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/c.md with generated version">Replace with generated</button></div></div>
+<div class="file" style="max-width:520px"><p class="file-note" style="margin:0 0 8px">Forced Keep: Replace is aria-disabled and cannot take focus; Keep focused</p><div class="seg locked" role="radiogroup" aria-label="Keep or replace .claude/agents/d.md" aria-describedby="">
+  <button type="button" role="radio" class="is-keep force-focus" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/d.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" aria-disabled="true" tabindex="-1" aria-label="Replace .claude/agents/d.md with generated version (not available: file could not be read)">Replace with generated</button></div></div>
+<p class="hint">Ring colour base-content against surface-1: 14.01:1 dark, 14.41:1 light (WCAG 1.4.11 needs 3:1; 2.4.7 visible focus). Selected segments also show a check mark, so state is not colour only.</p></div>
+</section>
+</main>
+<script src="assets/proto.js"></script>
+</body></html>

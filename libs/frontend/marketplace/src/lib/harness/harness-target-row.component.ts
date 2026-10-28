@@ -122,29 +122,31 @@ import {
         </ul>
       }
 
-      @if (target().overwrittenLocalEdit.length > 0) {
+      @if (target().keptLocalEdit.length > 0) {
         @if (canOpenDivergedClones()) {
           <button
             type="button"
             class="text-[10px] text-base-content-muted text-left"
-            data-testid="harness-target-overwritten"
+            data-testid="harness-target-kept"
             aria-label="Open the Skills library filtered to diverged entries"
             (click)="openDivergedClones.emit()"
           >
-            {{ target().overwrittenLocalEdit.length }} local
-            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
-            replaced from the source. Edit skills in the Ptah user layer so your
-            changes survive the next sync.
+            {{ target().keptLocalEdit.length }} local
+            {{ target().keptLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            kept as you left
+            {{ target().keptLocalEdit.length === 1 ? 'it' : 'them' }}. Sync does
+            not replace an edited copy until you choose to.
           </button>
         } @else {
           <p
             class="text-[10px] text-base-content-muted"
-            data-testid="harness-target-overwritten"
+            data-testid="harness-target-kept"
           >
-            {{ target().overwrittenLocalEdit.length }} local
-            {{ target().overwrittenLocalEdit.length === 1 ? 'edit' : 'edits' }}
-            replaced from the source. Edit skills in the Ptah user layer so your
-            changes survive the next sync.
+            {{ target().keptLocalEdit.length }} local
+            {{ target().keptLocalEdit.length === 1 ? 'edit' : 'edits' }}
+            kept as you left
+            {{ target().keptLocalEdit.length === 1 ? 'it' : 'them' }}. Sync does
+            not replace an edited copy until you choose to.
           </p>
         }
       }

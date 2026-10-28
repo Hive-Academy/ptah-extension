@@ -47,7 +47,11 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  PluginCatalogService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { NativeTab, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type {
@@ -134,10 +138,17 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
   skill:
     'No skills in your library yet. Skills arrive when you install a plugin or accept a recommendation.',
   agent:
-    'No agents in your library yet. Agents arrive when you install a plugin that ships them.',
+    'No agents in your Library yet. Agents arrive from the setup wizard, from files in .claude/agents, or from plugins that ship agents.',
   command:
     'No commands in your library yet. Commands arrive when you install a plugin that ships them.',
 };
+
+/**
+ * D14 pointer copy. The choice itself is made only in the Marketplace (F7i);
+ * the Library only says one is needed and links there.
+ */
+export const PLUGIN_SETTINGS_POINTER_COPY =
+  'This repository has plugin settings that need a choice.';
 
 @Component({
   selector: 'ptah-skill-clones-view',
@@ -185,6 +196,24 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
           </button>
         </div>
 
+        @if (pluginSettingsNeedChoice()) {
+          <p
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-base-content"
+            role="status"
+            data-testid="clones-plugin-settings-pointer"
+          >
+            <span>{{ pluginSettingsPointerCopy }}</span>
+            <button
+              type="button"
+              class="link link-hover font-medium text-base-content underline"
+              data-testid="clones-plugin-settings-open"
+              (click)="onOpenSkillsAndPlugins()"
+            >
+              Open Skills &amp; Plugins
+            </button>
+          </p>
+        }
+
         <dl
           class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-base-content-muted"
           aria-label="Status legend"
@@ -231,6 +260,26 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             Skills is paused, so "Enhance now" is unavailable. Turn Skills on at
             the top of this tab to enhance.
           </p>
+        }
+
+        @if (libraryNotice(); as n) {
+          @if (n.kind === 'failed') {
+            <div
+              role="alert"
+              class="alert alert-error py-2 text-sm"
+              data-testid="clones-library-failed"
+            >
+              <span>{{ n.message }}</span>
+            </div>
+          } @else {
+            <p
+              role="status"
+              class="alert alert-info py-2 text-sm"
+              data-testid="clones-library-updated"
+            >
+              {{ n.message }}
+            </p>
+          }
         }
 
         @if (toast(); as t) {
@@ -292,16 +341,30 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
             }
 
             @if (visibleClones().length === 0) {
-              <p
-                class="px-1 py-8 text-center text-sm text-base-content-muted"
-                data-testid="clones-empty"
+              <div
+                class="flex flex-col items-center gap-2 px-1 py-8 text-center"
               >
-                @if (loading()) {
-                  Loading library…
-                } @else {
-                  {{ emptyCopy() }}
+                <p
+                  class="text-sm text-base-content-muted"
+                  data-testid="clones-empty"
+                >
+                  @if (loading()) {
+                    Loading library…
+                  } @else {
+                    {{ emptyCopy() }}
+                  }
+                </p>
+                @if (showOpenWizard()) {
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs"
+                    data-testid="clones-open-wizard"
+                    (click)="onOpenSetupWizard()"
+                  >
+                    Open setup wizard
+                  </button>
                 }
-              </p>
+              </div>
             } @else {
               <ul
                 class="grid grid-cols-1 gap-3 lg:grid-cols-2"
@@ -451,6 +514,10 @@ export class SkillClonesViewComponent implements OnInit {
   private readonly state = inject(SkillClonesStateService);
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  /** Navigation (A-nav): the setup wizard and Skills & Plugins. */
+  private readonly appState = inject(AppStateManager);
+  /** Read only for `configHome` (D14 pointer); the choice is the Marketplace's. */
+  private readonly pluginCatalog = inject(PluginCatalogService);
   protected readonly bulk = inject(CloneBulkRebaseService);
   /**
    * Provider-copy health for the agent chips and Sync. Only read on the
@@ -493,12 +560,41 @@ export class SkillClonesViewComponent implements OnInit {
     this.skillsPaused() ? SKILLS_PAUSED_REASON : null,
   );
 
+  protected readonly pluginSettingsPointerCopy = PLUGIN_SETTINGS_POINTER_COPY;
+
+  /**
+   * D14: the current repository's plugin settings need a choice. Shown for
+   * `conflict` and `differs` only; `null`, `home` and `imported` hide it. The
+   * whole surface is Electron-only, and the host sends no notice elsewhere.
+   */
+  protected readonly pluginSettingsNeedChoice = computed(() => {
+    const state = this.pluginCatalog.configHome()?.state;
+    return state === 'conflict' || state === 'differs';
+  });
+
   /** Whether the last effect run saw the Agents tab; detects tab ENTRY. */
   private wasOnAgentTab = false;
   /** The workspace root the last effect run saw; detects a workspace switch. */
   private lastWorkspaceRoot = '';
+  /** The root the list was last read for; `undefined` before the first run. */
+  private listWorkspaceRoot: string | undefined;
 
   public constructor() {
+    // A workspace switch re-reads the list and the plugin catalog (8.2b):
+    // Electron does not reload the view, so both would otherwise describe the
+    // previous workspace. The first run is the mount, which `ngOnInit` reads.
+    effect(() => {
+      const workspaceRoot = this.vscodeService.config()?.workspaceRoot ?? '';
+      const changed =
+        this.listWorkspaceRoot !== undefined &&
+        workspaceRoot !== this.listWorkspaceRoot;
+      this.listWorkspaceRoot = workspaceRoot;
+      if (!changed || !this.isElectron()) return;
+      untracked(() => {
+        void this.state.refreshClones();
+        void this.pluginCatalog.ensureLoaded();
+      });
+    });
     effect(() => {
       if (this.divergedFilterRequest() > 0) this.divergedOnly.set(true);
     });
@@ -537,6 +633,8 @@ export class SkillClonesViewComponent implements OnInit {
   public readonly agentOutcomeSignals = this.state.agentOutcomeSignals;
   public readonly outcomeWindowDays = this.state.outcomeWindowDays;
   public readonly outcomeStatus = this.state.outcomeStatus;
+  /** "Library updated: ..." or the C10 failure notice, from the feed. */
+  public readonly libraryNotice = this.state.libraryNotice;
 
   /** Which kind tab is showing. Two-way bound to the tab group. */
   public readonly activeKind = signal<string | null>('skill');
@@ -663,9 +761,33 @@ export class SkillClonesViewComponent implements OnInit {
     this.divergedOnly() ? DIVERGED_EMPTY_COPY : EMPTY_COPY[this.currentKind()],
   );
 
+  /** The empty Agents tab offers the wizard; a filtered or loading list does not. */
+  protected readonly showOpenWizard = computed(
+    () =>
+      this.currentKind() === 'agent' && !this.divergedOnly() && !this.loading(),
+  );
+
   public ngOnInit(): void {
     if (!this.isElectron()) return;
     void this.state.refreshClones();
+    void this.pluginCatalog.ensureLoaded();
+  }
+
+  /**
+   * A-nav: the same navigation the Setup hub uses to open the wizard
+   * (`AppStateManager.setCurrentView('setup-wizard')`). No-op while the app
+   * cannot switch views.
+   */
+  protected onOpenSetupWizard(): void {
+    this.appState.setCurrentView('setup-wizard');
+  }
+
+  /**
+   * A-nav: Skills & Plugins is the Marketplace's installed-skills page, opened
+   * through the one cross-library entry point (`openMarketplace`).
+   */
+  protected onOpenSkillsAndPlugins(): void {
+    this.appState.openMarketplace({ page: 'skills' });
   }
 
   protected onRefresh(): void {
@@ -723,6 +845,7 @@ export class SkillClonesViewComponent implements OnInit {
   // ── Detail drawer ────────────────────────────────────────────────────────
 
   protected onOpenDetail(c: CloneSummary): void {
+    this.state.clearLibraryNotice();
     this.selected.set(c);
     this.historyDiff.set(null);
     void this.state.loadDetail(c.slug, c.kind);
@@ -816,13 +939,24 @@ export class SkillClonesViewComponent implements OnInit {
   }): Promise<void> {
     const c = this.previewClone();
     const preview = this.previewResult();
-    if (c === null || !preview?.proposed || !preview.draft ||
+    if (
+      c === null ||
+      !preview?.proposed ||
+      !preview.draft ||
       draft.body !== preview.draft.after ||
-      draft.expectedSourceHash !== preview.draft.sourceHash) return;
+      draft.expectedSourceHash !== preview.draft.sourceHash
+    )
+      return;
     this.previewApplying.set(true);
     this.previewError.set(null);
     try {
-      await this.rpc.saveCloneBody(c.kind, c.slug, draft.body, draft.expectedSourceHash, 'enhancement');
+      await this.rpc.saveCloneBody(
+        c.kind,
+        c.slug,
+        draft.body,
+        draft.expectedSourceHash,
+        'enhancement',
+      );
       if (this.previewClone() !== c || this.previewResult() !== preview) return;
       this.showToast(`Enhanced "${c.slug}".`, 'success');
       this.closePreview();

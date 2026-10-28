@@ -39,6 +39,18 @@ import { join } from 'path';
  */
 let renameLiesFor: ((from: string, to: string) => boolean) | null = null;
 
+/**
+ * Makes a chosen file unreadable, for the "now unreadable" approval case: no
+ * portable permission trick does that on Windows. Default off.
+ */
+let readFailsFor: ((path: string) => boolean) | null = null;
+
+/**
+ * Makes a chosen directory unlistable, for the "descendant became unreadable"
+ * approval case (P1 review A3). Default off.
+ */
+let readdirFailsFor: ((path: string) => boolean) | null = null;
+
 jest.mock('fs/promises', () => {
   const actual = jest.requireActual('fs/promises');
   return {
@@ -50,6 +62,24 @@ jest.mock('fs/promises', () => {
       }
       return actual.rename(from, to);
     },
+    readFile: async (path: unknown, ...rest: unknown[]) => {
+      if (typeof path === 'string' && readFailsFor?.(path) === true) {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, open '${path}'`),
+          { code: 'EACCES' },
+        );
+      }
+      return actual.readFile(path, ...rest);
+    },
+    readdir: async (path: unknown, ...rest: unknown[]) => {
+      if (typeof path === 'string' && readdirFailsFor?.(path) === true) {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, scandir '${path}'`),
+          { code: 'EACCES' },
+        );
+      }
+      return actual.readdir(path, ...rest);
+    },
   };
 });
 
@@ -60,6 +90,7 @@ import {
   type HarnessTargetId,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { probeDestination } from '../health/harness-destination-scanner';
 import { HarnessManifestBuilder } from '../manifest/harness-manifest.builder';
 import { ManagedManifestStore } from '../manifest-store/managed-manifest';
 import { HarnessPropagationService } from '../propagation/harness-propagation.service';
@@ -138,6 +169,7 @@ describe('HarnessBlockedRepairService', () => {
   let logger: FakeLogger;
   let reconciler: HarnessReconcilerService;
   let propagation: HarnessPropagationService;
+  let manifestStore: ManagedManifestStore;
 
   function writeSources(): HarnessSourceState {
     const skillsRoot = join(sourcesRoot, 'skills');
@@ -220,6 +252,7 @@ describe('HarnessBlockedRepairService', () => {
     const store = new ManagedManifestStore((message, detail) =>
       logger.warn(message, detail as Record<string, unknown>),
     );
+    manifestStore = store;
     reconciler = new HarnessReconcilerService(
       logger as unknown as Logger,
       new HarnessManifestBuilder(),
@@ -248,6 +281,7 @@ describe('HarnessBlockedRepairService', () => {
       logger as unknown as Logger,
       reconciler,
       propagationOverride ?? propagation,
+      manifestStore,
       () => FIXED,
     );
   }
@@ -292,6 +326,8 @@ describe('HarnessBlockedRepairService', () => {
     home = mkdtempSync(join(tmpdir(), 'harness-repair-home-'));
     logger = makeFakeLogger();
     renameLiesFor = null;
+    readFailsFor = null;
+    readdirFailsFor = null;
     buildReconciler(writeSources());
     writeOccupants();
     // The steady state the repair starts from: one converged activation pass.
@@ -300,6 +336,8 @@ describe('HarnessBlockedRepairService', () => {
 
   afterEach(() => {
     renameLiesFor = null;
+    readFailsFor = null;
+    readdirFailsFor = null;
     for (const dir of [ws, sourcesRoot, home]) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -647,6 +685,122 @@ describe('HarnessBlockedRepairService', () => {
     );
   });
 
+  // ------------------------------- repaired needs positive evidence (P1 review A2)
+
+  describe('reports repaired only on positive evidence of an installed copy (P1 review A2)', () => {
+    type TargetHealth = HarnessHealth['targets'][number];
+
+    /** A pass that writes nothing and reports `claude` through `reshape`. */
+    function passReporting(
+      reshape: (target: TargetHealth) => TargetHealth,
+    ): HarnessPropagationService {
+      return {
+        propagate: async (): Promise<HarnessHealth> => {
+          const health = await reconciler.verify(ws);
+          return {
+            ...health,
+            targets: health.targets.map((target) =>
+              target.target === 'claude' ? reshape(target) : target,
+            ),
+          };
+        },
+      } as unknown as HarnessPropagationService;
+    }
+
+    it('restores when the target failed as a whole and reported missing: []', async () => {
+      const failedTarget = passReporting((target) => ({
+        ...target,
+        missing: [],
+        writeFailed: [{ relPath: '(target)', reason: 'plan threw' }],
+      }));
+
+      const report = await makeService(failedTarget).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(report.repaired).toBe(0);
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+      expect(existsSync(quarantineFor(ALPHA))).toBe(false);
+    });
+
+    it('restores when the target was not detected by the pass', async () => {
+      const undetected = passReporting((target) => ({
+        ...target,
+        detected: false,
+        missing: [],
+      }));
+
+      const report = await makeService(undetected).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+    });
+
+    it('restores when the report looks clean but no managed copy is on disk', async () => {
+      // Every report-level signal says "installed"; only the fresh manifest +
+      // disk check under the lock can tell that nothing was written.
+      const cleanButEmpty = passReporting((target) => ({
+        ...target,
+        missing: target.missing.filter((p) => p !== ALPHA),
+        foreign: target.foreign.filter((p) => p !== ALPHA),
+        writeFailed: [],
+      }));
+
+      const report = await makeService(cleanButEmpty).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+    });
+
+    it('restores when a different edit replaced the managed copy during the pass, keeping that edit too', async () => {
+      const editedDuringPass = {
+        propagate: async (
+          ...args: Parameters<HarnessPropagationService['propagate']>
+        ) => {
+          const health = await propagation.propagate(...args);
+          // A save landing right after the pass wrote the managed copy.
+          writeFileSync(
+            join(abs(ALPHA), 'SKILL.md'),
+            'a save that raced the repair\n',
+            'utf-8',
+          );
+          return health;
+        },
+      } as unknown as HarnessPropagationService;
+
+      const report = await makeService(editedDuringPass).repair(ws, [
+        { target: 'claude', relPath: ALPHA },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('restored');
+      expect(readFileSync(join(abs(ALPHA), 'SKILL.md'), 'utf-8')).toBe(
+        USER_SKILL,
+      );
+      // Nothing deleted: the raced save was moved aside, and the log names it.
+      const superseded = logger.warn.mock.calls
+        .map(([, detail]) => detail as { supersededPath?: unknown })
+        .find((detail) => typeof detail?.supersededPath === 'string');
+      expect(superseded).toBeDefined();
+      expect(
+        readFileSync(
+          join(String(superseded?.supersededPath), 'SKILL.md'),
+          'utf-8',
+        ),
+      ).toBe('a save that raced the repair\n');
+    });
+  });
+
   // ------------------------------------------------- the quarantine is invisible
 
   it('a populated quarantine changes NOTHING about health — not foreign, not missing, not expected', async () => {
@@ -696,5 +850,234 @@ describe('HarnessBlockedRepairService', () => {
       expect(target.foreign.join('|')).not.toContain(QUARANTINE_DIR_NAME);
       expect(target.removed.join('|')).not.toContain(QUARANTINE_DIR_NAME);
     }
+  });
+
+  // ------------------------------------- kept local edits and approval digests
+
+  describe('a replace approved against a content digest (A21)', () => {
+    const BETA = '.claude/skills/beta';
+    const EDIT_A = 'edit A, made by hand\n';
+    const betaSkill = (): string => join(abs(BETA), 'SKILL.md');
+    const editBeta = (text: string): void =>
+      writeFileSync(betaSkill(), text, 'utf-8');
+    // The scanner's digest: the strict approval fingerprint (P1 review A3/A4).
+    const digestOf = async (relPath: string): Promise<string> => {
+      const { digest } = await probeDestination(abs(relPath));
+      if (digest === null) throw new Error(`no digest for ${relPath}`);
+      return digest;
+    };
+    let managedBeta: string;
+
+    beforeEach(async () => {
+      managedBeta = readFileSync(betaSkill(), 'utf-8');
+      editBeta(EDIT_A);
+      // The premise: an edited managed copy is KEPT by every pass (D8), so a
+      // replace has to be an explicit, approved action.
+      const health = await reconciler.verify(ws);
+      const claude = health.targets.find((t) => t.target === 'claude');
+      expect(claude?.keptLocalEdit).toContain(BETA);
+    });
+
+    it('refuses a kept local edit that carries no approval digest, and leaves it byte-identical', async () => {
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA },
+      ]);
+
+      expect(report.paths[0]).toEqual({
+        target: 'claude',
+        relPath: BETA,
+        outcome: 'not-blocked',
+        reason: HARNESS_REPAIR_REASONS.notBlocked,
+      });
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('replaces a kept local edit whose digest still matches, with the edit kept in quarantine', async () => {
+      const expectedDigest = await digestOf(BETA);
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('repaired');
+      expect(report.repaired).toBe(1);
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(managedBeta);
+      expect(readFileSync(join(quarantineFor(BETA), 'SKILL.md'), 'utf-8')).toBe(
+        EDIT_A,
+      );
+      // The approval digest is internal: it is in no result and no log line.
+      expect(report.paths[0]).not.toHaveProperty('expectedDigest');
+      expect(JSON.stringify(logger.info.mock.calls)).not.toContain(
+        expectedDigest,
+      );
+    });
+
+    it('keeps an edit that changed again (A -> B) after approval: changed-since-approval, nothing moved', async () => {
+      const expectedDigest = await digestOf(BETA);
+      editBeta('edit B, made after approving A\n');
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0]).toEqual({
+        target: 'claude',
+        relPath: BETA,
+        outcome: 'changed-since-approval',
+        reason: HARNESS_REPAIR_REASONS.changedSinceApproval,
+      });
+      expect(report.repaired).toBe(0);
+      expect(report.health).toBeNull();
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(
+        'edit B, made after approving A\n',
+      );
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('re-digests under the lock: an edit landing after the fresh verify is still caught', async () => {
+      const expectedDigest = await digestOf(BETA);
+      // The verify the repair runs first still sees edit A; the edit to B
+      // lands after it and before the move, which only the in-lock re-digest
+      // can observe.
+      const verify = reconciler.verify.bind(reconciler);
+      jest
+        .spyOn(reconciler, 'verify')
+        .mockImplementationOnce(async (...args) => {
+          const health = await verify(...args);
+          editBeta('edit B, raced in after the verify\n');
+          return health;
+        });
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(
+        'edit B, raced in after the verify\n',
+      );
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path deleted since approval: changed-since-approval, nothing written', async () => {
+      const expectedDigest = await digestOf(BETA);
+      rmSync(abs(BETA), { recursive: true, force: true });
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(report.paths[0].reason).toBe(
+        HARNESS_REPAIR_REASONS.changedSinceApproval,
+      );
+      expect(report.health).toBeNull();
+      expect(existsSync(abs(BETA))).toBe(false);
+    });
+
+    it('keeps a path recreated with other content since approval', async () => {
+      const expectedDigest = await digestOf(BETA);
+      rmSync(abs(BETA), { recursive: true, force: true });
+      mkdirSync(abs(BETA), { recursive: true });
+      editBeta('recreated with different content\n');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(
+        'recreated with different content\n',
+      );
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path deleted and recreated with IDENTICAL bytes since approval (P1 review A4)', async () => {
+      const expectedDigest = await digestOf(BETA);
+      // Same bytes, new objects: the content hash alone would still match.
+      rmSync(abs(BETA), { recursive: true, force: true });
+      mkdirSync(abs(BETA), { recursive: true });
+      editBeta(EDIT_A);
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path whose empty descendant directory became unlistable since approval (P1 review A3)', async () => {
+      const notes = join(abs(BETA), 'notes');
+      mkdirSync(notes);
+      const expectedDigest = await digestOf(BETA);
+      // The permissive sync hash folds an unlistable directory into an empty
+      // one, so it would still match here; the approval fingerprint must not.
+      readdirFailsFor = (path) => path === notes;
+      const propagate = jest.spyOn(propagation, 'propagate');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      readdirFailsFor = null;
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(propagate).not.toHaveBeenCalled();
+      expect(readFileSync(betaSkill(), 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(notes)).toBe(true);
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('keeps a path that became unreadable since approval', async () => {
+      const expectedDigest = await digestOf(BETA);
+      const file = betaSkill();
+      readFailsFor = (path) => path === file;
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: BETA, expectedDigest },
+      ]);
+
+      readFailsFor = null;
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(readFileSync(file, 'utf-8')).toBe(EDIT_A);
+      expect(existsSync(quarantineFor(BETA))).toBe(false);
+    });
+
+    it('checks a digest on a BLOCKED path too: an occupant changed since approval is kept', async () => {
+      const expectedDigest = await digestOf(RUN_IT);
+      writeFileSync(abs(RUN_IT), 'the user changed it again\n', 'utf-8');
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: RUN_IT, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('changed-since-approval');
+      expect(readFileSync(abs(RUN_IT), 'utf-8')).toBe(
+        'the user changed it again\n',
+      );
+    });
+
+    it('repairs a BLOCKED path whose approval digest still matches', async () => {
+      const expectedDigest = await digestOf(RUN_IT);
+
+      const report = await makeService().repair(ws, [
+        { target: 'claude', relPath: RUN_IT, expectedDigest },
+      ]);
+
+      expect(report.paths[0].outcome).toBe('repaired');
+      expect(readFileSync(abs(RUN_IT), 'utf-8')).toBe(
+        'the managed command body\n',
+      );
+      expect(readFileSync(quarantineFor(RUN_IT), 'utf-8')).toBe(USER_COMMAND);
+    });
   });
 });

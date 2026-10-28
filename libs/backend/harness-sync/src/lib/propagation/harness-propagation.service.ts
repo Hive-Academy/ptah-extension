@@ -34,7 +34,10 @@
 import type { HarnessHealth, HarnessTargetId } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { HarnessReconcilerService } from '../reconciler/harness-reconciler.service';
-import type { IUserLayerRefresher } from '../sources/user-layer-refresher.port';
+import type {
+  IUserLayerRefresher,
+  UserLayerRefreshStatus,
+} from '../sources/user-layer-refresher.port';
 
 export interface HarnessPropagateOptions {
   /**
@@ -77,6 +80,20 @@ export interface HarnessPropagateOptions {
   userLayerRefreshReason?: string;
 }
 
+/**
+ * What one propagation did: the reconcile's health report, and what the
+ * user-layer refresh in front of it did.
+ *
+ * `userLayer` is `skipped` whenever no refresh ran — no workspace, a caller
+ * that passed {@link HarnessPropagateOptions.skipUserLayerRefresh}, or a host
+ * whose refresher declined the pass.
+ */
+export interface HarnessPropagationReport {
+  /** The health report, or `null` when the reconcile could not run. */
+  health: HarnessHealth | null;
+  userLayer: UserLayerRefreshStatus;
+}
+
 export class HarnessPropagationService {
   constructor(
     private readonly logger: Logger,
@@ -85,9 +102,8 @@ export class HarnessPropagationService {
   ) {}
 
   /**
-   * @param cwd Any directory inside the workspace; the reconciler normalizes it
-   *   to the real root (E14). `undefined` when no workspace is open, in which
-   *   case there is nothing to populate and the call is a logged no-op.
+   * {@link propagateWithReport} for a caller that needs only the health.
+   *
    * @returns The health report, or `null` when the pass could not run.
    */
   async propagate(
@@ -95,34 +111,42 @@ export class HarnessPropagationService {
     reason: string,
     options: HarnessPropagateOptions = {},
   ): Promise<HarnessHealth | null> {
+    const report = await this.propagateWithReport(cwd, reason, options);
+    return report.health;
+  }
+
+  /**
+   * Refresh the user layer, then reconcile every target, and report both.
+   *
+   * @param cwd Any directory inside the workspace; the reconciler normalizes it
+   *   to the real root (E14). `undefined` when no workspace is open, in which
+   *   case there is nothing to populate and the call is a logged no-op.
+   */
+  async propagateWithReport(
+    cwd: string | undefined,
+    reason: string,
+    options: HarnessPropagateOptions = {},
+  ): Promise<HarnessPropagationReport> {
     if (cwd === undefined || cwd === null || cwd.trim() === '') {
       this.logger.debug('[harness-sync] Propagation skipped — no workspace', {
         reason,
       });
-      return null;
+      return { health: null, userLayer: 'skipped' };
     }
 
-    if (options.skipUserLayerRefresh !== true) {
-      try {
-        // An absent label is `undefined`, which every refresher treats as "no
-        // label" (the port contract): the host applies its own default.
-        await this.refresher.refresh(cwd, options.userLayerRefreshReason);
-      } catch (error: unknown) {
-        // Deliberately non-fatal and deliberately NOT a return: reconciling a
-        // stale user layer still heals every target that drifted for an
-        // unrelated reason, which is most of them.
-        this.logger.warn(
-          '[harness-sync] User-layer refresh failed; reconciling the layer as it stands',
-          {
+    // An absent label is `undefined`, which every refresher treats as "no
+    // label" (the port contract): the host applies its own default.
+    const userLayer: UserLayerRefreshStatus =
+      options.skipUserLayerRefresh === true
+        ? 'skipped'
+        : await this.refreshUserLayer(
+            cwd,
+            options.userLayerRefreshReason,
             reason,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-      }
-    }
+          );
 
     try {
-      return await this.reconciler.reconcile(cwd, {
+      const health = await this.reconciler.reconcile(cwd, {
         mode: options.mode ?? 'full',
         reason,
         ...(options.downloadPending === true ? { downloadPending: true } : {}),
@@ -130,15 +154,69 @@ export class HarnessPropagationService {
           ? { targets: options.targets }
           : {}),
       });
+      return { health, userLayer };
     } catch (error: unknown) {
-      // degradation-audit: optional-capability - propagation is best effort at
-      // trigger sites; the warning reports failure and null is the documented
-      // no-report result.
+      // Propagation is best effort at trigger sites: the warning reports the
+      // failure and a null health is the documented no-report result.
       this.logger.warn('[harness-sync] Propagation reconcile failed', {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
-      return null;
+      return { health: null, userLayer };
+    }
+  }
+
+  /**
+   * Refresh the user layer without reconciling, and without making the caller
+   * wait.
+   *
+   * For a trigger whose reconcile already ran (or needs none) but whose
+   * Library copy must still catch up — `plugins:save-config` toggling a
+   * plugin that owns agents. A `failed` status and a rejected refresher are
+   * both logged; neither reaches the caller.
+   */
+  refreshUserLayerInBackground(cwd: string | undefined, reason: string): void {
+    if (cwd === undefined || cwd === null || cwd.trim() === '') {
+      this.logger.debug(
+        '[harness-sync] Background user-layer refresh skipped — no workspace',
+        { reason },
+      );
+      return;
+    }
+    void this.refreshUserLayer(cwd, reason, reason);
+  }
+
+  /**
+   * One refresh, settled to a status. A refresher that breaks the port
+   * contract by rejecting is reported as `failed`, never propagated: a stale
+   * user layer still reconciles every target that drifted for an unrelated
+   * reason, which is most of them.
+   */
+  private async refreshUserLayer(
+    cwd: string,
+    refreshReason: string | undefined,
+    reason: string,
+  ): Promise<UserLayerRefreshStatus> {
+    try {
+      const status = await this.refresher.refresh(cwd, refreshReason);
+      if (status === 'failed') {
+        this.logger.warn(
+          '[harness-sync] User-layer refresh failed; reconciling the layer as it stands',
+          { reason },
+        );
+      }
+      return status;
+    } catch (error: unknown) {
+      // degradation-audit: reported - the warning records the rejection and
+      // 'failed' is the port's own status for a refresh that did not complete.
+      this.logger.warn(
+        '[harness-sync] User-layer refresh failed; reconciling the layer as it stands',
+        {
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return 'failed';
     }
   }
 }
