@@ -472,7 +472,10 @@ export class SessionLifecycleManager {
   /** Capture synchronously before releasing the pump or awaiting result work. */
   takeResultClientMessageId(
     sessionId: SessionId,
-    result?: { readonly user_message_uuid?: string; readonly user_message_uuids?: readonly string[] },
+    result?: {
+      readonly user_message_uuid?: string;
+      readonly user_message_uuids?: readonly string[];
+    },
   ): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
@@ -484,10 +487,18 @@ export class SessionLifecycleManager {
       ...(result?.user_message_uuids ?? []),
       ...(result?.user_message_uuid ? [result.user_message_uuid] : []),
     ];
-    const isInterruptedResult = interruptedYield !== null && (
-      interruptedYield === (rec.yieldSequence ?? 0) ||
-      (interruptedUuid != null && resultUuids.includes(interruptedUuid))
-    );
+    const qYielded = interruptedYield !== (rec.yieldSequence ?? 0);
+    // A result that names the turn yielded after the interrupt is that turn's,
+    // even when its batch also lists the interrupted prompt.
+    const namesCurrent =
+      qYielded &&
+      rec.currentTurnUserMessageUuid != null &&
+      resultUuids.includes(rec.currentTurnUserMessageUuid);
+    const isInterruptedResult =
+      interruptedYield !== null &&
+      !namesCurrent &&
+      (!qYielded ||
+        (interruptedUuid != null && resultUuids.includes(interruptedUuid)));
     if (isInterruptedResult) {
       rec.interruptAwaitingResultYieldSequence = null;
       rec.interruptedTurnUserMessageUuid = null;
@@ -502,13 +513,17 @@ export class SessionLifecycleManager {
       if (
         rec.currentTurnUserMessageUuid == null ||
         !resultUuids.includes(rec.currentTurnUserMessageUuid)
-      ) return null;
+      )
+        return null;
     }
     // An expected echo may lag its result. Retire through the out-of-stream
     // channel if the pump will idle; otherwise the next yield displaces it.
     if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {
       rec.resultYieldSequence = rec.yieldSequence ?? 0;
-      if (rec.messageQueue.length === 0 && rec.currentTurnClientMessageId !== null) {
+      if (
+        rec.messageQueue.length === 0 &&
+        rec.currentTurnClientMessageId !== null
+      ) {
         (rec.displacedRetirements ??= []).push(rec.currentTurnClientMessageId);
         rec.currentTurnClientMessageId = null;
         rec.retirementWake?.();
@@ -521,7 +536,10 @@ export class SessionLifecycleManager {
   }
 
   wasLastResultInterruptedLate(sessionId: SessionId): boolean {
-    return this._registry.find(sessionId as string)?.lastResultWasInterruptedLate === true;
+    return (
+      this._registry.find(sessionId as string)?.lastResultWasInterruptedLate ===
+      true
+    );
   }
 
   /** Drain the interrupted turn independently of the next yielded turn. */
@@ -534,7 +552,10 @@ export class SessionLifecycleManager {
   }
 
   takeDisplacedRetirement(sessionId: SessionId): string | null {
-    return this._registry.find(sessionId as string)?.displacedRetirements?.shift() ?? null;
+    return (
+      this._registry.find(sessionId as string)?.displacedRetirements?.shift() ??
+      null
+    );
   }
 
   subscribeRetirement(sessionId: SessionId, wake: () => void): () => void {

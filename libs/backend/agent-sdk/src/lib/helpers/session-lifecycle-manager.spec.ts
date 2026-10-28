@@ -1476,6 +1476,7 @@ describe('SessionLifecycleManager turn identity accessors', () => {
       'batch uuid list',
       { user_message_uuid: 'last-in-batch', user_message_uuids: ['q-uuid', 'last-in-batch'] },
     ],
+    ['batch naming both P and Q', { user_message_uuids: ['p-uuid', 'q-uuid'] }],
   ])('releases Q on its %s result while the interrupt guard is owed', async (_case, result) => {
     const h = makeHarness();
     const tab = 'q-result-with-guard' as SessionId;
