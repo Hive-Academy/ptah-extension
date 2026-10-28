@@ -10,6 +10,8 @@
 .cs-user-bubble {
   width: 100%;
   max-width: none;
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 var(--surface-highlight);
 }
 
 .cs-user-header {

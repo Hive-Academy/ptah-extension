@@ -190,9 +190,28 @@ describe('glass scene tint', () => {
   });
 
   it('keeps transcript bubbles and lane rows free of exterior shadows in both glass modes', () => {
-    expect(css).toMatch(/ptah-chat-transcript :is\(\.chat-bubble, \.cs-answer\),\s*ptah-chat-transcript ptah-lane-event article\s*\{\s*box-shadow: inset 0 1px 0 var\(--surface-highlight\);/);
-    expect(css).toMatch(/:root\[data-glass='on'\] ptah-chat-transcript \.cs-user-bubble\s*\{\s*background: var\(--glass-bubble-user\);\s*box-shadow: inset 0 1px 0 var\(--glass-glint\);/);
-    expect(css).toMatch(/ptah-chat-transcript \.cs-user-bubble\s*\{\s*background: var\(--surface-2\);/);
+    const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .flatMap(([, selectors, body]) => selectors.split(',').map(selector => ({ selector: selector.trim(), body })));
+    const rule = (selector: string) => rules.find(candidate => candidate.selector === selector && candidate.body.includes('box-shadow: inset 0 1px 0'));
+    const specificity = (selector: string) =>
+      (selector.match(/#[\w-]+/g)?.length ?? 0) * 100 +
+      (selector.match(/\.[\w-]+|\[[^\]]+\]|:root/g)?.length ?? 0) * 10 +
+      (selector.match(/(?:^|\s)(?:ptah-[\w-]+|article)(?=\s|$)/g)?.length ?? 0);
+    const glassRaise = ':root[data-glass=\'on\'] .chat-bubble';
+    const targets = [
+      'ptah-message-bubble .chat-bubble', 'ptah-chat-transcript .chat-bubble',
+      'ptah-lane-transcript .chat-bubble', 'ptah-chat-transcript .cs-answer', 'ptah-lane-event article',
+    ];
+    for (const target of targets) {
+      const off = rule(target);
+      const on = rule(`:root[data-glass='on'] ${target}`);
+      expect(off?.body).toContain('box-shadow: inset 0 1px 0 var(--surface-highlight);');
+      expect(on?.body).toContain('box-shadow: inset 0 1px 0 var(--glass-glint);');
+      if (target.endsWith('.chat-bubble')) expect(specificity(on!.selector)).toBeGreaterThan(specificity(glassRaise));
+    }
+    const user = readFileSync(join(__dirname, '../../../..', 'libs/frontend/chat/src/lib/components/organisms/message-bubble.component.css'), 'utf8');
+    expect(user).toMatch(/\.cs-user-bubble\s*\{[^}]*background: var\(--surface-2\);[^}]*box-shadow: inset 0 1px 0 var\(--surface-highlight\);/);
+    expect(rule(":root[data-glass='on'] ptah-message-bubble .cs-user-bubble")?.body).toContain('background: var(--glass-bubble-user);');
   });
 
   it('never sets the tint itself in a per-theme rule, only its alpha', () => {

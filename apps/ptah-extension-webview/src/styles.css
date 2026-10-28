@@ -3787,15 +3787,22 @@ END OF ANUBIS DESIGN SYSTEM
   backdrop-filter: none;
 }
 
-/* Transcript bubbles keep a fine inset edge without an exterior elevation shadow. */
-ptah-chat-transcript .cs-user-bubble {
-  background: var(--surface-2);
-}
-ptah-chat-transcript :is(.chat-bubble, .cs-answer),
-ptah-chat-transcript ptah-lane-event article {
+/* Chat bubbles and lane rows keep only an inset edge in every host. */
+ptah-message-bubble .chat-bubble,
+ptah-chat-transcript .chat-bubble,
+ptah-lane-transcript .chat-bubble,
+ptah-chat-transcript .cs-answer,
+ptah-lane-event article {
   box-shadow: inset 0 1px 0 var(--surface-highlight);
 }
-:root[data-glass='on'] ptah-chat-transcript .cs-user-bubble {
+:root[data-glass='on'] ptah-message-bubble .chat-bubble,
+:root[data-glass='on'] ptah-chat-transcript .chat-bubble,
+:root[data-glass='on'] ptah-lane-transcript .chat-bubble,
+:root[data-glass='on'] ptah-chat-transcript .cs-answer,
+:root[data-glass='on'] ptah-lane-event article {
+  box-shadow: inset 0 1px 0 var(--glass-glint);
+}
+:root[data-glass='on'] ptah-message-bubble .cs-user-bubble {
   background: var(--glass-bubble-user);
   box-shadow: inset 0 1px 0 var(--glass-glint);
 }

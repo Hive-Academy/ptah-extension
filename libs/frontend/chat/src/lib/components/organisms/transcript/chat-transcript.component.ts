@@ -102,7 +102,7 @@ import {
 } from './transcript-turn-contexts';
 import { TranscriptLiveClock } from './transcript-live-clock';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { groupLaneEvents } from './transcript-lane-events';
+import { groupLaneEvents, laneMetricsForRow, newestLaneRowKeys, sameLaneMonitorSnapshot, type LaneMonitorSnapshot } from './transcript-lane-events';
 import type { LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
 import { LaneEventRowComponent } from '../../molecules/lane-event/lane-event-row.component';
 
@@ -699,26 +699,48 @@ export class ChatTranscriptComponent {
   );
 
   /** Keep the rendered rows stable while this tab is inactive. */
+  private readonly liveLaneIds = computed(() => new Set(
+    (this.laneMonitor?.agents?.() ?? [])
+      .filter(agent => agent.status === 'running')
+      .map(agent => agent.agentId),
+  ), { equal: (a, b) => a.size === b.size && [...a].every(id => b.has(id)) });
+
   protected readonly laneSlots = linkedSignal({
     source: () => ({
       active: this.workActive(),
       messages: this.turnMessages(),
-      agents: this.laneMonitor?.agents?.() ?? [],
+      liveIds: this.liveLaneIds(),
     }),
     computation: (source, previous): ReadonlyMap<string, LaneSlot> => {
       if (!source.active) return previous?.value ?? new Map();
-      const liveIds = new Set(
-        source.agents
-          .filter((agent) => agent.status === 'running')
-          .map((agent) => agent.agentId),
-      );
-      return groupLaneEvents(source.messages, liveIds);
+      return groupLaneEvents(source.messages, source.liveIds);
     },
   });
 
-  protected readonly monitoredLaneAgents = computed(() =>
-    new Map((this.laneMonitor?.agents?.() ?? []).map(agent => [agent.agentId, agent])),
-  );
+  protected readonly newestLaneRows = computed(() => newestLaneRowKeys(this.laneSlots()));
+  private monitorSnapshots = new Map<string, LaneMonitorSnapshot>();
+  protected readonly laneMetricsForRow = laneMetricsForRow;
+
+  /** Reuse each agent's small metrics object while stream-only fields change. */
+  protected readonly monitoredLaneAgents = computed(() => {
+    const previous = this.monitorSnapshots;
+    const next = new Map<string, LaneMonitorSnapshot>();
+    for (const agent of this.laneMonitor?.agents?.() ?? []) {
+      const usage = agent.usageTotals;
+      const snapshot: LaneMonitorSnapshot = {
+        agentId: agent.agentId,
+        model: agent.model, usageTotals: usage ? {
+          model: usage.model, totalTokens: usage.totalTokens,
+          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, costUsd: usage.costUsd,
+        } : null,
+        status: agent.status, startedAt: agent.startedAt, completedAt: agent.completedAt,
+      };
+      const old = previous.get(agent.agentId);
+      next.set(agent.agentId, old && sameLaneMonitorSnapshot(old, snapshot) ? old : snapshot);
+    }
+    this.monitorSnapshots = next;
+    return next;
+  });
 
   private readonly turnContextBuilder = new TranscriptTurnContexts();
 
