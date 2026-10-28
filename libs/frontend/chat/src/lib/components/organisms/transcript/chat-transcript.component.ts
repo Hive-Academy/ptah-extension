@@ -976,8 +976,21 @@ export class ChatTranscriptComponent {
 
   private openSubagentLane(key: string): void {
     const lane = parseLaneKey(key);
+    if (lane?.kind === 'cli') {
+      const agent = this.laneMonitor?.agents().find((item) => item.agentId === lane.id);
+      if (!agent) {
+        this.subagentNotice.set(
+          'This agent is not available in this conversation.',
+        );
+        return;
+      }
+      this.subagentNotice.set('');
+      if (!agent.expanded) this.laneMonitor?.toggleAgentExpanded(lane.id);
+      this.laneMonitor?.requestPanelOpen(this.tabId());
+      return;
+    }
     const target =
-      lane && lane.kind !== 'cli' ? this.findSubagent(lane.id) : null;
+      lane ? this.findSubagent(lane.id) : null;
     if (!lane || !target) {
       // Never route to another session: keep the transcript, say why.
       this.subagentNotice.set(

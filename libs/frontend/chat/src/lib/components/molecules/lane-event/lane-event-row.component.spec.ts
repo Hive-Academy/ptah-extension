@@ -38,6 +38,10 @@ describe('LaneEventRowComponent', () => {
     expect(chip.textContent).not.toContain('unverified');
     expect(chip.classList.contains('text-state-done')).toBe(true);
     expect(chip.getAttribute('title')).toBe('deliverables not checked');
+    expect(chip.querySelector('.sr-only')?.textContent).toBe('deliverables not checked');
+    expect(element.querySelector('[data-testid="lane-event-toggle"]')?.getAttribute('aria-label'))
+      .toContain('deliverables not checked');
+    expect(chip.querySelector('.sr-only')?.classList.contains('sr-only')).toBe(true);
     const second = element.querySelector('[data-testid="lane-event-second-line"]')!;
     expect(second.textContent).toContain('Applied fix');
     expect(second.textContent).toContain('26s · 2 reports');

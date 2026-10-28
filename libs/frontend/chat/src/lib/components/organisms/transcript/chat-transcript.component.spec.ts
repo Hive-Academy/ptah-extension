@@ -97,6 +97,7 @@ import {
 } from '@ptah-extension/shared';
 import { SubagentTileComponent } from '../execution/subagent-tile.component';
 import {
+  AgentMonitorStore,
   SubagentExecutionStore,
   type SubagentExecutionEntry,
 } from '@ptah-extension/chat-streaming';
@@ -1524,20 +1525,55 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     expect(t.scroller.scrollTop).toBe(1000);
   });
 
-  it('keeps the transcript and announces when a lane cannot be opened here', () => {
+  it('keeps the transcript and announces when an unknown cli lane cannot be opened here', () => {
     configure();
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents: () => [], requestPanelOpen },
+    });
     const fixture = mountHost(SingleChatHost);
     const t = transcriptOf(fixture);
 
-    t.descendantActions()?.openLane('sub:not-in-this-tab');
-    t.descendantActions()?.openLane('cli:agent-1');
+    t.descendantActions()?.openLane('cli:not-in-this-tab');
     fixture.detectChanges();
 
     expect(t.view()).toBeNull();
     expect(t.scroller.hasAttribute('inert')).toBe(false);
+    expect(requestPanelOpen).not.toHaveBeenCalled();
     expect(t.notice()).toBe(
       'This agent is not available in this conversation.',
     );
+  });
+
+  it('opens a known cli lane in the monitor, expands it once, and clears the notice', () => {
+    configure();
+    const agents = signal([{ agentId: 'agent-1', expanded: false, status: 'running' as const,
+      model: null, usageTotals: null, startedAt: 0, completedAt: undefined }]);
+    const toggleAgentExpanded = jest.fn((agentId: string) => {
+      agents.update((current) => current.map((agent) =>
+        agent.agentId === agentId ? { ...agent, expanded: !agent.expanded } : agent));
+    });
+    const requestPanelOpen = jest.fn();
+    TestBed.overrideProvider(AgentMonitorStore, {
+      useValue: { agents, toggleAgentExpanded, requestPanelOpen },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const t = transcriptOf(fixture);
+
+    t.descendantActions()?.openLane('cli:unknown');
+    t.descendantActions()?.openLane('cli:agent-1');
+    fixture.detectChanges();
+
+    expect(requestPanelOpen).toHaveBeenCalledWith('tab-1');
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    expect(agents()[0].expanded).toBe(true);
+    expect(t.notice()).toBe('');
+    expect(t.view()).toBeNull();
+    expect(t.scroller.hasAttribute('inert')).toBe(false);
+
+    t.descendantActions()?.openLane('cli:agent-1');
+    expect(toggleAgentExpanded).toHaveBeenCalledTimes(1);
+    expect(requestPanelOpen).toHaveBeenCalledTimes(2);
   });
 
   it('an agent gone from the open conversation closes the view, restores the transcript and announces', () => {

@@ -7,7 +7,7 @@
   <div class="relative flex min-w-0 items-center">
     <button type="button" data-testid="lane-event-toggle"
       class="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-base-content/5"
-      [attr.aria-label]="row().agent + ' lane event details'"
+      [attr.aria-label]="row().agent + ' lane event details' + (chip().title ? ', ' + chip().title : '')"
       [attr.aria-expanded]="canExpand() ? expanded() : null" [attr.aria-controls]="canExpand() ? bodyId() : null"
       [disabled]="!canExpand()" (click)="expanded.update((v) => !v)">
       @if (canExpand()) {
@@ -24,6 +24,7 @@
         [class.text-state-run]="chip().tone === 'run'" [class.text-state-done]="chip().tone === 'done'"
         [class.text-state-need]="chip().tone === 'need'" [class.text-state-err]="chip().tone === 'err'">
         <lucide-angular [img]="chip().icon" class="h-3 w-3 motion-reduce:animate-none" aria-hidden="true" />{{ chip().label }}
+        @if (chip().title) { <span class="sr-only">{{ chip().title }}</span> }
       </span>
       <time class="ml-auto shrink-0 text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
