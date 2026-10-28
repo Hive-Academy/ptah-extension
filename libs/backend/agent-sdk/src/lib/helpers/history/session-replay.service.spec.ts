@@ -12,7 +12,7 @@
  *   - assistant messages with tool_use emit tool_start; if a matching
  *     tool_result exists upstream, a tool_result event follows.
  *   - isMeta user messages are suppressed (no events).
- *   - task-notification user messages are suppressed.
+ *   - matched task-notification records settle background agents without a user bubble.
  *
  * Wires `HistoryEventFactory` and `AgentCorrelationService` as real
  * instances (they're dependency-free, pure services), and stubs the
@@ -21,13 +21,15 @@
  */
 
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   SessionReplayService,
   type HistoryReplayCollector,
 } from './session-replay.service';
 import { HistoryEventFactory } from './history-event-factory';
 import { AgentCorrelationService } from './agent-correlation.service';
-import type { SessionHistoryMessage } from './history.types';
+import type { AgentSessionData, SessionHistoryMessage } from './history.types';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -78,6 +80,13 @@ function a(content: SessionHistoryMessage['message']): SessionHistoryMessage {
     uuid: 'a-' + Math.random().toString(36).slice(2, 8),
     message: content,
   } as SessionHistoryMessage;
+}
+
+function jsonlFixture(...parts: string[]): SessionHistoryMessage[] {
+  return readFileSync(join(__dirname, '__fixtures__', ...parts), 'utf8')
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line) as SessionHistoryMessage);
 }
 
 describe('SessionReplayService', () => {
@@ -635,6 +644,169 @@ describe('SessionReplayService', () => {
       'text_delta',
       'message_complete',
     ]);
+  });
+
+  describe('background task notifications from parent JSONL', () => {
+    const fixtureDir = ['with-background-subagent'];
+
+    function fixtureReplay(): FlatStreamEventUnion[] {
+      const agents: AgentSessionData[] = ['bgone', 'bgtwo'].map((id) => ({
+        agentId: `agent-${id}`,
+        filePath: `agent-${id}.jsonl`,
+        messages: jsonlFixture(...fixtureDir, `agent-${id}.jsonl`),
+      }));
+      return service.replayToStreamEvents(
+        'history-bg',
+        jsonlFixture(...fixtureDir, 'parent.jsonl'),
+        agents,
+      );
+    }
+
+    it('settles both background tasks after their agent events without rendering notifications as user messages', () => {
+      const events = fixtureReplay();
+      const completed = events.filter((event) => event.eventType === 'agent_completed');
+      expect(completed).toEqual([
+        expect.objectContaining({
+          eventType: 'agent_completed',
+          parentToolUseId: 'toolu_bg_1',
+          taskId: 'bgone',
+          status: 'completed',
+          summary: 'Agent "First check" finished',
+          source: 'history',
+        }),
+        expect.objectContaining({
+          eventType: 'agent_completed',
+          parentToolUseId: 'toolu_bg_2',
+          taskId: 'bgtwo',
+          status: 'completed',
+          source: 'history',
+        }),
+      ]);
+      for (const event of completed) {
+        const startIndex = events.findIndex(
+          (candidate) =>
+            candidate.eventType === 'agent_start' &&
+            candidate.parentToolUseId === event.parentToolUseId,
+        );
+        const childIndex = events.findIndex(
+          (candidate) =>
+            candidate.eventType === 'text_delta' &&
+            candidate.parentToolUseId === event.parentToolUseId,
+        );
+        expect(startIndex).toBeGreaterThanOrEqual(0);
+        expect(childIndex).toBeGreaterThan(startIndex);
+        expect(events.indexOf(event)).toBeGreaterThan(childIndex);
+      }
+      expect(events.some((event) =>
+        event.eventType === 'agent_completed' &&
+        event.parentToolUseId === 'toolu_fg_1',
+      )).toBe(false);
+      expect(events.filter((event) =>
+        event.eventType === 'message_start' && event.role === 'user',
+      )).toHaveLength(1);
+      expect(events.some((event) =>
+        event.eventType === 'text_delta' && event.delta.includes('<task-notification>'),
+      )).toBe(false);
+    });
+
+    it('drops unmatched and malformed notifications and ignores a human-typed example', () => {
+      const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+      const notification = parent[parent.length - 2];
+      const badRecords: SessionHistoryMessage[] = [
+        { ...notification, uuid: 'unmatched', message: {
+          role: 'user',
+          content: '<task-notification><task-id>other</task-id><tool-use-id>toolu_missing</tool-use-id><status>completed</status></task-notification>',
+        } },
+        { ...notification, uuid: 'malformed', message: {
+          role: 'user',
+          content: '<task-notification><task-id>bgone</task-id><tool-use-id>toolu_bg_1</tool-use-id><status>running</status></task-notification>',
+        } },
+        { ...notification, uuid: 'typed', origin: { kind: 'human' }, message: notification.message },
+      ];
+      const taskOnly = parent.slice(0, 3);
+      const events = service.replayToStreamEvents('history-bg', [...taskOnly, ...badRecords], []);
+      expect(events.filter((event) => event.eventType === 'agent_completed')).toHaveLength(0);
+      expect(events.some((event) =>
+        event.eventType === 'text_delta' && event.delta.includes('<task-notification>'),
+      )).toBe(false);
+    });
+
+    it.each([
+      ['failed', 'failed'],
+      ['error', 'failed'],
+      ['killed', 'stopped'],
+      ['stopped', 'stopped'],
+    ] as const)('maps notification status %s to %s', (rawStatus, expected) => {
+      const parent = jsonlFixture(...fixtureDir, 'parent.jsonl');
+      const notification = parent[parent.length - 2];
+      const content = notification.message?.content;
+      if (typeof content !== 'string') throw new Error('Expected text notification fixture');
+      const changed = {
+        ...notification,
+        message: {
+          role: 'user',
+          content: content
+            .replace('<status>completed</status>', `<status>${rawStatus}</status>`)
+            .replace('Agent "First check" finished', 'x'.repeat(300)),
+        },
+      };
+      const events = service.replayToStreamEvents(
+        'history-bg',
+        [...parent.slice(0, 3), changed],
+        [],
+      );
+      expect(events.find((event) => event.eventType === 'agent_completed')).toMatchObject({
+        parentToolUseId: 'toolu_bg_1',
+        status: expected,
+        summary: 'x'.repeat(240),
+      });
+    });
+  });
+
+  describe('M9 history parity with live lane user turns', () => {
+    it('keeps report and completion before the held prompt with their peer ids', () => {
+      const fixturePath = join(
+        __dirname,
+        '..', '..', '__fixtures__', 'lane-order',
+        'cli-transcript-user-lines.json',
+      );
+      const records = JSON.parse(readFileSync(fixturePath, 'utf8')) as Array<{
+        type: string;
+        uuid: string;
+        timestamp: string;
+        content: string;
+        origin?: { kind?: string };
+        turnOrigin?: string;
+      }>;
+      const messages: SessionHistoryMessage[] = records.map((record) => ({
+        type: 'user',
+        uuid: record.uuid,
+        timestamp: record.timestamp,
+        origin: record.origin,
+        turnOrigin: record.turnOrigin,
+        message: { role: 'user', content: record.content },
+      }));
+      const events = service.replayToStreamEvents('m9', messages, []);
+      const starts = events.filter(
+        (event): event is Extract<FlatStreamEventUnion, { eventType: 'message_start' }> =>
+          event.eventType === 'message_start' && event.role === 'user',
+      );
+      expect(starts.map((event) => event.messageId)).toEqual([
+        '5f8c5e05-e601-450d-9d13-3fdfb4083465',
+        '11d28bff-5729-459c-b8d2-d6f9b40ebeb8',
+        '45f1f8cc-81ed-4446-a2d7-d308466e7738',
+        'e40d14e1-6713-4ad3-a6f9-f717a808933f',
+      ]);
+      // The captured fixture abbreviates content, so identify peer turns by
+      // their envelope prefix while preserving the CLI's original UUIDs.
+      expect(events.filter((event) =>
+        event.eventType === 'text_delta' &&
+        /^<agent-(report|lane-completed)\b/.test(event.delta),
+      ).map((event) => event.messageId)).toEqual([
+        '11d28bff-5729-459c-b8d2-d6f9b40ebeb8',
+        '45f1f8cc-81ed-4446-a2d7-d308466e7738',
+      ]);
+    });
   });
 
   // -------------------------------------------------------------------------
