@@ -3,7 +3,7 @@ import type {
   CodexRuntimeEvent,
 } from '@ptah-extension/codex-runtime';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
-import { presentCodexTool } from './codex-tool-presentation';
+import { presentCodexTool, presentCodexToolResult } from './codex-tool-presentation';
 
 /** Convert a whole-turn OpenAI snapshot into Ptah's disjoint token buckets. */
 export function tokenUsage(usage: CodexReportedUsage) {
@@ -66,6 +66,8 @@ export class CodexChatEvents {
   private usage?: CodexReportedUsage;
   private readonly text = new Map<string, string>();
   private readonly blocks = new Map<string, number>();
+  /** Raw native tool names by tool id, from toolStarted to toolCompleted. */
+  private readonly tools = new Map<string, string>();
 
   constructor(
     private readonly sessionId: string,
@@ -166,6 +168,11 @@ export class CodexChatEvents {
       case 'reasoning': {
         const blockIndex = this.block('reasoning', event.itemId);
         if (event.phase === 'final') {
+          // Replace-on-final: the callbacks publish the whole final text as
+          // one complete-source thinking_delta, which replaces the streamed
+          // deltas for this block (accumulator-core.service.ts:359-367 sets,
+          // never appends). An empty reasoning item opens no thinking block.
+          if (event.text === '') return [];
           this.track(
             this.callbacks.content({
               itemId: event.itemId,
@@ -176,6 +183,7 @@ export class CodexChatEvents {
           );
           return [];
         }
+        // The runtime contract guarantees a non-empty delta per event.
         return [
           {
             ...base,
@@ -186,6 +194,7 @@ export class CodexChatEvents {
         ];
       }
       case 'toolStarted':
+        this.tools.set(event.toolId, event.toolName);
         return [
           {
             ...base,
@@ -202,16 +211,26 @@ export class CodexChatEvents {
             ),
           },
         ];
-      case 'toolCompleted':
+      case 'toolCompleted': {
+        // The result is shaped like Claude's tool_result for the tool that
+        // started (the runtime completion carries no name).
+        const toolName = this.tools.get(event.toolId);
+        this.tools.delete(event.toolId);
         return [
           {
             ...base,
             eventType: 'tool_result',
             toolCallId: event.toolId,
-            output: event.output,
-            isError: event.status !== 'completed',
+            ...presentCodexToolResult({
+              toolName,
+              status: event.status,
+              output: event.output,
+              ...(event.exitCode === undefined ? {} : { exitCode: event.exitCode }),
+              ...(event.errorText === undefined ? {} : { errorText: event.errorText }),
+            }),
           },
         ];
+      }
       case 'usage':
         this.usage = event.usage;
         return event.usage.inputTokens !== undefined &&
@@ -249,6 +268,7 @@ export class CodexChatEvents {
         };
         this.text.clear();
         this.blocks.clear();
+        this.tools.clear();
         this.usage = undefined;
         this.track(this.callbacks.result(result));
         // Message usage is the SDK stream contract; result stats are a separate channel.

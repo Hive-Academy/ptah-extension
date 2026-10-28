@@ -79,6 +79,10 @@ export function createCodexChatEventCallbacks(
   return {
     content: (item) =>
       safe(() => {
+        // Claude's stream drops empty deltas (stream-event.transformer.ts:463,
+        // :503), so no empty text or thinking block ever opens. The projection
+        // already sends none; this keeps the publish boundary just as total.
+        if (item.text === '') return;
         return publish({
           ...base(),
           eventType:

@@ -1,5 +1,6 @@
 import type { CodexRuntimeEvent } from '@ptah-extension/codex-runtime';
 import { CodexChatEvents, tokenUsage } from './codex-chat-events';
+import { CODEX_DENIED_TOOL_RESULT_TEXT } from './codex-tool-presentation';
 
 const identity = {
   contextId: 'context',
@@ -150,6 +151,69 @@ describe('CodexChatEvents', () => {
         status: 'failed',
       })[0],
     ).toMatchObject({ toolCallId: 'stable', isError: true });
+  });
+  it('replaces streamed reasoning with the final text and never duplicates it', async () => {
+    const { projection, callbacks } = setup();
+    expect(
+      projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'delta', itemId: 'r', text: 'par' })[1],
+    ).toMatchObject({ eventType: 'thinking_delta', delta: 'par', blockIndex: 0 });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'reasoning', phase: 'final', itemId: 'r', text: 'partial thought' }),
+    ).toEqual([]);
+    await projection.settled();
+    expect(callbacks.content).toHaveBeenCalledTimes(1);
+    expect(callbacks.content).toHaveBeenCalledWith({ itemId: 'r', kind: 'reasoning', text: 'partial thought', blockIndex: 0 });
+  });
+  it('publishes final reasoning that streamed no deltas', async () => {
+    const { projection, callbacks } = setup();
+    expect(
+      projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'final', itemId: 'r', text: 'full thought' }),
+    ).toEqual([expect.objectContaining({ eventType: 'message_start' })]);
+    await projection.settled();
+    expect(callbacks.content).toHaveBeenCalledWith({ itemId: 'r', kind: 'reasoning', text: 'full thought', blockIndex: 0 });
+  });
+  it('opens no thinking block for an empty reasoning item', async () => {
+    const { projection, callbacks } = setup();
+    expect(
+      projection.map({ ...identity, sequence: 1, type: 'reasoning', phase: 'final', itemId: 'r', text: '' }),
+    ).toEqual([expect.objectContaining({ eventType: 'message_start' })]);
+    await projection.settled();
+    expect(callbacks.content).not.toHaveBeenCalled();
+  });
+  it('projects a failed command like Claude failed Bash: real output plus exit code', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted', toolId: 'c1', toolName: 'commandExecution', input: { command: 'npm test' } });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'toolCompleted', toolId: 'c1', status: 'failed', output: 'boom\n', exitCode: 1 })[0],
+    ).toMatchObject({ eventType: 'tool_result', toolCallId: 'c1', output: 'boom\nCommand failed with exit code 1', isError: true });
+  });
+  it('projects a failed command with no output to the exit-code line only', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted', toolId: 'c2', toolName: 'commandExecution', input: { command: 'npm test' } });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'toolCompleted', toolId: 'c2', status: 'failed', output: null, exitCode: 2 })[0],
+    ).toMatchObject({ output: 'Command failed with exit code 2', isError: true });
+  });
+  it('keeps the successful command shape, exit code 0 included', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted', toolId: 'c3', toolName: 'commandExecution', input: { command: 'pwd' } });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'toolCompleted', toolId: 'c3', status: 'completed', output: 'ok', exitCode: 0 })[0],
+    ).toMatchObject({ output: 'ok', isError: false });
+  });
+  it('projects a declined command as the Claude denial result', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted', toolId: 'c4', toolName: 'commandExecution', input: { command: 'rm -rf build' } });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'toolCompleted', toolId: 'c4', status: 'cancelled', output: null })[0],
+    ).toMatchObject({ output: CODEX_DENIED_TOOL_RESULT_TEXT, isError: true });
+  });
+  it('projects a failed MCP call with the server error text', () => {
+    const { projection } = setup();
+    projection.map({ ...identity, sequence: 1, type: 'toolStarted', toolId: 'm1', toolName: 'orchestrator/ListAgents', input: {} });
+    expect(
+      projection.map({ ...identity, sequence: 2, type: 'toolCompleted', toolId: 'm1', status: 'failed', output: { content: [] }, errorText: 'server unreachable' })[0],
+    ).toMatchObject({ output: 'server unreachable', isError: true });
   });
   it('reports usage once, ignores foreign and duplicate frames, and settles once', () => {
     const { projection, callbacks } = setup();

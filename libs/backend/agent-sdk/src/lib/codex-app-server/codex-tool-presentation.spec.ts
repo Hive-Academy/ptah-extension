@@ -3,8 +3,10 @@ import type {
   CodexJsonValue,
 } from '@ptah-extension/codex-runtime';
 import {
+  CODEX_DENIED_TOOL_RESULT_TEXT,
   presentCodexApproval,
   presentCodexTool,
+  presentCodexToolResult,
 } from './codex-tool-presentation';
 
 function approval(
@@ -30,13 +32,10 @@ function approval(
 describe('presentCodexTool', () => {
   it.each([
     {
-      case: 'command with cwd',
+      case: 'command with cwd drops it (Claude BashToolInput)',
       toolName: 'commandExecution',
       input: { command: 'npm test', cwd: '/workspace' },
-      expected: {
-        toolName: 'Bash',
-        toolInput: { command: 'npm test', cwd: '/workspace' },
-      },
+      expected: { toolName: 'Bash', toolInput: { command: 'npm test' } },
     },
     {
       case: 'command without cwd',
@@ -45,9 +44,18 @@ describe('presentCodexTool', () => {
       expected: { toolName: 'Bash', toolInput: { command: 'npm test' } },
     },
     {
-      case: 'empty cwd is dropped',
+      case: 'command keeps a description like Claude',
       toolName: 'commandExecution',
-      input: { command: 'npm test', cwd: '' },
+      input: { command: 'npm test', description: 'Run the suite' },
+      expected: {
+        toolName: 'Bash',
+        toolInput: { command: 'npm test', description: 'Run the suite' },
+      },
+    },
+    {
+      case: 'command drops every other native key',
+      toolName: 'commandExecution',
+      input: { command: 'npm test', cwd: '/w', timeoutMs: 5 },
       expected: { toolName: 'Bash', toolInput: { command: 'npm test' } },
     },
     {
@@ -201,6 +209,119 @@ describe('presentCodexTool', () => {
   });
 });
 
+describe('presentCodexToolResult', () => {
+  // Claude's tool_result event is content plus `is_error ?? false`
+  // (user-message.transformer.ts:57-68); these cases pin the Codex shapes to
+  // that contract, not to hand-written shapes.
+  it.each([
+    {
+      case: 'a successful command with exit code 0 keeps the success shape',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'completed' as const,
+        output: 'ok',
+        exitCode: 0,
+      },
+      expected: { output: 'ok', isError: false },
+    },
+    {
+      case: 'a failed command with output and exit code is Claude failed Bash',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'failed' as const,
+        output: 'denied\n',
+        exitCode: 1,
+      },
+      expected: {
+        output: 'denied\nCommand failed with exit code 1',
+        isError: true,
+      },
+    },
+    {
+      case: 'a failed command with empty output reports the exit code only',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'failed' as const,
+        output: null,
+        exitCode: 2,
+      },
+      expected: { output: 'Command failed with exit code 2', isError: true },
+    },
+    {
+      case: 'a completed command that exited non-zero is a failure',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'completed' as const,
+        output: 'access denied',
+        exitCode: 1,
+      },
+      expected: {
+        output: 'access denied\nCommand failed with exit code 1',
+        isError: true,
+      },
+    },
+    {
+      case: 'a failed command with no exit code keeps the real output only',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'failed' as const,
+        output: 'boom',
+      },
+      expected: { output: 'boom', isError: true },
+    },
+    {
+      case: 'a declined command is Claude denial result',
+      completed: {
+        toolName: 'commandExecution',
+        status: 'cancelled' as const,
+        output: null,
+      },
+      expected: { output: CODEX_DENIED_TOOL_RESULT_TEXT, isError: true },
+    },
+    {
+      case: 'an MCP error carries the server error text',
+      completed: {
+        toolName: 'orchestrator/ListAgents',
+        status: 'failed' as const,
+        output: { content: [] },
+        errorText: 'server unreachable',
+      },
+      expected: { output: 'server unreachable', isError: true },
+    },
+    {
+      case: 'a failed MCP call without error text passes the content through',
+      completed: {
+        toolName: 'orchestrator/ListAgents',
+        status: 'failed' as const,
+        output: { content: [{ type: 'text', text: 'partial' }] },
+      },
+      expected: {
+        output: { content: [{ type: 'text', text: 'partial' }] },
+        isError: true,
+      },
+    },
+    {
+      case: 'a completed MCP call keeps the success shape',
+      completed: {
+        toolName: 'orchestrator/ListAgents',
+        status: 'completed' as const,
+        output: { content: [{ type: 'text', text: 'ok' }] },
+      },
+      expected: {
+        output: { content: [{ type: 'text', text: 'ok' }] },
+        isError: false,
+      },
+    },
+    {
+      case: 'a failed call whose start was not seen passes the output through',
+      completed: { toolName: undefined, status: 'failed' as const, output: 'x' },
+      expected: { output: 'x', isError: true },
+    },
+  ])('presents $case', ({ completed, expected }) => {
+    expect(presentCodexToolResult(completed)).toEqual(expected);
+  });
+});
+
 describe('presentCodexApproval', () => {
   it.each([
     {
@@ -212,10 +333,7 @@ describe('presentCodexApproval', () => {
       }),
       expected: {
         toolName: 'Bash',
-        toolInput: {
-          command: 'rm -rf /workspace/build',
-          cwd: '/workspace',
-        },
+        toolInput: { command: 'rm -rf /workspace/build' },
         description: 'Clean the build output',
       },
     },
@@ -224,7 +342,7 @@ describe('presentCodexApproval', () => {
       request: approval('command', { command: 'echo hi', cwd: '/workspace' }),
       expected: {
         toolName: 'Bash',
-        toolInput: { command: 'echo hi', cwd: '/workspace' },
+        toolInput: { command: 'echo hi' },
         description: 'Run: echo hi',
       },
     },

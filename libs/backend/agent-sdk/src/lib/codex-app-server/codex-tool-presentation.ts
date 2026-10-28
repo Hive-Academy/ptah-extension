@@ -10,7 +10,10 @@ import type { CodexApprovalRequest } from '@ptah-extension/codex-runtime';
  * - `Bash` renders from `command` alone (isBashToolInput, shared
  *   type-guards/guards/exec.ts:178-185): the header shows the description or
  *   the command's first line (tool-call-header.component.ts:350-358) and the
- *   body a "Command" block (tool-input-display.component.ts:277-285).
+ *   body a "Command" block (tool-input-display.component.ts:277-285). The
+ *   input is exactly Claude's `BashToolInput` (exec.ts:7-18): `command` plus
+ *   an optional `description`; `cwd` and every other native field are dropped
+ *   so no "Arguments" section appears.
  * - A `Write`/`Edit` header shows a clickable `file_path` from the name-based
  *   fallback alone (tool-call-header.component.ts:413-426), but only `Write`
  *   also renders its input in the body: an `Edit` card suppresses its input
@@ -65,10 +68,11 @@ export function presentCodexTool(
   if (toolName === 'commandExecution') {
     const command = input?.['command'];
     if (typeof command !== 'string') return named(toolName, input);
-    const cwd = input?.['cwd'];
+    // Claude's BashToolInput: { command, description? } — nothing else.
+    const description = nonEmptyText(input?.['description']);
     return {
       toolName: 'Bash',
-      toolInput: { command, ...(cwd ? { cwd } : {}) },
+      toolInput: { command, ...(description ? { description } : {}) },
     };
   }
   if (toolName === 'webSearch') {
@@ -88,6 +92,83 @@ export function presentCodexTool(
     );
   }
   return named(toolName, input);
+}
+
+/**
+ * The trailing line of a failed Bash tool_result, the way Claude's Bash tool
+ * reports a non-zero exit code. One constant, so a wording fix is one edit.
+ */
+const FAILED_COMMAND_EXIT_LINE = 'Command failed with exit code';
+
+/**
+ * The tool_result text Claude's CLI substitutes when the user denies a tool
+ * call: the canned string the hard-deny path (interrupt: true) turns into the
+ * denied tool_result both the model and the card see
+ * (sdk-permission-handler.ts:1076-1080 records the substitution; the string
+ * itself is pinned in TASK_2026_471_b3d1 diagnosis:25 from claude 2.1.270).
+ */
+export const CODEX_DENIED_TOOL_RESULT_TEXT =
+  "The user doesn't want to take this action right now. STOP what you are doing and wait for the user to tell you how to proceed.";
+
+/** A completed native tool call, as the runtime contract reports it. */
+export interface CodexCompletedTool {
+  /** The RAW native name seen at `toolStarted` (`commandExecution`, `server/tool`, ...). */
+  readonly toolName: string | undefined;
+  readonly status: 'completed' | 'failed' | 'cancelled';
+  readonly output: unknown;
+  /** Process exit code (commandExecution); absent when the server reported none. */
+  readonly exitCode?: number;
+  /** Server-reported error text of a failed call (mcpToolCall); absent when none. */
+  readonly errorText?: string;
+}
+
+/**
+ * Present a completed native tool call with the output and error flag the chat
+ * tree renders for the equivalent Claude tool_result
+ * (user-message.transformer.ts:57-68: content plus `is_error ?? false`).
+ *
+ * - A completed command with exit code 0 (or none) keeps its success shape.
+ * - A failed or non-zero-exit command is Claude's failed Bash: content text
+ *   with the real output and the exit code, `isError` true.
+ * - A declined call (status `cancelled`) is Claude's denial result: the canned
+ *   denial text, `isError` true.
+ * - A failed MCP call carries the server's `errorText` as its content.
+ * - Every other completion passes the runtime output through unchanged.
+ */
+export function presentCodexToolResult(completed: CodexCompletedTool): {
+  output: unknown;
+  isError: boolean;
+} {
+  if (completed.status === 'cancelled')
+    return { output: CODEX_DENIED_TOOL_RESULT_TEXT, isError: true };
+  const commandFailed =
+    completed.toolName === 'commandExecution' &&
+    completed.exitCode !== undefined &&
+    completed.exitCode !== 0;
+  if (completed.status !== 'failed' && !commandFailed)
+    return { output: completed.output, isError: false };
+  if (completed.toolName === 'commandExecution')
+    return {
+      output: failedCommandResultText(completed.output, completed.exitCode),
+      isError: true,
+    };
+  if (completed.errorText !== undefined)
+    return { output: completed.errorText, isError: true };
+  return { output: completed.output, isError: true };
+}
+
+/** A failed command's tool_result text: the real output, then the exit-code line. */
+function failedCommandResultText(
+  output: unknown,
+  exitCode: number | undefined,
+): string | null {
+  const text = typeof output === 'string' ? output : '';
+  if (exitCode === undefined) return text === '' ? null : text;
+  const line = `${FAILED_COMMAND_EXIT_LINE} ${exitCode}`;
+  // Real command output ends with a line break; strip the trailing ones
+  // so the exit-code line does not follow a blank line.
+  const body = text.replace(/(?:\r?\n)+$/, '');
+  return body.trim() === '' ? line : `${body}\n${line}`;
 }
 
 /**
@@ -123,9 +204,10 @@ export function presentCodexApproval(request: CodexApprovalRequest): {
   const details = request.details;
   switch (request.kind) {
     case 'command': {
+      // Claude's Bash permission card shows the command; `cwd` is not part of
+      // the Bash input, so it stays out of the card input too.
       const tool = presentCodexTool('commandExecution', {
         command: details['command'],
-        cwd: details['cwd'],
       });
       const reason = nonEmptyText(details['reason']);
       const command =

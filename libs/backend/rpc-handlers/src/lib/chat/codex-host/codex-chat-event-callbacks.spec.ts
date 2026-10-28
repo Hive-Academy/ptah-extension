@@ -83,6 +83,14 @@ describe('Codex chat event callbacks', () => {
       );
     },
   );
+  it('publishes nothing for empty complete content (Claude drops empty deltas)', async () => {
+    const h = harness();
+    h.callbacks.content({ kind: 'reasoning', itemId: 'r', text: '', blockIndex: 0 });
+    h.callbacks.content({ kind: 'text', itemId: 't', text: '', blockIndex: 1 });
+    await settle();
+    expect(h.delivery.publish).not.toHaveBeenCalled();
+    expect(h.logger.error).not.toHaveBeenCalled();
+  });
   it.each(['', 'answer'])('does not republish result text %p already owned by the projection', async (text) => {
     const h = harness();
     await h.callbacks.result({ status: 'completed', text });
