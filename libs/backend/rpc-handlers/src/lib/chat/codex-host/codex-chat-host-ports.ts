@@ -294,8 +294,9 @@ export function createCodexChatHostPorts(
       );
       if (user.servers.length > 0) {
         // Names and transports only; URLs and headers may carry secrets.
-        deps.logger.info('User MCP servers are attached to Codex chat.', {
-          code: 'codex-user-mcp-attached',
+        // "Configured" is not reachability: nothing has connected yet.
+        deps.logger.info('User MCP servers are configured for Codex chat.', {
+          code: 'codex-user-mcp-configured',
           serverNames: user.servers.map((server) => server.name).sort(),
           transports: [...new Set(user.servers.map((server) => server.transport))],
         });
@@ -322,19 +323,33 @@ export function createCodexChatHostPorts(
       if (execution.runtime !== 'codex-app-server')
         throw new Error('Native provider required');
       const { seed, cwd, workspacePath } = execution;
-      // Claude `mergeMcpOverride` parity: a user server named `ptah` wins.
       const mcpServers = new Map<string, CodexHttpMcpServer>();
-      if (attachPtahMcp && routingId) {
+      // Claude `mergeMcpOverride` parity: a user server named `ptah` wins,
+      // so the session URL is recorded only when that entry survives.
+      const ptahSessionUrl =
+        attachPtahMcp && routingId
+          ? ptahMcpSessionUrl(PTAH_MCP_PORT, routingId, cwd)
+          : undefined;
+      if (ptahSessionUrl) {
         mcpServers.set('ptah', {
           name: 'ptah',
           transport: 'http',
           // Live binding: read the port the host bound at open time.
-          url: ptahMcpSessionUrl(PTAH_MCP_PORT, routingId, cwd),
+          url: ptahSessionUrl,
           headerReferences: {},
           toolTimeoutSec: CODEX_PTAH_TOOL_TIMEOUT_SEC,
         });
       }
       for (const server of user.servers) mcpServers.set(server.name, server);
+      if (ptahSessionUrl && mcpServers.get('ptah')?.url === ptahSessionUrl) {
+        // Once per open (profile runs at open, not per turn). Pathname only:
+        // host, port, userinfo, query and hash can carry secrets; routing ids
+        // in the path are the session address and are allowed.
+        deps.logger.info('Ptah MCP is attached to Codex chat.', {
+          code: 'ptah-mcp-attached',
+          path: new URL(ptahSessionUrl).pathname,
+        });
+      }
       const entries: CodexExecutionProfileInput['paths']['entries'] = {};
       const paths = [
         cwd,
@@ -437,7 +452,6 @@ export function createCodexChatHostPorts(
           toolUseId: request.toolId,
           timestamp,
           timeoutAt: request.expiresAt ?? 0,
-          allowedDecisions: ['accept', 'acceptForSession', 'decline', 'cancel'],
         };
         // Direct manager call: its attention observer raises the host notice.
         void deps.webviewManager
@@ -498,6 +512,11 @@ export function createCodexChatHostPorts(
         deny_with_message: 'decline',
         deny: 'cancel',
       } as const;
+      // Claude sends PERMISSION_AUTO_RESOLVED for sibling prompts an Always
+      // Allow rule clears, never for the request the user just answered
+      // (sdk-permission-handler.ts handleResponse). The sink's respond
+      // dismisses this same prompt, so the wire id is dropped first.
+      settle(response.id);
       try {
         const accepted = deps.approvals.respond(
           {
@@ -520,22 +539,19 @@ export function createCodexChatHostPorts(
             },
           },
         );
-        if (accepted) {
-          settle(response.id);
-          return true;
-        }
+        if (accepted) return true;
         deps.logger.warn('Codex approval response rejected.', {
           code: 'approval-response-rejected',
         });
       } catch {
         // degradation-audit: reported - coded warning without request content (the
         // sink error may carry it). The renderer has already dismissed the prompt;
-        // settle this Codex entry and consume its reply instead of falling through.
+        // this Codex entry is settled and its reply is consumed instead of
+        // falling through.
         deps.logger.warn('Codex approval response failed.', {
           code: 'approval-response-failed',
         });
       }
-      settle(response.id);
       send(MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
         id: response.id,
         sessionId,

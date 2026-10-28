@@ -271,11 +271,11 @@ describe('Codex chat host ports', () => {
       expect(prepare.mock.calls[0][0]).toEqual({ ...config(), mcpServersOverride });
       expect(h.logger.info).toHaveBeenCalledTimes(3);
       expect(h.logger.info).toHaveBeenCalledWith(
-        'User MCP servers are attached to Codex chat.',
-        { code: 'codex-user-mcp-attached', serverNames: ['oauth', 'smithery'], transports: ['http'] },
+        'User MCP servers are configured for Codex chat.',
+        { code: 'codex-user-mcp-configured', serverNames: ['oauth', 'smithery'], transports: ['http'] },
       );
       expect(h.logger.info).not.toHaveBeenCalledWith(
-        'User MCP servers are not attached to Codex chat.',
+        'User MCP servers are attached to Codex chat.',
         expect.anything(),
       );
       expect(h.logger.info).toHaveBeenCalledWith(
@@ -320,7 +320,7 @@ describe('Codex chat host ports', () => {
     });
     expect(h.resolveExecutionProfile).not.toHaveBeenCalled();
   });
-  it.each([true, false])('strips host flags and keeps MCP keys without a notice (running %s)', async (mcpServerRunning) => {
+  it.each([true, false])('strips host flags and keeps MCP keys (running %s)', async (mcpServerRunning) => {
     const h = harness();
     const input = {
       ...config(),
@@ -339,7 +339,15 @@ describe('Codex chat host ports', () => {
       expect(prepare.mock.calls[0][0]).toEqual({
         ...config(), mcpServerRunning, mcpServersOverride: {},
       });
-      expect(h.logger.info).not.toHaveBeenCalled();
+      if (mcpServerRunning) {
+        expect(h.logger.info).toHaveBeenCalledTimes(1);
+        expect(h.logger.info).toHaveBeenCalledWith(
+          'Ptah MCP is attached to Codex chat.',
+          expect.objectContaining({ code: 'ptah-mcp-attached' }),
+        );
+      } else {
+        expect(h.logger.info).not.toHaveBeenCalled();
+      }
       expect(profile.mcpServers.map((server) => server.name)).toEqual(
         mcpServerRunning ? ['ptah'] : [],
       );
@@ -389,6 +397,58 @@ describe('Codex chat host ports', () => {
       name: 'ptah',
       url: `http://localhost:51820/session/${id}/workspace/${encodeURIComponent(prepared.profile.cwd)}`,
     });
+  });
+  it('logs each Ptah MCP attach with the URL path and no secrets', async () => {
+    const h = harness();
+    const secret = 'secret-token-x';
+    const input = {
+      ...config(),
+      tabId: 'tab-1',
+      mcpServerRunning: true,
+      mcpServersOverride: {
+        smithery: {
+          type: 'http' as const,
+          url: `https://example.invalid/mcp?token=${secret}`,
+          headers: { Authorization: `Bearer ${secret}` },
+        },
+      },
+    };
+    const attachLogs = () =>
+      jest.mocked(h.logger.info).mock.calls.filter((call) => {
+        const detail = call[1];
+        return (
+          typeof detail === 'object' &&
+          detail !== null &&
+          'code' in detail &&
+          detail.code === 'ptah-mcp-attached'
+        );
+      });
+    await h.ports.profile(input);
+    expect(attachLogs()).toHaveLength(1);
+    const detail = attachLogs()[0]?.[1] as { readonly path: string };
+    expect(detail.path).toMatch(/^\/session\/tab-1\/workspace\//);
+    expect(detail.path).not.toContain('?');
+    const serialized = JSON.stringify(attachLogs());
+    for (const value of [
+      secret,
+      'Bearer',
+      'Authorization',
+      'localhost',
+      '51820',
+      'https://example.invalid',
+      'http://',
+    ]) {
+      expect(serialized).not.toContain(value);
+    }
+    expect(h.logger.info).toHaveBeenCalledWith(
+      'User MCP servers are configured for Codex chat.',
+      expect.objectContaining({
+        code: 'codex-user-mcp-configured',
+        serverNames: ['smithery'],
+      }),
+    );
+    await h.ports.profile(input);
+    expect(attachLogs()).toHaveLength(2);
   });
   it('resumes under a new tab id because MCP servers are outside the fingerprint', async () => {
     const h = harness();
@@ -623,6 +683,13 @@ describe('Codex chat host ports', () => {
       h.resolveExecutionProfile.mock.calls[1],
     );
   });
+  function autoResolved(broadcastMessage: {
+    mock: { calls: readonly (readonly unknown[])[] };
+  }): readonly (readonly unknown[])[] {
+    return broadcastMessage.mock.calls.filter(
+      (call) => call[0] === MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+    );
+  }
   function request(): CodexApprovalRequest {
     return {
       contextId: 'context',
@@ -657,6 +724,7 @@ describe('Codex chat host ports', () => {
       timeoutAt: approval.expiresAt,
       description: expect.stringContaining('pwd'),
     });
+    expect(payload).not.toHaveProperty('allowedDecisions');
     if (fallback) expect(payload).not.toHaveProperty('tabId');
     else expect(payload.tabId).toBe(tabId);
   });
@@ -674,16 +742,54 @@ describe('Codex chat host ports', () => {
       'alwaysAllow',
     ]);
     const payload = h.broadcastMessage.mock.calls[0][1];
-    expect(payload.allowedDecisions).toEqual([
-      'accept',
-      'acceptForSession',
-      'decline',
-      'cancel',
-    ]);
+    expect(payload).not.toHaveProperty('allowedDecisions');
     expect(
       h.ports.handlePermissionResponse({ id: payload.id, decision: wire }),
     ).toBe(true);
     expect(h.respond.mock.calls[0][1].response.decision).toBe(decision);
+    expect(autoResolved(h.broadcastMessage)).toEqual([]);
+  });
+  it.each(['allow', 'deny'] as const)(
+    'sends no auto-resolve when a user %s is delivered to the bridge',
+    (decision) => {
+      const h = harness();
+      const approval = request();
+      h.respond.mockImplementation(() => {
+        h.ports.presentation.dismiss(id, approval);
+        return true;
+      });
+      h.ports.presentation.present(id, approval, [
+        'deny',
+        'allowOnce',
+        'allowWithInput',
+        'alwaysAllow',
+      ]);
+      const payload = h.broadcastMessage.mock.calls[0][1];
+      expect(
+        h.ports.handlePermissionResponse({ id: payload.id, decision }),
+      ).toBe(true);
+      expect(autoResolved(h.broadcastMessage)).toEqual([]);
+      expect(h.respond).toHaveBeenCalledTimes(1);
+    },
+  );
+  it('sends exactly one auto-resolve when the prompt is dismissed without an answer', () => {
+    const h = harness();
+    const approval = request();
+    h.ports.presentation.present(id, approval, [
+      'deny',
+      'allowOnce',
+      'allowWithInput',
+      'alwaysAllow',
+    ]);
+    const payload = h.broadcastMessage.mock.calls[0][1];
+    h.ports.presentation.dismiss(id, approval);
+    h.ports.presentation.dismiss(id, approval);
+    expect(autoResolved(h.broadcastMessage)).toEqual([
+      [
+        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+        { id: payload.id, sessionId: id, toolName: 'command' },
+      ],
+    ]);
   });
   it.each(['rejected', 'throws'] as const)('settles the Codex approval without falling through when the sink %s', (failure) => {
     const h = harness();
@@ -693,18 +799,30 @@ describe('Codex chat host ports', () => {
       'allowWithInput',
       'alwaysAllow',
     ]);
+    const approval = request();
     const wireId: string = h.broadcastMessage.mock.calls[0][1].id;
-    if (failure === 'throws') h.respond.mockImplementationOnce(() => { throw new Error('private request'); });
-    else h.respond.mockReturnValueOnce(false);
+    if (failure === 'throws') {
+      h.respond.mockImplementationOnce(() => {
+        h.ports.presentation.dismiss(id, approval);
+        throw new Error('private request');
+      });
+    } else {
+      h.respond.mockImplementationOnce(() => {
+        h.ports.presentation.dismiss(id, approval);
+        return false;
+      });
+    }
     expect(h.ports.handlePermissionResponse({ id: wireId, decision: 'allow' })).toBe(true);
     expect(h.resolveAttention).toHaveBeenCalledWith(
       attentionRequestKey('permission', wireId),
       h.broadcastMessage.mock.calls[0][1].timestamp,
     );
-    expect(h.broadcastMessage).toHaveBeenLastCalledWith(
-      MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
-      { id: wireId, sessionId: id, toolName: 'command' },
-    );
+    expect(autoResolved(h.broadcastMessage)).toEqual([
+      [
+        MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+        { id: wireId, sessionId: id, toolName: 'command' },
+      ],
+    ]);
     expect(h.deps.logger.warn).toHaveBeenCalledWith(
       expect.any(String), { code: failure === 'throws' ? 'approval-response-failed' : 'approval-response-rejected' },
     );

@@ -331,8 +331,8 @@ describe('chat native session preparation', () => {
         expect(startedProfile.profile.profileFingerprint).not.toContain(value);
       }
       expect(deps.logger.info).toHaveBeenCalledWith(
-        'User MCP servers are attached to Codex chat.',
-        { code: 'codex-user-mcp-attached', serverNames: ['oauth', 'smithery'], transports: ['http'] },
+        'User MCP servers are configured for Codex chat.',
+        { code: 'codex-user-mcp-configured', serverNames: ['oauth', 'smithery'], transports: ['http'] },
       );
     } else {
       expect(startedProfile.secrets).toBeUndefined();
