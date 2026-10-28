@@ -331,6 +331,9 @@ function mount(
       {
         provide: AgentMonitorStore,
         useValue: {
+          pendingHistoryCandidates: signal<
+            ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+          >([]).asReadonly(),
           agents: agents.asReadonly(),
           agentsForSession: (): MonitoredAgent[] => agents(),
           agentsOwnedBySession: (sid: string): MonitoredAgent[] =>

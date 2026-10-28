@@ -27,6 +27,8 @@ import type {
   AgentCompletedEvent,
   AgentStartEvent,
   BackgroundAgentStartedEvent,
+  BackgroundAgentCompletedEvent,
+  BackgroundAgentStoppedEvent,
   CliSessionReference,
   MessageCompleteEvent,
   SubagentPromptCacheTtl,
@@ -528,6 +530,8 @@ export interface MonitoredAgent {
  * mutates optimistically on RPC.
  */
 export interface SubagentRecord {
+  /** Provisional terminal from authoritative inactive history evidence. */
+  settledFromHistory?: boolean;
   /** Parent Task tool_use ID — primary key */
   readonly parentToolUseId: string;
   /** SDK task_id, captured on `agent_start` (when present) or `agent_progress`/`agent_status` */
@@ -763,6 +767,159 @@ export class AgentMonitorStore implements OnDestroy {
 
   /** Public readonly view of the subagent record map. */
   readonly subagents = this._subagents.asReadonly();
+
+  private readonly historyCandidates = new Map<
+    string,
+    { generation: number; keys: Set<string> }
+  >();
+  private historyGeneration = 0;
+  private readonly _historyCandidates = signal<
+    readonly { sessionId: string; generation: number }[]
+  >([]);
+  readonly pendingHistoryCandidates = this._historyCandidates.asReadonly();
+
+  private publishHistoryCandidates(): void {
+    this._historyCandidates.set(
+      [...this.historyCandidates].map(([sessionId, value]) => ({
+        sessionId,
+        generation: value.generation,
+      })),
+    );
+  }
+
+  registerHistoryCandidates(
+    sessionId: string,
+    toolCallIds: readonly string[],
+  ): void {
+    const keys = new Set(this.historyCandidates.get(sessionId)?.keys);
+    for (const key of toolCallIds) {
+      const record = this._subagents().get(key);
+      if (record && !this.isTerminal(record.status)) keys.add(key);
+    }
+    if (!keys.size) return;
+    this.historyCandidates.set(sessionId, {
+      generation: ++this.historyGeneration,
+      keys,
+    });
+    this.publishHistoryCandidates();
+  }
+
+  private claimHistoryCandidate(key: string): void {
+    let changed = false;
+    for (const [sessionId, candidate] of this.historyCandidates) {
+      if (!candidate.keys.delete(key)) continue;
+      changed = true;
+      if (!candidate.keys.size) this.historyCandidates.delete(sessionId);
+    }
+    if (changed) this.publishHistoryCandidates();
+  }
+
+  private clearHistoryCandidates(sessionId: string): void {
+    if (this.historyCandidates.delete(sessionId))
+      this.publishHistoryCandidates();
+  }
+
+  applyHistoryEvidence(
+    sessionId: string,
+    generation: number,
+    evidence: 'inactive' | 'live',
+  ): void {
+    const candidate = this.historyCandidates.get(sessionId);
+    if (!candidate || candidate.generation !== generation) return;
+    this.clearHistoryCandidates(sessionId);
+    if (evidence === 'live') return;
+    this._subagents.update((map) => {
+      const next = new Map(map);
+      for (const key of candidate.keys) {
+        const record = map.get(key);
+        if (!record || this.isTerminal(record.status)) continue;
+        next.set(key, {
+          ...record,
+          status: 'stopped',
+          completedAt: record.lastEventAt ?? record.startedAt,
+          settledFromHistory: true,
+        });
+      }
+      return next;
+    });
+  }
+
+  private isTerminal(status: SubagentRecord['status']): boolean {
+    return (
+      status === 'completed' ||
+      status === 'failed' ||
+      status === 'killed' ||
+      status === 'stopped'
+    );
+  }
+
+  private isNewExecution(
+    existing: SubagentRecord | undefined,
+    taskId?: string,
+  ): boolean {
+    return (
+      existing !== undefined &&
+      (existing.settledFromHistory === true ||
+        (taskId !== undefined &&
+          existing.taskId !== undefined &&
+          taskId !== existing.taskId))
+    );
+  }
+
+  private settledStatus(
+    existing: SubagentRecord | undefined,
+    incoming: SubagentRecord['status'],
+    incomingTaskId?: string,
+  ): SubagentRecord['status'] {
+    return existing &&
+      this.isTerminal(existing.status) &&
+      !this.isNewExecution(existing, incomingTaskId)
+      ? existing.status
+      : incoming;
+  }
+
+  onBackgroundAgentCompleted(event: BackgroundAgentCompletedEvent): void {
+    this.settleBackgroundAgent(
+      event,
+      event.status === 'failed' ? 'failed' : 'completed',
+    );
+  }
+
+  onBackgroundAgentStopped(event: BackgroundAgentStoppedEvent): void {
+    this.settleBackgroundAgent(event, 'stopped');
+  }
+
+  private settleBackgroundAgent(
+    event: BackgroundAgentCompletedEvent | BackgroundAgentStoppedEvent,
+    status: SubagentRecord['status'],
+  ): void {
+    this.claimHistoryCandidate(event.toolCallId);
+    this._subagents.update((map) => {
+      const existing = map.get(event.toolCallId);
+      if (
+        !existing ||
+        (this.isTerminal(existing.status) && !existing.settledFromHistory)
+      )
+        return map;
+      const next = new Map(map);
+      next.set(event.toolCallId, {
+        ...existing,
+        status: this.settledStatus(existing, status),
+        settledFromHistory: false,
+        completedAt: event.timestamp,
+        durationMs:
+          event.eventType === 'background_agent_completed'
+            ? (event.duration ?? existing.durationMs)
+            : existing.durationMs,
+        latestSummary:
+          event.eventType === 'background_agent_completed'
+            ? (event.result?.slice(0, 240) ?? existing.latestSummary)
+            : existing.latestSummary,
+        ...this.carriedUsageFields(event.toolCallId, existing, event.timestamp),
+      });
+      return next;
+    });
+  }
 
   /** O(1) lookup helper for templates that prefer a function over getter. */
   getSubagent(parentToolUseId: string): SubagentRecord | undefined {
@@ -1044,6 +1201,8 @@ export class AgentMonitorStore implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopTick();
+    this.historyCandidates.clear();
+    this._historyCandidates.set([]);
     // Apply queued output before teardown so the last deltas are not lost;
     // the flush also cancels the scheduled frame.
     this.flushPendingOutput();
@@ -1852,6 +2011,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Running agents are preserved (they'll complete in the background).
    */
   clearSessionAgents(sessionId: string): void {
+    this.clearHistoryCandidates(sessionId);
     this.updateAgents((list) => {
       const next = list.filter(
         (a) => !(a.parentSessionId === sessionId && a.status !== 'running'),
@@ -1868,6 +2028,7 @@ export class AgentMonitorStore implements OnDestroy {
    * were retained for the life of the webview.
    */
   forceClearSessionAgents(sessionId: string): void {
+    this.clearHistoryCandidates(sessionId);
     this.updateAgents((list) => {
       const next = list.filter((a) => a.parentSessionId !== sessionId);
       return next.length === list.length ? list : next;
@@ -1971,6 +2132,7 @@ export class AgentMonitorStore implements OnDestroy {
       for (const [key, rec] of map) {
         if (rec.parentSessionId === tabId) {
           changed = true;
+          this.claimHistoryCandidate(key);
           next.set(key, { ...rec, parentSessionId: realSessionId });
         }
       }
@@ -2020,7 +2182,10 @@ export class AgentMonitorStore implements OnDestroy {
     if (!key) return;
     const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
+      const restart = this.isNewExecution(existing, event.taskId);
+      const status = this.settledStatus(existing, 'running', event.taskId);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2030,25 +2195,20 @@ export class AgentMonitorStore implements OnDestroy {
         agentType: event.agentType || existing?.agentType,
         description: event.agentDescription ?? existing?.description,
         taskDescription: event.agentDescription ?? existing?.taskDescription,
-        latestSummary: existing?.latestSummary,
+        latestSummary: restart ? undefined : existing?.latestSummary,
         lastToolName: existing?.lastToolName,
-        status:
-          existing?.status &&
-          existing.status !== 'pending' &&
-          existing.status !== 'running'
-            ? existing.status
-            : 'running',
+        status,
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
         startedAt: existing?.startedAt ?? event.timestamp,
-        completedAt:
-          existing?.status &&
-          existing.status !== 'pending' &&
-          existing.status !== 'running'
-            ? existing.completedAt
-            : undefined,
-        errorMessage: existing?.errorMessage,
+        completedAt: this.isTerminal(status)
+          ? restart
+            ? event.timestamp
+            : (existing?.completedAt ?? event.timestamp)
+          : undefined,
+        settledFromHistory: false,
+        errorMessage: restart ? undefined : existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId:
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
@@ -2095,6 +2255,7 @@ export class AgentMonitorStore implements OnDestroy {
       return;
     }
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
       if (!existing) return map;
       const filled = fillIdentity(existing, identity);
@@ -2127,7 +2288,14 @@ export class AgentMonitorStore implements OnDestroy {
     if (!key) return;
     const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
+      const restart = this.isNewExecution(existing, event.taskId);
+      const status = this.settledStatus(
+        existing,
+        restart ? 'running' : (existing?.status ?? 'running'),
+        event.taskId,
+      );
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2137,20 +2305,21 @@ export class AgentMonitorStore implements OnDestroy {
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         taskDescription: existing?.taskDescription,
-        latestSummary: event.summary ?? existing?.latestSummary,
+        latestSummary:
+          event.summary ?? (restart ? undefined : existing?.latestSummary),
         lastToolName: event.lastToolName ?? existing?.lastToolName,
-        status: existing?.status ?? 'running',
+        status,
         totalTokens: event.totalTokens,
         toolUses: event.toolUses,
         durationMs: event.durationMs,
         startedAt: existing?.startedAt ?? event.timestamp,
-        completedAt:
-          existing?.status &&
-          existing.status !== 'pending' &&
-          existing.status !== 'running'
-            ? existing.completedAt
-            : undefined,
-        errorMessage: existing?.errorMessage,
+        completedAt: this.isTerminal(status)
+          ? restart
+            ? event.timestamp
+            : (existing?.completedAt ?? event.timestamp)
+          : undefined,
+        settledFromHistory: false,
+        errorMessage: restart ? undefined : existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId:
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
@@ -2169,7 +2338,10 @@ export class AgentMonitorStore implements OnDestroy {
     if (!key) return;
     const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
+      const restart = this.isNewExecution(existing, event.taskId);
+      const status = this.settledStatus(existing, event.status, event.taskId);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2179,20 +2351,21 @@ export class AgentMonitorStore implements OnDestroy {
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
         taskDescription: existing?.taskDescription,
-        latestSummary: existing?.latestSummary,
+        latestSummary: restart ? undefined : existing?.latestSummary,
         lastToolName: existing?.lastToolName,
-        status: event.status,
+        status,
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
         startedAt: existing?.startedAt ?? event.timestamp,
-        completedAt:
-          event.status === 'completed' ||
-          event.status === 'failed' ||
-          event.status === 'killed'
-            ? (existing?.completedAt ?? event.timestamp)
-            : undefined,
-        errorMessage: event.errorMessage ?? existing?.errorMessage,
+        completedAt: this.isTerminal(status)
+          ? restart
+            ? event.timestamp
+            : (existing?.completedAt ?? event.timestamp)
+          : undefined,
+        settledFromHistory: false,
+        errorMessage:
+          event.errorMessage ?? (restart ? undefined : existing?.errorMessage),
         outputFile: existing?.outputFile,
         parentSessionId:
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
@@ -2211,7 +2384,9 @@ export class AgentMonitorStore implements OnDestroy {
     if (!key) return;
     const wf = readWorkflowFields(event);
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
+      const restart = this.isNewExecution(existing, event.taskId);
       const next = new Map(map);
       const merged: SubagentRecord = {
         parentToolUseId: key,
@@ -2229,7 +2404,7 @@ export class AgentMonitorStore implements OnDestroy {
         durationMs: event.durationMs ?? existing?.durationMs,
         startedAt: existing?.startedAt ?? event.timestamp,
         completedAt: event.timestamp,
-        errorMessage: existing?.errorMessage,
+        errorMessage: restart ? undefined : existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
         parentSessionId:
           knownSessionId(event.sessionId) ?? existing?.parentSessionId,
@@ -2287,6 +2462,7 @@ export class AgentMonitorStore implements OnDestroy {
       entry.requests.set(event.messageId, request);
     }
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(key);
       const existing = map.get(key);
       if (!existing) return map;
       const usage = request
@@ -2455,15 +2631,21 @@ export class AgentMonitorStore implements OnDestroy {
     timestamp?: number,
   ): void {
     this._subagents.update((map) => {
+      this.claimHistoryCandidate(toolCallId);
       const existing = map.get(toolCallId);
       if (!existing) return map;
-      if (existing.status !== 'pending' && existing.status !== 'running') {
+      if (
+        !existing.settledFromHistory &&
+        existing.status !== 'pending' &&
+        existing.status !== 'running'
+      ) {
         return map;
       }
       const next = new Map(map);
       next.set(toolCallId, {
         ...existing,
         status: isError ? 'failed' : 'completed',
+        settledFromHistory: false,
         completedAt:
           timestamp !== undefined && Number.isFinite(timestamp)
             ? timestamp

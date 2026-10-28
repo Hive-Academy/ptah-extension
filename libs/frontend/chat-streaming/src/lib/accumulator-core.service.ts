@@ -601,10 +601,16 @@ export class StreamingAccumulatorCore {
         }
         return this.mutated(event.eventType);
       case 'background_agent_completed':
-        if (!ctx.skipStoreEffects) backgroundAgentStore.onCompleted(event);
+        if (!ctx.skipStoreEffects) {
+          backgroundAgentStore.onCompleted(event);
+          agentMonitorStore.onBackgroundAgentCompleted(event);
+        }
         return this.mutated(event.eventType);
       case 'background_agent_stopped':
-        if (!ctx.skipStoreEffects) backgroundAgentStore.onStopped(event);
+        if (!ctx.skipStoreEffects) {
+          backgroundAgentStore.onStopped(event);
+          agentMonitorStore.onBackgroundAgentStopped(event);
+        }
         return this.mutated(event.eventType);
       case 'agent_progress':
         if (!ctx.skipStoreEffects) agentMonitorStore.onAgentProgress(event);

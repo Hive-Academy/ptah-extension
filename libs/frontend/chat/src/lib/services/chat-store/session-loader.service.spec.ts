@@ -182,6 +182,10 @@ describe('SessionLoaderService', () => {
       readonly { sessionId: string; agentId: string }[]
     >([]);
     const agentMonitorStoreMock = {
+      pendingHistoryCandidates: signal<
+        ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+      >([]).asReadonly(),
+      registerHistoryCandidates: jest.fn(),
       clearAgents: jest.fn(),
       loadCliSessions,
       appendCliOutputPage,
@@ -202,8 +206,14 @@ describe('SessionLoaderService', () => {
       providers: [
         provideSurfaceActiveTesting(),
         SessionLoaderService,
-        { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-        { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+        {
+          provide: StreamViewportController,
+          useValue: { requestStreamResync: requestStreamResyncMock },
+        },
+        {
+          provide: SessionLivenessReconcilerService,
+          useValue: { reconcileTab: reconcileTabMock },
+        },
         { provide: HistoryMessageBuilder, useValue: {} },
         { provide: HistoryPagingService, useValue: historyPagingMock },
         { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -1307,6 +1317,10 @@ describe('SessionLoaderService', () => {
       } as unknown as StreamingHandlerService;
 
       const agentMonitorStoreMock = {
+        pendingHistoryCandidates: signal<
+          ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+        >([]).asReadonly(),
+        registerHistoryCandidates: jest.fn(),
         loadCliSessions: jest.fn(),
         cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
@@ -1320,8 +1334,14 @@ describe('SessionLoaderService', () => {
         providers: [
           provideSurfaceActiveTesting(),
           SessionLoaderService,
-          { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-          { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+          {
+            provide: StreamViewportController,
+            useValue: { requestStreamResync: requestStreamResyncMock },
+          },
+          {
+            provide: SessionLivenessReconcilerService,
+            useValue: { reconcileTab: reconcileTabMock },
+          },
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -1421,6 +1441,10 @@ describe('SessionLoaderService', () => {
       } as unknown as StreamingHandlerService;
 
       const agentMonitorStoreMock = {
+        pendingHistoryCandidates: signal<
+          ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+        >([]).asReadonly(),
+        registerHistoryCandidates: jest.fn(),
         loadCliSessions: jest.fn(),
         cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
@@ -1450,8 +1474,14 @@ describe('SessionLoaderService', () => {
         providers: [
           provideSurfaceActiveTesting(),
           SessionLoaderService,
-          { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-          { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+          {
+            provide: StreamViewportController,
+            useValue: { requestStreamResync: requestStreamResyncMock },
+          },
+          {
+            provide: SessionLivenessReconcilerService,
+            useValue: { reconcileTab: reconcileTabMock },
+          },
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -1518,6 +1548,10 @@ describe('SessionLoaderService', () => {
       } as unknown as StreamingHandlerService;
 
       const agentMonitorStoreMock = {
+        pendingHistoryCandidates: signal<
+          ReturnType<AgentMonitorStore['pendingHistoryCandidates']>
+        >([]).asReadonly(),
+        registerHistoryCandidates: jest.fn(),
         loadCliSessions: jest.fn(),
         cliOutputDemand: signal([]),
       } as unknown as AgentMonitorStore;
@@ -1531,8 +1565,14 @@ describe('SessionLoaderService', () => {
         providers: [
           provideSurfaceActiveTesting(),
           SessionLoaderService,
-          { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-          { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+          {
+            provide: StreamViewportController,
+            useValue: { requestStreamResync: requestStreamResyncMock },
+          },
+          {
+            provide: SessionLivenessReconcilerService,
+            useValue: { reconcileTab: reconcileTabMock },
+          },
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -1736,8 +1776,14 @@ describe('SessionLoaderService', () => {
         providers: [
           provideSurfaceActiveTesting(),
           SessionLoaderService,
-          { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-          { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+          {
+            provide: StreamViewportController,
+            useValue: { requestStreamResync: requestStreamResyncMock },
+          },
+          {
+            provide: SessionLivenessReconcilerService,
+            useValue: { reconcileTab: reconcileTabMock },
+          },
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -1811,11 +1857,22 @@ describe('SessionLoaderService', () => {
       const harness = makeTargetedService();
       rpcCall.mockImplementation(async (method: string) =>
         method === 'chat:resume'
-          ? { success: true, data: { success: true, providerId: 'openrouter', events: [{ type: 'noop' }] } }
+          ? {
+              success: true,
+              data: {
+                success: true,
+                providerId: 'openrouter',
+                events: [{ type: 'noop' }],
+              },
+            }
           : { success: true, data: {} },
       );
       await harness.service.switchSession(SESSION);
-      expect(harness.setSessionProvider).toHaveBeenCalledWith(TAB_A, SESSION, 'openrouter');
+      expect(harness.setSessionProvider).toHaveBeenCalledWith(
+        TAB_A,
+        SESSION,
+        'openrouter',
+      );
     });
 
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
@@ -2432,7 +2489,10 @@ describe('SessionLoaderService', () => {
         activeTabSessionId: computed(() => null),
         activeTabStatus: computed(() => null),
         activeTabId: computed(() => null),
-        tabs: () => { tabsVersion(); return tabs; },
+        tabs: () => {
+          tabsVersion();
+          return tabs;
+        },
         findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
           const tab = tabs.find((candidate) => candidate.id === tabId);
           return tab ? { tab, workspacePath: 'D:/repo' } : null;
@@ -2452,8 +2512,14 @@ describe('SessionLoaderService', () => {
         providers: [
           provideSurfaceActiveTesting(),
           SessionLoaderService,
-          { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-          { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+          {
+            provide: StreamViewportController,
+            useValue: { requestStreamResync: requestStreamResyncMock },
+          },
+          {
+            provide: SessionLivenessReconcilerService,
+            useValue: { reconcileTab: reconcileTabMock },
+          },
           { provide: HistoryMessageBuilder, useValue: {} },
           { provide: HistoryPagingService, useValue: historyPagingMock },
           { provide: ClaudeRpcService, useValue: { call: rpcCall } },
@@ -2518,26 +2584,50 @@ describe('SessionLoaderService', () => {
       const replayer = TestBed.inject(SessionHistoryReplayer);
       const order: string[] = [];
       let finishLoad: ((value: unknown) => void) | undefined;
-      rpcCall.mockImplementation((method: string) => method === 'session:load'
-        ? new Promise<unknown>((resolve) => { finishLoad = resolve; })
-        : Promise.resolve({ success: true, data: { events: historyEvents(1) } }));
-      harness.processStreamEvent.mockImplementation((event: { id: string }) => order.push(event.id));
-      const seedEvent = { id: 'seed', eventType: 'message_start', sessionId: SESSION } as FlatStreamEventUnion;
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? new Promise<unknown>((resolve) => {
+              finishLoad = resolve;
+            })
+          : Promise.resolve({
+              success: true,
+              data: { events: historyEvents(1) },
+            }),
+      );
+      harness.processStreamEvent.mockImplementation((event: { id: string }) =>
+        order.push(event.id),
+      );
+      const seedEvent = {
+        id: 'seed',
+        eventType: 'message_start',
+        sessionId: SESSION,
+      } as FlatStreamEventUnion;
       const pending = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
-        liveSeed: { events: [seedEvent], apply: (events) => {
-          for (const event of events) order.push(event.id);
-        } },
+        reason: 'resync',
+        targetTabId: TAB,
+        liveSeed: {
+          events: [seedEvent],
+          apply: (events) => {
+            for (const event of events) order.push(event.id);
+          },
+        },
       });
-      expect(replayer.deferLiveEvent(
-        { id: 'live', sessionId: SESSION } as FlatStreamEventUnion,
-        TAB, SESSION, () => order.push('live'),
-      )).toBe(true);
+      expect(
+        replayer.deferLiveEvent(
+          { id: 'live', sessionId: SESSION } as FlatStreamEventUnion,
+          TAB,
+          SESSION,
+          () => order.push('live'),
+        ),
+      ).toBe(true);
       finishLoad?.({ success: true, data: {} });
       await expect(pending).resolves.toEqual({ staleSnapshot: false });
       expect(order).toEqual(['e0', 'seed', 'live']);
-      expect(rpcCall).toHaveBeenCalledWith('chat:resume',
-        expect.objectContaining({ historyBlockOwners: true }), expect.anything());
+      expect(rpcCall).toHaveBeenCalledWith(
+        'chat:resume',
+        expect.objectContaining({ historyBlockOwners: true }),
+        expect.anything(),
+      );
     });
 
     it('starts a second compaction reload drained by release after a failed load', async () => {
@@ -2549,17 +2639,37 @@ describe('SessionLoaderService', () => {
         if (method === 'session:load') {
           loads++;
           return loads === 1
-            ? new Promise<unknown>((resolve) => { finishLoad = resolve; })
+            ? new Promise<unknown>((resolve) => {
+                finishLoad = resolve;
+              })
             : Promise.resolve({ success: true, data: {} });
         }
-        return Promise.resolve({ success: true, data: { events: historyEvents(1) } });
+        return Promise.resolve({
+          success: true,
+          data: { events: historyEvents(1) },
+        });
       });
-      const first = harness.service.switchSession(SESSION, { reason: 'compaction', targetTabId: TAB });
+      const first = harness.service.switchSession(SESSION, {
+        reason: 'compaction',
+        targetTabId: TAB,
+      });
       const secondCalls: Array<Promise<unknown>> = [];
       replayer.deferLiveEvent(
-        { id: 'compaction', eventType: 'compaction_complete', sessionId: SESSION } as FlatStreamEventUnion,
-        TAB, SESSION,
-        () => { secondCalls.push(harness.service.switchSession(SESSION, { reason: 'compaction', targetTabId: TAB })); },
+        {
+          id: 'compaction',
+          eventType: 'compaction_complete',
+          sessionId: SESSION,
+        } as FlatStreamEventUnion,
+        TAB,
+        SESSION,
+        () => {
+          secondCalls.push(
+            harness.service.switchSession(SESSION, {
+              reason: 'compaction',
+              targetTabId: TAB,
+            }),
+          );
+        },
       );
       finishLoad?.({ success: false, error: 'offline' });
       await expect(first).rejects.toThrow('session:load failed');
@@ -2571,18 +2681,34 @@ describe('SessionLoaderService', () => {
       const harness = makeChunkedService();
       const replayer = TestBed.inject(SessionHistoryReplayer);
       let finishLoad: ((value: unknown) => void) | undefined;
-      rpcCall.mockImplementation((method: string) => method === 'session:load'
-        ? new Promise<unknown>((resolve) => { finishLoad = resolve; })
-        : Promise.resolve({ success: true, data: { events: historyEvents(1) } }));
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? new Promise<unknown>((resolve) => {
+              finishLoad = resolve;
+            })
+          : Promise.resolve({
+              success: true,
+              data: { events: historyEvents(1) },
+            }),
+      );
       const order: string[] = [];
-      harness.applyResumingSession.mockImplementation(() => order.push('reset'));
+      harness.applyResumingSession.mockImplementation(() =>
+        order.push('reset'),
+      );
       const pending = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => order.push('seed') },
       });
       replayer.deferLiveEvent(
-        { id: 'live', eventType: 'agent_progress', sessionId: SESSION } as unknown as FlatStreamEventUnion,
-        TAB, SESSION, () => order.push('live'),
+        {
+          id: 'live',
+          eventType: 'agent_progress',
+          sessionId: SESSION,
+        } as unknown as FlatStreamEventUnion,
+        TAB,
+        SESSION,
+        () => order.push('live'),
       );
       finishLoad?.({ success: false, error: 'offline' });
       await expect(pending).rejects.toThrow('session:load failed');
@@ -2594,9 +2720,16 @@ describe('SessionLoaderService', () => {
       const harness = makeChunkedService();
       const replayer = TestBed.inject(SessionHistoryReplayer);
       let finishLoad: ((value: unknown) => void) | undefined;
-      rpcCall.mockImplementation((method: string) => method === 'session:load'
-        ? new Promise<unknown>((resolve) => { finishLoad = resolve; })
-        : Promise.resolve({ success: true, data: { events: historyEvents(1) } }));
+      rpcCall.mockImplementation((method: string) =>
+        method === 'session:load'
+          ? new Promise<unknown>((resolve) => {
+              finishLoad = resolve;
+            })
+          : Promise.resolve({
+              success: true,
+              data: { events: historyEvents(1) },
+            }),
+      );
       const order: string[] = [];
       let visible = 'old content';
       harness.applyResumingSession.mockImplementation(() => {
@@ -2604,12 +2737,28 @@ describe('SessionLoaderService', () => {
         visible = '';
       });
       const pending = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
-        liveSeed: { events: [], apply: () => { order.push('seed'); visible += 'seed'; } },
+        reason: 'resync',
+        targetTabId: TAB,
+        liveSeed: {
+          events: [],
+          apply: () => {
+            order.push('seed');
+            visible += 'seed';
+          },
+        },
       });
       replayer.deferLiveEvent(
-        { id: 'live', eventType: 'agent_progress', sessionId: SESSION } as unknown as FlatStreamEventUnion,
-        TAB, SESSION, () => { order.push('live'); visible += 'live'; },
+        {
+          id: 'live',
+          eventType: 'agent_progress',
+          sessionId: SESSION,
+        } as unknown as FlatStreamEventUnion,
+        TAB,
+        SESSION,
+        () => {
+          order.push('live');
+          visible += 'live';
+        },
       );
       jest.spyOn(replayer, 'overflowedDuring').mockReturnValue(true);
       finishLoad?.({ success: true, data: {} });
@@ -2627,25 +2776,51 @@ describe('SessionLoaderService', () => {
         if (method === 'session:load') {
           loads++;
           return loads === 1
-            ? new Promise<unknown>((resolve) => { finishLoad = resolve; })
+            ? new Promise<unknown>((resolve) => {
+                finishLoad = resolve;
+              })
             : Promise.resolve({ success: true, data: {} });
         }
-        return Promise.resolve({ success: true, data: { events: historyEvents(1), stats: {} } });
+        return Promise.resolve({
+          success: true,
+          data: { events: historyEvents(1), stats: {} },
+        });
       });
-      const stats = jest.spyOn(harness.service as unknown as {
-        applyResumeStats: (tabId: string, sessionId: string, snapshot: unknown,
-          options: { preserveCompactionContextSeed: boolean }) => void;
-      }, 'applyResumeStats').mockImplementation(() => undefined);
+      const stats = jest
+        .spyOn(
+          harness.service as unknown as {
+            applyResumeStats: (
+              tabId: string,
+              sessionId: string,
+              snapshot: unknown,
+              options: { preserveCompactionContextSeed: boolean },
+            ) => void;
+          },
+          'applyResumeStats',
+        )
+        .mockImplementation(() => undefined);
       const compaction = harness.service.switchSession(SESSION, {
-        reason: 'compaction', targetTabId: TAB, compactionDelayed: true,
+        reason: 'compaction',
+        targetTabId: TAB,
+        compactionDelayed: true,
       });
-      const waiting = harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      const waiting = harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+      });
       finishLoad?.({ success: true, data: {} });
       await compaction;
       await waiting;
-      expect(stats.mock.calls.at(-1)?.[3].preserveCompactionContextSeed).toBe(true);
-      await harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
-      expect(stats.mock.calls.at(-1)?.[3].preserveCompactionContextSeed).toBe(false);
+      expect(stats.mock.calls.at(-1)?.[3].preserveCompactionContextSeed).toBe(
+        true,
+      );
+      await harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+      });
+      expect(stats.mock.calls.at(-1)?.[3].preserveCompactionContextSeed).toBe(
+        false,
+      );
     });
 
     it('carries the compaction gauge seed through a resync overflow into the next resync', async () => {
@@ -2654,18 +2829,34 @@ describe('SessionLoaderService', () => {
       const replayer = TestBed.inject(SessionHistoryReplayer);
       let resumes = 0;
       rpcCall.mockImplementation((method: string) => {
-        if (method !== 'chat:resume') return Promise.resolve({ success: true, data: {} });
+        if (method !== 'chat:resume')
+          return Promise.resolve({ success: true, data: {} });
         resumes++;
-        return Promise.resolve({ success: true, data: {
-          events: historyEvents(resumes === 2 ? 251 : 1), stats: {},
-        } });
+        return Promise.resolve({
+          success: true,
+          data: {
+            events: historyEvents(resumes === 2 ? 251 : 1),
+            stats: {},
+          },
+        });
       });
-      const stats = jest.spyOn(harness.service as unknown as {
-        applyResumeStats: (tabId: string, sessionId: string, snapshot: unknown,
-          options: { preserveCompactionContextSeed: boolean }) => void;
-      }, 'applyResumeStats').mockImplementation(() => undefined);
+      const stats = jest
+        .spyOn(
+          harness.service as unknown as {
+            applyResumeStats: (
+              tabId: string,
+              sessionId: string,
+              snapshot: unknown,
+              options: { preserveCompactionContextSeed: boolean },
+            ) => void;
+          },
+          'applyResumeStats',
+        )
+        .mockImplementation(() => undefined);
       await harness.service.switchSession(SESSION, {
-        reason: 'compaction', targetTabId: TAB, compactionDelayed: true,
+        reason: 'compaction',
+        targetTabId: TAB,
+        compactionDelayed: true,
       });
       let overflowed = false;
       onYield = () => {
@@ -2673,16 +2864,32 @@ describe('SessionLoaderService', () => {
         overflowed = true;
         for (let i = 0; i < 2001; i++) {
           replayer.deferLiveEvent(
-            { id: `live-${i}`, eventType: 'agent_progress', sessionId: SESSION } as FlatStreamEventUnion,
-            TAB, SESSION, () => undefined,
+            {
+              id: `live-${i}`,
+              eventType: 'agent_progress',
+              sessionId: SESSION,
+            } as FlatStreamEventUnion,
+            TAB,
+            SESSION,
+            () => undefined,
           );
         }
       };
-      await harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
+      await harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+      });
       expect(requestStreamResyncMock).toHaveBeenCalledTimes(2);
       onYield = null;
-      await harness.service.switchSession(SESSION, { reason: 'resync', targetTabId: TAB });
-      expect(stats.mock.calls.slice(-2).map((call) => call[3].preserveCompactionContextSeed)).toEqual([true, true]);
+      await harness.service.switchSession(SESSION, {
+        reason: 'resync',
+        targetTabId: TAB,
+      });
+      expect(
+        stats.mock.calls
+          .slice(-2)
+          .map((call) => call[3].preserveCompactionContextSeed),
+      ).toEqual([true, true]);
     });
 
     it('retires a persisted filter as soon as its tab is closed', async () => {
@@ -2704,17 +2911,24 @@ describe('SessionLoaderService', () => {
         if (method === 'session:load') {
           loads++;
           return loads === 1
-            ? new Promise<unknown>((resolve) => { finishFirstLoad = resolve; })
+            ? new Promise<unknown>((resolve) => {
+                finishFirstLoad = resolve;
+              })
             : Promise.resolve({ success: true, data: {} });
         }
-        return Promise.resolve({ success: true, data: { events: historyEvents(1, 'new-') } });
+        return Promise.resolve({
+          success: true,
+          data: { events: historyEvents(1, 'new-') },
+        });
       });
       const first = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => seeds.push('old') },
       });
       const second = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => seeds.push('new') },
       });
       await expect(second).resolves.toEqual({ staleSnapshot: false });
@@ -2734,20 +2948,28 @@ describe('SessionLoaderService', () => {
         if (method === 'session:load') {
           loads++;
           return loads === 1
-            ? new Promise<unknown>((resolve) => { finishCompactionLoad = resolve; })
+            ? new Promise<unknown>((resolve) => {
+                finishCompactionLoad = resolve;
+              })
             : Promise.resolve({ success: true, data: {} });
         }
-        return Promise.resolve({ success: true, data: { events: historyEvents(1) } });
+        return Promise.resolve({
+          success: true,
+          data: { events: historyEvents(1) },
+        });
       });
       const compaction = harness.service.switchSession(SESSION, {
-        reason: 'compaction', targetTabId: TAB,
+        reason: 'compaction',
+        targetTabId: TAB,
       });
       const oldResync = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => seeds.push('old') },
       });
       const newResync = harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => seeds.push('new') },
       });
       expect(loads).toBe(1);
@@ -2765,17 +2987,24 @@ describe('SessionLoaderService', () => {
       const harness = makeChunkedService();
       const replayer = TestBed.inject(SessionHistoryReplayer);
       let finishResume: ((value: unknown) => void) | undefined;
-      rpcCall.mockImplementation((method: string) => method === 'chat:resume'
-        ? new Promise<unknown>((resolve) => { finishResume = resolve; })
-        : Promise.resolve({ success: true, data: {} }));
+      rpcCall.mockImplementation((method: string) =>
+        method === 'chat:resume'
+          ? new Promise<unknown>((resolve) => {
+              finishResume = resolve;
+            })
+          : Promise.resolve({ success: true, data: {} }),
+      );
       const pending = harness.service.switchSession(SESSION, {
-        reason: 'compaction', targetTabId: TAB,
+        reason: 'compaction',
+        targetTabId: TAB,
       });
       await until(() => finishResume !== undefined);
       for (let index = 0; index < 2001; index++) {
         replayer.deferLiveEvent(
           { id: `live-${index}`, sessionId: SESSION } as FlatStreamEventUnion,
-          TAB, SESSION, () => undefined,
+          TAB,
+          SESSION,
+          () => undefined,
         );
       }
       finishResume?.({ success: true, data: { events: historyEvents(1) } });
@@ -2789,22 +3018,32 @@ describe('SessionLoaderService', () => {
       const harness = makeChunkedService();
       const replayer = TestBed.inject(SessionHistoryReplayer);
       const setInputs = jest.spyOn(replayer, 'setPersistedFilterInputs');
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const warn = jest
+        .spyOn(console, 'warn')
+        .mockImplementation(() => undefined);
       const history = historyEvents(1);
-      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
-        ? { success: true, data: {
-            events: history,
-            historyBlockOwners: { '1': 'message' },
-            historySyntheticToolResults: [0],
-          } }
-        : { success: true, data: {} });
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                events: history,
+                historyBlockOwners: { '1': 'message' },
+                historySyntheticToolResults: [0],
+              },
+            }
+          : { success: true, data: {} },
+      );
       try {
         await harness.service.switchSession(SESSION, {
-          reason: 'resync', targetTabId: TAB,
+          reason: 'resync',
+          targetTabId: TAB,
           liveSeed: { events: [], apply: () => undefined },
         });
         expect(setInputs).toHaveBeenCalledWith(expect.anything(), {
-          ownerByEvent: null, syntheticResults: null, prefixMark: expect.any(Number),
+          ownerByEvent: null,
+          syntheticResults: null,
+          prefixMark: expect.any(Number),
         });
         expect(warn).toHaveBeenCalled();
       } finally {
@@ -2817,14 +3056,21 @@ describe('SessionLoaderService', () => {
       const replayer = TestBed.inject(SessionHistoryReplayer);
       const setInputs = jest.spyOn(replayer, 'setPersistedFilterInputs');
       const history = historyEvents(1);
-      rpcCall.mockImplementation(async (method: string) => method === 'chat:resume'
-        ? { success: true, data: {
-            events: history, historyBlockOwners: { '0': 'message-id' },
-            historySyntheticToolResults: [],
-          } }
-        : { success: true, data: {} });
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? {
+              success: true,
+              data: {
+                events: history,
+                historyBlockOwners: { '0': 'message-id' },
+                historySyntheticToolResults: [],
+              },
+            }
+          : { success: true, data: {} },
+      );
       await harness.service.switchSession(SESSION, {
-        reason: 'resync', targetTabId: TAB,
+        reason: 'resync',
+        targetTabId: TAB,
         liveSeed: { events: [], apply: () => undefined },
       });
       const inputs = setInputs.mock.calls[0][1];
@@ -3788,6 +4034,7 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
       clearAgents: jest.fn(),
       loadCliSessions: jest.fn(),
       markAgentNodesResumed: jest.fn(),
+      registerHistoryCandidates: jest.fn(),
       cliOutputDemand: signal([]),
     };
 
@@ -3795,8 +4042,14 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
       providers: [
         provideSurfaceActiveTesting(),
         SessionLoaderService,
-        { provide: StreamViewportController, useValue: { requestStreamResync: requestStreamResyncMock } },
-        { provide: SessionLivenessReconcilerService, useValue: { reconcileTab: reconcileTabMock } },
+        {
+          provide: StreamViewportController,
+          useValue: { requestStreamResync: requestStreamResyncMock },
+        },
+        {
+          provide: SessionLivenessReconcilerService,
+          useValue: { reconcileTab: reconcileTabMock },
+        },
         { provide: HistoryPagingService, useValue: historyPagingMock },
         TabManagerService,
         TabWorkspacePartitionService,
@@ -3865,36 +4118,82 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
   it('R-A1 keeps a live message started during compaction session:load through the reset', async () => {
     const sessionId = SessionId.create();
     let finishLoad: ((value: unknown) => void) | undefined;
-    const load = new Promise<unknown>((resolve) => { finishLoad = resolve; });
+    const load = new Promise<unknown>((resolve) => {
+      finishLoad = resolve;
+    });
     const history = [
       event(sessionId, 'h-start', 'message_start', 'H', { role: 'assistant' }),
-      event(sessionId, 'h-text', 'text_delta', 'H', { blockIndex: 0, delta: restoredText }),
-      event(sessionId, 'h-end', 'message_complete', 'H', { stopReason: 'end_turn' }),
+      event(sessionId, 'h-text', 'text_delta', 'H', {
+        blockIndex: 0,
+        delta: restoredText,
+      }),
+      event(sessionId, 'h-end', 'message_complete', 'H', {
+        stopReason: 'end_turn',
+      }),
     ];
-    const rpcCall = jest.fn((method: string) => method === 'session:load'
-      ? load : Promise.resolve({ success: true, data: { events: history } }));
-    const { loader, tabManager, streamingHandler } = configureRealPipeline(rpcCall);
+    const rpcCall = jest.fn((method: string) =>
+      method === 'session:load'
+        ? load
+        : Promise.resolve({ success: true, data: { events: history } }),
+    );
+    const { loader, tabManager, streamingHandler } =
+      configureRealPipeline(rpcCall);
     tabManager.switchWorkspace('D:/repo');
     const tabId = tabManager.openSessionTab(sessionId, 'compacted') as TabId;
     const replayer = TestBed.inject(SessionHistoryReplayer);
     const live = (streamEvent: FlatStreamEventUnion): void => {
-      const deliver = (): void => { streamingHandler.processStreamEvent(streamEvent, tabId, sessionId); };
-      if (!replayer.deferLiveEvent(streamEvent, tabId, sessionId, deliver)) deliver();
+      const deliver = (): void => {
+        streamingHandler.processStreamEvent(streamEvent, tabId, sessionId);
+      };
+      if (!replayer.deferLiveEvent(streamEvent, tabId, sessionId, deliver))
+        deliver();
     };
-    const pending = loader.switchSession(sessionId, { reason: 'compaction', targetTabId: tabId });
-    live(event(sessionId, 'l-start', 'message_start', 'L', { role: 'assistant' }));
-    live(event(sessionId, 'l-one', 'text_delta', 'L', { blockIndex: 0, delta: 'live-1' }));
+    const pending = loader.switchSession(sessionId, {
+      reason: 'compaction',
+      targetTabId: tabId,
+    });
+    live(
+      event(sessionId, 'l-start', 'message_start', 'L', { role: 'assistant' }),
+    );
+    live(
+      event(sessionId, 'l-one', 'text_delta', 'L', {
+        blockIndex: 0,
+        delta: 'live-1',
+      }),
+    );
     finishLoad?.({ success: true, data: {} });
-    for (let i = 0; i < 20 && !rpcCall.mock.calls.some(([method]) => method === 'chat:resume'); i++) {
+    for (
+      let i = 0;
+      i < 20 &&
+      !rpcCall.mock.calls.some(([method]) => method === 'chat:resume');
+      i++
+    ) {
       await Promise.resolve();
     }
-    expect(rpcCall).toHaveBeenCalledWith('chat:resume', expect.anything(), expect.anything());
-    live(event(sessionId, 'l-two', 'text_delta', 'L', { blockIndex: 0, delta: 'live-2' }));
+    expect(rpcCall).toHaveBeenCalledWith(
+      'chat:resume',
+      expect.anything(),
+      expect.anything(),
+    );
+    live(
+      event(sessionId, 'l-two', 'text_delta', 'L', {
+        blockIndex: 0,
+        delta: 'live-2',
+      }),
+    );
     await expect(pending).resolves.toEqual({ staleSnapshot: false });
     const tab = tabManager.tabs().find((candidate) => candidate.id === tabId);
-    expect([...tab!.streamingState!.events.values()].some((candidate) => candidate.id === 'l-start')).toBe(true);
-    expect([...tab!.streamingState!.textAccumulators.entries()]
-      .filter(([key]) => key.startsWith('L-')).map(([, text]) => text).join('')).toBe('live-1live-2');
+    expect(
+      [...tab!.streamingState!.events.values()].some(
+        (candidate) => candidate.id === 'l-start',
+      ),
+    ).toBe(true);
+    expect(
+      [...tab!.streamingState!.textAccumulators.entries()]
+        .filter(([key]) => key.startsWith('L-'))
+        .map(([, text]) => text)
+        .join(''),
+    ).toBe('live-1live-2');
     expect(JSON.stringify(tab!.messages)).toContain(restoredText);
   });
 
@@ -3903,56 +4202,102 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
     const sessionId = SessionId.create();
     const history = [
       event(sessionId, 'h-start', 'message_start', 'H', { role: 'assistant' }),
-      event(sessionId, 'h-text', 'text_delta', 'H', { blockIndex: 0, delta: restoredText }),
-      event(sessionId, 'h-end', 'message_complete', 'H', { stopReason: 'end_turn' }),
+      event(sessionId, 'h-text', 'text_delta', 'H', {
+        blockIndex: 0,
+        delta: restoredText,
+      }),
+      event(sessionId, 'h-end', 'message_complete', 'H', {
+        stopReason: 'end_turn',
+      }),
     ];
     let finishResyncResume: ((value: unknown) => void) | undefined;
-    const resyncResume = new Promise<unknown>((resolve) => { finishResyncResume = resolve; });
+    const resyncResume = new Promise<unknown>((resolve) => {
+      finishResyncResume = resolve;
+    });
     let resumes = 0;
     const rpcCall = jest.fn((method: string) => {
-      if (method !== 'chat:resume') return Promise.resolve({ success: true, data: {} });
+      if (method !== 'chat:resume')
+        return Promise.resolve({ success: true, data: {} });
       resumes++;
       return resumes === 1
         ? Promise.resolve({ success: true, data: { events: history } })
         : resyncResume;
     });
-    const { loader, tabManager, streamingHandler } = configureRealPipeline(rpcCall);
+    const { loader, tabManager, streamingHandler } =
+      configureRealPipeline(rpcCall);
     tabManager.switchWorkspace('D:/repo');
     const tabId = tabManager.openSessionTab(sessionId, 'compacted') as TabId;
     const replayer = TestBed.inject(SessionHistoryReplayer);
     const live = (streamEvent: FlatStreamEventUnion): void => {
-      const deliver = (): void => { streamingHandler.processStreamEvent(streamEvent, tabId, sessionId); };
-      if (!replayer.deferLiveEvent(streamEvent, tabId, sessionId, deliver)) deliver();
+      const deliver = (): void => {
+        streamingHandler.processStreamEvent(streamEvent, tabId, sessionId);
+      };
+      if (!replayer.deferLiveEvent(streamEvent, tabId, sessionId, deliver))
+        deliver();
     };
-    const start = event(sessionId, 'l-start', 'message_start', 'L', { role: 'assistant' });
-    live(start);
-    live(event(sessionId, 'l-gap', 'text_delta', 'L', { blockIndex: 0, delta: 'gap' }));
-    const delayed = loader.switchSession(sessionId, {
-      reason: 'compaction', targetTabId: tabId, compactionDelayed: true,
+    const start = event(sessionId, 'l-start', 'message_start', 'L', {
+      role: 'assistant',
     });
-    live(event(sessionId, 'l-buffered', 'text_delta', 'L', { blockIndex: 0, delta: '-buffered' }));
+    live(start);
+    live(
+      event(sessionId, 'l-gap', 'text_delta', 'L', {
+        blockIndex: 0,
+        delta: 'gap',
+      }),
+    );
+    const delayed = loader.switchSession(sessionId, {
+      reason: 'compaction',
+      targetTabId: tabId,
+      compactionDelayed: true,
+    });
+    live(
+      event(sessionId, 'l-buffered', 'text_delta', 'L', {
+        blockIndex: 0,
+        delta: '-buffered',
+      }),
+    );
     await delayed;
     expect(requestStreamResyncMock).toHaveBeenCalledTimes(1);
     expect(requestStreamResyncMock).toHaveBeenCalledWith(tabId);
     const seedText = event(sessionId, 'l-seed', 'text_delta', 'L', {
-      blockIndex: 0, delta: 'gap-buffered',
+      blockIndex: 0,
+      delta: 'gap-buffered',
     });
     const resync = loader.switchSession(sessionId, {
-      reason: 'resync', targetTabId: tabId,
+      reason: 'resync',
+      targetTabId: tabId,
       liveSeed: {
         events: [start, seedText],
-        apply: (events) => { for (const e of events) streamingHandler.processStreamEvent(e, tabId, sessionId, { fanOut: false }); },
+        apply: (events) => {
+          for (const e of events)
+            streamingHandler.processStreamEvent(e, tabId, sessionId, {
+              fanOut: false,
+            });
+        },
       },
     });
     for (let i = 0; i < 20 && resumes < 2; i++) await Promise.resolve();
     expect(resumes).toBe(2);
-    live(event(sessionId, 'l-after', 'text_delta', 'L', { blockIndex: 0, delta: '-after' }));
+    live(
+      event(sessionId, 'l-after', 'text_delta', 'L', {
+        blockIndex: 0,
+        delta: '-after',
+      }),
+    );
     finishResyncResume?.({ success: true, data: { events: history } });
     await resync;
     const tab = tabManager.tabs().find((candidate) => candidate.id === tabId);
-    expect([...tab!.streamingState!.events.values()].some((candidate) => candidate.id === 'l-start')).toBe(true);
-    expect([...tab!.streamingState!.textAccumulators.entries()]
-      .filter(([key]) => key.startsWith('L-')).map(([, text]) => text).join('')).toBe('gap-buffered-after');
+    expect(
+      [...tab!.streamingState!.events.values()].some(
+        (candidate) => candidate.id === 'l-start',
+      ),
+    ).toBe(true);
+    expect(
+      [...tab!.streamingState!.textAccumulators.entries()]
+        .filter(([key]) => key.startsWith('L-'))
+        .map(([, text]) => text)
+        .join(''),
+    ).toBe('gap-buffered-after');
     expect(JSON.stringify(tab!.messages)).toContain(restoredText);
     expect(requestStreamResyncMock).toHaveBeenCalledTimes(1);
   });

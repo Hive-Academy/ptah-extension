@@ -1,10 +1,13 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, effect, untracked } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   TabManagerService,
   SessionLivenessRegistry,
 } from '@ptah-extension/chat-state';
-import { TurnStateApplier } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  TurnStateApplier,
+} from '@ptah-extension/chat-streaming';
 import type { SessionTurnState, TurnStateEvent } from '@ptah-extension/shared';
 
 /**
@@ -28,6 +31,32 @@ export class SessionLivenessReconcilerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly turnStateApplier = inject(TurnStateApplier);
+
+  private readonly agentMonitor = inject(AgentMonitorStore);
+
+  constructor() {
+    effect(() => {
+      const candidates = this.agentMonitor.pendingHistoryCandidates();
+      const tabs = this.tabManager.tabs();
+      untracked(() => {
+        for (const { sessionId, generation } of candidates) {
+          if (this.probedGenerations.get(sessionId) === generation) continue;
+          const tab = tabs.find((item) => item.claudeSessionId === sessionId);
+          if (!tab) continue;
+          this.probedGenerations.set(sessionId, generation);
+          void this.reconcileTab(tab.id, sessionId);
+        }
+        for (const sessionId of this.probedGenerations.keys()) {
+          if (
+            !candidates.some((candidate) => candidate.sessionId === sessionId)
+          )
+            this.probedGenerations.delete(sessionId);
+        }
+      });
+    });
+  }
+
+  private readonly probedGenerations = new Map<string, number>();
 
   async reconcileRestoredTabs(): Promise<void> {
     const workspacePath =
@@ -61,11 +90,32 @@ export class SessionLivenessReconcilerService {
     sessionId: string,
     workspacePath: string | undefined,
   ): Promise<void> {
+    const generation = this.agentMonitor
+      .pendingHistoryCandidates()
+      .find((candidate) => candidate.sessionId === sessionId)?.generation;
     try {
       const result = await this.rpc.call('session:status', { sessionId });
       if (!result?.success || !result.data) return;
 
       const { isActive, turnState } = result.data;
+      if (generation !== undefined) {
+        const inactive =
+          isActive === false ||
+          (turnState &&
+            ['idle', 'failed', 'sleeping'].includes(turnState.phase) &&
+            turnState.backgroundTasks.length === 0);
+        const live =
+          turnState &&
+          (turnState.phase === 'generating' ||
+            turnState.phase === 'awaiting-background' ||
+            turnState.backgroundTasks.length > 0);
+        if (inactive || live)
+          this.agentMonitor.applyHistoryEvidence(
+            sessionId,
+            generation,
+            inactive ? 'inactive' : 'live',
+          );
+      }
       if (turnState) {
         // `ordered: false` — this event is synthesized from an RPC answer, not
         // pulled from the tab's chunk stream, so it carries whatever revision
@@ -83,11 +133,8 @@ export class SessionLivenessReconcilerService {
         // Known to the backend but no turn recorded yet: live and idle.
         this.liveness.markIdle(sessionId, workspacePath);
       }
-    } catch (error: unknown) {
-      console.warn(
-        '[SessionLivenessReconciler] probe failed; leaving tab as restored',
-        { sessionId, error },
-      );
+    } catch {
+      // Failed probes provide no evidence; leave candidates for the next probe.
     }
   }
 }
