@@ -127,7 +127,8 @@ describe('AdvancedTabComponent', () => {
         credential: { kind: 'stored' } });
       probe.settle(); await flush();
       expect(last()).toBe('status: Endpoint verified (42ms). Save it to apply.');
-      expect(query('advanced-probe')).toBeNull();
+      // The result gates Save endpoint, so it also stays inline after the toast clears.
+      expect(query('advanced-probe')?.textContent?.trim()).toBe('Endpoint verified (42ms). Save it to apply.');
       query('advanced-save-endpoint')?.click(); await flush();
       expect(state.updateCustomEntryEndpoint).toHaveBeenCalledWith('sovereigneg', { modelsEndpoint: '/v2/models' }, probe.calls[0].probeId, CONTEXT);
       expect(last()).toBe('status: Endpoint saved.');
@@ -168,6 +169,7 @@ describe('AdvancedTabComponent', () => {
       expect(text).toContain('Check failed (3000ms)');
       expect(text).toContain('Nothing was saved.');
       expect(text).not.toContain('raw host detail');
+      expect(query('advanced-probe')?.textContent?.trim()).toBe(text);
       expect(disabled('advanced-save-endpoint')).toBe(true);
       expect(state.updateCustomEntryEndpoint).not.toHaveBeenCalled();
     });

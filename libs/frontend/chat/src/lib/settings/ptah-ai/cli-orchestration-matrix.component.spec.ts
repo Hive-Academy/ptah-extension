@@ -1239,7 +1239,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(inlineResult()).toBeNull();
       expect(feedback.toast()).toEqual({
         tone: 'status',
-        message: 'Test passed in 112ms.',
+        message: 'Glm: Test passed in 112ms.',
         canUndo: false,
       });
       expect(statusOf('glm-1')).toContain('112ms');
@@ -1257,7 +1257,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(inlineResult()).toBeNull();
       expect(feedback.toast()).toEqual({
         tone: 'alert',
-        message: 'The connection test failed.',
+        message: 'Glm: The connection test failed.',
         canUndo: false,
       });
       expect(statusOf('glm-1')).toBe('Ready');
@@ -1270,14 +1270,14 @@ describe('CliOrchestrationMatrixComponent', () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
       expect(feedback.toast()?.message).toBe(
-        'The connection test failed. The provider did not respond.',
+        'Glm: The connection test failed. The provider did not respond.',
       );
     });
 
     it('S1: a failed or timed-out run never reports the earlier pass', async () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      expect(feedback.toast()?.message).toBe('Test passed in 112ms.');
+      expect(feedback.toast()?.message).toBe('Glm: Test passed in 112ms.');
       let fail: () => void = () => undefined;
       state.testCliConnection.mockImplementationOnce(async () => {
         // The real state drops the previous result when a run starts.
@@ -1298,7 +1298,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       await flush();
       expect(feedback.toast()).toEqual({
         tone: 'alert',
-        message: 'The test could not run. Try again.',
+        message: 'Glm: The test could not run. Try again.',
         canUndo: false,
       });
       expect(row('glm-1')?.textContent).not.toContain('112ms');

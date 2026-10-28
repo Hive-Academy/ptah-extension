@@ -7,6 +7,7 @@ import type { CancelDraftFn, VerifyDraftFn } from './credentials-tab.component';
 import { runDrawerWrite, type DrawerWriteOutcome } from './drawer-write';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { commitToast } from '../../feedback/settings-commit-toast';
 
 /** Verbatim (plan :662-664): pricing has no runtime reader (`provider-registry.ts:703-718`). */
 export const PRICING_NOTE = 'Stored for your reference; Ptah does not use it for cost estimates yet.';
@@ -36,6 +37,13 @@ const PROBE_FAILURE_COPY: Readonly<Record<string, string>> = {
 };
 
 let PROBE_COUNTER = 0;
+
+function probeResultText(result: AuthVerifyDraftConnectionResult): string {
+  const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
+  return result.outcome === 'verified'
+    ? `Endpoint verified${latency}. Save it to apply.`
+    : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`;
+}
 
 /** Parses the two price fields: both empty clears the pricing; otherwise both must be numbers ≥ 0. */
 export function parsePricing(input: string, output: string): { readonly ok: true; readonly value: ProvidersCustomEntry['pricing'] } | { readonly ok: false } {
@@ -87,13 +95,11 @@ export function parsePricing(input: string, output: string): { readonly ok: true
               [value]="keyDraft()" (input)="keyDraft.set(value($event)); abandonProbe()" data-testid="advanced-check-key" />
             <p class="text-xs text-base-content-muted">The stored key can only be checked against the saved address. It is used for this check only and is not saved.</p>
           }
-          <!-- Progress and the "check first" hint stay here; the check's result is the page toast. -->
-          @if (probeText(); as text) {
-            <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="advanced-probe">
-              @if (probeState() === 'checking') { <span class="h-2 w-2 shrink-0 rounded-full bg-base-content-muted" aria-hidden="true"></span> }
-              {{ text }}
-            </p>
-          }
+          <!-- The check's state gates Save endpoint, so it stays here; its result is also the page toast. -->
+          <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="advanced-probe">
+            @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
+            {{ probeText() }}
+          </p>
           <div class="flex flex-wrap gap-2">
             <button type="button" class="btn btn-outline btn-sm" [disabled]="!canCheck()" (click)="check()"
               data-testid="advanced-check">{{ probeState() === 'checking' ? 'Checking…' : 'Check endpoint' }}</button>
@@ -206,14 +212,17 @@ export class AdvancedTabComponent {
     && (this.baseUrlChanged() || this.modelsEndpointChanged()) && (!this.baseUrlChanged() || !!this.keyDraft().trim()));
   protected readonly canSaveEndpoint = computed(() => !this.busy() && this.probeState() === 'verified'
     && this.probeResult()?.probeId === this.probeId && (this.baseUrlChanged() || this.modelsEndpointChanged()));
-  /** Inline only while checking, or before a check ran; a check's result goes to the page toast. */
+  /** The check's state stays inline: a `verified` result is what enables Save endpoint. */
   protected readonly probeText = computed(() => {
+    const result = this.probeResult();
     switch (this.probeState()) {
       case 'checking': return 'Checking the endpoint…';
       case 'idle': return 'A changed base URL or models endpoint is saved only after a passing check.';
-      default: return null;
+      default: return result ? probeResultText(result) : '';
     }
   });
+  protected readonly probeDot = computed(() =>
+    `h-2 w-2 shrink-0 rounded-full ${this.probeState() === 'verified' ? 'bg-success' : this.probeState() === 'failed' ? 'bg-error' : 'bg-base-content-muted'}`);
 
   constructor() {
     effect(() => {
@@ -247,16 +256,12 @@ export class AdvancedTabComponent {
     });
   }
 
-  /** Records a check's result (it gates Save endpoint) and says it in the page toast. */
+  /** Records a check's result (it gates Save endpoint, so it stays inline) and also says it in the page toast. */
   private settleProbe(result: AuthVerifyDraftConnectionResult): void {
     this.probeResult.set(result);
     const verified = result.outcome === 'verified';
     this.probeState.set(verified ? 'verified' : 'failed');
-    const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
-    this.feedback.announce(verified
-      ? `Endpoint verified${latency}. Save it to apply.`
-      : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY['unclassified']} Nothing was saved.`,
-    verified ? 'status' : 'alert');
+    this.feedback.announce(probeResultText(result), verified ? 'status' : 'alert');
   }
 
   protected saveEndpoint(): Promise<void> {
@@ -310,10 +315,8 @@ export class AdvancedTabComponent {
       this.outcome.set(outcome);
       if (outcome.status === 'saved') onSaved();
       // The outcome is the page toast; Save stays disabled while it runs, so "Saving…" is not repeated.
-      if (outcome.status === 'saved') this.feedback.announce(SAVED_TEXT[section], 'status');
-      else if (outcome.status !== 'idle' && outcome.status !== 'saving') {
-        this.feedback.announce(`${outcome.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${outcome.message ?? ''}`.trim(), 'alert');
-      }
+      const said = commitToast(outcome, SAVED_TEXT[section]);
+      if (said) this.feedback.announce(said.message, said.tone);
     });
   }
 

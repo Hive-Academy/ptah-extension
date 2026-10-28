@@ -75,7 +75,7 @@ const SAVE_MAX_RESULTS_FAILED = 'Could not save the web search max results.';
  * Used for the whole probe and for each failed provider row: the backend's per-provider `error` is a
  * raw `Error.message` (`web-search-rpc.handlers.ts:202-207`), not a fixed reason.
  */
-const TEST_FAILED = 'The connection check failed.';
+const TEST_FAILED = 'The connection test failed.';
 
 function asProviderIds(values: readonly string[]): ProviderId[] {
   return values.filter((value): value is ProviderId =>

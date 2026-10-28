@@ -1437,10 +1437,10 @@ export class CliOrchestrationMatrixComponent {
   }
 
   /**
-   * RUX-11: this instance's last Test, announced through the page toast when the run ends (the row's status badge keeps
-   * the latency of a passed test). Only this run's result counts (S1: the state drops the previous one when a run
-   * starts and on any failure), and a failure is a fixed sentence (M1) followed by the state's own fixed reason when it
-   * has one.
+   * RUX-11: this instance's last Test, announced through the page toast with the instance name when the run ends (the
+   * row's status badge keeps the latency of a passed test). Only this run's result counts (S1: the state drops the
+   * previous one when a run starts and on any failure), and a failure is a fixed sentence (M1) followed by the state's
+   * own fixed reason when it has one.
    */
   private testResult(
     row: InstanceCliMatrixRow,
@@ -1483,7 +1483,8 @@ export class CliOrchestrationMatrixComponent {
         candidate.kind === 'instance' && candidate.id === id,
     );
     const result = row ? this.testResult(row) : null;
-    if (result) this.feedback.announce(result.text, result.ok ? 'status' : 'alert');
+    // Named: a later Test of another instance replaces this toast, so each one says whose result it is.
+    if (row && result) this.feedback.announce(`${row.name}: ${result.text}`, result.ok ? 'status' : 'alert');
   }
 
   /**

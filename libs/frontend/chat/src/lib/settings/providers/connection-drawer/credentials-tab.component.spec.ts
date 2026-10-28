@@ -195,9 +195,9 @@ describe('CredentialsTabComponent', () => {
       expect(query('credentials-probe')?.textContent).toContain('Checking');
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       probe.settle(); await flush();
-      // The result is the page toast; the inline line holds only progress and the hint.
+      // The result is the page toast and stays inline too: it is what enables Save.
       expect(announced()).toEqual(['status: Key verified (92ms). Save it to replace the stored key.']);
-      expect(query('credentials-probe')).toBeNull();
+      expect(query('credentials-probe')?.textContent?.trim()).toBe('Key verified (92ms). Save it to replace the stored key.');
       query('credentials-save')?.click();
       expect(replace).toHaveBeenCalledWith({ key: 'sk-new', probeId: probe.calls[0].probeId });
     });
@@ -216,6 +216,7 @@ describe('CredentialsTabComponent', () => {
       expect(text).toContain('The provider rejected this key.');
       expect(text).toContain('Nothing was saved.');
       expect(text).not.toContain('host detail');
+      expect(query('credentials-probe')?.textContent?.trim()).toBe(text);
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       query('credentials-save')?.click();
       expect(replace).not.toHaveBeenCalled();

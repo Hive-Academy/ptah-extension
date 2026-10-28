@@ -291,8 +291,13 @@ export async function closeCatalog(page: Page): Promise<void> {
   await expect(connectProviderButton(page)).toBeFocused();
 }
 
-/** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
-export async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
+/**
+ * Confirms an inline two-step write in the Credentials tab, asserts its RPC went out and that the page toast says this
+ * write's own outcome (`toast`, e.g. "Stored key deleted."), so an earlier toast still on screen cannot satisfy it.
+ */
+export async function confirmWrite(
+  page: Page, trigger: string, confirm: string, method: string, params: unknown, toast: string,
+): Promise<void> {
   const state = getFixtureState(page);
   const before = state.calls.length;
   const start = page.locator(`[data-testid="${trigger}"]`);
@@ -302,6 +307,6 @@ export async function confirmWrite(page: Page, trigger: string, confirm: string,
   await visibleEnabled(confirmButton);
   await confirmButton.click();
   // The write's outcome is announced through the page toast.
-  await expect(page.locator('[data-testid="settings-toast-message"]')).toBeVisible();
+  await expect(page.locator('[data-testid="settings-toast-message"]')).toHaveText(toast);
   await expect.poll(() => state.calls.slice(before).find((call) => call.method === method)?.params).toEqual(params);
 }

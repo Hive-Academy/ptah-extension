@@ -19,7 +19,15 @@ export interface SettingsSaveRequest {
   readonly failureMessage?: (commit: ProvidersSettingsCommit) => string | null;
   /** Fixed copy replacing "Saved {label} to {scope}." (e.g. a stored credential: "… Key stored, not verified."). */
   readonly successMessage?: string;
+  /**
+   * Runs after this save's Undo write ended and its toast is shown, with the Undo's own outcome, so the control can
+   * reconcile its read-back exactly as after the first write (and correct the toast with `announce`).
+   */
+  readonly undoSettled?: (result: SettingsSaveResult) => void;
 }
+
+/** The Undo of a {@link SettingsSaveRequest}: no Undo of its own; `settled` is the original's `undoSettled`. */
+type UndoSaveRequest = SettingsSaveRequest & { readonly settled?: (result: SettingsSaveResult) => void };
 
 /**
  * This call's own outcome (Gate V 36 M2): `saved` only when its write resolved `true` and the commit it produced is
@@ -50,6 +58,10 @@ export interface SettingsToast {
 }
 
 export const SETTINGS_TOAST_TIMEOUT_MS = 8000;
+/** "Could not save {label}." — the failure lead for a field, shared by controls that word their own correction. */
+export const settingNotSavedMessage = (label: string): string => `Could not save ${label}.`;
+/** "Could not confirm whether {label} was saved." — a write whose outcome is unknown. */
+export const settingNotConfirmedMessage = (label: string): string => `Could not confirm whether ${label} was saved.`;
 export const SAVE_REFUSED_MESSAGE = 'Another change is still saving.';
 export const UNDO_STALE_MESSAGE = 'A newer change replaced this one, so it was not undone.';
 
@@ -73,7 +85,7 @@ export class SettingsSaveFeedbackService {
   };
   private readonly toastState = signal<SettingsToast | null>(null);
   private readonly genericSaving = signal(false);
-  private undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null = null;
+  private undoRequest: UndoSaveRequest | SettingsGenericSaveRequest | null = null;
   /**
    * The Providers commit the Undo was offered after. A later Providers write that bypasses this toast (a drawer tab's
    * own write) makes a new commit; when that commit wrote one of the same fields, an Undo would overwrite the newer
@@ -102,10 +114,7 @@ export class SettingsSaveFeedbackService {
       // degradation-audit: reported - shows a fixed alert toast and returns 'failed'.
       // State commands settle their own failures into `commit()`; a throw here means the command
       // itself broke, so nothing about the write can be confirmed.
-      this.show(
-        { tone: 'alert', message: `Could not confirm whether ${request.label} was saved.`, canUndo: false },
-        null,
-      );
+      this.show({ tone: 'alert', message: settingNotConfirmedMessage(request.label), canUndo: false }, null);
       return 'failed';
     }
     if (!accepted) {
@@ -122,12 +131,12 @@ export class SettingsSaveFeedbackService {
           canUndo: undo !== null,
         },
         // The Undo is its own save: it reports with the default copy, never this request's fixed copy.
-        undo ? { label: request.label, scope: request.scope, write: undo, undo: null } : null,
+        undo ? { label: request.label, scope: request.scope, write: undo, undo: null, settled: request.undoSettled } : null,
       );
       return 'saved';
     }
     const fixed = request.failureMessage?.(commit) ?? null;
-    const parts = [fixed ?? `Could not save ${request.label}.`];
+    const parts = [fixed ?? settingNotSavedMessage(request.label)];
     const unsaved = shownFields(commit.unsaved), unconfirmed = shownFields(commit.unconfirmed);
     if (!fixed && unsaved.length) parts.push(`Not saved: ${unsaved.join(', ')}.`);
     if (!fixed && unconfirmed.length) parts.push(`Not confirmed: ${unconfirmed.join(', ')}.`);
@@ -157,10 +166,7 @@ export class SettingsSaveFeedbackService {
     } catch {
       // degradation-audit: reported - shows a fixed alert toast and returns 'failed'.
       // The writer itself broke; nothing about the write can be confirmed.
-      this.show(
-        { tone: 'alert', message: `Could not confirm whether ${request.label} was saved.`, canUndo: false },
-        null,
-      );
+      this.show({ tone: 'alert', message: settingNotConfirmedMessage(request.label), canUndo: false }, null);
       return 'failed';
     } finally {
       this.genericSaving.set(false);
@@ -195,7 +201,8 @@ export class SettingsSaveFeedbackService {
     }
     this.dismiss();
     if ('scope' in request) {
-      await this.save(request);
+      const result = await this.save(request);
+      request.settled?.(result);
     } else {
       await this.saveGeneric(request);
     }
@@ -217,7 +224,7 @@ export class SettingsSaveFeedbackService {
   }
 
   /** `undoCommit`: the commit the Undo belongs to; by default the current one (the save that offered it just ended). */
-  private show(toast: SettingsToast, undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null,
+  private show(toast: SettingsToast, undoRequest: UndoSaveRequest | SettingsGenericSaveRequest | null,
     undoCommit: ProvidersSettingsCommit | null = this.state.commit()): void {
     this.clearTimer();
     this.undoRequest = undoRequest;

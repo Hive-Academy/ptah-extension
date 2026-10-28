@@ -178,6 +178,38 @@ describe('SubagentCacheTtlSettingComponent', () => {
     expect(select()?.value).toBe('auto');
   });
 
+  it('reconciles an Undo like a save: an unconfirmed Undo shows no value and offers the re-read', async () => {
+    choose('1h');
+    await flush();
+    expect(feedback.toast()?.canUndo).toBe(true);
+    state.next = 'unconfirmed';
+    await feedback.undo();
+    await flush();
+    expect(state.saveSettings).toHaveBeenLastCalledWith(
+      { orchestration: { subagentPromptCacheTtl: 'auto' } },
+      CONTEXT,
+    );
+    expect(select()?.value).toBe('');
+    expect(isDisabledControl(select())).toBe(true);
+    expect(recheck()).not.toBeNull();
+    expect(feedback.toast()?.tone).toBe('alert');
+  });
+
+  it('reconciles an Undo like a save: a "saved" Undo that reads back another value is corrected', async () => {
+    choose('1h');
+    await flush();
+    state.ignoresWrite = true;
+    await feedback.undo();
+    await flush();
+    expect(select()?.value).toBe('1h');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message:
+        'Could not save Subagent prompt-cache TTL. The saved setting is unchanged.',
+      canUndo: false,
+    });
+  });
+
   it.each([['5m'], ['1h']] as const)(
     'with the env var set to %s: the select stays editable and the notice says it takes precedence',
     async (value) => {
@@ -236,7 +268,7 @@ describe('SubagentCacheTtlSettingComponent', () => {
     expect(feedback.toast()).toEqual({
       tone: 'alert',
       message:
-        'Could not save the subagent prompt-cache TTL. The saved setting is unchanged.',
+        'Could not save Subagent prompt-cache TTL. The saved setting is unchanged.',
       canUndo: false,
     });
   });

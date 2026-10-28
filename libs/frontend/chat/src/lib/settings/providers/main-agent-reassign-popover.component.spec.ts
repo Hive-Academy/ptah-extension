@@ -385,6 +385,20 @@ describe('MainAgentReassignPopoverComponent', () => {
       expect(fixture.componentInstance.closed).toBe(1);
     });
 
+    it('a saved provider with a failed model write: one alert says the provider was saved and the model was not', async () => {
+      state.activateConnection.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'saved' }); return true; });
+      state.saveSettings.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'failed', unsaved: ['model'] }); return true; });
+      choose('main-agent-provider', 'second');
+      await flush();
+      choose('main-agent-model', 'model-b');
+      buttonNamed('Use for main agent')?.click(); fixture.detectChanges();
+      await save();
+      expect(state.activateConnection).toHaveBeenCalledTimes(1);
+      expect(feedback.toast()).toMatchObject({ tone: 'alert', canUndo: false,
+        message: 'Main agent provider saved. Could not save main agent model. Not saved: model.' });
+      expect(fixture.componentInstance.closed).toBe(0);
+    });
+
     it('Save to another scope offers "Save provider to {scope}…", which re-saves the current provider through the confirm (RUX-5)', async () => {
       // The provider is stored globally and "Save to" defaults to this workspace, so the offer shows at once.
       expect(query('main-agent-provider-rescope')?.textContent?.trim()).toBe('Save provider to This workspace…');

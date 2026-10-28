@@ -9,7 +9,7 @@ import { BACKGROUND_ROLE_IDS } from './provider-consumer-rows';
 
 export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 
-/** Background roles in the order the Orchestration tab lists them (as `connection-usage.ts`). */
+/** Background roles in the order the Providers tab lists them (as `connection-usage.ts`). */
 export interface BackgroundRolesPreview {
   /** Roles with a provider of their own, in list order: `{ label, provider }` (provider = connection name). */
   readonly explicit: readonly { readonly label: string; readonly provider: string }[];
@@ -35,7 +35,7 @@ export function backgroundRolesPreview(
 }
 
 export interface CliAgentsPreview {
-  /** Installed agents in the preferred order (the Orchestration tab's rule); disabled ones are flagged. */
+  /** Installed agents in the preferred order (the CLI matrix's rule, Providers tab); disabled ones are flagged. */
   readonly order: readonly { readonly id: string; readonly name: string; readonly disabled: boolean }[];
   readonly enabledSystem: number;
   readonly ptahInstances: number;

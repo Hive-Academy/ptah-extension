@@ -1,11 +1,14 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import {
+  SettingsSaveFeedbackService, settingNotConfirmedMessage, settingNotSavedMessage,
+} from '../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-const NOT_SAVED = 'Could not save Copilot auto-approve. The saved setting is unchanged.';
-const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it.';
+const LABEL = 'Copilot auto-approve';
+const NOT_SAVED = `${settingNotSavedMessage(LABEL)} The saved setting is unchanged.`;
+const NOT_CONFIRMED = `${settingNotConfirmedMessage(LABEL)} Check the saved setting again before changing it.`;
 
 /**
  * Copilot auto-approve, moved from `agent-orchestration-config.component.ts:466-581` (plan :739-741) into Copilot's
@@ -77,7 +80,7 @@ export class CopilotAutoApproveToggleComponent {
       // describes this write), `threw` (the command broke: its outcome is unknown), `skipped` (never called).
       const result: { attempt: 'skipped' | 'threw' | 'refused' | 'started' } = { attempt: 'skipped' };
       const outcome = await this.feedback.save({
-        label: 'Copilot auto-approve', scope: 'global',
+        label: LABEL, scope: 'global',
         write: async () => {
           result.attempt = 'threw';
           const started = await this.state.saveSettings({ orchestration: { copilotAutoApprove: next } }, context);

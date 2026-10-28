@@ -383,7 +383,7 @@ describe('AdvancedSettingsComponent', () => {
     expect(outcome?.message).not.toContain('host detail');
   });
 
-  it('surfaces an Electron import result with errors as an inline alert without leaking host error text', async () => {
+  it('surfaces an Electron import result with errors as an alert toast without leaking host error text', async () => {
     rpc.call.mockResolvedValue(
       rpcSuccess({
         cancelled: false,
@@ -427,7 +427,7 @@ describe('AdvancedSettingsComponent', () => {
     expect(announce).not.toHaveBeenCalled();
   });
 
-  it('surfaces an Electron import RPC error as an inline alert without leaking host error text', async () => {
+  it('surfaces an Electron import RPC error as an alert toast without leaking host error text', async () => {
     rpc.call.mockResolvedValue(
       rpcError('import handler missing: internal details'),
     );
@@ -440,7 +440,7 @@ describe('AdvancedSettingsComponent', () => {
     expect(outcome?.message).not.toContain('import handler missing');
   });
 
-  it('surfaces a VS Code import execution error as an inline alert without leaking host error text', async () => {
+  it('surfaces a VS Code import execution error as an alert toast without leaking host error text', async () => {
     rpc.call.mockResolvedValue(
       rpcError('command execution failed: internal details'),
     );
@@ -453,7 +453,7 @@ describe('AdvancedSettingsComponent', () => {
     expect(outcome?.message).not.toContain('command execution failed');
   });
 
-  it('surfaces a thrown import exception as an inline alert without leaking Error message', async () => {
+  it('surfaces a thrown import exception as an alert toast without leaking Error message', async () => {
     rpc.call.mockRejectedValue(new Error('connection reset: internal details'));
     await render(true);
     await confirmImport();

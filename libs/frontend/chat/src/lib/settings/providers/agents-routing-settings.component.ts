@@ -42,8 +42,8 @@ const FOCUS =
  * (`[data-testid="cli-matrix"]`).
  *
  * The Providers page beside it opens the shared state, so this component does not (`open()` re-reads every
- * section). Save feedback for the matrix and the roles shows in the Providers page's own commit panel, which
- * reads the same `state.commit()`.
+ * section). Save outcomes for the matrix and the roles show in the Settings page toast
+ * (`SettingsSaveFeedbackService`), like every other save on the page.
  *
  * A deep link is consumed once applied (the section focused and, for a role, its popover open): `focusTargetConsumed`
  * lets Settings clear the target, so the same link raised again while on this tab applies again (Gate V 36, M-1).

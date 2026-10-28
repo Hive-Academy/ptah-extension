@@ -16,6 +16,7 @@ import type { DrawerWriteOutcome } from './drawer-write';
 import { KEY_UNREADABLE_TEXT } from '../provider-connection-card.state';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { commitToast } from '../../feedback/settings-commit-toast';
 
 export type VerifyDraftFn = (params: AuthVerifyDraftConnectionParams) => Promise<AuthVerifyDraftConnectionResult>;
 export type CancelDraftFn = (params: AuthCancelDraftVerificationParams) => Promise<AuthCancelDraftVerificationResult>;
@@ -95,6 +96,13 @@ const CLAUDE_INSTALL = 'npm install -g @anthropic-ai/claude-code';
 
 type ProbeState = 'idle' | 'checking' | 'verified' | 'failed';
 let PROBE_COUNTER = 0;
+
+function probeResultText(result: AuthVerifyDraftConnectionResult): string {
+  const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
+  return result.outcome === 'verified'
+    ? `Key verified${latency}. Save it to replace the stored key.`
+    : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY.unclassified} Nothing was saved.`;
+}
 
 /**
  * Drawer tab "Credentials" (design-spec §2.3, plan :645-658). What it holds depends on the connection:
@@ -332,13 +340,11 @@ let PROBE_COUNTER = 0;
             @if (setupMissing(); as missing) {
               <p class="text-xs text-base-content-muted" data-testid="credentials-setup-missing">{{ missing }}</p>
             }
-            <!-- Progress and the "check first" hint stay here; the check's result is the page toast. -->
-            @if (probeText(); as text) {
-              <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
-                @if (probeState() === 'checking') { <span class="h-2 w-2 shrink-0 rounded-full bg-base-content-muted" aria-hidden="true"></span> }
-                {{ text }}
-              </p>
-            }
+            <!-- The check's state gates Save, so it stays here; its result is also the page toast. -->
+            <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
+              @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
+              {{ probeText() }}
+            </p>
             <div class="flex flex-wrap gap-2">
               <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
                 (click)="verify()" data-testid="credentials-verify">{{ probeState() === 'checking' ? 'Checking…' : 'Check key' }}</button>
@@ -487,14 +493,17 @@ export class CredentialsTabComponent {
   });
   protected readonly canSave = computed(() => this.probeState() === 'verified' && !!this.keyDraft().trim() && !this.busy()
     && this.probeResult()?.probeId === this.probeId && this.setupMissing() === null);
-  /** Inline only while checking, or before a check ran; a check's result goes to the page toast. */
+  /** The check's state stays inline: a `verified` result is what enables Save. */
   protected readonly probeText = computed(() => {
+    const result = this.probeResult();
     switch (this.probeState()) {
       case 'checking': return 'Checking the key…';
       case 'idle': return 'Check the key before saving it.';
-      default: return null;
+      default: return result ? probeResultText(result) : '';
     }
   });
+  protected readonly probeDot = computed(() =>
+    `h-2 w-2 shrink-0 rounded-full ${this.probeState() === 'verified' ? 'bg-success' : this.probeState() === 'failed' ? 'bg-error' : 'bg-base-content-muted'}`);
 
   constructor() {
     // Another connection: nothing typed or confirmed for the previous one survives.
@@ -515,8 +524,8 @@ export class CredentialsTabComponent {
       if (commit.status === 'idle' || commit.status === 'saving') return;
       this.announcedCommit = commit;
       untracked(() => {
-        if (commit.status === 'saved') this.feedback.announce(this.savedText(), 'status');
-        else this.feedback.announce(`${commit.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${commit.message ?? ''}`.trim(), 'alert');
+        const said = commitToast(commit, this.savedText());
+        if (said) this.feedback.announce(said.message, said.tone);
       });
     });
     inject(DestroyRef).onDestroy(() => this.resetReplace());
@@ -590,16 +599,12 @@ export class CredentialsTabComponent {
     }
   }
 
-  /** Records a check's result (it gates Save) and says it in the page toast. */
+  /** Records a check's result (it gates Save, so it stays inline) and also says it in the page toast. */
   private settleProbe(result: AuthVerifyDraftConnectionResult): void {
     this.probeResult.set(result);
     const verified = result.outcome === 'verified';
     this.probeState.set(verified ? 'verified' : 'failed');
-    const latency = result.latencyMs !== null && result.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';
-    this.feedback.announce(verified
-      ? `Key verified${latency}. Save it to replace the stored key.`
-      : `Check failed${latency}: ${PROBE_FAILURE_COPY[result.reason ?? 'unclassified'] ?? PROBE_FAILURE_COPY.unclassified} Nothing was saved.`,
-    verified ? 'status' : 'alert');
+    this.feedback.announce(probeResultText(result), verified ? 'status' : 'alert');
   }
 
   private savedText(): string {

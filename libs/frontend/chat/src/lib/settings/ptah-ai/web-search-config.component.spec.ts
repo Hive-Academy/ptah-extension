@@ -448,7 +448,7 @@ describe('WebSearchConfigComponent', () => {
       const tavily = byTestId('settings-web-search-status-tavily');
       const serper = byTestId('settings-web-search-status-serper');
       expect(tavily.textContent).toContain('Works');
-      expect(serper.textContent).toContain('The connection check failed.');
+      expect(serper.textContent).toContain('The connection test failed.');
       expect(serper.textContent).not.toContain('Unauthorized');
       expect(byTestId('settings-web-search-status-exa').textContent).toContain('Not tested');
       for (const cell of [tavily, serper]) {
@@ -550,7 +550,7 @@ describe('WebSearchConfigComponent', () => {
       byTestId<HTMLButtonElement>('settings-web-search-test').click();
       await settle();
       expect(queryTestId('settings-web-search-error')).toBeNull();
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'The connection check failed.', canUndo: false });
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'The connection test failed.', canUndo: false });
       expect(visibleText()).not.toContain('host detail');
     });
 
@@ -561,7 +561,7 @@ describe('WebSearchConfigComponent', () => {
       await render();
       byTestId<HTMLButtonElement>('settings-web-search-test').click();
       await settle();
-      expect(byTestId('settings-web-search-status-tavily').textContent?.trim()).toBe('The connection check failed.');
+      expect(byTestId('settings-web-search-status-tavily').textContent?.trim()).toBe('The connection test failed.');
       expect(visibleText()).not.toContain('host detail');
     });
   });

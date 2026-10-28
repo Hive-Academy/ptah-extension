@@ -61,7 +61,7 @@ const TIMEOUT_MAX_SEC = 600;
 const TIMEOUT_DEFAULT_SEC = 120;
 
 /**
- * Background model roles: Memory curator and Enhancement appear inside the Orchestration tab's roles `<details>`, then the Decision model
+ * Background model roles: Memory curator and Enhancement appear inside the Providers tab's roles `<details>`, then the Decision model
  *   card (`DecisionModelRowComponent`, TASK_2026_646 Req 1), which owns its own `agent:getConfig` read and writes.
  * - The Provider & model cell opens the row's reassignment popover (the shared provider/model picker). A choice saves
  *   at once through `SettingsSaveFeedbackService` with Undo (D2); a provider that is not ready is not saved and the
@@ -559,7 +559,6 @@ export class ProviderConsumerAssignmentsComponent {
   protected readonly isEditingTimeout = signal<boolean>(false);
   /** Draft seed only; editTimeout() seeds it from the backend value. */
   protected readonly timeoutDraftSec = signal<number>(0);
-  /** Set only by this editor's own save when its write did not save (a fixed sentence, never host text). */
 
   private readonly timeoutInputRef =
     viewChild<ElementRef<HTMLInputElement>>('timeoutInput');

@@ -24,7 +24,6 @@ import {
   type ProvidersConnectionDraft,
   type ProvidersEditContext,
   type ProvidersExternalAuthAction,
-  type ProvidersSettingsCommit,
 } from '@ptah-extension/core';
 import type {
   SettingScope,
@@ -62,6 +61,7 @@ import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { commitToast } from '../feedback/settings-commit-toast';
 // Rendered only inside `@defer`, so it stays out of the eager settings bundle.
 import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
@@ -751,17 +751,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   });
   protected readonly wizardCommitDetail = computed(() => {
     if (this.wizardCommitState() === 'idle') return '';
-    const result = this.state.commit();
-    return [
-      result.saved.length ? 'Saved: ' + result.saved.join(', ') : '',
-      result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '',
-      result.unconfirmed.length
-        ? 'Not confirmed: ' + result.unconfirmed.join(', ')
-        : '',
-      result.message,
-    ]
-      .filter(Boolean)
-      .join('. ');
+    return commitToast(this.state.commit())?.message ?? '';
   });
   private returnFocus: HTMLElement | null = null;
   /** What opened the catalog modal ("Connect provider", the tile, "Browse catalog →"). */
@@ -1309,7 +1299,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     if (confirmed) this.filter.set('');
     // One toast for the whole commit: the fields it saved, did not save and could not confirm.
     if (confirmed) this.feedback.announce('Connection settings saved and refreshed.', 'status');
-    else this.feedback.announce(['Some connection settings were not confirmed.', commitSummary(this.state.commit())]
+    else this.feedback.announce(['Some connection settings were not confirmed.', commitToast(this.state.commit())?.message]
       .filter(Boolean).join(' '), 'alert');
   }
   protected selectWizardProvider(providerId: string): void {
@@ -1409,18 +1399,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     );
     const commit = this.state.commit();
     if (commit.status === 'saved') this.clearKey.set(null);
-    const summary = commitSummary(commit);
-    if (summary) this.feedback.announce(summary, commit.status === 'saved' ? 'status' : 'alert');
+    const said = commitToast(commit);
+    if (said) this.feedback.announce(said.message, said.tone);
   }
-}
-
-/** One commit as one toast sentence: "Saved: a. Not saved: b. Save not confirmed: c. Check … {message}". */
-function commitSummary(commit: ProvidersSettingsCommit): string {
-  const parts: string[] = [];
-  if (commit.saved.length) parts.push(`Saved: ${commit.saved.join(', ')}.`);
-  if (commit.unsaved.length) parts.push(`Not saved: ${commit.unsaved.join(', ')}.`);
-  if (commit.unconfirmed.length)
-    parts.push(`Save not confirmed: ${commit.unconfirmed.join(', ')}. Check effective values before retrying.`);
-  if (commit.message) parts.push(commit.message);
-  return parts.join(' ');
 }

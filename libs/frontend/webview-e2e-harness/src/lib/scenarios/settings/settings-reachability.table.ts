@@ -839,7 +839,7 @@ const cliAgents: readonly ReachabilityEntry[] = [
 // Table 4: Agent orchestration policy (#72-79)
 // ---------------------------------------------------------------------------
 
-/** Batch 33: the Orchestration tab's policy bar (`orchestration-policy-bar`). */
+/** Batch 33: the CLI matrix's policy bar (`orchestration-policy-bar`), on the Providers tab. */
 const policyBar = (page: Page): Locator =>
   page.locator('[data-testid="orchestration-policy-bar"]');
 
@@ -857,9 +857,10 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
       await visibleEnabled(redetect);
       await redetect.click();
       await visibleEnabled(redetect);
+      // The result is the page toast: a passing re-detect says so; a failed one would show its failure text.
       await expect(
-        policyBar(page).locator('[data-testid="policy-redetect-error"]'),
-      ).toHaveCount(0);
+        page.locator('[data-testid="settings-toast-message"]'),
+      ).toHaveText('CLI agents re-detected.');
     },
   },
   {
@@ -1140,6 +1141,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-delete-confirm-button',
           'auth:deleteStoredKey',
           { providerId: 'anthropic' },
+          'Stored key deleted.',
         );
       }),
   },
@@ -1156,6 +1158,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-delete-confirm-button',
           'auth:deleteStoredKey',
           { providerId: 'kimi-code' },
+          'Stored key deleted.',
         );
       } finally {
         await closeConnectionDrawer(page);
@@ -1176,6 +1179,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
           'credentials-sign-out-confirm-button',
           'auth:copilotLogout',
           {},
+          'Signed out.',
         );
       }),
   },

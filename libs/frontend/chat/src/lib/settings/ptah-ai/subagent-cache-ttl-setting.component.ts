@@ -5,22 +5,28 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
 import {
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   type SubagentPromptCacheTtlSetting,
 } from '@ptah-extension/shared';
 import { SurfaceSectionComponent } from '@ptah-extension/ui';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import {
+  SettingsSaveFeedbackService,
+  settingNotConfirmedMessage,
+  settingNotSavedMessage,
+  type SettingsSaveResult,
+} from '../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ENV_VAR = 'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL';
-const NOT_SAVED =
-  'Could not save the subagent prompt-cache TTL. The saved setting is unchanged.';
-const NOT_CONFIRMED =
-  'Could not confirm whether the subagent prompt-cache TTL was saved. Check the saved setting again before changing it.';
+const LABEL = 'Subagent prompt-cache TTL';
+const NOT_SAVED = `${settingNotSavedMessage(LABEL)} The saved setting is unchanged.`;
+const NOT_CONFIRMED = `${settingNotConfirmedMessage(LABEL)} Check the saved setting again before changing it.`;
+/** The state method's own answer for one write; see `select()`. */
+type WriteAttempt = 'skipped' | 'threw' | 'refused' | 'started';
 const LABELS: Readonly<Record<SubagentPromptCacheTtlSetting, string>> = {
   auto: 'Auto (1 hour for sessions with subagents)',
   '5m': '5 minutes',
@@ -177,29 +183,17 @@ export class SubagentCacheTtlSettingComponent {
     try {
       // `refused`: another save in flight, nothing written; `started`: the commit describes this write; `threw`: the
       // outcome is unknown; `skipped`: never called.
-      const result: { attempt: 'skipped' | 'threw' | 'refused' | 'started' } = {
-        attempt: 'skipped',
-      };
+      const result: { attempt: WriteAttempt } = { attempt: 'skipped' };
+      const undo: { attempt: WriteAttempt } = { attempt: 'skipped' };
       const outcome = await this.feedback.save({
-        label: 'Subagent prompt-cache TTL',
+        label: LABEL,
         scope: 'global',
-        write: async () => {
-          result.attempt = 'threw';
-          const started = await this.state.saveSettings(
-            { orchestration: { subagentPromptCacheTtl: next } },
-            context,
-          );
-          result.attempt = started ? 'started' : 'refused';
-          return started;
-        },
-        undo: () =>
-          this.state.saveSettings(
-            { orchestration: { subagentPromptCacheTtl: saved } },
-            context,
-          ),
+        write: () => this.write(next, context, result),
+        // The Undo is a write too: it is reconciled the same way once its own toast is shown.
+        undo: () => this.write(saved, context, undo),
+        undoSettled: (undoOutcome) => this.reconcile(undo.attempt, saved, undoOutcome),
       });
-      if (result.attempt === 'started') this.settle(next, outcome === 'saved');
-      else if (result.attempt === 'threw') this.unconfirmed.set(true);
+      this.reconcile(result.attempt, next, outcome);
     } finally {
       this.saving.set(false);
     }
@@ -222,6 +216,29 @@ export class SubagentCacheTtlSettingComponent {
     } finally {
       this.saving.set(false);
     }
+  }
+
+  private async write(
+    value: SubagentPromptCacheTtlSetting,
+    context: ProvidersEditContext,
+    track: { attempt: WriteAttempt },
+  ): Promise<boolean> {
+    track.attempt = 'threw';
+    const started = await this.state.saveSettings(
+      { orchestration: { subagentPromptCacheTtl: value } },
+      context,
+    );
+    track.attempt = started ? 'started' : 'refused';
+    return started;
+  }
+
+  private reconcile(
+    attempt: WriteAttempt,
+    requested: SubagentPromptCacheTtlSetting,
+    outcome: SettingsSaveResult,
+  ): void {
+    if (attempt === 'started') this.settle(requested, outcome === 'saved');
+    else if (attempt === 'threw') this.unconfirmed.set(true);
   }
 
   /** `toastSaid`: the toast reported this write as saved, so a read-back mismatch needs its own alert. */

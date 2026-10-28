@@ -851,7 +851,7 @@ describe('ProvidersSettingsComponent', () => {
     expect(wizard()).toBe(child); expect(child.commitState()).toBe('failed');
     // One toast names the whole commit; nothing inline repeats it.
     expect(toastMessage()).toBe('Some connection settings were not confirmed. Saved: Custom connection. '
-      + 'Not saved: Main agent. Save not confirmed: Credential. Check effective values before retrying.');
+      + 'Not saved: Main agent. Not confirmed: Credential. Check the current values before retrying.');
     expect(element.querySelector('[data-testid="providers-commit-feedback"]')).toBeNull();
     expect(element.textContent).not.toContain('private-draft-key');
   });

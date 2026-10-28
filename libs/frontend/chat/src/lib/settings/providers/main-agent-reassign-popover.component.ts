@@ -11,8 +11,9 @@ import {
   DEFAULT_OVERLAY_OFFSET, NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
 import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extension/shared';
-import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
-import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
+import { SAVE_REFUSED_MESSAGE, SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
+import { commitToast } from '../feedback/settings-commit-toast';
+import { DRAWER_WRITE_NO_CONTEXT, runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
 import { capPopoverHeight } from './popover-height-cap';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
@@ -383,12 +384,6 @@ export class MainAgentReassignPopoverComponent {
         : `New main-agent requests keep using ${name}. Saving the provider ${ends}`,
     };
   });
-  /** The provider write's own outcome as page-toast copy; `null` while it runs (Save already says "Saving…"). */
-  private providerFeedback(outcome: DrawerWriteOutcome): { message: string; tone: 'status' | 'alert' } | null {
-    if (outcome.status === 'idle' || outcome.status === 'saving') return null;
-    if (outcome.status === 'saved') return { message: PROVIDER_SAVED, tone: 'status' };
-    return { message: `${outcome.status === 'unconfirmed' ? 'Save not confirmed.' : 'Not saved.'} ${outcome.message ?? ''}`.trim(), tone: 'alert' };
-  }
 
   protected readonly currentModel = computed(() => this.state.model().data?.model ?? '');
   protected readonly selectedModel = computed(() => this.modelDraft() ?? this.currentModel());
@@ -639,7 +634,7 @@ export class MainAgentReassignPopoverComponent {
         await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context), (outcome) => {
           if (session === this.session) this.outcome.set(outcome);
           // The toast outlives the popover. A saved provider is said by the write that follows it, when one does.
-          const said = this.providerFeedback(outcome);
+          const said = commitToast(outcome, PROVIDER_SAVED);
           if (said && (said.tone === 'alert' || !followUp)) this.feedback.announce(said.message, said.tone);
         });
         this.refreshContextIfBlocked();
@@ -739,11 +734,14 @@ export class MainAgentReassignPopoverComponent {
   /** The drafted model and effort in one write; Undo writes the stored values back (none when no model was stored). */
   private async saveModelAndEffort(applyTo: SettingScope, accountSaved: string | null, providerSaved: boolean): Promise<SettingsSaveResult | null> {
     const context = this.context;
-    if (!context) return null;
     const model = this.modelChanged() ? this.selectedModel() : null;
     const effort = this.effortChanged() ? this.selectedEffort() : null;
     const previousModel = this.currentModel(), previousEffort = this.currentEffort();
     const label = model !== null && effort !== null ? 'main agent model and reasoning effort' : model !== null ? 'main agent model' : 'reasoning effort';
+    if (!context) {
+      if (providerSaved) this.announceProviderSavedWith(`Could not save ${label}. ${DRAWER_WRITE_NO_CONTEXT}`);
+      return null;
+    }
     const result = await this.feedback.save({
       label, scope: applyTo,
       // P6-A2: a saved account rides on this toast, so its Undo (model and effort only) survives.
@@ -757,7 +755,17 @@ export class MainAgentReassignPopoverComponent {
         : () => this.state.saveSettings(this.patch(model !== null ? previousModel : null, effort !== null ? previousEffort : null, applyTo), context),
     });
     this.refreshContextIfBlocked();
+    if (providerSaved && result === 'failed') this.announceProviderSavedWith(this.feedback.toast()?.message ?? `Could not save ${label}.`);
+    else if (providerSaved && result === 'refused') this.announceProviderSavedWith(`Could not save ${label}. ${SAVE_REFUSED_MESSAGE}`);
     return result;
+  }
+
+  /**
+   * The model/effort step did not save, but the provider write of the same Save did (its toast was held back for this
+   * one): one alert names both, so the failure never hides that the provider changed.
+   */
+  private announceProviderSavedWith(failure: string): void {
+    this.feedback.announce(`${PROVIDER_SAVED} ${failure}`, 'alert');
   }
 
   private patch(model: string | null, effort: EffortLevel | '' | null, applyTo: SettingScope): MainAgentPatch {
