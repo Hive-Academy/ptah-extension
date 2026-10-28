@@ -2904,7 +2904,7 @@ Edge cases:
   id fallback / new tab id still resumes), MCP not running, missing routing id.
 - Verify: `npm run verify -- -p @ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers`.
 
-### Batch 8l-2: the user's MCP servers natively; D6 strip and notice removed — PENDING
+### Batch 8l-2: the user's MCP servers natively; D6 strip and notice removed — COMPLETE (9b364c658; report batch-8l-2-report.md)
 
 - Files (7, one atomic contract: strip and its notice leave together): R/codex-host/
   codex-chat-host-ports.ts (+ .spec.ts), R/codex-host/codex-chat-profile-options.ts (+ .spec.ts),
