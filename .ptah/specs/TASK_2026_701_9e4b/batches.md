@@ -1,6 +1,6 @@
 # Batches - TASK_2026_701_9e4b
 
-Total tasks: 34 | Batches: 27 | Complete: 17/27
+Total tasks: 34 | Batches: 27 | Complete: 27/27
 
 Phases: P1 foundation (Batches 1-9) | P2 wizard and packs (Batches 10-18) | P3 Library and
 Marketplace (Batches 19-25) | P4 rubric (Batch 26).
@@ -158,6 +158,34 @@ APPROVED (commit: eae561cf6). Minor recorded, not fixed: ambiguity is logged onl
 
 Phase-end host keep-alive (team-leader, before requesting the review):
 `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`.
+
+P2 review (D32, D33): codex A REJECTED 4/10, B REJECTED 4/10, style 6/10; fix round 74501c8d2 +
+be9f73ef8; re-review `reviews/p2-fix-rereview.md` REVISE (A2 partial); A2 completion 6bba1367a,
+`reviews/p2-a2-rereview.md` APPROVED 8/10. B3, B6, B7, B8 deferred to TASK-P2-FOLLOWUP. **P2
+code review: CLOSED.** P2 Electron visual review was folded into the P3 session (D31).
+
+P3 review (D42, D43): code-logic `reviews/p3-code-logic-review.md` REVISE 5/10, style
+`reviews/p3-code-style-review.md` REVISE 7/10; fix round 6b863e6d3; re-review
+`reviews/p3-fix-rereview.md` APPROVED 9/10. CI follow-up (D44) 033c84187. **P3 code review: CLOSED.**
+
+P4 review (D46, D47): REVISE 6/10, fix round, re-review `reviews/p4-fix-rereview.md` APPROVED 8/10;
+commit 39e3d59c3. **P4: CLOSED.**
+
+Electron visual review (D45, D48, D49): `reviews/visual-review.md` ISSUES (0 Blocking, 1 Serious,
+4 Moderate, 1 Minor); fix round for issues 1, 3, 4, 6 plus in-place regression-A fix, commit
+292e775d5; `reviews/visual-rereview.md` PASS (second re-capture PASS). Marketplace verify 3/3,
+webview verify 5/6 (only D19), degradation audit exit 0 (276). Issues 2 and 5 deferred.
+Coverage gap (Mode 3): the session covered the P3 surfaces and only the wizard Welcome step
+(row 7). The P2 surfaces this table names (wizard preview modal, sidebar dialog, pack install
+prompt, completion) and the parity row "wizard warning fill contrast" have no rendered evidence
+against `prototype/wizard-preview.html`, `sidebar.html`, `packs.html`, `completion.html`; repair
+prompt state 4c was NOT REACHED.
+Gap closed (D50): P2 Electron visual review `reviews/visual-review-p2.md` ISSUES (0 Blocking,
+1 Serious, 5 Moderate, 3 Minor), 56 screenshots in `reviews/visual/p2/` (dark + light, 1280 and
+400 px) for the wizard preview modal (plus warning), sidebar dialog, pack prompt, completion
+(3 states) and Library cards/drawer. Warning fill 6.61:1 dark, 5.67:1 light. Serious 1 and
+findings 2, 3, 4, 7, 8 (setup-wizard) deferred to the user's wizard UI revamp; findings 5, 6 and
+repair state 4c are named later tasks. **P2 Electron visual: CLOSED (D50).**
 
 Batches that need no review of their own (types, tests or docs only): Batch 1. No batch has a
 per-batch review; Batch 1 is still inside the P1 combined diff.
@@ -869,7 +897,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 2 | Depends on: Batches 11, 13, 14
 - Phase: P2 | Phase review: P2 code-logic + visual
 
-### Task 15.1: `GenerationPreviewModalComponent` and token-bound submit (F2) — PENDING
+### Task 15.1: `GenerationPreviewModalComponent` and token-bound submit (F2) — COMPLETE
 
 - Files: CREATE `libs/frontend/setup-wizard/src/lib/components/generation-preview-modal.component.ts` (+ spec); MODIFY `libs/frontend/setup-wizard/src/lib/components/agent-selection.component.ts` (+ spec), `libs/frontend/setup-wizard/src/lib/services/wizard-rpc.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1199-1214; design-spec Review F3/R1-5
@@ -878,7 +906,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Validation notes: `preview-required` rejection re-previews and resets choices.
 - Implementation details: compose F1 components.
 
-### Task 15.2: `PackInstallPromptComponent` on every pack path (F4) — PENDING
+### Task 15.2: `PackInstallPromptComponent` on every pack path (F4) — COMPLETE
 
 - Depends on: Task 15.1
 - Files: CREATE `libs/frontend/setup-wizard/src/lib/components/pack-install-prompt.component.ts` (+ spec); MODIFY `libs/frontend/setup-wizard/src/lib/components/community-packs-panel.component.ts` (+ spec), `agent-selection.component.ts`, `wizard-rpc.service.ts`
@@ -934,7 +962,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batches 12, 13
 - Phase: P2 | Phase review: P2 code-logic + visual
 
-### Task 17.1: Outcome summary, stale-Library notice, grade expectation — PENDING
+### Task 17.1: Outcome summary, stale-Library notice, grade expectation — COMPLETE
 
 - Files: CREATE `libs/frontend/setup-wizard/src/lib/components/completion/outcome-summary.component.ts`, `library-stale-notice.component.ts`, `grade-expectation.component.ts` (+ a spec each); MODIFY `libs/frontend/setup-wizard/src/lib/components/completion.component.ts` (+ spec), `agent-next-steps.component.ts` (+ spec); MODIFY `libs/frontend/setup-wizard/src/lib/services/wizard-analysis-runner.service.ts` (+ spec) — added after Batch 12: `toProgressItem` (:38) must treat `kept` and `changed-since-preview` as settled on resume
 - Plan reference: implementation-plan.md:1254-1269; design-spec Review F8; prototype/completion.html
@@ -976,7 +1004,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Result: own verify 45/45 passed. Combined orchestrator verify for Batches 13/16/18 (covers the
   keep-alive hosts ptah-electron, ptah-extension-vscode, ptah-tui, ptah-cli): 77 tasks,
   76 passed, 1 failed = pre-existing D19 ptah-extension-webview:lint (accepted).
-- P2 review is not due yet: Batches 15 and 17 are still PENDING. Request it after both commit.
+- P2 review was requested after Batches 15 and 17 committed (see Phase reviews, P2 record).
 - Outcome, items for the P2 code-logic review:
   - `ptah agent apply <name>` (`agent.ts` `runApply`) still overwrites
     `.ptah/agents/<name>.md` whenever the content differs (single-template apply; A20 does
@@ -984,7 +1012,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
   - `agent.pack.install.complete` can report `changed: true` when every file was kept.
 - Report: reports/batch-18-report.md
 
-## Batch 19: Marketplace services and Library provenance (B12 services + B13) — COMPLETE
+## Batch 19: Marketplace services and Library provenance (B12 services + B13) — COMPLETE (commit: 65499f2c1)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -1019,7 +1047,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli` passes
 - No per-batch review
 
-## Batch 20: Marketplace installer routes and new plugin RPCs (B12 routes) — COMPLETE
+## Batch 20: Marketplace installer routes and new plugin RPCs (B12 routes) — COMPLETE (commit: 79ae1f6dc)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -1044,7 +1072,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/rpc-handlers,@ptah-extension/plugin-marketplace,@ptah-extension/shared,@ptah-extension/cli-engine,ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui` passes
 - No per-batch review
 
-## Batch 21: Library change feed and catalog config-home signal (F7d + core) — COMPLETE
+## Batch 21: Library change feed and catalog config-home signal (F7d + core) — COMPLETE (commit: 929526574)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1069,7 +1097,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/marketplace,@ptah-extension/core,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 22: Library cards and drawer provenance (F6 part 1) — COMPLETE
+## Batch 22: Library cards and drawer provenance (F6 part 1) — COMPLETE (commit: bb0795f76)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1094,7 +1122,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/skill-synthesis-ui,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 23: Library view, state refresh and settings pointer (F6 part 2) — COMPLETE
+## Batch 23: Library view, state refresh and settings pointer (F6 part 2) — COMPLETE (commit: 2a6dd59d9)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1119,7 +1147,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/skill-synthesis-ui,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 24: Marketplace consent, report and repair prompt (F7 a, b, g, h) — COMPLETE
+## Batch 24: Marketplace consent, report and repair prompt (F7 a, b, g, h) — COMPLETE (commit: c9ffaae68)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1144,7 +1172,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - `npm run verify -- -p @ptah-extension/marketplace,ptah-extension-webview` passes
 - No per-batch review
 
-## Batch 25: Marketplace installed view and config-home notice (F7 c, f, i) — COMPLETE
+## Batch 25: Marketplace installed view and config-home notice (F7 c, f, i) — COMPLETE (commit: 30818d87e)
 
 - Recommended executor: subagent frontend-developer
 - Execution mode: sequential
@@ -1170,7 +1198,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Then phase-end keep-alive: `npm run verify -- -t typecheck,test -p ptah-electron,ptah-extension-vscode,ptah-tui,ptah-cli`
 - P3 review (code-logic + style + Electron visual) requested on the combined P3 diff
 
-## Batch 26: Generation prompt rubric alignment (B14) — PENDING
+## Batch 26: Generation prompt rubric alignment (B14) — COMPLETE (commit: 39e3d59c3)
 
 - Recommended executor: subagent backend-developer
 - Execution mode: sequential
@@ -1181,7 +1209,7 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 - Tasks: 1 | Depends on: Batch 3 (config home for A-dis); runs after P3
 - Phase: P4 | Phase review: P4 code-logic — due after this batch commits
 
-### Task 26.1: Rules module, invocable plugin-skill gate, pinned rubric agreement — PENDING
+### Task 26.1: Rules module, invocable plugin-skill gate, pinned rubric agreement — COMPLETE
 
 - Files: CREATE `libs/backend/agent-generation/src/lib/services/generation-prompt-rules.ts` (+ spec), `libs/backend/agent-generation/src/lib/services/invocable-plugin-skills.ts` (+ spec); MODIFY `libs/backend/agent-generation/src/lib/services/content-generation.service.ts` (+ spec), `subagent-tool-allowlist.ts` (export the has-type check if needed); `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-rpc.handlers.ts` only if A-dis requires it
 - Plan reference: implementation-plan.md:927-970; A31
@@ -1194,3 +1222,10 @@ per-batch review; Batch 1 is still inside the P1 combined diff.
 
 - `npm run verify -- -p @ptah-extension/agent-generation,ptah-electron,ptah-extension-vscode,ptah-cli` passes (add `@ptah-extension/rpc-handlers` if A-dis edited the handler)
 - P4 code-logic review requested after commit
+- Result: P4 review (Glm / Ollama Cloud, implementer Claude) REVISE 6/10
+  (`reviews/p4-code-logic-review.md`, D46). One fix round (finding 1 directory-id gate via
+  `PluginSkillInfo.skillId`; finding 2 rubric file in agent-generation test `inputs`), verify
+  60/61, only `@ptah-extension/agent-sdk:lint` (D21). Re-review APPROVED 8/10
+  (`reviews/p4-fix-rereview.md`, D47). Batch and fix round landed as one commit 39e3d59c3.
+  Findings 3-5 deferred (HANDOFF.md "Deferred"). **P4 phase: CLOSED.**
+- Report: reports/batch-26-report.md, reports/p4-fix-report.md

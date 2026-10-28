@@ -1,0 +1,54 @@
+{
+ "shots": [
+  {
+   "file": "packs__prompt__dark__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "over": [],
+   "extra": []
+  },
+  {
+   "file": "packs__prompt__dark__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": []
+  },
+  {
+   "file": "packs__prompt__light__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "over": [],
+   "extra": []
+  },
+  {
+   "file": "packs__prompt__light__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "over": [
+    "div[]432",
+    "ptah-app-shell[]432",
+    "div[]432",
+    "ptah-wizard-view[]432",
+    "div[]432",
+    "div[]432"
+   ],
+   "extra": []
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T13:55:42.526Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[2026-10-28T13:55:42.633Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined"
+ ],
+ "notes": [
+  "selection"
+ ]
+}
