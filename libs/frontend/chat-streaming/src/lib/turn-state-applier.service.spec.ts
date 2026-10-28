@@ -200,6 +200,24 @@ describe('TurnStateApplier', () => {
   });
 
   describe('terminal phases', () => {
+    it('retires a displaced id without changing turn state, even if its late echo retires it again', () => {
+      const messages = [{ id: 'P', role: 'user' }, { id: 'Q', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages);
+      queuedPrompts.add('tab-1', 'Q', messages);
+      const event = turnState({ consumedClientMessageId: 'P', retirementOnly: true });
+      applier.apply(event, 'tab-1');
+      queuedPrompts.remove('tab-1', 'P'); // The late echo still carries P's id.
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+      expect(applyTurnState).not.toHaveBeenCalled();
+      expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+    });
+    it('clears only the ended session after a tab rebind', () => {
+      const messages = [{ id: 'P', role: 'user' }, { id: 'Q', role: 'user' }] as TabState['messages'];
+      queuedPrompts.add('tab-1', 'P', messages, 'old-session');
+      queuedPrompts.add('tab-1', 'Q', messages, 'new-session');
+      queuedPrompts.clearSession('tab-1', 'old-session');
+      expect(queuedPrompts.queuedAtTail('tab-1', messages)).toEqual(new Set(['Q']));
+    });
     it('two consecutive terminals retire only their own ids', () => {
       const messages = [
         { id: 'first', role: 'user' },

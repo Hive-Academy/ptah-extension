@@ -21,11 +21,8 @@ export function takeAwaitingEcho(
     return null;
   rec.awaitingEcho = null;
   if (rec.resultYieldSequence === (rec.yieldSequence ?? 0)) {
-    const retiredBeforeEcho = rec.currentTurnClientMessageId === null;
     rec.currentTurnClientMessageId = null;
-    // The echo itself acknowledges the id when a queue held the result.
-    // If the idle-result fallback already emitted it, avoid a second signal.
-    return retiredBeforeEcho ? { ...turn, clientMessageId: undefined } : turn;
+    return turn;
   }
   return turn;
 }

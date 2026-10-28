@@ -1361,7 +1361,7 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     rec.displacedRetirements = ['P'];
     rec.retirementWake?.();
     expect(wake).toHaveBeenCalledTimes(1);
-    expect(h.manager.takeInterruptRetirement(tab)).toBe('P');
+    expect(h.manager.takeDisplacedRetirement(tab)).toBe('P');
     expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
     unsubscribe();
     expect(rec.retirementWake).toBeNull();
@@ -1386,7 +1386,7 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     rec.retirementWake = wake;
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
     expect(wake).toHaveBeenCalledTimes(1);
-    expect(h.manager.takeInterruptRetirement(tab)).toBe('P');
+    expect(h.manager.takeDisplacedRetirement(tab)).toBe('P');
     expect(h.manager.takeInterruptRetirement(tab)).toBeNull();
     expect(rec.currentTurnClientMessageId).toBeNull();
     expect(rec.resultCount).toBe(1);
@@ -1441,13 +1441,31 @@ describe('SessionLifecycleManager turn identity accessors', () => {
     if (!rec) throw new Error('Missing registration');
     rec.echoesUserMessages = true;
     rec.yieldSequence = 2;
-    rec.interruptAwaitingResultYieldSequence = null; // Pump cleared peer yield 1 on Q yield.
+    rec.interruptAwaitingResultYieldSequence = 1;
     rec.currentTurnClientMessageId = 'Q';
     rec.awaitingEcho = { message: { uuid: 'q-echo' }, clientMessageId: 'Q' } as never;
     expect(takeAwaitingEcho(rec, { uuid: 'q-echo' })?.clientMessageId).toBe('Q');
 
     expect(h.manager.takeResultClientMessageId(tab)).toBe('Q');
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
     expect(h.manager.takeResultClientMessageId(tab)).toBeNull();
+  });
+
+  it('does not consume Q when P emits an aborted result after Q was yielded', async () => {
+    const h = makeHarness();
+    const tab = 'late-p-result' as SessionId;
+    await h.manager.executeQuery({ sessionId: tab, sessionConfig: createSessionConfig() });
+    const rec = h.manager.find(tab);
+    if (!rec) throw new Error('Missing registration');
+    rec.yieldSequence = 2;
+    rec.interruptAwaitingResultYieldSequence = 1;
+    rec.currentTurnClientMessageId = 'Q';
+    rec.currentTurnUserMessageUuid = 'q-uuid';
+    expect(h.manager.takeResultClientMessageId(tab, { terminal_reason: 'aborted_streaming' })).toBeNull();
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(true);
+    expect(rec.currentTurnClientMessageId).toBe('Q');
+    expect(h.manager.takeResultClientMessageId(tab, { user_message_uuid: 'q-uuid', terminal_reason: 'completed' })).toBe('Q');
+    expect(h.manager.wasLastResultInterruptedLate(tab)).toBe(false);
   });
 
   it('takes results and interrupt retirements once without consuming the next turn on a late result', async () => {

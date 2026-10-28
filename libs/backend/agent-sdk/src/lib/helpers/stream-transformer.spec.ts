@@ -94,14 +94,15 @@ function makeLogger(): jest.Mocked<Logger> {
  * the "per-stream isolation" block at the bottom.
  */
 function makeMessageTransformer(): jest.Mocked<
-  Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn'>
+  Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly'>
 > {
   const mock = {
     transform: jest.fn().mockReturnValue([]),
     createIsolated: jest.fn(),
     settleInterruptedTurn: jest.fn(),
+    retirePromptOnly: jest.fn(),
   } as unknown as jest.Mocked<
-    Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn'>
+    Pick<SdkMessageTransformer, 'transform' | 'createIsolated' | 'settleInterruptedTurn' | 'retirePromptOnly'>
   >;
   mock.createIsolated.mockReturnValue(mock as unknown as SdkMessageTransformer);
   return mock;
@@ -2124,6 +2125,52 @@ describe('StreamTransformer - result turn_state ordering (TASK_2026_360)', () =>
     expect((await first).value).toMatchObject({ eventType: 'turn_state', consumedClientMessageId: 'P' });
     expect(messageTransformer.settleInterruptedTurn).toHaveBeenCalledTimes(1);
     await iterator.return?.();
+  });
+
+  it('emits displacement as identity-only retirement without settling the turn', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    let pending: string | null = 'P';
+    messageTransformer.retirePromptOnly.mockImplementation((_sessionId, id) =>
+      ({ eventType: 'turn_state', retirementOnly: true, consumedClientMessageId: id }) as never,
+    );
+    const events: FlatStreamEventUnion[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([]),
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      turnIdentity: {
+        takeAtResult: () => null,
+        takeInterruptRetirement: () => null,
+        takeDisplacedRetirement: () => { const id = pending; pending = null; return id; },
+      },
+    })) events.push(event);
+    expect(events).toEqual([expect.objectContaining({ retirementOnly: true, consumedClientMessageId: 'P' })]);
+    expect(messageTransformer.settleInterruptedTurn).not.toHaveBeenCalled();
+  });
+
+  it('ignores P late result without releasing Q, then releases Q at its own result', async () => {
+    const { transformer, messageTransformer } = makeHarness();
+    const onTurnEnd = jest.fn();
+    let resultCount = 0;
+    let late = false;
+    messageTransformer.transform.mockReturnValue([{ eventType: 'turn_state' } as never]);
+    const pResult = resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 });
+    const qResult = resultMessage(MODEL, { inputTokens: 1, outputTokens: 1 });
+    if (pResult.type !== 'result' || qResult.type !== 'result') throw new Error('Missing result');
+    pResult.terminal_reason = 'aborted_streaming';
+    qResult.terminal_reason = 'completed';
+    const events: FlatStreamEventUnion[] = [];
+    for await (const event of transformer.transform({
+      sdkQuery: asAsyncIterable([pResult, qResult]),
+      sessionId: 'sess-1' as SessionId, initialModel: MODEL,
+      onTurnEnd,
+      turnIdentity: {
+        takeAtResult: () => { late = ++resultCount === 1; return late ? null : 'Q'; },
+        wasLastResultInterruptedLate: () => late,
+        takeInterruptRetirement: () => null,
+      },
+    })) events.push(event);
+    expect(onTurnEnd).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([expect.objectContaining({ consumedClientMessageId: 'Q' })]);
   });
 
   it.each(['empty', 'throw'] as const)('settles a consumed result when transform is %s', async (failure) => {

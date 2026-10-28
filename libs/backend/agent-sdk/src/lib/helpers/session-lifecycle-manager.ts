@@ -470,14 +470,28 @@ export class SessionLifecycleManager {
   }
 
   /** Capture synchronously before releasing the pump or awaiting result work. */
-  takeResultClientMessageId(sessionId: SessionId): string | null {
+  takeResultClientMessageId(
+    sessionId: SessionId,
+    result?: { readonly user_message_uuid?: string; readonly terminal_reason?: string; readonly subtype?: string },
+  ): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
     rec.resultCount = (rec.resultCount ?? 0) + 1;
-    if (rec.interruptAwaitingResultYieldSequence === (rec.yieldSequence ?? 0)) {
+    rec.lastResultWasInterruptedLate = false;
+    const owed = rec.interruptAwaitingResultYieldSequence !== null;
+    const matchesCurrent = result?.user_message_uuid != null &&
+      result.user_message_uuid === rec.currentTurnUserMessageUuid;
+    if (owed && !matchesCurrent && (
+      rec.interruptAwaitingResultYieldSequence === (rec.yieldSequence ?? 0) ||
+      result?.user_message_uuid != null ||
+      result?.terminal_reason === 'aborted_streaming' ||
+      result?.subtype === 'error_during_execution'
+    )) {
       rec.interruptAwaitingResultYieldSequence = null;
+      rec.lastResultWasInterruptedLate = true;
       return null;
     }
+    if (owed) rec.interruptAwaitingResultYieldSequence = null;
     // An expected echo may lag its result. Retire through the out-of-stream
     // channel if the pump will idle; otherwise the next yield displaces it.
     if (rec.echoesUserMessages === true && rec.awaitingEcho !== null) {
@@ -494,15 +508,21 @@ export class SessionLifecycleManager {
     return id;
   }
 
+  wasLastResultInterruptedLate(sessionId: SessionId): boolean {
+    return this._registry.find(sessionId as string)?.lastResultWasInterruptedLate === true;
+  }
+
   /** Drain the interrupted turn independently of the next yielded turn. */
   takeInterruptRetirement(sessionId: SessionId): string | null {
     const rec = this._registry.find(sessionId as string);
     if (!rec) return null;
-    const displaced = rec.displacedRetirements?.shift();
-    if (displaced) return displaced;
     const id = rec.interruptRetirement;
     rec.interruptRetirement = null;
     return id;
+  }
+
+  takeDisplacedRetirement(sessionId: SessionId): string | null {
+    return this._registry.find(sessionId as string)?.displacedRetirements?.shift() ?? null;
   }
 
   subscribeRetirement(sessionId: SessionId, wake: () => void): () => void {

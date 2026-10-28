@@ -434,7 +434,7 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
 });
 
 describe('SessionStreamPump turn identity', () => {
-  it('drops an id-less interrupted peer guard when Q is yielded and echoed', async () => {
+  it('keeps an owed peer result guard when Q is yielded and echoed', async () => {
     const h = makeHarness();
     const rec = h.registry.find(TAB);
     if (!rec) throw new Error('Missing registration');
@@ -449,7 +449,7 @@ describe('SessionStreamPump turn identity', () => {
     });
     const q = await h.iterator.next();
     expect(rec.yieldSequence).toBe(2);
-    expect(rec.interruptAwaitingResultYieldSequence).toBeNull();
+    expect(rec.interruptAwaitingResultYieldSequence).toBe(1);
     expect(takeAwaitingEcho(rec, q.value as SDKUserMessage)?.clientMessageId).toBe('Q');
     expect(rec.currentTurnClientMessageId).toBe('Q');
     h.abortController.abort();

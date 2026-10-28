@@ -325,6 +325,10 @@ export class MessageFinalizationService {
     this.queuedPrompts.clear(tabId);
   }
 
+  clearPendingPromptsForSession(tabId: string, sessionId: string): void {
+    this.queuedPrompts.clearSession(tabId, sessionId);
+  }
+
   /**
    * Finalize session history - builds messages for ALL messages in streaming state.
    *

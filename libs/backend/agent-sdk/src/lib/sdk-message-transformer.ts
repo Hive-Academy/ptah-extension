@@ -185,6 +185,16 @@ export class SdkMessageTransformer implements TransformerState {
     };
   }
 
+  retirePromptOnly(sessionId: SessionId, clientMessageId: string): FlatStreamEventUnion {
+    const state = this.turnState.get(sessionId);
+    if (!state) throw new Error(`Missing turn state for prompt retirement: ${sessionId}`);
+    return {
+      ...toTurnStateEvent(sessionId, state),
+      consumedClientMessageId: clientMessageId,
+      retirementOnly: true,
+    };
+  }
+
   transform(
     sdkMessage: SDKMessage,
     callerSessionId?: SessionId | HarnessStreamId | WizardPhaseId,

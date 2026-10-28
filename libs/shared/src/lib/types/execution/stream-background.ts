@@ -309,6 +309,8 @@ export interface TurnStateEvent extends FlatStreamEvent, SessionTurnState {
   readonly eventType: 'turn_state';
   /** Client prompt consumed by this turn; event-only, not stored session state. */
   readonly consumedClientMessageId?: string;
+  /** Identity-only notification; does not advance or apply turn state. */
+  readonly retirementOnly?: boolean;
 }
 
 /**

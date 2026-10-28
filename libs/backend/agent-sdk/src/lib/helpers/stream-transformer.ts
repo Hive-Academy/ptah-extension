@@ -234,8 +234,10 @@ export interface StreamTransformConfig {
    */
   onTurnEnd?: () => void;
   turnIdentity?: {
-    takeAtResult(): string | null;
+    takeAtResult(result?: { readonly user_message_uuid?: string; readonly terminal_reason?: string; readonly subtype?: string }): string | null;
+    wasLastResultInterruptedLate?(): boolean;
     takeInterruptRetirement(): string | null;
+    takeDisplacedRetirement?(): string | null;
     subscribeRetirement?(wake: () => void): () => void;
   };
   /**
@@ -579,6 +581,12 @@ export class StreamTransformer {
 
         try {
           for await (const sdkMessage of withRetirementWake(sdkQuery, turnIdentity?.subscribeRetirement)) {
+            let displacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+            while (displacedId !== null) {
+              yieldedEventCount++;
+              yield messageTransformer.retirePromptOnly(effectiveSessionId, displacedId);
+              displacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+            }
             let interruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
             while (interruptClientMessageId !== null) {
               yieldedEventCount++;
@@ -746,7 +754,8 @@ export class StreamTransformer {
               }
             }
             if (isResultMessage(sdkMessage)) {
-              const consumedClientMessageId = turnIdentity?.takeAtResult() ?? null;
+              const consumedClientMessageId = turnIdentity?.takeAtResult(sdkMessage) ?? null;
+              if (turnIdentity?.wasLastResultInterruptedLate?.()) continue;
               resultConsumedClientMessageId = consumedClientMessageId;
               // Turn boundary first — see `onTurnEnd`'s contract. Nothing below
               // may gate it.
@@ -1118,6 +1127,12 @@ export class StreamTransformer {
             }
           }
 
+          let finalDisplacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+          while (finalDisplacedId !== null) {
+            yieldedEventCount++;
+            yield messageTransformer.retirePromptOnly(effectiveSessionId, finalDisplacedId);
+            finalDisplacedId = turnIdentity?.takeDisplacedRetirement?.() ?? null;
+          }
           let finalInterruptClientMessageId = turnIdentity?.takeInterruptRetirement() ?? null;
           while (finalInterruptClientMessageId !== null) {
             yieldedEventCount++;

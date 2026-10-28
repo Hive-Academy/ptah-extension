@@ -92,7 +92,7 @@ describe('takeAwaitingEcho', () => {
     expect(takeAwaitingEcho(rec, queued.message)).toBeNull();
   });
 
-  it('does not acknowledge P twice when an idle missing-echo retirement already emitted', () => {
+  it('keeps P identity on a late echo after id-only retirement', () => {
     const queued = turn('P');
     const rec = {
       awaitingEcho: queued as QueuedUserTurn | null,
@@ -100,7 +100,8 @@ describe('takeAwaitingEcho', () => {
       yieldSequence: 2,
       resultYieldSequence: 2,
     };
-    expect(takeAwaitingEcho(rec, queued.message)?.clientMessageId).toBeUndefined();
+    expect(takeAwaitingEcho(rec, queued.message)?.clientMessageId).toBe('P');
+    expect(takeAwaitingEcho(rec, queued.message)).toBeNull();
   });
 });
 

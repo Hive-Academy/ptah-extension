@@ -83,6 +83,8 @@ export interface SessionRecord {
   messageQueue: QueuedUserTurn[];
   awaitingEcho: QueuedUserTurn | null;
   currentTurnClientMessageId: string | null;
+  currentTurnUserMessageUuid?: string | null;
+  lastResultWasInterruptedLate?: boolean;
   /** Increments when the pump yields a turn; identifies result and interrupt ownership. */
   yieldSequence?: number;
   /** Yield whose result arrived before its expected echo. */

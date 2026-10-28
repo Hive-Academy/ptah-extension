@@ -38,6 +38,7 @@ import { AgentMonitorStore } from './agent-monitor.store';
 import { SessionManager } from './session-manager.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { TurnStateApplier } from './turn-state-applier.service';
+import { QueuedPromptRecord } from './queued-prompt-record.service';
 import { SubagentExecutionStore } from './subagent-execution.store';
 
 const TAB_ID = 'tab-peer';
@@ -617,7 +618,7 @@ describe('StreamingHandlerService — inbound peer turns', () => {
     service.recordUserPromptBoundary(TAB_ID, bubble);
     // The person stops the turn.
     service.finalizeCurrentMessage(TAB_ID, true);
-    service.clearPendingPrompts(TAB_ID);
+    TestBed.inject(QueuedPromptRecord).clear(TAB_ID);
 
     runLiveTurn(service, turnEvents(PEER_TURNS[0], 'live', 30));
 

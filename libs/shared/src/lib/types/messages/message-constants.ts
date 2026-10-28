@@ -138,6 +138,7 @@ export const MESSAGE_TYPES = {
   CHAT_STREAM_SNAPSHOT: 'chat:streamSnapshot',
   CHAT_COMPLETE: 'chat:complete',
   CHAT_ERROR: 'chat:error',
+  CHAT_SESSION_ENDED: 'chat:sessionEnded',
   SESSION_ID_RESOLVED: 'session:id-resolved',
   SESSION_STATS: 'session:stats',
   /**

@@ -123,7 +123,7 @@ export class ConversationService {
     //   flush itself: its `chat:complete` reset arrives before the reply.
     inject(DestroyRef).onDestroy(
       this.tabManager.onTabClosed(({ tabId }) => {
-        this.messageFinalization.clearPendingPrompts?.(tabId);
+        this.messageFinalization.clearPendingPrompts(tabId);
         this.queueHeads.delete(tabId);
         this.dropHeldCommands(tabId);
       }),
@@ -134,6 +134,11 @@ export class ConversationService {
       if (!this.tabManager.removedWorkspace$()) return;
       untracked(() => this.dropHeldCommandsOfRemovedTabs());
     });
+  }
+
+  /** The host has confirmed this exact SDK session's stream and record ended. */
+  retireEndedSessionPrompts(tabId: string, sessionId: string): void {
+    this.messageFinalization.clearPendingPromptsForSession(tabId, sessionId);
   }
 
   private dropHeldCommandsOfRemovedTabs(): void {
@@ -469,12 +474,8 @@ export class ConversationService {
       }
 
       if (result.success) {
-        // chat:abort has ended the SDK session. Check tab ownership after the
-        // await so a replacement session keeps its own pending prompts.
-        if (abortedTabId &&
-            this.tabManager.findTabByIdAcrossWorkspaces(abortedTabId)?.tab.claudeSessionId === sessionId) {
-          this.messageFinalization.clearPendingPrompts?.(abortedTabId);
-        }
+        // Retire only identities owned by the aborted session after a rebind.
+        if (abortedTabId) this.messageFinalization.clearPendingPromptsForSession(abortedTabId, sessionId);
         console.log(
           '[ConversationService] chat:abort succeeded for session:',
           sessionId,

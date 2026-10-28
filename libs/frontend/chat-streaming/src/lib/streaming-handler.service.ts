@@ -144,6 +144,7 @@ export class StreamingHandlerService {
       tabId,
       message.id,
       this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.messages ?? [],
+      this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ?? undefined,
     );
     const state = this.findTabStreamingState(tabId);
     if (!state || state.currentMessageId == null) return;
@@ -161,11 +162,6 @@ export class StreamingHandlerService {
   /** Retire a successfully handled continue that the backend did not enqueue. */
   retirePendingPrompt(tabId: string, messageId: string): void {
     this.queuedPrompts.remove(tabId, messageId);
-  }
-
-  /** Clear identities when the SDK session owning this tab has ended. */
-  clearPendingPrompts(tabId: string): void {
-    this.queuedPrompts.clear(tabId);
   }
 
   private acknowledgeUserEcho(tabId: string, start: MessageStartEvent): void {

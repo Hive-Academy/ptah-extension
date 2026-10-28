@@ -396,6 +396,9 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
       SESSION_ID,
       'T1',
     );
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.CHAT_SESSION_ENDED, { tabId: TAB_ID, sessionId: SESSION_ID },
+    );
   });
 
   it('ends the session after a USER ABORT', async () => {
@@ -408,6 +411,9 @@ describe('ChatStreamBroadcaster.streamEventsToWebview — session teardown', () 
     }
 
     await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      MESSAGE_TYPES.CHAT_SESSION_ENDED, { tabId: TAB_ID, sessionId: SESSION_ID },
+    );
 
     expect(h.sdkAdapter.endSessionIfTokenMatches).toHaveBeenCalledWith(
       SESSION_ID,

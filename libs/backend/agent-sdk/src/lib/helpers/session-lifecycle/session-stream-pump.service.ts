@@ -87,9 +87,8 @@ export class SessionStreamPump {
               // the SDK is generating (TASK_2026_294).
               registry.markTurnStarted(session);
               session.yieldSequence = (session.yieldSequence ?? 0) + 1;
-              // A result after this yield belongs to the new turn. The SDK
-              // provides no result id with which to revive an older guard.
-              session.interruptAwaitingResultYieldSequence = null;
+              // Keep an owed interrupt result until result metadata identifies
+              // either that result or the new turn's result.
               session.resultYieldSequence = null;
               if (session.currentTurnClientMessageId !== null) {
                 (session.displacedRetirements ??= []).push(
@@ -105,6 +104,7 @@ export class SessionStreamPump {
               }
               session.awaitingEcho = turn;
               session.currentTurnClientMessageId = turn.clientMessageId ?? null;
+              session.currentTurnUserMessageUuid = turn.message.uuid;
               logger.debug(
                 `[SessionLifecycle] Yielding message (${session.messageQueue.length} held)`,
               );

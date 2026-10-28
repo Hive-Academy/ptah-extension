@@ -95,6 +95,14 @@ export class TurnStateApplier {
   ): void {
     const ordered = options?.ordered ?? true;
     const resolved = this.resolveTabs(event, tabId);
+    if (event.retirementOnly) {
+      if (event.consumedClientMessageId) {
+        for (const { tab } of resolved) {
+          this.queuedPrompts.remove(tab.id, event.consumedClientMessageId);
+        }
+      }
+      return;
+    }
     const targets = resolved.filter(({ tab }) => {
       const accepted = this.tabManager.canApplyTurnState(
         tab.id,
