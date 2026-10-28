@@ -2753,6 +2753,176 @@ Deferred / not this round:
   and host notice released with the wire id.
 - Report: batch-8k-5-report.md.
 
+## Round 8l: native MCP for Codex main chat (D8 parity; P8 D13) — IN_PROGRESS (8l-1a 4f12d4c04, 8l-1b f3d9e950c COMPLETE; 8l-1c, 8l-2, 8l-3 PENDING, stopped at the coordinator's session-budget wrap-up)
+
+- Phase: P8 | Phase gate and P8 re-review: the coordinator, after this round (not run here).
+- Binding user decisions: D8 (native chat honours Ptah MCP AND the user's MCP servers; never
+  strip MCP to bypass a problem; the 8h/D6 strip-with-notice is removed here) and P8 D13 (harness
+  sync stays in this PR; Ptah's synced `ptah` entry is overridden per Ptah thread; the user's
+  hand-written config.toml entries are untouched; full harness-sync removal in the follow-up PR).
+- Recommended executor: CLI lane, implementation capability. Codex is at 98% weekly, opencode at
+  its monthly limit: Glm (ptah-cli, Ollama Cloud) is the lane. Fallback order: other family same
+  capability -> same family other provider/model -> subagent. Subagent reason: N/A.
+  Review family: implementer Glm, reviewer Claude (coordinator's P8 re-review).
+- Execution mode: sequential (every batch depends on the previous; 8l-1c and 8l-2 share
+  codex-chat-host-ports.ts). One lane, resumed per batch when its session is fresh.
+- Verify per batch: only the changed projects (`npm run verify -- -p <projects>`), then at the end
+  of the round the dependents of codex-runtime that the round changed (cli-agent-runtime,
+  agent-sdk, rpc-handlers, ptah-electron).
+
+### Plan validation (8l) — PASSED WITH RISKS
+
+Evidence read by the team-leader (file:line at 0dd1aa9d8):
+
+- `codex-runtime.ts:91-100` refuses any profile with `mcpServers`. `RuntimeContext.open`
+  (`codex-runtime.ts:304-331`) builds `thread/start` params without `config`, and `thread/resume`
+  reuses the same params. `threadOptions.config` exists (`codex-protocol-schemas.ts:484`,
+  `object.nullish()`); the pinned schema marks ThreadStartParams/ThreadResumeParams `config` as
+  `additionalProperties: true` with no further shape.
+- `CodexMcpServer` (`codex-runtime.types.ts:41-56`) carries only references (`envReferences`,
+  `headerReferences`, `authReference`); the profile schema (`codex-execution-profile.ts:39-67`)
+  refuses URLs with userinfo, query or hash. No resolver exists at the runtime boundary.
+- The fingerprint identity (`codex-execution-profile.ts:255-279`) includes `mcpServers`, and
+  `CodexRuntime.open` (`codex-runtime.ts:77-89`) refuses a resume whose `profileFingerprint`
+  differs from the stored identity.
+- Claude main chat's Ptah MCP URL is `http://localhost:${PTAH_MCP_PORT}/session/{routing id}`,
+  routing id = tabId preferred over sessionId (`sdk-query-options-builder.ts:1924-1957`). The MCP
+  server's closed grammar accepts `/session/{id}/workspace/{root}`
+  (`http-server.handler.ts:283-313`); `ptahMcpServerUrl` (`cli-agent-runtime/.../ptah-mcp-url.ts:46`)
+  builds only the `/agent/{id}/workspace/{root}` lane shape.
+- Lanes pass `mcp_servers.ptah.url` and `mcp_servers.ptah.tool_timeout_sec=960`
+  (`codex-lane-config.builder.ts:144-163`, `CODEX_PTAH_TOOL_TIMEOUT_SEC` not exported publicly).
+  The evidence harness proved the dotted-key override grammar for MCP servers as process `-c`
+  overrides (`tools/evidence-harness.ts:1432-1437`, spike 1k).
+- User servers reach the host as `mcpServersOverride: Record<string, McpHttpServerOverride>`
+  (`type: 'http'`, `url`, `headers`; `rpc-chat.types.ts:31-35`) from Smithery + OAuth
+  (`chat-session.service.ts:455-484`). OAuth headers carry `Authorization: Bearer <token>`
+  (`mcp-oauth-override-resolver.ts:65-69`); legacy Smithery URLs carry `config` and `api_key` in
+  the QUERY (`smithery-wire.constants.ts:70-83`). No producer emits stdio or sse today.
+- The D6 strip: `codex-chat-profile-options.ts:23-30` (`mcpServerRunning`, `mcpServersOverride`),
+  logs at `codex-chat-host-ports.ts:163-173`, the visible notice at
+  `chat-runtime-profile.service.ts:164-169`.
+- Finding 3 of 8k-5: `ports.publish` streams follow-up turns under the session id
+  (`codex-chat-host-ports.ts:428-429`); the broadcaster captures `getSessionToken(sessionId)`
+  (`chat-stream-broadcaster.service.ts:155`) and calls `endSessionIfTokenMatches` at exit
+  (`:412-416`); the Codex adapter returns the live session token (`codex-chat-adapter.ts:561-583`)
+  and closes the session on a match. Plausible by reading; 8l-3 pins it with a spec first.
+
+Decisions (team-leader; reversible; recorded in decisions.md under P8 D13):
+
+- DL1 Config channel: MCP servers go natively in the `thread/start` AND `thread/resume` `config`
+  object as dotted keys, one whole table per server: `"mcp_servers.<name>": { ... }`. A whole-table
+  value replaces Ptah's synced `[mcp_servers.ptah]` entry for this thread and leaves every other
+  config.toml entry (e.g. `node_repl`) untouched. Never a top-level `mcp_servers` key (it would
+  replace the user's whole table). Options: thread config (chosen; native, per thread, the
+  coordinator's direction) vs process `-c` overrides (proven by the harness; fallback if the probe
+  shows the thread config is not applied).
+- DL2 Secrets: the profile keeps references only. Resolved values travel in a separate
+  `secrets` argument of `CodexRuntime.open(profile, resume?, secrets?)` (a `ReadonlyMap` of
+  reference -> value) built by the host per open and passed through by the adapter; they are
+  written only into the `config` of the thread/start|resume frame on the child's stdin. Never in
+  the profile, the fingerprint, the identity store, logs or errors. Options: frame config (chosen;
+  one boundary, testable) vs process env + `env_http_headers` (hardening option, later).
+- DL3 Fingerprint: `mcpServers` leave the thread-identity fingerprint. They are re-applied on every
+  open (start and resume) like model and effort, so a tab id in the Ptah URL or an added user
+  server cannot make a native session unresumable. The previous spec that pinned references in
+  the fingerprint is replaced.
+- DL4 Ptah URL: `http://localhost:{PTAH_MCP_PORT}/session/{enc(routing id)}/workspace/{enc(cwd)}`,
+  routing id = `config.tabId` preferred, else the session id (Claude parity), through a new
+  session-scoped sibling of `ptahMcpServerUrl` in the same file. `tool_timeout_sec` =
+  `CODEX_PTAH_TOOL_TIMEOUT_SEC` (960, lane parity). Attached only when `mcpServerRunning === true`.
+- DL5 User servers: each `mcpServersOverride` entry becomes an http server; every header value is
+  a secret reference; a URL with a query becomes `url` = origin + path plus `urlReference` to the
+  full URL (the runtime checks the resolved URL has the same origin + path). Caller entry wins on a
+  name collision with `ptah` (Claude `mergeMcpOverride` parity). The core refuses names outside
+  `[A-Za-z0-9_-]` (dotted config keys; Codex's own name rule). OAuth keys contain dots
+  (`deriveMcpOAuthServerKey`, `mcp-oauth.service.ts:163-172`), so the HOST maps each name to a
+  Codex-safe name (every other character -> `_`) and refuses a collision after mapping with a
+  coded, visible error (never drops a server). The host logs names and transports only.
+- DL6 Transports in the core: stdio -> `command`, `args`, `env` (resolved); http -> `url`,
+  `http_headers` (resolved), `tool_timeout_sec`; sse -> same keys as http (Codex speaks streamable
+  HTTP; a failing server is reported by Codex at startup, the thread still opens). `authReference`
+  -> `http_headers.Authorization = "Bearer <value>"`, refused if `Authorization` is also a header.
+
+Risks:
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| The thread `config` dotted-key format is not what the App Server applies | HIGH | 8l-1b spec pins the exact frame; coordinator probe (HANDOFF step 7) must show `ptah` attached; fallback DL1 `-c` overrides |
+| A secret reaches a log, error, stored identity or fingerprint | HIGH | 8l-1a/8l-1b/8l-2 specs assert no secret value in logger calls, thrown messages, persisted identity, profile JSON or fingerprint |
+| Fingerprint change makes pre-8l stored native threads unresumable | LOW | native chat is dev-gated (PTAH_CODEX_RUNTIME_DEV); recorded in DL3 |
+| URL secret in a Smithery query is refused by the profile schema | MEDIUM | DL5 `urlReference`; 8l-2 spec with a query URL |
+| Follow-up turn teardown (8k-5 finding 3) | MEDIUM | 8l-3 spec first, fix only if reproduced |
+
+Assumptions:
+
+- `CodexRuntime.open` callers other than the chat adapter (gateway, usage client, probe) pass no
+  secrets and keep compiling with an optional third parameter. 8l-1b checks.
+- Codex does not persist thread `config` override values into its rollout files. Unverified;
+  recorded for the live test p8f (coordinator).
+
+Edge cases:
+
+- MCP server not running -> no `ptah` entry, no notice (Claude logs and omits). 8l-1c.
+- No routing id (no tabId and no session id) while MCP runs -> coded error, chat fails visibly
+  (Claude throws SdkError). 8l-1c.
+- A reference without a value -> refused before spawn, message names the server only. 8l-1b.
+- Resume after reload under a new tab id -> resumes (DL3). 8l-1a spec + 8l-1c spec.
+
+### Batch 8l-1a: core MCP config builder and profile fields — COMPLETE (4f12d4c04; report batch-8l-1a-report.md)
+
+- Files (C = W/libs/backend/codex-runtime/src/lib/): new C/codex-mcp-config.ts, new
+  C/codex-mcp-config.spec.ts, C/codex-runtime.types.ts, C/codex-execution-profile.ts,
+  C/codex-execution-profile.spec.ts, W/libs/backend/codex-runtime/src/index.ts.
+- Tasks: (1) `CodexMcpServer` gains optional `toolTimeoutSec` (positive int) on every variant and
+  `urlReference` on http/sse; `CodexMcpSecrets = ReadonlyMap<string, string>`; the `CodexRuntime`
+  port `open(profile, resume?, secrets?)`. (2) Profile schema: the new fields, server names
+  `^[A-Za-z0-9_-]+$`; `mcpServers` removed from the fingerprint identity (DL3). (3) Pure
+  `buildCodexMcpConfigOverrides(servers, secrets)` -> `Record<string, CodexJsonValue>` per DL1,
+  DL5, DL6; coded `CodexMcpConfigError` whose message names the server, never a value.
+  (4) Specs: per transport (stdio, http, sse), Ptah entry with tool timeout, urlReference
+  origin/path check, authReference, missing reference, no secret in errors, fingerprint unchanged by
+  servers and references.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime`.
+
+### Batch 8l-1b: runtime applies MCP config on thread/start and thread/resume; adapter passes secrets — COMPLETE (f3d9e950c; report batch-8l-1b-report.md)
+
+- Files: C/codex-runtime.ts, C/codex-runtime.spec.ts,
+  W/libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.ts (+ codex-chat-adapter.spec.ts).
+- Tasks: replace the `mcpServers` refusal (`codex-runtime.ts:92`) with a pre-spawn build of the
+  config (unresolved reference -> refused before spawn); send `config` on thread/start and
+  thread/resume; the adapter port `profile()` may return `secrets`, passed to `runtime.open`.
+  Specs: exact frames, secret absent from logs/identity store/errors, refusal before spawn.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/agent-sdk`.
+
+### Batch 8l-1c: Ptah MCP attached natively to Codex chat — PENDING
+
+- Files: W/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/ptah-mcp-url.ts (+ spec),
+  cli-adapters/index.ts (export the session builder and `CODEX_PTAH_TOOL_TIMEOUT_SEC`),
+  R/codex-host/codex-chat-host-ports.ts (+ .spec.ts) (R = W/libs/backend/rpc-handlers/src/lib/chat/).
+- Tasks: DL4; remove the "Ptah MCP is not attached" log; specs: start (tab id), resume (session
+  id fallback / new tab id still resumes), MCP not running, missing routing id.
+- Verify: `npm run verify -- -p @ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers`.
+
+### Batch 8l-2: the user's MCP servers natively; D6 strip and notice removed — PENDING
+
+- Files (7, one atomic contract: strip and its notice leave together): R/codex-host/
+  codex-chat-host-ports.ts (+ .spec.ts), R/codex-host/codex-chat-profile-options.ts (+ .spec.ts),
+  R/session/chat-runtime-profile.service.ts (+ .spec.ts), R/session/chat-session.native.spec.ts.
+- Tasks: DL5; `mcpServerRunning` and `mcpServersOverride` become supported keys; the MCP notice
+  line and `codex-user-mcp-not-attached` log go (output-style and model notices stay). Specs per
+  transport the host produces (http with headers, http with query URL), real-config spec
+  (Smithery + OAuth resolvers) attaches both, and a spec that no secret value appears in any
+  logger call, the profile JSON, the fingerprint, the persisted identity or the notice.
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`.
+
+### Batch 8l-3: follow-up native turns keep the live thread (8k-5 finding 3) — PENDING
+
+- Files: spec first (R/codex-host/ or R/streaming/), fix only if reproduced, in the Codex side
+  (agent-sdk codex-chat-adapter.ts token semantics or the host publish), never the shared
+  broadcaster's Claude behaviour. Findings 1-2 of 8k-5: recorded only.
+- Verify: the changed projects.
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
