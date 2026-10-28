@@ -716,6 +716,10 @@ export class ChatTranscriptComponent {
     },
   });
 
+  protected readonly monitoredLaneAgents = computed(() =>
+    new Map((this.laneMonitor?.agents?.() ?? []).map(agent => [agent.agentId, agent])),
+  );
+
   private readonly turnContextBuilder = new TranscriptTurnContexts();
 
   /**

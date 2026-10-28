@@ -52,7 +52,7 @@
           @let turnLive = turn !== null && liveTurnIds().has(turn.turnId);
           @if (laneSlots().get(slot.id); as laneSlot) {
             @if (laneSlot.kind === 'row') {
-              <ptah-lane-event class="block pb-3" [row]="laneSlot.row" [isSessionActive]="vm().isSessionActive"
+              <ptah-lane-event class="block pb-3" [row]="laneSlot.row" [monitorAgent]="monitoredLaneAgents().get(laneSlot.row.agentId) ?? null" [isSessionActive]="vm().isSessionActive"
                 (branchRequested)="branchRequested.emit($event)" (rewindRequested)="rewindRequested.emit($event)" />
             }
             <!-- A merged slot keeps its message anchor; its content appears in the preceding row. -->

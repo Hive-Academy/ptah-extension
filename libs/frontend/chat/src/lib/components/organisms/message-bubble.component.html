@@ -185,10 +185,21 @@
   <!-- User message fills the shared chat column. -->
   <article aria-label="You" class="block">
     <div class="chat chat-end cs-user-chat group">
+      <!-- Message bubble - same surface as the assistant bubble. A turn injected
+           by another session keeps the layout and takes a non-text accent (a
+           left border + the icon above) so the two are distinguishable without
+           relying on colour alone. -->
+      <div
+        class="chat-bubble cs-user-bubble text-base-content"
+        [class.border-l-4]="!!inboundPeerLabel()"
+        [class.border-secondary]="!!inboundPeerLabel()"
+        [attr.data-testid]="
+          inboundPeerLabel() ? 'chat-peer-message' : 'chat-user-message'
+        "
+      >
       <!-- Header -->
       <div
-        class="chat-header flex items-center justify-self-start w-full text-xs text-base-content-muted mb-1"
-        style="padding-inline: var(--sidebar-spacing-md)"
+        class="cs-user-header flex items-center w-full gap-1 text-[11px] text-base-content-muted"
       >
         <time
           class="mr-2 opacity-60"
@@ -244,19 +255,6 @@
           </div>
         }
       </div>
-
-      <!-- Message bubble - same surface as the assistant bubble. A turn injected
-           by another session keeps the layout and takes a non-text accent (a
-           left border + the icon above) so the two are distinguishable without
-           relying on colour alone. -->
-      <div
-        class="chat-bubble cs-user-bubble surface-2 text-base-content"
-        [class.border-l-4]="!!inboundPeerLabel()"
-        [class.border-secondary]="!!inboundPeerLabel()"
-        [attr.data-testid]="
-          inboundPeerLabel() ? 'chat-peer-message' : 'chat-user-message'
-        "
-      >
         @if (inboundPeerLabel()) {
           <p
             class="text-xs text-base-content-muted mb-1.5"

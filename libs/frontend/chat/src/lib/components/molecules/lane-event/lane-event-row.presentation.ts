@@ -8,6 +8,22 @@ export interface LaneEventChip {
   readonly icon: typeof FileText;
 }
 
+export interface LaneEventStat {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface LaneEventMetrics {
+  readonly model?: string;
+  readonly usageTotals?: {
+    readonly model?: string;
+    readonly totalTokens?: number;
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly costUsd?: number;
+  } | null;
+}
+
 export function laneEventTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
@@ -24,18 +40,19 @@ const verdictChips: Readonly<Record<string, LaneEventChip>> = {
   failed: { label: 'Failed', tone: 'err', icon: X },
 };
 
-export function deriveLaneEventPresentation(row: LaneEventRow): {
+export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEventMetrics | null = null): {
   readonly chips: readonly LaneEventChip[];
   readonly timeline: readonly string[];
   readonly files: readonly string[];
   readonly images: number;
+  readonly stats: readonly LaneEventStat[];
+  readonly summary: string;
+  readonly cliLabel: string | null;
 } {
   const events = row.events;
   const last = events[events.length - 1];
   const reports = events.filter(event => event.kind === 'report').length;
   const chips: LaneEventChip[] = [];
-  if (reports) chips.push({ label: reports === 1 ? 'Report' : `Report x${reports}`, tone: 'run', icon: FileText });
-
   if (last.kind === 'completed') {
     const verdict = last.verdict?.toLowerCase();
     const status = last.status?.toLowerCase();
@@ -56,10 +73,49 @@ export function deriveLaneEventPresentation(row: LaneEventRow): {
   for (const event of visible) timeline.push(`${event.kind === 'report' ? 'Report' : 'Completed'} ${laneEventTime(event.timestamp)}`);
   if (last.kind !== 'completed' && row.liveLane) timeline.push('Completion pending');
 
+  const body = last.body;
+  const stats: LaneEventStat[] = [];
+  const duration = last.kind === 'completed' ? body.match(/^Lane .+ finished: .+? after (\d+(?:ms|s)|\d+m \d+s)\./m)?.[1] : undefined;
+  if (duration) stats.push({ label: 'Duration', value: duration });
+  const exitCode = last.kind === 'completed' ? body.match(/\(exit code (-?\d+)\)/)?.[1] : undefined;
+  if (exitCode !== undefined) stats.push({ label: 'Exit', value: exitCode });
+  const reportedCount = last.kind === 'completed' ? body.match(/^Reports sent by this lane before it ended: (\d+)\./m)?.[1] : undefined;
+  if (reportedCount !== undefined) stats.push({ label: 'Reports', value: reportedCount });
+  else if (reports) stats.push({ label: 'Reports', value: String(reports) });
+  if (last.kind === 'completed') {
+    if (/^Deliverables: none were declared at spawn/m.test(body)) {
+      stats.push({ label: 'Deliverables', value: 'none declared' });
+    } else {
+      const lines = body.match(/^Deliverables:\r?\n((?:- [^\r\n]+(?:\r?\n|$))*)/m)?.[1]
+        ?.split(/\r?\n/).filter(line => line.startsWith('- ')) ?? [];
+      if (lines.length) {
+        const written = lines.filter(line => !/\u2014 (?:MISSING|EMPTY)|\(NOT written by this run\)/.test(line)).length;
+        stats.push({ label: 'Deliverables', value: `${written}/${lines.length} written` });
+      }
+    }
+    if (last.verdict) stats.push({ label: 'Verdict', value: humanize(last.verdict) });
+  }
+  const model = metrics?.usageTotals?.model ?? metrics?.model;
+  if (model) stats.push({ label: 'Model', value: model });
+  const usage = metrics?.usageTotals;
+  const tokens = usage?.totalTokens ?? (usage?.inputTokens !== undefined && usage.outputTokens !== undefined
+    ? usage.inputTokens + usage.outputTokens : undefined);
+  if (tokens !== undefined && Number.isFinite(tokens)) stats.push({ label: 'Tokens', value: tokens.toLocaleString('en-US') });
+  if (usage?.costUsd !== undefined && Number.isFinite(usage.costUsd)) {
+    stats.push({ label: 'Cost', value: `$${usage.costUsd.toFixed(3)}` });
+  }
+
+  const task = last.kind === 'completed' ? body.match(/^Task: (.+)$/m)?.[1] : undefined;
+  const summary = task && task !== '(no task headline)' ? task :
+    (last.kind === 'completed' ? '' : body.split(/\r?\n/).find(line => line.trim())?.trim() ?? '');
+
   return {
     chips,
     timeline,
     files: events.flatMap(event => event.files ?? []),
     images: events.reduce((count, event) => count + (event.imageCount ?? 0), 0),
+    stats,
+    summary,
+    cliLabel: row.cli.trim().toLowerCase() === row.agent.trim().toLowerCase() ? null : row.cli,
   };
 }

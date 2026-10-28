@@ -141,24 +141,20 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
 
     expect(branch).not.toBeNull();
     expect(rewind).not.toBeNull();
-    const header = fixture.debugElement.query(By.css('.chat-header'));
+    const header = fixture.debugElement.query(By.css('.cs-user-header'));
     const bubble = fixture.debugElement.query(By.css('.cs-user-bubble'));
-    expect(header.nativeElement.classList.contains('justify-self-start')).toBe(
-      true,
-    );
+    expect(bubble.nativeElement.contains(header.nativeElement)).toBe(true);
     expect(header.nativeElement.classList.contains('flex')).toBe(true);
     expect(header.nativeElement.classList.contains('items-center')).toBe(true);
     expect(header.nativeElement.querySelector('time')).not.toBeNull();
     expect(branch.nativeElement.parentElement.classList.contains('ml-auto')).toBe(true);
     expect(branch.nativeElement.parentElement.classList.contains('h-4')).toBe(true);
     expect(branch.nativeElement.parentElement.classList.contains('group-focus-within:opacity-100')).toBe(true);
-    expect(header.nativeElement.style.paddingInline).toBe(
-      'var(--sidebar-spacing-md)',
-    );
+    expect(header.nativeElement.classList.contains('chat-header')).toBe(false);
     expect(header.nativeElement.contains(branch.nativeElement)).toBe(true);
     expect(header.nativeElement.contains(rewind.nativeElement)).toBe(true);
     expect(fixture.debugElement.query(By.css('.chat-footer'))).toBeNull();
-    expect(bubble.nativeElement.classList.contains('surface-2')).toBe(true);
+    expect(bubble.nativeElement.classList.contains('surface-2')).toBe(false);
     expect(bubble.nativeElement.classList.contains('surface-1')).toBe(false);
   });
 
@@ -460,7 +456,7 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
           .nativeElement.textContent.trim(),
       ).toBe('reviewer');
       expect(
-        fixture.debugElement.query(By.css('.chat-header')).nativeElement
+        fixture.debugElement.query(By.css('.cs-user-header')).nativeElement
           .textContent,
       ).not.toContain('You');
     });

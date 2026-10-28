@@ -189,6 +189,12 @@ describe('glass scene tint', () => {
     expect(inner).toContain('background: transparent;');
   });
 
+  it('keeps transcript bubbles and lane rows free of exterior shadows in both glass modes', () => {
+    expect(css).toMatch(/ptah-chat-transcript :is\(\.chat-bubble, \.cs-answer\),\s*ptah-chat-transcript ptah-lane-event article\s*\{\s*box-shadow: inset 0 1px 0 var\(--surface-highlight\);/);
+    expect(css).toMatch(/:root\[data-glass='on'\] ptah-chat-transcript \.cs-user-bubble\s*\{\s*background: var\(--glass-bubble-user\);\s*box-shadow: inset 0 1px 0 var\(--glass-glint\);/);
+    expect(css).toMatch(/ptah-chat-transcript \.cs-user-bubble\s*\{\s*background: var\(--surface-2\);/);
+  });
+
   it('never sets the tint itself in a per-theme rule, only its alpha', () => {
     const plain = css.replace(/\/\*[\s\S]*?\*\//g, '');
     for (const [, selector, body] of plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {

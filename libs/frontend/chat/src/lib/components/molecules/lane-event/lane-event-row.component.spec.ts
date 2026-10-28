@@ -31,17 +31,20 @@ describe('LaneEventRowComponent', () => {
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
-    expect([...element.querySelectorAll('[data-testid="lane-event-chip"]')].map(chip => chip.textContent?.trim())).toEqual(['Report x2', 'Completed']);
-    expect(element.textContent).toContain('self-reported and unverified');
+    expect([...element.querySelectorAll('[data-testid="lane-event-chip"]')].map(chip => chip.textContent?.trim())).toEqual(['Completed']);
+    expect(element.textContent).toContain('self-reported, unverified');
+    expect(element.querySelector('[data-testid="lane-event-unverified-caption"]')?.getAttribute('title')).toContain('self-reported and unverified');
+    expect(element.querySelector('[data-testid="agent-avatar-tile"]')).toBeTruthy();
     expect(element.textContent).toContain('peer session');
     expect(element.textContent).toContain('file.txt');
     expect(element.textContent).toContain('1 image');
-    expect(element.querySelector('[data-testid="lane-event-show-more"]')?.textContent).toContain('Show more');
+    expect(element.querySelector('[data-testid="lane-event-show-more"]')).toBeNull();
+    expect(element.querySelector('[data-testid="lane-event-stat"]')?.textContent).toContain('Reports 2');
     const toggle = element.querySelector<HTMLButtonElement>('[data-testid="lane-event-toggle"]')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     toggle.click(); fixture.detectChanges();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
-    expect(element.querySelector('[data-testid="lane-event-show-more"]')?.textContent).toContain('Show less');
+    expect(element.querySelectorAll('[data-testid="lane-event-body"] markdown')).toHaveLength(3);
     expect(element.querySelector('[data-testid="lane-event-body"]')?.textContent).toContain('verdict: delivered');
   });
 

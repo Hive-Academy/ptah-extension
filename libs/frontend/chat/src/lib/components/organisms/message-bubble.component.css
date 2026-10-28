@@ -12,6 +12,12 @@
   max-width: none;
 }
 
+.cs-user-header {
+  margin-bottom: 4px;
+  background: transparent;
+  border-radius: 0;
+}
+
 .cs-user-bubble::before,
 .cs-user-bubble::after {
   content: none;
