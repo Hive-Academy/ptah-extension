@@ -188,7 +188,9 @@ describe('VS Code RPC surface', () => {
   const surface = deriveRpcSurface(createVscodeRpcHostProfile(NOOP_LOGGER));
 
   it('serves artifact methods with the optional store absent', () => {
-    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+    expect(surface.registered).toEqual(
+      expect.arrayContaining(['artifacts:list', 'artifacts:openLink']),
+    );
   });
 
   it('serves bound guidance and generation recovery methods', () => {
@@ -200,6 +202,27 @@ describe('VS Code RPC surface', () => {
         'wizard:get-generation-run-state',
       ]),
     );
+  });
+
+  it('serves the community pack install plan (TASK_2026_701 B8)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'wizard:plan-pack-install',
+        'wizard:install-pack-agents',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('wizard:plan-pack-install');
+  });
+
+  it('serves the plugin kept-item and config-home methods (TASK_2026_701 B12)', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'plugins:replace-kept-items',
+        'plugins:resolve-config-home',
+      ]),
+    );
+    expect(surface.excluded).not.toContain('plugins:replace-kept-items');
+    expect(surface.excluded).not.toContain('plugins:resolve-config-home');
   });
 
   it('excludes exactly the live methods in the VS Code absent list', () => {

@@ -1,0 +1,34 @@
+{
+ "shots": [
+  {
+   "file": "sidebar__dialog__dark__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": []
+  },
+  {
+   "file": "sidebar__dialog__light__wide.png",
+   "iw": 1280,
+   "sw": 1280,
+   "over": [],
+   "extra": []
+  }
+ ],
+ "consoleErrors": [
+  "[ModelStateService] Failed to load models: undefined",
+  "[ModelStateService] Failed to load models: undefined",
+  "[2026-10-28T14:05:11.357Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[2026-10-28T14:05:11.373Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[ModelStateService] Failed to load models: undefined",
+  "[2026-10-28T14:05:12.986Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[2026-10-28T14:05:18.665Z] [ERROR] UsageVitalsCache: Usage summary result is invalid "
+ ],
+ "notes": [
+  "Select Recommended|Deselect All|Browse community packs|Generate 0 agents",
+  true,
+  "Generate guidance first|Generate 3 agents",
+  "{\"title\":[120,148],\"confirm\":[749,781],\"innerH\":900,\"topEl\":\"DIV.fixed inset-0 z-50 grid place-items-cent\"}",
+  "{\"afterScrollConfirm\":[749,781],\"hit\":\"BUTTON\",\"titleAfter\":[120,148]}"
+ ]
+}

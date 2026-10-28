@@ -63,7 +63,14 @@ import {
 import type {
   InternalQueryService,
   IWorkspaceLlmResolver,
+  PluginLoaderService,
+  PluginSkillInfo,
 } from '@ptah-extension/agent-sdk';
+import { formatRubricRulesBlock } from './generation-prompt-rules';
+import { selectInvocablePluginSkills } from './invocable-plugin-skills';
+
+/** The plugin policy read the plugin-skill gate needs. */
+type PluginPolicyReader = Pick<PluginLoaderService, 'getEffectivePluginConfig'>;
 import type {
   SDKMessage,
   StreamEventEmitter,
@@ -182,6 +189,10 @@ export class ContentGenerationService implements IContentGenerationService {
       isOptional: true,
     })
     private readonly analysisStorage: AnalysisStorageService | null = null,
+    // Source of the disabled-skill policy for the plugin-skill gate. Absent
+    // means the policy is unknown, so no plugin skill reaches the prompt.
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER, { isOptional: true })
+    private readonly pluginPolicy: PluginPolicyReader | null = null,
   ) {}
 
   /**
@@ -374,11 +385,8 @@ WHAT A SECTION IS
 - Write for a reader six months from now. Every sentence must still be true after someone adds a directory, upgrades a dependency, or fixes the lint backlog.
 
 FORBIDDEN — these make the file wrong the week after it is written:
-- Counts of anything. No "15 libs", "22 tokens", "30 handlers", "three adapters".
-- Version numbers. Name the framework, never its version.
 - Percentages, coverage figures, error or warning tallies.
 - Dates, years, or any "as of" clause.
-- Inventories: do not list or summarise the directory tree, the lib set, or the dependency list.
 
 REQUIRED
 - Every bullet cites at least one concrete path, in backticks: \`path/to/thing.ts\`.
@@ -387,6 +395,8 @@ REQUIRED
 - Keep the section's "## " heading exactly as the template blueprint spells it, as the first line of your output.
 - If the evidence cannot carry the section — fewer than about six distinct claims you can each back with a path — return an empty string for that section. The authored fallback ships instead, which is the right outcome. Do not pad the section with general advice to reach a length.
 
+${formatRubricRulesBlock()}
+
 OUTPUT FORMAT
 - Return a JSON object with a "sections" property mapping each section ID to its markdown.
 - No wrapping markers and no code fences around the section itself.`;
@@ -394,13 +404,15 @@ OUTPUT FORMAT
       if (sdkConfig?.enhancedPromptContent) {
         systemPrompt += `\n\n--- Enhanced Project Guidance ---\n${sdkConfig.enhancedPromptContent}`;
       }
-      if (sdkConfig?.pluginPaths && sdkConfig.pluginPaths.length > 0) {
-        const skills = discoverPluginSkills(sdkConfig.pluginPaths);
-        if (skills.length > 0) {
-          systemPrompt += `\n\n## Available Plugin Skills\nThe generated agent rules should reference these skills where relevant:\n${formatSkillsForPrompt(
-            skills,
-          )}`;
-        }
+      const pluginSkills = await this.resolveInvocablePluginSkills(
+        templateName,
+        context.rootPath,
+        sdkConfig?.pluginPaths,
+      );
+      if (pluginSkills.length > 0) {
+        systemPrompt += `\n\n## Available Plugin Skills\nReference only skills relevant to this agent's role; every skill listed here is one this agent may invoke.\n${formatSkillsForPrompt(
+          pluginSkills,
+        )}`;
       }
       // Arm the timeout BEFORE execute() so the budget covers the queue wait
       // for a concurrency slot, not just the stream after the handle resolves.
@@ -537,6 +549,64 @@ OUTPUT FORMAT
       rejectedSections: warnings.length,
       tailoredSections: 0,
     };
+  }
+
+  /**
+   * The plugin skills the prompt may list for this agent type (rubric rule 8).
+   *
+   * Discovery runs only when plugin paths were supplied; the disabled-skill
+   * policy is read only when discovery found something to gate.
+   */
+  private async resolveInvocablePluginSkills(
+    agentType: string,
+    rootPath: string,
+    pluginPaths: readonly string[] | undefined,
+  ): Promise<PluginSkillInfo[]> {
+    if (!pluginPaths || pluginPaths.length === 0) return [];
+    const skills = discoverPluginSkills([...pluginPaths]);
+    if (skills.length === 0) return [];
+    const disabledSkillIds = await this.readDisabledSkillIds(rootPath);
+    const invocable = selectInvocablePluginSkills(
+      agentType,
+      skills,
+      disabledSkillIds,
+    );
+    if (invocable.length < skills.length) {
+      this.logger.debug('Plugin skills withheld from the generation prompt', {
+        agentType,
+        discovered: skills.length,
+        listed: invocable.length,
+        policyKnown: disabledSkillIds !== null,
+      });
+    }
+    return invocable;
+  }
+
+  /**
+   * The skills switched off for `rootPath` (workspace config over the global
+   * layer), or `null` when that policy cannot be read.
+   */
+  private async readDisabledSkillIds(
+    rootPath: string,
+  ): Promise<readonly string[] | null> {
+    if (!this.pluginPolicy) return null;
+    try {
+      const effective =
+        await this.pluginPolicy.getEffectivePluginConfig(rootPath);
+      return effective.config.disabledSkillIds;
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - an unreadable skill policy
+      // is answered as unknown, which lists no plugin skill in the prompt;
+      // generation itself proceeds and the authored half is unaffected.
+      this.logger.warn(
+        'Skill policy unreadable; no plugin skill is listed in the generation prompt',
+        {
+          rootPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return null;
+    }
   }
 
   /**

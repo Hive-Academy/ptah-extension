@@ -27,6 +27,25 @@ export const MarketplaceSourceParamsSchema = z.object({
 export const MarketplaceBrowseParamsSchema =
   MarketplaceSourceParamsSchema.extend({ refresh: z.boolean().optional() });
 
+/** A server-issued approval id: a `randomUUID`. */
+const APPROVAL_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** At most as many decisions as the approval registry can hold approvals. */
+const MAX_LOCAL_ITEM_DECISIONS = 256;
+
+/**
+ * Approval ids mapped to the user's keep/replace decision. Only ids the server
+ * issued can match a live approval; the shape check here only keeps garbage
+ * out of the registry lookup.
+ */
+export const LocalItemDecisionsSchema = z
+  .record(z.string().regex(APPROVAL_ID_PATTERN), z.enum(['keep', 'replace']))
+  .refine(
+    (decisions) => Object.keys(decisions).length <= MAX_LOCAL_ITEM_DECISIONS,
+    { message: 'Too many local-item decisions.' },
+  );
+
 /**
  * `plugins:install-external`.
  *
@@ -41,6 +60,22 @@ export const ExternalInstallParamsSchema = z.object({
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
+  /** Keep/replace per plan `approvalId`; a missing entry means keep. */
+  localItemDecisions: LocalItemDecisionsSchema.optional(),
+});
+
+/** `plugins:replace-kept-items`. */
+export const ReplaceKeptItemsParamsSchema = z.object({
+  decisions: LocalItemDecisionsSchema,
+});
+
+/**
+ * `plugins:resolve-config-home`. `folder` is only ever compared with the
+ * server's own candidate list, never used as a path.
+ */
+export const ResolveConfigHomeParamsSchema = z.object({
+  action: z.enum(['adopt', 'dismiss']),
+  folder: z.string().min(1).max(4096),
 });
 
 /** `plugins:uninstall-external`. */

@@ -3,6 +3,7 @@ import type {
   VendorLane,
 } from '@ptah-extension/tribunal-panel/phase';
 import { layoutScene } from '../scene/scene-layout';
+import type { CommandWorkState } from './command-center.store';
 import {
   computeAgesMs,
   projectOwnedWork,
@@ -47,6 +48,32 @@ describe('projectOwnedWork', () => {
       }),
     ).toBe('awaiting input');
     expect(rootState({ ...base, rootTabStatus: 'ready' })).toBe('idle');
+  });
+  it('keeps an idle root running while owned delegated work is active', () => {
+    const agent = {
+      agentId: 'sdk-1',
+      kind: 'sdk' as const,
+      parentSessionId: base.rootSessionId,
+      displayName: 'software-architect',
+    };
+    const rootState = (state: CommandWorkState) =>
+      projectOwnedWork({
+        ...base,
+        rootTabStatus: 'ready',
+        agents: [{ ...agent, state }],
+      }).nodes[0]?.state;
+    expect(rootState('running')).toBe('running');
+    expect(rootState('starting')).toBe('running');
+    expect(rootState('queued')).toBe('idle');
+    expect(rootState('completed')).toBe('idle');
+    expect(rootState('failed')).toBe('idle');
+    expect(
+      projectOwnedWork({
+        ...base,
+        rootQuestionPending: true,
+        agents: [{ ...agent, state: 'running' }],
+      }).nodes[0]?.state,
+    ).toBe('awaiting input');
   });
   it('names agents from display name, then task, then the provider and caps plate text', () => {
     const result = projectOwnedWork({
@@ -287,6 +314,7 @@ describe('projectOwnedWork', () => {
         },
       ],
     });
+    expect(result.nodes[0]?.state).toBe('running');
     expect(
       result.nodes.filter((node) => node.parentId === 'tribunal:run'),
     ).toEqual([

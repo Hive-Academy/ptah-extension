@@ -205,6 +205,29 @@ export class SessionChildRegistry {
     );
   }
 
+  /**
+   * Move a child to a new parent: the session that took over its parent's
+   * work through `ptah_session_handoff`. `parentSdkSessionId` absent clears
+   * the recorded SDK id, so readers fall back to the new parent tab's live
+   * SDK id rather than keep matching the old parent.
+   */
+  reparent(
+    childSessionId: string,
+    parentSessionId: string,
+    parentSdkSessionId: string | undefined,
+  ): SessionChildRecord | undefined {
+    const record = this.records.get(childSessionId);
+    const parent = parentSessionId.trim();
+    if (!record || !parent) return undefined;
+    const next: SessionChildRecord = { ...record, parentSessionId: parent };
+    const sdkId = parentSdkSessionId?.trim();
+    if (sdkId) {
+      return this.replace({ ...next, parentSdkSessionId: sdkId });
+    }
+    delete (next as { parentSdkSessionId?: string }).parentSdkSessionId;
+    return this.replace(next);
+  }
+
   /** Every child not yet ended, in start order. */
   live(): readonly SessionChildRecord[] {
     return [...this.records.values()].filter((r) => !r.terminalStatus);

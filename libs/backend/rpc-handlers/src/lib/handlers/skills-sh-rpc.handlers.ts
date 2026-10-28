@@ -24,10 +24,14 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   HARNESS_SYNC_TOKENS,
+  resolveHarnessWorkspaceRoot,
   type HarnessPropagationService,
 } from '@ptah-extension/harness-sync';
 import { isSafePathToken } from '@ptah-extension/shared';
 import type {
+  HarnessHealth,
+  KeptItem,
+  LibraryPassStatus,
   SkillShEntry,
   InstalledSkill,
   SkillDetectionResult,
@@ -44,6 +48,13 @@ import {
 } from '../utils/skills-sh-cli';
 import { SkillsShSourceRootService } from '../skills-sh/skills-sh-source-root.service';
 import { SkillsShApiClient } from '@ptah-extension/cli-agent-runtime';
+import { MarketplaceLocalItemsService } from './marketplace/marketplace-local-items.service';
+
+/** One propagation's health and what it means for the Library. */
+interface PropagationOutcome {
+  health: HarnessHealth | null;
+  libraryPass: LibraryPassStatus;
+}
 
 const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
   {
@@ -165,6 +176,12 @@ export class SkillsShRpcHandlers {
     private readonly sourceRoots: SkillsShSourceRootService,
     @inject(HARNESS_SYNC_TOKENS.PROPAGATION)
     private readonly harnessPropagation: HarnessPropagationService,
+    /**
+     * Reports the destinations an install left as the user's (R1-3, A30),
+     * each under an approval id `plugins:replace-kept-items` accepts.
+     */
+    @inject(MarketplaceLocalItemsService)
+    private readonly localItems: MarketplaceLocalItemsService,
   ) {}
 
   register(): void {
@@ -286,12 +303,23 @@ export class SkillsShRpcHandlers {
    *
    * Propagation failure does not fail the install. The bytes are on disk and
    * every host reconciles again at its next activation, so reporting failure
-   * here would tell the user nothing was installed when something was.
+   * here would tell the user nothing was installed when something was; it is
+   * reported as `libraryPass: 'failed'` instead (8.10a). A failed install
+   * returns its error with no kept report (8.10).
+   *
+   * The pass keeps every destination that is the user's (B9). Those of THIS
+   * install's skills come back as `kept`, each with an approval id the user
+   * can send to `plugins:replace-kept-items`.
    */
   private registerInstall(): void {
     this.rpcHandler.registerMethod<
       { source: string; skillId?: string },
-      { success: boolean; error?: string }
+      {
+        success: boolean;
+        error?: string;
+        kept?: KeptItem[];
+        libraryPass?: LibraryPassStatus;
+      }
     >('skillsSh:install', async (params) => {
       try {
         this.logger.debug('RPC: skillsSh:install called', {
@@ -348,14 +376,20 @@ export class SkillsShRpcHandlers {
         }
 
         this.invalidateCaches();
-        await this.propagate('skillsSh:install');
+        const pass = await this.propagate('skillsSh:install');
+        const kept = await this.keptForInstall(
+          result.rootId,
+          result.slugs,
+          pass.health,
+        );
 
         this.logger.info('RPC: skillsSh:install success', {
           source: params.source,
           rootId: result.rootId,
           slugs: result.slugs,
+          kept: kept.length,
         });
-        return { success: true };
+        return { success: true, kept, libraryPass: pass.libraryPass };
       } catch (error: unknown) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -434,18 +468,65 @@ export class SkillsShRpcHandlers {
 
   /**
    * Non-fatal by construction — see `registerInstall`. Mirrors the private
-   * helper `PluginRpcHandlers` uses for the same purpose.
+   * helper `PluginRpcHandlers` uses for the same purpose, including the
+   * harness root (8.1): a sub-folder workspace propagates its repository.
    */
-  private async propagate(reason: string): Promise<void> {
-    const workspaceRoot = this.getWorkspaceRoot();
-    if (workspaceRoot === '') return;
+  private async propagate(reason: string): Promise<PropagationOutcome> {
+    const harnessRoot = this.getHarnessRoot();
+    if (harnessRoot === '') {
+      return { health: null, libraryPass: 'not-applicable' };
+    }
     try {
-      await this.harnessPropagation.propagate(workspaceRoot, reason);
+      const report = await this.harnessPropagation.propagateWithReport(
+        harnessRoot,
+        reason,
+      );
+      const libraryPass: LibraryPassStatus =
+        report.health === null || report.userLayer === 'failed'
+          ? 'failed'
+          : report.userLayer === 'refreshed'
+            ? 'updated'
+            : 'not-applicable';
+      return { health: report.health, libraryPass };
     } catch (error: unknown) {
+      // Non-fatal: the skill is on disk and the
+      // next activation reconciles it; the caller reports libraryPass 'failed'.
       this.logger.warn('Harness propagation failed (non-fatal)', {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
+      return { health: null, libraryPass: 'failed' };
+    }
+  }
+
+  /**
+   * The destinations of this install's skills the pass left as the user's.
+   * Never fails the install: without a report nothing is offered for replace
+   * and every kept item simply stays.
+   */
+  private async keptForInstall(
+    rootId: string,
+    slugs: readonly string[],
+    health: HarnessHealth | null,
+  ): Promise<KeptItem[]> {
+    const harnessRoot = this.getHarnessRoot();
+    if (harnessRoot === '') return [];
+    try {
+      return await this.localItems.keptReport({
+        harnessRoot,
+        sourceRef: `skills-sh:${rootId}`,
+        slugs: { skills: slugs, commands: [], agents: [] },
+        health,
+        fileFamily: 'skills-sh',
+      });
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the install succeeded; with
+      // no report the kept items stay the user's. Logged for diagnosis.
+      this.logger.warn('RPC: skillsSh:install kept report unavailable', {
+        rootId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
     }
   }
 
@@ -777,5 +858,13 @@ export class SkillsShRpcHandlers {
 
   private getWorkspaceRoot(): string {
     return this.workspace.getWorkspaceRoot() ?? '';
+  }
+
+  /** Harness root of the open folder, or an empty string with none open. */
+  private getHarnessRoot(): string {
+    const workspaceRoot = this.getWorkspaceRoot();
+    return workspaceRoot === ''
+      ? ''
+      : resolveHarnessWorkspaceRoot(workspaceRoot);
   }
 }

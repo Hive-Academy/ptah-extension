@@ -22,6 +22,7 @@ import { ReconcileGuardComponent } from './reconcile-guard';
 import { AgentModelsStore } from './agent-models.store';
 import {
   AgentModelEditorComponent,
+  CLAUDE_MODEL_HELP_COPY,
   GUARD_FAILED_COPY,
   MACHINE_SCOPE_COPY,
   SYNC_SKIPPED_COPY,
@@ -343,6 +344,36 @@ describe('AgentModelEditorComponent', () => {
       expect(q('agent-model-machine-copy')?.textContent).toContain(
         MACHINE_SCOPE_COPY,
       );
+    });
+
+    it('the Claude row says the wizard writes this model, wired by aria-describedby (5.4)', async () => {
+      setup();
+      await settle();
+      await click(q('agent-model-edit-btn', row('claude')));
+
+      const help = q('agent-model-claude-help');
+      expect(help?.textContent).toContain(CLAUDE_MODEL_HELP_COPY);
+      const described = (
+        q<HTMLInputElement>('agent-model-input')?.getAttribute(
+          'aria-describedby',
+        ) ?? ''
+      ).split(' ');
+      expect(help?.id).toBeTruthy();
+      expect(described).toContain(help?.id);
+      expect(described).toContain(q('agent-model-draft-class')?.id);
+    });
+
+    it('other providers get no wizard help, only the draft hint', async () => {
+      setup();
+      await settle();
+      await click(q('agent-model-edit-btn', row('codex')));
+
+      expect(q('agent-model-claude-help')).toBeNull();
+      expect(
+        q<HTMLInputElement>('agent-model-input')?.getAttribute(
+          'aria-describedby',
+        ),
+      ).toBe(q('agent-model-draft-class')?.id);
     });
 
     it('blocks a malformed value before any call', async () => {
@@ -736,17 +767,23 @@ describe('AgentModelEditorComponent', () => {
     await settle();
     const oldList = deferred<SkillSynthesisGetAgentModelsResult>();
     rpc.getAgentModels.mockImplementationOnce(() => oldList.promise);
-    rpc.getAgentModels.mockResolvedValueOnce(models({ workspaceRoot: '/other/resolved' }));
+    rpc.getAgentModels.mockResolvedValueOnce(
+      models({ workspaceRoot: '/other/resolved' }),
+    );
     const pending = fixture.componentInstance.store.load();
     await settle();
     config.set({ isElectron: true, workspaceRoot: '/other' });
     fixture.detectChanges();
     await settle();
-    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe('/other/resolved');
+    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe(
+      '/other/resolved',
+    );
     oldList.resolve(models({ workspaceRoot: '/ws/resolved' }));
     await pending;
     fixture.detectChanges();
-    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe('/other/resolved');
+    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe(
+      '/other/resolved',
+    );
     expect(fixture.componentInstance.store.loading()).toBe(false);
   });
 });

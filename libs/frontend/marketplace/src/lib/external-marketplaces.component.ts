@@ -19,7 +19,7 @@ import {
   ChevronRight,
 } from 'lucide-angular';
 import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   CatalogCardComponent,
   CatalogCardSkeletonComponent,
@@ -33,10 +33,15 @@ import type {
   ExternalInstallResult,
   ExternalMarketplace,
   ExternalPluginListing,
+  FileDecision,
+  KeptItem,
+  LocalItemFamily,
+  PluginsReplaceKeptItemsResult,
   SuggestedMarketplace,
 } from '@ptah-extension/shared';
 import { ExternalConsentDialogComponent } from './external-consent-dialog.component';
 import { ExternalInstallReportComponent } from './external-install-report.component';
+import { KeptItemsRepairPromptComponent } from './kept-items-repair-prompt.component';
 import { ExternalInstalledRowComponent } from './external-installed-row.component';
 import { ExternalPluginRowComponent } from './external-plugin-row.component';
 
@@ -109,6 +114,7 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
     ExternalInstallReportComponent,
     ExternalInstalledRowComponent,
     ExternalPluginRowComponent,
+    KeptItemsRepairPromptComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -423,7 +429,9 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
       @if (lastInstall(); as report) {
         <ptah-external-install-report
           [report]="report"
+          [showLibraryNotice]="isElectron()"
           (dismissed)="lastInstall.set(null)"
+          (reviewKept)="openRepair($event)"
         />
       }
 
@@ -449,9 +457,19 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
         [plan]="plan"
         [reason]="pendingReason()"
         [busy]="isConfirming()"
-        [errorMessage]="consentError()"
-        (confirmed)="confirmInstall()"
+        [installFailed]="consentFailed()"
+        (confirmed)="confirmInstall($event)"
         (cancelled)="cancelInstall()"
+      />
+    }
+
+    @if (repairRequest(); as repair) {
+      <ptah-kept-items-repair-prompt
+        [family]="repair.family"
+        [items]="repair.items"
+        [showLibraryNotice]="isElectron()"
+        (replaced)="onKeptReplaced($event)"
+        (closed)="repairRequest.set(null)"
       />
     }
   `,
@@ -465,6 +483,7 @@ const SOURCE_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 })
 export class ExternalMarketplacesComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly vscode = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
   private destroyed = false;
 
@@ -544,8 +563,11 @@ export class ExternalMarketplacesComponent implements OnInit {
     signal<ExternalConsentReason>('not-yet-approved');
   /** True while the authorized (token-carrying) second call is in flight. */
   public readonly isConfirming = signal(false);
-  /** Error rendered inside the dialog, without dismissing it. */
-  public readonly consentError = signal<string | null>(null);
+  /**
+   * The authorized call failed. The dialog shows fixed copy and stays open;
+   * the host's error text (which can carry local paths) is never shown.
+   */
+  public readonly consentFailed = signal(false);
   /** Listing ids with a first (plan) call in flight. */
   public readonly installingIds = signal<Set<string>>(new Set());
   public readonly uninstallingIds = signal<Set<string>>(new Set());
@@ -555,6 +577,13 @@ export class ExternalMarketplacesComponent implements OnInit {
   );
   /** Result of the most recent successful install, for the post-install report. */
   public readonly lastInstall = signal<ExternalInstallResult | null>(null);
+  /** The open repair prompt: the family it is bound to and that family's items. */
+  public readonly repairRequest = signal<{
+    family: LocalItemFamily;
+    items: readonly KeptItem[];
+  } | null>(null);
+  /** C10 (Library stale notice) is Electron only. */
+  protected readonly isElectron = computed(() => this.vscode.isElectron);
 
   /** Reload when the host bumps `refreshTrigger` (skips the initial 0). */
   private readonly refreshEffect = effect(() => {
@@ -782,7 +811,7 @@ export class ExternalMarketplacesComponent implements OnInit {
       return;
     }
     addToSet(this.installingIds, listing.id);
-    this.consentError.set(null);
+    this.consentFailed.set(false);
     this.browseError.set(null);
     try {
       const result = await this.rpc.call(
@@ -825,12 +854,18 @@ export class ExternalMarketplacesComponent implements OnInit {
    * in the freshly built plan, carries the reason into the dialog so the copy
    * can explain itself, and asks again. Never an error, never a retry with the
    * old token.
+   *
+   * `localItemDecisions` (keep/replace by the plan's `approvalId`) is sent
+   * only when the plan listed local items. A failure keeps the dialog open
+   * with the plan and the user's choices, so "Retry install" re-sends them.
    */
-  public async confirmInstall(): Promise<void> {
+  public async confirmInstall(
+    localItemDecisions: Record<string, FileDecision> = {},
+  ): Promise<void> {
     const plan = this.pendingPlan();
     if (plan === null || this.isConfirming()) return;
     this.isConfirming.set(true);
-    this.consentError.set(null);
+    this.consentFailed.set(false);
     try {
       // An expired token makes the backend re-plan (a fresh download) before
       // it answers, so the confirm call gets the full install budget too.
@@ -840,14 +875,16 @@ export class ExternalMarketplacesComponent implements OnInit {
           source: plan.source,
           plugin: plan.plugin,
           consentToken: plan.consentToken,
+          ...(Object.keys(localItemDecisions).length > 0
+            ? { localItemDecisions }
+            : {}),
         },
         { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS },
       );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
-        this.consentError.set(
-          result.error ?? `Failed to install ${plan.displayName}`,
-        );
+        // Fixed copy in the dialog; the host logged the original error.
+        this.consentFailed.set(true);
         return;
       }
       if (result.data.status === 'consent-required') {
@@ -861,11 +898,11 @@ export class ExternalMarketplacesComponent implements OnInit {
       }
       this.pendingPlan.set(null);
       await this.applyInstalled(result.data.result, plan.source);
-    } catch (error: unknown) {
+    } catch {
+      // degradation-audit: reported — fixed copy in the dialog; a thrown
+      // transport error carries no user-facing text.
       if (this.destroyed) return;
-      this.consentError.set(
-        messageOf(error, `Failed to install ${plan.displayName}`),
-      );
+      this.consentFailed.set(true);
     } finally {
       if (!this.destroyed) this.isConfirming.set(false);
     }
@@ -875,7 +912,7 @@ export class ExternalMarketplacesComponent implements OnInit {
   public cancelInstall(): void {
     this.pendingPlan.set(null);
     this.pendingReason.set('not-yet-approved');
-    this.consentError.set(null);
+    this.consentFailed.set(false);
   }
 
   /**
@@ -888,11 +925,38 @@ export class ExternalMarketplacesComponent implements OnInit {
     source: string,
   ): Promise<void> {
     this.lastInstall.set(result);
+    this.repairRequest.set(null);
     this.pluginInstalled.emit(result.pluginId);
     await this.loadMarketplaces();
     if (this.expandedSource() === source) {
       await this.refreshBrowse(source);
     }
+  }
+
+  // ── Kept items repair ───────────────────────────────────────────────────────
+
+  /** "Review and replace…": open the prompt bound to `family`'s kept items. */
+  public openRepair(family: LocalItemFamily): void {
+    const items = (this.lastInstall()?.kept ?? []).filter(
+      (item) => item.family === family,
+    );
+    if (items.length === 0) return;
+    this.repairRequest.set({ family, items });
+  }
+
+  /** Drop replaced items from the report; items still kept stay listed. */
+  public onKeptReplaced(result: PluginsReplaceKeptItemsResult): void {
+    const replacedIds = new Set(result.replaced.map((item) => item.approvalId));
+    this.lastInstall.update((report) =>
+      report === null
+        ? null
+        : {
+            ...report,
+            kept: (report.kept ?? []).filter(
+              (item) => !replacedIds.has(item.approvalId),
+            ),
+          },
+    );
   }
 
   // ── Uninstall ───────────────────────────────────────────────────────────────

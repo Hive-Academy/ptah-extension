@@ -42,6 +42,21 @@ import type {
   QuarantinedAgentsListing,
   QuarantineRestoreResult,
 } from './user-layer-seed-quarantine';
+import {
+  UserLayerPluginAgents,
+  sharedPluginBasenames,
+  sourceIdentityChanged,
+  sourceOwnership,
+  withSourceIdentity,
+} from './user-layer-plugin-agents';
+import type {
+  MirrorPluginDescriptor,
+  MirrorPluginDescriptors,
+  PluginAgentPass,
+  SourceOwnership,
+} from './user-layer-plugin-agents';
+import { readCloneEditStateIn } from './user-layer-clone-state';
+import type { CloneEditState } from './user-layer-clone-state';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
 const RETIRED_MANAGED_SKILL_SLUGS = [
@@ -74,6 +89,11 @@ export type {
   ReapResult,
   UpstreamLiveness,
 } from './user-layer-orphan-reaper';
+export type {
+  MirrorPluginDescriptor,
+  MirrorPluginDescriptors,
+} from './user-layer-plugin-agents';
+export type { CloneEditState } from './user-layer-clone-state';
 
 export interface MirrorSources {
   pluginPaths: string[];
@@ -114,6 +134,20 @@ export interface MirrorSources {
    * reaped). Defaults to the parent of the first supplied plugin path.
    */
   pluginsBasePath?: string;
+  /**
+   * The harness-resolved root whose Library agent directory receives PLUGIN
+   * agents (`<plugin>/agents/*.md`). Set by every host whenever a workspace is
+   * open, independent of agent-sync consent: consent gates propagation
+   * (`buildAgents`), not the Library copy. Absent means plugin agents are not
+   * mirrored on this pass.
+   */
+  libraryScopeRoot?: string;
+  /**
+   * Durable identity and label per absolute plugin path (A28). A clone made
+   * or reconciled from a described path records `sourceRef`/`sourceLabel`; a
+   * path without a descriptor carries the existing values forward.
+   */
+  pluginDescriptors?: MirrorPluginDescriptors;
 }
 
 export interface MirrorResult {
@@ -163,6 +197,18 @@ export interface ReconcileResult {
   orphaned: number;
   reapedClones: OrphanedClone[];
   orphanedClones: OrphanedClone[];
+}
+
+/**
+ * Every per-file failure a mirror or reconcile pass counted instead of
+ * throwing, the managed-skill retirement included. A pass that resolves with
+ * a nonzero count kept going past those files, so the Library may be missing
+ * or holding stale items: a host reports it as a failed step, not a refresh.
+ */
+export function userLayerPassFailures(
+  result: Pick<MirrorResult | ReconcileResult, 'errors' | 'retiredSkills'>,
+): number {
+  return result.errors + result.retiredSkills.errors;
 }
 
 /**
@@ -295,6 +341,15 @@ export interface HistoryEntry {
 
 const SYNTH_CANDIDATES_DIR = '_candidates';
 
+/** What a fresh sidecar is minted from, before its hash is known. */
+interface SidecarBase {
+  kind: OriginKind;
+  slug: string;
+  pluginId: string | null;
+  /** The plugin source's identity; absent for synth skills and workspace agents. */
+  descriptor?: MirrorPluginDescriptor;
+}
+
 @injectable()
 export class UserLayerMirrorService {
   private readonly inflight = new Map<string, Promise<void>>();
@@ -307,11 +362,13 @@ export class UserLayerMirrorService {
   private readonly fsOps: UserLayerFsOps;
   private readonly reaper: UserLayerOrphanReaper;
   private readonly seedQuarantine: UserLayerSeedQuarantine;
+  private readonly pluginAgents: UserLayerPluginAgents;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.fsOps = new UserLayerFsOps(logger);
     this.reaper = new UserLayerOrphanReaper(logger, this.fsOps);
     this.seedQuarantine = new UserLayerSeedQuarantine(logger, this.fsOps);
+    this.pluginAgents = new UserLayerPluginAgents(logger, this.fsOps);
   }
 
   /**
@@ -362,14 +419,21 @@ export class UserLayerMirrorService {
 
     for (const pluginPath of allPluginRoots(sources)) {
       const pluginId = basename(pluginPath);
+      const descriptor = sources.pluginDescriptors?.[pluginPath];
       await this.mirrorPluginSkills(
         pluginPath,
         pluginId,
+        descriptor,
         roots.skills,
         seenSkillSlugs,
         result,
       );
-      await this.mirrorPluginCommands(pluginPath, roots.commands, result);
+      await this.mirrorPluginCommands(
+        pluginPath,
+        descriptor,
+        roots.commands,
+        result,
+      );
     }
 
     if (sources.synthesizedSkillsRoot) {
@@ -397,12 +461,17 @@ export class UserLayerMirrorService {
         workspaceRoot: sources.workspaceRoot,
         scopedAgentsRoot: roots.agents,
         legacyAgentsRoot: this.legacyAgentsRoot(),
-        source: agentSource,
+        source: await this.withPluginAgentSlugs(agentSource, roots.agents),
         withSlugLock: (slug, fn) => this.withSlugLock('agent', slug, fn),
       });
       result.errors += quarantine.failed.length;
       await this.mirrorAgents(sources.agentSourceDir, roots.agents, result);
     }
+
+    // After the workspace agents: the legacy seed runs only while the scoped
+    // directory is absent, and a workspace agent owns its slug (A8).
+    const pluginAgentPass = this.pluginAgentPass(sources, result);
+    if (pluginAgentPass) await this.pluginAgents.mirror(pluginAgentPass, result);
 
     this.logger.info('[UserLayerMirror] mirrorAll complete', {
       ...result,
@@ -528,22 +597,73 @@ export class UserLayerMirrorService {
     return sidecar ? toCloneEntry(sidecar) : null;
   }
 
+  /**
+   * Whether ONE clone carries local edits, with its live content digest (the
+   * approval digest of A21) and source identity. `scopeRoot` keys the agent
+   * root exactly as `getUserLayerRoots` does; it is ignored for skills and
+   * commands. `null` when the slug has no origin sidecar.
+   */
+  async readCloneEditState(
+    kind: OriginKind,
+    slug: string,
+    scopeRoot?: string,
+  ): Promise<CloneEditState | null> {
+    return readCloneEditStateIn(this.getUserLayerRoots(scopeRoot), kind, slug);
+  }
+
+  /**
+   * The plugin-agent pass for these sources, or `null` when no Library scope
+   * root was supplied. A relative root would key the agent directory off the
+   * process cwd, so it is refused and counted.
+   */
+  private pluginAgentPass(
+    sources: MirrorSources,
+    result: { errors: number },
+  ): PluginAgentPass | null {
+    const scopeRoot = sources.libraryScopeRoot;
+    if (scopeRoot === undefined) return null;
+    if (!isAbsolute(scopeRoot)) {
+      result.errors += 1;
+      this.logger.warn(
+        '[UserLayerMirror] plugin agents not mirrored: library scope root is not absolute',
+        { libraryScopeRoot: scopeRoot },
+      );
+      return null;
+    }
+    return {
+      pluginPaths: allPluginRoots(sources),
+      agentsRoot: this.getUserLayerRoots(scopeRoot).agents,
+      descriptors: sources.pluginDescriptors,
+      withSlugLock: (slug, fn) => this.withSlugLock('agent', slug, fn),
+    };
+  }
+
   async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
     const result = emptyReconcileResult();
     result.retiredSkills = await this.retireManagedSkills();
     const roots = this.getUserLayerRoots(sources.workspaceRoot);
+    const pluginRoots = allPluginRoots(sources);
+    const sharedBasenames = sharedPluginBasenames(
+      pluginRoots,
+      sources.pluginDescriptors,
+    );
 
-    for (const pluginPath of allPluginRoots(sources)) {
+    for (const pluginPath of pluginRoots) {
       const pluginId = basename(pluginPath);
+      const descriptor = sources.pluginDescriptors?.[pluginPath];
       await this.reconcilePluginSkills(
         pluginPath,
         pluginId,
+        descriptor,
+        sharedBasenames.has(pluginId),
         roots.skills,
         result,
       );
       await this.reconcilePluginCommands(
         pluginPath,
         pluginId,
+        descriptor,
+        sharedBasenames.has(pluginId),
         roots.commands,
         result,
       );
@@ -559,6 +679,23 @@ export class UserLayerMirrorService {
 
     if (sources.agentSourceDir) {
       await this.reconcileAgents(sources.agentSourceDir, roots.agents, result);
+    }
+
+    const pluginAgentPass = this.pluginAgentPass(sources, result);
+    if (pluginAgentPass) {
+      await this.pluginAgents.reconcile(pluginAgentPass, result, (clone) =>
+        this.reconcileFileClone(
+          'agent',
+          clone.slug,
+          clone.pluginId,
+          clone.sourceFile,
+          clone.cloneFile,
+          clone.agentsRoot,
+          result,
+          clone.descriptor,
+          clone.basenameShared,
+        ),
+      );
     }
 
     this.logger.info('[UserLayerMirror] reconcile complete', {
@@ -691,7 +828,7 @@ export class UserLayerMirrorService {
         fs: this.fsOps,
       });
       return await this.reaper.reap(
-        this.getUserLayerRoots(sources.workspaceRoot),
+        this.getUserLayerRoots(reapAgentScope(sources)),
         live,
       );
     } catch (error: unknown) {
@@ -1393,6 +1530,8 @@ export class UserLayerMirrorService {
   private async reconcilePluginSkills(
     pluginPath: string,
     pluginId: string,
+    descriptor: MirrorPluginDescriptor | undefined,
+    basenameShared: boolean,
     skillsRoot: string,
     result: ReconcileResult,
   ): Promise<void> {
@@ -1429,6 +1568,8 @@ export class UserLayerMirrorService {
           sourceDir,
           cloneDir,
           result,
+          descriptor,
+          basenameShared,
         );
       });
     }
@@ -1486,6 +1627,8 @@ export class UserLayerMirrorService {
           sourceDir,
           cloneDir,
           result,
+          undefined,
+          false,
         );
       });
     }
@@ -1494,6 +1637,8 @@ export class UserLayerMirrorService {
   private async reconcilePluginCommands(
     pluginPath: string,
     pluginId: string,
+    descriptor: MirrorPluginDescriptor | undefined,
+    basenameShared: boolean,
     commandsRoot: string,
     result: ReconcileResult,
   ): Promise<void> {
@@ -1533,6 +1678,8 @@ export class UserLayerMirrorService {
           cloneFile,
           commandsRoot,
           result,
+          descriptor,
+          basenameShared,
         );
       });
     }
@@ -1579,6 +1726,8 @@ export class UserLayerMirrorService {
           cloneFile,
           agentsRoot,
           result,
+          undefined,
+          false,
         );
       });
     }
@@ -1591,6 +1740,8 @@ export class UserLayerMirrorService {
     sourceDir: string,
     cloneDir: string,
     result: ReconcileResult,
+    descriptor: MirrorPluginDescriptor | undefined,
+    basenameShared: boolean,
   ): Promise<void> {
     try {
       if (!(await this.dirExists(cloneDir))) {
@@ -1598,22 +1749,33 @@ export class UserLayerMirrorService {
       }
       this.assertUnderUserLayer(cloneDir);
 
-      const sidecar = await readSidecar(cloneDir);
-      if (!sidecar) {
+      const stored = await readSidecar(cloneDir);
+      if (!stored) {
         await this.reconcileMissingSidecar(cloneDir, sourceDir, {
           kind,
           slug,
           pluginId: expectedPluginId,
+          descriptor,
         });
         result.missingSidecar += 1;
         return;
       }
-      if (!ownsClone(sidecar, expectedPluginId)) {
+      if (
+        !this.ownsForReconcile(
+          kind,
+          slug,
+          sourceOwnership(stored, expectedPluginId, descriptor, basenameShared),
+        )
+      ) {
         return;
       }
+      const sidecar = withSourceIdentity(stored, descriptor);
 
       const liveSourceHash = await computeSourceHash(sourceDir);
       if (liveSourceHash === sidecar.sourceHash) {
+        if (sourceIdentityChanged(stored, descriptor)) {
+          await writeSidecarAtomic(cloneDir, sidecar);
+        }
         result.noop += 1;
         return;
       }
@@ -1651,6 +1813,8 @@ export class UserLayerMirrorService {
     cloneFile: string,
     rootDir: string,
     result: ReconcileResult,
+    descriptor: MirrorPluginDescriptor | undefined,
+    basenameShared: boolean,
   ): Promise<void> {
     try {
       if (!(await this.fileExists(cloneFile))) {
@@ -1659,22 +1823,34 @@ export class UserLayerMirrorService {
       this.assertUnderUserLayer(cloneFile);
 
       const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
-      const sidecar = await readSidecarAt(sidecarPath);
-      if (!sidecar) {
+      const stored = await readSidecarAt(sidecarPath);
+      if (!stored) {
         await this.reconcileMissingFileSidecar(rootDir, cloneFile, slug, {
           kind,
           slug,
           pluginId,
+          descriptor,
         });
         result.missingSidecar += 1;
         return;
       }
-      if (!ownsClone(sidecar, pluginId)) {
+      if (
+        !this.ownsForReconcile(
+          kind,
+          slug,
+          sourceOwnership(stored, pluginId, descriptor, basenameShared),
+        )
+      ) {
         return;
       }
+      const sidecar = withSourceIdentity(stored, descriptor);
 
       const liveSourceHash = await computeSourceHash(sourceFile);
       if (liveSourceHash === sidecar.sourceHash) {
+        if (sourceIdentityChanged(stored, descriptor)) {
+          this.assertUnderUserLayer(sidecarPath);
+          await writeSidecarAtomicAt(sidecarPath, sidecar);
+        }
         result.noop += 1;
         return;
       }
@@ -1702,6 +1878,25 @@ export class UserLayerMirrorService {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  /**
+   * Whether a reconcile may act on a clone. An `ambiguous` legacy clone is
+   * kept exactly as it is and reported, never fast-forwarded or re-identified
+   * from whichever same-named plugin the pass met first.
+   */
+  private ownsForReconcile(
+    kind: OriginKind,
+    slug: string,
+    ownership: SourceOwnership,
+  ): boolean {
+    if (ownership === 'ambiguous') {
+      this.logger.warn(
+        '[UserLayerMirror] clone kept: its legacy sidecar matches more than one plugin with this directory name',
+        { kind, slug },
+      );
+    }
+    return ownership === 'owned';
   }
 
   private async refreshSidecarDir(
@@ -1816,6 +2011,7 @@ export class UserLayerMirrorService {
   private async mirrorPluginSkills(
     pluginPath: string,
     pluginId: string,
+    descriptor: MirrorPluginDescriptor | undefined,
     skillsRoot: string,
     seenSkillSlugs: Map<string, string>,
     result: MirrorResult,
@@ -1844,6 +2040,7 @@ export class UserLayerMirrorService {
         join(sourceSkillsDir, slug),
         slug,
         pluginId,
+        descriptor,
         skillsRoot,
         seenSkillSlugs,
         result,
@@ -1883,6 +2080,7 @@ export class UserLayerMirrorService {
         join(synthesizedSkillsRoot, slug),
         slug,
         null,
+        undefined,
         skillsRoot,
         seenSkillSlugs,
         result,
@@ -1894,6 +2092,7 @@ export class UserLayerMirrorService {
     sourceDir: string,
     slug: string,
     pluginId: string | null,
+    descriptor: MirrorPluginDescriptor | undefined,
     skillsRoot: string,
     seenSkillSlugs: Map<string, string>,
     result: MirrorResult,
@@ -1921,6 +2120,7 @@ export class UserLayerMirrorService {
           kind: 'skill',
           slug,
           pluginId,
+          descriptor,
         });
       }
       seenSkillSlugs.set(slug, sourceDir);
@@ -1942,6 +2142,7 @@ export class UserLayerMirrorService {
         kind: 'skill',
         slug,
         pluginId,
+        descriptor,
         sourceHash,
       });
       seenSkillSlugs.set(slug, sourceDir);
@@ -1958,16 +2159,11 @@ export class UserLayerMirrorService {
   private async reconcileMissingSidecar(
     targetDir: string,
     sourceDir: string,
-    base: { kind: OriginKind; slug: string; pluginId: string | null },
+    base: SidecarBase,
   ): Promise<void> {
     try {
       const sourceHash = await computeSourceHash(targetDir);
-      await this.writeOriginSidecar(targetDir, {
-        kind: base.kind,
-        slug: base.slug,
-        pluginId: base.pluginId,
-        sourceHash,
-      });
+      await this.writeOriginSidecar(targetDir, { ...base, sourceHash });
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] failed to reconcile missing sidecar',
@@ -1982,6 +2178,7 @@ export class UserLayerMirrorService {
 
   private async mirrorPluginCommands(
     pluginPath: string,
+    descriptor: MirrorPluginDescriptor | undefined,
     commandsRoot: string,
     result: MirrorResult,
   ): Promise<void> {
@@ -2017,6 +2214,7 @@ export class UserLayerMirrorService {
           kind: 'command',
           slug,
           pluginId: basename(pluginPath),
+          descriptor,
         });
         result.skipped += 1;
         continue;
@@ -2030,6 +2228,7 @@ export class UserLayerMirrorService {
           kind: 'command',
           slug,
           pluginId: basename(pluginPath),
+          descriptor,
           sourceHash,
         });
         result.commandsMirrored += 1;
@@ -2062,8 +2261,11 @@ export class UserLayerMirrorService {
    *
    * Limits:
    *
-   * - It runs only when the scoped directory does not exist. Once the workspace
-   *   has one, the flat base is never read again.
+   * - It runs only while the scoped directory holds no workspace agent clone
+   *   (one without a plugin id). Plugin agents are mirrored there without
+   *   consent (TASK_2026_701), so a directory that holds only those has not
+   *   been seeded yet. Once the workspace has a clone of its own, the flat base
+   *   is never read again. A slug a clone already holds is never overwritten.
    * - An agent source that is absent or unreadable seeds NOTHING and is logged
    *   with the number of flat clones left behind. Unknown ownership is not
    *   ownership; the flat originals stay on disk and the rival copies are
@@ -2080,7 +2282,7 @@ export class UserLayerMirrorService {
   ): Promise<void> {
     const legacyRoot = this.legacyAgentsRoot();
     if (workspaceRoot === undefined || scopedAgentsRoot === legacyRoot) return;
-    if (await this.dirExists(scopedAgentsRoot)) return;
+    if (await this.hasWorkspaceAgentClones(scopedAgentsRoot)) return;
 
     let names: string[];
     try {
@@ -2122,6 +2324,9 @@ export class UserLayerMirrorService {
     for (const fileName of owned) {
       const slug = fileName.replace(/\.md$/, '');
       const sidecarName = `${slug}${ORIGIN_SIDECAR_SUFFIX}`;
+      // A plugin agent clone can already hold the slug; the seed never
+      // overwrites a clone.
+      if (await this.fileExists(join(scopedAgentsRoot, fileName))) continue;
       try {
         await mkdir(scopedAgentsRoot, { recursive: true });
         await this.copyFileAtomic(
@@ -2151,6 +2356,79 @@ export class UserLayerMirrorService {
       seeded,
       flatClonesNotSeeded: notOwned,
     });
+  }
+
+  /**
+   * The workspace's agent source listing plus every plugin agent clone in the
+   * scoped root, for the seed quarantine. A plugin agent is held there on
+   * purpose (TASK_2026_701), so the quarantine must neither move it nor list it
+   * as "not owned". A listing that is not `ok` is returned unchanged: the
+   * quarantine skips those, and unknown must stay unknown.
+   */
+  private async withPluginAgentSlugs(
+    listing: AgentSourceListing,
+    scopedAgentsRoot: string,
+  ): Promise<AgentSourceListing> {
+    if (listing.status !== 'ok') return listing;
+    let files: string[];
+    try {
+      files = await this.fsOps.listMarkdownFiles(scopedAgentsRoot);
+    } catch {
+      // degradation-audit: optional-capability - an absent or unreadable
+      // scoped root holds no plugin agent clone; the quarantine reads the same
+      // root itself and reports a real read error there.
+      return listing;
+    }
+    const slugs = new Set(listing.slugs);
+    for (const fileName of files) {
+      const slug = fileName.replace(/\.md$/, '');
+      if (slugs.has(slug)) continue;
+      try {
+        const sidecar = await readSidecarAt(
+          join(scopedAgentsRoot, `${slug}${ORIGIN_SIDECAR_SUFFIX}`),
+        );
+        if (sidecar !== null && sidecar.pluginId !== null) slugs.add(slug);
+      } catch {
+        // degradation-audit: optional-capability - an unreadable sidecar names
+        // no plugin, so the slug keeps the quarantine's own byte-proof test.
+        continue;
+      }
+    }
+    return { ...listing, slugs };
+  }
+
+  /**
+   * Does the scoped agents root hold a clone that is not a plugin agent? A
+   * sidecar-less file counts: it is user-authored work in this directory. An
+   * absent or unreadable root holds none.
+   */
+  private async hasWorkspaceAgentClones(
+    scopedAgentsRoot: string,
+  ): Promise<boolean> {
+    let files: string[];
+    try {
+      files = await this.fsOps.listMarkdownFiles(scopedAgentsRoot);
+    } catch {
+      // degradation-audit: optional-capability - an absent or unreadable
+      // scoped root holds no workspace clone; the seed then reads the flat base
+      // and skips every slug a clone already holds, so nothing is overwritten.
+      return false;
+    }
+    for (const fileName of files) {
+      const slug = fileName.replace(/\.md$/, '');
+      try {
+        const sidecar = await readSidecarAt(
+          join(scopedAgentsRoot, `${slug}${ORIGIN_SIDECAR_SUFFIX}`),
+        );
+        if (sidecar === null || sidecar.pluginId === null) return true;
+      } catch {
+        // degradation-audit: optional-capability - an unreadable sidecar is
+        // not a plugin agent's, so it is counted as workspace work and the
+        // seed stays done, which is the non-copying side.
+        return true;
+      }
+    }
+    return false;
   }
 
   private async mirrorAgents(
@@ -2234,34 +2512,16 @@ export class UserLayerMirrorService {
 
   private async writeOriginSidecar(
     dir: string,
-    base: {
-      kind: OriginKind;
-      slug: string;
-      pluginId: string | null;
-      sourceHash: string;
-    },
+    base: SidecarBase & { sourceHash: string },
   ): Promise<void> {
-    const now = Date.now();
-    const sidecar: OriginSidecar = {
-      kind: base.kind,
-      slug: base.slug,
-      pluginId: base.pluginId,
-      version: null,
-      sourceHash: base.sourceHash,
-      clonedAt: now,
-      diverged: false,
-      lastEnhancedAt: null,
-      historyDir: DEFAULT_HISTORY_DIR,
-      currentContentHash: base.sourceHash,
-    };
-    await writeSidecarAtomic(dir, sidecar);
+    await writeSidecarAtomic(dir, this.newSourcedSidecar(base));
   }
 
   private async reconcileMissingFileSidecar(
     rootDir: string,
     targetFile: string,
     slug: string,
-    base: { kind: OriginKind; slug: string; pluginId: string | null },
+    base: SidecarBase,
   ): Promise<void> {
     const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
     const existing = await readSidecarAt(sidecarPath);
@@ -2270,12 +2530,7 @@ export class UserLayerMirrorService {
     }
     try {
       const sourceHash = await computeSourceHash(targetFile);
-      await this.writeFileSidecar(rootDir, slug, {
-        kind: base.kind,
-        slug: base.slug,
-        pluginId: base.pluginId,
-        sourceHash,
-      });
+      await this.writeFileSidecar(rootDir, slug, { ...base, sourceHash });
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] failed to reconcile missing file sidecar',
@@ -2290,29 +2545,21 @@ export class UserLayerMirrorService {
   private async writeFileSidecar(
     rootDir: string,
     slug: string,
-    base: {
-      kind: OriginKind;
-      slug: string;
-      pluginId: string | null;
-      sourceHash: string;
-    },
+    base: SidecarBase & { sourceHash: string },
   ): Promise<void> {
-    const now = Date.now();
-    const sidecar: OriginSidecar = {
-      kind: base.kind,
-      slug: base.slug,
-      pluginId: base.pluginId,
-      version: null,
-      sourceHash: base.sourceHash,
-      clonedAt: now,
-      diverged: false,
-      lastEnhancedAt: null,
-      historyDir: DEFAULT_HISTORY_DIR,
-      currentContentHash: base.sourceHash,
-    };
     const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
     this.assertUnderUserLayer(sidecarPath);
-    await writeSidecarAtomicAt(sidecarPath, sidecar);
+    await writeSidecarAtomicAt(sidecarPath, this.newSourcedSidecar(base));
+  }
+
+  /** A fresh sidecar, with `sourceRef`/`sourceLabel` when the source is described. */
+  private newSourcedSidecar(
+    base: SidecarBase & { sourceHash: string },
+  ): OriginSidecar {
+    return withSourceIdentity(
+      this.buildSidecar(base.kind, base.slug, base.pluginId, base.sourceHash),
+      base.descriptor,
+    );
   }
 
   private assertUnderUserLayer(targetPath: string): void {
@@ -2351,30 +2598,27 @@ export class UserLayerMirrorService {
   }
 }
 
-/**
- * Does this source own this clone?
- *
- * Slugs are global across the user layer but sources are not: two plugins can
- * ship the same slug, and `mirrorSkillSlug`'s first-write-wins rule picks ONE
- * owner and records `conflictsWith` on the loser. Reconciling the clone against
- * the loser's bytes would flag a divergence that is really just "the other
- * plugin's copy differs", and the user would be offered a rebase onto content
- * their clone was never made from.
- *
- * It is also what makes the synthesized-skill pass safe to add beside the
- * plugin pass: both walk `<skills>/<slug>`, and only the sidecar says which one
- * the clone came from.
- */
-function ownsClone(
-  sidecar: OriginSidecar,
-  expectedPluginId: string | null,
-): boolean {
-  return sidecar.pluginId === expectedPluginId;
-}
-
 /** Bundled plugins and harness-authored plugins, in that order. */
 function allPluginRoots(sources: MirrorSources): string[] {
   return [...sources.pluginPaths, ...(sources.harnessPluginRoots ?? [])];
+}
+
+/**
+ * The root whose agent clones the deleted-upstream sweep walks.
+ *
+ * The workspace root when one is named. Without one — agent sync off — plugin
+ * agents still have clones under `libraryScopeRoot`, so the sweep walks that
+ * directory instead. It does so only when no `agentSourceDir` was supplied, so
+ * every workspace agent clone there reads `'unknown'` and only plugin-owned
+ * clones are judged.
+ */
+function reapAgentScope(sources: MirrorSources): string | undefined {
+  if (sources.workspaceRoot !== undefined) return sources.workspaceRoot;
+  if (sources.agentSourceDir !== undefined) return undefined;
+  return sources.libraryScopeRoot !== undefined &&
+    isAbsolute(sources.libraryScopeRoot)
+    ? sources.libraryScopeRoot
+    : undefined;
 }
 
 function emptyReconcileResult(): ReconcileResult {

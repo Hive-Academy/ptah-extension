@@ -985,6 +985,52 @@ describe('AgentMonitorStore', () => {
         expect(store.subagents().get('toolu_unknown')).toBeUndefined();
       });
     });
+
+    describe('onSubagentEnded (SubagentStop backstop)', () => {
+      it('completes a running record with the last assistant message as summary', () => {
+        store.onAgentStart(startEvent({ timestamp: 1_000 }));
+        store.onSubagentEnded(PARENT, 'All done', 5_000);
+        const record = store.getSubagent(PARENT);
+        expect(record?.status).toBe('completed');
+        expect(record?.completedAt).toBe(5_000);
+        expect(record?.latestSummary).toBe('All done');
+      });
+
+      it('keeps the existing summary when the hook carried none', () => {
+        store.onAgentStart(startEvent());
+        store.onAgentStatus(statusEvent({ status: 'running' }));
+        const before = store.getSubagent(PARENT)?.latestSummary;
+        store.onSubagentEnded(PARENT, undefined, 5_000);
+        expect(store.getSubagent(PARENT)?.status).toBe('completed');
+        expect(store.getSubagent(PARENT)?.latestSummary).toBe(before);
+      });
+
+      it.each(['failed', 'killed'] as const)(
+        'does NOT override a terminal %s status',
+        (status) => {
+          store.onAgentStart(startEvent());
+          store.onAgentStatus(statusEvent({ status }));
+          store.onSubagentEnded(PARENT, 'late', 9_000);
+          expect(store.getSubagent(PARENT)?.status).toBe(status);
+          expect(store.getSubagent(PARENT)?.latestSummary).not.toBe('late');
+        },
+      );
+
+      it('does NOT override an agent_completed result', () => {
+        store.onAgentStart(startEvent());
+        store.onAgentCompleted(completedEvent({ timestamp: 4 }));
+        store.onSubagentEnded(PARENT, 'late', 9_000);
+        const record = store.getSubagent(PARENT);
+        expect(record?.status).toBe('completed');
+        expect(record?.completedAt).toBe(4);
+        expect(record?.latestSummary).toBe('Done');
+      });
+
+      it('is a no-op for an unknown toolCallId', () => {
+        store.onSubagentEnded('toolu_unknown', 'x', 1);
+        expect(store.subagents().get('toolu_unknown')).toBeUndefined();
+      });
+    });
   });
 
   // ─────────────────────────────────────────────────────────────────────

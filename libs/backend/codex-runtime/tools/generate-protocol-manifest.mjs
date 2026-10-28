@@ -116,7 +116,7 @@ try {
     /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|LANG|LC_ALL)$/i.test(key)));
   Object.assign(env, { CODEX_HOME: home, HOME: home, USERPROFILE: home, TMP: root, TEMP: root, TMPDIR: root });
   const version = await invoke(['--version'], env);
-  if (!/^codex(?:-cli)? 0\.155\.1$/.test(version)) throw new Error('Expected pinned Codex 0.155.1');
+  if (!/^codex(?:-cli)? 0\.165\.0$/.test(version)) throw new Error('Expected pinned Codex 0.165.0');
   const output = join(root, 'export');
   mkdirSync(output);
   const command = ['app-server', 'generate-json-schema', '--out', output];
@@ -148,7 +148,7 @@ try {
   mkdirSync(destination, { recursive: true });
   writeFileSync(join(destination, 'codex-app-server-protocol.schema.json'), schemaBytes);
   writeFileSync(join(destination, 'codex-app-server-protocol.manifest.json'), JSON.stringify({
-    formatVersion: 1, pinnedVersion: '0.155.1', version, binaryPath: binary, binarySha256, schemaSha256,
+    formatVersion: 1, pinnedVersion: '0.165.0', version, binaryPath: binary, binarySha256, schemaSha256,
     platform: process.platform, arch: process.arch, generatedAt: new Date().toISOString(),
     command: ['app-server', 'generate-json-schema', '--out', '<isolated-export>'], methods: groups,
     artifacts: [{ platform: process.platform, arch: process.arch, binarySha256, schemaSha256 }],

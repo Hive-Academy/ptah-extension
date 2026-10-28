@@ -221,7 +221,7 @@ describe('isHarnessPassAcknowledged', () => {
     missing: [],
     foreign: [],
     writeFailed: [],
-    overwrittenLocalEdit: [],
+    keptLocalEdit: [],
     removed: [],
     durationMs: 1,
     ...overrides,

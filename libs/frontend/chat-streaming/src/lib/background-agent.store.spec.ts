@@ -253,6 +253,25 @@ describe('BackgroundAgentStore', () => {
       expect(agent.status).toBe('stopped');
       expect(agent.agentType).toBe('unknown');
     });
+
+    it('relabels a completed entry when the user stop arrives after SubagentStop', () => {
+      store.onStarted(startEvent({ agentId: 'a-C', toolCallId: 'tc-C' }));
+      store.onCompleted(completedEvent({ agentId: 'a-C', toolCallId: 'tc-C' }));
+      store.onStopped(stoppedEvent({ agentId: '', toolCallId: 'tc-C' }));
+
+      expect(store.agents()).toHaveLength(1);
+      expect(store.agents()[0].status).toBe('stopped');
+    });
+
+    it('keeps a failed entry failed', () => {
+      store.onStarted(startEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
+      store.onCompleted(
+        completedEvent({ agentId: 'a-E', toolCallId: 'tc-E', status: 'failed' }),
+      );
+      store.onStopped(stoppedEvent({ agentId: 'a-E', toolCallId: 'tc-E' }));
+
+      expect(store.agents()[0].status).toBe('error');
+    });
   });
 
   describe('hasRealAgentId — synthetic-insert branches (onCompleted/onStopped)', () => {

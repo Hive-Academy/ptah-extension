@@ -101,6 +101,17 @@ export function createMockFileSystemProvider(
       files.set(path, toBytes(content));
       registerDirChain(path);
     }),
+    writeFileExclusive: jest.fn(
+      async (path: string, content: string): Promise<void> => {
+        // Synchronous check-and-create, like `open` with `wx`.
+        const normalized = path.replace(/\\/g, '/').replace(/\/$/, '');
+        if (files.has(path) || directories.has(normalized)) {
+          throw eexist(path);
+        }
+        files.set(path, toBytes(content));
+        registerDirChain(path);
+      },
+    ),
     writeFileBytes: jest.fn(
       async (path: string, content: Uint8Array): Promise<void> => {
         files.set(path, content);

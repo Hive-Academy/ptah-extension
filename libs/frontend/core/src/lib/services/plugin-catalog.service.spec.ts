@@ -9,7 +9,10 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import type { PluginInfo } from '@ptah-extension/shared';
+import type {
+  PluginConfigHomeStatus,
+  PluginInfo,
+} from '@ptah-extension/shared';
 
 import { ClaudeRpcService } from './claude-rpc.service';
 import { PluginCatalogService } from './plugin-catalog.service';
@@ -575,5 +578,138 @@ describe('PluginCatalogService — workspace scope', () => {
     expect(rpc.countOf('plugins:list-available')).toBe(2);
     expect(service.pluginTotal()).toBe(2);
     expect(service.enabledCount()).toBe(2);
+  });
+});
+
+/**
+ * TASK_2026_701 (D14) — the plugin settings notice rides on `plugins:get-config`.
+ *
+ * `configHome` is published from the same read as `config`, kept out of
+ * `config()` itself, and scoped and cleared exactly like it.
+ */
+describe('PluginCatalogService — configHome', () => {
+  const QA = 'D:/projects/qa3elhamor';
+  const HUB = 'D:/projects/property-hub';
+
+  const CONFLICT: PluginConfigHomeStatus = {
+    harnessRoot: QA,
+    state: 'conflict',
+    governingFolder: `${QA}/apps/web`,
+    candidates: [
+      {
+        folder: `${QA}/apps/web`,
+        lastUpdated: '2026-10-20T10:00:00.000Z',
+        enabledCount: 2,
+        disabledCount: 0,
+        differsFromHome: true,
+      },
+      {
+        folder: `${QA}/apps/api`,
+        enabledCount: 1,
+        disabledCount: 1,
+        differsFromHome: true,
+      },
+    ],
+  };
+
+  function makeHomeRpc(homes: Record<string, PluginConfigHomeStatus | null>): {
+    call: jest.Mock;
+    setHostWorkspace: (path: string) => void;
+  } {
+    let hostWorkspace = QA;
+    const call = jest.fn(async (method: string) => {
+      if (method === 'plugins:list-available') {
+        return rpcSuccess({ plugins: PLUGINS });
+      }
+      if (method === 'plugins:get-config') {
+        const home = homes[hostWorkspace];
+        return rpcSuccess({
+          enabledPluginIds: ['ptah-core'],
+          disabledPluginIds: [],
+          disabledSkillIds: [],
+          ...(home ? { configHome: home } : {}),
+        });
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    return {
+      call,
+      setHostWorkspace: (path: string) => {
+        hostWorkspace = path;
+      },
+    };
+  }
+
+  it('is null before the read lands', () => {
+    const service = makeService(makeHomeRpc({ [QA]: CONFLICT }));
+    scopeOf().switchTo(QA);
+    expect(service.configHome()).toBeNull();
+  });
+
+  it('exposes the notice from plugins:get-config and keeps it out of config()', async () => {
+    const service = makeService(makeHomeRpc({ [QA]: CONFLICT }));
+    scopeOf().switchTo(QA);
+    await service.ensureLoaded();
+
+    expect(service.configHome()).toEqual(CONFLICT);
+    expect(service.config()).toEqual({
+      enabledPluginIds: ['ptah-core'],
+      disabledPluginIds: [],
+      disabledSkillIds: [],
+    });
+  });
+
+  it('is null when the host sends no notice (VS Code, CLI, or nothing to choose)', async () => {
+    const service = makeService(makeHomeRpc({ [QA]: null }));
+    scopeOf().switchTo(QA);
+    await service.ensureLoaded();
+
+    expect(service.config()).not.toBeNull();
+    expect(service.configHome()).toBeNull();
+  });
+
+  it('clears on a workspace switch and reads the new workspace notice', async () => {
+    const rpc = makeHomeRpc({ [QA]: CONFLICT, [HUB]: null });
+    const service = makeService(rpc);
+    const scope = scopeOf();
+
+    scope.switchTo(QA);
+    await service.ensureLoaded();
+    expect(service.configHome()).toEqual(CONFLICT);
+
+    scope.switchTo(HUB);
+    expect(service.configHome()).toBeNull();
+
+    rpc.setHostWorkspace(HUB);
+    await service.ensureLoaded();
+    expect(service.configHome()).toBeNull();
+  });
+
+  it('is null after a failed config read', async () => {
+    const service = makeService(makeRpc({ configFails: true }));
+    scopeOf().switchTo(QA);
+    await service.ensureLoaded();
+    expect(service.configHome()).toBeNull();
+  });
+
+  it('is null after a thrown read', async () => {
+    const service = makeService(makeRpc({ throws: true }));
+    scopeOf().switchTo(QA);
+    await service.ensureLoaded();
+    expect(service.configHome()).toBeNull();
+  });
+
+  it('follows a refresh that resolves the notice', async () => {
+    const homes: Record<string, PluginConfigHomeStatus | null> = {
+      [QA]: CONFLICT,
+    };
+    const service = makeService(makeHomeRpc(homes));
+    scopeOf().switchTo(QA);
+    await service.ensureLoaded();
+    expect(service.configHome()?.state).toBe('conflict');
+
+    homes[QA] = null;
+    await service.refresh();
+    expect(service.configHome()).toBeNull();
   });
 });

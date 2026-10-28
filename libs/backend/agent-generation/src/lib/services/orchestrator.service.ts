@@ -5,7 +5,7 @@
  * 1. Analysis - Workspace and project analysis
  * 2. Selection - Template selection based on relevance
  * 3. Rendering - Template rendering with LLM-driven content generation via InternalQueryService (Agent SDK)
- * 4. Writing - Atomic file writing with rollback
+ * 4. Writing - Guarded per-agent writes (keep / create-only / replace-allowed)
  *
  * Pattern: Service Orchestration with Transaction Management
  *
@@ -17,12 +17,7 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import {
-  Result,
-  isAgentModelEmittable,
-  matchesAgentModelSyntax,
-  resolveAgentModel,
-} from '@ptah-extension/shared';
+import { Result } from '@ptah-extension/shared';
 import type {
   AgentModelLayers,
   GenerationAgentOutcome,
@@ -46,7 +41,10 @@ import {
 } from '../interfaces/content-generation.interface';
 import { resolveProjectType } from './wizard/analysis-schema';
 import { formatDisallowedToolsFrontmatter } from './subagent-tool-allowlist';
-import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
+import type {
+  AgentWriteGuard,
+  IAgentFileWriterService,
+} from '../interfaces/agent-file-writer.interface';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import {
   AgentProjectContext,
@@ -54,9 +52,11 @@ import {
   GeneratedAgent,
   GenerationSummary,
   ValidationResult,
+  type AgentFileGuard,
   type OrchestratorGenerationOptions,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
+import { resolveClaudeAgentModel } from './agent-model-resolution';
 
 /**
  * The options contract lives with the other public types in `core.types.ts`;
@@ -76,6 +76,24 @@ interface ResolvedAgentContent {
   content: string;
   rejectedSections: number;
   tailoredSections: number;
+}
+
+/** The write guard for an agent the run has no decision for. */
+const CREATE_ONLY: AgentWriteGuard = { mode: 'create-only' };
+
+/**
+ * The decision for one agent. Own-property lookup only, so an agent id such
+ * as `constructor` never picks up an inherited value; no entry is
+ * `create-only`.
+ */
+function guardFor(
+  fileGuards: OrchestratorGenerationOptions['fileGuards'],
+  agentId: string,
+): AgentFileGuard {
+  if (fileGuards && Object.prototype.hasOwnProperty.call(fileGuards, agentId)) {
+    return fileGuards[agentId];
+  }
+  return CREATE_ONLY;
 }
 
 /** Render an `AbortSignal.reason` (string, Error, DOMException, ...) as text. */
@@ -417,8 +435,10 @@ export class AgentGenerationOrchestratorService {
 
       const selections = selectionResult.value!;
       this.logger.info(`Selected ${selections.length} agents`);
+      // Files go under the chosen output root; analysis above always read
+      // `workspacePath`.
       const outputDirectory = path.join(
-        projectContext.rootPath,
+        options.outputRoot ?? projectContext.rootPath,
         '.claude',
         'agents',
       );
@@ -435,6 +455,8 @@ export class AgentGenerationOrchestratorService {
           writtenCount: 0,
           unchangedCount: 0,
           failedCount: 0,
+          keptCount: 0,
+          changedSincePreviewCount: 0,
           rejectedSections: 0,
           tailoredSections: 0,
           lifecycle: 'completed',
@@ -469,12 +491,20 @@ export class AgentGenerationOrchestratorService {
         (o) => o.status === 'unchanged',
       ).length;
       const failedCount = outcomes.filter((o) => o.status === 'failed').length;
+      const keptCount = outcomes.filter((o) => o.status === 'kept').length;
+      const changedSincePreviewCount = outcomes.filter(
+        (o) => o.status === 'changed-since-preview',
+      ).length;
       const successful = writtenCount + unchangedCount;
+      const leftAlone = keptCount + changedSincePreviewCount;
+      // A file left alone by its decision is a settled agent, not a failure:
+      // a run that kept every file completed.
+      const settled = successful + leftAlone;
 
-      if (!aborted && renderedAgents.length === 0) {
+      if (!aborted && renderedAgents.length === 0 && leftAlone === 0) {
         return Result.err(new Error('No agents were successfully rendered'));
       }
-      if (!aborted && successful === 0) {
+      if (!aborted && settled === 0) {
         return Result.err(new Error('All agent file writes failed'));
       }
       // There is no Phase 5. Distributing agents to rival CLIs used to happen
@@ -501,7 +531,7 @@ export class AgentGenerationOrchestratorService {
         ? abortReason === 'generation_timeout'
           ? 'timed-out'
           : 'paused'
-        : successful === 0
+        : settled === 0
           ? 'failed'
           : 'completed';
 
@@ -515,6 +545,8 @@ export class AgentGenerationOrchestratorService {
         writtenCount,
         unchangedCount,
         failedCount,
+        keptCount,
+        changedSincePreviewCount,
         rejectedSections: outcomes.reduce(
           (sum, o) => sum + o.rejectedSections,
           0,
@@ -533,6 +565,8 @@ export class AgentGenerationOrchestratorService {
         written: writtenCount,
         unchanged: unchangedCount,
         failed: failedCount,
+        kept: keptCount,
+        changedSincePreview: changedSincePreviewCount,
         durationSec: (durationMs / 1000).toFixed(1),
       });
 
@@ -736,8 +770,9 @@ export class AgentGenerationOrchestratorService {
   /**
    * Phases 3 and 4, one agent at a time: render with LLM-driven content, then
    * write. Every selected agent ends with exactly one terminal outcome
-   * (`written`, `unchanged` or `failed`) and `options.onAgentOutcome` fires
-   * once per outcome so a caller can checkpoint it.
+   * (`written`, `unchanged`, `kept`, `changed-since-preview` or `failed`) and
+   * `options.onAgentOutcome` fires once per outcome so a caller can
+   * checkpoint it.
    *
    * The abort signal is checked before each agent is rendered and again
    * before each write. Once it fires, every remaining selected agent becomes
@@ -796,6 +831,20 @@ export class AgentGenerationOrchestratorService {
         continue;
       }
 
+      const guard = guardFor(options.fileGuards, agentId);
+      if (guard.mode === 'keep') {
+        // The user keeps this file: no template load, no LLM call, no write.
+        this.logger.debug(`Keeping agent file: ${agentId}`);
+        await record({
+          agentId,
+          filePath,
+          status: 'kept',
+          rejectedSections: 0,
+          tailoredSections: 0,
+        });
+        continue;
+      }
+
       this.logger.debug(`Rendering agent: ${agentId}`);
       progressCallback?.({
         phase: 'rendering',
@@ -826,7 +875,7 @@ export class AgentGenerationOrchestratorService {
       }
 
       const template = templateResult.value!;
-      const model = this.resolveClaudeModel(agentModelLayers, template);
+      const model = this.resolveModel(agentModelLayers, template);
       // A template that parsed AND was selected must always yield a written
       // agent file. LLM content generation and output validation are quality
       // advisors here, not drop gates (see resolveAgentContent).
@@ -871,7 +920,7 @@ export class AgentGenerationOrchestratorService {
         agentsProcessed: i + 1,
         totalAgents: total,
       });
-      const writeResult = await this.fileWriter.writeAgent(rendered);
+      const writeResult = await this.fileWriter.writeAgent(rendered, guard);
       if (writeResult.isErr()) {
         const message = writeResult.error!.message;
         this.logger.error(
@@ -890,16 +939,44 @@ export class AgentGenerationOrchestratorService {
         continue;
       }
 
+      const written = writeResult.value!;
+      if (written.status === 'written') {
+        await this.notifyWritten(options, agentId, written.filePath);
+      }
+      // A file left alone carries none of this render's sections.
+      const leftAlone =
+        written.status === 'kept' || written.status === 'changed-since-preview';
       await record({
         agentId,
-        filePath: writeResult.value!.filePath,
-        status: writeResult.value!.status,
-        rejectedSections: resolved.rejectedSections,
-        tailoredSections: resolved.tailoredSections,
+        filePath: written.filePath,
+        status: written.status,
+        rejectedSections: leftAlone ? 0 : resolved.rejectedSections,
+        tailoredSections: leftAlone ? 0 : resolved.tailoredSections,
       });
     }
 
     return { outcomes, renderedAgents };
+  }
+
+  /**
+   * Run the caller's `onAgentWritten` hook. The file is already on disk, so
+   * a failing hook (an origin record that could not be saved) is logged and
+   * never turns a written agent into a failure.
+   */
+  private async notifyWritten(
+    options: OrchestratorGenerationOptions,
+    agentId: string,
+    filePath: string,
+  ): Promise<void> {
+    if (!options.onAgentWritten) return;
+    try {
+      await options.onAgentWritten({ agentId, filePath });
+    } catch (error: unknown) {
+      this.logger.error(
+        `onAgentWritten failed for ${agentId}; the written file is kept`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 
   /**
@@ -921,7 +998,7 @@ export class AgentGenerationOrchestratorService {
    * @param context - Project analysis context
    * @param sdkConfig - SDK configuration for content generation
    * @param options - Generation options (for variable overrides)
-   * @param model - The `model:` value to emit (see resolveClaudeModel)
+   * @param model - The `model:` value to emit (see resolveModel)
    * @param warnings - Aggregated warnings surfaced in the generation summary
    * @returns Final file content (never empty) with its section counts
    * @private
@@ -1058,7 +1135,7 @@ export class AgentGenerationOrchestratorService {
    * @param template - Source template
    * @param context - Project analysis context
    * @param options - Generation options (for variable overrides)
-   * @param model - The `model:` value to emit (see resolveClaudeModel)
+   * @param model - The `model:` value to emit (see resolveModel)
    * @returns Final file content built from the authored template body
    * @private
    */
@@ -1111,39 +1188,29 @@ export class AgentGenerationOrchestratorService {
   }
 
   /**
-   * The Claude `model:` value for one agent: the user's override when Claude
-   * Code accepts it, otherwise the template's own (trimmed), otherwise none.
-   *
-   * Precedence (workspace slug, workspace `*`, machine slug, machine `*`) and
-   * tolerance of malformed settings belong to `resolveAgentModel`. The value is
-   * trimmed before the check and the trimmed form is what gets emitted; only
-   * `opus`, `sonnet`, `haiku` and `inherit` pass, because Claude Code rejects
-   * an agent file whose `model:` it does not know.
+   * The Claude `model:` value for one agent, by `resolveClaudeAgentModel`.
+   * An override Claude Code would reject is logged and the template model is
+   * used instead.
    */
-  private resolveClaudeModel(
+  private resolveModel(
     layers: AgentModelLayers | null,
     template: AgentTemplate,
   ): string | undefined {
-    const templateModel = template.model?.trim() || undefined;
-    // Keyed by the agent file slug (`<id>.md`), which is what the editor saves
-    // under; a template's display `name` can differ from it.
-    const override = layers
-      ? resolveAgentModel(layers, template.id, 'claude')?.value
-      : undefined;
-    if (override === undefined) return templateModel;
-
-    const candidate = override.trim();
-    if (
-      isAgentModelEmittable('claude', candidate) &&
-      matchesAgentModelSyntax('claude', candidate)
-    ) {
-      return candidate;
-    }
-    this.logger.warn(
-      `Ignoring the Claude model override for ${template.id}: expected opus, sonnet, haiku or inherit; using the template model`,
-      { value: JSON.stringify(override), templateModel },
+    const resolved = resolveClaudeAgentModel(
+      layers,
+      template.id,
+      template.model,
     );
-    return templateModel;
+    if (resolved.ignoredOverride !== undefined) {
+      this.logger.warn(
+        `Ignoring the Claude model override for ${template.id}: expected opus, sonnet, haiku or inherit; using the template model`,
+        {
+          value: JSON.stringify(resolved.ignoredOverride),
+          templateModel: template.model?.trim() || undefined,
+        },
+      );
+    }
+    return resolved.value ?? undefined;
   }
 
   /**

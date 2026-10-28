@@ -35,6 +35,7 @@
 
 import type { Dirent, Stats } from 'fs';
 import {
+  link,
   lstat,
   mkdir,
   readdir,
@@ -175,6 +176,115 @@ export async function detachForOverwrite(
     };
   }
   return detachExisting(request, stat, 'overwrite', hooks);
+}
+
+/**
+ * What a caller about to replace an owned copy may do next.
+ *
+ * - `publish`: nothing of the user's is at the path any more; publish the
+ *   replacement with an EXCLUSIVE create.
+ * - `kept-local-edit`: the copy held an edit saved after the plan; it is back
+ *   at its live path, untouched, and must be reported kept (D8). The manifest
+ *   keeps its old entry, so the next pass reaches the same answer.
+ * - `failed`: report `reason` in `writeFailed`; nothing was replaced.
+ */
+export type OverwriteGate =
+  | { kind: 'publish' }
+  | { kind: 'kept-local-edit' }
+  | { kind: 'failed'; reason: string };
+
+/**
+ * The guarded first half of replacing an owned copy, shared by every target
+ * that writes owned copies (TASK_2026_609 Part B finding 1; TASK_2026_701 P1
+ * review A1). Detach, decide on the detached object, and put a late edit back.
+ */
+export async function prepareOwnedOverwrite(
+  request: RetireOwnedArtifactRequest,
+  hooks: RetirementHooks = {},
+): Promise<OverwriteGate> {
+  const detached = await detachForOverwrite(request, hooks);
+  if (detached.kind === 'failed') {
+    return { kind: 'failed', reason: detached.reason };
+  }
+  if (detached.kind === 'local-edit') {
+    const failure = await restoreDetachedEdit(detached.snapshotPath, request);
+    return failure === null
+      ? { kind: 'kept-local-edit' }
+      : { kind: 'failed', reason: failure };
+  }
+  return { kind: 'publish' };
+}
+
+/**
+ * Why a publish failed. EEXIST is the exclusive create refusing a save that
+ * landed after the detach (or, for a create, a file the user put at a path the
+ * plan saw empty): that copy is kept, not an error to retry blindly.
+ */
+export function publishFailureReason(relPath: string, error: unknown): string {
+  return errorCode(error) === 'EEXIST'
+    ? `a new copy appeared at ${relPath} while it was being replaced; kept it`
+    : describeError(error);
+}
+
+/**
+ * Put a copy the detach found hand-edited back at its live path, untouched,
+ * and drop the history directory it was staged in (D8). Answers `null` once it
+ * is back, or the `writeFailed` reason when it has to stay in history.
+ *
+ * Never replaces anything: a file is hard-linked back, which fails with EEXIST
+ * when a newer save already sits at the path, and a directory is renamed back,
+ * which fails onto a non-empty directory on every platform. Either way the
+ * newer save stays, and the earlier edit is still at `snapshotPath`.
+ */
+async function restoreDetachedEdit(
+  snapshotPath: string,
+  request: RetireOwnedArtifactRequest,
+): Promise<string | null> {
+  const { relPath, isDirectory } = request;
+  const absolute = toAbsolute(request.workspaceRoot, relPath);
+  try {
+    if (isDirectory) {
+      await withWindowsRetry(() => rename(snapshotPath, absolute));
+    } else {
+      await withWindowsRetry(() => link(snapshotPath, absolute));
+    }
+  } catch (error: unknown) {
+    // Judged on the path rather than the error code: Windows answers EPERM
+    // both for an occupied target and for a locked one.
+    return (await lstatOrNull(absolute)) !== null
+      ? `a new copy appeared at ${relPath} while a local edit there was being kept; kept it; the earlier local edit is saved at ${snapshotPath}`
+      : `could not put the local edit back at ${relPath}: ${describeError(error)}; it is saved at ${snapshotPath}`;
+  }
+  await discardRestoredSnapshot(snapshotPath, relPath);
+  return null;
+}
+
+/**
+ * Remove the `<ts>` directory a restored snapshot was staged in, and its slug
+ * directory when no other snapshot lives there. After a restore `<ts>` holds
+ * only empty parents, or for a file a second hard link to the live copy, so
+ * deleting it removes no content.
+ */
+async function discardRestoredSnapshot(
+  snapshotPath: string,
+  relPath: string,
+): Promise<void> {
+  const staged = join(...relPath.split('/'));
+  const stampDir = snapshotPath.slice(
+    0,
+    snapshotPath.length - staged.length - 1,
+  );
+  try {
+    await withWindowsRetry(() =>
+      rm(stampDir, { recursive: true, force: true }),
+    );
+    await rmdir(dirname(stampDir));
+  } catch {
+    // degradation-audit: optional-capability - ENOTEMPTY means another
+    // snapshot lives under the slug; any other failure leaves only empty
+    // directories in the history store, which nothing reads as content.
+    return;
+  }
 }
 
 /**

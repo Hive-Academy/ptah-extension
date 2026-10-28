@@ -5,7 +5,9 @@
  *   - submit-selection: --file required; unreadable / invalid JSON / schema-
  *     invalid → exit 2; sync ack failure → task.error + exit 1; happy path
  *     waits for `setup-wizard:generation-complete` event then exits 0;
- *     `success: false` payload → task.error + exit 1.
+ *     `success: false` payload → task.error + exit 1; kept and
+ *     changed-since-preview agents → one `wizard.files.kept` (also on a
+ *     failed run; none for a payload without `agents`).
  *   - cancel: <session-id> required; emits wizard.cancelled with
  *     changed=true|false; always exits 0.
  *   - retry-item: <item-id> required; emits wizard.retry.start +
@@ -350,6 +352,209 @@ describe('ptah wizard submit-selection', () => {
       ptah_code: 'generation_failed',
       message: 'template missing',
     });
+  });
+
+  it('lists kept and changed-since-preview files in wizard.files.kept and exits 0', async () => {
+    const fmt = makeFormatter();
+    const engine = makeEngine();
+    engine.scripted.set('wizard:submit-selection', {
+      success: true,
+      data: { success: true },
+    });
+
+    const promise = execute(
+      { subcommand: 'submit-selection', file: 'D:/x.json' },
+      baseGlobals,
+      {
+        formatter: fmt.formatter,
+        stderr: makeStderr().stderr,
+        withEngine: engine.withEngine,
+        readFile: async () =>
+          JSON.stringify({ selectedAgentIds: ['a', 'b', 'c', 'd'] }),
+      },
+    );
+
+    setImmediate(() => {
+      engine.pushAdapter.emit('setup-wizard:generation-complete', {
+        success: true,
+        outputDirectory: '/ws/.claude/agents',
+        writtenCount: 1,
+        unchangedCount: 0,
+        failedCount: 0,
+        keptCount: 2,
+        changedSincePreviewCount: 1,
+        rejectedSections: 0,
+        tailoredSections: 0,
+        agents: [
+          {
+            agentId: 'a',
+            filePath: '/ws/.claude/agents/a.md',
+            status: 'written',
+            rejectedSections: 0,
+            tailoredSections: 0,
+          },
+          {
+            agentId: 'b',
+            filePath: '/ws/.claude/agents/b.md',
+            status: 'kept',
+            rejectedSections: 0,
+            tailoredSections: 0,
+          },
+          {
+            agentId: 'c',
+            filePath: '/ws/.claude/agents/c.md',
+            status: 'changed-since-preview',
+            rejectedSections: 0,
+            tailoredSections: 0,
+          },
+          {
+            agentId: 'd',
+            filePath: '/ws/.claude/agents/d.md',
+            status: 'kept',
+            rejectedSections: 0,
+            tailoredSections: 0,
+            error: 'file could not be read',
+          },
+        ],
+      });
+    });
+
+    const exit = await promise;
+    expect(exit).toBe(ExitCode.Success);
+    expect(fmt.notifications.map((n) => n.method)).toEqual([
+      'wizard.files.kept',
+    ]);
+    expect(fmt.notifications[0]?.params).toEqual({
+      outputDirectory: '/ws/.claude/agents',
+      keptCount: 2,
+      changedSincePreviewCount: 1,
+      files: [
+        {
+          agentId: 'b',
+          path: '/ws/.claude/agents/b.md',
+          status: 'kept',
+          reason:
+            'existing file kept as yours; CLI wizard runs only create new files',
+        },
+        {
+          agentId: 'c',
+          path: '/ws/.claude/agents/c.md',
+          status: 'changed-since-preview',
+          reason: 'file changed after the preview, so it was kept',
+        },
+        {
+          agentId: 'd',
+          path: '/ws/.claude/agents/d.md',
+          status: 'kept',
+          reason:
+            'existing file kept as yours; CLI wizard runs only create new files (file could not be read)',
+        },
+      ],
+    });
+    // Create-only: no preview token or file decisions are sent (A20).
+    expect(engine.rpcCalls[0]?.params).toEqual({
+      selectedAgentIds: ['a', 'b', 'c', 'd'],
+    });
+  });
+
+  it('still lists kept files before task.error when the run fails', async () => {
+    const fmt = makeFormatter();
+    const engine = makeEngine();
+    engine.scripted.set('wizard:submit-selection', {
+      success: true,
+      data: { success: true },
+    });
+
+    const promise = execute(
+      { subcommand: 'submit-selection', file: 'D:/x.json' },
+      baseGlobals,
+      {
+        formatter: fmt.formatter,
+        stderr: makeStderr().stderr,
+        withEngine: engine.withEngine,
+        readFile: async () => JSON.stringify({ selectedAgentIds: ['a', 'b'] }),
+      },
+    );
+
+    setImmediate(() => {
+      engine.pushAdapter.emit('setup-wizard:generation-complete', {
+        success: false,
+        outputDirectory: '/ws/.claude/agents',
+        writtenCount: 0,
+        unchangedCount: 0,
+        failedCount: 1,
+        keptCount: 1,
+        changedSincePreviewCount: 0,
+        rejectedSections: 0,
+        tailoredSections: 0,
+        agents: [
+          {
+            agentId: 'a',
+            filePath: '/ws/.claude/agents/a.md',
+            status: 'failed',
+            rejectedSections: 0,
+            tailoredSections: 0,
+            error: 'template missing',
+          },
+          {
+            agentId: 'b',
+            filePath: '/ws/.claude/agents/b.md',
+            status: 'kept',
+            rejectedSections: 0,
+            tailoredSections: 0,
+          },
+        ],
+        errors: ['template missing'],
+      });
+    });
+
+    const exit = await promise;
+    expect(exit).toBe(ExitCode.GeneralError);
+    expect(fmt.notifications.map((n) => n.method)).toEqual([
+      'wizard.files.kept',
+      'task.error',
+    ]);
+    expect(fmt.notifications[0]?.params).toMatchObject({
+      keptCount: 1,
+      changedSincePreviewCount: 0,
+      files: [{ agentId: 'b', status: 'kept' }],
+    });
+  });
+
+  it('emits no wizard.files.kept for a payload without agents (older host)', async () => {
+    const fmt = makeFormatter();
+    const engine = makeEngine();
+    engine.scripted.set('wizard:submit-selection', {
+      success: true,
+      data: { success: true },
+    });
+
+    const promise = execute(
+      { subcommand: 'submit-selection', file: 'D:/x.json' },
+      baseGlobals,
+      {
+        formatter: fmt.formatter,
+        stderr: makeStderr().stderr,
+        withEngine: engine.withEngine,
+        readFile: async () => JSON.stringify({ selectedAgentIds: ['a'] }),
+      },
+    );
+
+    setImmediate(() => {
+      engine.pushAdapter.emit('setup-wizard:generation-complete', {
+        success: true,
+        outputDirectory: '/ws/.claude/agents',
+        writtenCount: 1,
+        unchangedCount: 0,
+        failedCount: 0,
+        rejectedSections: 0,
+        tailoredSections: 0,
+      });
+    });
+
+    const exit = await promise;
+    expect(exit).toBe(ExitCode.Success);
+    expect(fmt.notifications).toEqual([]);
   });
 });
 

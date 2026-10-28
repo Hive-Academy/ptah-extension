@@ -39,6 +39,7 @@ const BUDGET: SessionBudgetState = {
   lowerBound: false,
   revision: 9,
   compactions: 0,
+  autoHandoff: false,
 };
 
 describe('SessionBudgetActionsService', () => {
@@ -79,6 +80,7 @@ describe('SessionBudgetActionsService', () => {
       activeTab: tab,
       tabId,
       sessionId: signal<string | null>(SESSION),
+      bannerVisible: signal(true),
     });
     return {
       service,

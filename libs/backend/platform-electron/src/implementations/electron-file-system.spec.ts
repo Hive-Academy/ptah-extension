@@ -64,6 +64,8 @@ function remap(
     readFile: (p) => provider.readFile(rewrite(p)),
     readFileBytes: (p) => provider.readFileBytes(rewrite(p)),
     writeFile: (p, c) => provider.writeFile(rewrite(p), c),
+    writeFileExclusive: (p, c) =>
+      provider.writeFileExclusive(rewrite(p), c),
     writeFileBytes: (p, c) => provider.writeFileBytes(rewrite(p), c),
     readDirectory: (p) => provider.readDirectory(rewrite(p)),
     stat: (p) => provider.stat(rewrite(p)),

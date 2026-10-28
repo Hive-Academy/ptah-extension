@@ -1,0 +1,255 @@
+{
+ "shots": [
+  {
+   "file": "consent__dialog__dark__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "theme": "anubis",
+   "over": [],
+   "extra": [
+    {
+     "w": 610,
+     "right": 933,
+     "sw": 609,
+     "cw": 609,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": "Local files this install would replace (4)  Ptah keeps these files unless you ch"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": "Library copy: helper-agentEdited Library copy If you replace, Ptah runs a Librar"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "consent__dialog__dark__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "theme": "anubis",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": [
+    {
+     "w": 296,
+     "right": 336,
+     "sw": 294,
+     "cw": 294,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.220459 0.011628 285.407 / 0.4)",
+     "text": "Local files this install would replace (4)  Ptah keeps these files unless you ch"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": "Library copy: helper-agentEdited Library copy If you replace, Ptah runs a Librar"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.925095 0.00705 88.6451)",
+     "bg": "oklch(0.188562 0.00805 285.602 / 0.6)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "consent__dialog__light__wide.png",
+   "iw": 1280,
+   "sw": 1270,
+   "theme": "anubis-light",
+   "over": [],
+   "extra": [
+    {
+     "w": 610,
+     "right": 933,
+     "sw": 609,
+     "cw": 609,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": "Local files this install would replace (4)  Ptah keeps these files unless you ch"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": "Library copy: helper-agentEdited Library copy If you replace, Ptah runs a Librar"
+    },
+    {
+     "w": 589,
+     "right": 922,
+     "sw": 587,
+     "cw": 587,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  },
+  {
+   "file": "consent__dialog__light__narrow.png",
+   "iw": 400,
+   "sw": 390,
+   "theme": "anubis-light",
+   "over": [
+    "div.flex-1 min-h-0 min-w-[400px] overflow-hidden outli[]432",
+    "ptah-app-shell.h-full w-full[]432",
+    "div.h-full w-full[]432",
+    "ptah-marketplace-shell.block h-full w-full min-w-0 overflow-hidden[marketplace-shell]432",
+    "div.flex h-full w-full min-w-0 flex-col bg-surface-0[]432",
+    "header.surface-1 flex min-w-0 shrink-0 items-center gap-2[marketplace-header]432"
+   ],
+   "extra": [
+    {
+     "w": 296,
+     "right": 336,
+     "sw": 294,
+     "cw": 294,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.93982 0.007 61.449 / 0.4)",
+     "text": "Local files this install would replace (4)  Ptah keeps these files unless you ch"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".claude/skills/dotnet-test/SKILL.mdNot created by Ptah Keep my file  Replace wit"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".codex/skills/dotnet-test/references/a-really-long-file-name-for-testing-wrappin"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": "Library copy: helper-agentEdited Library copy If you replace, Ptah runs a Librar"
+    },
+    {
+     "w": 274,
+     "right": 325,
+     "sw": 273,
+     "cw": 273,
+     "color": "oklch(0.23574 0.066 313.189)",
+     "bg": "oklch(0.97788 0.004 56.375 / 0.6)",
+     "text": ".claude/skills/dotnet-test/bin.datCould not read file Ptah could not compare thi"
+    }
+   ]
+  }
+ ],
+ "consoleErrors": [
+  "[2026-10-28T03:31:40.240Z] [ERROR] RecentSessionsStore: Session list RPC rejected {errorType: TypeError}",
+  "[2026-10-28T03:31:40.331Z] [ERROR] UsageVitalsCache: Usage summary result is invalid ",
+  "[ModelStateService] Failed to load models: undefined",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "TimeoutError: Transition was aborted because of timeout in DOM update",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN",
+  "Angular Error: TypeError: this._smitheryConnections is not a function or its return value is not iterable\n    at ConnectorLinksStore.links.ngDevMode.debugName [as computation] (file:///D:/projects/ptah-extension/.claude-worktrees/wizard-library-alignment/dist/apps/ptah-electron/renderer/chunk-4TYUDN"
+ ]
+}

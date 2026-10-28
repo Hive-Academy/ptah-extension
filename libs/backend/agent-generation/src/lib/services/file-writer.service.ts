@@ -1,13 +1,13 @@
 /**
  * Agent File Writer Service
  *
- * Service for writing generated agents to the filesystem through the
- * platform file-system port, with directory creation and path-traversal
- * protection.
+ * The guarded writer: the only place a wizard agent file is written. It
+ * writes through the platform file-system port, with directory creation and
+ * path-traversal protection, and re-checks the target against the caller's
+ * write guard immediately before writing.
  *
  * A write is idempotent: when the target already holds exactly the generated
- * bytes the file is left alone and the result says `unchanged`; otherwise it
- * is overwritten and the result says `written`.
+ * bytes the file is left alone and the result says `unchanged`.
  *
  * @module @ptah-extension/agent-generation/services
  */
@@ -16,27 +16,50 @@ import { injectable, inject } from 'tsyringe';
 import { dirname, isAbsolute, normalize } from 'path';
 import {
   PLATFORM_TOKENS,
+  destinationWriteLock,
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
+import { hashContent } from '@ptah-extension/harness-sync';
+import type {
+  AgentWriteGuard,
+  AgentWriteResult,
+  AgentWriteStatus,
+  IAgentFileWriterService,
+} from '../interfaces/agent-file-writer.interface';
 import { GeneratedAgent } from '../types/core.types';
 import { FileWriteError } from '../errors/file-write.error';
 
-/** Outcome of one agent write. */
-export type AgentWriteResult = {
-  filePath: string;
-  status: 'written' | 'unchanged';
-};
+/** What is on disk at the target right before the guarded write. */
+type CurrentTarget =
+  | { state: 'absent' }
+  | { state: 'present'; content: string }
+  | { state: 'unreadable'; code: string | undefined };
+
+/** Error codes that mean "nothing at this path": Node, and the VS Code FS. */
+const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
+  'ENOENT',
+  'FileNotFound',
+]);
+
+/** The string `code` of a filesystem error, read structurally (any realm). */
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return undefined;
+  }
+  const { code } = error;
+  return typeof code === 'string' ? code : undefined;
+}
 
 /**
  * Service for writing generated agents to the filesystem.
  *
  * Responsibilities:
  * - Write agent files to .claude/agents/ or .claude/commands/ directory
- * - Overwrite existing files in place (no backup — avoids duplicate agent .md files)
+ * - Apply the write guard against the file as it is on disk right now
  * - Skip the write when the existing bytes already match (`unchanged`)
+ * - Never replace a file that cannot be read (`kept`)
  * - Directory creation if missing (explicit, through the port)
  * - Path traversal protection (reject attempts to write outside .claude/)
  */
@@ -56,36 +79,79 @@ export class AgentFileWriterService implements IAgentFileWriterService {
   }
 
   /**
-   * Write a generated agent to its target path.
+   * Write a generated agent to its target path under a write guard.
    *
-   * 1. Validate content is non-empty
-   * 2. Validate file path (security check for path traversal)
-   * 3. Create target directory if it doesn't exist
-   * 4. Read the existing target; equal bytes -> `unchanged`, no write
-   * 5. Otherwise write the new content -> `written`
+   * 1. Validate content is non-empty and the path is safe and absolute
+   * 2. Read the target: not found → absent; any other read error → `kept`
+   * 3. Equal bytes → `unchanged`, no write
+   * 4. Apply the guard: `kept` / `changed-since-preview` leave the file alone
+   * 5. Create the parent directory and write the new content → `written`:
+   *    an absent target is created exclusively (a collision leaves the new
+   *    file alone); a present one is re-read and re-checked just before the
+   *    replace. Both run under the process-wide destination lock shared with
+   *    the pack installer (see `replaceContent` for the window that remains)
+   *
+   * The target is read right before the write, so a decision made against an
+   * earlier preview never overwrites content the user did not see.
    *
    * @param agent - Generated agent with content and target file path
-   * @returns Result with the absolute file path and its write status, or Error
+   * @param guard - The write permission the user's decision grants
+   * @returns Result with the absolute file path and its status, or Error
    */
   async writeAgent(
     agent: GeneratedAgent,
+    guard: AgentWriteGuard,
   ): Promise<Result<AgentWriteResult, Error>> {
     try {
       this.logger.debug('Writing agent to filesystem', {
         filePath: agent.filePath,
         templateId: agent.sourceTemplateId,
         contentLength: agent.content.length,
+        guard: guard.mode,
       });
       const prepared = this.prepare(agent);
       if (prepared.isErr()) {
         return Result.err(prepared.error!);
       }
       const absolutePath = prepared.value!;
+
+      const current = await this.readCurrent(absolutePath);
+      if (current.state === 'unreadable') {
+        this.logger.warn('Agent file cannot be read; keeping it untouched', {
+          filePath: absolutePath,
+          code: current.code,
+        });
+        return Result.ok({ filePath: absolutePath, status: 'kept' });
+      }
+      if (current.state === 'present' && current.content === agent.content) {
+        this.logger.info('Agent already current, skipping write', {
+          filePath: absolutePath,
+        });
+        return Result.ok({ filePath: absolutePath, status: 'unchanged' });
+      }
+
+      const blocked = this.blockedByGuard(guard, current);
+      if (blocked !== null) {
+        this.logger.info('Agent write blocked by its guard', {
+          filePath: absolutePath,
+          guard: guard.mode,
+          status: blocked,
+        });
+        return Result.ok({ filePath: absolutePath, status: blocked });
+      }
+
       const dirResult = await this.ensureDirectoryExists(absolutePath);
       if (dirResult.isErr()) {
         return Result.err(dirResult.error!);
       }
-      return await this.writeIfChanged(agent, absolutePath);
+      // The final re-check and mutation hold the destination lock shared
+      // with the pack installer (and other wizard writes), so no other Ptah
+      // writer can mutate the file between them.
+      return await destinationWriteLock.run(absolutePath, () =>
+        current.state === 'absent'
+          ? this.createContent(agent, absolutePath, guard)
+          : this.replaceContent(agent, absolutePath, guard),
+      );
     } catch (error: unknown) {
       const err = error instanceof Error ? error : new Error(String(error));
       this.logger.error('Unexpected error writing agent', err);
@@ -93,88 +159,6 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         new FileWriteError(
           `Unexpected error writing agent: ${err.message}`,
           agent.filePath,
-          'write',
-        ),
-      );
-    }
-  }
-
-  /**
-   * Write multiple agents sequentially.
-   *
-   * All agents are validated and their directories created before any write.
-   * If a write fails, files this batch newly WROTE are removed again; files
-   * that were `unchanged` already existed and are left alone.
-   *
-   * @param agents - Array of generated agents to write
-   * @returns Result containing one write result per agent, or Error
-   */
-  async writeAgentsBatch(
-    agents: GeneratedAgent[],
-  ): Promise<Result<AgentWriteResult[], Error>> {
-    if (agents.length === 0) {
-      this.logger.debug('Empty agents array provided, returning empty result');
-      return Result.ok([]);
-    }
-
-    this.logger.debug('Writing agents batch', { count: agents.length });
-
-    const results: AgentWriteResult[] = [];
-
-    try {
-      const absolutePaths: string[] = [];
-      for (const agent of agents) {
-        const prepared = this.prepare(agent);
-        if (prepared.isErr()) {
-          return Result.err(prepared.error!);
-        }
-        absolutePaths.push(prepared.value!);
-      }
-
-      for (const absolutePath of absolutePaths) {
-        const dirResult = await this.ensureDirectoryExists(absolutePath);
-        if (dirResult.isErr()) {
-          return Result.err(dirResult.error!);
-        }
-      }
-      for (let i = 0; i < agents.length; i++) {
-        const agent = agents[i];
-        const absolutePath = absolutePaths[i];
-        const writeResult = await this.writeIfChanged(agent, absolutePath);
-        if (writeResult.isErr()) {
-          await this.rollback(results);
-          return Result.err(
-            new FileWriteError(
-              `Failed to write agent file in batch (index ${i}): ${writeResult.error!.message}`,
-              agent.filePath,
-              'write',
-            ),
-          );
-        }
-        results.push(writeResult.value!);
-        this.logger.debug('Agent written in batch', {
-          filePath: absolutePath,
-          status: writeResult.value!.status,
-          index: i + 1,
-          total: agents.length,
-        });
-      }
-
-      this.logger.info('Agents batch written successfully', {
-        count: results.length,
-        written: results.filter((r) => r.status === 'written').length,
-        unchanged: results.filter((r) => r.status === 'unchanged').length,
-      });
-
-      return Result.ok(results);
-    } catch (error: unknown) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.logger.error('Unexpected error in batch write', err);
-
-      return Result.err(
-        new FileWriteError(
-          `Unexpected error writing agents batch: ${err.message}`,
-          agents[0]?.filePath || 'unknown',
           'write',
         ),
       );
@@ -205,31 +189,121 @@ export class AgentFileWriterService implements IAgentFileWriterService {
   }
 
   /**
-   * Compare the existing target with the generated content and write only
-   * when they differ.
+   * Read the target as it is now. Only a not-found error means "absent";
+   * every other read error is reported as `unreadable`, because replacing a
+   * file nobody could read would destroy content nobody has seen.
    */
-  private async writeIfChanged(
+  private async readCurrent(absolutePath: string): Promise<CurrentTarget> {
+    try {
+      const content = await this.fs.readFile(absolutePath);
+      return { state: 'present', content };
+    } catch (error: unknown) {
+      const code = errorCode(error);
+      if (code !== undefined && NOT_FOUND_CODES.has(code)) {
+        return { state: 'absent' };
+      }
+      return { state: 'unreadable', code };
+    }
+  }
+
+  /**
+   * The status that leaves the file alone, or `null` when the guard allows
+   * the write. Called only after equal bytes were ruled out.
+   *
+   * - create-only: any existing file is `kept`.
+   * - replace-allowed from `missing`: a file that appeared since the
+   *   decision was not part of it → `changed-since-preview`.
+   * - replace-allowed from `present`: content whose hash differs from the
+   *   baseline → `changed-since-preview`. A file deleted since the decision
+   *   holds nothing to lose, so the write goes ahead.
+   */
+  private blockedByGuard(
+    guard: AgentWriteGuard,
+    current: Exclude<CurrentTarget, { state: 'unreadable' }>,
+  ): AgentWriteStatus | null {
+    if (current.state === 'absent') return null;
+    if (guard.mode === 'create-only') return 'kept';
+    if (guard.baseline.state === 'missing') return 'changed-since-preview';
+    return hashContent(current.content) === guard.baseline.hash
+      ? null
+      : 'changed-since-preview';
+  }
+
+  /**
+   * Create an absent target with an exclusive create, so a file another
+   * writer (the pack installer, another window or process) created after
+   * our read is never replaced. A collision is the guard's "leave it" status:
+   * `kept` for create-only, `changed-since-preview` for replace-allowed
+   * (that file was not part of the decision).
+   */
+  private async createContent(
     agent: GeneratedAgent,
     absolutePath: string,
+    guard: AgentWriteGuard,
   ): Promise<Result<AgentWriteResult, Error>> {
-    let existing: string | null = null;
     try {
-      existing = await this.fs.readFile(absolutePath);
-    } catch {
-      existing = null;
+      await this.fs.writeFileExclusive(absolutePath, agent.content);
+    } catch (error: unknown) {
+      if (errorCode(error) === 'EEXIST') {
+        const status: AgentWriteStatus =
+          guard.mode === 'create-only' ? 'kept' : 'changed-since-preview';
+        this.logger.info('Agent file appeared before the create; left as is', {
+          filePath: absolutePath,
+          status,
+        });
+        return Result.ok({ filePath: absolutePath, status });
+      }
+      return this.handleFileSystemError(
+        error,
+        agent.filePath,
+        'write',
+        'Failed to write agent file',
+      );
     }
-    if (existing !== null && existing === agent.content) {
-      this.logger.info('Agent already current, skipping write', {
-        filePath: absolutePath,
-      });
+    return this.written(absolutePath);
+  }
+
+  /**
+   * Replace a present target that matched the guard's baseline. The target
+   * is re-read and its hash re-checked immediately before the write, which
+   * closes the gap across the directory creation and any other await since
+   * the first read.
+   *
+   * Ptah writers are coordinated: this runs under the process-wide
+   * per-destination lock (`destinationWriteLock`) that the pack
+   * installer also takes, so no other Ptah writer in this process can
+   * mutate the file between this re-check and `writeFile`.
+   *
+   * Remaining guarantee: the port has no compare-and-swap for replacement
+   * and there is no lock shared with editors or other processes, so their
+   * write landing between this re-check and `writeFile` is still replaced.
+   * The window is one read; only an absent target is fully race-free.
+   */
+  private async replaceContent(
+    agent: GeneratedAgent,
+    absolutePath: string,
+    guard: AgentWriteGuard,
+  ): Promise<Result<AgentWriteResult, Error>> {
+    const recheck = await this.readCurrent(absolutePath);
+    if (recheck.state === 'absent') {
+      return this.createContent(agent, absolutePath, guard);
+    }
+    if (recheck.state === 'unreadable') {
+      return Result.ok({ filePath: absolutePath, status: 'kept' });
+    }
+    if (recheck.content === agent.content) {
       return Result.ok({ filePath: absolutePath, status: 'unchanged' });
+    }
+    const blocked = this.blockedByGuard(guard, recheck);
+    if (blocked !== null) {
+      this.logger.info('Agent file changed before the replace; left as is', {
+        filePath: absolutePath,
+        status: blocked,
+      });
+      return Result.ok({ filePath: absolutePath, status: blocked });
     }
     try {
       await this.fs.writeFile(absolutePath, agent.content);
-      this.logger.info('Agent written successfully', {
-        filePath: absolutePath,
-      });
-      return Result.ok({ filePath: absolutePath, status: 'written' });
     } catch (error: unknown) {
       return this.handleFileSystemError(
         error,
@@ -238,20 +312,12 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         'Failed to write agent file',
       );
     }
+    return this.written(absolutePath);
   }
 
-  /** Remove files this batch newly wrote after a later write failed. */
-  private async rollback(results: AgentWriteResult[]): Promise<void> {
-    for (const result of results) {
-      if (result.status !== 'written') continue;
-      try {
-        await this.fs.delete(result.filePath);
-      } catch {
-        this.logger.error('Failed to clean up partial write', {
-          path: result.filePath,
-        });
-      }
-    }
+  private written(absolutePath: string): Result<AgentWriteResult, Error> {
+    this.logger.info('Agent written successfully', { filePath: absolutePath });
+    return Result.ok({ filePath: absolutePath, status: 'written' });
   }
 
   /**

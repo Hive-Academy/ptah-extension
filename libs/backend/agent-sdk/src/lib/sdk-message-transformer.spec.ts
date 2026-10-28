@@ -820,3 +820,176 @@ describe('SdkMessageTransformer — per-session isolation (TASK_2026_370)', () =
     ).toEqual(['msg-B']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Background Task spawns: one started and no duplicate terminal event,
+// whatever order the tool_use, task_started and placeholder tool_result take.
+//
+// Explicit = `run_in_background: true` in the Task input. Implicit = the SDK
+// backgrounds the Task by default and omits that input, so only
+// `task_started.is_backgrounded` says so. Both have a registry record under
+// the Task tool_use id, so the SubagentStop path ends the tray entry and the
+// transformer must emit no background terminal event of its own.
+// ---------------------------------------------------------------------------
+
+describe('SdkMessageTransformer — background Task spawn event counts', () => {
+  const SESSION = 'sess-bg';
+  const TOOL_USE = 'toolu_bgtask';
+  const TASK = 'task-bgtask';
+
+  function build(): SdkMessageTransformer {
+    // No registry record exists yet: the SubagentStart hook that creates it
+    // usually fires after task_started and the placeholder tool_result.
+    const registry = {
+      ...makeFullSubagentRegistry(),
+      get: jest.fn().mockReturnValue(null),
+      hasHeldUnboundStarts: jest.fn().mockReturnValue(false),
+    };
+    return new SdkMessageTransformer(
+      makeLogger(),
+      makeAuthEnv(),
+      registry as unknown as SubagentRegistryService,
+      makeModelResolver() as unknown as IModelResolver,
+      makeSessionLifecycle([SESSION]) as unknown as SessionLifecycleManager,
+      new LiveUsageTracker(),
+      new SessionTurnStateRegistry(),
+      new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
+    );
+  }
+
+  const toolUse = (explicit: boolean) =>
+    makeAssistantWithToolUse({
+      toolUseId: TOOL_USE,
+      name: 'Task',
+      input: {
+        subagent_type: 'Explore',
+        description: 'Survey the repo',
+        prompt: 'p',
+        ...(explicit ? { run_in_background: true } : {}),
+      },
+    });
+
+  const taskStarted = () => ({
+    type: 'system',
+    subtype: 'task_started',
+    task_id: TASK,
+    tool_use_id: TOOL_USE,
+    session_id: SESSION,
+    skip_transcript: false,
+    task_type: 'local_agent',
+    subagent_type: 'Explore',
+    description: 'Survey the repo',
+    is_backgrounded: true,
+  });
+
+  const placeholderResult = () => ({
+    type: 'user',
+    uuid: 'uuid-placeholder',
+    parent_tool_use_id: null,
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: TOOL_USE,
+          content:
+            'Async agent launched successfully.\nagentId: abc123 (internal ID)\nThe agent is working in the background.',
+        },
+      ],
+    },
+  });
+
+  const notification = () => ({
+    type: 'system',
+    subtype: 'task_notification',
+    task_id: TASK,
+    tool_use_id: TOOL_USE,
+    session_id: SESSION,
+    status: 'completed',
+    summary: 'done',
+  });
+
+  function run(messages: unknown[]): Array<{ eventType: string }> {
+    const transformer = build();
+    return messages.flatMap(
+      (m) =>
+        transformer.transform(m as never, SESSION as never) as Array<{
+          eventType: string;
+        }>,
+    );
+  }
+
+  const count = (events: Array<{ eventType: string }>, type: string) =>
+    events.filter((e) => e.eventType === type).length;
+
+  describe.each([
+    { label: 'explicit run_in_background', explicit: true },
+    { label: 'implicit (SDK default) backgrounding', explicit: false },
+  ])('$label', ({ explicit }) => {
+    it.each([
+      {
+        order: '(a) tool_use → task_started → placeholder tool_result',
+        messages: () => [
+          toolUse(explicit),
+          taskStarted(),
+          placeholderResult(),
+          notification(),
+        ],
+      },
+      {
+        order: '(b) tool_use → placeholder tool_result → task_started',
+        messages: () => [
+          toolUse(explicit),
+          placeholderResult(),
+          taskStarted(),
+          notification(),
+        ],
+      },
+    ])('$order emits one start and no transformer terminal', ({ messages }) => {
+      const events = run(messages());
+
+      expect(count(events, 'agent_start')).toBe(1);
+      expect(count(events, 'background_agent_started')).toBe(1);
+      expect(count(events, 'tool_result')).toBe(1);
+      expect(count(events, 'agent_completed')).toBe(1);
+      expect(count(events, 'background_agent_completed')).toBe(0);
+      expect(count(events, 'background_agent_stopped')).toBe(0);
+    });
+  });
+
+  it.each([
+    { label: 'explicit', explicit: true },
+    { label: 'implicit', explicit: false },
+  ])(
+    '$label: a user stop emits exactly one background_agent_stopped',
+    ({ explicit }) => {
+      const events = run([
+        toolUse(explicit),
+        placeholderResult(),
+        taskStarted(),
+        { ...notification(), status: 'stopped' },
+      ]);
+
+      expect(count(events, 'background_agent_started')).toBe(1);
+      expect(count(events, 'background_agent_stopped')).toBe(1);
+      expect(count(events, 'background_agent_completed')).toBe(0);
+    },
+  );
+
+  it('explicit (a): background_agent_started precedes the placeholder tool_result', () => {
+    const events = run([toolUse(true), taskStarted(), placeholderResult()]);
+    const types = events.map((e) => e.eventType);
+    expect(types.indexOf('background_agent_started')).toBeLessThan(
+      types.indexOf('tool_result'),
+    );
+  });
+
+  it('implicit (a): background_agent_started comes from task_started, before the tool_result', () => {
+    const events = run([toolUse(false), taskStarted(), placeholderResult()]);
+    const types = events.map((e) => e.eventType);
+    expect(types.indexOf('background_agent_started')).toBeLessThan(
+      types.indexOf('tool_result'),
+    );
+  });
+});

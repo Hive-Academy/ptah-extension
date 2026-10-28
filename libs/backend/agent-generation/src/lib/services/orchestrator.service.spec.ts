@@ -203,7 +203,6 @@ function createOrchestrator(agentModelSettings?: AgentModelSettings): {
 
   const fileWriter = {
     writeAgent: jest.fn(),
-    writeAgentsBatch: jest.fn(),
   } as unknown as jest.Mocked<IAgentFileWriterService>;
 
   const logger = {
@@ -2306,5 +2305,235 @@ describe('AgentGenerationOrchestratorService — abortable, outcome-honest gener
       }),
     );
     expect(result.value!.writtenCount).toBe(1);
+  });
+});
+
+describe('AgentGenerationOrchestratorService — file decisions and output root', () => {
+  const WS = '/workspace/test-project';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    existsSyncMock.mockReturnValue(false);
+  });
+
+  function wireAgents(mocks: OrchestratorMocks, ids: string[]): void {
+    wireHappyPath(mocks);
+    const templates: Record<string, AgentTemplate> = {};
+    for (const id of ids) templates[id] = createMockTemplate({ id });
+    mocks.agentSelector.selectAgents.mockResolvedValue(
+      Result.ok(
+        ids.map((id) => ({
+          template: templates[id],
+          relevanceScore: 100,
+          matchedCriteria: [],
+        })),
+      ),
+    );
+    mocks.templateStorage.loadTemplate.mockImplementation(async (id) =>
+      Result.ok(templates[id]),
+    );
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) =>
+      Result.ok({ filePath: agent.filePath, status: 'written' as const }),
+    );
+  }
+
+  it('skips rendering and writing for a keep decision and records it as kept', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const onAgentOutcome = jest.fn<(outcome: AgentOutcome) => void>();
+
+    const result = await service.generateAgents({
+      workspacePath: WS,
+      fileGuards: { 'agent-a': { mode: 'keep' } },
+      onAgentOutcome,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(mocks.templateStorage.loadTemplate).not.toHaveBeenCalledWith(
+      'agent-a',
+    );
+    expect(mocks.contentGenerator.generateContent).toHaveBeenCalledTimes(1);
+    expect(mocks.contentGenerator.generateContent.mock.calls[0]![0].id).toBe(
+      'agent-b',
+    );
+    expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
+    const kept = {
+      agentId: 'agent-a',
+      filePath: path.join(WS, '.claude', 'agents', 'agent-a.md'),
+      status: 'kept' as const,
+      rejectedSections: 0,
+      tailoredSections: 0,
+    };
+    expect(summary.outcomes[0]).toEqual(kept);
+    expect(summary.keptCount).toBe(1);
+    expect(summary.totalAgents).toBe(2);
+    expect(summary.outcomes.map((o) => o.agentId)).toEqual([
+      'agent-a',
+      'agent-b',
+    ]);
+    // The kept agent is checkpointed like every other terminal outcome.
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
+    expect(onAgentOutcome).toHaveBeenCalledWith(kept);
+  });
+
+  it('completes a run in which every agent was kept, with no LLM call', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+
+    const result = await service.generateAgents({
+      workspacePath: WS,
+      fileGuards: {
+        'agent-a': { mode: 'keep' },
+        'agent-b': { mode: 'keep' },
+      },
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(result.value!.lifecycle).toBe('completed');
+    expect(result.value!.keptCount).toBe(2);
+    expect(result.value!.successful).toBe(0);
+    expect(result.value!.failedCount).toBe(0);
+    expect(mocks.contentGenerator.generateContent).not.toHaveBeenCalled();
+    expect(mocks.fileWriter.writeAgent).not.toHaveBeenCalled();
+  });
+
+  it('writes an agent without a decision create-only and passes a decision guard through', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    const replace = {
+      mode: 'replace-allowed' as const,
+      baseline: { state: 'present' as const, hash: 'abc' },
+    };
+
+    await service.generateAgents({
+      workspacePath: WS,
+      fileGuards: { 'agent-b': replace },
+    });
+
+    const guards = mocks.fileWriter.writeAgent.mock.calls.map((c) => c[1]);
+    expect(guards).toEqual([{ mode: 'create-only' }, replace]);
+  });
+
+  it('never resolves a guard from an inherited property', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['constructor']);
+
+    await service.generateAgents({ workspacePath: WS, fileGuards: {} });
+
+    expect(mocks.fileWriter.writeAgent.mock.calls[0]![1]).toEqual({
+      mode: 'create-only',
+    });
+  });
+
+  it('reports writer kept and changed-since-preview results as settled, not failed', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) =>
+      Result.ok({
+        filePath: agent.filePath,
+        status:
+          agent.sourceTemplateId === 'agent-a'
+            ? ('kept' as const)
+            : ('changed-since-preview' as const),
+      }),
+    );
+    const onAgentOutcome = jest.fn<(outcome: AgentOutcome) => void>();
+
+    const result = await service.generateAgents({
+      workspacePath: WS,
+      onAgentOutcome,
+    });
+
+    expect(result.isOk()).toBe(true);
+    const summary = result.value!;
+    expect(summary.lifecycle).toBe('completed');
+    expect(summary.keptCount).toBe(1);
+    expect(summary.changedSincePreviewCount).toBe(1);
+    expect(summary.failedCount).toBe(0);
+    expect(summary.outcomes.map((o) => o.status)).toEqual([
+      'kept',
+      'changed-since-preview',
+    ]);
+    // A file left alone carries none of the render's sections.
+    expect(
+      summary.outcomes.every(
+        (o) => o.rejectedSections === 0 && o.tailoredSections === 0,
+      ),
+    ).toBe(true);
+    expect(onAgentOutcome).toHaveBeenCalledTimes(2);
+  });
+
+  it('still fails a run in which every write failed', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a']);
+    mocks.fileWriter.writeAgent.mockResolvedValue(
+      Result.err(new Error('Disk full')),
+    );
+
+    const result = await service.generateAgents({ workspacePath: WS });
+
+    expect(result.isErr()).toBe(true);
+    expect(result.error!.message).toBe('All agent file writes failed');
+  });
+
+  it('writes under outputRoot while analysis keeps the workspace path', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a']);
+    const outputRoot = '/harness-root';
+
+    const result = await service.generateAgents({
+      workspacePath: WS,
+      outputRoot,
+    });
+
+    const expectedDir = path.join(outputRoot, '.claude', 'agents');
+    expect(result.value!.outputDirectory).toBe(expectedDir);
+    expect(mocks.fileWriter.writeAgent.mock.calls[0]![0].filePath).toBe(
+      path.join(expectedDir, 'agent-a.md'),
+    );
+    expect(mocks.workspaceAnalyzer.getProjectInfo).toHaveBeenCalled();
+    expect(result.value!.outcomes[0].filePath).toBe(
+      path.join(expectedDir, 'agent-a.md'),
+    );
+  });
+
+  it('calls onAgentWritten for written agents only, and survives a failing hook', async () => {
+    const { service, mocks } = createOrchestrator();
+    wireAgents(mocks, ['agent-a', 'agent-b']);
+    mocks.fileWriter.writeAgent.mockImplementation(async (agent) =>
+      Result.ok({
+        filePath: agent.filePath,
+        status:
+          agent.sourceTemplateId === 'agent-a'
+            ? ('written' as const)
+            : ('unchanged' as const),
+      }),
+    );
+    const onAgentWritten = jest.fn<
+      NonNullable<OrchestratorGenerationOptions['onAgentWritten']>
+    >(async () => {
+      throw new Error('origin store unavailable');
+    });
+
+    const result = await service.generateAgents({
+      workspacePath: WS,
+      onAgentWritten,
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(onAgentWritten).toHaveBeenCalledTimes(1);
+    expect(onAgentWritten).toHaveBeenCalledWith({
+      agentId: 'agent-a',
+      filePath: path.join(WS, '.claude', 'agents', 'agent-a.md'),
+    });
+    expect(result.value!.outcomes.map((o) => o.status)).toEqual([
+      'written',
+      'unchanged',
+    ]);
+    expect(mocks.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('onAgentWritten failed for agent-a'),
+      expect.any(Error),
+    );
   });
 });

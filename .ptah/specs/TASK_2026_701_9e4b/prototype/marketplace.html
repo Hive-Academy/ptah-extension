@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en" data-theme="anubis" data-theme-mode="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marketplace (TASK_2026_701_9e4b)</title>
+<link rel="stylesheet" href="assets/proto.css">
+</head>
+<body>
+<div class="proto-bar"><a href="index.html">Prototype index</a><strong>Marketplace: installed view, consent, report (Electron)</strong><span class="sp"></span><button id="theme-toggle" class="btn btn-ghost btn-xs" aria-pressed="false">Theme</button></div>
+<main class="stage">
+
+<section class="">
+<h2 class="stage-title">A. Installed "Skills &amp; Plugins" page (installed-skills-page.component.ts): header, harness explanation, search, groups in order Ptah plugins, Community skills, Marketplace plugins, source labels plus provenance, routed row detail inspector</h2>
+<div class="w-wide"><header class="hdr"><div style="flex:1;min-width:240px"><h1>Skills &amp; Plugins</h1><p class="muted">Everything installed or enabled for this workspace. The harness copies it to each CLI you use.</p></div><button class="btn btn-outline btn-sm">Add a source</button></header>
+<label class="search" for="q"><span aria-hidden="true">&#128269;</span><input id="q" type="search" placeholder="Search installed skills" aria-label="Search installed skills"></label>
+ <p class="callout-info" role="status" style="margin-top:10px">The Library may be out of date until its next refresh. (Electron only; shown only after a Library pass failed.)</p>
+ <div class="split"><div class="main stack" style="margin-top:10px">
+  <section class="surface-1" data-group aria-labelledby="g-ptah">
+  <header class="grp-head"><h3 id="g-ptah">Ptah plugins</h3><span class="badge badge-ghost">2</span><a class="btn btn-ghost btn-xs" href="#" style="margin-left:auto" aria-label="Browse Ptah plugins">Browse</a></header>
+  <ul style="list-style:none;margin:0;padding:0" role="list"><li class="row " data-name="Ptah Release Kit" data-search="Ptah Release Kit Release automation skills, command and agent bundled with Ptah. Bundled Ptah plugin">
+  <span class="ico" aria-hidden="true">P</span>
+  <a class="open grow" href="#" data-open-key="insp-kit" data-title="Ptah Release Kit" tabindex="0" aria-label="Ptah Release Kit, Ptah plugin from Bundled">
+    <span class="t">Ptah Release Kit </span>
+    <span class="d" style="display:block">Bundled · 2 skills · 1 command · 1 agent</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-prov badge-plugin">Plugin: Ptah Release Kit</span></span>
+  <a class="btn btn-ghost btn-xs" href="#" aria-label="Manage Ptah Release Kit">Manage</a>
+</li><li class="row " data-name="Old Helper" data-search="Old Helper Legacy helper skill and agent, turned off. Bundled Ptah plugin disabled">
+  <span class="ico" aria-hidden="true">P</span>
+  <a class="open grow" href="#" data-title="Old Helper" tabindex="-1" aria-label="Old Helper, Ptah plugin from Bundled">
+    <span class="t">Old Helper </span>
+    <span class="d" style="display:block">Bundled · 1 skill · 1 agent · turned off</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-ghost">Disabled</span><span class="badge badge-prov badge-plugin">Plugin: Old Helper</span></span>
+  <a class="btn btn-ghost btn-xs" href="#" aria-label="Manage Old Helper">Manage</a>
+</li></ul>
+  <p class="empty muted" data-nomatch hidden>No ptah plugins match “<span data-q></span>”.</p></section>
+  <section class="surface-1" data-group aria-labelledby="g-comm">
+  <header class="grp-head"><h3 id="g-comm">Community skills</h3><span class="badge badge-ghost">1</span><a class="btn btn-ghost btn-xs" href="#" style="margin-left:auto" aria-label="Browse community skills">Browse</a></header>
+  <p class="err-inline" role="alert" id="err-tw" hidden>Could not remove "tailwind-v4": permission denied. It may still be installed. Press Uninstall to try again.</p><ul style="list-style:none;margin:0;padding:0" role="list"><li class="row " data-name="tailwind-v4" data-search="tailwind-v4 Tailwind CSS v4 conventions for utility-first styling. acme/skills skills.sh Community skill">
+  <span class="ico" aria-hidden="true">S</span>
+  <a class="open grow" href="#" data-open-key="insp-tw" data-title="tailwind-v4" tabindex="-1" aria-label="tailwind-v4, Community skill from acme/skills">
+    <span class="t">tailwind-v4 </span>
+    <span class="d" style="display:block">acme/skills · 1 file kept (yours differs)</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-prov">skills.sh: acme/skills</span></span>
+  <button type="button" class="btn btn-ghost btn-xs" style="color:var(--ink-err)" aria-label="Uninstall tailwind-v4" data-uninstall="err-tw">Uninstall</button>
+</li></ul>
+  <p class="empty muted" data-nomatch hidden>No community skills match “<span data-q></span>”.</p></section>
+  <section class="surface-1" data-group aria-labelledby="g-ext">
+  <header class="grp-head"><h3 id="g-ext">Marketplace plugins</h3><span class="badge badge-ghost">1</span><a class="btn btn-ghost btn-xs" href="#" style="margin-left:auto" aria-label="Add a marketplace">Browse</a></header>
+  <p class="err-inline" role="alert" id="err-acme" hidden>Could not remove "Acme Toolkit": the plugin folder is in use. Close tools using it, then press Uninstall to try again.</p><ul style="list-style:none;margin:0;padding:0" role="list"><li class="row " data-name="Acme Toolkit" data-search="Acme Toolkit Database and release tooling from the Acme team. External marketplace github.com/acme/toolkit Marketplace plugin">
+  <span class="ico" aria-hidden="true">P</span>
+  <a class="open grow" href="#" data-title="Acme Toolkit" tabindex="-1" aria-label="Acme Toolkit 2.1.0, Marketplace plugin from External marketplace">
+    <span class="t">Acme Toolkit <span class="muted" style="font-size:12px">v2.1.0</span></span>
+    <span class="d" style="display:block">External marketplace · 3 skills · 2 agents</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span><span class="badge badge-ghost">1 skill shadowed</span></span>
+  <button type="button" class="btn btn-ghost btn-xs" style="color:var(--ink-err)" aria-label="Uninstall Acme Toolkit" data-uninstall="err-acme">Uninstall</button>
+</li></ul>
+  <p class="empty muted" data-nomatch hidden>No marketplace plugins match “<span data-q></span>”.</p></section>
+  <p class="muted" style="font-size:12px;margin:0">Edited copies of plugins that are no longer installed stay in the Library as Orphaned: <strong>legacy-linter</strong> (plugin "Former Helper"). Old Helper is turned off, not removed: its edited copy <strong>helper-agent</strong> stays in the Library.</p>
+ </div><aside class="inspector" id="inspector" aria-labelledby="inspector-h">
+  <div style="display:flex;align-items:center;gap:8px"><h2 id="inspector-h" style="margin:0;font-size:14px">Acme Toolkit</h2><button class="btn btn-ghost btn-xs" style="margin-left:auto" data-close-inspector>Close</button></div>
+  <p class="muted" id="insp-desc" style="font-size:12px;margin:4px 0 8px">Database and release tooling from the Acme team.</p>
+  <dl class="kv" id="insp-facts" data-testid="skill-detail-facts" style="margin-bottom:8px"><dt>Kind</dt><dd>Marketplace plugin</dd><dt>Source</dt><dd>External marketplace</dd><dt>Version</dt><dd>2.1.0</dd><dt>Provenance</dt><dd><span class="badge badge-prov badge-plugin">Plugin: Acme Toolkit</span></dd><dt>Contents</dt><dd>3 skills · 2 agents</dd></dl>
+  <button class="disc" id="insp-names-btn" aria-expanded="true" aria-controls="insp-names" data-toggle="insp-names">Show names</button>
+  <ul class="plain" id="insp-names"><li>api-design</li><li>db-review</li><li>release-notes <span class="badge badge-ghost">Shadowed</span> <span class="muted">by "Ptah Release Kit"; installed but not in effect</span></li><li>agent: architect <span class="muted">Kept: your file</span></li><li>agent: reviewer <span class="muted">Library copy diverged: plugin update</span></li></ul>
+  <div id="insp-kept"><p class="file-note"><strong>1 file kept.</strong> .claude/agents/architect.md was not changed because Ptah did not create it.</p></div>
+  <div id="insp-sync"><p class="flex" style="font-size:12px;margin:8px 0 2px"><strong>In sync on 2 of 3 detected CLIs.</strong></p><p style="font-size:12px;margin:0 0 8px;color:var(--ink-need)">Needs attention: Codex (the copy at .codex/skills/api-design/SKILL.md was edited since Ptah wrote it and was kept)</p></div>
+  <div id="insp-action"><button class="btn btn-outline btn-sm" style="color:var(--ink-err)">Uninstall</button></div></aside></div>
+ <p class="narrow-note" style="margin-top:8px">Live: Up/Down/Home/End move between rows, Enter opens the inspector (docked at 1100 px and wider; below that it opens as a full-width drawer), Escape closes it, search filters all three groups. Uninstall shows Removing... then the failure message.</p></div>
+</section>
+<section class="">
+<h2 class="stage-title">B. Installed-view states: Removing, remove failure, stale row, empty, no match, loading, group load error, config-change failure</h2>
+<div class="frame w-wide stack">
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Marketplace plugins</h3></header><ul style="list-style:none;margin:0;padding:0"><li class="row " data-name="Docs Suite">
+  <span class="ico" aria-hidden="true">P</span>
+  <a class="open grow" href="#" data-title="Docs Suite" tabindex="0" aria-label="Docs Suite 0.9.1, Marketplace plugin from External marketplace">
+    <span class="t">Docs Suite <span class="muted" style="font-size:12px">v0.9.1</span></span>
+    <span class="d" style="display:block">External marketplace · 2 skills</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-prov badge-plugin">Plugin: Docs Suite</span></span>
+  <button class="btn btn-ghost btn-xs" disabled aria-label="Uninstall Docs Suite">Removing…</button>
+</li></ul><p class="pending-note muted" style="padding:0 16px 10px" role="status">Removing Docs Suite...</p></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Community skills</h3></header><p class="err-inline" role="alert">Could not remove "tailwind-v4": permission denied. It may still be installed. Press Uninstall to try again.</p><ul style="list-style:none;margin:0;padding:0"><li class="row " data-name="tailwind-v4">
+  <span class="ico" aria-hidden="true">S</span>
+  <a class="open grow" href="#" data-title="tailwind-v4" tabindex="-1" aria-label="tailwind-v4, Community skill from acme/skills">
+    <span class="t">tailwind-v4 </span>
+    <span class="d" style="display:block">acme/skills · 1 file kept (yours differs)</span></a>
+  <span style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end"><span class="badge badge-prov">skills.sh: acme/skills</span></span>
+  <button type="button" class="btn btn-ghost btn-xs" style="color:var(--ink-err)" aria-label="Uninstall tailwind-v4" >Uninstall</button>
+</li></ul></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Marketplace plugins</h3></header><p class="err-inline" role="alert">"Docs Suite" is no longer installed. The list has been refreshed.</p><p class="empty muted">Nothing installed yet.<br><a class="btn btn-primary btn-xs" href="#">Add a marketplace</a></p></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Ptah plugins</h3></header><p class="empty muted" style="text-align:left">No Ptah plugins match “xyz”.</p></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Community skills</h3></header><div style="padding:12px 16px"><span class="sr-only">Loading Community skills…</span><div class="skel" style="width:40%"></div><div class="skel" style="width:25%"></div></div></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Marketplace plugins</h3></header><div class="err-inline" role="alert" style="display:flex;gap:8px;align-items:center;margin:0;padding:8px 16px">Could not read this list. <button class="btn btn-ghost btn-xs">Retry</button></div></section>
+ <section class="surface-1" style="margin-bottom:10px"><header class="grp-head"><h3>Ptah plugins (config change failure)</h3></header><p class="err-inline" role="alert">Could not turn on "Old Helper": the plugin settings could not be saved (permission denied). It is still off. Try again from Manage.</p></section>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">C. External install consent dialog (external-consent-dialog.component.ts) with every existing block and the new "Local files" section</h2>
+<div class="overlay w-wide" id="ov-consent"><div class="modal-box w-modal" role="dialog" aria-modal="true" aria-labelledby="c1-t" data-files>
+ <div class="scroll" style="max-height:560px"><h3 id="c1-t">Update Acme Toolkit?</h3>
+ <p class="muted" style="font-size:12px;margin:2px 0 8px">github.com/acme/toolkit · version 2.1.0 (upgrade from 2.0.3)</p>
+ 
+ 
+ <div class="surface-1" style="padding:8px 10px"><strong>14 files</strong> · 38 KB on disk · <strong>3</strong> skills · <strong>2</strong> agents<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap"><span class="badge ">api-design</span><span class="badge ">db-review</span><span class="badge ">release-notes</span><span class="badge ">agent: architect</span><span class="badge ">agent: reviewer</span></div></div>
+ <div class="info-block"><strong>This plugin ships executable scripts</strong><p class="muted" style="margin:2px 0">These files will be written to disk. Review them before running anything that invokes them.</p><div class="info-row"><code>scripts/setup.sh</code></div><div class="info-row"><code>scripts/post-install.js</code></div></div>
+ <div class="info-block"><strong>This plugin declares MCP servers</strong><p class="muted" style="margin:2px 0">Ptah will NOT register or run these servers. Installing only puts the plugin's files on disk. Nothing below executes unless you add it yourself.</p><div class="muted" style="font-size:11px">acme-db</div><pre style="margin:2px 0;white-space:pre-wrap;word-break:break-all"><code>npx -y @acme/db-mcp --readonly</code></pre><div class="muted" style="font-size:11px">Sets environment: <code>ACME_DB_URL, ACME_TOKEN</code></div></div>
+ <div class="info-block"><strong>These files will be skipped (not valid UTF-8 text)</strong><div class="info-row"><code>assets/logo.png</code></div></div>
+ <div class="info-block"><strong>Some skills will not take effect</strong><div class="info-row">skill <code>release-notes</code> will be shadowed by <code>Ptah Release Kit</code></div></div>
+ <div class="surface-1" style="padding:8px 10px;margin-top:10px">
+  <h4 style="margin:0 0 4px">Local files this install would replace (5)</h4>
+  <p class="muted" style="font-size:12px;margin:0 0 4px">Ptah keeps these files unless you choose to replace them. Cancel changes nothing.</p>
+  <div class="bulk" role="group" aria-label="Apply to all differing files"><span class="grow"><strong>4 files can be replaced</strong></span><button type="button" class="btn btn-ghost btn-xs" data-bulk="keep">Keep all</button><button type="button" class="btn btn-ghost btn-xs" data-bulk="replace">Replace all</button></div>
+  <ul class="files">
+   <li class="file"><div class="file-head"><code class="grow">.claude/agents/architect.md</code><span class="badge badge-ghost">Not created by Ptah</span></div><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/architect.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/architect.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/architect.md with plugin version">Replace with plugin version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d15">What changes</button></div><div class="diff" id="d15" hidden><div class="del">- Our own architect rules.</div><div class="add">+ Acme architect rules.</div></div></li>
+   <li class="file"><div class="file-head"><code class="grow">.codex/skills/api-design/SKILL.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span></div><p class="file-note" >Ptah copied this on 2.0.3. The file on disk has changed since.</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .codex/skills/api-design/SKILL.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .codex/skills/api-design/SKILL.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .codex/skills/api-design/SKILL.md with plugin version">Replace with plugin version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d17">What changes</button></div><div class="diff" id="d17" hidden><div class="del">- edited line</div><div class="add">+ plugin line</div></div></li>
+   <li class="file"><div class="file-head"><code class="grow">.claude/commands/ship.md</code><span class="badge badge-ghost">Not created by Ptah</span></div><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/commands/ship.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/commands/ship.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/commands/ship.md with plugin version">Replace with plugin version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d19">What changes</button></div><div class="diff" id="d19" hidden><div class="del">- git push</div><div class="add">+ npm run ship</div></div></li>
+   <li class="file"><div class="file-head"><code class="grow">.claude/commands/deploy.md</code><span class="badge badge-ghost">Could not read file</span></div><p class="file-note" id="n22">Ptah could not compare this file, so it is treated as different and will be kept. Replace is not available for it.</p><div class="file-actions"><div class="seg locked" role="radiogroup" aria-label="Keep or replace .claude/commands/deploy.md" aria-describedby="n22">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/commands/deploy.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" aria-disabled="true" tabindex="-1" aria-label="Replace .claude/commands/deploy.md with plugin version (not available: file could not be read)">Replace with plugin version</button></div></div></li>
+   <li class="file"><div class="file-head"><code class="grow">Library copy: reviewer (agent)</code><span class="badge badge-ghost">Edited Library copy</span></div><p class="file-note" >If you replace, Ptah runs a Library rebase after install. Your edits stay in the rebase history. If you keep, the copy is marked "Diverged: plugin update".</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace Library copy: reviewer (agent)">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my copy of reviewer">Keep my copy</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace reviewer with the plugin version and rebase">Replace (rebase)</button></div></div></li>
+  </ul>
+  <p class="file-note">9 other files are new or unchanged and install without a question.</p>
+</div>
+ 
+ </div>
+ <div class="modal-footer"><span class="summary muted" role="status" aria-live="polite" data-summary></span><button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-confirm data-tpl-keep="Update Acme Toolkit" data-tpl-rep="Update Acme Toolkit and replace {n} {files}">Update Acme Toolkit</button></div></div></div>
+ <div class="opener-row"><button class="btn btn-outline btn-sm" data-open="ov-consent">Update Acme Toolkit</button> <span class="narrow-note">Block order is the component's order: identity and footprint, scripts, MCP servers, skipped files, shadowed skills, then the new "Local files" section, then any install error. Live: focus trap, Escape cancels, focus returns.</span></div>
+</section>
+<section class="">
+<h2 class="stage-title">D. Consent states: busy, re-approval, install failure (shown as failure), long path</h2>
+<div class="frame w-modal stack">
+ <div class="modal-box" aria-label="Busy"><h3>Update Acme Toolkit?</h3><p class="muted" style="font-size:12px">github.com/acme/toolkit · version 2.1.0</p><div class="modal-footer"><button class="btn btn-ghost btn-sm" disabled>Cancel</button><button class="btn btn-primary btn-sm" disabled aria-busy="true"><span class="skel" style="display:inline-block;width:10px;height:10px;border-radius:50%;margin:0"></span> Installing…</button></div></div>
+ <div class="modal-box" aria-label="Re-approval"><h3>Update Acme Toolkit?</h3><p class="callout-warn" role="alert">Your earlier approval is no longer valid. The files that would be replaced may have changed since you last looked. Review them and approve again; every choice is reset to Keep.</p><div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Update Acme Toolkit</button></div></div>
+ <div class="modal-box" aria-label="Install failure"><h3>Update Acme Toolkit?</h3><p class="callout-err" role="alert"><strong>Install failed.</strong> Could not write <code>.claude/skills/db-review/SKILL.md</code> (permission denied). Ptah removes what it wrote for this install where it can. Check the files listed in the install report, then retry.</p><div class="modal-footer"><button class="btn btn-ghost btn-sm">Cancel</button><button class="btn btn-primary btn-sm">Retry install</button></div></div>
+ <div class="modal-box" aria-label="Long path"><h3>Update Acme Toolkit?</h3>
+  <ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/skills/very-long-plugin-skill-name-that-wraps-at-narrow-widths/references/architecture-decision-records/index.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span></div><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/skills/very-long-plugin-skill-name-that-wraps-at-narrow-widths/references/architecture-decision-records/index.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/skills/very-long-plugin-skill-name-that-wraps-at-narrow-widths/references/architecture-decision-records/index.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/skills/very-long-plugin-skill-name-that-wraps-at-narrow-widths/references/architecture-decision-records/index.md with plugin version">Replace with plugin version</button></div></div></li></ul></div>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">E. Install report (external-install-report.component.ts): counters, skipped files, named shadowed skills, kept list; failed install</h2>
+<div class="frame w-modal stack">
+ <div class="modal-box"><h3>Acme Toolkit 2.1.0 installed</h3>
+  <div class="outcomes"><div class="outcome"><b>9</b>Written</div><div class="outcome"><b>4</b>Kept</div><div class="outcome"><b>1</b>Shadowed</div><div class="outcome"><b>1</b>Skipped (not text)</div></div>
+  <p style="font-size:12px;margin:4px 0">1 file was skipped (not valid UTF-8 text): <code>assets/logo.png</code></p>
+  <p style="font-size:12px;margin:4px 0">skill <code>release-notes</code> is shadowed by <code>Ptah Release Kit</code> and will not take effect.</p>
+  <h4>Kept (your files were not changed)</h4>
+  <ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/architect.md</code><span class="badge ">Kept</span></div></li>
+  <li class="file"><div class="file-head"><code class="grow">.claude/commands/ship.md</code><span class="badge ">Kept</span></div></li>
+  <li class="file"><div class="file-head"><code class="grow">.claude/commands/deploy.md</code><span class="badge badge-ghost">Could not read file</span></div><p class="file-note">Ptah could not compare this file, so it was kept.</p></li>
+  <li class="file"><div class="file-head"><code class="grow">.codex/skills/api-design/SKILL.md</code><span class="badge ">Kept: changed since approval</span></div><p class="file-note">This file changed between the preview and the install, so Ptah left it alone. Install again to review it.</p></li></ul>
+  <p class="callout-warn" role="alert">The Library may be out of date until its next refresh. The files were installed.</p>
+  <div class="modal-footer"><button class="btn btn-primary btn-sm">Done</button></div></div>
+ <div class="modal-box"><h3>Acme Toolkit could not be installed</h3><p class="callout-err" role="alert"><strong>Install failed.</strong> Could not write <code>.claude/skills/db-review/SKILL.md</code> (permission denied). Ptah removes what it wrote for this install where it can; files listed below may need checking.</p><p class="file-note">Written before the failure: 6 files. Removed again: 6 files.</p></div>
+</div>
+</section>
+<section class="">
+<h2 class="stage-title">F. Installs without a consent dialog: kept files and the shared repair route, by installer family</h2>
+<div class="frame w-modal stack">
+ <div class="modal-box" style="max-width:none"><h3>Skill "tailwind-v4" installed from skills.sh</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Family: skills.sh install (no consent dialog).</p><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/skills/tailwind-v4/SKILL.md</code><span class="badge badge-ghost">Not created by Ptah</span><span class="badge ">Kept</span></div></li></ul><p class="file-note">Kept files are not counted as written. Nothing was replaced.</p><button class="btn btn-outline btn-xs" data-open="ov-repair" data-family="skills" data-source-label="skills.sh version" data-open-key="rp-skills">Review and replace...</button></div>
+ <div class="modal-box" style="max-width:none"><h3>Plugin "Ptah Release Kit" enabled</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Family: Ptah plugin enable. Ptah wrote these files earlier, so an edit is an owned-but-edited file.</p><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/skills/release-notes/SKILL.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span><span class="badge ">Kept</span></div></li><li class="file"><div class="file-head"><code class="grow">.claude/commands/release.md</code><span class="badge badge-ghost">Could not read file</span><span class="badge ">Kept</span></div><p class="file-note">Ptah could not compare this file, so it was kept. Replace is not available for it.</p></li></ul><p class="file-note">Kept files are not counted as written. Nothing was replaced.</p><button class="btn btn-outline btn-xs" data-open="ov-repair" data-family="plugin" data-source-label="plugin version" data-open-key="rp-plugin">Review and replace...</button></div>
+ <div class="modal-box" style="max-width:none"><h3>Plugin agents mirrored to .claude/agents</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Family: plugin-agent mirroring.</p><ul class="files"><li class="file"><div class="file-head"><code class="grow">.claude/agents/release-manager.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span><span class="badge ">Kept</span></div><p class="file-note">Ptah copied this on 1.4.0. The file on disk has changed since.</p></li></ul><p class="file-note">Kept files are not counted as written. Nothing was replaced.</p><button class="btn btn-outline btn-xs" data-open="ov-repair" data-family="agent" data-source-label="plugin version" data-open-key="rp-agent">Review and replace...</button></div>
+</div>
+<div class="overlay w-modal" id="ov-repair" style="margin-top:12px" hidden><div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="rp-t" data-files>
+ <h3 id="rp-t">Replace kept files?</h3><p class="muted" style="font-size:12px;margin:2px 0 6px">Nothing is replaced until you confirm. Choices start at Keep.</p>
+ <div class="bulk" role="group" aria-label="Apply to all differing files"><span class="grow"><strong data-bulk-count>3 files can be replaced</strong></span><button type="button" class="btn btn-ghost btn-xs" data-bulk="keep">Keep all</button><button type="button" class="btn btn-ghost btn-xs" data-bulk="replace">Replace all</button></div>
+ <ul class="files">
+  <li class="file" data-repair-for="skills"><div class="file-head"><code class="grow">.claude/skills/tailwind-v4/SKILL.md</code><span class="badge badge-ghost">Not created by Ptah</span></div><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/skills/tailwind-v4/SKILL.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/skills/tailwind-v4/SKILL.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/skills/tailwind-v4/SKILL.md with skills.sh version">Replace with skills.sh version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d27">What changes</button></div><div class="diff" id="d27" hidden><div class="del">- mine</div><div class="add">+ upstream</div></div></li>
+  <li class="file" data-repair-for="plugin"><div class="file-head"><code class="grow">.claude/skills/release-notes/SKILL.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span></div><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/skills/release-notes/SKILL.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/skills/release-notes/SKILL.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/skills/release-notes/SKILL.md with plugin version">Replace with plugin version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d29">What changes</button></div><div class="diff" id="d29" hidden><div class="del">- my edit</div><div class="add">+ plugin text</div></div></li>
+  <li class="file" data-repair-for="plugin"><div class="file-head"><code class="grow">.claude/commands/release.md</code><span class="badge badge-ghost">Could not read file</span></div><p class="file-note" id="n32">Ptah could not compare this file, so it is treated as different and will be kept. Replace is not available for it.</p><div class="file-actions"><div class="seg locked" role="radiogroup" aria-label="Keep or replace .claude/commands/release.md" aria-describedby="n32">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/commands/release.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" aria-disabled="true" tabindex="-1" aria-label="Replace .claude/commands/release.md with plugin version (not available: file could not be read)">Replace with plugin version</button></div></div></li>
+  <li class="file" data-repair-for="agent"><div class="file-head"><code class="grow">.claude/agents/release-manager.md</code><span class="badge badge-ghost">Edited since Ptah wrote it</span></div><p class="file-note">Ptah copied this on 1.4.0. The file on disk has changed since.</p><div class="file-actions"><div class="seg" role="radiogroup" aria-label="Keep or replace .claude/agents/release-manager.md">
+  <button type="button" role="radio" class="is-keep" aria-checked="true" tabindex="0" aria-label="Keep my file .claude/agents/release-manager.md">Keep my file</button>
+  <button type="button" role="radio" class="is-replace" aria-checked="false" tabindex="-1" aria-label="Replace .claude/agents/release-manager.md with plugin version">Replace with plugin version</button></div><button type="button" class="disc" aria-expanded="false" aria-controls="d40">What changes</button></div><div class="diff" id="d40" hidden><div class="del">- my edit</div><div class="add">+ plugin agent text</div></div></li>
+ </ul>
+ <div class="modal-footer"><span class="summary muted" role="status" aria-live="polite" data-summary></span><button type="button" class="btn btn-ghost btn-sm" data-close>Cancel</button><button type="button" class="btn btn-primary btn-sm" data-confirm data-tpl-keep="Close without replacing" data-tpl-rep="Replace {n} {files}">Close without replacing</button></div>
+</div></div>
+<p class="narrow-note">Each "Review and replace..." button opens the one shared repair prompt bound to the files that install reported: skills.sh lists tailwind-v4/SKILL.md; plugin enable lists release-notes/SKILL.md and the unreadable release.md; plugin-agent mirroring lists release-manager.md. Unreadable rows stay Keep.</p>
+</section>
+<section class="">
+<h2 class="stage-title">G. Installer-family guard map</h2>
+<div class="frame w-wide"><table class="tbl" aria-label="Installer family guards"><thead><tr><th>Installer family</th><th>Before writing</th><th>Result</th><th>Edited-managed / unowned / unreadable</th></tr></thead><tbody>
+<tr><td>External marketplace plugin</td><td>Consent dialog with "Local files" section (section C)</td><td>Install report with Kept list (E)</td><td>All three reason badges; unreadable forced Keep</td></tr>
+<tr><td>skills.sh community skill</td><td>None (no consent)</td><td>Result with kept files and "Review and replace..."</td><td>Unowned: "Not created by Ptah"; unreadable forced Keep</td></tr>
+<tr><td>Ptah plugin enable</td><td>None</td><td>Result with kept files and the repair route; installed-view note</td><td>Owned-but-edited: "Edited since Ptah wrote it"</td></tr>
+<tr><td>Plugin-agent mirroring</td><td>None (Library clone with edits uses "Replace (rebase)" in the consent dialog)</td><td>Result row; Library shows Diverged: plugin update</td><td>Owned-but-edited kept</td></tr>
+<tr><td>Community pack</td><td>Pack prompt with target choice (packs.html)</td><td>Pack row Kept / Installed / Failed</td><td>Differs and unreadable decisions in the prompt</td></tr>
+<tr><td>Wizard generation</td><td>Preview dialogs (wizard-preview.html, sidebar.html)</td><td>Completion outcomes</td><td>Differs and unreadable decisions in the preview</td></tr>
+</tbody></table></div>
+</section>
+</main>
+<script>window.PROTO_INSPECT = {"Ptah Release Kit": {"desc": "Release automation skills, command and agent bundled with Ptah.", "facts": "<dt>Kind<\/dt><dd>Ptah plugin<\/dd><dt>Source<\/dt><dd>Bundled<\/dd><dt>Version<\/dt><dd>Bundled with Ptah<\/dd><dt>Provenance<\/dt><dd><span class=\"badge badge-prov badge-plugin\">Plugin: Ptah Release Kit<\/span><\/dd><dt>Contents<\/dt><dd>2 skills · 1 command · 1 agent<\/dd>", "names": "<li>release-notes <span class=\"badge badge-ghost\">In effect<\/span> <span class=\"muted\">Edited since Ptah wrote it; your file was kept<\/span><\/li><li>changelog<\/li><li>command: release <span class=\"muted\">Could not read file; kept<\/span><\/li><li>agent: release-manager <span class=\"muted\">Edited since Ptah wrote it; kept<\/span><\/li>", "kept": "<p class=\"file-note\"><strong>3 files kept.<\/strong> release-notes/SKILL.md and .claude/agents/release-manager.md were edited since Ptah wrote them; .claude/commands/release.md could not be read. None was changed.<\/p>", "sync": "<p class=\"flex\" style=\"font-size:12px;margin:8px 0 8px\"><strong>In sync on 3 of 3 detected CLIs.<\/strong><\/p>", "action": "<a class=\"btn btn-outline btn-sm\" href=\"#\" aria-label=\"Manage Ptah Release Kit\">Manage<\/a>"}, "Old Helper": {"desc": "Legacy helper skill and agent, turned off.", "facts": "<dt>Kind<\/dt><dd>Ptah plugin<\/dd><dt>Source<\/dt><dd>Bundled<\/dd><dt>Version<\/dt><dd>Bundled with Ptah<\/dd><dt>Status<\/dt><dd><span class=\"badge badge-ghost\">Disabled<\/span> turned off, not removed<\/dd><dt>Provenance<\/dt><dd><span class=\"badge badge-prov badge-plugin\">Plugin: Old Helper<\/span><\/dd><dt>Contents<\/dt><dd>1 skill · 1 agent<\/dd>", "names": "<li>helper-skill <span class=\"muted\">Not copied while turned off<\/span><\/li><li>agent: helper-agent <span class=\"muted\">Edited copy stays in the Library<\/span><\/li>", "kept": "<p class=\"file-note\"><strong>Nothing to keep.<\/strong> Old Helper is turned off, so Ptah writes no files for it. Its edited copy <strong>helper-agent<\/strong> stays in the Library.<\/p>", "sync": "<p class=\"flex\" style=\"font-size:12px;margin:8px 0 8px\"><strong>Not synced:<\/strong> the plugin is turned off.<\/p>", "action": "<a class=\"btn btn-outline btn-sm\" href=\"#\" aria-label=\"Manage Old Helper\">Manage<\/a>"}, "tailwind-v4": {"desc": "Tailwind CSS v4 conventions for utility-first styling.", "facts": "<dt>Kind<\/dt><dd>Community skill<\/dd><dt>Source<\/dt><dd>acme/skills<\/dd><dt>Version<\/dt><dd>Not versioned<\/dd><dt>Provenance<\/dt><dd><span class=\"badge badge-prov\">skills.sh: acme/skills<\/span><\/dd><dt>Contents<\/dt><dd>1 skill<\/dd>", "names": "<li>tailwind-v4/SKILL.md <span class=\"muted\">Kept: yours differs<\/span><\/li>", "kept": "<p class=\"file-note\"><strong>1 file kept.<\/strong> .claude/skills/tailwind-v4/SKILL.md was not changed because Ptah did not create it.<\/p>", "sync": "<p class=\"flex\" style=\"font-size:12px;margin:8px 0 8px\"><strong>In sync on 3 of 3 detected CLIs.<\/strong><\/p>", "action": "<button class=\"btn btn-outline btn-sm\" style=\"color:var(--ink-err)\">Uninstall<\/button>"}, "Acme Toolkit": {"desc": "Database and release tooling from the Acme team.", "facts": "<dt>Kind<\/dt><dd>Marketplace plugin<\/dd><dt>Source<\/dt><dd>External marketplace<\/dd><dt>Version<\/dt><dd>2.1.0<\/dd><dt>Provenance<\/dt><dd><span class=\"badge badge-prov badge-plugin\">Plugin: Acme Toolkit<\/span><\/dd><dt>Contents<\/dt><dd>3 skills · 2 agents<\/dd>", "names": "<li>api-design<\/li><li>db-review<\/li><li>release-notes <span class=\"badge badge-ghost\">Shadowed<\/span> <span class=\"muted\">by \"Ptah Release Kit\"; installed but not in effect<\/span><\/li><li>agent: architect <span class=\"muted\">Kept: your file<\/span><\/li><li>agent: reviewer <span class=\"muted\">Library copy diverged: plugin update<\/span><\/li>", "kept": "<p class=\"file-note\"><strong>1 file kept.<\/strong> .claude/agents/architect.md was not changed because Ptah did not create it.<\/p>", "sync": "<p class=\"flex\" style=\"font-size:12px;margin:8px 0 2px\"><strong>In sync on 2 of 3 detected CLIs.<\/strong><\/p><p style=\"font-size:12px;margin:0 0 8px;color:var(--ink-need)\">Needs attention: Codex (the copy at .codex/skills/api-design/SKILL.md was edited since Ptah wrote it and was kept)<\/p>", "action": "<button class=\"btn btn-outline btn-sm\" style=\"color:var(--ink-err)\">Uninstall<\/button>"}};</script>
+<script src="assets/proto.js"></script>
+</body></html>

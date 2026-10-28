@@ -45,6 +45,12 @@ export interface McpFacetPlan {
    * installed.
    */
   blocked: string[];
+  /**
+   * Owned server keys whose config entry no longer matches what Ptah wrote — a
+   * hand edit. Kept as they are, never rewritten, and their manifest entry keeps
+   * the old hash (D8). See `HarnessPlan.keptLocalEdit`.
+   */
+  keptLocalEdit: string[];
   unchanged: number;
   /** Manifest keys this facet is responsible for, for the removal sweep. */
   ownedKeys: Set<string>;
@@ -57,6 +63,7 @@ export function emptyMcpFacetPlan(): McpFacetPlan {
     removals: [],
     foreign: [],
     blocked: [],
+    keptLocalEdit: [],
     unchanged: 0,
     ownedKeys: new Set(),
     expected: 0,
@@ -101,15 +108,7 @@ export function planMcpFacet(
     );
 
     if (onDisk === undefined) {
-      plan.writes.push(
-        writeFor(
-          relPath,
-          server,
-          outputHash,
-          'create',
-          /* overwritesLocalEdit */ false,
-        ),
-      );
+      plan.writes.push(writeFor(relPath, server, outputHash, 'create'));
       continue;
     }
     if (owned === undefined) {
@@ -119,12 +118,15 @@ export function planMcpFacet(
       plan.blocked.push(relPath);
       continue;
     }
-    if (entrySourceHash(owned) !== server.contentHash) {
-      plan.writes.push(writeFor(relPath, server, outputHash, 'update', false));
+    // Drift is judged on the entry alone, BEFORE the source: an edited entry is
+    // the user's whether or not the registry config also changed, and it is
+    // kept until they choose to replace it (D8).
+    if (onDisk !== owned.hash) {
+      plan.keptLocalEdit.push(relPath);
       continue;
     }
-    if (onDisk !== owned.hash) {
-      plan.writes.push(writeFor(relPath, server, outputHash, 'update', true));
+    if (entrySourceHash(owned) !== server.contentHash) {
+      plan.writes.push(writeFor(relPath, server, outputHash, 'update'));
       continue;
     }
     plan.unchanged++;
@@ -181,9 +183,6 @@ export async function applyMcpFacet(
         'mcp',
         write.sourceHash,
       );
-      if (write.overwritesLocalEdit) {
-        result.overwrittenLocalEdit.push(write.relPath);
-      }
     } catch (error: unknown) {
       result.writeFailed.push({
         relPath: write.relPath,
@@ -216,7 +215,6 @@ function writeFor(
   server: HarnessDesiredMcpServer,
   outputHash: string,
   reason: 'create' | 'update',
-  overwritesLocalEdit: boolean,
 ): HarnessPlanWrite {
   return {
     relPath,
@@ -229,7 +227,6 @@ function writeFor(
     sourceHash: server.contentHash,
     isDirectory: false,
     reason,
-    overwritesLocalEdit,
     mcp: { serverKey: server.serverKey, config: server.config },
   };
 }

@@ -2,12 +2,12 @@ import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   AgentScorecard,
-  CloneSummary,
   ProviderListModelsResult,
   SkillCloneKind,
   SkillSynthesisGetScorecardDetailResult,
   SkillSynthesisApplyProposalResult,
   SkillSynthesisGetCloneResult,
+  SkillSynthesisListClonesResult,
   SkillSynthesisGetHistoryBodyResult,
   SkillSynthesisPreviewEnhancementResult,
   SkillSynthesisKeepCloneResult,
@@ -128,15 +128,18 @@ export class SkillSynthesisRpcService {
   }
 
   /** Run the Curator pass and return the report. */
-  /** List clone-layer entries (clone / authored / synth / diverged). */
-  public async listClones(): Promise<CloneSummary[]> {
+  /**
+   * List clone-layer entries (clone / authored / synth / diverged), with the
+   * harness root the list was scoped to (`scopeRoot`, absent on older hosts).
+   */
+  public async listClones(): Promise<SkillSynthesisListClonesResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:listClones',
       {},
       { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
     );
     if (result.isSuccess() && result.data) {
-      return result.data.clones;
+      return result.data;
     }
     throw new Error(result.error || 'Failed to list clones');
   }

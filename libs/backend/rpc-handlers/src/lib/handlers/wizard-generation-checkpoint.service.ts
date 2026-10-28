@@ -8,8 +8,13 @@
  *
  * - a fresh run gets a manifest BEFORE any orchestrator work starts;
  * - a resumed run re-runs only `pending | running | failed` agents and carries
- *   `written | unchanged` files forward untouched;
- * - a checkpoint whose paths point outside the workspace is never resumed;
+ *   every settled file (`written | unchanged | kept | changed-since-preview`)
+ *   forward untouched;
+ * - a run records its target, output root and the confirmed keep/replace
+ *   guard per agent, so a resume or a retry applies the same decisions; a
+ *   manifest written before runs carried guards resumes create-only;
+ * - a checkpoint whose paths point outside the workspace (or, for its output
+ *   root, outside the workspace and its harness root) is never resumed;
  * - a checkpoint that cannot be updated after an outcome stops the run rather
  *   than letting later agents proceed unrecorded.
  *
@@ -27,13 +32,16 @@ import {
 } from '@ptah-extension/platform-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type {
+  AgentFileGuard,
   AnalysisStorageService,
   GenerationAgentCheckpoint,
   GenerationCheckpointManifest,
 } from '@ptah-extension/agent-generation';
+import { resolveHarnessWorkspaceRoot } from '@ptah-extension/harness-sync';
 import type {
   GenerationAgentOutcome,
   GenerationContextSource,
+  GenerationTargetInfo,
   ResumableGenerationRun,
   SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
@@ -58,6 +66,10 @@ export interface FreshGenerationRun {
   effectiveProvider?: string;
   effectiveModel?: string;
   enhancedPromptsUsed?: boolean;
+  /** The target the submit's decisions were validated against. */
+  target: GenerationTargetInfo;
+  /** One confirmed guard per selected agent id. */
+  fileGuards: Readonly<Record<string, AgentFileGuard>>;
 }
 
 /** What the handler launches after a checkpoint was created or resumed. */
@@ -69,9 +81,10 @@ export interface PreparedGenerationRun {
   /** Agents the orchestrator must (re)run in this invocation. */
   agentIds: string[];
   /**
-   * Agents skipped on resume because their file is already current. They are
-   * reported as `unchanged` in this invocation's completion payload; their
-   * checkpoint records keep the status the earlier run recorded.
+   * Agents skipped on resume because an earlier invocation settled them. A
+   * written or unchanged file is reported as `unchanged` in this invocation's
+   * completion payload; a file left alone keeps its `kept` or
+   * `changed-since-preview` status. Their checkpoint records are untouched.
    */
   carriedOver: GenerationAgentOutcome[];
 }
@@ -91,6 +104,26 @@ export function toResumableGenerationRun(
     selectedAgentIds: [...manifest.selectedAgentIds],
     agents: Object.values(manifest.agents).map((agent) => ({ ...agent })),
   };
+}
+
+/**
+ * The root a fresh run writes under. When the chosen root is the opened folder
+ * (or the opened folder is the harness root) the caller's own spelling of that
+ * folder is kept, so the output directory matches every other workspace path
+ * the run records.
+ */
+export function generationOutputRoot(
+  workspaceRoot: string,
+  target: GenerationTargetInfo,
+): string {
+  return target.chosen === 'opened-folder' || target.openedIsHarnessRoot
+    ? workspaceRoot
+    : target.harnessRoot;
+}
+
+/** Whether two paths name the same folder (case-insensitive on Windows). */
+function samePath(a: string, b: string): boolean {
+  return path.relative(path.resolve(a), path.resolve(b)) === '';
 }
 
 /** Whether any selected agent still has work a resume would pick up. */
@@ -135,7 +168,8 @@ export class GenerationCheckpointService {
    */
   async createFresh(run: FreshGenerationRun): Promise<PreparedGenerationRun> {
     const now = new Date().toISOString();
-    const outputDirectory = this.outputDirectoryFor(run.workspaceRoot);
+    const outputRoot = generationOutputRoot(run.workspaceRoot, run.target);
+    const outputDirectory = this.outputDirectoryFor(outputRoot);
     let analysisRunId = run.analysisRunId;
     if (!analysisRunId && run.analysisDir) {
       // Linkage to the analysis run is informational; a missing or v2
@@ -173,6 +207,15 @@ export class GenerationCheckpointService {
       updatedAt: now,
       lifecycle: 'running',
       outputDirectory,
+      target: { ...run.target },
+      outputRoot,
+      fileGuards: Object.fromEntries(
+        run.selectedAgentIds
+          .filter((agentId) =>
+            Object.prototype.hasOwnProperty.call(run.fileGuards, agentId),
+          )
+          .map((agentId) => [agentId, run.fileGuards[agentId]]),
+      ),
       selectedAgentIds: [...run.selectedAgentIds],
       input: run.input,
       agents,
@@ -190,6 +233,8 @@ export class GenerationCheckpointService {
       runId: manifest.runId,
       filePath,
       agentCount: run.selectedAgentIds.length,
+      target: run.target.chosen,
+      outputDirectory,
     });
     return {
       location,
@@ -288,8 +333,11 @@ export class GenerationCheckpointService {
 
   /**
    * A checkpoint is resumed only when every path it names stays inside the
-   * workspace: the output directory under the root, and both the analysis
-   * directory it records and the one it was found beside under
+   * workspace. Its output root is the workspace itself or the workspace's
+   * harness root (never a sibling folder below that root), and its output
+   * directory is exactly `{outputRoot}/.claude/agents`; a manifest without an
+   * output root keeps its output directory under the workspace. Both the
+   * analysis directory it records and the one it was found beside stay under
    * `<workspace>/.ptah/analysis`. Anything else is reported unavailable and
    * left on disk.
    */
@@ -298,7 +346,18 @@ export class GenerationCheckpointService {
     manifest: GenerationCheckpointManifest,
   ): boolean {
     const { workspaceRoot } = location;
-    if (!isPathWithinRoots(manifest.outputDirectory, [workspaceRoot])) {
+    if (manifest.outputRoot !== undefined) {
+      const outputRoot = manifest.outputRoot;
+      if (
+        !samePath(outputRoot, workspaceRoot) &&
+        !samePath(outputRoot, resolveHarnessWorkspaceRoot(workspaceRoot))
+      )
+        return false;
+      if (
+        !samePath(manifest.outputDirectory, this.outputDirectoryFor(outputRoot))
+      )
+        return false;
+    } else if (!isPathWithinRoots(manifest.outputDirectory, [workspaceRoot])) {
       return false;
     }
     if (
@@ -356,7 +415,10 @@ export class GenerationCheckpointService {
       carriedOver.push({
         agentId: agent.agentId,
         filePath: agent.filePath,
-        status: 'unchanged',
+        status:
+          agent.status === 'kept' || agent.status === 'changed-since-preview'
+            ? agent.status
+            : 'unchanged',
         rejectedSections: agent.rejectedSections,
         tailoredSections: agent.tailoredSections,
       });
@@ -366,6 +428,7 @@ export class GenerationCheckpointService {
     const resumable = { ...manifest };
     delete resumable.verifiedResult;
     delete resumable.propagation;
+    delete resumable.library;
     const next: GenerationCheckpointManifest = {
       ...resumable,
       ...(metadata?.tabBinding
@@ -401,6 +464,8 @@ export class GenerationCheckpointService {
       runId: next.runId,
       remaining: agentIds,
       carriedOver: carriedOver.map((agent) => agent.agentId),
+      // A manifest from before runs carried guards resumes create-only.
+      createOnly: next.fileGuards === undefined,
     });
     return {
       location,
@@ -464,14 +529,23 @@ export class GenerationCheckpointService {
     if (!updated) throw new Error('Generation checkpoint missing at finalize');
   }
 
+  /**
+   * Record the post-run facts of the invocation that just settled: its harness
+   * propagation and, when given, its Library refresh outcome.
+   */
   async recordPropagation(
     location: GenerationCheckpointLocation,
     propagation: NonNullable<GenerationCheckpointManifest['propagation']>,
+    library?: GenerationCheckpointManifest['library'],
   ): Promise<void> {
     const updated = await this.storage().updateGenerationManifest(
       location.workspaceRoot,
       location.analysisDir,
-      (current) => ({ ...current, propagation }),
+      (current) => ({
+        ...current,
+        propagation,
+        ...(library !== undefined ? { library } : {}),
+      }),
     );
     if (!updated)
       throw new Error('Generation checkpoint missing at propagation');

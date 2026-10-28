@@ -24,7 +24,6 @@ import {
   PLATFORM_TOKENS,
   FILE_BASED_SETTINGS_DEFAULTS,
   type IWorkspaceProvider,
-  type ContentDownloadService,
 } from '@ptah-extension/platform-core';
 import {
   SKILL_SYNTHESIS_TOKENS,
@@ -33,7 +32,6 @@ import {
   MIN_INVOCATIONS_TO_ENHANCE,
   ENHANCE_COOLDOWN_MS,
   ProposalNotFoundError,
-  resolveSkillsRoot,
   MANUAL_PREVIEW_JUDGE_SETTINGS,
   type SkillEnhancerService,
   type SkillRegistryStore,
@@ -44,6 +42,7 @@ import {
   type SkillRepropagationPort,
 } from '@ptah-extension/skill-synthesis';
 import type {
+  CloneEntry,
   UserLayerMirrorService,
   QuarantinedAgentItem,
   QuarantineRestoreResult,
@@ -58,6 +57,12 @@ import {
   type AgentModelSettings,
 } from '@ptah-extension/settings-core';
 import { CliModelListService } from '../services/cli-model-list.service';
+import { CloneRebaseService } from './skill-synthesis/clone-rebase.service';
+import {
+  CloneProvenanceResolver,
+  type CloneOriginFacts,
+  type ResolvedCloneOrigin,
+} from './skill-synthesis/clone-provenance.resolver';
 import type {
   RpcMethodName,
   SkillSynthesisListClonesParams,
@@ -184,8 +189,6 @@ export class SkillsSynthesisRpcHandlers {
     private readonly registry: SkillRegistryStore | null,
     @inject(USER_LAYER_MIRROR_SERVICE_TOKEN, { isOptional: true })
     private readonly mirror: UserLayerMirrorService | null,
-    @inject(PLATFORM_TOKENS.CONTENT_DOWNLOAD, { isOptional: true })
-    private readonly contentDownload: ContentDownloadService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SPEC_HARVESTER_SERVICE, { isOptional: true })
     private readonly specHarvester: SpecHarvesterService | null,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
@@ -209,6 +212,10 @@ export class SkillsSynthesisRpcHandlers {
     private readonly runtimeContainer: DependencyContainer | null,
     @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
     private readonly repropagation: SkillRepropagationPort | null,
+    @inject(CloneRebaseService)
+    private readonly cloneRebase: CloneRebaseService,
+    @inject(CloneProvenanceResolver)
+    private readonly provenanceResolver: CloneProvenanceResolver,
   ) {}
 
   register(): void {
@@ -245,18 +252,35 @@ export class SkillsSynthesisRpcHandlers {
       try {
         const registry = this.requireDesktop(this.registry);
         const mirror = this.requireDesktop(this.mirror);
-        const rows = registry.listAll();
-        const orphanFlags = await this.readOrphanFlags(mirror);
+        const scopeRoot = this.agentScope();
+        const scoped = await this.readScopedClones(mirror);
+        // Assumption A-rows: the registry is keyed by kind and slug only, so
+        // an agent row may belong to another workspace's Library. Only agents
+        // with a clone under this harness root are listed; when the scoped
+        // listing cannot be read every row is kept, as before.
+        const rows = registry
+          .listAll()
+          .filter(
+            (row) =>
+              row.kind !== 'agent' ||
+              scoped === null ||
+              scoped.has(`agent/${row.slug}`),
+          );
+        const origins = await this.resolveOrigins(mirror, rows);
         const clones = await Promise.all(
-          rows.map((row) =>
+          rows.map((row, index) =>
             this.toCloneSummary(
               row,
               mirror,
-              orphanFlags.get(`${row.kind}/${row.slug}`) === true,
+              scoped?.get(`${row.kind}/${row.slug}`)?.orphaned === true,
+              origins[index],
             ),
           ),
         );
-        return { clones };
+        return {
+          clones,
+          ...(scopeRoot !== undefined ? { scopeRoot } : {}),
+        };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
         this.report(error, 'SkillsSynthesisRpcHandlers.registerListClones');
@@ -293,10 +317,12 @@ export class SkillsSynthesisRpcHandlers {
           ts: h.ts,
           hasBody: h.hasSkillMd,
         }));
+        const [origin] = await this.resolveOrigins(mirror, [row]);
         const clone = await this.toCloneSummary(
           row,
           mirror,
           await this.readOrphanFlag(mirror, kind, parsed.slug),
+          origin,
         );
         return { clone, body, history };
       } catch (error: unknown) {
@@ -512,33 +538,30 @@ export class SkillsSynthesisRpcHandlers {
         'skillSynthesis:rebaseClone',
       );
       try {
-        const registry = this.requireDesktop(this.registry);
-        const mirror = this.requireDesktop(this.mirror);
-        const kind = parsed.kind as SkillRegistryKind;
-        const row = registry.getBySlug(kind, parsed.slug);
-        if (!row) {
-          throw new RpcUserError(
-            `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
-            'INVALID_PARAMS',
-          );
+        const outcome = await this.cloneRebase.rebase(
+          parsed.kind as SkillRegistryKind,
+          parsed.slug,
+          { scopeRoot: this.agentScope() },
+        );
+        switch (outcome.status) {
+          case 'unavailable':
+            // The same refusal `requireDesktop` gives every clone method.
+            throw this.desktopOnlyError();
+          case 'not-found':
+            throw new RpcUserError(
+              `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
+              'INVALID_PARAMS',
+            );
+          case 'source-unavailable':
+          case 'changed-since-approval':
+            // `changed-since-approval` needs an approval digest, which this
+            // route never passes; it is mapped only to keep the switch total.
+            throw new RpcUserError(
+              `Cannot resolve upstream source for "${parsed.slug}"; rebase unavailable.`,
+              'PERSISTENCE_UNAVAILABLE',
+            );
         }
-        const sourceDir = this.resolveUpstreamSourceDir(kind, parsed.slug, row);
-        if (!sourceDir) {
-          throw new RpcUserError(
-            `Cannot resolve upstream source for "${parsed.slug}"; rebase unavailable.`,
-            'PERSISTENCE_UNAVAILABLE',
-          );
-        }
-        const result = await mirror.rebaseClone({
-          kind,
-          slug: parsed.slug,
-          sourceDir,
-          workspaceRoot: this.agentScope(),
-        });
-        if (!result.failed) {
-          registry.setDiverged(kind, parsed.slug, false);
-          registry.setPending(kind, parsed.slug, null);
-        }
+        const result = outcome.result;
         return {
           kind: result.kind as SkillCloneKind,
           slug: result.slug,
@@ -673,7 +696,7 @@ export class SkillsSynthesisRpcHandlers {
               await this.repropagation.repropagate(
                 kind,
                 parsed.slug,
-                this.agentScope() ?? homedir(),
+                this.workspaceRoot() ?? homedir(),
                 { userInitiated: true },
               );
             } catch (error: unknown) {
@@ -972,7 +995,7 @@ export class SkillsSynthesisRpcHandlers {
         'skillSynthesis:invocationStats',
       );
       try {
-        const graded = this.scorecard?.getInvocationStats(parsed.kind, parsed.slug, this.agentScope() ?? null);
+        const graded = this.scorecard?.getInvocationStats(parsed.kind, parsed.slug, this.workspaceRoot() ?? null);
         return {
           slug: parsed.slug,
           stats: {
@@ -1017,7 +1040,7 @@ export class SkillsSynthesisRpcHandlers {
         // is a value the aggregate query has no room for (B4.3's own header).
         // Merging them here is what makes the number reachable by a UI at all
         // — B4.3 left it as a backend-only signal.
-        const workspaceRoot = this.agentScope() ?? null;
+        const workspaceRoot = this.workspaceRoot() ?? null;
         const scorecards = this.scorecard.getScorecards(parsed.slugs, workspaceRoot);
         const winRates = this.scorecard.getWinRates(parsed.slugs, workspaceRoot);
         const merged: Record<string, AgentScorecard> = {};
@@ -1058,7 +1081,7 @@ export class SkillsSynthesisRpcHandlers {
         }
         return await this.scorecard.getScorecardDetail(
           parsed.slug,
-          this.agentScope() ?? null,
+          this.workspaceRoot() ?? null,
           parsed.limit,
         );
       } catch (error: unknown) {
@@ -1154,12 +1177,16 @@ export class SkillsSynthesisRpcHandlers {
 
   private requireDesktop<T>(value: T | null): T {
     if (value === null || value === undefined) {
-      throw new RpcUserError(
-        'This feature is available in the Ptah desktop app only.',
-        'PERSISTENCE_UNAVAILABLE',
-      );
+      throw this.desktopOnlyError();
     }
     return value;
+  }
+
+  private desktopOnlyError(): RpcUserError {
+    return new RpcUserError(
+      'This feature is available in the Ptah desktop app only.',
+      'PERSISTENCE_UNAVAILABLE',
+    );
   }
 
   private toUserError(method: string): RpcUserError {
@@ -1173,10 +1200,11 @@ export class SkillsSynthesisRpcHandlers {
     row: SkillRegistryRow,
     mirror: UserLayerMirrorService,
     orphaned: boolean,
+    origin: ResolvedCloneOrigin | undefined,
   ): Promise<CloneSummary> {
     let stats: ReturnType<SkillScorecardService['getInvocationStats']> | undefined;
     try {
-      stats = this.scorecard?.getInvocationStats(row.kind, row.slug, this.agentScope() ?? null);
+      stats = this.scorecard?.getInvocationStats(row.kind, row.slug, this.workspaceRoot() ?? null);
     } catch (error: unknown) {
       this.logger.warn('[skill-synthesis] clone invocation stats unavailable', {
         kind: row.kind,
@@ -1212,7 +1240,80 @@ export class SkillsSynthesisRpcHandlers {
           ? row.lastEnhancedAt + ENHANCE_COOLDOWN_MS
           : null,
       orphaned,
+      ...(origin !== undefined ? { provenance: origin.provenance } : {}),
+      ...(origin?.divergedReason !== undefined
+        ? { divergedReason: origin.divergedReason }
+        : {}),
     };
+  }
+
+  /**
+   * Provenance and diverged reason for each row, in order (B13). Each row's
+   * source identity is read from its origin sidecar; a row whose sidecar
+   * cannot be read, or a resolver that cannot read the live sources, leaves
+   * that entry `undefined`, which the surfaces render as "Workspace file"
+   * (3.9) - the listing itself never fails over provenance.
+   */
+  private async resolveOrigins(
+    mirror: UserLayerMirrorService,
+    rows: readonly SkillRegistryRow[],
+  ): Promise<Array<ResolvedCloneOrigin | undefined>> {
+    const scopeRoot = this.agentScope();
+    const facts = await Promise.all(
+      rows.map((row) => this.readOriginFacts(mirror, row, scopeRoot)),
+    );
+    const known = facts.filter(
+      (fact): fact is CloneOriginFacts => fact !== null,
+    );
+    let resolved: ResolvedCloneOrigin[] | null;
+    try {
+      resolved = await this.provenanceResolver.resolveAll(scopeRoot, known);
+    } catch (error: unknown) {
+      // Provenance is a label: an omitted one renders as "Workspace file"
+      // (3.9) and the listing stays usable. The warning records why.
+      this.logger.warn('[skill-synthesis] clone provenance unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      resolved = null;
+    }
+    let next = 0;
+    return facts.map((fact) =>
+      fact === null || resolved === null ? undefined : resolved[next++],
+    );
+  }
+
+  /**
+   * One row's origin facts from its sidecar, or `null` when the sidecar
+   * exists but cannot be read. A row with no sidecar is plugin-less.
+   */
+  private async readOriginFacts(
+    mirror: UserLayerMirrorService,
+    row: SkillRegistryRow,
+    scopeRoot: string | undefined,
+  ): Promise<CloneOriginFacts | null> {
+    try {
+      const state = await mirror.readCloneEditState(row.kind, row.slug, scopeRoot);
+      return {
+        kind: row.kind as SkillCloneKind,
+        slug: row.slug,
+        pluginId: state === null ? null : state.pluginId,
+        ...(state?.sourceRef !== undefined ? { sourceRef: state.sourceRef } : {}),
+        ...(state?.sourceLabel !== undefined
+          ? { sourceLabel: state.sourceLabel }
+          : {}),
+        diverged: row.diverged,
+        pendingSourceHash: row.pendingSourceHash,
+      };
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - an unreadable sidecar omits
+      // this row's provenance only; it renders as "Workspace file" (3.9).
+      this.logger.warn('[skill-synthesis] clone origin unreadable; provenance omitted', {
+        kind: row.kind,
+        slug: row.slug,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /**
@@ -1224,15 +1325,10 @@ export class SkillsSynthesisRpcHandlers {
    * an un-flagged clone renders exactly as it did before this field existed.
    */
   /**
-   * The workspace whose AGENT clones this surface addresses, or `undefined`.
-   *
-   * Agent clones are keyed by workspace (TASK_2026_365) because the setup
-   * wizard tailors an agent per project and names it after the role, so two
-   * projects write two different `backend-developer.md`. Skills and commands are
-   * per-machine and ignore this. A host with no folder open passes `undefined`
-   * and reads the unscoped base, which holds the pre-key clones.
+   * The open workspace folder as the host reports it, or `undefined`. Keys
+   * the invocation statistics and scorecards, which are recorded per folder.
    */
-  private agentScope(): string | undefined {
+  private workspaceRoot(): string | undefined {
     try {
       const root = this.workspaceProvider.getWorkspaceRoot();
       return root && root.length > 0 ? root : undefined;
@@ -1245,14 +1341,27 @@ export class SkillsSynthesisRpcHandlers {
   }
 
   /**
-   * The root the quarantine is keyed by: the harness-resolved workspace root,
-   * the same one the mirror pass and the agent-sync gate use
-   * (`resolveAgentMirrorSource`). Absolute by construction (`path.resolve`),
-   * which the mirror facade requires. `null` when no folder is open.
+   * The harness root whose AGENT clones this surface addresses, or
+   * `undefined` with no folder open.
+   *
+   * Agent clones are keyed by workspace (TASK_2026_365) because the setup
+   * wizard tailors an agent per project and names it after the role, so two
+   * projects write two different `backend-developer.md`. The key is the
+   * harness root (2.5): the root the agent mirror pass, the quarantine, the
+   * agent-sync gate and the `library:changed` push use, so a sub-folder of a
+   * repository lists that repository's agents. Absolute by construction
+   * (`path.resolve`), which the mirror facade requires. Skills and commands
+   * are per-machine and ignore it. With no folder open the unscoped base is
+   * read, which holds the pre-key clones.
    */
+  private agentScope(): string | undefined {
+    const root = this.workspaceRoot();
+    return root === undefined ? undefined : resolveHarnessWorkspaceRoot(root);
+  }
+
+  /** The root the quarantine is keyed by: the agent scope, or `null`. */
   private quarantineWorkspaceRoot(): string | null {
-    const raw = this.agentScope();
-    return raw === undefined ? null : resolveHarnessWorkspaceRoot(raw);
+    return this.agentScope() ?? null;
   }
 
   /**
@@ -1375,20 +1484,30 @@ export class SkillsSynthesisRpcHandlers {
     }
   }
 
-  private async readOrphanFlags(
+  /**
+   * `kind/slug` -> sidecar entry for every clone in the scoped Library, or
+   * `null` when the sidecars cannot be listed. The registry has no `orphaned`
+   * column (that would be a migration for a flag the sidecar already owns),
+   * so the list path joins the two. `null` degrades to "nothing is orphaned"
+   * and to no agent scoping rather than failing the whole listing; an
+   * un-flagged clone renders exactly as it did before the field existed.
+   */
+  private async readScopedClones(
     mirror: UserLayerMirrorService,
-  ): Promise<ReadonlyMap<string, boolean>> {
+  ): Promise<ReadonlyMap<string, CloneEntry> | null> {
     try {
       const entries = await mirror.listClones(this.agentScope());
       return new Map(
-        entries.map((entry) => [`${entry.kind}/${entry.slug}`, entry.orphaned]),
+        entries.map((entry) => [`${entry.kind}/${entry.slug}`, entry]),
       );
     } catch (error: unknown) {
+      // degradation-audit: reported - logged; `null` lists every row unscoped
+      // and un-orphaned, as the surface rendered before either existed.
       this.logger.warn(
         '[skill-synthesis] could not read clone origin sidecars for orphan flags',
         { error: error instanceof Error ? error.message : String(error) },
       );
-      return new Map<string, boolean>();
+      return null;
     }
   }
 
@@ -1441,56 +1560,6 @@ export class SkillsSynthesisRpcHandlers {
     return resolved === root || resolved.startsWith(root + sep);
   }
 
-  /**
-   * Where `rebaseClone` should copy FROM, for every clone kind and both origins.
-   *
-   * Two things were wrong here before TASK_2026_278:
-   *
-   *  - A clone with no `originPluginId` returned `null`, so a SYNTH skill and a
-   *    workspace-authored AGENT could be flagged diverged and then never
-   *    rebased — the UI offered a button that always failed (defect 8). Their
-   *    upstreams are `<skillsRoot>/<slug>/` and `{ws}/.claude/agents/<slug>.md`.
-   *  - The plugin branch returned the commands/agents DIRECTORY, while
-   *    `rebaseFileClone` probes it with `fileExists`. That is always false, so
-   *    every plugin command/agent rebase answered `source-missing` regardless of
-   *    what was on disk. Both now resolve to the `<slug>.md` FILE.
-   *
-   * A command with no plugin origin still returns `null`: nothing in the tree
-   * writes a plugin-less command clone, so there is no upstream to name and
-   * inventing one would rebase from a path that never existed.
-   */
-  private resolveUpstreamSourceDir(
-    kind: SkillRegistryKind,
-    slug: string,
-    row: SkillRegistryRow,
-  ): string | null {
-    if (isUnsafePathSegment(slug)) return null;
-
-    if (row.originPluginId) {
-      if (!this.contentDownload) return null;
-      if (isUnsafePathSegment(row.originPluginId)) return null;
-      const pluginsPath = this.contentDownload.getPluginsPath();
-      if (kind === 'skill') {
-        return join(pluginsPath, row.originPluginId, 'skills', slug);
-      }
-      if (kind === 'command') {
-        return join(pluginsPath, row.originPluginId, 'commands', `${slug}.md`);
-      }
-      return join(pluginsPath, row.originPluginId, 'agents', `${slug}.md`);
-    }
-
-    if (kind === 'skill') {
-      return join(resolveSkillsRoot(this.workspaceProvider), slug);
-    }
-    if (kind === 'agent') {
-      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-      return workspaceRoot
-        ? join(workspaceRoot, '.claude', 'agents', `${slug}.md`)
-        : null;
-    }
-    return null;
-  }
-
   private assertSkillsNotPaused(method: RpcMethodName): void {
     const enabled = this.workspaceProvider.getConfiguration<unknown>(
       'ptah',
@@ -1510,20 +1579,6 @@ export class SkillsSynthesisRpcHandlers {
 
     this.sentryService.captureException(err, { errorSource });
   }
-}
-
-/**
- * Reject anything that would let a stored id or slug escape the root it is
- * joined onto. Applied to BOTH halves of the join — the slug reaches here from
- * RPC params and the plugin id from a SQLite row, and either is enough.
- */
-function isUnsafePathSegment(segment: string): boolean {
-  return (
-    segment.length === 0 ||
-    segment.includes('/') ||
-    segment.includes('\\') ||
-    segment.includes('..')
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

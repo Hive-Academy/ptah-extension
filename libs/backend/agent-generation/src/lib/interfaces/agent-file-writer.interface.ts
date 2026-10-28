@@ -1,8 +1,9 @@
 /**
  * Agent File Writer Interface
  *
- * Service interface for writing generated agents to the filesystem.
- * Implements atomic operations with rollback support for reliability.
+ * Service interface for the guarded agent writer: the only place a wizard
+ * agent file is written. Every write carries the decision the user made for
+ * that file, and the writer re-checks the file on disk before acting on it.
  *
  * @module @ptah-extension/agent-generation/interfaces
  */
@@ -11,86 +12,88 @@ import { Result } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../types/core.types';
 
 /**
+ * What the file looked like when the user decided to replace it.
+ *
+ * - `missing`: there was no file; a file that appears since then was not
+ *   part of the decision.
+ * - `present`: the file existed with this `hashContent` hash; any other
+ *   content now on disk was not part of the decision.
+ */
+export type AgentWriteBaseline =
+  | { state: 'missing' }
+  | { state: 'present'; hash: string };
+
+/**
+ * The write permission for one agent file.
+ *
+ * - `create-only`: write only when no file exists; never touch an existing one.
+ * - `replace-allowed`: replace the file, but only while it still matches the
+ *   `baseline` the decision was made against.
+ */
+export type AgentWriteGuard =
+  | { mode: 'create-only' }
+  | { mode: 'replace-allowed'; baseline: AgentWriteBaseline };
+
+/**
+ * Terminal status of one guarded write that did not fail.
+ *
+ * - `written`: the file now holds the new content.
+ * - `unchanged`: the file already held exactly the new content.
+ * - `kept`: an existing file was left alone (create-only, or it could not be
+ *   read, so nothing is known about what replacing it would destroy).
+ * - `changed-since-preview`: replace was allowed, but the file no longer
+ *   matches the baseline, so it was left alone.
+ *
+ * A write error is not a status: it is `Result.err`.
+ */
+export type AgentWriteStatus =
+  | 'written'
+  | 'unchanged'
+  | 'kept'
+  | 'changed-since-preview';
+
+/** Outcome of one guarded agent write. */
+export interface AgentWriteResult {
+  /** Absolute, normalized path of the target file. */
+  filePath: string;
+  status: AgentWriteStatus;
+}
+
+/**
  * Service for writing generated agents to the filesystem.
  *
  * Responsibilities:
- * - Write agent files to .claude/agents/ directory
- * - Overwrite existing files in place (no backup — avoids duplicate agent .md files)
+ * - Re-read the target and apply the write guard before any write
+ * - Skip the write when the existing bytes already match (`unchanged`)
  * - Directory creation if missing
  * - Path traversal protection
  *
  * @example
  * ```typescript
- * const result = await fileWriter.writeAgent(generatedAgent);
- * if (result.isOk()) {
- *   const filePath = result.value;
- *   console.log(`Agent written to: ${filePath}`);
+ * const result = await fileWriter.writeAgent(generatedAgent, {
+ *   mode: 'create-only',
+ * });
+ * if (result.isOk() && result.value.status === 'kept') {
+ *   // the user's existing file was left alone
  * }
  * ```
  */
 export interface IAgentFileWriterService {
   /**
-   * Write a generated agent to its target path.
+   * Write a generated agent to its target path under a write guard.
    *
-   * Performs the following operations atomically:
-   * 1. Create target directory if it doesn't exist
-   * 2. Write new content to target path (overwrites existing)
-   * 3. Verify write succeeded
+   * 1. Validate content and path (absolute, inside `.claude/`, no traversal)
+   * 2. Read the target: not found → absent; any other read error → `kept`
+   * 3. Equal bytes → `unchanged`, nothing written
+   * 4. Apply the guard (`kept` / `changed-since-preview` leave the file alone)
+   * 5. Create the parent directory and write → `written`
    *
-   * If any step fails, previous steps are rolled back and error is returned.
-   *
-   * @param agent - Generated agent with content and target file path
-   * @returns Result containing absolute file path where agent was written, or Error
-   *
-   * @example
-   * ```typescript
-   * const result = await service.writeAgent(generatedAgent);
-   * if (result.isErr()) {
-   *   console.error('Failed to write agent:', result.error);
-   *   return;
-   * }
-   *
-   * const filePath = result.value;
-   * console.log(`Agent successfully written to: ${filePath}`);
-   * ```
+   * @param agent - Generated agent with content and absolute target path
+   * @param guard - The write permission the user's decision grants
+   * @returns The target path and its status, or the validation/write error
    */
   writeAgent(
     agent: GeneratedAgent,
-  ): Promise<
-    Result<{ filePath: string; status: 'written' | 'unchanged' }, Error>
-  >;
-
-  /**
-   * Write multiple agents atomically.
-   *
-   * Writes all agents sequentially. If any write fails, previously written
-   * files in this batch are cleaned up. Existing files are overwritten in place.
-   *
-   * Write order:
-   * 1. Validate all agents (paths, content)
-   * 2. Create all necessary directories
-   * 3. Write all new files (overwrite existing)
-   * 4. On failure: delete partial writes
-   *
-   * @param agents - Array of generated agents to write
-   * @returns Result containing array of absolute file paths written, or Error
-   *
-   * @example
-   * ```typescript
-   * const result = await service.writeAgentsBatch(generatedAgents);
-   * if (result.isErr()) {
-   *   console.error('Batch write failed (rolled back):', result.error);
-   *   return;
-   * }
-   *
-   * const filePaths = result.value;
-   * console.log(`Successfully wrote ${filePaths.length} agents:`);
-   * filePaths.forEach(path => console.log(`- ${path}`));
-   * ```
-   */
-  writeAgentsBatch(
-    agents: GeneratedAgent[],
-  ): Promise<
-    Result<Array<{ filePath: string; status: 'written' | 'unchanged' }>, Error>
-  >;
+    guard: AgentWriteGuard,
+  ): Promise<Result<AgentWriteResult, Error>>;
 }

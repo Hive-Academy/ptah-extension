@@ -158,7 +158,7 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
-import { SetupRpcHandlers } from './setup-rpc.handlers';
+import { SetupRpcHandlers, type PackInstaller } from './setup-rpc.handlers';
 
 // ---------------------------------------------------------------------------
 // Token re-declaration (via Symbol.for) — avoids transitively loading the
@@ -244,8 +244,19 @@ function createMockContainer(): MockContainer {
 
 const WORKSPACE = '/fake/workspace';
 
+type MockPackInstaller = jest.Mocked<PackInstaller>;
+
+function createMockPackInstaller(): MockPackInstaller {
+  return {
+    listPacks: jest.fn().mockResolvedValue([]),
+    plan: jest.fn(),
+    install: jest.fn(),
+  };
+}
+
 interface Harness {
   handlers: SetupRpcHandlers;
+  packInstall: MockPackInstaller;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   pluginLoader: MockPluginLoader;
@@ -263,6 +274,7 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
   });
   const container = createMockContainer();
   const sentry = createMockSentryService();
+  const packInstall = createMockPackInstaller();
 
   const handlers = new SetupRpcHandlers(
     logger as unknown as Logger,
@@ -271,10 +283,12 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     container as unknown as DependencyContainer,
     sentry as unknown as SentryService,
+    packInstall,
   );
 
   return {
     handlers,
+    packInstall,
     logger,
     rpcHandler,
     pluginLoader,
@@ -337,6 +351,7 @@ describe('SetupRpcHandlers', () => {
           'wizard:analysis-status',
           'wizard:install-pack-agents',
           'wizard:list-agent-packs',
+          'wizard:plan-pack-install',
           'wizard:list-analyses',
           'wizard:load-analysis',
           'wizard:recommend-agents',
@@ -1120,25 +1135,118 @@ describe('SetupRpcHandlers', () => {
   // wizard:install-pack-agents — untrusted source rejection
   // -------------------------------------------------------------------------
 
-  describe('wizard:install-pack-agents', () => {
-    it('rejects sources not in the curated pack list', async () => {
+  describe('community pack methods (delegate to PackInstallService)', () => {
+    const SOURCE = 'https://example.com/pack/agent-pack-manifest.json';
+
+    it('lists packs through the pack install service', async () => {
+      const h = makeHarness();
+      h.packInstall.listPacks.mockResolvedValue([
+        {
+          name: 'Pack',
+          version: '1.0.0',
+          description: 'd',
+          agents: [],
+          source: SOURCE,
+        },
+      ]);
+      h.handlers.register();
+
+      const result = await call<{ packs: unknown[] }>(
+        h,
+        'wizard:list-agent-packs',
+      );
+
+      expect(result.packs).toHaveLength(1);
+    });
+
+    it('passes parsed plan params through and returns the plan', async () => {
+      const h = makeHarness();
+      const plan = {
+        planToken: '00000000-0000-4000-8000-000000000001',
+        target: {
+          harnessRoot: WORKSPACE,
+          openedFolder: WORKSPACE,
+          chosen: 'harness-root' as const,
+          openedIsHarnessRoot: true,
+        },
+        files: [],
+      };
+      h.packInstall.plan.mockResolvedValue(plan);
+      h.handlers.register();
+
+      const result = await call(h, 'wizard:plan-pack-install', {
+        source: SOURCE,
+        agentFiles: ['a.md'],
+        target: 'opened-folder',
+      });
+
+      expect(h.packInstall.plan).toHaveBeenCalledWith({
+        source: SOURCE,
+        agentFiles: ['a.md'],
+        target: 'opened-folder',
+      });
+      expect(result).toEqual(plan);
+    });
+
+    it('rejects an invalid plan request as INVALID_PARAMS without planning', async () => {
       const h = makeHarness();
       h.handlers.register();
 
-      // The handler calls AgentPackDownloadService.listCuratedPacks() which
-      // reaches out to the real curated list. When nothing matches
-      // `params.source`, the handler must throw with a trust message —
-      // regardless of whether the network succeeded or failed, an
-      // "evil.example.com" URL cannot match.
+      const response = await callRaw(h, 'wizard:plan-pack-install', {
+        source: SOURCE,
+        agentFiles: ['a.md'],
+        target: 'elsewhere',
+      });
+
+      expect(response.success).toBe(false);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+      expect(h.packInstall.plan).not.toHaveBeenCalled();
+    });
+
+    it('passes the token, decisions and target of an install through', async () => {
+      const h = makeHarness();
+      h.packInstall.install.mockResolvedValue({
+        success: true,
+        agentsDownloaded: 1,
+        fromCache: true,
+        files: [{ file: 'a.md', outcome: 'written' }],
+        libraryPass: 'updated',
+      });
+      h.handlers.register();
+      const params = {
+        source: SOURCE,
+        agentFiles: ['a.md'],
+        planToken: '00000000-0000-4000-8000-000000000001',
+        decisions: { 'a.md': { decision: 'replace', revision: 'r1' } },
+        target: 'harness-root',
+      };
+
+      const result = await call<{ libraryPass: string }>(
+        h,
+        'wizard:install-pack-agents',
+        params,
+      );
+
+      expect(h.packInstall.install).toHaveBeenCalledWith(params);
+      expect(result.libraryPass).toBe('updated');
+    });
+
+    it('surfaces a refused install as a failed RPC', async () => {
+      const h = makeHarness();
+      h.packInstall.install.mockRejectedValue(
+        new Error(
+          'Untrusted agent pack source: "https://evil.example.com". Only curated sources are allowed.',
+        ),
+      );
+      h.handlers.register();
+
       const response = await callRaw(h, 'wizard:install-pack-agents', {
-        source: 'https://evil.example.com/malicious-pack',
+        source: 'https://evil.example.com',
         agentFiles: ['attack.md'],
       });
 
       expect(response.success).toBe(false);
-      // Either the untrusted-source guard fires, or the network fetch
-      // fails first — either way, we MUST NOT see success=true.
-      expect(response.error).toBeDefined();
+      expect(response.error).toMatch(/Untrusted agent pack source/);
     });
   });
 

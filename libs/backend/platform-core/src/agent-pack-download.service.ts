@@ -1,24 +1,50 @@
 /**
  * AgentPackDownloadService
  *
- * Downloads pre-built agent packs from curated GitHub repositories to local directories.
- * Platform-agnostic: NO vscode imports. Usable from VS Code and Electron.
+ * Fetches pre-built agent packs from curated GitHub repositories and installs
+ * their agent files under per-file keep/replace guards.
+ * Platform-agnostic: NO vscode imports. Usable from VS Code, Electron and CLI.
  *
- * Pattern: ContentDownloadService (content-download.service.ts)
- * - Uses homedir() for ~/.ptah/ path resolution
- * - Uses atomic writes (temp + rename) for safety
- * - Handles first-run gracefully (directories don't exist)
- * - In-flight promise deduplication
- * - 30s timeout per download
+ * Two steps (TASK_2026_701 B8):
+ * - {@link AgentPackDownloadService.planDownload} fetches the requested files
+ *   into memory and compares each with the file on disk. It writes nothing.
+ * - {@link AgentPackDownloadService.installFiles} writes caller-supplied
+ *   content under a guard per file, re-reading every destination right before
+ *   the write, so a decision made on an earlier plan never overwrites content
+ *   the user did not see.
+ *
+ * Concurrency (A22, A2): network fetches are deduplicated by URL only. Writes
+ * are never shared between callers: installs into one canonical target
+ * directory run one after another, each with its own guards and outcomes.
+ * Each file's final re-read and mutation run inside the process-wide
+ * per-destination lock ({@link destinationWriteLock}) that the wizard
+ * agent writer also takes, so Ptah writers never interleave a baseline
+ * re-check with another Ptah writer's mutation of the same file. An absent
+ * destination is still created no-clobber (hard link / `wx`) because other
+ * processes are not covered by that lock: a file created meanwhile is never
+ * replaced (`kept`, or `changed-since-preview` under `replace`). See
+ * `replaceIfBaseline` for the window that remains against other processes.
+ *
+ * The guard rules mirror the agent-generation writer (B2). They are restated
+ * here because platform-core cannot depend on agent-generation:
+ * - unreadable destination → `kept`;
+ * - destination already holds the incoming bytes → `unchanged`;
+ * - `create-only`: write only when nothing is there, else `kept`;
+ * - `keep`: never write (`kept`);
+ * - `replace`: write when the destination still hashes to the baseline the
+ *   user saw (or was deleted since), else `changed-since-preview`.
  */
 
-import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
-import { homedir } from 'os';
 import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
+import type { FileOutcome, PackFileState } from '@ptah-extension/shared';
+import {
+  destinationLockKey,
+  destinationWriteLock,
+} from './utils/destination-write-lock';
 
 /** Agent pack manifest structure (hosted at repo: agent-pack-manifest.json) */
 interface AgentPackManifest {
@@ -47,43 +73,101 @@ export interface AgentPackInfo {
   source: string;
 }
 
-/** Result of a download operation */
-export interface AgentPackDownloadResult {
-  success: boolean;
-  agentsDownloaded: number;
-  fromCache: boolean;
+/**
+ * One requested pack file after planning: either fetched and compared with
+ * the destination, or not fetched (that file failed; the others proceed).
+ */
+export type AgentPackFilePlan =
+  | {
+      file: string;
+      fetched: true;
+      state: PackFileState;
+      /** Incoming pack text. */
+      content: string;
+      /** Hash of the destination text; present for `identical` and `differs`. */
+      baselineHash?: string;
+      /** Destination text; present for `differs` only. */
+      localText?: string;
+    }
+  | { file: string; fetched: false; error: string };
+
+/**
+ * Result of {@link AgentPackDownloadService.planDownload}. `ok: false` means
+ * the request as a whole could not be planned (invalid file names, manifest
+ * unavailable, files missing from the manifest).
+ */
+export type AgentPackPlanResult =
+  { ok: true; files: AgentPackFilePlan[] } | { ok: false; error: string };
+
+/** The write permission one install item carries. */
+export type PackFileGuard =
+  | { mode: 'create-only' }
+  | { mode: 'keep' }
+  | { mode: 'replace'; baselineHash: string };
+
+/** One file to install with its incoming content and guard. */
+export interface AgentPackInstallItem {
+  file: string;
+  content: string;
+  guard: PackFileGuard;
+}
+
+/** Terminal outcome of one install item. `error` is set for `failed` only. */
+export interface AgentPackInstallOutcome {
+  file: string;
+  outcome: FileOutcome;
   error?: string;
 }
 
-/** Cache metadata stored at ~/.ptah/.agent-pack-cache.json */
-interface AgentPackCacheMetadata {
-  /** Map of manifest URL -> cache entry */
-  packs: Record<
-    string,
-    {
-      contentHash: string;
-      downloadedAt: string;
-      version: string;
-      agentCount: number;
-    }
-  >;
+/** What is at a destination right now. */
+type LocalFile =
+  | { state: 'absent' }
+  | { state: 'present'; text: string }
+  | { state: 'unreadable'; code: string | undefined };
+
+/** Hash used for pack baselines: SHA-256 of the UTF-8 text. */
+export function hashPackContent(text: string): string {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-/** Progress callback for UI integration */
-type AgentPackProgressCallback = (downloaded: number, total: number) => void;
+/**
+ * The `code` of a Node system error. Structural, not `instanceof Error`: an
+ * fs error can come from another realm.
+ */
+function errnoCode(error: unknown): string | undefined {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const { code } = error;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
+/** `link` errors that mean "this filesystem has no hard links here". */
+const NO_HARD_LINK_CODES: ReadonlySet<string> = new Set([
+  'EPERM',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'ENOSYS',
+  'EXDEV',
+  'EMLINK',
+]);
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** True when `candidate` is `root` or lies under it. */
+function isInsideRoot(candidate: string, root: string): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(candidate));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
 
 export class AgentPackDownloadService {
-  private readonly ptahDir: string;
-  private readonly cacheMetadataPath: string;
+  /** In-flight network fetches keyed by URL. Never holds a write. */
+  private readonly inFlightFetches = new Map<string, Promise<string>>();
 
-  /** In-flight download promises for deduplicating concurrent calls, keyed by manifest URL */
-  private readonly inFlightPromises = new Map<
-    string,
-    Promise<AgentPackDownloadResult>
-  >();
-
-  /** Write serialization -- prevents concurrent file writes from corrupting the cache */
-  private writePromise: Promise<void> = Promise.resolve();
+  /** Tail of the install chain per canonical target directory. */
+  private readonly targetChains = new Map<string, Promise<void>>();
 
   /** Maximum parallel file downloads */
   private static readonly MAX_CONCURRENCY = 10;
@@ -92,11 +176,6 @@ export class AgentPackDownloadService {
   private static readonly CURATED_PACKS: string[] = [
     'https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main/agent-pack-manifest.json',
   ];
-
-  constructor() {
-    this.ptahDir = path.join(homedir(), '.ptah');
-    this.cacheMetadataPath = path.join(this.ptahDir, '.agent-pack-cache.json');
-  }
 
   /**
    * Fetch information about an agent pack from its manifest URL.
@@ -115,7 +194,7 @@ export class AgentPackDownloadService {
         source: manifestUrl,
       };
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       console.warn(
         `[AgentPackDownloadService] Failed to fetch pack info from ${manifestUrl}: ${message}`,
       );
@@ -127,61 +206,6 @@ export class AgentPackDownloadService {
         source: manifestUrl,
       };
     }
-  }
-
-  /**
-   * Download selected agents from a pack to the target directory.
-   *
-   * 1. Fetch manifest from the manifest URL
-   * 2. Validate requested agent files against the manifest
-   * 3. Check cache to avoid re-downloading unchanged content
-   * 4. Download agent files to targetDir with atomic writes
-   *
-   * Safe to call multiple times with the same manifest URL -- deduplicates
-   * concurrent calls. Never throws -- all errors are caught and returned
-   * in the result.
-   *
-   * @param manifestUrl - URL to the agent pack manifest JSON
-   * @param agentFiles - List of agent file names to download (must match manifest entries)
-   * @param targetDir - Local directory to save downloaded agent files
-   * @param onProgress - Optional progress callback (downloaded count, total count)
-   */
-  async downloadAgents(
-    manifestUrl: string,
-    agentFiles: string[],
-    targetDir: string,
-    onProgress?: AgentPackProgressCallback,
-  ): Promise<AgentPackDownloadResult> {
-    const cacheKey = this.buildCacheKey(manifestUrl, agentFiles);
-    const existing = this.inFlightPromises.get(cacheKey);
-    if (existing) {
-      return existing;
-    }
-
-    const promise = this.doDownloadAgents(
-      manifestUrl,
-      agentFiles,
-      targetDir,
-      onProgress,
-    )
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(
-          `[AgentPackDownloadService] downloadAgents failed: ${message}`,
-        );
-        return {
-          success: false,
-          agentsDownloaded: 0,
-          fromCache: false,
-          error: message,
-        } as AgentPackDownloadResult;
-      })
-      .finally(() => {
-        this.inFlightPromises.delete(cacheKey);
-      });
-
-    this.inFlightPromises.set(cacheKey, promise);
-    return promise;
   }
 
   /**
@@ -202,140 +226,373 @@ export class AgentPackDownloadService {
   }
 
   /**
-   * Core download logic, separated from the public deduplication wrapper.
+   * Fetch the requested pack files into memory and compare each with its
+   * destination under `targetDir`. Writes nothing.
+   *
+   * `agentFiles` may name one file (per-file install or retry) or the whole
+   * pack; duplicates are planned once. A file whose download fails is
+   * returned as `fetched: false` and the others proceed. Never throws.
    */
-  private async doDownloadAgents(
+  async planDownload(
     manifestUrl: string,
-    agentFiles: string[],
+    agentFiles: readonly string[],
     targetDir: string,
-    onProgress?: AgentPackProgressCallback,
-  ): Promise<AgentPackDownloadResult> {
-    const validationError = this.validateAgentFiles(agentFiles);
+  ): Promise<AgentPackPlanResult> {
+    const files = [...new Set(agentFiles)];
+    const validationError = this.validateAgentFiles(files);
     if (validationError) {
-      return {
-        success: false,
-        agentsDownloaded: 0,
-        fromCache: false,
-        error: validationError,
-      };
+      return { ok: false, error: validationError };
     }
 
     let manifest: AgentPackManifest;
     try {
       manifest = await this.fetchManifest(manifestUrl);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
       return {
-        success: false,
-        agentsDownloaded: 0,
-        fromCache: false,
-        error: `Manifest fetch failed: ${message}`,
+        ok: false,
+        error: `Manifest fetch failed: ${errorMessage(error)}`,
       };
     }
 
     const manifestFileSet = new Set(manifest.agents.map((a) => a.file));
-    const missingFiles = agentFiles.filter((f) => !manifestFileSet.has(f));
+    const missingFiles = files.filter((f) => !manifestFileSet.has(f));
     if (missingFiles.length > 0) {
       return {
-        success: false,
-        agentsDownloaded: 0,
-        fromCache: false,
+        ok: false,
         error: `Files not found in manifest: ${missingFiles.join(', ')}`,
       };
     }
-    const cacheEntry = this.getCacheEntry(manifestUrl);
-    if (
-      cacheEntry &&
-      manifest.contentHash &&
-      cacheEntry.contentHash === manifest.contentHash &&
-      cacheEntry.agentCount === agentFiles.length
-    ) {
-      const allExist = agentFiles.every((file) => {
-        const localPath = path.join(targetDir, path.basename(file));
-        return fs.existsSync(localPath);
-      });
 
-      if (allExist) {
-        onProgress?.(agentFiles.length, agentFiles.length);
-        return {
-          success: true,
-          agentsDownloaded: agentFiles.length,
-          fromCache: true,
-        };
-      }
-    }
-
-    const totalFiles = agentFiles.length;
-    let succeeded = 0;
-    let failed = 0;
-    let completed = 0;
-
-    onProgress?.(0, totalFiles);
+    const planned: AgentPackFilePlan[] = [];
     for (
       let i = 0;
-      i < agentFiles.length;
+      i < files.length;
       i += AgentPackDownloadService.MAX_CONCURRENCY
     ) {
-      const chunk = agentFiles.slice(
+      const chunk = files.slice(
         i,
         i + AgentPackDownloadService.MAX_CONCURRENCY,
       );
-
-      const results = await Promise.allSettled(
-        chunk.map(async (file) => {
-          const url = `${manifest.baseUrl}/${file}`;
-          const localPath = path.resolve(targetDir, path.basename(file));
-          if (!localPath.startsWith(path.resolve(targetDir) + path.sep)) {
-            throw new Error(
-              `Path traversal detected: "${file}" resolves outside target directory`,
-            );
-          }
-
-          await this.downloadFile(url, localPath);
-        }),
+      const results = await Promise.all(
+        chunk.map((file) => this.planFile(manifest.baseUrl, file, targetDir)),
       );
+      planned.push(...results);
+    }
+    return { ok: true, files: planned };
+  }
 
-      for (const result of results) {
-        completed++;
-        if (result.status === 'fulfilled') {
-          succeeded++;
-        } else {
-          failed++;
-          console.warn(
-            `[AgentPackDownloadService] Failed to download file: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
-          );
-        }
-        onProgress?.(completed, totalFiles);
+  /**
+   * Write each item under its guard into `targetDir`, in order. Calls for the
+   * same canonical directory are serialized; each evaluates its own guards
+   * against the destination as it is when its turn comes. Never throws: a
+   * write error is that item's `failed` outcome.
+   */
+  installFiles(
+    targetDir: string,
+    items: readonly AgentPackInstallItem[],
+  ): Promise<AgentPackInstallOutcome[]> {
+    const key = destinationLockKey(targetDir);
+    const previous = this.targetChains.get(key) ?? Promise.resolve();
+    const run = previous.then(() => this.installSequentially(targetDir, items));
+    // `installSequentially` settles every item into an outcome, so `run`
+    // resolves; the tail only orders the next caller after this one.
+    const tail = run.then(() => undefined);
+    this.targetChains.set(key, tail);
+    void tail.then(() => {
+      if (this.targetChains.get(key) === tail) {
+        this.targetChains.delete(key);
       }
+    });
+    return run;
+  }
+
+  private async installSequentially(
+    targetDir: string,
+    items: readonly AgentPackInstallItem[],
+  ): Promise<AgentPackInstallOutcome[]> {
+    const outcomes: AgentPackInstallOutcome[] = [];
+    for (const item of items) {
+      outcomes.push(await this.installOne(targetDir, item));
+    }
+    return outcomes;
+  }
+
+  private async installOne(
+    targetDir: string,
+    item: AgentPackInstallItem,
+  ): Promise<AgentPackInstallOutcome> {
+    const { file } = item;
+    const nameError = this.validateAgentFiles([file]);
+    if (nameError) {
+      return { file, outcome: 'failed', error: nameError };
+    }
+    const destPath = this.destinationFor(targetDir, file);
+    if (destPath === null) {
+      return {
+        file,
+        outcome: 'failed',
+        error: `Path traversal detected: "${file}" resolves outside target directory`,
+      };
     }
 
-    const cacheMetadata = this.loadCacheMetadata();
-    cacheMetadata.packs[manifestUrl] = {
-      contentHash: manifest.contentHash,
-      downloadedAt: new Date().toISOString(),
-      version: manifest.version,
-      agentCount: succeeded,
-    };
+    const local = await this.readLocal(destPath);
+    if (local.state === 'unreadable') {
+      return { file, outcome: 'kept' };
+    }
+    if (local.state === 'present' && local.text === item.content) {
+      return { file, outcome: 'unchanged' };
+    }
+    const blocked = this.blockedByGuard(item.guard, local);
+    if (blocked !== null) {
+      return { file, outcome: blocked };
+    }
 
-    this.writePromise = this.writePromise.then(
-      () => this.persistCacheMetadata(cacheMetadata),
-      () => this.persistCacheMetadata(cacheMetadata),
+    try {
+      // The final re-check and mutation hold the destination lock shared
+      // with the wizard agent writer, so no other Ptah writer can mutate the
+      // file between them.
+      return await destinationWriteLock.run(destPath, () =>
+        this.commitItem(destPath, item, local.state),
+      );
+    } catch (error: unknown) {
+      return { file, outcome: 'failed', error: errorMessage(error) };
+    }
+  }
+
+  /**
+   * Mutate one destination that passed its guard. Runs under the shared
+   * destination lock; throws on a write error.
+   */
+  private async commitItem(
+    destPath: string,
+    item: AgentPackInstallItem,
+    firstRead: 'absent' | 'present',
+  ): Promise<AgentPackInstallOutcome> {
+    const { file } = item;
+    if (firstRead === 'absent') {
+      // Another process (outside the lock) can still create the file after
+      // the read above, so the create itself must refuse to replace anything.
+      const created = await this.createExclusively(destPath, item.content);
+      if (created) return { file, outcome: 'written' };
+      return {
+        file,
+        outcome:
+          item.guard.mode === 'replace' ? 'changed-since-preview' : 'kept',
+      };
+    }
+    // `blockedByGuard` lets a present file through only for `replace`.
+    if (item.guard.mode !== 'replace') return { file, outcome: 'kept' };
+    const replaced = await this.replaceIfBaseline(
+      destPath,
+      item.content,
+      item.guard.baselineHash,
     );
-    await this.writePromise;
+    return { file, outcome: replaced ? 'written' : 'changed-since-preview' };
+  }
 
-    return {
-      success: failed === 0,
-      agentsDownloaded: succeeded,
-      fromCache: false,
-      error: failed === 0 ? undefined : `${failed} file(s) failed to download`,
-    };
+  /**
+   * The outcome that leaves the file alone, or `null` when the guard allows
+   * the write. Called only after unreadable and equal bytes were ruled out.
+   */
+  private blockedByGuard(
+    guard: PackFileGuard,
+    local: Exclude<LocalFile, { state: 'unreadable' }>,
+  ): FileOutcome | null {
+    switch (guard.mode) {
+      case 'keep':
+        return 'kept';
+      case 'create-only':
+        return local.state === 'absent' ? null : 'kept';
+      case 'replace':
+        // A file deleted since the plan holds nothing to lose.
+        if (local.state === 'absent') return null;
+        return hashPackContent(local.text) === guard.baselineHash
+          ? null
+          : 'changed-since-preview';
+    }
+  }
+
+  private async planFile(
+    baseUrl: string,
+    file: string,
+    targetDir: string,
+  ): Promise<AgentPackFilePlan> {
+    const destPath = this.destinationFor(targetDir, file);
+    if (destPath === null) {
+      return {
+        file,
+        fetched: false,
+        error: `Path traversal detected: "${file}" resolves outside target directory`,
+      };
+    }
+    let content: string;
+    try {
+      content = await this.fetchText(`${baseUrl}/${file}`);
+    } catch (error: unknown) {
+      return { file, fetched: false, error: errorMessage(error) };
+    }
+
+    const local = await this.readLocal(destPath);
+    switch (local.state) {
+      case 'absent':
+        return { file, fetched: true, state: 'new', content };
+      case 'unreadable':
+        return { file, fetched: true, state: 'unreadable', content };
+      case 'present': {
+        const baselineHash = hashPackContent(local.text);
+        return local.text === content
+          ? { file, fetched: true, state: 'identical', content, baselineHash }
+          : {
+              file,
+              fetched: true,
+              state: 'differs',
+              content,
+              baselineHash,
+              localText: local.text,
+            };
+      }
+    }
+  }
+
+  /** Absolute destination of `file` inside `targetDir`, or `null` if outside. */
+  private destinationFor(targetDir: string, file: string): string | null {
+    const root = path.resolve(targetDir);
+    const destPath = path.resolve(root, path.basename(file));
+    return destPath !== root && isInsideRoot(destPath, root) ? destPath : null;
+  }
+
+  /**
+   * Read the destination as it is now. Only ENOENT means "absent"; every
+   * other read error is `unreadable`, because replacing a file nobody could
+   * read would destroy content nobody has seen.
+   */
+  private async readLocal(destPath: string): Promise<LocalFile> {
+    try {
+      const text = await fsPromises.readFile(destPath, 'utf-8');
+      return { state: 'present', text };
+    } catch (error: unknown) {
+      const code = errnoCode(error);
+      if (code === 'ENOENT') return { state: 'absent' };
+      return { state: 'unreadable', code };
+    }
+  }
+
+  /**
+   * Create an absent destination without ever replacing one that appeared
+   * meanwhile. The content goes to a uniquely named temp sibling first and is
+   * hard-linked to the destination: `link` fails with EEXIST instead of
+   * replacing, and a reader never sees a half-written agent file. Where the
+   * filesystem has no hard links, an exclusive `wx` create is used instead
+   * (still no-clobber, without the all-at-once visibility).
+   *
+   * @returns `false` when the destination already exists (nothing written)
+   */
+  private async createExclusively(
+    destPath: string,
+    content: string,
+  ): Promise<boolean> {
+    return this.withTempSibling(destPath, content, (tmpPath) =>
+      this.commitNoClobber(tmpPath, destPath, content),
+    );
+  }
+
+  /**
+   * Publish a staged temp file at an absent `destPath` without replacing
+   * anything: hard link first, exclusive `wx` create where the filesystem has
+   * no hard links. `false` when the destination exists.
+   */
+  private async commitNoClobber(
+    tmpPath: string,
+    destPath: string,
+    content: string,
+  ): Promise<boolean> {
+    try {
+      await fsPromises.link(tmpPath, destPath);
+      return true;
+    } catch (error: unknown) {
+      const code = errnoCode(error);
+      if (code === 'EEXIST') return false;
+      if (code === undefined || !NO_HARD_LINK_CODES.has(code)) throw error;
+    }
+    try {
+      await fsPromises.writeFile(destPath, content, {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+      return true;
+    } catch (error: unknown) {
+      if (errnoCode(error) === 'EEXIST') return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Replace a present destination only while it still holds the bytes the
+   * user decided on. The baseline hash is re-read and re-checked after the
+   * new content is staged, immediately before the rename; a file deleted in
+   * between is created no-clobber instead.
+   *
+   * Called under the shared destination lock, so no other Ptah writer in
+   * this process (wizard writer or another install) can mutate the file
+   * between this re-check and the rename.
+   *
+   * Remaining guarantee: there is no lock shared with editors or other
+   * processes, so their write that lands between this re-check and the
+   * rename is still replaced. The window is one read plus one rename.
+   *
+   * @returns `false` when the destination changed since the decision
+   */
+  private async replaceIfBaseline(
+    destPath: string,
+    content: string,
+    baselineHash: string,
+  ): Promise<boolean> {
+    return this.withTempSibling(destPath, content, async (tmpPath) => {
+      const current = await this.readLocal(destPath);
+      if (current.state === 'absent') {
+        return this.commitNoClobber(tmpPath, destPath, content);
+      }
+      if (
+        current.state === 'unreadable' ||
+        hashPackContent(current.text) !== baselineHash
+      ) {
+        return false;
+      }
+      await fsPromises.rename(tmpPath, destPath);
+      return true;
+    });
+  }
+
+  /**
+   * Stage `content` in a uniquely named temp sibling of `destPath`, run
+   * `commit` with its path, and remove whatever is left of it afterwards (a
+   * successful rename leaves nothing; a link leaves the temp name).
+   */
+  private async withTempSibling(
+    destPath: string,
+    content: string,
+    commit: (tmpPath: string) => Promise<boolean>,
+  ): Promise<boolean> {
+    await fsPromises.mkdir(path.dirname(destPath), { recursive: true });
+    const tmpPath = `${destPath}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+    await fsPromises.writeFile(tmpPath, content, {
+      encoding: 'utf-8',
+      flag: 'wx',
+    });
+    try {
+      return await commit(tmpPath);
+    } finally {
+      await fsPromises.rm(tmpPath, { force: true });
+    }
   }
 
   /**
    * Validate agent file names for security.
    * Returns an error message if validation fails, undefined if valid.
    */
-  private validateAgentFiles(agentFiles: string[]): string | undefined {
+  private validateAgentFiles(
+    agentFiles: readonly string[],
+  ): string | undefined {
     if (agentFiles.length === 0) {
       return 'No agent files specified';
     }
@@ -360,9 +617,10 @@ export class AgentPackDownloadService {
    * Fetch and parse an agent pack manifest from a URL.
    */
   private async fetchManifest(manifestUrl: string): Promise<AgentPackManifest> {
-    const json = await this.fetchJson(manifestUrl);
+    const json: unknown = JSON.parse(await this.fetchText(manifestUrl));
     const manifest = json as AgentPackManifest;
     if (
+      !manifest ||
       !manifest.name ||
       !manifest.version ||
       !Array.isArray(manifest.agents) ||
@@ -377,35 +635,17 @@ export class AgentPackDownloadService {
   }
 
   /**
-   * Fetch JSON from a URL using Node's built-in https/http module.
+   * Fetch text from `url`, sharing one request between concurrent callers of
+   * the same URL. Only reads are shared; every caller decides its own writes.
    */
-  private async fetchJson(url: string): Promise<unknown> {
-    const text = await this.downloadText(url);
-    return JSON.parse(text);
-  }
-
-  /**
-   * Download a single file from URL and write it atomically to destPath.
-   * Creates parent directories as needed.
-   */
-  private async downloadFile(url: string, destPath: string): Promise<void> {
-    const content = await this.downloadText(url);
-    await this.ensureDir(path.dirname(destPath));
-    const tmpPath = destPath + '.tmp';
-    await fsPromises.writeFile(tmpPath, content, 'utf-8');
-    try {
-      await fsPromises.rename(tmpPath, destPath);
-    } catch (renameErr) {
-      await fsPromises.unlink(tmpPath).catch(() => undefined);
-      throw renameErr;
-    }
-  }
-
-  /**
-   * Ensure a directory exists, creating it recursively if needed.
-   */
-  private async ensureDir(dirPath: string): Promise<void> {
-    await fsPromises.mkdir(dirPath, { recursive: true });
+  private fetchText(url: string): Promise<string> {
+    const existing = this.inFlightFetches.get(url);
+    if (existing) return existing;
+    const request = this.downloadText(url).finally(() => {
+      this.inFlightFetches.delete(url);
+    });
+    this.inFlightFetches.set(url, request);
+    return request;
   }
 
   /**
@@ -467,66 +707,5 @@ export class AgentPackDownloadService {
         req.destroy(new Error(`Request timeout for ${url}`));
       });
     });
-  }
-
-  /**
-   * Build a deduplication key for in-flight promise tracking.
-   */
-  private buildCacheKey(manifestUrl: string, agentFiles: string[]): string {
-    const filesHash = crypto
-      .createHash('sha256')
-      .update([...agentFiles].sort().join('|'))
-      .digest('hex')
-      .substring(0, 12);
-    return `${manifestUrl}::${filesHash}`;
-  }
-
-  /**
-   * Get cache entry for a specific manifest URL.
-   */
-  private getCacheEntry(
-    manifestUrl: string,
-  ): AgentPackCacheMetadata['packs'][string] | null {
-    const metadata = this.loadCacheMetadata();
-    return metadata.packs[manifestUrl] ?? null;
-  }
-
-  /**
-   * Load cache metadata from ~/.ptah/.agent-pack-cache.json.
-   * Returns empty metadata if file doesn't exist or is malformed.
-   */
-  private loadCacheMetadata(): AgentPackCacheMetadata {
-    try {
-      const raw = fs.readFileSync(this.cacheMetadataPath, 'utf-8');
-      const parsed = JSON.parse(raw) as AgentPackCacheMetadata;
-      if (parsed && typeof parsed.packs === 'object' && parsed.packs !== null) {
-        return parsed;
-      }
-
-      return { packs: {} };
-    } catch {
-      return { packs: {} };
-    }
-  }
-
-  /**
-   * Persist cache metadata to ~/.ptah/.agent-pack-cache.json using atomic write.
-   * Creates ~/.ptah/ directory if it doesn't exist.
-   */
-  private async persistCacheMetadata(
-    metadata: AgentPackCacheMetadata,
-  ): Promise<void> {
-    try {
-      await fsPromises.mkdir(this.ptahDir, { recursive: true });
-
-      const json = JSON.stringify(metadata, null, 2);
-      const tmpPath = this.cacheMetadataPath + '.tmp';
-      await fsPromises.writeFile(tmpPath, json, 'utf-8');
-      await fsPromises.rename(tmpPath, this.cacheMetadataPath);
-    } catch (error: unknown) {
-      console.warn(
-        `[AgentPackDownloadService] Failed to persist cache metadata: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
   }
 }
