@@ -622,8 +622,18 @@ export class ChatSessionService {
       : adapterError?.cause instanceof CodexChatOptionError
         ? adapterError.cause
         : undefined;
+    const resumeProfileChanged = adapterError?.code === 'resume-profile-changed' ||
+      (adapterError?.cause instanceof Error &&
+        adapterError.cause.name === 'CodexResumeProfileChangedError' &&
+        'code' in adapterError.cause &&
+        adapterError.cause.code === 'resume-profile-changed');
     let failure: RpcUserError;
-    if (optionError) {
+    if (resumeProfileChanged) {
+      failure = new RpcUserError(
+        'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
+        'CODEX_RUNTIME_FAILED',
+      );
+    } else if (optionError) {
       failure = new RpcUserError(
         `Codex chat does not support the "${optionError.key}" option.`,
         'CODEX_UNSUPPORTED_OPTION',

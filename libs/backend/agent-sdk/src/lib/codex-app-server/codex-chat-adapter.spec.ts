@@ -186,6 +186,24 @@ function setup(override = true) {
 }
 
 describe('CodexChatAdapter', () => {
+  it('awaits explicit native close before a cleared tab can start fresh', async () => {
+    const h = setup();
+    await h.adapter.startChatSession({ tabId });
+    let finishClose: (() => void) | undefined;
+    const closing = new Promise<void>((resolve) => { finishClose = resolve; });
+    h.context.close.mockReturnValue(closing);
+    let settled = false;
+    const close = h.adapter.closeSession(id).then(() => { settled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.context.close).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+    expect(h.adapter.isSessionActive(id)).toBe(false);
+    finishClose?.();
+    await close;
+    expect(settled).toBe(true);
+    expect(h.lifecycle.closed).toHaveBeenCalledWith(id);
+  });
+
   it('awaits result presentation before emitting message_complete or ending the generator', async () => {
     const h = setup();
     let release: (() => void) | undefined;
@@ -408,7 +426,7 @@ describe('CodexChatAdapter', () => {
     for await (const event of start) void event;
     expect(first.open).toHaveBeenCalledTimes(1);
     expect(first.open).toHaveBeenCalledWith(profile, undefined, secrets);
-    await first.adapter.interruptSession(id);
+    await first.adapter.reset();
     const resumed = await first.adapter.resumeSession(id, {
       prompt: 'continue',
     });
@@ -426,7 +444,7 @@ describe('CodexChatAdapter', () => {
       [id, identity, undefined],
       [id, identity, undefined],
     ]);
-    await first.adapter.interruptSession(id);
+    await first.adapter.reset();
   });
 
   it('fails unsupported methods visibly', async () => {
@@ -500,7 +518,7 @@ describe('CodexChatAdapter', () => {
     // A stream exit never ends the native thread; the explicit end does.
     expect(await adapter.endSessionIfTokenMatches(id, token)).toBe(false);
     expect(adapter.isSessionActive(id)).toBe(true);
-    await adapter.interruptSession(id);
+    await adapter.reset();
     await expect(pending).resolves.toBe('decline');
     expect(
       ports.approvals.respond(
@@ -916,7 +934,7 @@ it('queries the session context model list and rejects closed sessions', async (
     { value: 'gpt', displayName: 'GPT' },
   ]);
   expect(context.listModels).toHaveBeenCalledTimes(1);
-  await adapter.interruptSession(id);
+  await adapter.reset();
   await expect(adapter.listSessionModels(id)).rejects.toMatchObject({
     code: 'unavailable',
   });
@@ -1153,7 +1171,7 @@ it('rejects overlapping resumes of one thread before creating another scope', as
   await first;
   expect(adapter.owns(tabId)).toBe(false);
   expect(adapter.owns(id)).toBe(true);
-  await adapter.interruptSession(id);
+  await adapter.reset();
   expect(context.close).toHaveBeenCalledTimes(1);
   expect(dispose).toHaveBeenCalledTimes(1);
 });
@@ -1190,7 +1208,7 @@ it('closes the losing context when another open publishes during metadata save',
   expect(second.context.close).not.toHaveBeenCalled();
   expect(first.lifecycle.closed).not.toHaveBeenCalled();
   expect(first.adapter.owns(id)).toBe(true);
-  await first.adapter.interruptSession(id);
+  await first.adapter.reset();
   expect(second.context.close).toHaveBeenCalledTimes(1);
   expect(second.dispose).toHaveBeenCalledTimes(1);
 });
@@ -1330,6 +1348,98 @@ it('applies Stop requested before the startTurn receipt arrives', async () => {
   expect(adapter.canSendFollowUp(id)).toBe(true);
   await adapter.interruptSession(id);
 });
+
+it('keeps an idle native thread after Stop', async () => {
+  const { adapter, context, open } = setup();
+  const stream = await adapter.startChatSession({ tabId });
+  for await (const event of stream) void event;
+  await adapter.interruptSession(id);
+  expect(context.interrupt).not.toHaveBeenCalled();
+  expect(context.close).not.toHaveBeenCalled();
+  expect(adapter.canSendFollowUp(id)).toBe(true);
+  await adapter.sendMessageToSession(id, 'still here');
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it('cancels an approval on Stop and keeps the thread for a send and compact', async () => {
+  const { adapter, context, sink, ports, open } = setup();
+  const stopped = deferred<void>();
+  context.events.mockImplementation(() => (async function* () {
+    yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'hello' };
+    await stopped.promise;
+    yield terminal;
+  })());
+  context.interrupt.mockImplementation(async () => {
+    stopped.resolve();
+    return true;
+  });
+  const stream = await adapter.startChatSession({ tabId });
+  const iterator = stream[Symbol.asyncIterator]();
+  await iterator.next();
+  const request = { ...identity, turnId: 'turn', requestId: 7, kind: 'command' as const, message: 'Run?', details: {} };
+  const approval = sink().request(request, new AbortController().signal);
+  await adapter.interruptSession(id);
+  await expect(approval).resolves.toBe('cancel');
+  expect(ports.presentation.cancelPrompt).toHaveBeenCalledTimes(1);
+  await expect((async () => { while (!(await iterator.next()).done) { /* Drain. */ } })()).rejects.toMatchObject({ code: 'cancelled' });
+  expect(context.close).not.toHaveBeenCalled();
+  expect(adapter.canSendFollowUp(id)).toBe(true);
+  context.events.mockImplementation(() => (async function* () { yield terminal; })());
+  await adapter.sendMessageToSession(id, 'next');
+  await adapter.executeSlashCommand(id, '/compact', {});
+  expect(context.compact).toHaveBeenCalledTimes(1);
+  expect(open).toHaveBeenCalledTimes(1);
+});
+
+it('preserves the runtime refusal when a stored thread changes execution profile', async () => {
+  const { adapter, open } = setup();
+  const refusal = Object.assign(new Error('profile changed'), {
+    name: 'CodexResumeProfileChangedError',
+    code: 'resume-profile-changed',
+  });
+  open.mockRejectedValue(refusal);
+  await expect(adapter.resumeSession(id, { tabId })).rejects.toMatchObject({
+    code: 'resume-profile-changed',
+    cause: refusal,
+  });
+});
+
+it.each(['rejected', 'missing-terminal'] as const)(
+  'closes after a %s interrupt and resumes the stored thread',
+  async (mode) => {
+    const first = setup();
+    const second = setup();
+    const { adapter, context, open } = first;
+    first.ports.createScope = jest.fn()
+      .mockImplementationOnce(first.ports.createScope)
+      .mockImplementationOnce(second.ports.createScope);
+    const stopped = deferred<void>();
+    context.events.mockImplementation(() => (async function* () {
+      yield { ...identity, turnId: 'turn', sequence: 1, type: 'textDelta' as const, itemId: 'item', delta: 'hello' };
+      await stopped.promise;
+    })());
+    context.interrupt.mockImplementation(async () => {
+      stopped.resolve();
+      if (mode === 'rejected') throw new Error('interrupt failed');
+      return true;
+    });
+    const stream = await adapter.startChatSession({ tabId });
+    const iterator = stream[Symbol.asyncIterator]();
+    await iterator.next();
+    if (mode === 'rejected')
+      await expect(adapter.interruptSession(id)).rejects.toMatchObject({ code: 'runtime-failed' });
+    else await adapter.interruptSession(id);
+    await expect((async () => { while (!(await iterator.next()).done) { /* Drain. */ } })()).rejects.toMatchObject({ code: 'cancelled' });
+    expect(context.close).toHaveBeenCalledTimes(1);
+    expect(adapter.isSessionActive(id)).toBe(false);
+    const resumed = await adapter.resumeSession(id, { prompt: 'next' });
+    for await (const event of resumed) void event;
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(second.open).toHaveBeenCalledWith(profile, identity, undefined);
+    await adapter.executeSlashCommand(id, '/compact', {});
+    expect(second.context.compact).toHaveBeenCalledTimes(1);
+  },
+);
 
 it('keeps busy after consumer return until the interrupted turn terminal', async () => {
   const { adapter, context, callbacks } = setup();

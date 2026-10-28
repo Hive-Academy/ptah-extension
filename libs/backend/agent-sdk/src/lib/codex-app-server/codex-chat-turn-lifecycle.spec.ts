@@ -419,19 +419,19 @@ describe('Codex chat turn lifecycle', () => {
   });
 
   it.each(['done', 'reject'] as const)(
-    'classifies close during approval as cancelled when the iterator ends via %s',
+    'closes and classifies a Stop without a terminal as cancelled when the iterator ends via %s',
     async (mode) => {
       const h = setup();
-      h.context.events.mockImplementation((signal) =>
+      let finishStop: (() => void) | undefined;
+      const stopped = new Promise<void>((resolve) => { finishStop = resolve; });
+      h.context.interrupt.mockImplementation(async () => {
+        finishStop?.();
+        return true;
+      });
+      h.context.events.mockImplementation(() =>
         (async function* () {
           yield delta;
-          await new Promise<void>((resolve) => {
-            if (signal?.aborted) resolve();
-            else
-              signal?.addEventListener('abort', () => resolve(), {
-                once: true,
-              });
-          });
+          await stopped;
           if (mode === 'reject') throw new Error('Subscription ended');
         })(),
       );
@@ -469,7 +469,8 @@ describe('Codex chat turn lifecycle', () => {
         reason: 'turn-ended',
       });
       expect(h.ports.presentation.dismiss).toHaveBeenCalledWith(id, request);
-      expect(h.ports.logger.error).not.toHaveBeenCalled();
+      expect(h.context.close).toHaveBeenCalledTimes(1);
+      expect(h.adapter.isSessionActive(id)).toBe(false);
       // The broadcaster owns forceIdle for a thrown user abort; no settle chunk is emitted here.
       await h.adapter.dispose();
     },

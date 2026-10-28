@@ -667,6 +667,24 @@ describe('typed Codex RPC failures', () => {
     { error: new mockCodexChatAdapterError('unavailable', 'open'), code: 'CODEX_UNAVAILABLE' },
   ];
 
+  it.each(['start', 'resume', 'continue'] as const)(
+    'explains the native execution-profile refusal in chat:%s',
+    async (method) => {
+      const h = errorHarness(new mockCodexChatAdapterError('resume-profile-changed', 'open'));
+      const result = method === 'start'
+        ? await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace })
+        : method === 'resume'
+          ? await h.service.resumeSession({ sessionId, tabId: 'tab', activate: true })
+          : await h.service.continueSession({ sessionId, tabId: 'tab', prompt: 'continue' });
+      const message = method === 'resume' && 'activationError' in result
+        ? result.activationError : result.error;
+      expect(message).toContain('Start a new chat to use the current permission policy.');
+      expect(result).toMatchObject(method === 'resume'
+        ? { success: true, activated: false, activationErrorCode: 'CODEX_RUNTIME_FAILED' }
+        : { success: false, errorCode: 'CODEX_RUNTIME_FAILED' });
+    },
+  );
+
   it.each(failures)('classifies chat:start $code ($key)', async ({ error, code, key }) => {
     const h = errorHarness(error);
     const result = await h.service.startSession({ prompt: 'hello', tabId: 'tab', workspacePath: workspace });
@@ -719,6 +737,7 @@ describe('typed Codex RPC failures', () => {
         modelSettings: { selectedModel: { get: () => 'default' } },
         runtimeProfile: { prepare: async () => execution },
         runtimeControls: { compact },
+        sdkAdapter: { isSessionActive: () => true },
       },
     );
     return { router, compact };

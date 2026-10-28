@@ -17,6 +17,7 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   AuthRequiredError,
+  CodexChatAdapter,
   isCodexChatAdapterError,
   SDK_TOKENS,
   SlashCommandInterceptor,
@@ -180,6 +181,8 @@ export class ChatSlashCommandRouterService {
     private readonly runtimeProfile?: ChatRuntimeProfileService,
     @inject(SDK_TOKENS.SESSION_RUNTIME_ROUTER, { isOptional: true })
     private readonly runtimeControls: SessionRuntimeControls | null = null,
+    @inject(SDK_TOKENS.CODEX_CHAT_ADAPTER, { isOptional: true })
+    private readonly nativeAdapter: CodexChatAdapter | null = null,
   ) {}
 
   /**
@@ -228,7 +231,16 @@ export class ChatSlashCommandRouterService {
       });
 
       if (interceptResult.commandName === 'clear') {
-        await this.sdkAdapter.interruptSession(sessionId);
+        const nativeAdapter = this.nativeAdapter;
+        if (nativeAdapter?.owns(sessionId)) {
+          try {
+            await this.sdkAdapter.interruptSession(sessionId);
+          } finally {
+            await nativeAdapter.closeSession(sessionId);
+          }
+        } else {
+          await this.sdkAdapter.interruptSession(sessionId);
+        }
 
         await this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.CHAT_COMPLETE,
@@ -358,6 +370,14 @@ export class ChatSlashCommandRouterService {
               throw new Error(
                 'Native session runtime controls are unavailable.',
               );
+            }
+            if (!this.sdkAdapter.isSessionActive(sessionId)) {
+              // A failed Stop closes the context. Reopen the stored thread
+              // without starting an assistant turn before native compaction.
+              await this.sdkAdapter.resumeSession(sessionId, {
+                ...config,
+                prompt: '',
+              });
             }
             await this.runtimeControls.compact(sessionId);
             return { success: true, sessionId, settled: true };

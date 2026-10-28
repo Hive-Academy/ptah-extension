@@ -50,6 +50,9 @@ function harness(
     .mockResolvedValue(execution);
   const publishRuntimeNotices = jest.fn().mockResolvedValue(undefined);
   const compact = jest.fn().mockResolvedValue(undefined);
+  const interruptSession = jest.fn().mockResolvedValue(undefined);
+  const closeSession = jest.fn().mockResolvedValue(undefined);
+  const broadcastMessage = jest.fn().mockResolvedValue(undefined);
   const executeSlashCommand = jest.fn().mockResolvedValue([]);
   const resolveProviderProfileForWorkspace = jest.fn(() => {
     throw new Error('Old resolver must not run');
@@ -64,13 +67,13 @@ function harness(
     {
       logger: { info: jest.fn(), warn: jest.fn() },
       modelSettings: { selectedModel: { get: () => 'default' } },
-      sdkAdapter: { executeSlashCommand },
+      sdkAdapter: { executeSlashCommand, interruptSession, isSessionActive: () => true },
+      nativeAdapter: { owns: () => true, closeSession },
+      webviewManager: { broadcastMessage },
       slashCommandInterceptor: {
-        intercept: () => ({
-          action: 'new-query',
-          commandName,
-          rawCommand: '/' + commandName,
-        }),
+        intercept: () => commandName === 'clear'
+          ? { action: 'native', commandName, rawCommand: '/clear', args: '' }
+          : { action: 'new-query', commandName, rawCommand: '/' + commandName },
       },
       sdkContext: {
         isMcpServerRunning: () => false,
@@ -102,6 +105,9 @@ function harness(
     prepare,
     publishRuntimeNotices,
     compact,
+    interruptSession,
+    closeSession,
+    broadcastMessage,
     executeSlashCommand,
     resolveProviderProfileForWorkspace,
     admitManualCompact,
@@ -110,6 +116,69 @@ function harness(
 }
 
 describe('native slash runtime routing', () => {
+  it('awaits native /clear close while idle so the tab can start a new thread', async () => {
+    const h = harness(native, 'clear');
+    let finishClose: (() => void) | undefined;
+    const closing = new Promise<void>((resolve) => { finishClose = resolve; });
+    h.closeSession.mockReturnValue(closing);
+    const route = h.route();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.interruptSession).toHaveBeenCalledWith(sessionId);
+    expect(h.closeSession).toHaveBeenCalledWith(sessionId);
+    expect(h.broadcastMessage).not.toHaveBeenCalled();
+    finishClose?.();
+    await expect(route).resolves.toEqual({ success: true, sessionId });
+    expect(h.broadcastMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sessionId, command: 'clear' }),
+    );
+    expect(h.executeSlashCommand).not.toHaveBeenCalled();
+  });
+
+  it('interrupts a busy native turn before closing it for /clear', async () => {
+    const h = harness(native, 'clear');
+    const order: string[] = [];
+    h.interruptSession.mockImplementation(async () => { order.push('interrupt'); });
+    h.closeSession.mockImplementation(async () => { order.push('close'); });
+    await expect(h.route()).resolves.toEqual({ success: true, sessionId });
+    expect(order).toEqual(['interrupt', 'close']);
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Claude /clear on its existing interrupt path', async () => {
+    const h = harness(native, 'clear');
+    Object.assign(h.service, { nativeAdapter: { owns: () => false, closeSession: h.closeSession } });
+    await expect(h.route()).resolves.toEqual({ success: true, sessionId });
+    expect(h.interruptSession).toHaveBeenCalledWith(sessionId);
+    expect(h.closeSession).not.toHaveBeenCalled();
+    expect(h.broadcastMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes a closed thread before compact without starting a turn', async () => {
+    const h = harness();
+    let active = false;
+    const order: string[] = [];
+    const resumeSession = jest.fn(async () => {
+      order.push('resume');
+      active = true;
+      return (async function* () { /* Opening alone starts no turn. */ })();
+    });
+    Object.assign(h.service, {
+      sdkAdapter: {
+        isSessionActive: () => active,
+        resumeSession,
+      },
+    });
+    h.compact.mockImplementation(async () => {
+      expect(active).toBe(true);
+      order.push('compact');
+    });
+    await expect(h.route()).resolves.toEqual({ success: true, sessionId, settled: true });
+    expect(order).toEqual(['resume', 'compact']);
+    expect(resumeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({ prompt: '' }));
+    expect(h.executeSlashCommand).not.toHaveBeenCalled();
+  });
+
   it('compacts through controls, retaining identity without a model notice', async () => {
     const h = harness();
     await expect(h.route()).resolves.toEqual({

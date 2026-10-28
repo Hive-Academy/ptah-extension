@@ -982,6 +982,10 @@ describe('Native Codex chat contracts end to end', () => {
 
   it('settles a stop during approval as a user abort and releases the prompt by wire id', async () => {
     const h = codexHarness();
+    h.server.interrupt.mockImplementation(async () => {
+      h.server.notify(turnCompleted());
+      return true;
+    });
     h.server.onTurnStart = () =>
       h.server.notify(turnStarted(), commandItem(false));
     const observed: { error?: unknown } = {};
@@ -1050,7 +1054,14 @@ describe('Native Codex chat contracts end to end', () => {
       await expect(reply).resolves.toMatchObject({
         response: { decision: 'cancel' },
       });
-      expect(h.server.close).toHaveBeenCalledTimes(1);
+      expect(h.server.interrupt).toHaveBeenCalledWith(TURN);
+      expect(h.server.close).not.toHaveBeenCalled();
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
+      h.scriptTurn('turn-after-stop', 'Still here');
+      await h.followUp('continue');
+      expect(h.open).toHaveBeenCalledTimes(1);
+      await h.adapter.executeSlashCommand(THREAD, '/compact', {});
+      expect(h.adapter.isSessionActive(THREAD)).toBe(true);
     } finally {
       h.dispose();
     }
@@ -1149,14 +1160,14 @@ describe('Native Codex chat sessions across turns', () => {
     }
   });
 
-  it('still closes the thread when the session is ended explicitly', async () => {
+  it('still closes the thread when the adapter is reset explicitly', async () => {
     const h = codexHarness();
     h.scriptTurn(TURN, 'Hello');
     try {
       await h.start();
       h.scriptTurn('turn-2', 'Hello', 2);
       await h.followUp('again');
-      await h.adapter.interruptSession(THREAD);
+      await h.adapter.reset();
       expect(h.adapter.isSessionActive(THREAD)).toBe(false);
       expect(h.server.close).toHaveBeenCalledTimes(1);
     } finally {

@@ -45,6 +45,7 @@ export interface CodexChatSession {
   turnId?: string;
   blocked: boolean;
   pendingInterrupt?: boolean;
+  stopRequested?: boolean;
   closing?: Promise<void>;
   compacting?: Promise<void>;
 }
@@ -186,7 +187,9 @@ export async function* streamCodexChatTurn(
     });
     if (session.pendingInterrupt) {
       session.pendingInterrupt = false;
-      await deps.interrupt(session.id);
+      const accepted = await deps.interrupt(session.id);
+      if (!accepted) throw deps.error('runtime-failed', 'interrupt');
+      if (session.stopRequested) session.sink.endTurn(session.id, receipt.turnId);
     }
     while (true) {
       const next = await events.next();
@@ -196,6 +199,23 @@ export async function* streamCodexChatTurn(
       }
       const event = next.value;
       if (subscription.signal.aborted) break;
+      if (session.stopRequested) {
+        if (
+          event.type === 'terminal' &&
+          event.contextId === session.context.identity.contextId &&
+          event.processGeneration === session.context.identity.processGeneration &&
+          event.threadId === session.id &&
+          event.turnId === receipt.turnId
+        ) {
+          terminal = true;
+          // The runtime synthesizes a failed terminal when its 30 s
+          // interrupt timer closes a context that never answered.
+          if (event.status === 'failed' && !session.closing)
+            await deps.close(session);
+          throw deps.error('cancelled', 'turn');
+        }
+        continue;
+      }
       const mappedEvents = projection.map(event);
       if (
         event.contextId === session.context.identity.contextId &&
@@ -223,6 +243,10 @@ export async function* streamCodexChatTurn(
     throw deps.error('runtime-failed', 'stream');
   } catch (error) {
     if (session.abort.signal.aborted) throw deps.error('cancelled', 'turn');
+    if (session.stopRequested) {
+      if (!terminal && !session.closing) await deps.close(session);
+      throw deps.error('cancelled', 'turn');
+    }
     throw deps.failure(error, 'turn');
   } finally {
     finishCompaction?.();
@@ -236,6 +260,7 @@ export async function* streamCodexChatTurn(
       session.turnId = undefined;
       session.blocked = false;
       session.pendingInterrupt = false;
+      session.stopRequested = false;
     };
     if (
       !terminal &&
@@ -276,10 +301,24 @@ async function drainInterruptedTurn(
 ): Promise<void> {
   let terminal = false;
   try {
-    await deps.interrupt(session.id);
+    if (!session.stopRequested) await deps.interrupt(session.id);
     while (!session.abort.signal.aborted) {
       const next = await events.next();
       if (next.done) break;
+      if (session.stopRequested) {
+        if (
+          next.value.type === 'terminal' &&
+          next.value.contextId === session.context.identity.contextId &&
+          next.value.processGeneration === session.context.identity.processGeneration &&
+          next.value.threadId === session.id &&
+          next.value.turnId === session.turnId
+        ) {
+          terminal = true;
+          if (next.value.status === 'failed') await deps.close(session);
+          return;
+        }
+        continue;
+      }
       const mapped = projection.map(next.value);
       await projection.settled();
       if (mapped.some((event) => event.eventType === 'message_complete')) {

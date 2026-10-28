@@ -48,6 +48,7 @@ export class CodexChatAdapterError extends Error {
       | 'unavailable'
       | 'busy'
       | 'runtime-failed'
+      | 'resume-profile-changed'
       | 'cancelled'
       | 'identity-mismatch',
     readonly operation: string,
@@ -576,12 +577,20 @@ export class CodexChatAdapter implements NativeChatAdapter {
           .error('[CodexChatAdapter] runtime-failed: cleanup.');
       });
   }
+  /** Explicit teardown for commands that must finish closing before returning. */
+  async closeSession(id: SessionId): Promise<void> {
+    const opening = this.opening.get(id);
+    if (opening) opening.cancelled = true;
+    const session = this.sessions.get(id);
+    if (session) await this.close(session);
+  }
   /**
    * Never closes the native thread. The broadcaster calls this at stream exit
    * because a Claude query has one long-lived stream; each Codex turn is its
    * own stream and the thread outlives every turn (8k-5 finding 3). The
    * turn stream owns mid-turn detachment (`drainInterruptedTurn`);
-   * `interruptSession`, `endSession`, `reset` and `dispose` close explicitly.
+   * `endSession`, `reset` and `dispose` close explicitly. A user Stop
+   * interrupts the current turn while retaining the native thread.
    * `false` makes the broadcaster clear turn state, as after the first turn.
    */
   async endSessionIfTokenMatches(
@@ -631,7 +640,22 @@ export class CodexChatAdapter implements NativeChatAdapter {
       opening.cancelled = true;
       return;
     }
-    await this.close(this.session(id));
+    const session = this.sessions.get(id);
+    if (!session || !session.busy || session.stopRequested) return;
+    session.stopRequested = true;
+    try {
+      const accepted = await this.interruptCurrentTurn(id);
+      if (!accepted) {
+        if (!session.busy) return;
+        this.ports.logger.warn('[CodexChatAdapter] turn interrupt was refused; closing context.', { sessionId: id });
+        await this.close(session);
+        return;
+      }
+      if (session.turnId) session.sink.endTurn(id, session.turnId);
+    } catch (error) {
+      await this.close(session);
+      throw error;
+    }
   }
   async executeSlashCommand(
     ...[id, command]: Parameters<IAgentAdapter['executeSlashCommand']>
@@ -744,10 +768,18 @@ export class CodexChatAdapter implements NativeChatAdapter {
   private failure(error: unknown, operation: string): CodexChatAdapterError {
     const failure = error instanceof CodexChatAdapterError
       ? error
-      : new CodexChatAdapterError('runtime-failed', operation, { cause: error });
+      : new CodexChatAdapterError(
+          error instanceof Error &&
+          error.name === 'CodexResumeProfileChangedError' &&
+          'code' in error && error.code === 'resume-profile-changed'
+            ? 'resume-profile-changed'
+            : 'runtime-failed',
+          operation,
+          { cause: error },
+        );
     if (failure.code === 'cancelled') return failure;
     this.ports.logger.error(
-      `[CodexChatAdapter] runtime-failed: ${operation}.`,
+      `[CodexChatAdapter] ${failure.code}: ${operation}.`,
       error instanceof Error ? error : new Error(String(error)),
     );
     return failure;
