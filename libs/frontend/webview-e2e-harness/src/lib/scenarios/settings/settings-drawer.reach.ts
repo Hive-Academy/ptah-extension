@@ -68,7 +68,16 @@ export async function bootVariant(
 }
 
 export const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
-export const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');
+/**
+ * The CLI matrix and the background model roles: on the Providers tab, below Routing Map + Connections. Waits for the
+ * matrix (its own deferred chunk) so the callers can act on it.
+ */
+export async function agentsRoutingTab(page: Page): Promise<void> {
+  await gotoSettingsTab(page, 'Providers');
+  await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
+}
+/** Context Management (tab id `orchestration`): subagent cache TTL, session budget, lane guards, advanced groups. */
+export const contextManagementTab = (page: Page) => gotoSettingsTab(page, 'Context Management');
 export const advancedTab = (page: Page) => gotoSettingsTab(page, 'Advanced');
 
 /** A connection card by its visible provider name (today's flat card list). */

@@ -775,7 +775,14 @@ describe('ProvidersSettingsComponent', () => {
     fixture.componentRef.setInput('focusTarget', 'connections'); await render();
     expect(document.activeElement).toBe(element.querySelector('#providers-connections-heading'));
   });
-  it('no longer mounts the background roles, the CLI agents or their read states (moved to Orchestration, D14)', async () => {
+  it('groups the routing map and Connections in one card', async () => {
+    await render();
+    const card = element.querySelector('[data-testid="providers-routing-connections-card"]');
+    expect(card?.tagName.toLowerCase()).toBe('ptah-surface-section');
+    expect(card?.querySelector('[data-testid="main-agent-region"]')).not.toBeNull();
+    expect(card?.querySelector('section[aria-labelledby="providers-connections-heading"]')).not.toBeNull();
+  });
+  it('does not mount the background roles, the CLI agents or their read states (AgentsRoutingSettingsComponent, beside it)', async () => {
     state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
     await render();
     expect(element.querySelector('ptah-provider-consumer-assignments')).toBeNull();

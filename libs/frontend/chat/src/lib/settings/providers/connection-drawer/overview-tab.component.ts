@@ -230,7 +230,7 @@ export function usedByBadge(entry: UsedBy): string {
                 @if (entry.followsMain) {
                   <button type="button"
                     class="link link-hover inline-flex shrink-0 items-center gap-1 text-xs text-base-content"
-                    [attr.aria-label]="entry.label + ' follows the main agent. Open it in Agent Orchestration'"
+                    [attr.aria-label]="entry.label + ' follows the main agent. Open it in Background Model Roles'"
                     (click)="openRole(entry)" data-testid="connection-follows-main">
                     Follows main agent <span class="text-base-content-muted" aria-hidden="true">→</span>
                   </button>
@@ -272,6 +272,8 @@ export class OverviewTabComponent {
   readonly usageError = input(false);
   readonly checkConnectionRequested = output<void>();
   readonly retryUsageRequested = output<void>();
+  /** A "Follows main agent →" link raised its deep link; the drawer closes. */
+  readonly roleLinkOpened = output<void>();
 
   /** "Now" for the check's age; ticks only while a record is shown (see the constructor). */
   private readonly now = signal(Date.now());
@@ -321,12 +323,16 @@ export class OverviewTabComponent {
     return usedByBadge(entry);
   }
 
-  /** "Follows main agent →" opens that role on Agent Orchestration (plan Component 10 routing). */
+  /**
+   * "Follows main agent →" opens that role in the Background Model Roles below the page (same Providers tab; plan
+   * Component 10 routing), then asks the drawer to close so the role it focuses is not behind the modal.
+   */
   protected openRole(entry: UsedBy): void {
     if (entry.kind !== 'background-role' || entry.id === 'main-agent' || entry.id.startsWith('ptah-cli:')) return;
     this.appState.requestSettingsTab({
-      tab: 'orchestration',
+      tab: 'providers',
       section: entry.id as Exclude<UsedBy['id'], 'main-agent' | 'codex-cli' | `ptah-cli:${string}`>,
     });
+    this.roleLinkOpened.emit();
   }
 }

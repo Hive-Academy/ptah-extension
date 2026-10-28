@@ -1,5 +1,6 @@
 /**
- * E2E: Orchestration tab interaction scenes (TASK_2026_555). Batch 32 started this file with the Batch 14 review's
+ * E2E: CLI matrix and background roles interaction scenes (TASK_2026_555; on the Providers tab since the Context
+ * Management regroup). Batch 32 started this file with the Batch 14 review's
  * carry-forward (finding 3) for the two CLI-matrix modals: focus moves into the dialog on open, stays inside it on Tab,
  * and returns to the opener (the "Add Ptah CLI Instance" button / Glm's Tiers) after Esc, a backdrop click and a
  * submit. Batch 36 adds the tab's validation-note scenes (batches.md Task 36.1): a matrix cell pick, on/off, the full
@@ -18,8 +19,8 @@ import {
 } from './settings.fixtures';
 import {
   expectCall,
-  orchestrationTab,
-  providersTab,
+  agentsRoutingTab,
+  contextManagementTab,
   visibleEnabled,
 } from './settings-drawer.reach';
 import { cursorKeyStoreOverrides } from './settings-cursor-key.fixtures';
@@ -93,7 +94,7 @@ async function expectClosedToOpener(
   await expect(modal.opener(page)).toBeFocused();
 }
 
-/** Boots Settings on the Agent Orchestration tab with its matrix rendered (the deferred chunk). */
+/** Boots Settings on the Providers tab with the CLI matrix (below Routing Map + Connections) rendered (its deferred chunk). */
 async function bootOrchestration(
   page: Page,
   url: string,
@@ -102,7 +103,7 @@ async function bootOrchestration(
 ): Promise<void> {
   await bootSettings(page, url, host, 'anubis', overrides);
   await waitForSettled(page);
-  await orchestrationTab(page);
+  await agentsRoutingTab(page);
   await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
 }
 
@@ -358,8 +359,8 @@ for (const host of HOSTS) {
       ).toContainText('3 roles');
       await expect(page.locator('[data-testid="consumer-table"]')).toBeHidden();
       // Leaving the tab and coming back keeps them closed.
-      await providersTab(page);
-      await orchestrationTab(page);
+      await contextManagementTab(page);
+      await agentsRoutingTab(page);
       await expect(rolesDetails(page)).not.toHaveAttribute('open');
     });
 

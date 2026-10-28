@@ -631,8 +631,10 @@ describe('OverviewTabComponent', () => {
     );
   });
 
-  it('"Follows main agent →" opens that role on Agent Orchestration; own-provider rows have no chip', () => {
+  it('"Follows main agent →" opens that role in the Background Model Roles on Providers and closes the drawer; own-provider rows have no chip', () => {
     render({ usageComplete: true, usedBy: [MAIN, CURATOR, ENHANCEMENT] });
+    const linkOpened = jest.fn();
+    fixture.componentInstance.roleLinkOpened.subscribe(linkOpened);
     const chips = element.querySelectorAll<HTMLButtonElement>(
       '[data-testid="connection-follows-main"]',
     );
@@ -641,12 +643,13 @@ describe('OverviewTabComponent', () => {
       chips[0].closest('[data-used-by]')?.getAttribute('data-used-by'),
     ).toBe('enhancement');
     expect(chips[0].getAttribute('aria-label')).toBe(
-      'Enhancement follows the main agent. Open it in Agent Orchestration',
+      'Enhancement follows the main agent. Open it in Background Model Roles',
     );
     chips[0].click();
     expect(requestSettingsTab).toHaveBeenCalledWith({
-      tab: 'orchestration',
+      tab: 'providers',
       section: 'enhancement',
     });
+    expect(linkOpened).toHaveBeenCalledTimes(1);
   });
 });

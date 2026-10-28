@@ -53,7 +53,7 @@ import {
   openCardDrawer,
   openMainAgentPopover,
   openScopeBadge,
-  orchestrationTab,
+  agentsRoutingTab,
   providersTab,
   throughVariantBoot,
   setupThroughDrawer,
@@ -850,7 +850,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Re-detect CLIs',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const redetect = policyBar(page).getByRole('button', {
         name: 'Re-detect CLI agents',
       });
@@ -869,7 +869,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     // Batch 33: the bar's chips open the order popover; ▲/▼ per row (24 px, deviation 5). One move writes the whole
     // order; Esc returns focus to the chips; the toast's Undo writes the previous order back.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const trigger = policyBar(page).locator(
         '[data-testid="policy-order-edit"]',
       );
@@ -919,7 +919,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Max concurrent agents number input',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const field = page.locator('#agent-max-concurrent');
       await visibleEnabled(field);
       const before = getFixtureState(page).calls.length;
@@ -941,7 +941,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'System CLI rows with detection badges',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const codex = page.locator('[data-testid="cli-matrix-row-codex"]');
       await expect(codex).toContainText('v1.4.0');
       await expect(codex).toContainText('Ready');
@@ -952,7 +952,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     capability: 'Enable/disable toggle per system CLI',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await visibleEnabled(page.getByLabel('Codex enabled', { exact: true }));
     },
   },
@@ -974,7 +974,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
             })),
           },
         },
-        'Agent Orchestration',
+        'Providers',
         async (variantPage) => {
           // Gate V 36 decision 1: the Uninstalled group opens from its disclosure first.
           await variantPage
@@ -998,7 +998,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     status: 'present',
     // V36-7: an instance's Edit sits in its "More actions" popover; Esc closes it again.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await page
         .locator('[data-testid="cli-matrix-more-glm-instance-1"]')
         .click();
@@ -1019,7 +1019,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
     // second page whose `ptahCli:list` answers `success:false` (the opt-in `rpcError` envelope) until Retry shows the
     // container's "… could not be loaded" line for that section, with Retry, and Retry clears it.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await expect(page.locator('[data-read-loading]')).toHaveCount(0);
       await expect(page.locator('[data-read-error]')).toHaveCount(0);
       await expect(page.locator('#agent-max-concurrent')).toHaveValue('3');
@@ -1030,7 +1030,7 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
           'ptahCli:list': () =>
             failing ? rpcError('list unavailable') : PTAH_CLI_LIST_FIXTURE,
         },
-        'Agent Orchestration',
+        'Providers',
         async (variant) => {
           const section = variant.locator('[data-read-error="cli"]');
           await expect(section).toContainText(
@@ -1087,8 +1087,8 @@ const other: readonly ReachabilityEntry[] = [
     capability: 'Deep link to a Settings tab (also while open)',
     status: 'present',
     // A deep link raised while Settings is ALREADY open: the routing map's Background roles action on Providers
-    // (`requestSettingsTab({tab:'orchestration', section:'background-models'})`). The routed tab becomes active, the
-    // closed roles <details> opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
+    // (`requestSettingsTab({tab:'providers', section:'background-models'})`). Providers stays active, the closed roles
+    // <details> below the page opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
     reach: async (page) => {
       await providersTab(page);
       await page
@@ -1097,7 +1097,7 @@ const other: readonly ReachabilityEntry[] = [
         )
         .click();
       await expect(
-        page.getByRole('button', { name: 'Agent Orchestration', exact: true }),
+        page.getByRole('button', { name: 'Providers', exact: true }),
       ).toHaveClass(/tab-active/);
       const details = page.locator('[data-testid="background-roles-details"]');
       await expect(details).toHaveAttribute('open', '');
@@ -1579,7 +1579,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
     status: 'restored',
     // Batch 33: the old per-CLI links went with the old policy body; the matrix edits in place.
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       await expect(policyBar(page)).toBeVisible();
       await expect(page.getByText(/Manage .* in Providers/)).toHaveCount(0);
     },
@@ -1683,10 +1683,11 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
   { selector: '[data-testid="settings-back"]', tab: 'Providers' },
   { selector: '[data-testid="provider-connection-card"]', tab: 'Providers' },
   { selector: '#providers-connections-heading', tab: 'Providers' },
-  // Moved with the background roles to Orchestration in Batch 18 (D14); inside the roles <details> since Batch 33.
+  // With the background roles: on Orchestration from Batch 18 (D14), inside the roles <details> since Batch 33, and
+  // back on Providers (below Routing Map + Connections) since the Context Management regroup.
   {
     selector: '[data-testid="assignments-heading"]',
-    tab: 'Agent Orchestration',
+    tab: 'Providers',
     reveal: '[data-testid="background-roles-summary"]',
   },
 ];

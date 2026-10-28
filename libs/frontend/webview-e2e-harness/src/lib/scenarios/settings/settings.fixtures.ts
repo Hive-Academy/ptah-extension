@@ -835,7 +835,7 @@ export function baseSettingsFixtures(
 /** Every `<h2>`/tab label the reachability spec drives by name. */
 export const SETTINGS_TAB_LABELS = [
   'Providers',
-  'Agent Orchestration',
+  'Context Management',
   'Advanced',
   'Search & Voice',
 ] as const;

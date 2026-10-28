@@ -159,13 +159,18 @@
           </p>
         </div>
       }
-      <!-- Deferred like tabs 2-4: the Providers page (with its named-accounts UI) is its own chunk, so the
-           eager route stays inside its bundle budget. Deep links apply once the page renders. -->
+      <!-- Deferred like tabs 2-4: the Providers page (with its named-accounts UI) and the agents routing below it
+           (CLI matrix, background model roles) are one chunk, so the eager route stays inside its bundle budget and
+           one load failure shows one recovery. Deep links apply once the page renders. -->
       @defer (on immediate) {
         <ptah-providers-settings
           [focusTarget]="providersTarget()"
           [requestedProviderId]="requestedProviderId() ?? ''"
           (requestedProviderConsumed)="consumeRequestedProvider($event)"
+        />
+        <ptah-agents-routing-settings
+          [focusTarget]="agentsRoutingTarget()"
+          (focusTargetConsumed)="agentsRoutingTarget.set(null)"
         />
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
@@ -198,17 +203,14 @@
     }
 
     <!-- ============================================ -->
-    <!-- Tab 2: Agent Orchestration                  -->
+    <!-- Tab 2: Context Management (tab id remains orchestration) -->
     <!-- ============================================ -->
     <!-- Tabs 2, 3 and 4 are deferred into their own chunks (the eager route is at its bundle budget);
          the aria-busy placeholder keeps the harness waitForSettled waiting until they load.
-         Deep links still apply: the tab reads focusTarget once its chunk renders. -->
+         It owns no deep-link section: the CLI matrix and the background roles moved to Providers. -->
     @if (activeSettingsTab() === 'orchestration') {
       @defer (on immediate) {
-        <ptah-orchestration-settings
-          [focusTarget]="orchestrationTarget()"
-          (focusTargetConsumed)="orchestrationTarget.set(null)"
-        />
+        <ptah-orchestration-settings />
       } @placeholder {
         <div class="min-h-24" aria-busy="true"></div>
       }

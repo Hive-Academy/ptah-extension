@@ -1,5 +1,5 @@
 /**
- * Gate G entries for the CLI matrix on the Orchestration tab (Batch 30): the restored #43, #44, #54, #70 and #71, and
+ * Gate G entries for the CLI matrix (Batch 30; on the Providers tab since the Context Management regroup): the restored #43, #44, #54, #70 and #71, and
  * the regressed-UX fixes RUX-8 and RUX-11. Batch 31 re-pointed #63 (Copilot auto-approve) and #64 (Cursor key) here;
  * Batch 32 added #47 and #53 (the add-instance and tier modals) and moved #49 here with its CLI-form half. Batch 34
  * retired the old Ptah CLI instance manager and re-pointed its entries here (#39, #42, #45, #46, #48, #50-#52, #55-#57,
@@ -14,7 +14,7 @@ import {
   closeConnectionDrawer,
   credentialsOf,
   expectCall,
-  orchestrationTab,
+  agentsRoutingTab,
   throughVariantBoot,
   visibleEnabled,
 } from './settings-drawer.reach';
@@ -70,9 +70,9 @@ export async function expandUninstalled(page: Page): Promise<Locator> {
   return toggle;
 }
 
-/** The CLI matrix (deferred chunk) on the Orchestration tab; returns the row of `id` (`cli-matrix-row-<id>`). */
+/** The CLI matrix (deferred chunk) on the Providers tab; returns the row of `id` (`cli-matrix-row-<id>`). */
 async function matrixRow(page: Page, id: string): Promise<Locator> {
-  await orchestrationTab(page);
+  await agentsRoutingTab(page);
   const row = page.locator(`[data-testid="cli-matrix-row-${id}"]`);
   if (UNINSTALLED_IN_FIXTURE.has(id) && !(await row.count()))
     await expandUninstalled(page);
@@ -188,7 +188,7 @@ const liveVariants = new WeakMap<Page, Page>();
 async function liveVariant(page: Page): Promise<Page> {
   const existing = liveVariants.get(page);
   if (existing && !existing.isClosed()) return existing;
-  const variant = await bootVariant(page, ALL_CLIS_LIVE, 'Agent Orchestration');
+  const variant = await bootVariant(page, ALL_CLIS_LIVE, 'Providers');
   liveVariants.set(page, variant);
   return variant;
 }
@@ -240,7 +240,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
               ? rpcError('catalogue unavailable')
               : PROVIDER_MODELS_FIXTURE,
         },
-        'Agent Orchestration',
+        'Providers',
         (variant) =>
           throughInstanceModel(variant, async (panel) => {
             const error = panel.locator(
@@ -291,7 +291,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     capability: 'Add agent: name, provider, key',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const add = page.locator('[data-testid="cli-matrix-add"]');
       const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
       try {
@@ -317,7 +317,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     capability: 'Keyless / optional-key hints',
     status: 'present',
     reach: async (page) => {
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const add = page.locator('[data-testid="cli-matrix-add"]');
       const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
       try {
@@ -468,7 +468,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
       throughVariantBoot(
         page,
         { 'ptahCli:list': { agents: [] } },
-        'Agent Orchestration',
+        'Providers',
         async (variant) => {
           const empty = variant.locator(
             '[data-testid="cli-matrix-no-instances"]',
@@ -557,7 +557,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
             copilotAuthenticated: true,
           },
         },
-        'Agent Orchestration',
+        'Providers',
         async (variant) => {
           const dialog = await openMatrixModal(
             variant,
@@ -593,7 +593,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
               copilotAuthenticated: false,
             },
           },
-          'Agent Orchestration',
+          'Providers',
           async (variant) => {
             // Signed out: Create stays disabled; "Login with GitHub" runs the login and the re-read still says not signed in.
             const dialog = await openMatrixModal(
@@ -647,7 +647,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
       } finally {
         await closeConnectionDrawer(page);
       }
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const add = page.locator('[data-testid="cli-matrix-add"]');
       const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
       try {
@@ -874,7 +874,7 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
     // Installed rows first; Cursor and Pi in the "Uninstalled" group, as plain text, with an install guide.
     reach: async (page) => {
       // Gate V 36 decision 1: the group is a disclosure ("Uninstalled CLI agents (2)"), collapsed by default.
-      await orchestrationTab(page);
+      await agentsRoutingTab(page);
       const uninstalled = page.locator(
         '[data-testid="cli-matrix-uninstalled"]',
       );
