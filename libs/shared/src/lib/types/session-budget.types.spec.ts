@@ -31,6 +31,7 @@ describe('SESSION_BUDGET_SETTINGS', () => {
       'handoffPercent',
       'handoffAfterCompactions',
       'tightenWindowTokens',
+      'autoHandoffAtLimit',
     ];
     expect(Object.keys(SESSION_BUDGET_SETTINGS).sort()).toEqual(
       [...fields].sort(),
