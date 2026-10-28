@@ -3,6 +3,8 @@ import {
   CustomProviderEntryChangesSchema,
   CustomProviderEntryInputSchema,
   getAnthropicProvider,
+  MESSAGE_TYPES,
+  type KimiCodeLoginState,
   type AuthCancelDraftVerificationParams,
   type AuthCancelDraftVerificationResult,
   type AuthSaveSettingsParams,
@@ -40,6 +42,14 @@ import type {
   SaveOperation,
 } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import type { MessageHandler } from './message-router.types';
+import {
+  KIMI_CODE_ID,
+  acceptsKimiLogin,
+  isFinalKimiLogin,
+  parseKimiLoginState,
+} from './kimi-code-login';
+import { AuthStateService } from './auth-state.service';
 
 /**
  * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
@@ -54,6 +64,10 @@ const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set([
 const CHECK_TIMEOUT_MS = 35000;
 /** Removing the main agent's own connection is refused, by the route snapshot or by the host (`CONNECTION_IN_USE`). */
 const SWITCH_MAIN_AGENT_FIRST = 'Switch the main agent first.';
+const SIGN_IN_DETECTED = 'Sign-in detected. Verify the connection before using it.';
+const KIMI_NOT_CONFIRMED =
+  'Kimi Code sign-in has not been confirmed. Sign in again, or run kimi login in a terminal, then choose Check again.';
+const KIMI_CANCEL_FAILED = 'Kimi Code sign-in could not be cancelled. Retry.';
 
 /** What connection setup needs from the page state that owns the other sections. */
 export interface ProvidersConnectionSetupHooks {
@@ -87,6 +101,16 @@ const METADATA_FIELDS = {
   pricing: 'Custom connection pricing',
 } as const;
 
+/** Kimi Code is signed in through its CLI login, not through a fallback key, and the login is not stale. */
+function kimiSignedIn(
+  status: Pick<
+    RpcMethodResult<'auth:getAuthStatus'>,
+    'kimiCodeAuthenticated' | 'kimiCodeTokenStale'
+  >,
+): boolean {
+  return status.kimiCodeAuthenticated === true && !status.kimiCodeTokenStale;
+}
+
 function samePricing(
   stored: CustomProviderPricing | null | undefined,
   requested: CustomProviderPricing | null | undefined,
@@ -102,12 +126,20 @@ function samePricing(
  * Connection setup for the Providers page: the draft probe (one generation counter for verify,
  * cancel and abort), external sign-in, and the staged connect/activate operations handed to
  * `ProvidersCommitService`. A caller-owned credential is never copied into a signal.
+ *
+ * Kimi Code signs in inside the app: `auth:kimiCodeLogin` starts `kimi login` on the host and returns at
+ * once; its progress arrives as `auth:kimiCodeLoginStatus` pushes, which this service handles
+ * (`MESSAGE_HANDLERS`). A final `succeeded` re-reads the auth status, connections and route.
  */
 @Injectable({ providedIn: 'root' })
-export class ProvidersConnectionSetupService {
+export class ProvidersConnectionSetupService implements MessageHandler {
+  readonly handledMessageTypes = [
+    MESSAGE_TYPES.AUTH_KIMI_CODE_LOGIN_STATUS,
+  ] as const;
   private readonly rpc = inject(ClaudeRpcService);
   private readonly commits = inject(ProvidersCommitService);
   private readonly workspace = inject(WorkspaceScopeService);
+  private readonly authState = inject(AuthStateService);
   private readonly probeStore =
     createSectionStore<AuthVerifyDraftConnectionResult>();
   private readonly externalAuthStore =
@@ -119,6 +151,19 @@ export class ProvidersConnectionSetupService {
 
   readonly verification = sectionView(this.probeStore, this.workspace);
   readonly externalAuth = sectionView(this.externalAuthStore, this.workspace);
+  private readonly kimiLoginState = signal<KimiCodeLoginState | null>(null);
+  /**
+   * The in-app Kimi Code sign-in: the host's last snapshot (fixed copy only, an `https:` URL only).
+   * Machine-wide, so not scoped to the workspace. Null before a sign-in ran in this webview.
+   */
+  readonly kimiCodeLogin = this.kimiLoginState.asReadonly();
+  /**
+   * The loaded Providers page (`registerKimiLoginOwner`, or the page that started the sign-in); a
+   * finished sign-in re-reads its connections and route, also when it completes after a reload.
+   */
+  private kimiOwner: ProvidersConnectionSetupHooks | null = null;
+  /** Explicit starts and cancels; a start response from an earlier one is discarded. */
+  private kimiAttempt = 0;
   private readonly checkState = signal<
     (ProvidersConnectionCheck & { readonly scopeKey: string }) | null
   >(null);
@@ -180,10 +225,18 @@ export class ProvidersConnectionSetupService {
       cliInstalled: null,
       message: null,
     };
+    if (providerId === KIMI_CODE_ID && action !== 'cli-check') {
+      this.kimiOwner = hooks;
+      return action === 'sign-in-cancel'
+        ? this.cancelKimiLogin()
+        : this.startKimiLogin();
+    }
     if (
       action === 'sign-in-cancel' ||
       !providerId ||
-      !['github-copilot', 'openai-codex', 'claude-cli'].includes(providerId) ||
+      !['github-copilot', 'openai-codex', 'claude-cli', KIMI_CODE_ID].includes(
+        providerId,
+      ) ||
       (providerId === 'claude-cli' && action !== 'cli-check')
     ) {
       ++this.externalAuthStore.generation;
@@ -229,7 +282,9 @@ export class ProvidersConnectionSetupService {
             ? result.copilotAuthenticated === true
             : providerId === 'openai-codex'
               ? result.codexAuthenticated === true && !result.codexTokenStale
-              : false;
+              : providerId === KIMI_CODE_ID
+                ? kimiSignedIn(result)
+                : false;
         return {
           ...empty,
           signInState: signedIn ? 'signed-in' : 'idle',
@@ -238,12 +293,146 @@ export class ProvidersConnectionSetupService {
               ? (result.claudeCliInstalled ?? null)
               : null,
           message: signedIn
-            ? 'Sign-in detected. Verify the connection before using it.'
-            : 'Login has not been confirmed. Complete external login, then check again.',
+            ? SIGN_IN_DETECTED
+            : providerId === KIMI_CODE_ID
+              ? KIMI_NOT_CONFIRMED
+              : 'Login has not been confirmed. Complete external login, then check again.',
         };
       },
     );
     await Promise.all([hooks.refreshConnections(), hooks.refreshRoute()]);
+  }
+
+  /**
+   * Registers the page state whose connections and route a finished Kimi sign-in re-reads. The page
+   * calls it when it opens, so a sign-in that ends after a reload (no local start) still refreshes
+   * it. Registration does no I/O and starts nothing.
+   */
+  registerKimiLoginOwner(hooks: ProvidersConnectionSetupHooks): void {
+    this.kimiOwner = hooks;
+  }
+
+  /** `auth:kimiCodeLoginStatus`: a malformed snapshot is dropped, so it never reaches view state. */
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type !== MESSAGE_TYPES.AUTH_KIMI_CODE_LOGIN_STATUS) return;
+    const state = parseKimiLoginState(message.payload);
+    if (state) void this.applyKimiLogin(state);
+  }
+
+  /**
+   * Starts the in-app sign-in. The host returns as soon as `kimi login` runs (or with the sign-in
+   * already running, which recovers its URL and code after a reload); progress comes as pushes.
+   * A response that settles after a newer start or cancel is discarded, and a failed or rejected
+   * response goes through the same ordering as a push, so it never replaces a final phase that a
+   * push already delivered.
+   */
+  private async startKimiLogin(): Promise<void> {
+    const attempt = ++this.kimiAttempt;
+    const current = this.kimiLoginState();
+    // A running sign-in keeps its snapshot: the host returns that one instead of starting another.
+    // An explicit start is the only step out of a final phase.
+    if (!current || isFinalKimiLogin(current))
+      this.kimiLoginState.set({ status: 'starting' });
+    this.setKimiExternalAuth({ signInState: 'in-flight', message: null });
+    let response: RpcMethodResult<'auth:kimiCodeLogin'>;
+    try {
+      response = await this.require('auth:kimiCodeLogin', {});
+    } catch {
+      // `require()` throws a fixed message; the host text never reaches state.
+      response = { success: false };
+    }
+    if (attempt !== this.kimiAttempt) return;
+    const state = parseKimiLoginState(response.state);
+    // Not started: only the status and `errorCode` are kept; the UI shows its own copy.
+    const next: KimiCodeLoginState | null = response.success
+      ? state
+      : state?.status === 'failed'
+        ? state
+        : { status: 'failed' };
+    if (next) await this.applyKimiLogin(next);
+  }
+
+  /**
+   * Stops the running sign-in; its `cancelled` push then ends it. When the host had no sign-in
+   * running (`cancelled: false`), a running phase shown here is stale and is cleared.
+   */
+  private async cancelKimiLogin(): Promise<void> {
+    let cancelled: boolean;
+    try {
+      const result = await this.require('auth:kimiCodeLoginCancel', {});
+      cancelled = result.cancelled === true;
+    } catch {
+      // degradation-audit: reported - the card shows the cancel failure and
+      // keeps the sign-in in flight; host error text is never rendered.
+      this.setKimiExternalAuth({
+        signInState: 'in-flight',
+        message: KIMI_CANCEL_FAILED,
+      });
+      return;
+    }
+    if (cancelled || isFinalKimiLogin(this.kimiLoginState())) return;
+    ++this.kimiAttempt;
+    this.kimiLoginState.set(null);
+    this.setKimiExternalAuth({ signInState: 'idle', message: null });
+  }
+
+  /**
+   * Applies one snapshot (push or start response) under `acceptsKimiLogin`: a final phase stays
+   * until an explicit new start, so only the first step into a final phase ends a sign-in.
+   */
+  private async applyKimiLogin(next: KimiCodeLoginState): Promise<void> {
+    if (!acceptsKimiLogin(this.kimiLoginState(), next)) return;
+    this.kimiLoginState.set(next);
+    if (!isFinalKimiLogin(next)) {
+      this.setKimiExternalAuth({ signInState: 'in-flight', message: null });
+      return;
+    }
+    if (next.status !== 'succeeded') {
+      this.setKimiExternalAuth({
+        signInState: next.status === 'failed' ? 'failed' : 'idle',
+        message: null,
+      });
+      return;
+    }
+    await this.finishKimiLogin();
+  }
+
+  /**
+   * A `succeeded` sign-in is confirmed from the auth status. The shared auth state then re-reads,
+   * whether or not the Providers page is loaded, and a loaded page re-reads its connections and route.
+   */
+  private async finishKimiLogin(): Promise<void> {
+    const signedIn = await this.require('auth:getAuthStatus', {
+      providerId: KIMI_CODE_ID,
+    }).then(kimiSignedIn, () => false);
+    this.setKimiExternalAuth({
+      signInState: signedIn ? 'signed-in' : 'idle',
+      message: signedIn ? SIGN_IN_DETECTED : KIMI_NOT_CONFIRMED,
+    });
+    const owner = this.kimiOwner;
+    await Promise.all([
+      this.authState.refreshAuthStatus(),
+      ...(owner ? [owner.refreshConnections(), owner.refreshRoute()] : []),
+    ]);
+  }
+
+  /** The Kimi sign-in's external-auth snapshot; it supersedes any other provider's in-flight sign-in. */
+  private setKimiExternalAuth(
+    patch: Pick<ProvidersExternalAuth, 'signInState' | 'message'>,
+  ): void {
+    ++this.externalAuthGeneration;
+    ++this.externalAuthStore.generation;
+    this.externalAuthStore.scopeKey = this.workspace.scopeKey();
+    this.externalAuthStore.value.set({
+      status: 'ready',
+      error: null,
+      data: {
+        providerId: KIMI_CODE_ID,
+        accountLabel: null,
+        cliInstalled: null,
+        ...patch,
+      },
+    });
   }
 
   /**
@@ -848,7 +1037,7 @@ export class ProvidersConnectionSetupService {
 
   /**
    * Mirrors the host's `connectionCheckKind` (rpc-handlers `connection-check.ts`): the Claude API key, custom
-   * entries, the Claude CLI, GitHub Copilot, OpenAI Codex and key-required remote providers. Local servers and
+   * entries, the Claude CLI, GitHub Copilot, OpenAI Codex, Kimi Code and key-required remote providers. Local servers and
    * key-optional routes are not checkable there.
    */
   private hostCheckable(
@@ -869,6 +1058,7 @@ export class ProvidersConnectionSetupService {
       !!entry.isCustom ||
       providerId === 'github-copilot' ||
       providerId === 'openai-codex' ||
+      providerId === KIMI_CODE_ID ||
       ((entry.authType ?? 'apiKey') === 'apiKey' && !entry.isLocal)
     );
   }

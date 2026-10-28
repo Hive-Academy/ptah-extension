@@ -161,6 +161,21 @@ export interface AnthropicProvider {
    */
   supportsOptionalApiKey?: boolean;
   /**
+   * An OAuth provider that also accepts a stored API key when its sign-in is
+   * unavailable.
+   *
+   * Distinct from `supportsOptionalApiKey` (a key-optional local provider whose
+   * key only unlocks metadata) and from `authType: 'apiKey'` (a key is the only
+   * credential). When true, the provider keeps `authType: 'oauth'` and
+   * `requiresProxy: true`, so it routes through its OAuth proxy; the proxy uses
+   * the sign-in first and the stored key as a fallback. Direct key paths
+   * (draft verification, connection check, Ptah CLI agents) still send the key
+   * through `authEnvVar` against `baseUrl`.
+   *
+   * Currently used by `kimi-code`.
+   */
+  apiKeyFallback?: boolean;
+  /**
    * Native Claude auth — inherit the host's local Claude CLI login /
    * subscription instead of any base-url override or auth token.
    *

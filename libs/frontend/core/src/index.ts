@@ -5,6 +5,9 @@ export { ATTENTION_LANE_OPENER, type AttentionLaneOpener } from './lib/tokens/at
 export { ATTENTION_ACTION_DISPATCHER, type AttentionActionDispatcher, type AttentionActionOutcome } from './lib/tokens/attention-action-dispatcher.token';
 export { NOTICE_ACTION_HANDLER, type NoticeActionHandler } from './lib/tokens/notice-action-handler.token';
 export * from './lib/services/providers-settings-state.service';
+// Exported for its `MESSAGE_HANDLERS` registration only (the Kimi Code sign-in push); pages use
+// `ProvidersSettingsStateService`.
+export { ProvidersConnectionSetupService } from './lib/services/providers-connection-setup.service';
 export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export {
   PlanLimitsStore,

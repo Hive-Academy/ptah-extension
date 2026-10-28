@@ -4,6 +4,8 @@
  * Handles authentication for OAuth-based providers that require a translation proxy:
  * - GitHub Copilot (VS Code GitHub OAuth + Copilot translation proxy)
  * - OpenAI Codex (file-based auth from ~/.codex/auth.json + Codex translation proxy)
+ * - Kimi Code (Kimi Code CLI login from ~/.kimi-code, stored API key as a
+ *   fallback, Kimi Code Messages relay proxy)
  *
  * Extracted from AuthManager.configureCopilotOAuth() and configureCodexOAuth().
  */
@@ -26,8 +28,17 @@ import type {
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
+import type { IKimiCodeAuthService } from '../../providers/kimi-code/kimi-code-provider.types';
+import {
+  KIMI_CODE_PROVIDER_ID,
+  kimiCodeUnavailableMessage,
+} from '../../providers/kimi-code/kimi-code-provider.types';
 import type { ITranslationProxy } from '../../translation';
-import { seedStaticModelPricing } from '@ptah-extension/shared';
+import {
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+  seedStaticModelPricing,
+  type AuthEnv,
+} from '@ptah-extension/shared';
 
 @injectable()
 export class OAuthProxyStrategy implements IAuthStrategy {
@@ -47,10 +58,20 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     private readonly providerModels: ProviderModelsService,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH)
+    private readonly kimiCodeAuth: IKimiCodeAuthService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_PROXY)
+    private readonly kimiCodeProxy: ITranslationProxy,
   ) {}
 
   async configure(context: AuthConfigureContext): Promise<AuthConfigureResult> {
     const { providerId, authEnv } = context;
+    if (providerId === KIMI_CODE_PROVIDER_ID) {
+      await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+      this.codexAuth.stopWatchingAuthFile();
+      return this.configureKimiCode(providerId, authEnv);
+    }
+    await this.stopKimiCode();
     if (providerId === 'openai-codex') {
       return this.configureCodexOAuth(context);
     }
@@ -64,6 +85,90 @@ export class OAuthProxyStrategy implements IAuthStrategy {
     await this.stopProxyIfRunning(this.codexProxy, 'Codex');
     this.codexAuth.stopWatchingAuthFile();
     this.codexAuth.clearCache();
+    await this.stopKimiCode();
+    this.kimiCodeAuth.clearCache();
+  }
+
+  private async stopKimiCode(): Promise<void> {
+    await this.stopProxyIfRunning(this.kimiCodeProxy, 'Kimi Code');
+    this.kimiCodeAuth.stopWatching();
+  }
+
+  /**
+   * Configure Kimi Code: the Kimi Code CLI login first, the stored Kimi Code
+   * API key as a fallback, both served through the Kimi Code proxy so a
+   * 15-minute OAuth token stays fresh for sessions of any length.
+   */
+  private async configureKimiCode(
+    providerId: string,
+    authEnv: AuthEnv,
+  ): Promise<AuthConfigureResult> {
+    await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
+    this.logger.info(`[${this.name}] Configuring OAuth provider: Kimi Code`);
+    // Watch first, so a later `kimi login` re-initializes the adapter even
+    // when no credential exists yet.
+    this.kimiCodeAuth.startWatching();
+    // A failed refresh is not fatal: the stored key may still serve.
+    await this.kimiCodeAuth.ensureFresh();
+    const status = await this.kimiCodeAuth.getStatus();
+    if (status.credentialSource === 'none') {
+      this.logger.warn(
+        `[${this.name}] Kimi Code has no CLI login and no stored API key`,
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: kimiCodeUnavailableMessage(
+          status.stale ? 'stale' : 'signed-out',
+        ),
+      };
+    }
+
+    let proxyUrl: string;
+    try {
+      const running = this.kimiCodeProxy.isRunning()
+        ? this.kimiCodeProxy.getUrl()
+        : undefined;
+      proxyUrl = running ?? (await this.kimiCodeProxy.start()).url;
+    } catch (error) {
+      this.sentryService.captureException(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          errorSource: 'OAuthProxyStrategy.configureKimiCode',
+          activeProvider: providerId,
+        },
+      );
+      this.logger.error(
+        `[${this.name}] Failed to start Kimi Code proxy`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage:
+          'Failed to start Kimi Code proxy. Check if a local port is available.',
+      };
+    }
+    authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    authEnv.ANTHROPIC_AUTH_TOKEN = KIMI_CODE_PROXY_TOKEN_PLACEHOLDER;
+    authEnv.ANTHROPIC_API_KEY = '';
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = KIMI_CODE_PROXY_TOKEN_PLACEHOLDER;
+    delete process.env['ANTHROPIC_API_KEY'];
+    this.providerModels.switchActiveProvider(providerId);
+    seedStaticModelPricing(providerId);
+
+    const source =
+      status.credentialSource === 'cli-login'
+        ? 'Kimi Code CLI sign-in'
+        : 'Kimi Code API key';
+    this.logger.info(
+      `[${this.name}] Using Kimi Code via proxy (${proxyUrl}); credential source: ${status.credentialSource}`,
+    );
+    return {
+      configured: true,
+      details: [`Kimi Code (${source} via local proxy at ${proxyUrl})`],
+    };
   }
 
   /**
@@ -72,7 +177,7 @@ export class OAuthProxyStrategy implements IAuthStrategy {
    */
   private async configureCopilotOAuth(
     providerId: string,
-    authEnv: import('@ptah-extension/shared').AuthEnv,
+    authEnv: AuthEnv,
   ): Promise<AuthConfigureResult> {
     this.logger.info(
       `[${this.name}] Configuring OAuth provider: GitHub Copilot`,

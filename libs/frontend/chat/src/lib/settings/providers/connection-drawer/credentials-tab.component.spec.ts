@@ -8,7 +8,7 @@ import type { ConnectionKind } from './connection-kind';
 import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 const connection = (overrides: Partial<ProvidersConnection> = {}): ProvidersConnection => ({
-  id: 'kimi-code', name: 'Kimi Code', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
+  id: 'requesty', name: 'Requesty', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
   defaultsResolvable: true, accountLabel: null, tokenStale: false, ...overrides,
 });
 const result = (probeId: string, overrides: Partial<AuthVerifyDraftConnectionResult> = {}): AuthVerifyDraftConnectionResult => ({
@@ -38,7 +38,7 @@ describe('replaceKeyDraft', () => {
   it('writes the credential only, connect-only, keeping the stored tiers unedited', () => {
     const draft = replaceKeyDraft(connection(), request, SETUP);
     expect(draft).toMatchObject({
-      providerId: 'kimi-code', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' }, baseUrl: null,
+      providerId: 'requesty', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' }, baseUrl: null,
       verified: { probeId: 'drawer-probe-1' }, editedTiers: [], saveTo: 'global', activation: 'connect-only',
       tiers: { everyday: 'k3', complex: '', fast: 'kimi-for-coding' },
       tierSnapshot: { everyday: 'k3', complex: null, fast: 'kimi-for-coding' },
@@ -75,7 +75,7 @@ describe('CredentialsTabComponent', () => {
 
   const query = <T extends HTMLElement = HTMLElement>(id: string) => element.querySelector<T>(`[data-testid="${id}"]`);
   let rendered = false;
-  /** The first render defaults to Kimi Code (api-key); later renders change only what they name. */
+  /** The first render defaults to Requesty (api-key); later renders change only what they name. */
   function render(inputs: { connection?: ProvidersConnection; kind?: ConnectionKind } & Record<string, unknown> = {}) {
     const { connection: value, kind, ...rest } = inputs;
     if (value || !rendered) fixture.componentRef.setInput('connection', value ?? connection());
@@ -183,7 +183,7 @@ describe('CredentialsTabComponent', () => {
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       typeKey('  sk-new  ');
       query('credentials-verify')?.click(); fixture.detectChanges();
-      expect(probe.calls[0]).toMatchObject({ providerId: 'kimi-code', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' } });
+      expect(probe.calls[0]).toMatchObject({ providerId: 'requesty', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' } });
       expect(query('credentials-probe')?.textContent).toContain('Checking');
       expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       probe.settle(); await flush();
@@ -433,5 +433,95 @@ describe('CredentialsTabComponent', () => {
     expect(query('credentials-new-key')).toBeNull();
     query('credentials-replace')?.click(); fixture.detectChanges();
     expect(query<HTMLInputElement>('credentials-new-key')?.value).toBe('');
+  });
+
+  describe('Kimi Code: CLI sign-in first, stored key as fallback', () => {
+    const kimi = (overrides: Partial<ProvidersConnection> = {}) => connection({
+      id: 'kimi-code', name: 'Kimi Code', authMode: 'oauth', hasKey: false, credentialSource: 'none', ...overrides,
+    });
+    const status = () => query('credentials-kimi-status')?.textContent?.trim();
+
+    it.each<[string, Partial<ProvidersConnection>, string]>([
+      ['cli-login', { credentialSource: 'cli-login', configured: true }, 'Connected via Kimi Code CLI'],
+      ['stale', { credentialSource: 'none', tokenStale: true }, 'Kimi Code CLI login expired'],
+      ['stale with a key', { credentialSource: 'api-key', tokenStale: true, hasKey: true }, 'Kimi Code CLI login expired · using the stored API key'],
+      ['api-key', { credentialSource: 'api-key', hasKey: true }, 'Using the stored API key'],
+      ['none', { credentialSource: 'none' }, 'Not signed in'],
+    ])('names the credential in use as text, not only a colour (%s)', (_label, overrides, text) => {
+      render({ connection: kimi(overrides), kind: 'oauth' });
+      expect(status()).toBe(text);
+      expect(query('credentials-kimi-status')?.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    });
+
+    it('signs in in the app, checks again, and copies kimi login', async () => {
+      const writeText = jest.fn(async () => undefined);
+      Object.assign(navigator, { clipboard: { writeText } });
+      const action = jest.fn();
+      fixture.componentInstance.externalActionRequested.subscribe(action);
+      render({ connection: kimi(), kind: 'oauth' });
+      expect(query('credentials-kimi-copy')?.textContent).toContain('~/.kimi-code');
+      query('credentials-kimi-sign-in')?.click();
+      expect(action).toHaveBeenLastCalledWith('sign-in');
+      query('credentials-kimi-check')?.click();
+      expect(action).toHaveBeenLastCalledWith('cli-check');
+      const copy = query('credentials-copy-kimi-login');
+      expect(copy?.getAttribute('aria-label')).toBe('Copy kimi login');
+      copy?.click(); await flush();
+      expect(writeText).toHaveBeenCalledWith('kimi login');
+      expect(query('credentials-kimi-cancel')).toBeNull();
+    });
+
+    it('while the sign-in runs, shows the link and the code and offers Cancel instead of Sign in', () => {
+      const action = jest.fn();
+      fixture.componentInstance.externalActionRequested.subscribe(action);
+      render({ connection: kimi(), kind: 'oauth', kimiLogin: {
+        status: 'awaiting-browser', verificationUrl: 'https://auth.example.test/device?code=FAKE-1234', userCode: 'FAKE-1234',
+        browserOpened: false,
+      } });
+      const link = query<HTMLAnchorElement>('kimi-login-url');
+      expect(link?.getAttribute('href')).toBe('https://auth.example.test/device?code=FAKE-1234');
+      expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
+      expect(link?.textContent?.trim()).toBe('https://auth.example.test/device?code=FAKE-1234');
+      expect(query('kimi-login-code')?.textContent?.trim()).toBe('FAKE-1234');
+      expect(query('kimi-login-copy-url')?.getAttribute('aria-label')).toBe('Copy sign-in link');
+      expect(query('kimi-login-copy-code')?.getAttribute('aria-label')).toBe('Copy sign-in code');
+      expect(query('kimi-login-status')?.textContent).toContain('Open the link below');
+      expect(query('credentials-kimi-sign-in')).toBeNull();
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-kimi-check'))).toBe(true);
+      query('credentials-kimi-cancel')?.click();
+      expect(action).toHaveBeenCalledWith('sign-in-cancel');
+    });
+
+    it('a missing CLI shows the fixed failure, the install link and the key option', () => {
+      render({ connection: kimi(), kind: 'oauth', kimiLogin: {
+        status: 'failed', errorCode: 'not-installed',
+      } });
+      expect(query('kimi-login-status')?.getAttribute('role')).toBe('alert');
+      expect(query('kimi-login-status')?.textContent).toContain('The Kimi Code CLI is not installed on this machine.');
+      expect(query('kimi-login-install-link')?.getAttribute('href')).toMatch(/^https:\/\//);
+      expect(query('credentials-kimi-sign-in')).not.toBeNull();
+      expect(query('credentials-key')).not.toBeNull();
+    });
+
+    it('reuses the stored-key block as the optional fallback key, checked as an API key', () => {
+      render({ connection: kimi({ hasKey: true, credentialSource: 'api-key' }), kind: 'oauth', setup: SETUP });
+      const block = query('credentials-key');
+      expect(block?.textContent).toContain('Optional API key');
+      expect(query('credentials-fallback-key-copy')?.textContent?.trim()).toBe('Used only when the Kimi Code CLI is not signed in.');
+      expect(query('credentials-replace')).not.toBeNull();
+      expect(query('credentials-delete')).not.toBeNull();
+      query('credentials-replace')?.click(); fixture.detectChanges();
+      typeKey('fake-kimi-key');
+      query('credentials-verify')?.click(); fixture.detectChanges();
+      expect(probe.calls[0]).toMatchObject({ providerId: 'kimi-code', authMode: 'apiKey' });
+      expect(replaceKeyDraft(kimi(), { key: 'fake-kimi-key', probeId: 'p' }, SETUP).authMode).toBe('apiKey');
+    });
+
+    it('an api-key connection keeps its plain label', () => {
+      render();
+      expect(query('credentials-key')?.textContent).toContain('Stored API key');
+      expect(query('credentials-fallback-key-copy')).toBeNull();
+      expect(query('credentials-kimi')).toBeNull();
+    });
   });
 });

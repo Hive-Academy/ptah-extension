@@ -18,7 +18,8 @@ const connection = (id: string, name: string, authMode: ProvidersConnection['aut
 const CONNECTIONS: ProvidersConnection[] = [
   connection('anthropic', 'Claude API', 'apiKey'),
   connection('claude-cli', 'Claude (Subscription)', 'cli'),
-  connection('kimi-code', 'Kimi Code', 'apiKey'),
+  connection('kimi-code', 'Kimi Code', 'oauth'),
+  connection('requesty', 'Requesty', 'apiKey'),
   connection('ollama-cloud', 'Ollama Cloud', 'local-native'),
   connection('ollama', 'Ollama', 'local-native'),
   connection('github-copilot', 'GitHub Copilot', 'oauth'),
@@ -128,13 +129,14 @@ describe('AddCliInstanceModalComponent', () => {
 
     it('offers every connection except Claude API and OpenAI Codex, with its modality', () => {
       const options = Array.from(q<HTMLSelectElement>('add-cli-instance-provider')?.options ?? []).map((option) => option.textContent?.trim());
-      expect(options).toEqual(['Choose a provider connection…', 'Claude (Subscription) · CLI login', 'Kimi Code · API key',
-        'Ollama Cloud · Local server', 'Ollama · Local server', 'GitHub Copilot · OAuth']);
+      expect(options).toEqual(['Choose a provider connection…', 'Claude (Subscription) · CLI login', 'Kimi Code · OAuth',
+        'Requesty · API key', 'Ollama Cloud · Local server', 'Ollama · Local server', 'GitHub Copilot · OAuth']);
     });
 
     it('requires a key for an API-key provider, masked with show/hide (#49)', () => {
-      type('add-cli-instance-name', 'Kimi-2');
-      choose('kimi-code');
+      type('add-cli-instance-name', 'Requesty-2');
+      choose('requesty');
+      expect(el().querySelector('dialog')?.textContent).toContain('API key for this instance');
       expect(q('add-cli-instance-key-help')?.textContent).toContain('Keys stored for the provider connection are not copied');
       expect(submit()?.disabled).toBe(true);
       type('add-cli-instance-key', KEY);
@@ -144,6 +146,20 @@ describe('AddCliInstanceModalComponent', () => {
       expect(q<HTMLInputElement>('add-cli-instance-key')?.type).toBe('text');
       expect(q('add-cli-instance-toggle-visibility')?.getAttribute('aria-pressed')).toBe('true');
       expect(submit()?.disabled).toBe(false);
+    });
+
+    it('makes the key optional for Kimi Code, which falls back to the shared connection (apiKeyFallback)', async () => {
+      type('add-cli-instance-name', 'Kimi-2');
+      choose('kimi-code');
+      expect(el().querySelector('dialog')?.textContent).toContain('API key (optional)');
+      expect(q('add-cli-instance-key-help')?.textContent?.trim()).toBe(
+        "Optional. Leave empty to use your Kimi Code connection (CLI sign-in, or the provider's stored key as fallback). A key entered here is used instead.");
+      expect(q('add-cli-instance-key')).not.toBeNull();
+      expect(submit()?.disabled).toBe(false);
+      submit()?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledWith(
+        { cli: [{ action: 'create', params: { name: 'Kimi-2', providerId: 'kimi-code', apiKey: '' } }] }, CONTEXT);
     });
 
     it.each([
@@ -362,6 +378,9 @@ describe('AddCliInstanceModalComponent', () => {
       expect(q('add-cli-instance-provider')).toBeNull();
       expect(q('add-cli-instance-provider-fixed')?.textContent?.trim()).toBe('Kimi Code');
       expect(el().textContent).toContain('Replacement API key (leave empty to keep the stored one)');
+      // Defect 4: an empty replacement keeps the stored key, so no "leave empty to use the connection" hint here.
+      expect(q('add-cli-instance-key-help')).toBeNull();
+      expect(el().textContent).not.toContain('Leave empty to use your Kimi Code connection');
       expect(submit()?.textContent?.trim()).toBe('Save changes');
       expect(submit()?.disabled).toBe(true);
     });

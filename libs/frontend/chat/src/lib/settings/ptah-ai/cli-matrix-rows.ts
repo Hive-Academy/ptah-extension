@@ -267,6 +267,7 @@ const CURSOR_NEEDS_KEY: CliMatrixStatus = {
 
 /** Ollama Cloud runs on `ollama signin` when no key is stored (`PtahCliSummary.hasApiKey`). */
 const SIGN_IN_PROVIDER_ID = 'ollama-cloud';
+const KIMI_CODE_PROVIDER_ID = 'kimi-code';
 const TIERS: readonly Pick<CliTierBadge, 'tier' | 'label'>[] = [
   { tier: 'sonnet', label: 'Sonnet' },
   { tier: 'opus', label: 'Opus' },
@@ -388,16 +389,20 @@ function systemRows(
 
 function keyStatus(agent: PtahCliSummary): CliKeyStatus {
   if (agent.hasStoredKey) return { kind: 'key-set', label: 'Key set' };
+  // A key-less Kimi Code instance uses the shared Kimi Code connection (CLI sign-in, then the provider's stored key):
+  // the host reports `hasApiKey` only while that connection is usable.
+  const kimi = agent.providerId === KIMI_CODE_PROVIDER_ID;
   if (agent.hasApiKey) {
     return {
       kind: 'keyless',
-      label:
-        agent.providerId === SIGN_IN_PROVIDER_ID
+      label: kimi
+        ? 'Kimi Code connection'
+        : agent.providerId === SIGN_IN_PROVIDER_ID
           ? 'Cloud sign-in'
           : 'No key needed',
     };
   }
-  return { kind: 'missing', label: 'No API key' };
+  return { kind: 'missing', label: kimi ? 'Not signed in' : 'No API key' };
 }
 
 function instanceRow(

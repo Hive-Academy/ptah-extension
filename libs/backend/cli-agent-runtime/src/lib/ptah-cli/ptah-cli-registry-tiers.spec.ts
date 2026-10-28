@@ -240,3 +240,49 @@ describe('PtahCliRegistry.buildAuthEnv — kimi-code', () => {
     );
   });
 });
+
+type ProxyAuthEnvInternals = {
+  buildProxyAuthEnv: (
+    config: PtahCliConfig,
+    provider: AnthropicProvider,
+    credential: { kind: 'instance-key'; key: string },
+  ) => Promise<{ authEnv: AuthEnv; stopProxy: () => Promise<void> }>;
+};
+
+describe('PtahCliRegistry.buildProxyAuthEnv — kimi-code (OAuth with key fallback)', () => {
+  it('keeps the direct key path: no proxy, the agent key as x-api-key, no warning', async () => {
+    const logger = createMockLogger();
+    const registry = new PtahCliRegistry(
+      logger as unknown as Logger,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      createMockProviderModels() as unknown as ProviderModelsService,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      createFakeSdkProcessSpawner(),
+    );
+    // The shipped entry is an OAuth proxy provider with a key fallback.
+    expect(KIMI_CODE.requiresProxy).toBe(true);
+    expect(KIMI_CODE.apiKeyFallback).toBe(true);
+
+    const { authEnv, stopProxy } = await (
+      registry as unknown as ProxyAuthEnvInternals
+    ).buildProxyAuthEnv(BASE_AGENT_CONFIG, KIMI_CODE, {
+      kind: 'instance-key',
+      key: 'fake-kimi-agent-key',
+    });
+
+    expect(authEnv.ANTHROPIC_BASE_URL).toBe('https://api.kimi.ai/coding/');
+    expect(authEnv.ANTHROPIC_API_KEY).toBe('fake-kimi-agent-key');
+    expect(authEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(logger.warn).not.toHaveBeenCalled();
+    await expect(stopProxy()).resolves.toBeUndefined();
+  });
+});

@@ -31,6 +31,7 @@ import type {
   PermissionLevel,
   SubagentPromptCacheTtl,
 } from '@ptah-extension/shared';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 
 import { SessionControl } from './session-control.service';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
@@ -358,6 +359,15 @@ describe('SessionQueryExecutor — permission-level seeding (F1, Task 1.2)', () 
       kind: 'proxy',
       providerId: 'openai-codex',
     });
+  });
+
+  it('attributes a local Kimi Code proxy route to kimi-code', () => {
+    expect(
+      resolveCapacityRoute({
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4242',
+        ANTHROPIC_AUTH_TOKEN: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+      }),
+    ).toEqual({ kind: 'proxy', providerId: 'kimi-code' });
   });
 
   it('rejects route substrings and remote proxy-token impersonation for capacity', () => {

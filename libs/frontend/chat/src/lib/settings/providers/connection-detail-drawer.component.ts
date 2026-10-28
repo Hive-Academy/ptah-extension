@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
-import type { ConnectionCheckRecord } from '@ptah-extension/shared';
+import type { ConnectionCheckRecord, KimiCodeLoginState } from '@ptah-extension/shared';
 import { NativeDrawerComponent, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type { UsedBy } from './connection-usage';
 import {
@@ -92,7 +92,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
               @case ('credentials') {
                 <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isDriver()"
                   [saving]="saving()" [setup]="credentialsSetup()" [setupError]="credentialsSetupError()" [commit]="credentialsCommit()"
-                  [externalAuth]="externalAuth()" [verifyDraftConnection]="verifyDraftConnection()"
+                  [externalAuth]="externalAuth()" [kimiLogin]="kimiLogin()" [verifyDraftConnection]="verifyDraftConnection()"
                   [cancelDraftVerification]="cancelDraftVerification()" (replaceKeyRequested)="emitReplace(current, $event)"
                   (deleteKeyRequested)="deleteKeyRequested.emit()" (signOutRequested)="signOutRequested.emit()"
                   (externalActionRequested)="externalActionRequested.emit($event)" (keyRetryRequested)="keyRetryRequested.emit()" />
@@ -160,6 +160,8 @@ export class ConnectionDetailDrawerComponent {
   readonly credentialsSetupError = input(false);
   readonly credentialsCommit = input<CredentialsCommit | null>(null);
   readonly externalAuth = input<CredentialsExternalAuth>({ status: 'idle', message: null });
+  /** The in-app Kimi Code sign-in, for the Kimi Code Credentials view. */
+  readonly kimiLogin = input<KimiCodeLoginState | null>(null);
   readonly verifyDraftConnection = input.required<VerifyDraftFn>();
   readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly closed = output<void>();
@@ -206,17 +208,36 @@ export class ConnectionDetailDrawerComponent {
       }
       case 'api-key': return current?.hasKey ? 'API key · Stored locally'
         : current?.keyUnreadable ? 'API key · Stored key unreadable' : 'API key · No key stored';
-      case 'oauth': return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
+      case 'oauth': {
+        const source = this.fallbackSourceLabel();
+        if (source) return `Provider sign-in · ${source}`;
+        return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
+      }
       case 'local': return current?.hasKey ? 'Local server · Key stored locally'
         : current?.keyUnreadable ? 'Local server · Stored key unreadable' : 'Local server';
       default: return 'CLI subscription · Claude CLI login';
+    }
+  });
+  /**
+   * A sign-in connection that also takes a stored key (Kimi Code) names the credential serving it now
+   * (`credentialSource`), not a generic sign-in. Null for every other connection.
+   */
+  private readonly fallbackSourceLabel = computed(() => {
+    const current = this.connection();
+    switch (current?.credentialSource) {
+      case 'cli-login': return `${current.name} CLI sign-in`;
+      case 'api-key': return 'API key (fallback)';
+      case 'none': return 'Not signed in';
+      default: return null;
     }
   });
   protected readonly credentialLabel = computed(() => {
     const current = this.connection();
     switch (this.kind()) {
       case 'claude-cli': return 'Claude CLI login session';
-      case 'oauth': return current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session';
+      case 'oauth':
+        return this.fallbackSourceLabel()
+          ?? (current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session');
       case 'local': return current?.hasKey ? 'Optional key stored on this machine'
         : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key needed';
       default: return current?.hasKey ? 'Stored on this machine' : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key stored';
@@ -225,7 +246,9 @@ export class ConnectionDetailDrawerComponent {
   /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */
   protected readonly overviewKeyHint = computed(() => {
     const current = this.connection();
-    return current?.hasKey && (this.kind() === 'api-key' || this.kind() === 'custom') ? current.keyHint ?? null : null;
+    // `credentialSource` is set only for a sign-in connection that also takes a stored key (`apiKeyFallback`, Kimi Code).
+    return current?.hasKey && (current.credentialSource || this.kind() === 'api-key' || this.kind() === 'custom')
+      ? current.keyHint ?? null : null;
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {

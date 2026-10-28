@@ -13,7 +13,9 @@ import { ClaudeRpcService } from './claude-rpc.service';
 import { ModelStateService } from './model-state.service';
 import { EffortStateService } from './effort-state.service';
 import { PlanLimitsStore } from './plan-limits.store';
+import { KIMI_CODE_ID, kimiCredentialSource } from './kimi-code-login';
 import type {
+  KimiCodeCredentialSource,
   SettingScope,
   AuthGetAuthStatusResponse,
   AuthSaveSettingsParams,
@@ -164,6 +166,19 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired */
   private readonly _codexTokenStale = signal(false);
 
+  /** Whether the Kimi Code CLI home (`~/.kimi-code`) exists on this machine */
+  private readonly _kimiCodeCliDetected = signal(false);
+
+  /** Whether a Kimi Code CLI sign-in is present and not known to be dead */
+  private readonly _kimiCodeAuthenticated = signal(false);
+
+  /** Whether the Kimi Code CLI sign-in was rejected on refresh (`kimi login` again) */
+  private readonly _kimiCodeTokenStale = signal(false);
+
+  /** Which credential serves Kimi Code requests now */
+  private readonly _kimiCodeCredentialSource =
+    signal<KimiCodeCredentialSource>('none');
+
   /**
    * Active auth-required banner, set when a chat operation fails because the
    * provider needs (re-)authentication. Null when there is nothing to show.
@@ -310,6 +325,19 @@ export class AuthStateService {
   /** Whether Codex CLI auth token is stale/expired */
   readonly codexTokenStale = this._codexTokenStale.asReadonly();
 
+  /** Whether the Kimi Code CLI home exists on this machine */
+  readonly kimiCodeCliDetected = this._kimiCodeCliDetected.asReadonly();
+
+  /** Whether a Kimi Code CLI sign-in is present */
+  readonly kimiCodeAuthenticated = this._kimiCodeAuthenticated.asReadonly();
+
+  /** Whether the Kimi Code CLI sign-in needs a new `kimi login` */
+  readonly kimiCodeTokenStale = this._kimiCodeTokenStale.asReadonly();
+
+  /** Which credential serves Kimi Code requests: CLI login, stored key, or none */
+  readonly kimiCodeCredentialSource =
+    this._kimiCodeCredentialSource.asReadonly();
+
   /** Active auth-required banner for the chat surface (null when none). */
   readonly authRequiredBanner = this._authRequiredBanner.asReadonly();
 
@@ -434,6 +462,7 @@ export class AuthStateService {
       this._hasAnyProviderKey() ||
       this._copilotAuthenticated() ||
       this._codexAuthenticated() ||
+      this._kimiCodeCredentialSource() !== 'none' ||
       this._claudeCliInstalled() ||
       providerNeedsNoKey
     );
@@ -470,11 +499,7 @@ export class AuthStateService {
     if (method === 'apiKey' || method === 'claudeCli') return false;
     if (method !== 'thirdParty') return false;
     const provider = this.selectedProvider();
-    if (provider?.authType === 'oauth') {
-      if (provider.id === 'github-copilot') return this._copilotAuthenticated();
-      if (provider.id === 'openai-codex') return this._codexAuthenticated();
-      return false;
-    }
+    if (provider?.authType === 'oauth') return this.oauthCredentialPresent(provider);
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
@@ -500,15 +525,23 @@ export class AuthStateService {
     if (method === 'claudeCli') return this._claudeCliInstalled();
     if (method === 'apiKey') return this._hasApiKey();
     const provider = this.selectedProvider();
-    if (provider?.authType === 'oauth') {
-      if (provider.id === 'github-copilot') return this._copilotAuthenticated();
-      if (provider.id === 'openai-codex') return this._codexAuthenticated();
-      return false;
-    }
+    if (provider?.authType === 'oauth') return this.oauthCredentialPresent(provider);
     if (provider?.authType === 'none') return true;
 
     return this.hasProviderKey();
   });
+
+  /**
+   * An OAuth provider's credential: its sign-in, or for Kimi Code the CLI login or the stored
+   * fallback key (`kimiCodeCredentialSource`).
+   */
+  private oauthCredentialPresent(provider: AnthropicProviderInfo): boolean {
+    if (provider.id === 'github-copilot') return this._copilotAuthenticated();
+    if (provider.id === 'openai-codex') return this._codexAuthenticated();
+    if (provider.id === KIMI_CODE_ID)
+      return this._kimiCodeCredentialSource() !== 'none';
+    return false;
+  }
 
   /**
    * Currently selected provider info object from the available providers list.
@@ -1332,6 +1365,12 @@ export class AuthStateService {
     }
     this._codexAuthenticated.set(response.codexAuthenticated ?? false);
     this._codexTokenStale.set(response.codexTokenStale ?? false);
+    this._kimiCodeCliDetected.set(response.kimiCodeCliDetected === true);
+    this._kimiCodeAuthenticated.set(response.kimiCodeAuthenticated === true);
+    this._kimiCodeTokenStale.set(response.kimiCodeTokenStale === true);
+    this._kimiCodeCredentialSource.set(
+      kimiCredentialSource(response.kimiCodeCredentialSource),
+    );
     this._claudeCliInstalled.set(response.claudeCliInstalled ?? false);
     this._hasAnyProviderKey.set(response.hasAnyProviderKey ?? false);
 
