@@ -80,11 +80,7 @@ function sortedRecord(
 }
 
 function parseUrl(value: string): URL | undefined {
-  try {
-    return new URL(value);
-  } catch {
-    return undefined;
-  }
+  return URL.canParse(value) ? new URL(value) : undefined;
 }
 
 /** The resolved value may extend the profile url only by the secret query. */
