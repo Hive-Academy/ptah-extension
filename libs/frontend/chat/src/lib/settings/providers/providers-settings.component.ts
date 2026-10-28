@@ -16,6 +16,8 @@ import {
   untracked,
 } from '@angular/core';
 import {
+  ClaudeAmbientStatusService,
+  ProviderAccountsStateService,
   ProvidersSettingsStateService,
   VSCodeService,
   type ProvidersConnection,
@@ -47,7 +49,8 @@ import {
   type MainAgentFocus,
 } from './main-agent-reassign-popover.component';
 import { ProviderCatalogModalComponent } from './provider-catalog-modal.component';
-import { AccountsSectionComponent } from './accounts/accounts-section.component';
+import { connectedAccountCount } from './accounts/account-presentation';
+import { connectionKind, type ConnectionDrawerTabId } from './connection-drawer/connection-kind';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type {
@@ -57,6 +60,8 @@ import type {
 import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+// Rendered only inside `@defer`, so it stays out of the eager settings bundle.
+import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
 export type ProvidersSettingsFocusTarget =
@@ -86,7 +91,7 @@ const CONTROL =
     RoutingMapComponent,
     MainAgentReassignPopoverComponent,
     ProviderCatalogModalComponent,
-    AccountsSectionComponent,
+    KimiCodeLoginProgressComponent,
   ],
   template: `
     <div
@@ -114,6 +119,7 @@ const CONTROL =
                 [open]="mainPopover() !== null"
                 [initialFocus]="mainPopover()?.focus ?? null"
                 (closed)="mainPopover.set(null)"
+                (accountSignInRequested)="openAccountSignIn()"
               />
               <div
                 main-agent-badges
@@ -323,6 +329,9 @@ const CONTROL =
                     : null
                 "
                 [keyUnreadable]="connection.keyUnreadable === true"
+                [connectedAccounts]="
+                  isClaudeCli(connection) ? connectedAccounts() : null
+                "
                 (keyRetryRequested)="state.refreshConnections()"
                 (detailsRequested)="openDrawer(connection.id)"
                 (setupRequested)="openWizard(connection.id)"
@@ -353,13 +362,6 @@ const CONTROL =
               + Connect another provider
             </button>
           </div>
-          <!-- Accounts (design §2, plan :250): after the Connections grid, before the unchanged catalog hint.
-               Electron only (D34); deferred like the catalog modal, so the eager route keeps its bundle budget. -->
-          @if (accountsAvailable) {
-            @defer (on immediate) {
-              <ptah-accounts-section class="block pt-1" />
-            }
-          }
           <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
                title), "Browse catalog →" right-aligned. -->
           <div
@@ -404,8 +406,25 @@ const CONTROL =
           />
         }
 
-        @if (state.externalAuth().data; as auth) {
-          <p role="status" class="break-words">{{ auth.message }}</p>
+        @if (state.externalAuth().data?.message; as message) {
+          <p role="status" class="break-words">{{ message }}</p>
+        }
+        @if (pageKimiLogin(); as login) {
+          <div class="space-y-2" data-testid="providers-kimi-login">
+            @defer (on immediate) {
+              <ptah-kimi-code-login-progress [state]="login" />
+            }
+            @if (login.status !== 'failed') {
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                (click)="externalAction(kimiCodeId, 'sign-in-cancel')"
+                data-testid="providers-kimi-login-cancel"
+              >
+                Cancel Kimi Code sign-in
+              </button>
+            }
+          </div>
         }
         @if (state.externalAuth().status === 'loading') {
           <p role="status">Waiting for external sign-in…</p>
@@ -475,8 +494,11 @@ const CONTROL =
             [credentialsSetupError]="state.connectionSetup().status === 'error'"
             [credentialsCommit]="drawerCommit()"
             [externalAuth]="drawerExternalAuth()"
+            [kimiLogin]="state.kimiCodeLogin()"
             [verifyDraftConnection]="verifyDraftConnection"
             [cancelDraftVerification]="cancelDraftVerification"
+            [accountsAvailable]="accountsAvailable"
+            [initialTab]="drawerTab()"
             (closed)="closeDrawer()"
             (checkConnectionRequested)="
               state.checkProviderConnection(connection.id)
@@ -511,6 +533,7 @@ const CONTROL =
             [defaultsResolvable]="wizardDefaults()"
             [externalAuth]="wizardExternalAuth()"
             [externalMessage]="state.externalAuth().data?.message ?? null"
+            [signInProgress]="wizardSignInProgress()"
             [initialSetup]="
               state.connectionSetup().status === 'ready'
                 ? state.connectionSetup().data
@@ -559,8 +582,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly requestedProviderConsumed = output<string>();
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
-  /** Accounts is Electron only (D34): elsewhere the section and its state owner are never created. */
+  /** Accounts is Electron only (D34): elsewhere the drawer tab is absent and the account reads never run. */
   protected readonly accountsAvailable = inject(VSCodeService).isElectron;
+  private readonly accounts = this.accountsAvailable
+    ? inject(ProviderAccountsStateService)
+    : null;
+  private readonly ambient = this.accountsAvailable
+    ? inject(ClaudeAmbientStatusService)
+    : null;
+  /** Claude CLI card badge (D41, P5-D13): `null` hides it while either read is loading, failed or not ready. */
+  protected readonly connectedAccounts = computed<number | null>(() =>
+    this.accounts && this.ambient
+      ? connectedAccountCount(
+          this.accounts.state('claude')(),
+          this.ambient.view(),
+        )
+      : null,
+  );
+  protected isClaudeCli(connection: ProvidersConnection): boolean {
+    return connectionKind(connection) === 'claude-cli';
+  }
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   protected readonly control = CONTROL;
@@ -685,6 +726,29 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
             : auth.data.signInState,
     };
   });
+  /** `KIMI_CODE_PROVIDER_ENTRY.id`; a literal keeps `@ptah-extension/shared` a type-only import here. */
+  protected readonly kimiCodeId = 'kimi-code';
+  /** The in-app sign-in progress belongs to Kimi Code only; any other provider shows none. */
+  protected readonly wizardSignInProgress = computed(() =>
+    this.selectedWizardProvider() === this.kimiCodeId
+      ? this.state.kimiCodeLogin()
+      : null,
+  );
+  /**
+   * A Kimi Code sign-in started from a card still runs or failed: the page shows its link and code
+   * or its error, unless the Kimi Code drawer or the wizard already shows them.
+   */
+  protected readonly pageKimiLogin = computed(() => {
+    const login = this.state.kimiCodeLogin();
+    // `starting`, `awaiting-browser` or `failed`, written as the two other statuses for a smaller main bundle.
+    return login &&
+      login.status !== 'succeeded' &&
+      login.status !== 'cancelled' &&
+      this.drawerId() !== this.kimiCodeId &&
+      !this.wizardOpen()
+      ? login
+      : null;
+  });
   protected readonly wizardContextChanged = computed(() => {
     const before = this.wizardContext(),
       now = this.state.reviewContext();
@@ -752,8 +816,15 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const unique = new Map(
       (this.state.connections().data ?? []).map((entry) => [entry.id, entry]),
     );
+    // TASK_2026_719 P5 F3: Accounts live only in the Claude (Subscription) drawer, so where accounts exist its card
+    // stays on the page even without an installed CLI, keeping Manage → Accounts reachable.
     return [...unique.values()]
-      .filter((entry) => entry.configured || entry.id === selected)
+      .filter(
+        (entry) =>
+          entry.configured ||
+          entry.id === selected ||
+          (this.accountsAvailable && this.isClaudeCli(entry)),
+      )
       .sort(
         (left, right) =>
           Number(right.id === this.activeId()) -
@@ -798,6 +869,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private readonly drawerId = signal<string | null>(null);
   /** The card button that opened the drawer; setup opened from the drawer returns focus here. */
   private drawerOpener: HTMLElement | null = null;
+  /** The tab the drawer opens on (P6-A10: the main popover's "Sign in" opens the Claude drawer on Accounts). */
+  protected readonly drawerTab = signal<ConnectionDrawerTabId>('overview');
   protected readonly drawerConnection = computed(() => {
     const id = this.drawerId();
     return id
@@ -1011,6 +1084,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   }
   ngOnInit(): void {
     void this.state.open();
+    // D41 / P5-D10: one list read and the cached ambient read, so the card badge can show.
+    void this.accounts?.open('claude');
+    void this.ambient?.read(false);
   }
   ngOnDestroy(): void {
     if (this.wizardOpen()) {
@@ -1131,16 +1207,36 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       !this.state.route().data?.ready
     );
   }
-  protected openDrawer(providerId: string): void {
+  protected openDrawer(providerId: string, tab: ConnectionDrawerTabId = 'overview'): void {
     const active = this.element.nativeElement.ownerDocument.activeElement;
     this.drawerOpener = active instanceof HTMLElement ? active : null;
+    // Set with the connection, in one pass: the drawer applies it only when its connection changes.
+    this.drawerTab.set(tab);
     this.drawerId.set(providerId);
     this.resetDrawerSession();
     void this.state.refreshConnectionSetup(providerId);
   }
+  /**
+   * P6-A10 Sign-in route: the main popover's "Sign in" (signed-out stored account) closes the popover and opens the
+   * Claude (Subscription) drawer on Accounts. The popover's button leaves the DOM, so the drawer returns focus to the
+   * Main Agent node's Reassign button (A-3), else to whatever held focus.
+   */
+  protected openAccountSignIn(): void {
+    const claude = (this.state.connections().data ?? []).find((connection) => this.isClaudeCli(connection));
+    this.mainPopover.set(null);
+    if (!claude) return;
+    this.openDrawer(claude.id, 'accounts');
+    const node = this.element.nativeElement.querySelector<HTMLElement>(
+      '[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]',
+    );
+    if (node) this.drawerOpener = node;
+  }
   protected closeDrawer(): void {
     this.drawerId.set(null);
     this.resetDrawerSession();
+    // D41: the badge re-reads after the drawer (where accounts change) closes; pushes cover the rest.
+    void this.accounts?.refresh('claude');
+    void this.ambient?.read(false);
   }
   private resetDrawerSession(): void {
     this.drawerSession += 1;

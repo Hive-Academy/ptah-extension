@@ -1,9 +1,4 @@
 import 'reflect-metadata';
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { container as rootContainer } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
@@ -16,39 +11,19 @@ import {
 import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
 import { DraftVerificationService } from '../auth/draft-verification.service';
 import { OpenRouterPricingService } from '../providers/openrouter';
-import { PLATFORM_TOKENS, killProcessTree, type SpawnedProcessHandle } from '@ptah-extension/platform-core';
-import { ClaudeAccountCommand } from '../accounts/claude-account-command';
-import { ProviderAccountStore } from '../accounts/provider-account.store';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { ClaudeRouteCertifier } from '../accounts/claude-route-certifier';
+import { ClaudeLoginConsole } from '../accounts/claude-login-console';
 import { PlanLimitLedgerService } from '../quota/plan-limit-ledger.service';
 import { ProviderOwnerResolver } from '../quota/provider-owner.resolver';
 import { PlanCredentialSource } from '../quota/plan-credential.source';
 import { PlanUsageService } from '../quota/plan-usage.service';
-import { MIGRATIONS, PERSISTENCE_TOKENS, type SqliteConnectionService, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
-import type { ProviderAccountAdmissionPort, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
+import { PERSISTENCE_TOKENS, type SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import type { ClaudeAccountSelectionReader, ProviderAccountAdmissionPort,
+  ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import { ProviderAccountService } from '../accounts/provider-account.service';
 import { ProviderAccountActionsService } from '../accounts/provider-account-actions.service';
 import * as publicApi from '../../index';
-
-jest.mock('@ptah-extension/platform-core', () => ({
-  ...jest.requireActual<typeof import('@ptah-extension/platform-core')>('@ptah-extension/platform-core'),
-  killProcessTree: jest.fn().mockResolvedValue(undefined),
-}));
-
-class AccountChild extends EventEmitter implements SpawnedProcessHandle {
-  readonly stdin = new PassThrough();
-  readonly stdout = new PassThrough();
-  readonly stderr = new PassThrough();
-  readonly killed = false;
-  readonly exitCode = null;
-  /** Defaults to a spawned child; `null`/`undefined` models one that never started. */
-  constructor(
-    readonly whenSpawned: Promise<number | null> = Promise.resolve(4321),
-    readonly pid: number | undefined = 4321,
-  ) {
-    super();
-  }
-  kill(): boolean { return true; }
-}
 
 describe('required auth registration without the memory curator', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -104,6 +79,13 @@ describe('required auth registration without the memory curator', () => {
     expect(actions).toBeInstanceOf(ProviderAccountActionsService);
     expect(c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION)).toBe(admission);
     expect(c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS)).toBe(actions);
+    expect(c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER)).toBe(admission);
+    const certifier = c.resolve(ClaudeRouteCertifier);
+    const loginConsole = c.resolve(ClaudeLoginConsole);
+    expect(certifier).toBeInstanceOf(ClaudeRouteCertifier);
+    expect(loginConsole).toBeInstanceOf(ClaudeLoginConsole);
+    expect(c.resolve(ClaudeRouteCertifier)).toBe(certifier);
+    expect(c.resolve(ClaudeLoginConsole)).toBe(loginConsole);
     expect(readDb).not.toHaveBeenCalled();
     const dispose = jest.spyOn(c.resolve(ProviderAccountService), 'dispose');
     const disposeActions = jest.spyOn(c.resolve(ProviderAccountActionsService), 'dispose');
@@ -123,11 +105,15 @@ describe('required auth registration without the memory curator', () => {
     await expect(admission.admitClaudeRoute({
       provider: 'claude', scope: 'main', selection: { kind: 'ambient' },
       operationId: 'operation-0001', runId: 'run-00001',
-    })).resolves.toEqual({ code: 'release-held', summary: expect.any(String) });
+    })).resolves.toEqual({ code: 'unavailable-storage', summary: 'Account storage is unavailable.' });
     await expect(admission.releaseReservation({ ...lease, reason: 'cancel' }))
       .resolves.toEqual({ code: 'conflict', summary: expect.any(String) });
     await expect(admission.retainUnresolvedReservation(lease))
       .resolves.toEqual({ code: 'conflict', summary: expect.any(String) });
+    const reader = c.resolve<ClaudeAccountSelectionReader>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER);
+    expect(reader).not.toBeInstanceOf(ProviderAccountService);
+    expect(c.resolve(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER)).toBe(reader);
+    await expect(reader.readStoredSelection('workspace', 'main')).resolves.toEqual({ profileId: null });
   });
 
   it('returns typed busy refusals through every account port surface with an injected busy database', async () => {
@@ -148,8 +134,8 @@ describe('required auth registration without the memory curator', () => {
     ]);
     for (const result of results) expect(result).toEqual({ code: 'busy', summary: 'The account is in use or has an unresolved operation.' });
     const lease = { reservationId: 'lease-0001', operationId: command.operationId, authEpoch: 0 };
-    expect(await admission.releaseReservation({ ...lease, reason: 'disposal' })).toMatchObject({ code: 'conflict' });
-    expect(await admission.retainUnresolvedReservation(lease)).toMatchObject({ code: 'conflict' });
+    expect(await admission.releaseReservation({ ...lease, reason: 'disposal' })).toMatchObject({ code: 'busy' });
+    expect(await admission.retainUnresolvedReservation(lease)).toMatchObject({ code: 'busy' });
     await c.dispose();
   });
 
@@ -158,106 +144,6 @@ describe('required auth registration without the memory curator', () => {
     for (const name of ['ProviderAccountStore', 'ProviderAccountActionsService', 'ClaudeAccountCommand',
       'resolveProviderAccountRoute', 'claudeAccountRouteCertification', 'certifyClaudeAccountEnvironment']) {
       expect(Object.prototype.hasOwnProperty.call(publicApi, name)).toBe(false);
-    }
-  });
-
-  it.each([false, true])('container disposal stops account actions with proved close=%s and preserves unproved reservations', async provedClose => {
-    jest.useFakeTimers();
-    const directory = mkdtempSync(join(tmpdir(), 'ptah-account-di-'));
-    const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-    const db = new Database(':memory:');
-    try {
-      const schema = MIGRATIONS.find(entry => entry.version === 58)?.sql;
-      if (!schema) throw new Error('Provider account migration is missing');
-      db.exec(schema);
-      const { c } = setup();
-      c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, { db, dbPath: join(directory, 'isolated.sqlite') });
-      const child = new AccountChild();
-      const spawnProcess = jest.fn(() => child);
-      c.registerInstance(SDK_TOKENS.SDK_PROCESS_SPAWNER, { spawnProcess });
-      c.registerInstance(SDK_TOKENS.SDK_CLI_DETECTOR, {
-        findExecutable: jest.fn().mockResolvedValue({ path: 'fixture-only', isWSL: false }),
-      });
-      jest.mocked(killProcessTree).mockImplementation(async () => {
-        if (provedClose) child.emit('close', 1, null);
-      });
-      const commands = c.resolve(ClaudeAccountCommand);
-      jest.spyOn(commands, 'authorization').mockReturnValue('ok');
-      jest.spyOn(commands, 'environment').mockReturnValue({});
-      const profile = c.resolve(ProviderAccountService).add('Disposal fixture');
-      const store = c.resolve(ProviderAccountStore);
-      const actions = c.resolve<ProviderAccountActionPort>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS);
-      const command = { provider: 'claude' as const, profileId: profile.profileId,
-        expectedRevision: profile.revision, operationId: 'operation-disposal' };
-      const pending = actions.startSignIn(command);
-      for (let i = 0; i < 12; i++) await Promise.resolve();
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
-      const disposed = c.dispose();
-      await jest.advanceTimersByTimeAsync(2_000);
-      await disposed;
-      expect(await pending).toMatchObject({ code: 'cancelled' });
-      expect(store.get(profile.profileId).state).toBe(provedClose ? 'cancelled' : 'pending');
-      expect(db.prepare('SELECT * FROM provider_account_operations').all()).toHaveLength(provedClose ? 0 : 1);
-      expect(killProcessTree).toHaveBeenCalledWith(4321, 'SIGKILL');
-      expect(child.listenerCount('close')).toBe(0);
-      expect(child.listenerCount('error')).toBe(0);
-      expect(child.stdout.listenerCount('data')).toBe(0);
-      expect(child.stderr.listenerCount('data')).toBe(0);
-      expect(jest.getTimerCount()).toBe(0);
-      for (const result of await Promise.all([
-        actions.readStatus(command), actions.startSignIn(command),
-        actions.signOut(command), actions.cancelSignIn(command),
-      ])) expect(result).toMatchObject({ code: 'unavailable-storage' });
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
-    } finally {
-      jest.useRealTimers();
-      db.close();
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
-  it('releases a never-spawned sign-in at once on disposal without waiting out the grace', async () => {
-    jest.useFakeTimers();
-    const directory = mkdtempSync(join(tmpdir(), 'ptah-account-di-'));
-    const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-    const db = new Database(':memory:');
-    try {
-      const schema = MIGRATIONS.find(entry => entry.version === 58)?.sql;
-      if (!schema) throw new Error('Provider account migration is missing');
-      db.exec(schema);
-      const { c } = setup();
-      c.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, { db, dbPath: join(directory, 'isolated.sqlite') });
-      const child = new AccountChild(Promise.resolve(null), undefined);
-      const spawnProcess = jest.fn(() => child);
-      c.registerInstance(SDK_TOKENS.SDK_PROCESS_SPAWNER, { spawnProcess });
-      c.registerInstance(SDK_TOKENS.SDK_CLI_DETECTOR, {
-        findExecutable: jest.fn().mockResolvedValue({ path: 'fixture-only', isWSL: false }),
-      });
-      jest.mocked(killProcessTree).mockClear();
-      const commands = c.resolve(ClaudeAccountCommand);
-      jest.spyOn(commands, 'authorization').mockReturnValue('ok');
-      jest.spyOn(commands, 'environment').mockReturnValue({});
-      const profile = c.resolve(ProviderAccountService).add('Never spawned fixture');
-      const store = c.resolve(ProviderAccountStore);
-      const actions = c.resolve<ProviderAccountActionPort>(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS);
-      const command = { provider: 'claude' as const, profileId: profile.profileId,
-        expectedRevision: profile.revision, operationId: 'operation-never-spawned' };
-      const pending = actions.startSignIn(command);
-      for (let i = 0; i < 12; i++) await Promise.resolve();
-      expect(spawnProcess).toHaveBeenCalledTimes(1);
-      // No timer advance: the 2 s grace must not be what settles this lease.
-      await c.dispose();
-      expect(await pending).toMatchObject({ code: 'cancelled' });
-      expect(store.get(profile.profileId).state).toBe('cancelled');
-      expect(db.prepare('SELECT * FROM provider_account_operations').all()).toHaveLength(0);
-      expect(killProcessTree).not.toHaveBeenCalled();
-      expect(child.listenerCount('close')).toBe(0);
-      expect(child.listenerCount('error')).toBe(0);
-      expect(jest.getTimerCount()).toBe(0);
-    } finally {
-      jest.useRealTimers();
-      db.close();
-      rmSync(directory, { recursive: true, force: true });
     }
   });
 

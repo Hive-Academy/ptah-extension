@@ -1,6 +1,8 @@
 export { AUTH_PROVIDERS_TOKENS } from './lib/di/tokens';
 export type { AuthProvidersDIToken } from './lib/di/tokens';
 export { ProviderAccountService } from './lib/accounts/provider-account.service';
+export { ClaudeAmbientLoginStatusReader } from './lib/accounts/claude-ambient-login-status';
+export { ClaudeNamedAccountPersistence } from './lib/accounts/claude-named-account-persistence';
 export type {
   ProviderAccountAdmissionPort,
   ProviderAccountActionPort,
@@ -125,6 +127,18 @@ export type {
   CodexAccountUsageResult,
   CodexAccountUsageStatus,
 } from './lib/providers/codex';
+export {
+  KimiCodeAuthService,
+  KimiCodeLoginService,
+  KimiCodeTranslationProxy,
+  KIMI_CODE_PROVIDER_ID,
+  KimiCodeAuthUnavailableError,
+} from './lib/providers/kimi-code';
+export type {
+  IKimiCodeAuthService,
+  IKimiCodeLoginService,
+  KimiCodeAuthStatus,
+} from './lib/providers/kimi-code';
 export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,

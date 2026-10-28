@@ -790,7 +790,7 @@ export function buildRouter(): Command {
     )
     .option(
       '--account <ambient>',
-      'claude only: restate the default sign-in route (named accounts are not available yet)',
+      'claude only: restate the default sign-in route (named accounts are not available in the CLI host)',
     )
     .action(
       async (

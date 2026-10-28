@@ -2,10 +2,12 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  inject,
   input,
   model,
   output,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   NativeDrawerComponent,
   NativeTabGroupComponent,
@@ -15,6 +17,7 @@ import type { VoiceProviderConfigDto } from '@ptah-extension/shared';
 import { LocalSttPanelComponent } from './local-stt-panel.component';
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
 import { ElevenLabsPanelComponent } from './elevenlabs-panel.component';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 export type VoiceDirection = 'stt' | 'tts';
 
@@ -34,6 +37,7 @@ const TABS: readonly NativeTab[] = [
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    NgTemplateOutlet,
     NativeDrawerComponent,
     NativeTabGroupComponent,
     LocalSttPanelComponent,
@@ -41,8 +45,8 @@ const TABS: readonly NativeTab[] = [
     ElevenLabsPanelComponent,
   ],
   template: `
-    <ptah-native-drawer [isOpen]="direction() !== null" widthClass="w-full max-w-lg"
-      ariaLabel="Voice engine details" (closed)="closed.emit()">
+    <ptah-native-drawer [isOpen]="direction() !== null" widthClass="w-full max-w-2xl"
+      ariaLabel="Voice engine details" (closed)="requestClose()">
       <!-- One projectable node per @if: a multi-node @if cannot project into the drawer's slots (NG8011). -->
       @if (direction() !== null) {
         <div drawer-header data-testid="voice-details-drawer">
@@ -61,25 +65,40 @@ const TABS: readonly NativeTab[] = [
                 }
                 @default {
                   <ptah-local-stt-panel [config]="cfg.local" (changed)="changed.emit()" />
+                  <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'stt' }" />
                 }
               }
-            } @else {
+            } @else if (direction() === 'tts') {
               @switch (ttsProvider()) {
                 @case ('elevenlabs') {
                   <ptah-elevenlabs-panel direction="tts" [config]="cfg.elevenlabs" (changed)="changed.emit()" />
                 }
                 @default {
                   <ptah-local-tts-panel [config]="cfg.local" (changed)="changed.emit()" />
+                  <ng-container [ngTemplateOutlet]="elevenLabsSetup" [ngTemplateOutletContext]="{ $implicit: cfg, direction: 'tts' }" />
                 }
               }
             }
           </div>
         </ptah-native-tab-group>
       }
+      <!-- ElevenLabs is selectable only with a stored key, so its key form must be reachable while Local is active. -->
+      <ng-template #elevenLabsSetup let-cfg let-dir="direction">
+        <section class="mt-4 border-t border-base-300 pt-4" aria-labelledby="elevenlabs-setup-heading"
+          data-testid="voice-elevenlabs-setup">
+          <h3 id="elevenlabs-setup-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">
+            ElevenLabs (cloud)
+          </h3>
+          <p class="mb-3 text-xs text-base-content-muted">
+            Save an API key here, then pick ElevenLabs as the provider in the Voice engines table.
+          </p>
+          <ptah-elevenlabs-panel [direction]="dir" [config]="cfg.elevenlabs" [keyOnly]="true" (changed)="changed.emit()" />
+        </section>
+      </ng-template>
       @if (direction() !== null) {
         <div drawer-footer class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3">
           <span class="text-xs text-base-content-muted">Each control saves itself. Esc to close</span>
-          <button type="button" class="btn btn-ghost btn-sm" (click)="closed.emit()"
+          <button type="button" class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="requestClose()"
             data-testid="voice-details-close">Close</button>
         </div>
       }
@@ -103,7 +122,18 @@ export class VoiceDetailsDrawerComponent {
     return `Speech-to-text: ${providerName(cfg.sttProvider)} · Text-to-speech: ${providerName(cfg.ttsProvider)}`;
   });
 
+  /**
+   * A panel's `changed` is what makes the parent re-read provider availability, so the panel must
+   * outlive its pending write: closing and tab switches wait until no save is in flight.
+   */
+  protected readonly saving = inject(SettingsSaveFeedbackService).saving;
+
+  protected requestClose(): void {
+    if (!this.saving()) this.closed.emit();
+  }
+
   protected selectTab(id: string | null): void {
+    if (this.saving()) return;
     if (id === 'stt' || id === 'tts') this.direction.set(id);
   }
 }

@@ -423,7 +423,9 @@ export class AddCliInstanceModalComponent {
         ? 'optional'
         : 'none';
     }
-    return getAnthropicProvider(provider.id)?.supportsOptionalApiKey
+    // An OAuth provider whose key is only a fallback (`apiKeyFallback`, Kimi Code) runs on the host's sign-in when empty.
+    const entry = getAnthropicProvider(provider.id);
+    return entry?.supportsOptionalApiKey || entry?.apiKeyFallback
       ? 'optional'
       : 'required';
   });
@@ -446,9 +448,14 @@ export class AddCliInstanceModalComponent {
           ? 'No API key needed — uses your local Claude login / subscription.'
           : `No API key needed — make sure ${provider?.name ?? 'the local server'} is running locally.`;
       case 'optional':
-        return provider?.id === 'ollama-cloud'
-          ? 'Optional — run ollama signin to use Ollama Cloud, or paste an ollama.com API key above to enable live model discovery and pricing.'
-          : 'Optional. Leave empty for keyless use or subscription sign-in.';
+        if (provider?.id === 'ollama-cloud')
+          return 'Optional — run ollama signin to use Ollama Cloud, or paste an ollama.com API key above to enable live model discovery and pricing.';
+        // Edit: an empty field keeps the stored key (the label says so), so the connection hint is for creation only.
+        if (provider && getAnthropicProvider(provider.id)?.apiKeyFallback)
+          return this.editing()
+            ? null
+            : `Optional. Leave empty to use your ${provider.name} connection (CLI sign-in, or the provider's stored key as fallback). A key entered here is used instead.`;
+        return 'Optional. Leave empty for keyless use or subscription sign-in.';
       case 'required':
         return this.editing()
           ? null

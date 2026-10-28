@@ -82,6 +82,13 @@ asarUnpack:
   # the CI signing pass (recursive .node/.dll scan) sign them so Windows SAC
   # does not block the embedder worker.
   - 'node_modules/onnxruntime-node/**'
+  # sharp: transformers requires it on load (the Whisper download path fails
+  # without it). smartUnpack extracts only sharp-<platform>.node; its sibling
+  # libvips shared library (@img/sharp-libvips-*) stayed inside app.asar, so
+  # dlopen failed with `libvips-cpp.so.* => not found`. Unpack every @img
+  # package so the .node rpath resolves on disk. sharp's JS (and its semver
+  # dependency) stay in the archive and load through Electron's asar support.
+  - 'node_modules/@img/**'
   # TASK_2026_437 C8/C9 — @parcel/watcher: native binding used by the workspace
   # watch host (workspace-watch-host.mjs). Same asar-unpack problem as
   # better-sqlite3, plus a runtime-resolution wrinkle its wrapper.js has that

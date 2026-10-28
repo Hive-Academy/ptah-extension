@@ -54,10 +54,8 @@ import {
 import { SDK_TOKENS } from '../di/tokens';
 import {
   AUTH_PROVIDERS_TOKENS,
-  type ClaudeAccountRoute,
   type ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
-import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { SdkError } from '../errors';
 import { SdkModuleLoader } from './sdk-module-loader';
 import { SdkModelService, buildTierEnvDefaults } from './sdk-model-service';
@@ -172,8 +170,6 @@ export interface OneShotAuthOverride {
 export type OneShotToolAccess = 'claude-code' | 'none';
 
 export interface OneShotRunInput {
-  /** Certified account route supplied by admission; omitted preserves ambient auth. */
-  accountRoute?: ClaudeAccountRoute;
   mode: 'oneShot';
   cwd: string;
   model: string;
@@ -646,25 +642,22 @@ export class SdkQueryRunner {
       includePartialMessages: true,
       persistSession: false,
       pathToClaudeCodeExecutable: cliJsPath || undefined,
-      env: applyClaudeAccountRouteEnv(
-        {
-          ...process.env,
-          ...buildTierEnvDefaults(authEnv),
-          ...(input.auth
-            ? clearLeakedProviderIdentity(process.env, input.auth.env)
-            : {}),
-          ...authEnv,
-          NO_PROXY: '127.0.0.1,localhost',
-          ...(() => {
-            const baseUrl = effectiveBaseUrl?.trim();
-            return baseUrl &&
-              !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
-              ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
-              : {};
-          })(),
-        },
-        input.accountRoute,
-      ),
+      env: {
+        ...process.env,
+        ...buildTierEnvDefaults(authEnv),
+        ...(input.auth
+          ? clearLeakedProviderIdentity(process.env, input.auth.env)
+          : {}),
+        ...authEnv,
+        NO_PROXY: '127.0.0.1,localhost',
+        ...(() => {
+          const baseUrl = effectiveBaseUrl?.trim();
+          return baseUrl &&
+            !/^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl)
+            ? { CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1' }
+            : {};
+        })(),
+      } as Record<string, string | undefined>,
       settingSources: effectiveBaseUrl?.includes('127.0.0.1')
         ? ['project', 'local']
         : ['user', 'project', 'local'],

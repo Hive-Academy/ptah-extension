@@ -41,6 +41,11 @@ import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../../providers/copilot/copilot
 import type { ICodexAuthService } from '../../providers/codex/codex-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../../providers/codex/codex-provider.types';
 import type { ITranslationProxy } from '../../translation';
+import type {
+  IKimiCodeAuthService,
+  KimiCodeAuthStatus,
+} from '../../providers/kimi-code/kimi-code-provider.types';
+import { KIMI_CODE_PROXY_TOKEN_PLACEHOLDER } from '@ptah-extension/shared';
 import type { ProviderModelsService } from '../../provider-models.service';
 
 // ---------------------------------------------------------------------------
@@ -105,6 +110,34 @@ function createMockCodexAuth(): jest.Mocked<ICodexAuthService> {
   };
 }
 
+function kimiStatus(
+  credentialSource: KimiCodeAuthStatus['credentialSource'],
+  stale = false,
+): KimiCodeAuthStatus {
+  return {
+    cliDetected: credentialSource === 'cli-login',
+    loggedIn: credentialSource === 'cli-login',
+    stale,
+    hasApiKey: credentialSource === 'api-key',
+    credentialSource,
+  };
+}
+
+function createMockKimiCodeAuth(): jest.Mocked<IKimiCodeAuthService> {
+  return {
+    getStatus: jest
+      .fn<Promise<KimiCodeAuthStatus>, []>()
+      .mockResolvedValue(kimiStatus('none')),
+    resolveRequestCredential: jest.fn(),
+    ensureFresh: jest.fn<Promise<boolean>, []>().mockResolvedValue(false),
+    forceRefresh: jest.fn<Promise<boolean>, []>().mockResolvedValue(false),
+    isAuthenticated: jest.fn<Promise<boolean>, []>().mockResolvedValue(false),
+    clearCache: jest.fn<void, []>(),
+    startWatching: jest.fn<void, []>(),
+    stopWatching: jest.fn<void, []>(),
+  };
+}
+
 function createMockTranslationProxy(): jest.Mocked<ITranslationProxy> {
   return {
     start: jest
@@ -137,6 +170,8 @@ interface Harness {
   copilotProxy: jest.Mocked<ICopilotTranslationProxy>;
   codexAuth: jest.Mocked<ICodexAuthService>;
   codexProxy: jest.Mocked<ITranslationProxy>;
+  kimiCodeAuth: jest.Mocked<IKimiCodeAuthService>;
+  kimiCodeProxy: jest.Mocked<ITranslationProxy>;
   providerModels: jest.Mocked<ProviderModelsSurface>;
 }
 
@@ -146,6 +181,8 @@ function makeStrategy(): Harness {
   const copilotProxy = createMockCopilotProxy();
   const codexAuth = createMockCodexAuth();
   const codexProxy = createMockTranslationProxy();
+  const kimiCodeAuth = createMockKimiCodeAuth();
+  const kimiCodeProxy = createMockTranslationProxy();
   const providerModels = createMockProviderModels();
   const providerModelsSurface: Partial<ProviderModelsService> = providerModels;
   const sentry = createMockSentryService();
@@ -158,6 +195,8 @@ function makeStrategy(): Harness {
     codexProxy,
     providerModelsSurface as ProviderModelsService,
     sentry as SentryService,
+    kimiCodeAuth,
+    kimiCodeProxy,
   );
 
   return {
@@ -167,6 +206,8 @@ function makeStrategy(): Harness {
     copilotProxy,
     codexAuth,
     codexProxy,
+    kimiCodeAuth,
+    kimiCodeProxy,
     providerModels,
   };
 }
@@ -539,6 +580,103 @@ describe('OAuthProxyStrategy', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Kimi Code branch
+  // -------------------------------------------------------------------------
+
+  describe('Kimi Code flow', () => {
+    it.each(['cli-login', 'api-key'] as const)(
+      'with credential source %s: starts the Kimi proxy and points the SDK at it',
+      async (source) => {
+        const harness = makeStrategy();
+        harness.kimiCodeAuth.getStatus.mockResolvedValue(kimiStatus(source));
+        harness.kimiCodeProxy.start.mockResolvedValueOnce({
+          port: 9400,
+          url: 'http://127.0.0.1:9400',
+        });
+        process.env['ANTHROPIC_API_KEY'] = 'fake-stale-direct-key';
+        const context = makeContext('kimi-code');
+
+        const result = await harness.strategy.configure(context);
+
+        expect(result.configured).toBe(true);
+        expect(result.details[0]).toContain(
+          source === 'cli-login' ? 'Kimi Code CLI sign-in' : 'Kimi Code API key',
+        );
+        expect(harness.kimiCodeAuth.startWatching).toHaveBeenCalledTimes(1);
+        expect(harness.kimiCodeAuth.ensureFresh).toHaveBeenCalledTimes(1);
+        expect(context.authEnv.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9400');
+        expect(context.authEnv.ANTHROPIC_AUTH_TOKEN).toBe(
+          KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+        );
+        expect(context.authEnv.ANTHROPIC_API_KEY).toBe('');
+        expect(process.env['ANTHROPIC_API_KEY']).toBeUndefined();
+        expect(harness.providerModels.switchActiveProvider).toHaveBeenCalledWith(
+          'kimi-code',
+        );
+        expect(JSON.stringify(result)).not.toContain('fake-stale-direct-key');
+      },
+    );
+
+    it('returns a sign-in message and starts no proxy with neither login nor key', async () => {
+      const harness = makeStrategy();
+      const context = makeContext('kimi-code');
+
+      const result = await harness.strategy.configure(context);
+
+      expect(result.configured).toBe(false);
+      expect(result.errorMessage).toContain('kimi login');
+      expect(harness.kimiCodeProxy.start).not.toHaveBeenCalled();
+      expect(context.authEnv.ANTHROPIC_BASE_URL).toBeUndefined();
+      // The watcher stays on so a later `kimi login` re-initializes.
+      expect(harness.kimiCodeAuth.startWatching).toHaveBeenCalled();
+    });
+
+    it('names the expired CLI login when the refresh was rejected', async () => {
+      const harness = makeStrategy();
+      harness.kimiCodeAuth.getStatus.mockResolvedValue(kimiStatus('none', true));
+
+      const result = await harness.strategy.configure(makeContext('kimi-code'));
+
+      expect(result.errorMessage).toContain('expired');
+    });
+
+    it('reports a proxy start failure with fixed copy', async () => {
+      const harness = makeStrategy();
+      harness.kimiCodeAuth.getStatus.mockResolvedValue(kimiStatus('cli-login'));
+      harness.kimiCodeProxy.start.mockRejectedValueOnce(new Error('EADDRINUSE'));
+
+      const result = await harness.strategy.configure(makeContext('kimi-code'));
+
+      expect(result).toEqual({
+        configured: false,
+        details: [],
+        errorMessage:
+          'Failed to start Kimi Code proxy. Check if a local port is available.',
+      });
+    });
+
+    it('switching to Codex stops the Kimi proxy and its watcher', async () => {
+      const harness = makeStrategy();
+      harness.kimiCodeProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.configure(makeContext('openai-codex'));
+
+      expect(harness.kimiCodeProxy.stop).toHaveBeenCalledTimes(1);
+      expect(harness.kimiCodeAuth.stopWatching).toHaveBeenCalled();
+    });
+
+    it('configuring Kimi stops the Codex proxy and watcher', async () => {
+      const harness = makeStrategy();
+      harness.codexProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.configure(makeContext('kimi-code'));
+
+      expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
+      expect(harness.codexAuth.stopWatchingAuthFile).toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // teardown()
   // -------------------------------------------------------------------------
 
@@ -553,6 +691,17 @@ describe('OAuthProxyStrategy', () => {
       expect(harness.copilotProxy.stop).toHaveBeenCalledTimes(1);
       expect(harness.codexProxy.stop).toHaveBeenCalledTimes(1);
       expect(harness.codexAuth.clearCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops the Kimi proxy and watcher and clears the Kimi cache', async () => {
+      const harness = makeStrategy();
+      harness.kimiCodeProxy.isRunning.mockReturnValue(true);
+
+      await harness.strategy.teardown();
+
+      expect(harness.kimiCodeProxy.stop).toHaveBeenCalledTimes(1);
+      expect(harness.kimiCodeAuth.stopWatching).toHaveBeenCalled();
+      expect(harness.kimiCodeAuth.clearCache).toHaveBeenCalledTimes(1);
     });
 
     it('skips stopping proxies that are not running but still clears codex cache', async () => {

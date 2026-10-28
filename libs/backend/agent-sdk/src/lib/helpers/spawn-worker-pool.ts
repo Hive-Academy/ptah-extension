@@ -69,6 +69,13 @@ const DEGRADE_HARD_CAP = 'agent.spawn-worker.hard-cap-inline';
 /** Which stderr shape the caller asked for. See the worker source's header. */
 export type StderrMode = 'stream' | 'callback' | 'ignore';
 
+/**
+ * `'pipe'` pipes stdin and stdout (stderr follows {@link StderrMode});
+ * `'ignore'` gives the child three `ignore` slots and no pipe at all, for a
+ * user-console child whose input and output belong to the user alone.
+ */
+export type StdioMode = 'pipe' | 'ignore';
+
 /** Worker -> host messages. Mirrors the protocol in the worker source. */
 export type WorkerErrorMessage = {
   type: 'error';
@@ -99,6 +106,7 @@ export type HostMessage =
       args: string[];
       cwd?: string;
       env: Record<string, string>;
+      stdioMode: StdioMode;
       stderrMode: StderrMode;
       detached: boolean;
       windowsHide: boolean;

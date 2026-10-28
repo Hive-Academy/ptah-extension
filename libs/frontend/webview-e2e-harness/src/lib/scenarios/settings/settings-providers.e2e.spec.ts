@@ -58,7 +58,12 @@ for (const host of HOSTS) {
       await providersTab(page);
     });
 
-    for (const { kind, card, tabs } of KINDS) {
+    for (const { kind, card, tabs: baseTabs } of KINDS) {
+      // Named Claude accounts (TASK_2026_719 P5): only the Electron host serves them, so only there the claude-cli drawer has Accounts second.
+      const tabs =
+        host === 'electron' && kind === 'claude-cli'
+          ? [baseTabs[0], 'Accounts', ...baseTabs.slice(1)]
+          : baseTabs;
       test(`card -> drawer (${kind}): the card opens its own drawer with its tabs`, async ({
         page,
       }) => {

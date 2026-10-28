@@ -13,7 +13,15 @@
  * immutable (`[...list, x]` / `list.filter(...)`), reads stay O(1) via byId.
  */
 
-import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
+import {
+  Injectable,
+  Injector,
+  signal,
+  computed,
+  inject,
+  untracked,
+  OnDestroy,
+} from '@angular/core';
 import type {
   AgentProcessInfo,
   AgentOutputDelta,
@@ -42,9 +50,14 @@ import {
   computeSubagentCacheState,
   findModelPricing,
   pricesCacheTokens,
+  isProviderAccountOpaqueId,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ProviderAccountsStateService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { BackgroundAgentStore } from './background-agent.store';
 import { agentVisibleInSession, knownSessionId } from './session-scope';
 import {
@@ -79,6 +92,50 @@ interface WorkflowRunFields {
 function readWorkflowFields(src: unknown): WorkflowRunFields {
   const s = (src ?? {}) as WorkflowRunFields;
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
+}
+
+/**
+ * Account a Claude lane ran under, read from the run's `accountBinding`
+ * (`AgentProcessInfo` carries it untyped from the lane resume gate;
+ * `CliSessionReference` types it). Returns the profile ID for a named Claude
+ * binding, `null` for an ambient run (no binding at all), and `undefined` when
+ * the lane is not a Claude lane or the binding is present but unreadable — a
+ * corrupt binding is never shown as the default account. The ID is a lookup
+ * key only; it is never rendered.
+ */
+function laneAccountProfileId(
+  src: object & { readonly cli: CliType },
+): string | null | undefined {
+  if (src.cli !== 'claude') return undefined;
+  const fields = src as {
+    readonly accountBinding?: unknown;
+    readonly accountBindingId?: unknown;
+  };
+  const binding = fields.accountBinding;
+  if (binding === undefined) {
+    return fields.accountBindingId === undefined ? null : undefined;
+  }
+  if (typeof binding !== 'object' || binding === null) return undefined;
+  const { provider, profileId } = binding as {
+    readonly provider?: unknown;
+    readonly profileId?: unknown;
+  };
+  return provider === 'claude' &&
+    typeof profileId === 'string' &&
+    isProviderAccountOpaqueId(profileId)
+    ? profileId
+    : undefined;
+}
+
+/** Keeps a known account when a later payload carries no binding fields. */
+function mergedLaneAccount(
+  src: object & { readonly cli: CliType },
+  known: string | null | undefined,
+): string | null | undefined {
+  const carriesBinding = 'accountBinding' in src || 'accountBindingId' in src;
+  return carriesBinding || known === undefined
+    ? laneAccountProfileId(src)
+    : known;
 }
 
 /** Maximum finished agents retained in the store.
@@ -493,6 +550,12 @@ export interface MonitoredAgent {
   /** Backend-resolved model scope for plan-limit windows; null when unknown. */
   readonly modelScope?: string | null;
   /**
+   * Claude account of the run (see {@link laneAccountProfileId}): a profile ID
+   * for a named account, `null` for the ambient default, absent when unknown
+   * or not a Claude lane. A lookup key only — never rendered.
+   */
+  readonly accountProfileId?: string | null;
+  /**
    * `true` only on a card rebuilt by `loadCliSessions` from persisted history;
    * absent on a live-spawned card. Set where the card is created, never
    * inferred from status.
@@ -667,6 +730,23 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  /** Resolves the account state lazily: only a named Claude lane needs labels. */
+  private readonly injector = inject(Injector);
+
+  /**
+   * Loads the Claude account list once a lane runs under a named account, so
+   * the lane card can show its label. The account state owns the read; this
+   * only opens it when nothing has been read yet (an inert host never reads).
+   */
+  private openClaudeAccountsFor(profileId: string | null | undefined): void {
+    if (typeof profileId !== 'string') return;
+    untracked(() => {
+      const accounts = this.injector.get(ProviderAccountsStateService);
+      if (accounts.state('claude')().status === 'idle') {
+        void accounts.open('claude');
+      }
+    });
+  }
   private readonly _agents = signal<readonly MonitoredAgent[]>([]);
 
   /**
@@ -1203,6 +1283,7 @@ export class AgentMonitorStore implements OnDestroy {
             info.modelScope !== undefined
               ? info.modelScope
               : existing.modelScope,
+          accountProfileId: mergedLaneAccount(info, existing.accountProfileId),
         };
         const next = [...list];
         next[existingIndex] = reopened;
@@ -1249,6 +1330,7 @@ export class AgentMonitorStore implements OnDestroy {
           stopReason: info.stopReason,
           quotaOwner: info.quotaOwner,
           modelScope: info.modelScope ?? null,
+          accountProfileId: laneAccountProfileId(info),
           ...CLI_LANE_CACHE_FIELDS,
         };
         return insertAgentSorted(
@@ -1284,10 +1366,12 @@ export class AgentMonitorStore implements OnDestroy {
         stopReason: info.stopReason,
         quotaOwner: info.quotaOwner,
         modelScope: info.modelScope ?? null,
+        accountProfileId: laneAccountProfileId(info),
         ...CLI_LANE_CACHE_FIELDS,
       };
       return insertAgentSorted(list, fresh);
     });
+    this.openClaudeAccountsFor(laneAccountProfileId(info));
     const buffered = this._pendingPermissionBuffer.get(info.agentId);
     if (buffered && buffered.length > 0) {
       this._pendingPermissionBuffer.delete(info.agentId);
@@ -1502,6 +1586,7 @@ export class AgentMonitorStore implements OnDestroy {
         // keeps the card's scope (Decision 4).
         modelScope:
           info.modelScope !== undefined ? info.modelScope : agent.modelScope,
+        accountProfileId: mergedLaneAccount(info, agent.accountProfileId),
       };
       return this.evictOldCompletedAgents(next);
     });
@@ -1741,6 +1826,7 @@ export class AgentMonitorStore implements OnDestroy {
           usageTotals: null,
           quotaOwner: ref.quotaOwner,
           modelScope: ref.modelScope ?? null,
+          accountProfileId: laneAccountProfileId(ref),
           restored: true,
           ...CLI_LANE_CACHE_FIELDS,
         });
@@ -1748,6 +1834,9 @@ export class AgentMonitorStore implements OnDestroy {
       }
       return next;
     });
+    for (const ref of cliSessions) {
+      this.openClaudeAccountsFor(laneAccountProfileId(ref));
+    }
     if (!this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }

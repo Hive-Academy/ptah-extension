@@ -575,6 +575,11 @@ export class SessionRpcHandlers {
                     }
                   : {}),
                 ...(livePhase ? { livePhase } : {}),
+                // The opaque profile id only; the rest of the binding (run
+                // id, route fingerprint, identity) never leaves the host.
+                ...(s.accountBinding?.profileId
+                  ? { accountProfileId: s.accountBinding.profileId }
+                  : {}),
               },
             ];
           });

@@ -42,6 +42,7 @@ import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
+import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
 import { ProviderAuthResolver } from './provider-auth-resolver';
 import { ProviderQuotaStore } from './provider-quota.store';
@@ -50,6 +51,29 @@ import {
   classifyDraftProbeFailure,
   type DraftProbeFailureInput,
 } from './draft-verification.service';
+
+/** Signed-in Kimi Code fake; this spec never routes a Kimi draft. */
+function fakeKimiCodeAuth(): IKimiCodeAuthService {
+  return {
+    getStatus: jest.fn(async () => ({
+      cliDetected: true,
+      loggedIn: true,
+      stale: false,
+      hasApiKey: false,
+      credentialSource: 'cli-login' as const,
+    })),
+    resolveRequestCredential: jest.fn(async () => ({
+      kind: 'oauth' as const,
+      accessToken: 'fake-access-token-1',
+    })),
+    ensureFresh: jest.fn(async () => true),
+    forceRefresh: jest.fn(async () => false),
+    isAuthenticated: jest.fn(async () => true),
+    clearCache: jest.fn(),
+    startWatching: jest.fn(),
+    stopWatching: jest.fn(),
+  };
+}
 
 function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
@@ -458,6 +482,7 @@ function createServiceHarness(
     codexAuth,
     openRouterAuth,
     new ProviderQuotaStore(),
+    fakeKimiCodeAuth(),
   );
 
   // The probe only ever calls `execute` on the query service; the class

@@ -9,6 +9,7 @@ import type {
 import type { FlatStreamEventUnion } from '../execution';
 import type { PermissionPromptCancelledPayload } from '../session-runtime.types';
 import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
+import type { KimiCodeLoginState } from '../rpc/rpc-auth.types';
 
 import type {
   ChatAgentActivityPayload,
@@ -199,6 +200,12 @@ export interface AuthLoginOutputPayload {
   readonly stream: 'stdout' | 'stderr';
   readonly line: string;
 }
+
+/**
+ * Payload for MESSAGE_TYPES.AUTH_KIMI_CODE_LOGIN_STATUS
+ * ('auth:kimiCodeLoginStatus'): the current in-app Kimi Code sign-in snapshot.
+ */
+export type AuthKimiCodeLoginStatusPayload = KimiCodeLoginState;
 
 /** Host push to the main webview for a generation workflow. */
 export interface SetupGenerationOpenPayload {
@@ -444,6 +451,7 @@ export interface MessagePayloadMap {
   'embedder:statusChanged': EmbedderStatusChangedPayload;
   'auth:deviceCode': AuthDeviceCodePayload;
   'auth:loginOutput': AuthLoginOutputPayload;
+  'auth:kimiCodeLoginStatus': AuthKimiCodeLoginStatusPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
   'setup-generation:open': SetupGenerationOpenPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;

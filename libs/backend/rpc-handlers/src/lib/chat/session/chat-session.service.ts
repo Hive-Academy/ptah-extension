@@ -86,7 +86,13 @@ import type {
   McpHttpServerOverride,
   PermissionLevel,
 } from '@ptah-extension/shared';
-import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+  selectHistoryPage,
+} from '@ptah-extension/shared';
+
+import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
 import {
   resolveClaudeExecution,
@@ -105,6 +111,7 @@ import {
   gateMainSessionAccount,
   mainSessionAccountFailure,
   type MainSessionAccountSelection,
+  type ResolvedMainAccountSelection,
   type ChatSlashCommandRouterService,
 } from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
@@ -146,6 +153,8 @@ interface AutoResumePreflight extends MainSessionAccountSelection {
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
   ptahUiFence?: ChatContinueParams['ptahUiFence'];
+  /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
+  admissionDeadline?: number;
 }
 
 /** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
@@ -215,6 +224,29 @@ interface SdkSessionLaunch {
   /** Only the Apps page sets `apps`; absent means the coding tool profile. */
   readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
   readonly ptahUiFence?: ChatStartParams['ptahUiFence'];
+  /** The gate's resolved named selection; absent on the ambient path. */
+  readonly accountSelection?: ResolvedMainAccountSelection;
+  /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
+  readonly admissionDeadline?: number;
+}
+
+/**
+ * One host deadline for a whole renderer-awaited RPC that may run a named
+ * account admission (`chat:start`, `chat:continue` auto-resume, `chat:resume`
+ * activate), taken at handler entry so the preparation before admission (MCP
+ * and OAuth overrides, profile, prompts) counts against it (D73). The
+ * renderer's `CHAT_ADMISSION_RPC_TIMEOUT_MS` is this budget plus its margin.
+ */
+function namedAdmissionDeadline(): number {
+  return Date.now() + NAMED_ACCOUNT_ADMISSION_BUDGET_MS;
+}
+
+/** The refusal the SDK admission gives once the deadline passed (same code and copy). */
+function namedPreparationRefusal(): ProviderAccountPortRefusal {
+  return {
+    code: 'identity-unproved',
+    summary: 'Named account admission could not be completed.',
+  };
 }
 
 /** What `chat:resume` needs from the session budget (N7). */
@@ -458,6 +490,46 @@ export class ChatSessionService {
   }
 
   /**
+   * Bound a NAMED launch's pre-admission preparation (MCP/OAuth overrides,
+   * prompts, provider profile, output style) by the handler-entry deadline
+   * (D76 item 3). Once the deadline passes the caller gets the admission's own
+   * refusal instead of an answer after the renderer gave up. The abandoned
+   * preparation keeps running and is observed so it can never reject unhandled.
+   * Ambient launches (no selection or no deadline) await `prepare` unchanged.
+   */
+  private async withinNamedAdmissionDeadline<T>(
+    named: boolean,
+    deadline: number | undefined,
+    prepare: () => Promise<T>,
+  ): Promise<T> {
+    if (!named || deadline === undefined) return prepare();
+    // The timer alone cannot bound the race: once the deadline has passed, a
+    // preparation that settles through microtasks wins against a zero-delay
+    // timer. The clock decides before preparation starts and after it wins.
+    if (Date.now() >= deadline) throw namedPreparationRefusal();
+    const preparation = prepare();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadlinePassed = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        preparation.catch(() => {
+          this.logger.warn(
+            '[RPC] named launch preparation failed after the admission deadline',
+          );
+        });
+        reject(namedPreparationRefusal());
+      }, Math.max(0, deadline - Date.now()));
+    });
+    try {
+      const prepared = await Promise.race([preparation, deadlinePassed]);
+      // Finished, but after the deadline: discard the result and refuse.
+      if (Date.now() >= deadline) throw namedPreparationRefusal();
+      return prepared;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Merge manifest-resolved Smithery overrides UNDER any caller-supplied
    * overrides (caller wins on key collision, matching the builder's
    * `mergeMcpOverride` contract). Never throws — Smithery contributes nothing on
@@ -578,6 +650,7 @@ export class ChatSessionService {
   }
 
   async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -652,7 +725,7 @@ export class ChatSessionService {
         });
         return { success: true };
       }
-      await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -694,6 +767,8 @@ export class ChatSessionService {
         surfaceMode: params.surfaceMode,
         mcpToolProfile: params.mcpToolProfile,
         ptahUiFence: params.ptahUiFence,
+        accountSelection,
+        admissionDeadline,
       });
 
       return { success: true };
@@ -745,8 +820,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
-        accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -769,6 +844,7 @@ export class ChatSessionService {
         mcpServersOverride: undefined,
         permissionLevel,
         surfaceMode: undefined,
+        accountSelection,
       });
 
       return { success: true };
@@ -841,8 +917,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
-        accountSelection: params.accountSelection });
+      const accountSelection = await this.gateAccount({ workspacePath: workspaceRoot,
+        sessionId: params.sourceSessionId, inheritedSource: true, accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -864,6 +940,7 @@ export class ChatSessionService {
         mcpServersOverride: undefined,
         permissionLevel,
         surfaceMode: undefined,
+        accountSelection,
       });
 
       return { success: true };
@@ -933,75 +1010,87 @@ export class ChatSessionService {
    */
   private async launchSdkSession(input: SdkSessionLaunch): Promise<void> {
     const { logLabel, tabId, workspaceId, projectPath, options } = input;
-
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspaceId);
-
-    this.logger.info(`[ptah.main] ${logLabel} - prompt config`, {
-      hasEnhancedPrompts: !!enhancedPromptsContent,
-      enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-    });
-
     const files = options?.files ?? [];
-    if (files.length > 0) {
-      this.logger.debug(`RPC: ${logLabel} received files`, {
-        tabId,
-        fileCount: files.length,
-        files,
-      });
-    }
     const images = options?.images ?? [];
-    const mcpServersOverride = await this.buildMcpServersOverride(
-      input.mcpServersOverride,
-    );
-    // Output-style activation, resolved fresh for THIS session (Req 5.6).
-    // Spreads to at most one field — `outputStyleName` for the flag tier or
-    // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
-    // both (R3 / Req 5.3).
-    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
-      workspaceRoot: workspaceId,
-    });
-    // Read after the last await before prepare(), so the model and the
-    // provider profile see the same provider.
-    const modelIsStored = !options?.model;
-    const currentModel =
-      options?.model || this.modelSettings.selectedModel.get() || 'default';
-    const config: AgentSessionStartConfig = {
-      tabId,
-      workspaceId,
-      model: currentModel,
-      systemPrompt: options?.systemPrompt,
-      projectPath,
-      name: input.name,
-      prompt: input.prompt,
-      files,
-      images, // inline pasted/dropped images
-      mcpServerRunning: input.mcpServerRunning,
-      enhancedPromptsContent,
-      thinking: options?.thinking,
-      effort: options?.effort,
-      workflowsDisabled: this.resolveWorkflowsDisabled(),
-      includePartialMessages: options?.includePartialMessages,
-      mcpServersOverride,
-      // Only agent-started sessions pass a level; `chat:start` keeps the
-      // global default.
-      ...(input.permissionLevel
-        ? { permissionLevel: input.permissionLevel }
-        : {}),
-      ...outputStyle,
-      ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
-      ...(input.ptahUiFence !== undefined
-        ? { ptahUiFence: input.ptahUiFence }
-        : {}),
-    };
-    const execution = this.runtimeProfile
-      ? await this.runtimeProfile.prepare(config, undefined, modelIsStored)
-      : await resolveClaudeExecution(
-          this.workspaceProviderProfileResolver,
-          workspaceId,
-          currentModel,
-          modelIsStored,
+
+    const { config, execution } = await this.withinNamedAdmissionDeadline(
+      !!input.accountSelection,
+      input.admissionDeadline,
+      async () => {
+        const enhancedPromptsContent =
+          await this.sdkContext.resolveEnhancedPromptsContent(workspaceId);
+
+        this.logger.info(`[ptah.main] ${logLabel} - prompt config`, {
+          hasEnhancedPrompts: !!enhancedPromptsContent,
+          enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+        });
+
+        if (files.length > 0) {
+          this.logger.debug(`RPC: ${logLabel} received files`, {
+            tabId,
+            fileCount: files.length,
+            files,
+          });
+        }
+        const mcpServersOverride = await this.buildMcpServersOverride(
+          input.mcpServersOverride,
         );
+        // Output-style activation, resolved fresh for THIS session (Req 5.6).
+        // Spreads to at most one field — `outputStyleName` for the flag tier or
+        // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
+        // both (R3 / Req 5.3).
+        const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+          workspaceRoot: workspaceId,
+        });
+        // Read after the last await before prepare(), so the model and the
+        // provider profile see the same provider.
+        const modelIsStored = !options?.model;
+        const currentModel =
+          options?.model || this.modelSettings.selectedModel.get() || 'default';
+        const config: AgentSessionStartConfig = {
+          tabId,
+          workspaceId,
+          model: currentModel,
+          systemPrompt: options?.systemPrompt,
+          projectPath,
+          name: input.name,
+          prompt: input.prompt,
+          files,
+          images, // inline pasted/dropped images
+          mcpServerRunning: input.mcpServerRunning,
+          enhancedPromptsContent,
+          thinking: options?.thinking,
+          effort: options?.effort,
+          workflowsDisabled: this.resolveWorkflowsDisabled(),
+          includePartialMessages: options?.includePartialMessages,
+          mcpServersOverride,
+          // Only agent-started sessions pass a level; `chat:start` keeps the
+          // global default.
+          ...(input.permissionLevel
+            ? { permissionLevel: input.permissionLevel }
+            : {}),
+          ...outputStyle,
+          ...(input.mcpToolProfile
+            ? { mcpToolProfile: input.mcpToolProfile }
+            : {}),
+          ...(input.ptahUiFence !== undefined
+            ? { ptahUiFence: input.ptahUiFence }
+            : {}),
+        };
+        // Resolves the runtime, model and isolated per-workspace provider
+        // profile; a provider mismatch throws AuthRequiredError, which each
+        // caller result-shapes as AUTH_REQUIRED.
+        const execution = this.runtimeProfile
+          ? await this.runtimeProfile.prepare(config, undefined, modelIsStored)
+          : await resolveClaudeExecution(
+              this.workspaceProviderProfileResolver,
+              workspaceId,
+              currentModel,
+              modelIsStored,
+            );
+        return { config, execution };
+      },
+    );
     const stream = await this.sdkAdapter.startChatSession({
       ...config,
       runtime: execution.runtime,
@@ -1009,6 +1098,13 @@ export class ChatSessionService {
         ? {
             model: execution.model,
             providerProfile: execution.providerProfile,
+            // Named only; the ambient launch config keeps its existing fields.
+            ...(input.accountSelection
+              ? {
+                  accountSelection: input.accountSelection,
+                  admissionDeadline: input.admissionDeadline,
+                }
+              : {}),
           }
         : { model: execution.seed.model }),
     });
@@ -1034,6 +1130,7 @@ export class ChatSessionService {
   async continueSession(
     params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { prompt, sessionId, tabId, name } = params;
       this.logger.debug('RPC: chat:continue called', {
@@ -1100,7 +1197,7 @@ export class ChatSessionService {
           sessionId,
           tabId,
           prompt,
-          params,
+          { ...params, admissionDeadline },
           mcpRegisteredForSubagents,
         );
         if ('error' in resumeOutcome) return resumeOutcome.error;
@@ -1204,6 +1301,7 @@ export class ChatSessionService {
    * stats, resumable subagents, and any CLI session references.
    */
   async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
+    const admissionDeadline = namedAdmissionDeadline();
     try {
       const { sessionId } = params;
       if (!params.ptahCliId) {
@@ -1314,6 +1412,7 @@ export class ChatSessionService {
               systemPrompt: params.systemPrompt,
               ptahUiFence: params.ptahUiFence,
               accountSelection: params.accountSelection,
+              admissionDeadline,
             },
           );
           if ('justResumed' in activateResult) {
@@ -1632,8 +1731,9 @@ export class ChatSessionService {
      */
     mcpRegisteredForSubagents = true,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
+    let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
-      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
     } catch (error: unknown) {
       const refusal = mainSessionAccountFailure(error);
       if (!refusal) throw error;
@@ -1706,8 +1806,13 @@ export class ChatSessionService {
       sessionId,
     });
 
-    const enhancedPromptsContent =
-      await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
+    // Named resumes bound their preparation by the handler-entry deadline (D76).
+    const named = !!accountSelection;
+    const enhancedPromptsContent = await this.withinNamedAdmissionDeadline(
+      named,
+      params.admissionDeadline,
+      () => this.sdkContext.resolveEnhancedPromptsContent(workspacePath),
+    );
 
     this.logger.info('[ptah.main] chat:continue resume - prompt config', {
       hasEnhancedPrompts: !!enhancedPromptsContent,
@@ -1715,60 +1820,79 @@ export class ChatSessionService {
     });
 
     try {
-      // Re-resolved for the resumed turn rather than carried over from the
-      // original start: the provider or the style may have changed since, and
-      // Req 5.6 forbids caching the decision across sessions.
-      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
-        {
-          workspaceRoot: workspacePath,
+      // Same per-workspace isolation as chat:start — the resumed turn must run
+      // against the session's own workspace provider, not whichever provider
+      // is globally active after a workspace switch. A provider mismatch throws
+      // AuthRequiredError (→ AUTH_REQUIRED below) rather than resume on another
+      // provider.
+      //
+      // Output style is re-resolved for the resumed turn rather than carried
+      // over from the original start: the provider or the style may have
+      // changed since, and Req 5.6 forbids caching the decision across sessions.
+      // Named resumes bound this preparation by the handler-entry deadline (D76).
+      const { config, execution } = await this.withinNamedAdmissionDeadline(
+        named,
+        params.admissionDeadline,
+        async () => {
+          const outputStyle =
+            await this.outputStyleActivation.resolveSessionFields({
+              workspaceRoot: workspacePath,
+            });
+          const identity = this.runtimeProfile
+            ? storedChatRuntimeIdentity(
+                sessionId,
+                await this.sessionMetadataStore.get(sessionId),
+                workspacePath,
+              )
+            : undefined;
+          // Read after the last await before prepare(), so the model and the
+          // provider profile see the same provider.
+          const modelIsStored = !params.model;
+          const currentModel =
+            params.model || this.modelSettings.selectedModel.get() || 'default';
+
+          const config: AgentSessionResumeConfig = {
+            projectPath: workspacePath,
+            model: currentModel,
+            mcpServerRunning,
+            enhancedPromptsContent,
+            tabId,
+            thinking: params.thinking,
+            effort: params.effort,
+            workflowsDisabled: this.resolveWorkflowsDisabled(),
+            prompt,
+            ...outputStyle,
+            ...(params.systemPrompt
+              ? { systemPrompt: params.systemPrompt }
+              : {}),
+            ...(params.mcpToolProfile
+              ? { mcpToolProfile: params.mcpToolProfile }
+              : {}),
+            ...(params.ptahUiFence !== undefined
+              ? { ptahUiFence: params.ptahUiFence }
+              : {}),
+          };
+          const execution = this.runtimeProfile
+            ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
+            : await resolveClaudeExecution(
+                this.workspaceProviderProfileResolver,
+                workspacePath,
+                currentModel,
+                modelIsStored,
+              );
+          return { config, execution };
         },
       );
-      const identity = this.runtimeProfile
-        ? storedChatRuntimeIdentity(
-            sessionId,
-            await this.sessionMetadataStore.get(sessionId),
-            workspacePath,
-          )
-        : undefined;
-      // Read after the last await before prepare(), so the model and the
-      // provider profile see the same provider.
-      const modelIsStored = !params.model;
-      const currentModel =
-        params.model || this.modelSettings.selectedModel.get() || 'default';
-
-      const config: AgentSessionResumeConfig = {
-        projectPath: workspacePath,
-        model: currentModel,
-        mcpServerRunning,
-        enhancedPromptsContent,
-        tabId,
-        thinking: params.thinking,
-        effort: params.effort,
-        workflowsDisabled: this.resolveWorkflowsDisabled(),
-        prompt,
-        ...outputStyle,
-        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
-        ...(params.mcpToolProfile
-          ? { mcpToolProfile: params.mcpToolProfile }
-          : {}),
-        ...(params.ptahUiFence !== undefined
-          ? { ptahUiFence: params.ptahUiFence }
-          : {}),
-      };
-      const execution = this.runtimeProfile
-        ? await this.runtimeProfile.prepare(config, identity, modelIsStored)
-        : await resolveClaudeExecution(
-            this.workspaceProviderProfileResolver,
-            workspacePath,
-            currentModel,
-            modelIsStored,
-          );
       const stream = await this.sdkAdapter.resumeSession(sessionId, {
         ...config,
         ...(execution.runtime === 'claude-sdk'
           ? {
               model: execution.model,
               providerProfile: execution.providerProfile,
+              // Named only: the resume reuses the stored binding (no second lease).
+              ...(accountSelection
+                ? { accountSelection, admissionDeadline: params.admissionDeadline }
+                : {}),
             }
           : { model: execution.seed.model }),
       });
@@ -1793,6 +1917,15 @@ export class ChatSessionService {
     } catch (resumeError) {
       const codexFailure = this.codexFailure(resumeError);
       if (codexFailure) return { error: codexFailure };
+      // A named run's refusal keeps its typed code; the conversation is kept.
+      const refusal = mainSessionAccountFailure(resumeError);
+      if (refusal) {
+        this.logger.warn('[RPC] chat:continue - resume account refused', {
+          sessionId,
+          code: refusal.accountRefusal.code,
+        });
+        return { error: { ...refusal, sessionId } };
+      }
       const message =
         resumeError instanceof Error
           ? resumeError.message
@@ -1875,25 +2008,26 @@ export class ChatSessionService {
   }
 
   /** Check the original session account before fork/rewind without resuming it. */
-  public gateSessionAccount(sessionId: SessionId): Promise<void> {
-    return this.gateAccount({ sessionId });
+  public async gateSessionAccount(sessionId: SessionId): Promise<void> {
+    await this.gateAccount({ sessionId });
   }
 
-  private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean }): Promise<void> {
+  private async gateAccount(
+    input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean },
+  ): Promise<ResolvedMainAccountSelection | undefined> {
     // A separate child/handoff inherits only on the native Claude route.
     // Resume/fork/rewind calls are not inherited launches and must always
     // validate their original binding, irrespective of today's provider.
     if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
         this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
-      await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+      return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
         metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
         accountSelection: input.accountSelection });
-      return;
     }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
-    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return;
-    await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return undefined;
+    return gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
       metadata: this.sessionMetadataStore }, input);
   }
 

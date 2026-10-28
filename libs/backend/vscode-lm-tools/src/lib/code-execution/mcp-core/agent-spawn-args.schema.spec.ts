@@ -199,9 +199,10 @@ describe('AgentSpawnArgsSchema', () => {
 });
 
 /**
- * Optional account selection on spawn (TASK_2026_712, Batch 28b). Named lane
- * admission is release-held (D7): a named value is refused before spawn, and a
- * resume never takes one, so a supplied account cannot replace the stored one.
+ * Optional account selection on spawn (TASK_2026_712 Batch 28b, TASK_2026_719
+ * Batch 18). A named value is accepted on a fresh claude spawn and the runtime
+ * admits it; a resume never takes one, so a supplied account cannot replace
+ * the stored one.
  */
 describe('AgentSpawnArgsSchema — accountSelection', () => {
   const NAMED = { kind: 'named', profileId: 'profile-0001' } as const;
@@ -252,9 +253,39 @@ describe('AgentSpawnArgsSchema — accountSelection', () => {
     ).toEqual([]);
   });
 
-  it('refuses a named account on a fresh claude spawn (release-held)', () => {
-    expect(issueMessages({ cli: 'claude', accountSelection: NAMED })).toEqual([
-      expect.stringMatching(/named Claude account lanes are not available/),
+  it('accepts a named account on a fresh claude spawn and carries it through', () => {
+    const parsed = AgentSpawnArgsSchema.safeParse({
+      task: 't',
+      cli: 'claude',
+      accountSelection: NAMED,
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.accountSelection).toEqual(NAMED);
+    expect(
+      AgentSpawnArgsSchema.parse(JSON.parse(JSON.stringify(parsed.data)))
+        .accountSelection,
+    ).toEqual(NAMED);
+  });
+
+  it.each(SYSTEM_CLI_TYPES.filter((cli) => cli !== AGENT_SPAWN_ACCOUNT_CLI))(
+    'refuses a named account for cli %s',
+    (cli) => {
+      expect(issueMessages({ cli, accountSelection: NAMED })).toEqual([
+        expect.stringMatching(/applies only to cli "claude"/),
+      ]);
+    },
+  );
+
+  it('refuses a named account on a Ptah CLI agent or an auto-detected lane', () => {
+    expect(
+      issueMessages({
+        cli: 'claude',
+        ptahCliId: 'agent-a',
+        accountSelection: NAMED,
+      }),
+    ).toEqual([expect.stringMatching(/applies only to cli "claude"/)]);
+    expect(issueMessages({ accountSelection: NAMED })).toEqual([
+      expect.stringMatching(/applies only to cli "claude"/),
     ]);
   });
 
@@ -278,7 +309,9 @@ describe('AgentSpawnArgsSchema — accountSelection', () => {
   );
 
   it('refuses a selection without cli or with ptahCliId', () => {
-    expect(issueMessages({ accountSelection: { kind: 'ambient' } })).toHaveLength(1);
+    expect(
+      issueMessages({ accountSelection: { kind: 'ambient' } }),
+    ).toHaveLength(1);
     expect(
       issueMessages({
         cli: 'claude',
@@ -310,14 +343,25 @@ describe('AgentSpawnArgsSchema — accountSelection', () => {
   it('shares its refusal rule with the execute_code boundary', () => {
     expect(
       agentSpawnAccountRefusal({ cli: 'claude', accountSelection: NAMED }),
-    ).toMatch(/not available in this release/);
+    ).toBeUndefined();
+    // An empty resume id resumes nothing, so it is a fresh spawn.
     expect(
       agentSpawnAccountRefusal({
         cli: 'claude',
         resumeSessionId: '',
         accountSelection: NAMED,
       }),
-    ).toMatch(/not available in this release/);
+    ).toBeUndefined();
+    expect(
+      agentSpawnAccountRefusal({
+        cli: 'claude',
+        resumeSessionId: 'sdk-session-1',
+        accountSelection: NAMED,
+      }),
+    ).toMatch(/keeps the account stored/);
+    expect(
+      agentSpawnAccountRefusal({ cli: 'codex', accountSelection: NAMED }),
+    ).toMatch(/applies only to cli "claude"/);
     expect(agentSpawnAccountRefusal({ cli: 'codex' })).toBeUndefined();
   });
 });
@@ -329,10 +373,12 @@ describe('spawn descriptions stay truthful about the claude lane', () => {
     { description?: string }
   >;
 
-  it('advertises accountSelection without claiming a named launch', () => {
+  it('advertises accountSelection for claude only, with no id, email or path', () => {
     const text = properties['accountSelection'].description ?? '';
     expect(text).toContain('only with cli "claude"');
-    expect(text).toMatch(/named.*refused before spawn/);
+    expect(text).toContain('"kind":"named"');
+    expect(text).not.toMatch(/profile-\d|@|[/\\]/);
+    expect(text).not.toMatch(/release/i);
   });
 
   it('says modelTier is Ptah CLI only and names the claude SDK lane', () => {

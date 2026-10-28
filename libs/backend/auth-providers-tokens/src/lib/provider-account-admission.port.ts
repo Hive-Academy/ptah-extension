@@ -66,16 +66,86 @@ export interface ClaudeAccountAmbientResolvedResourceContext {
   readonly route: ClaudeAccountAmbientRoute;
 }
 
+/** Setting sources a certified Claude child may read. */
+export type ClaudeCertifiedSettingSource = 'user' | 'project' | 'local';
+
+/**
+ * Size and modification time of `sdkExecutablePath`, taken together with the
+ * version probe. A later mismatch means the executable changed in place.
+ */
+export interface ClaudeCertifiedExecutableFingerprint {
+  readonly size: number;
+  readonly mtimeMs: number;
+}
+
+/** The certified Claude executable for one named launch. */
+export interface ClaudeCertifiedExecutable {
+  readonly command: string;
+  readonly prefixArgs: readonly string[];
+  readonly sdkExecutablePath: string;
+  readonly version: string;
+  readonly fingerprint: ClaudeCertifiedExecutableFingerprint;
+}
+
+/**
+ * Policy evidence gathered before the launch was certified.
+ * `coverage` is a coverage entry id such as `win32@2.1.310`.
+ * `remoteSignals` is only `absent`: any other result refuses certification.
+ */
+export interface ClaudeCertifiedLaunchPolicy {
+  readonly coverage: string;
+  readonly managedFile: 'absent' | 'scanned';
+  readonly managedDropIn: 'absent' | 'scanned';
+  readonly registry: 'absent' | 'not-applicable';
+  readonly remoteSignals: 'absent';
+}
+
+/**
+ * Closed, backend-only launch for a certified named Claude route.
+ * Never logged, never sent over RPC, never shown in a renderer.
+ * `env` is the complete child environment; `envDigest` is the SHA-256 of its
+ * sorted `key=value` lines. `accountClass` is the closed literal `personal`:
+ * a launch exists only for class P, so another class needs a type change.
+ */
+export interface ClaudeCertifiedLaunchContext {
+  readonly executable: ClaudeCertifiedExecutable;
+  readonly env: Readonly<Record<string, string>>;
+  readonly envDigest: string;
+  readonly cwd: string;
+  readonly settingSources: readonly ClaudeCertifiedSettingSource[];
+  readonly policy: ClaudeCertifiedLaunchPolicy;
+  readonly accountClass: 'personal';
+  readonly identityReference: string;
+}
+
+/** The two SDK child starts of a named run that are checked before spawn. */
+export type ClaudeLaunchBoundary = 'bootstrap' | 'final';
+
+/**
+ * Result of re-checking a certified launch before one SDK child starts.
+ * `terminated` reports whether the run was ended as part of the refusal.
+ */
+export type ClaudeLaunchBoundaryOutcome =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly code: 'unsupported-source' | 'identity-unproved' | 'route-changed';
+      readonly terminated: boolean;
+    };
+
 /**
  * Resolved named route. `accountDataDir` is the Ptah metadata directory.
  * `route.canonicalConfigDir` is the certified Claude directory.
  * Unresolvable filesystem identity never appears here; admission refuses.
+ * `launch` is optional only for type compatibility with existing fixtures;
+ * a named run without it does not start.
  */
 export interface ClaudeAccountNamedResolvedResourceContext {
   readonly kind: 'named';
   readonly route: ClaudeAccountNamedRoute;
   readonly accountDataDir: string;
   readonly filesystemIdentity: ClaudeAccountFilesystemIdentity;
+  readonly launch?: ClaudeCertifiedLaunchContext;
 }
 
 export type ClaudeAccountResolvedResourceContext =
@@ -159,6 +229,19 @@ export interface ClaudeAccountAdmissionRequest {
   readonly selection: ProviderAccountSelection;
   readonly operationId: string;
   readonly runId: string;
+  /** Run working directory; becomes the certified launch `cwd`. */
+  readonly workingDirectory?: string;
+}
+
+/**
+ * Reads the stored account selection for a workspace scope.
+ * `profileId: null` means no named account is stored (the default route).
+ */
+export interface ClaudeAccountSelectionReader {
+  readStoredSelection(
+    workspaceRoot: string,
+    scope: ProviderAccountScope,
+  ): Promise<{ readonly profileId: string | null }>;
 }
 
 /** Safe refusal. `summary` is not validated in this declaration file. */

@@ -4,10 +4,17 @@ import { By } from '@angular/platform-browser';
 import {
   ClaudeRpcService, RpcResult, ProvidersSettingsStateService, type ProvidersSettingsSection, type ProvidersEffectiveRoute,
   type ProvidersSettingsCommit, type ProvidersConnection, type ProvidersExternalAuth,
+  ClaudeAmbientStatusService, ProviderAccountsStateService, VSCodeService,
+  type ClaudeAmbientStatusView, type ProviderAccountsView,
 } from '@ptah-extension/core';
-import type { AuthVerifyDraftConnectionResult, ConfigGetScopesResult, SettingScope } from '@ptah-extension/shared';
+import type {
+  AuthVerifyDraftConnectionResult, ConfigGetScopesResult, KimiCodeLoginState, SettingScope, ProviderAccountState,
+  ProviderAccountSummary,
+} from '@ptah-extension/shared';
+import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
+import { MainAgentReassignPopoverComponent } from './main-agent-reassign-popover.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
@@ -43,6 +50,7 @@ class WizardStub {
   readonly externalActionRequested = output<{ providerId: string; action: WizardExternalAction }>();
   readonly externalAuth = input<unknown>(null);
   readonly externalMessage = input<string | null>(null);
+  readonly signInProgress = input<unknown>(null);
   readonly initialSetup = input<unknown>(null);
   readonly contextChanged = input(false);
   readonly commitDetail = input('');
@@ -92,6 +100,7 @@ class StateStub {
   readonly connectionCheck = signal<{ providerId: string; status: 'checking' | 'done' | 'failed' } | null>(null);
   readonly checkProviderConnection = jest.fn(async (_providerId: string) => undefined);
   readonly externalAuth = signal<ProvidersSettingsSection<ProvidersExternalAuth>>(unloaded());
+  readonly kimiCodeLogin = signal<KimiCodeLoginState | null>(null);
   readonly delegatedModelOptions = signal(unloaded());
   readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
   readonly verification = signal<ProvidersSettingsSection<AuthVerifyDraftConnectionResult>>(unloaded());
@@ -614,6 +623,38 @@ describe('ProvidersSettingsComponent', () => {
     // The card's own action remains.
     expect(element.querySelectorAll('[data-testid="btn-sign-in"]')).toHaveLength(1);
   });
+  it('shows a running Kimi Code sign-in on the page with Cancel, and hides it once it ends', async () => {
+    state.kimiCodeLogin.set({ status: 'awaiting-browser', verificationUrl: 'https://auth.example.test/device', userCode: 'FAKE-1234' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).not.toBeNull();
+    element.querySelector<HTMLButtonElement>('[data-testid="providers-kimi-login-cancel"]')?.click();
+    expect(state.performExternalAuth).toHaveBeenCalledWith('kimi-code', 'sign-in-cancel');
+    state.kimiCodeLogin.set({ status: 'cancelled' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).toBeNull();
+  });
+  it.each([
+    ['starting', true],
+    ['succeeded', false],
+  ] as const)('shows a Kimi Code sign-in on the page only while it runs or failed (%s)', async (status, shown) => {
+    state.kimiCodeLogin.set({ status });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]') !== null).toBe(shown);
+  });
+  it('keeps a failed Kimi Code sign-in on the page without Cancel', async () => {
+    state.kimiCodeLogin.set({ status: 'failed' });
+    await render();
+    expect(element.querySelector('[data-testid="providers-kimi-login"]')).not.toBeNull();
+    expect(element.querySelector('[data-testid="providers-kimi-login-cancel"]')).toBeNull();
+  });
+  it('passes the Kimi Code sign-in progress to the wizard only for Kimi Code', async () => {
+    state.kimiCodeLogin.set({ status: 'starting' });
+    await render(); await openWizardThroughCatalog();
+    wizard().providerChanged.emit('first'); await render();
+    expect(wizard().signInProgress()).toBeNull();
+    wizard().providerChanged.emit('kimi-code'); await render();
+    expect(wizard().signInProgress()).toEqual({ status: 'starting' });
+  });
   it('tells the wizard whether the selected provider already has a stored key', async () => {
     state.connections.set(ready([connection('first'), { ...connection('second'), hasKey: false }]));
     await render(); await openWizardThroughCatalog();
@@ -1008,5 +1049,240 @@ describe('ProvidersSettingsComponent deep links with the real wizard', () => {
     expect(realWizard()).not.toBeNull();
     expect(selectedProvider()).toBe('openrouter');
     expect(host.consumed).toEqual(['openrouter', 'openrouter']);
+  });
+});
+
+describe('ProvidersSettingsComponent named Claude accounts (P5 F5, D41)', () => {
+  const account = (profileId: string, accountState: ProviderAccountState = 'signed-in'): ProviderAccountSummary => ({
+    profileId, label: `Account ${profileId}`, provider: 'claude', state: accountState, owner: 'unknown', revision: 1,
+    activeRunCount: 0,
+  });
+  const accountsReady = (accounts: readonly ProviderAccountSummary[]): ProviderAccountsView => ({
+    status: 'ready', stale: false, error: null,
+    snapshot: {
+      provider: 'claude', workspaceRoot: 'workspace', revision: 3, accounts,
+      selections: {
+        main: { scope: 'main', selection: { kind: 'omitted' }, revision: 1 },
+        lane: { scope: 'lane', selection: { kind: 'omitted' }, revision: 1 },
+      },
+    },
+  });
+  /** Two signed-in named accounts and one not signed in. */
+  const TWO_SIGNED_IN = accountsReady([account('p-1'), account('p-2'), account('p-3', 'not-signed-in')]);
+  const CHECKED_AT = '2026-10-26T10:00:00.000Z';
+  const CONNECTED: ClaudeAmbientStatusView = { status: 'ready', localFailure: false, result: { state: 'connected', checkedAt: CHECKED_AT } };
+  const SIGNED_OUT: ClaudeAmbientStatusView = { status: 'ready', localFailure: false, result: { state: 'signed-out', checkedAt: CHECKED_AT } };
+  const UNKNOWN: ClaudeAmbientStatusView = {
+    status: 'ready', localFailure: false, result: { state: 'unknown', checkedAt: CHECKED_AT, reason: 'timeout' },
+  };
+  const IDLE: ClaudeAmbientStatusView = { status: 'idle', result: null, localFailure: false };
+  const CHECKING: ClaudeAmbientStatusView = { ...CONNECTED, status: 'checking' };
+  const TRANSPORT_FAILURE: ClaudeAmbientStatusView = { status: 'ready', result: null, localFailure: true };
+
+  class AccountsFake {
+    readonly view = signal<ProviderAccountsView>(TWO_SIGNED_IN);
+    readonly state = jest.fn((_provider: 'claude') => this.view.asReadonly());
+    readonly open = jest.fn(async (_provider: 'claude') => undefined);
+    readonly refresh = jest.fn(async (_provider: 'claude') => undefined);
+    // Read by the drawer's Accounts tab when the Sign-in route opens it (P6-A10).
+    readonly operations = jest.fn((_provider: 'claude') => signal({}).asReadonly());
+    readonly fallbacks = jest.fn((_provider: 'claude') => signal({}).asReadonly());
+  }
+  class AmbientFake {
+    readonly view = signal<ClaudeAmbientStatusView>(CONNECTED);
+    readonly read = jest.fn(async (_refresh: boolean) => undefined);
+  }
+
+  const claudeCli: ProvidersConnection = {
+    id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', configured: true, hasKey: false, custom: false,
+    defaultsResolvable: true, accountLabel: null, tokenStale: false,
+  };
+
+  let fixture: ComponentFixture<ProvidersSettingsComponent>;
+  let element: HTMLElement;
+  let accounts: AccountsFake;
+  let ambient: AmbientFake;
+
+  async function setup(isElectron: boolean, claude: ProvidersConnection = claudeCli) {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
+    const state = new StateStub();
+    state.connections.set(ready([connection('first'), claude]));
+    state.route.set(ready(route));
+    accounts = new AccountsFake();
+    ambient = new AmbientFake();
+    await TestBed.configureTestingModule({ imports: [ProvidersSettingsComponent], providers: [
+      { provide: ProvidersSettingsStateService, useValue: state },
+      { provide: ClaudeRpcService, useValue: { call: jest.fn(async () => new RpcResult(true, { models: [] })) } },
+      { provide: VSCodeService, useValue: { isElectron } },
+      { provide: ProviderAccountsStateService, useValue: accounts },
+      { provide: ClaudeAmbientStatusService, useValue: ambient },
+      SHELL_LOADER, SettingsSaveFeedbackService,
+    ] }).overrideComponent(ProvidersSettingsComponent, {
+      remove: { imports: [ProviderSetupWizardComponent] },
+      add: { imports: [WizardStub] },
+    }).compileComponents();
+    fixture = TestBed.createComponent(ProvidersSettingsComponent);
+    element = fixture.nativeElement as HTMLElement;
+    await render();
+  }
+  afterEach(() => { fixture.destroy(); TestBed.resetTestingModule(); });
+  async function render() { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); }
+  const card = (id: string) => element.querySelector(`ptah-provider-connection-card[data-connection-id="${id}"]`);
+  const badge = (id = 'claude-cli') => card(id)?.querySelector('[data-testid="connected-accounts-badge"]') ?? null;
+  const badgeText = () => badge()?.textContent?.trim() ?? null;
+  async function setAmbient(view: ClaudeAmbientStatusView) { ambient.view.set(view); await render(); }
+  async function openClaudeDrawer() {
+    card('claude-cli')?.querySelector<HTMLElement>('[role="button"]')?.click();
+    await render();
+  }
+  function drawerAccountsAvailable(): boolean {
+    const drawer = fixture.debugElement.query(By.directive(ConnectionDetailDrawerComponent));
+    if (!drawer) throw new Error('No drawer');
+    return drawer.injector.get(ConnectionDetailDrawerComponent).accountsAvailable();
+  }
+  function closeDrawerFromFooter() {
+    element.querySelector<HTMLButtonElement>('[data-testid="connection-drawer-close"]')?.click();
+    return render();
+  }
+
+  describe('in Electron', () => {
+    beforeEach(() => setup(true));
+
+    it('P6-A10: the popover "Sign in" closes it and opens the Claude drawer on Accounts; a card open is on Overview again', async () => {
+      const reassign = element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]');
+      reassign?.focus();
+      reassign?.click();
+      await render();
+      const popover = fixture.debugElement.query(By.directive(MainAgentReassignPopoverComponent))
+        .injector.get(MainAgentReassignPopoverComponent);
+      expect(popover.open()).toBe(true);
+      popover.accountSignInRequested.emit();
+      await render();
+      expect(popover.open()).toBe(false);
+      const drawer = () => fixture.debugElement.query(By.directive(ConnectionDetailDrawerComponent)).injector.get(ConnectionDetailDrawerComponent);
+      expect(drawer().connection()?.id).toBe('claude-cli');
+      expect(drawer().initialTab()).toBe('accounts');
+      await closeDrawerFromFooter();
+      await openClaudeDrawer();
+      expect(drawer().connection()?.id).toBe('claude-cli');
+      expect(drawer().initialTab()).toBe('overview');
+    });
+
+    it('no longer mounts the old Accounts section on the page', () => {
+      expect(element.querySelector('ptah-accounts-section')).toBeNull();
+    });
+
+    it('reads the account list once and the cached ambient status (no forced probe) when the page shows', () => {
+      expect(accounts.open).toHaveBeenCalledTimes(1);
+      expect(accounts.open).toHaveBeenCalledWith('claude');
+      expect(ambient.read).toHaveBeenCalledTimes(1);
+      expect(ambient.read).toHaveBeenCalledWith(false);
+      expect(accounts.refresh).not.toHaveBeenCalled();
+    });
+
+    it('shows the badge only on the Claude CLI card, with no account names', () => {
+      expect(badgeText()).toBe('3 connected');
+      expect(badge('first')).toBeNull();
+      expect(element.querySelectorAll('[data-testid="connected-accounts-badge"]')).toHaveLength(1);
+      expect(card('claude-cli')?.textContent).not.toContain('Account p-');
+    });
+
+    it.each<[string, ClaudeAmbientStatusView]>([
+      ['idle', IDLE],
+      ['checking', CHECKING],
+      ['a transport failure', TRANSPORT_FAILURE],
+      ['host unknown', UNKNOWN],
+    ])('hides the badge while the existing login is %s', async (_name, view) => {
+      await setAmbient(view);
+      expect(badge()).toBeNull();
+    });
+
+    it('counts named accounts only when the existing login is signed out, and adds it when connected', async () => {
+      await setAmbient(SIGNED_OUT);
+      expect(badgeText()).toBe('2 connected');
+      await setAmbient(CONNECTED);
+      expect(badgeText()).toBe('3 connected');
+    });
+
+    it('hides at 0 connected', async () => {
+      accounts.view.set(accountsReady([account('p-3', 'not-signed-in')]));
+      await setAmbient(SIGNED_OUT);
+      expect(badge()).toBeNull();
+    });
+
+    it('hides while the account list loads or refreshes, after it fails and while it is stale', async () => {
+      accounts.view.set({ status: 'loading', snapshot: null, stale: false, error: null }); await render();
+      expect(badge()).toBeNull();
+      accounts.view.set({ ...TWO_SIGNED_IN, status: 'loading' }); await render();
+      expect(badge()).toBeNull();
+      accounts.view.set({ ...TWO_SIGNED_IN, status: 'error', snapshot: null }); await render();
+      expect(badge()).toBeNull();
+      accounts.view.set({ ...TWO_SIGNED_IN, stale: true }); await render();
+      expect(badge()).toBeNull();
+    });
+
+    it('recovers after an ambient failure when a connected reply arrives', async () => {
+      await setAmbient(TRANSPORT_FAILURE);
+      expect(badge()).toBeNull();
+      await setAmbient(CONNECTED);
+      expect(badgeText()).toBe('3 connected');
+    });
+
+    it('follows a pushed account snapshot that signs one account out', async () => {
+      expect(badgeText()).toBe('3 connected');
+      accounts.view.set(accountsReady([account('p-1'), account('p-2', 'signed-out'), account('p-3', 'not-signed-in')]));
+      await render();
+      expect(badgeText()).toBe('2 connected');
+    });
+
+    it('passes accountsAvailable to the drawer and refreshes both reads when the drawer closes', async () => {
+      await openClaudeDrawer();
+      expect(drawerAccountsAvailable()).toBe(true);
+      expect(accounts.refresh).not.toHaveBeenCalled();
+
+      await closeDrawerFromFooter();
+      expect(element.querySelector('[data-testid="connection-detail-drawer"]')).toBeNull();
+      expect(accounts.refresh).toHaveBeenCalledTimes(1);
+      expect(accounts.refresh).toHaveBeenCalledWith('claude');
+      expect(ambient.read).toHaveBeenCalledTimes(2);
+      expect(ambient.read).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  describe('outside Electron (inert host)', () => {
+    beforeEach(() => setup(false));
+
+    it('makes no account reads, shows no badge and keeps the drawer Accounts tab off', async () => {
+      expect(accounts.open).not.toHaveBeenCalled();
+      expect(accounts.state).not.toHaveBeenCalled();
+      expect(ambient.read).not.toHaveBeenCalled();
+      expect(badge()).toBeNull();
+
+      await openClaudeDrawer();
+      expect(drawerAccountsAvailable()).toBe(false);
+      await closeDrawerFromFooter();
+      expect(accounts.refresh).not.toHaveBeenCalled();
+      expect(ambient.read).not.toHaveBeenCalled();
+    });
+  });
+
+  // P5 review F3: Accounts are reachable only through the Claude card, whose `configured` follows the installed CLI.
+  describe('with the Claude CLI not installed and another provider selected', () => {
+    const claudeMissing: ProvidersConnection = { ...claudeCli, configured: false };
+
+    it('keeps the Claude card on the page in Electron, so Manage → Accounts stays reachable', async () => {
+      await setup(true, claudeMissing);
+      expect(card('first')).not.toBeNull();
+      expect(card('claude-cli')).not.toBeNull();
+
+      await openClaudeDrawer();
+      expect(drawerAccountsAvailable()).toBe(true);
+    });
+
+    it('leaves the Claude card off the page when accounts are unavailable', async () => {
+      await setup(false, claudeMissing);
+      expect(card('first')).not.toBeNull();
+      expect(card('claude-cli')).toBeNull();
+    });
   });
 });

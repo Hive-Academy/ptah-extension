@@ -88,6 +88,12 @@ import {
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
+import {
+  createFakeKimiCodeAuth,
+  createFakeKimiCodeLogin,
+  type FakeKimiCodeAuth,
+  type FakeKimiCodeLogin,
+} from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
@@ -354,6 +360,8 @@ interface Harness {
   scopeResolver: MockScopeResolver;
   webviewManager: MockWebviewManager;
   adapterEvents: MockAdapterEvents;
+  kimiCodeAuth: FakeKimiCodeAuth;
+  kimiCodeLogin: FakeKimiCodeLogin;
   authCommandRunner?: MockAuthCommandRunner;
 }
 
@@ -426,6 +434,8 @@ function makeHarness(
     scopeResolver as unknown as WorkspaceScopeResolver,
   );
 
+  const kimiCodeAuth = createFakeKimiCodeAuth();
+  const kimiCodeLogin = createFakeKimiCodeLogin();
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as import('@ptah-extension/vscode-core').RpcHandler,
@@ -436,6 +446,8 @@ function makeHarness(
     activeProviderResolver,
     copilot as unknown as CopilotAuthService,
     codex as unknown as ICodexAuthService,
+    kimiCodeAuth,
+    kimiCodeLogin,
     platformCommands as unknown as IPlatformCommands,
     platformAuth as unknown as IPlatformAuthProvider,
     cliDetector as unknown as ClaudeCliDetector,
@@ -466,6 +478,8 @@ function makeHarness(
     scopeResolver,
     webviewManager,
     adapterEvents,
+    kimiCodeAuth,
+    kimiCodeLogin,
     ...(authCommandRunner ? { authCommandRunner } : {}),
   };
 }
@@ -2396,5 +2410,223 @@ describe('AuthRpcHandlers', () => {
       expect(status('ollama-cloud')).toBe('connected');
       expect(status('lm-studio')).toBe('skipped');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Kimi Code: status payload and the in-app sign-in (TASK_KIMI_OAUTH)
+// ---------------------------------------------------------------------------
+
+describe('AuthRpcHandlers — Kimi Code', () => {
+  it('auth:getAuthStatus carries the Kimi Code fields and the apiKeyFallback flag', async () => {
+    const h = makeHarness();
+    h.kimiCodeAuth.getStatus.mockResolvedValue({
+      cliDetected: true,
+      loggedIn: true,
+      stale: false,
+      hasApiKey: true,
+      credentialSource: 'cli-login',
+    });
+    h.handlers.register();
+
+    const result = await call<{
+      kimiCodeCliDetected?: boolean;
+      kimiCodeAuthenticated?: boolean;
+      kimiCodeTokenStale?: boolean;
+      kimiCodeCredentialSource?: string;
+      availableProviders: Array<{ id: string; apiKeyFallback?: boolean }>;
+    }>(h, 'auth:getAuthStatus');
+
+    expect(result).toMatchObject({
+      kimiCodeCliDetected: true,
+      kimiCodeAuthenticated: true,
+      kimiCodeTokenStale: false,
+      kimiCodeCredentialSource: 'cli-login',
+    });
+    expect(
+      result.availableProviders.find((p) => p.id === 'kimi-code')
+        ?.apiKeyFallback,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['cli-login', 'connected'],
+    ['api-key', 'connected'],
+    ['none', 'unauthenticated'],
+  ] as const)(
+    'auth:getEffectiveRoute reports Kimi Code with credential source %s as %s',
+    async (credentialSource, expected) => {
+      const h = makeHarness({ configSeed: { authMethod: 'apiKey' } });
+      h.kimiCodeAuth.getStatus.mockResolvedValue({
+        cliDetected: true,
+        loggedIn: credentialSource === 'cli-login',
+        stale: false,
+        hasApiKey: credentialSource === 'api-key',
+        credentialSource,
+      });
+      h.handlers.register();
+      h.rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
+        defaultProvider: 'anthropic',
+        providers: [
+          {
+            name: 'kimi-code',
+            authType: 'oauth',
+            hasApiKey: credentialSource === 'api-key',
+            isLocal: false,
+            requiresProxy: true,
+          },
+        ],
+      }));
+
+      const route = await call<{
+        providers: Array<{ id: string; type: string; status: string }>;
+      }>(h, 'auth:getEffectiveRoute', { refresh: true });
+
+      expect(route.providers.find((p) => p.id === 'kimi-code')).toMatchObject(
+        { type: 'oauth', status: expected },
+      );
+    },
+  );
+
+  it('a failing Kimi Code probe degrades to "none" without failing the payload', async () => {
+    const h = makeHarness();
+    h.kimiCodeAuth.getStatus.mockRejectedValue(new Error('disk gone'));
+    h.handlers.register();
+
+    const result = await call<{
+      kimiCodeCredentialSource?: string;
+      kimiCodeAuthenticated?: boolean;
+    }>(h, 'auth:getAuthStatus');
+
+    expect(result.kimiCodeCredentialSource).toBe('none');
+    expect(result.kimiCodeAuthenticated).toBe(false);
+  });
+
+  it('auth:kimiCodeLogin starts the sign-in and pushes every state', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+
+    const result = await call<{ success: boolean; state?: { status: string } }>(
+      h,
+      'auth:kimiCodeLogin',
+    );
+
+    expect(result).toEqual({ success: true, state: { status: 'starting' } });
+    expect(h.kimiCodeLogin.start).toHaveBeenCalledTimes(1);
+    h.kimiCodeLogin.emit({
+      status: 'awaiting-browser',
+      verificationUrl: 'https://auth.kimi.ai/device?code=FAKE-0001',
+      userCode: 'FAKE-0001',
+      browserOpened: true,
+    });
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'auth:kimiCodeLoginStatus',
+      { status: 'starting' },
+    );
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'auth:kimiCodeLoginStatus',
+      {
+        status: 'awaiting-browser',
+        verificationUrl: 'https://auth.kimi.ai/device?code=FAKE-0001',
+        userCode: 'FAKE-0001',
+        browserOpened: true,
+      },
+    );
+    expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+  });
+
+  it('a succeeded sign-in drops the caches and keeps other providers\' sessions', async () => {
+    const h = makeHarness({ configSeed: { authMethod: 'claudeCli' } });
+    h.handlers.register();
+    await call(h, 'auth:kimiCodeLogin');
+
+    h.kimiCodeLogin.emit({ status: 'succeeded' });
+    await flushUntil(() => h.kimiCodeAuth.clearCache.mock.calls.length > 0);
+
+    expect(h.kimiCodeAuth.clearCache).toHaveBeenCalled();
+    expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+  });
+
+  it('a succeeded sign-in keeps a healthy Kimi Code adapter and its sessions', async () => {
+    const h = makeHarness({
+      sdkStatus: 'available',
+      configSeed: { authMethod: 'thirdParty', anthropicProviderId: 'kimi-code' },
+    });
+    h.handlers.register();
+    await call(h, 'auth:kimiCodeLogin');
+
+    h.kimiCodeLogin.emit({ status: 'succeeded' });
+    await flushUntil(() => h.kimiCodeAuth.clearCache.mock.calls.length > 0);
+
+    expect(h.kimiCodeAuth.clearCache).toHaveBeenCalled();
+    expect(h.sdkAdapter.reset).not.toHaveBeenCalled();
+  });
+
+  it('a succeeded sign-in re-initializes an unhealthy adapter when Kimi Code is active', async () => {
+    const h = makeHarness({
+      sdkStatus: 'error',
+      configSeed: { authMethod: 'thirdParty', anthropicProviderId: 'kimi-code' },
+    });
+    h.handlers.register();
+    await call(h, 'auth:kimiCodeLogin');
+
+    h.kimiCodeLogin.emit({ status: 'succeeded' });
+    await flushUntil(() => h.sdkAdapter.reset.mock.calls.length > 0);
+
+    expect(h.kimiCodeAuth.clearCache).toHaveBeenCalled();
+    expect(h.sdkAdapter.reset).toHaveBeenCalledTimes(1);
+    expect(h.webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'auth:kimiCodeLoginStatus',
+      { status: 'succeeded' },
+    );
+  });
+
+  it('a sign-in that cannot start answers success:false with the fixed copy', async () => {
+    const h = makeHarness();
+    h.kimiCodeLogin.start.mockResolvedValue({
+      status: 'failed',
+      errorCode: 'not-installed',
+      error: 'The Kimi Code CLI is not installed.',
+    });
+    h.handlers.register();
+
+    const result = await call<{ success: boolean; error?: string }>(
+      h,
+      'auth:kimiCodeLogin',
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('The Kimi Code CLI is not installed.');
+  });
+
+  it('a thrown start never leaks the error text', async () => {
+    const h = makeHarness();
+    h.kimiCodeLogin.start.mockRejectedValue(
+      new Error('spawn C:\\Users\\someone\\kimi.exe EACCES'),
+    );
+    h.handlers.register();
+
+    const result = await call<{ success: boolean; error?: string }>(
+      h,
+      'auth:kimiCodeLogin',
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Failed to start Kimi Code login.',
+    });
+  });
+
+  it('auth:kimiCodeLoginCancel reports whether a sign-in was stopped', async () => {
+    const h = makeHarness();
+    h.kimiCodeLogin.cancel.mockReturnValueOnce(true);
+    h.handlers.register();
+
+    await expect(
+      call<{ cancelled: boolean }>(h, 'auth:kimiCodeLoginCancel'),
+    ).resolves.toEqual({ cancelled: true });
+    await expect(
+      call<{ cancelled: boolean }>(h, 'auth:kimiCodeLoginCancel'),
+    ).resolves.toEqual({ cancelled: false });
   });
 });

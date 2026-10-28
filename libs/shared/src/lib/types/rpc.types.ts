@@ -202,6 +202,10 @@ import type {
   AuthCopilotStatusResponse,
   AuthCodexLoginParams,
   AuthCodexLoginResponse,
+  AuthKimiCodeLoginParams,
+  AuthKimiCodeLoginResponse,
+  AuthKimiCodeLoginCancelParams,
+  AuthKimiCodeLoginCancelResponse,
   AuthGetEffectiveRouteParams,
   AuthGetEffectiveRouteResult,
   ConfigGetScopesParams,
@@ -1002,6 +1006,14 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
     params: AuthCodexLoginParams;
     result: AuthCodexLoginResponse;
   };
+  'auth:kimiCodeLogin': {
+    params: AuthKimiCodeLoginParams;
+    result: AuthKimiCodeLoginResponse;
+  };
+  'auth:kimiCodeLoginCancel': {
+    params: AuthKimiCodeLoginCancelParams;
+    result: AuthKimiCodeLoginCancelResponse;
+  };
   'auth:getEffectiveRoute': {
     params: AuthGetEffectiveRouteParams;
     result: AuthGetEffectiveRouteResult;
@@ -1409,6 +1421,8 @@ export interface RpcMethodRegistry extends ProviderAccountRpcMethodRegistry {
       error?: string;
       /** What the resume gate did: the session was resumed, or a fresh lane got a handoff brief, and why. */
       resumeDecision?: import('./agent-process.types').AgentResumeOutcome;
+      /** Set with the fixed refusal text when the runtime refused the lane's named Claude account. */
+      code?: 'account_refused';
     };
   };
   /** List background agents for a session */
@@ -3142,6 +3156,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotLogout': true,
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
+  'auth:kimiCodeLogin': true,
+  'auth:kimiCodeLoginCancel': true,
   'auth:getEffectiveRoute': true,
   'auth:checkConnection': true,
   'config:getScopes': true,
@@ -3206,6 +3222,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'provider:signOutAccount': true,
   'provider:setAccountSelection': true,
   'provider:setAccountDefault': true,
+  'provider:getAmbientClaudeStatus': true,
   'chat:subagent-query': true,
   'subagent:send-message': true,
   'subagent:stop': true,

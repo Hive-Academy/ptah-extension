@@ -21,6 +21,7 @@ import {
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 import type { OpenCodeProviderId } from '@ptah-extension/shared';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { CodexAccountUsageClient } from '@ptah-extension/codex-runtime';
 import { CodexHomeAuthService } from './codex/codex-home-auth.service';
@@ -40,6 +41,13 @@ import {
   CodexHomeResolver,
   CodexTranslationProxy,
 } from './codex';
+import {
+  KimiCodeAuthService,
+  KimiCodeCredentialStore,
+  KimiCodeHomeResolver,
+  KimiCodeLoginService,
+  KimiCodeTranslationProxy,
+} from './kimi-code';
 import {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
@@ -114,6 +122,43 @@ export function registerProviders(container: DependencyContainer): void {
     { useClass: CodexAccountUsageService },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  // Factories, not `useClass`: the Kimi Code services take a deps object
+  // whose clock, home and refresher are test seams (see `CodexHomeResolver`
+  // above for the same reasoning). Every DI dependency is resolved here.
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new KimiCodeAuthService({
+          logger: c.resolve<Logger>(TOKENS.LOGGER),
+          authSecrets: c.resolve<IAuthSecretsService>(
+            TOKENS.AUTH_SECRETS_SERVICE,
+          ),
+          events: c.resolve(SDK_TOKENS.SDK_ADAPTER_EVENTS),
+        }),
+    ),
+  });
+
+  container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_PROXY,
+    { useClass: KimiCodeTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_LOGIN, {
+    useFactory: instanceCachingFactory((c) => {
+      const logger = c.resolve<Logger>(TOKENS.LOGGER);
+      const home = new KimiCodeHomeResolver();
+      return new KimiCodeLoginService({
+        logger,
+        spawner: c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+        userInteraction: c.resolve(PLATFORM_TOKENS.USER_INTERACTION),
+        kimiAuth: c.resolve(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH),
+        store: new KimiCodeCredentialStore(home, logger),
+        home,
+      });
+    }),
+  });
 
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_OPENROUTER_AUTH,

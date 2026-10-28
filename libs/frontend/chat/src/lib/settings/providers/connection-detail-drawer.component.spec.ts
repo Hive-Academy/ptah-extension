@@ -1,6 +1,9 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AppStateManager, ProvidersSettingsStateService, type ProvidersConnection } from '@ptah-extension/core';
+import {
+  AppStateManager, ClaudeAmbientStatusService, ProviderAccountsStateService, ProvidersSettingsStateService,
+  type ProvidersConnection,
+} from '@ptah-extension/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
@@ -35,6 +38,15 @@ describe('ConnectionDetailDrawerComponent', () => {
             modelsEndpoint: null, helpUrl: '', pricing: null }),
         } },
         SettingsSaveFeedbackService,
+        // Read by the Accounts tab.
+        { provide: ProviderAccountsStateService, useValue: {
+          state: () => signal({ status: 'loading', snapshot: null, stale: false, error: null }),
+          operations: () => signal({}), fallbacks: () => signal({}),
+          open: jest.fn(async () => undefined), refresh: jest.fn(async () => undefined),
+        } },
+        { provide: ClaudeAmbientStatusService, useValue: {
+          view: signal({ status: 'idle', result: null, localFailure: false }), read: jest.fn(async () => undefined),
+        } },
         { provide: PROVIDER_MODELS_LOADER, useValue: { listModels: jest.fn().mockResolvedValue({ models: [], totalCount: 0 }) } },
       ],
     });
@@ -103,6 +115,39 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-credential-storage')?.textContent?.trim()).toBe('Stored on this machine');
     render({ connection: connection({ id: 'keyless', name: 'keyless', custom: true, hasKey: false }) });
     expect(byTestId('connection-auth-mode')?.textContent?.trim()).toBe('Custom endpoint');
+  });
+
+  it.each([
+    ['cli-login', 'Kimi Code CLI sign-in'],
+    ['api-key', 'API key (fallback)'],
+    ['none', 'Not signed in'],
+  ] as const)('a sign-in connection with a fallback key names the credential in use (%s)', (source, label) => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: source }) });
+    expect(byTestId('connection-auth-mode')?.textContent?.trim()).toBe('Provider sign-in');
+    expect(byTestId('connection-credential-storage')?.textContent?.trim()).toBe(label);
+    expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe(`Provider sign-in · ${label}`);
+  });
+
+  it('GV28-1: a sign-in connection shows its stored fallback key as the masked hint on Overview and Credentials', () => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: 'cli-login', keyHint: '•••• 8f21' }) });
+    expect(byTestId('connection-key-hint')?.textContent?.trim()).toBe('•••• 8f21');
+    expect(byTestId('connection-credential-storage')?.textContent).toContain('(stored on this machine)');
+    expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe('Provider sign-in · Kimi Code CLI sign-in');
+    selectTab('Credentials');
+    expect(byTestId('credentials-key-mask')?.textContent?.trim()).toBe('•••• 8f21');
+  });
+
+  it('an OAuth connection without a fallback key (Codex) shows no key hint on Overview', () => {
+    render({ connection: connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', keyHint: '•••• 8f21' }) });
+    expect(byTestId('connection-key-hint')).toBeNull();
+  });
+
+  it('passes the in-app Kimi Code sign-in to the Credentials tab', () => {
+    render({ connection: connection({ authMode: 'oauth', credentialSource: 'none', hasKey: false }),
+      kimiLogin: { status: 'awaiting-browser', userCode: 'FAKE-1234' } });
+    selectTab('Credentials');
+    expect(byTestId('credentials-kimi')).not.toBeNull();
+    expect(byTestId('kimi-login-code')?.textContent?.trim()).toBe('FAKE-1234');
   });
 
   it('an unreadable stored key (final review M-6) reads as unknown on Overview and Credentials, never "No key stored", and Retry re-reads', () => {
@@ -230,6 +275,80 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Advanced');
     render({ connection: KIMI_CODE });
     expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
+  });
+
+  describe('Accounts tab', () => {
+    it('is absent when the host does not serve named accounts', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: false });
+      expect(tabLabels()).not.toContain('Accounts');
+    });
+
+    it('is second for the Claude subscription when available, and absent for other kinds', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      expect(tabLabels()).toEqual(['Overview & Used By', 'Accounts', 'Credentials', 'Models & Tiers']);
+      render({ connection: KIMI_CODE });
+      expect(tabLabels()).not.toContain('Accounts');
+    });
+
+    it('renders the accounts tab with no setup copy or Edit in setup, and resets to Overview on connection change', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      selectTab('Accounts');
+      expect(query('ptah-accounts-tab')).not.toBeNull();
+      expect(byTestId('connection-setup-copy')).toBeNull();
+      expect(byTestId('connection-edit-in-setup')).toBeNull();
+      render({ connection: KIMI_CODE });
+      render({ connection: CLAUDE_CLI });
+      expect(query('[role="tab"][aria-selected="true"]')?.textContent?.trim()).toBe('Overview & Used By');
+      expect(query('ptah-accounts-tab')).toBeNull();
+    });
+
+    describe('initialTab', () => {
+      const selectedTab = () => query('[role="tab"][aria-selected="true"]')?.textContent?.trim();
+
+      it('opens on Accounts for the Claude subscription when requested and available', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        expect(selectedTab()).toBe('Accounts');
+        expect(query('ptah-accounts-tab')).not.toBeNull();
+      });
+
+      it('opens on Overview without it', () => {
+        render({ connection: CLAUDE_CLI, accountsAvailable: true });
+        expect(selectedTab()).toBe('Overview & Used By');
+        expect(query('ptah-accounts-tab')).toBeNull();
+      });
+
+      it('falls back to Overview when the requested tab is not shown (inert host or another kind)', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: false });
+        expect(selectedTab()).toBe('Overview & Used By');
+        expect(query('ptah-accounts-tab')).toBeNull();
+        render({ connection: KIMI_CODE, accountsAvailable: true });
+        expect(selectedTab()).toBe('Overview & Used By');
+      });
+
+      it('re-applies the requested tab when the connection changes', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        selectTab('Credentials');
+        expect(selectedTab()).toBe('Credentials');
+        render({ connection: KIMI_CODE });
+        expect(selectedTab()).toBe('Overview & Used By');
+        render({ connection: CLAUDE_CLI });
+        expect(selectedTab()).toBe('Accounts');
+      });
+
+      it('opens on Overview again once the request is cleared', () => {
+        render({ initialTab: 'accounts', connection: CLAUDE_CLI, accountsAvailable: true });
+        render({ connection: null, initialTab: null });
+        render({ connection: CLAUDE_CLI });
+        expect(selectedTab()).toBe('Overview & Used By');
+      });
+    });
+
+    it('lets the tab strip wrap instead of keeping every label on one line', () => {
+      render({ connection: CLAUDE_CLI, accountsAvailable: true });
+      const strip = byTestId('connection-drawer-tabs');
+      expect(strip?.className).toContain('[&_[role=tablist]]:flex-wrap');
+      expect(strip?.className).not.toContain('whitespace-nowrap');
+    });
   });
 
   it('passes the Used-by state through to the Overview', () => {

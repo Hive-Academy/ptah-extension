@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { NativeDrawerComponent } from '../drawer/native-drawer.component';
 import {
   NativeModalComponent,
   NativeModalSize,
@@ -268,5 +269,90 @@ describe('NativeModalComponent', () => {
       button('modal-last').focus();
       expect(tab().defaultPrevented).toBe(false);
     });
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [NativeDrawerComponent, NativeModalComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <ptah-native-drawer [isOpen]="drawerOpen()" ariaLabel="Accounts" (closed)="onDrawerClosed()">
+      <button type="button" id="drawer-control">Remove account</button>
+      <ptah-native-modal [isOpen]="modalOpen()" ariaLabel="Remove account?" (closed)="onModalClosed()">
+        <div modal-footer><button id="modal-cancel" type="button">Cancel</button></div>
+      </ptah-native-modal>
+    </ptah-native-drawer>
+  `,
+})
+class DrawerHostComponent {
+  readonly drawerOpen = signal(true);
+  readonly modalOpen = signal(false);
+  drawerClosedCount = 0;
+  modalClosedCount = 0;
+
+  onDrawerClosed(): void {
+    this.drawerClosedCount++;
+    this.drawerOpen.set(false);
+  }
+
+  onModalClosed(): void {
+    this.modalClosedCount++;
+    this.modalOpen.set(false);
+  }
+}
+
+// TASK_2026_719 P5 review F2: Escape inside a modal nested in a drawer bubbled to the drawer panel and closed the drawer.
+describe('NativeModalComponent inside a NativeDrawerComponent', () => {
+  let fixture: ComponentFixture<DrawerHostComponent>;
+  let host: DrawerHostComponent;
+
+  const q = <T extends HTMLElement>(selector: string): T =>
+    (fixture.nativeElement as HTMLElement).querySelector<T>(selector) as T;
+  const escape = (target: HTMLElement): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [DrawerHostComponent] }).compileComponents();
+    fixture = TestBed.createComponent(DrawerHostComponent);
+    host = fixture.componentInstance;
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+  });
+
+  it('keeps the drawer open when Escape is pressed inside the open modal', () => {
+    host.modalOpen.set(true);
+    fixture.detectChanges();
+
+    const event = escape(q<HTMLButtonElement>('#modal-cancel'));
+
+    expect(host.drawerClosedCount).toBe(0);
+    expect(q('[data-testid="native-drawer-panel"]')).toBeTruthy();
+    // The default action stays, so the browser still fires the dialog's native `cancel`.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('still closes the modal through its native cancel event', () => {
+    host.modalOpen.set(true);
+    fixture.detectChanges();
+    const dialog = q<HTMLDialogElement>('[data-testid="native-modal-dialog"]');
+
+    dialog.dispatchEvent(new Event('cancel'));
+    fixture.detectChanges();
+
+    expect(host.modalClosedCount).toBe(1);
+    expect(dialog.hasAttribute('open')).toBe(false);
+    expect(host.drawerClosedCount).toBe(0);
+  });
+
+  it('lets Escape close the drawer while the modal is closed', () => {
+    escape(q<HTMLButtonElement>('#drawer-control'));
+
+    expect(host.drawerClosedCount).toBe(1);
+    expect(host.modalClosedCount).toBe(0);
   });
 });

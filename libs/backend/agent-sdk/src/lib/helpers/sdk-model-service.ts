@@ -29,9 +29,9 @@ import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import type {
   ClaudeAccountRoute,
   ClaudeAccountNamedRoute,
+  ClaudeCertifiedLaunchContext,
 } from '@ptah-extension/auth-providers-tokens';
-import type { ClaudeCliDetector } from '../detector/claude-cli-detector';
-import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
+import { certifiedNamedEnv } from './claude-certified-launch';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
 import { PTAH_DISABLE_SDK_AUTO_MEMORY } from '../constants';
 import { SdkModuleLoader } from './sdk-module-loader';
@@ -388,17 +388,22 @@ export class SdkModelService {
      */
     @inject(PLATFORM_TOKENS.STATE_STORAGE, { isOptional: true })
     private readonly stateStorage?: IStateStorage,
-    @inject(SDK_TOKENS.SDK_CLI_DETECTOR, { isOptional: true })
-    private readonly cliDetector?: Pick<ClaudeCliDetector, 'findExecutable'>,
   ) {}
 
+  /**
+   * Catalog for a named account route. Without a certified launch the catalog
+   * is unknown: `[]`, and no child is started (D-K), because only the launch
+   * proves which executable and env the account runs under.
+   */
   private async getAccountModels(
     route: ClaudeAccountNamedRoute,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    launch: ClaudeCertifiedLaunchContext | undefined,
   ): Promise<ModelInfo[]> {
-    if (signal?.aborted) return [];
-    // Snapshot the admitted identity before awaiting installation discovery.
+    if (!launch || signal?.aborted) return [];
+    // Snapshot the admitted identity and launch before the first await.
     route = { ...route };
+    const { executable, envDigest } = launch;
     const identity = JSON.stringify([route.provider, route.routeFingerprint]);
     const epoch = this.accountEpochs.get(identity);
     if (epoch !== undefined && epoch > route.authEpoch) {
@@ -415,42 +420,34 @@ export class SdkModelService {
       generation === this.cacheGeneration &&
       this.accountEpochs.get(identity) === route.authEpoch;
     try {
-      const installation = await this.cliDetector?.findExecutable();
-      // Unknown installation/version is unknown catalog, never ambient/API auth.
-      if (
-        !installation?.cliJsPath ||
-        !installation.version ||
-        !current() ||
-        signal?.aborted
-      )
-        return [];
+      // The certified executable and env pin the catalog; `cwd` does not,
+      // because the probe reads no setting source.
       const key = JSON.stringify([
         identity,
         route.routeRevision,
         route.authEpoch,
-        installation.cliJsPath,
-        installation.version,
+        executable.sdkExecutablePath,
+        executable.version,
+        envDigest,
       ]);
       const cached = this.accountModels.get(key);
       if (cached) return cached;
       let probe = this.accountProbes.get(key);
       if (!probe) {
         const controller = new AbortController();
-        const promise = this.probeAccountModels(
-          route,
-          installation.cliJsPath,
-          controller,
-        ).then((models) => {
-          if (!current() || controller.signal.aborted) return [];
-          if (models.length > 0) {
-            this.accountModels.set(key, models);
-            if (this.accountModels.size > 64) {
-              const oldest = this.accountModels.keys().next().value;
-              if (oldest !== undefined) this.accountModels.delete(oldest);
+        const promise = this.probeAccountModels(route, launch, controller).then(
+          (models) => {
+            if (!current() || controller.signal.aborted) return [];
+            if (models.length > 0) {
+              this.accountModels.set(key, models);
+              if (this.accountModels.size > 64) {
+                const oldest = this.accountModels.keys().next().value;
+                if (oldest !== undefined) this.accountModels.delete(oldest);
+              }
             }
-          }
-          return models;
-        });
+            return models;
+          },
+        );
         probe = {
           promise,
           controller,
@@ -524,7 +521,7 @@ export class SdkModelService {
 
   private async probeAccountModels(
     route: ClaudeAccountNamedRoute,
-    executable: string,
+    launch: ClaudeCertifiedLaunchContext,
     controller: AbortController,
   ): Promise<ModelInfo[]> {
     let query:
@@ -534,6 +531,9 @@ export class SdkModelService {
     let onAbort: (() => void) | undefined;
     const timer = setTimeout(() => controller.abort(), SDK_MODELS_TIMEOUT_MS);
     try {
+      // Throws a refusal when the launch no longer matches the route; the
+      // catch below turns that into the unknown catalog before any spawn.
+      const env = certifiedNamedEnv(route, launch);
       const cancelled = new Promise<null>((resolve) => {
         onAbort = () => resolve(null);
         controller.signal.addEventListener('abort', onAbort, { once: true });
@@ -544,20 +544,12 @@ export class SdkModelService {
         cancelled,
       ]);
       if (!factory || controller.signal.aborted) return [];
-      const env = applyClaudeAccountRouteEnv(
-        {
-          ...process.env,
-          ...NATIVE_CLAUDE_AUTH_ENV,
-          NO_PROXY: '127.0.0.1,localhost',
-        },
-        route,
-      );
       query = factory({
         prompt: (async function* () {})(),
         options: {
           abortController: processController,
-          cwd: require('os').homedir(),
-          pathToClaudeCodeExecutable: executable,
+          cwd: launch.cwd,
+          pathToClaudeCodeExecutable: launch.executable.sdkExecutablePath,
           // Control-only probe: do not load user/project hooks or auth helpers.
           settingSources: [],
           settings: PTAH_DISABLE_SDK_AUTO_MEMORY,
@@ -633,12 +625,18 @@ export class SdkModelService {
    * - claudeCli  → query.supportedModels() directly (tier slots: opus/sonnet/haiku)
    * - apiKey     → /v1/models API directly (full versioned model IDs)
    * - thirdParty → query.supportedModels() + tier mapping to provider model IDs
+   *
+   * A named `route` probes only under its certified `launch` (env, `cwd`,
+   * executable); without one the result is `[]` and no child starts.
    */
   async getSupportedModels(
     route?: ClaudeAccountRoute,
     signal?: AbortSignal,
+    launch?: ClaudeCertifiedLaunchContext,
   ): Promise<ModelInfo[]> {
-    if (route?.kind === 'named') return this.getAccountModels(route, signal);
+    if (route?.kind === 'named') {
+      return this.getAccountModels(route, signal, launch);
+    }
     const key = this.authFingerprint();
 
     const cached = this.modelsCache.get(key);
@@ -829,13 +827,19 @@ export class SdkModelService {
    * report the ACTIVE provider's catalog — e.g. Codex models while a Codex
    * translation proxy owns `ANTHROPIC_BASE_URL`.
    *
+   * A named `route` follows {@link getSupportedModels}: certified `launch`
+   * required, `[]` without one.
+   *
    * @returns ModelInfo[] from the native login, empty array on failure
    */
   async getNativeClaudeModels(
     route?: ClaudeAccountRoute,
     signal?: AbortSignal,
+    launch?: ClaudeCertifiedLaunchContext,
   ): Promise<ModelInfo[]> {
-    if (route?.kind === 'named') return this.getAccountModels(route, signal);
+    if (route?.kind === 'named') {
+      return this.getAccountModels(route, signal, launch);
+    }
     // Already on the native login — the normal path fetches the same list and
     // shares its cache.
     if (isDirectAnthropic(this.authEnv) && !this.authEnv.ANTHROPIC_API_KEY) {

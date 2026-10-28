@@ -12,6 +12,7 @@ import {
   computed,
   signal,
   inject,
+  Injector,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
@@ -22,8 +23,11 @@ import {
   type MonitoredAgent,
 } from '@ptah-extension/chat-streaming';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
-import { AgentCardHeaderComponent } from './agent-card-header.component';
-import { laneGuardStopText } from './agent-card-header.component';
+import {
+  AgentCardHeaderComponent,
+  laneAccountText,
+  laneGuardStopText,
+} from './agent-card-header.component';
 import { CliLaneUsageSummaryComponent } from './cli-lane-usage-summary.component';
 import { ExecutionHeaderComponent } from '../execution-header/execution-header.component';
 import { cliActivity } from '../../../services/session-agents/session-agent-roster';
@@ -73,6 +77,7 @@ import {
           [live]="agent().status === 'running'"
           [peek]="lanePeek()"
           [extraMeta]="laneMeta()"
+          [account]="laneAccount()"
           [metaTone]="
             agent().status === 'failed' ||
             agent().status === 'timeout' ||
@@ -336,6 +341,11 @@ export class AgentCardComponent {
    * only the end status and a guard stop reason.
    */
   protected readonly laneStats = computed(() => cliLaneStats(this.agent()));
+  /** Same account text as the card header's badge (label only, never an ID). */
+  protected readonly laneAccount = computed(() =>
+    laneAccountText(this.agent().accountProfileId, this.injector),
+  );
+  private readonly injector = inject(Injector);
   protected readonly laneMeta = computed(() => {
     const a = this.agent();
     const meta: string[] = [];

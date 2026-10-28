@@ -49,6 +49,13 @@ const SAVE_KEY_FAILED_MESSAGE = 'Could not save the ElevenLabs API key.';
 const CLEAR_KEY_FAILED_MESSAGE = 'Could not clear the ElevenLabs API key.';
 const SAVE_SETTINGS_FAILED_MESSAGE = 'Could not save the ElevenLabs settings.';
 const LOAD_VOICES_FAILED_MESSAGE = 'Could not load your ElevenLabs voices.';
+const VOICES_PERMISSION_HINT =
+  'This key cannot list voices. Enable Voices (read) for it in ElevenLabs, or enter a voice ID.';
+const VOICES_FALLBACK_HINT = 'You can still enter a voice ID.';
+/** The host speaks with this voice while none is saved (`elevenlabs-tts-provider.ts` DEFAULT_VOICE_ID). */
+const DEFAULT_VOICE_LABEL = 'Rachel (21m00Tcm4TlvDq8ikWAM)';
+/** Mirrors the host's voice-id rule (`voice-rpc.schema.ts` CONFIG_ID). */
+const VOICE_ID_PATTERN = /^[a-zA-Z0-9._-]{1,64}$/;
 const TEST_OK_MESSAGE = 'Connection works.';
 const TEST_FAILED_MESSAGE = 'The connection test failed.';
 /** One fixed sentence per `VoiceErrorCategory` the probe can report (V22). */
@@ -68,7 +75,7 @@ function testFailureMessage(category: string | undefined): string {
 /**
  * ElevenLabs cloud provider panel, drawer D-VOICE (pattern map V21-V25), rendered once per
  * direction. Shared: the API key block. Direction-specific: TTS shows voice, model and output
- * format; STT shows the transcription model. All controls are `table-xs` rows.
+ * format; STT shows the transcription model. All controls are `table-sm` rows.
  *
  * Key (V21, G13 verify-then-save): a typed key must pass `voice:testConnection` with that exact
  * draft before Save turns on, so a key is never saved on a failed probe. Clear asks for an inline
@@ -101,7 +108,7 @@ function testFailureMessage(category: string | undefined): string {
       </div>
     }
 
-    <table class="table table-xs" data-testid="elevenlabs-panel-table">
+    <table class="table table-sm" data-testid="elevenlabs-panel-table">
       <tbody>
         <!-- V21: stored key status + Clear (S-confirm, no Undo) -->
         <tr>
@@ -109,40 +116,90 @@ function testFailureMessage(category: string | undefined): string {
             API key
           </th>
           <td class="align-top">
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
               <span
-                class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content"
+                class="flex items-center gap-1.5 text-xs font-semibold text-base-content"
                 [attr.data-testid]="
                   config().apiKeyConfigured
                     ? 'elevenlabs-key-configured'
                     : 'elevenlabs-key-missing'
                 "
               >
-                <span
-                  class="w-1.5 h-1.5 rounded-full"
-                  [class.bg-success]="config().apiKeyConfigured"
-                  [class.bg-warning]="!config().apiKeyConfigured"
+                <lucide-angular
+                  [img]="config().apiKeyConfigured ? CheckCircleIcon : AlertCircleIcon"
+                  class="w-3.5 h-3.5 shrink-0"
+                  [class.text-success]="config().apiKeyConfigured"
+                  [class.text-warning]="!config().apiKeyConfigured"
                   aria-hidden="true"
-                ></span>
-                {{
-                  config().apiKeyConfigured ? 'Configured' : 'Not configured'
-                }}
+                />
+                {{ config().apiKeyConfigured ? 'Key saved' : 'No key saved' }}
               </span>
               @if (config().apiKeyConfigured) {
-                <!-- Visual N2: no btn-outline:hover fill on the trigger while its confirm is open. -->
-                <button
-                  #clearBtn
-                  type="button"
-                  class="btn btn-outline btn-xs text-base-content aria-expanded:hover:bg-transparent aria-expanded:hover:text-base-content"
-                  [disabled]="saving()"
-                  [attr.aria-expanded]="confirmingClear()"
-                  (click)="openClearConfirm()"
-                  data-testid="elevenlabs-key-clear"
-                >
-                  Clear
-                </button>
+                <div class="flex items-center gap-1">
+                  @if (!showKeyForm()) {
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs gap-1"
+                      [disabled]="!canTest()"
+                      (click)="testConnection()"
+                      data-testid="elevenlabs-test-btn"
+                    >
+                      @if (isTesting()) {
+                        <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+                        <span>Testing…</span>
+                      } @else {
+                        <span>Test</span>
+                      }
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    [disabled]="saving()"
+                    [attr.aria-expanded]="replacingKey()"
+                    aria-controls="elevenlabs-key"
+                    (click)="toggleReplaceKey()"
+                    data-testid="elevenlabs-key-replace"
+                  >
+                    {{ replacingKey() ? 'Cancel' : 'Replace' }}
+                  </button>
+                  <!-- Visual N2: no btn-outline:hover fill on the trigger while its confirm is open. -->
+                  <button
+                    #clearBtn
+                    type="button"
+                    class="btn btn-outline btn-xs text-base-content aria-expanded:hover:bg-transparent aria-expanded:hover:text-base-content"
+                    [disabled]="saving()"
+                    [attr.aria-expanded]="confirmingClear()"
+                    (click)="openClearConfirm()"
+                    data-testid="elevenlabs-key-clear"
+                  >
+                    Clear
+                  </button>
+                </div>
               }
             </div>
+            @if (config().apiKeyConfigured && !showKeyForm()) {
+              <p class="mt-1 text-xs text-base-content-muted" data-testid="elevenlabs-key-stored-note">
+                Stored encrypted on this machine. The key itself is never shown.
+              </p>
+              <div aria-live="polite" class="mt-1">
+                @if (testResult(); as result) {
+                  <span
+                    class="badge badge-outline badge-sm h-auto gap-1 text-base-content"
+                    data-testid="elevenlabs-test-result"
+                  >
+                    <lucide-angular
+                      [img]="result.ok ? CheckCircleIcon : XCircleIcon"
+                      class="w-3 h-3 shrink-0"
+                      [class.text-success]="result.ok"
+                      [class.text-error]="!result.ok"
+                      aria-hidden="true"
+                    />
+                    {{ result.message }}
+                  </span>
+                }
+              </div>
+            }
             @if (config().apiKeyConfigured && confirmingClear()) {
               <div
                 role="group"
@@ -180,10 +237,11 @@ function testFailureMessage(category: string | undefined): string {
           </td>
         </tr>
 
-        <!-- V21/V22: new key, verify-then-save (G13) -->
+        <!-- V21/V22: new key, verify-then-save (G13); behind Replace once a key is saved. -->
+        @if (showKeyForm()) {
         <tr>
           <th scope="row" class="w-24 align-top font-medium text-base-content">
-            {{ config().apiKeyConfigured ? 'Replace key' : 'New key' }}
+            {{ config().apiKeyConfigured ? 'New key' : 'Add key' }}
           </th>
           <td class="align-top">
             <div class="flex items-center gap-1">
@@ -195,7 +253,7 @@ function testFailureMessage(category: string | undefined): string {
                   spellcheck="false"
                   aria-label="ElevenLabs API key"
                   aria-describedby="elevenlabs-key-help"
-                  class="input input-bordered input-xs w-full pr-8 font-mono"
+                  class="input input-bordered input-sm w-full pr-8 font-mono"
                   [value]="keyDraft()"
                   [disabled]="saving()"
                   [placeholder]="
@@ -280,8 +338,9 @@ function testFailureMessage(category: string | undefined): string {
             </div>
           </td>
         </tr>
+        }
 
-        @if (direction() === 'tts') {
+        @if (direction() === 'tts' && !keyOnly()) {
           <!-- V23: voice (S-sel + Undo) -->
           <tr>
             <th
@@ -306,6 +365,7 @@ function testFailureMessage(category: string | undefined): string {
                   Loading voices…
                 </div>
               } @else if (voicesError(); as vErr) {
+                <div class="space-y-2">
                 <div class="flex items-center gap-2">
                   <span
                     class="flex items-center gap-1 text-xs text-base-content"
@@ -327,11 +387,44 @@ function testFailureMessage(category: string | undefined): string {
                     Retry
                   </button>
                 </div>
+                @if (voicesHint(); as hint) {
+                  <p
+                    class="text-xs text-base-content-muted"
+                    data-testid="elevenlabs-voices-hint"
+                  >
+                    {{ hint }}
+                  </p>
+                }
+                <!-- Without a voice list, a voice is still chosen by its ElevenLabs voice ID. -->
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    class="input input-bordered input-sm w-full font-mono"
+                    aria-label="ElevenLabs voice ID"
+                    [placeholder]="'Default: ' + defaultVoiceLabel"
+                    autocomplete="off"
+                    spellcheck="false"
+                    [value]="voiceIdDraft()"
+                    (input)="onVoiceIdInput($event)"
+                    (keydown.enter)="saveVoiceId()"
+                    data-testid="elevenlabs-voice-id-input"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs whitespace-nowrap"
+                    [ptahBusyDisabled]="!canSaveVoiceId()"
+                    (click)="saveVoiceId()"
+                    data-testid="elevenlabs-voice-id-save"
+                  >
+                    Use voice ID
+                  </button>
+                </div>
+                </div>
               } @else {
                 <select
                   id="elevenlabs-voice"
                   aria-label="Voice"
-                  class="select select-bordered select-xs w-full"
+                  class="select select-bordered select-sm w-full"
                   [value]="voiceId()"
                   [ptahBusyDisabled]="saving()"
                   (change)="onVoiceChange($event)"
@@ -363,7 +456,7 @@ function testFailureMessage(category: string | undefined): string {
               <select
                 [id]="'elevenlabs-' + row.slug"
                 [attr.aria-label]="row.ariaLabel"
-                class="select select-bordered select-xs w-full"
+                class="select select-bordered select-sm w-full"
                 [value]="selection[row.key]()"
                 [ptahBusyDisabled]="saving()"
                 (change)="onSelectionChange($event, row)"
@@ -391,6 +484,8 @@ export class ElevenLabsPanelComponent {
 
   readonly direction = input.required<'stt' | 'tts'>();
   readonly config = input.required<VoiceProviderConfigElevenLabsDto>();
+  /** Key block only (ElevenLabs not active yet): no voice/model rows and no cloud voice listing. */
+  readonly keyOnly = input(false);
   readonly changed = output<void>();
 
   readonly AlertCircleIcon = AlertCircle;
@@ -411,9 +506,10 @@ export class ElevenLabsPanelComponent {
     outputFormat: linkedSignal(() => this.config().outputFormat),
     sttModelId: linkedSignal(() => this.config().sttModelId),
   };
-  readonly selectRows = computed(() =>
-    this.direction() === 'tts' ? ELEVENLABS_TTS_ROWS : ELEVENLABS_STT_ROWS,
-  );
+  readonly selectRows = computed(() => {
+    if (this.keyOnly()) return [];
+    return this.direction() === 'tts' ? ELEVENLABS_TTS_ROWS : ELEVENLABS_STT_ROWS;
+  });
 
   /** Draft key — NEVER seeded from the stored key (which is never sent to us). */
   readonly keyDraft = signal('');
@@ -428,9 +524,27 @@ export class ElevenLabsPanelComponent {
   readonly voices = signal<VoiceInfoDto[]>([]);
   readonly isLoadingVoices = signal(false);
   readonly voicesError = signal<string | null>(null);
+  readonly voicesHint = signal<string | null>(null);
+  readonly defaultVoiceLabel = DEFAULT_VOICE_LABEL;
+  /** A saved key hides the key form until Replace is used; no key always shows it. */
+  readonly replacingKey = signal(false);
+  readonly showKeyForm = computed(
+    () => !this.config().apiKeyConfigured || this.replacingKey(),
+  );
+  /** Manual voice id, used when the voice list cannot load; starts at the saved voice. */
+  readonly voiceIdDraft = linkedSignal(() => this.voiceId());
+  readonly canSaveVoiceId = computed(() => {
+    const draft = this.voiceIdDraft().trim();
+    return (
+      !this.saving() && VOICE_ID_PATTERN.test(draft) && draft !== this.voiceId()
+    );
+  });
 
   readonly showVoicePicker = computed(
-    () => this.direction() === 'tts' && this.config().apiKeyConfigured,
+    () =>
+      !this.keyOnly() &&
+      this.direction() === 'tts' &&
+      this.config().apiKeyConfigured,
   );
   /** The typed draft is the one that passed the probe. */
   readonly draftVerified = computed(() => {
@@ -515,8 +629,9 @@ export class ElevenLabsPanelComponent {
           this.verifiedKey.set(null);
           this.keyVisible.set(false);
           this.testResult.set(null);
+          this.replacingKey.set(false);
           // A replaced key may see a different voice library; a first key loads via the effect.
-          void this.loadVoices();
+          if (this.showVoicePicker()) void this.loadVoices();
         }
         return result;
       },
@@ -560,19 +675,61 @@ export class ElevenLabsPanelComponent {
     if (!this.showVoicePicker()) return;
     this.isLoadingVoices.set(true);
     this.voicesError.set(null);
+    this.voicesHint.set(null);
     let loaded: VoiceInfoDto[] | null = null;
+    let category: string | undefined;
     try {
       const result = await this.rpc.call('voice:listVoices', {
         providerId: 'elevenlabs',
       });
-      if (result.isSuccess() && result.data.ok) loaded = result.data.voices;
+      if (result.isSuccess()) {
+        if (result.data.ok) loaded = result.data.voices;
+        else category = result.data.category;
+      }
     } catch {
       // A thrown transport error gets the same fixed sentence (F1).
     } finally {
       this.isLoadingVoices.set(false);
     }
-    if (loaded) this.voices.set(loaded);
-    else this.voicesError.set(LOAD_VOICES_FAILED_MESSAGE);
+    if (loaded) {
+      this.voices.set(loaded);
+      return;
+    }
+    this.voicesError.set(LOAD_VOICES_FAILED_MESSAGE);
+    // The key itself works (it was saved after a passing test), so `auth` here is a missing scope.
+    this.voicesHint.set(
+      category === 'auth' ? VOICES_PERMISSION_HINT : VOICES_FALLBACK_HINT,
+    );
+  }
+
+  /** Opens the key form over a saved key, or cancels it and drops the draft. */
+  toggleReplaceKey(): void {
+    const opening = !this.replacingKey();
+    this.replacingKey.set(opening);
+    this.testResult.set(null);
+    if (!opening) {
+      this.keyDraft.set('');
+      this.verifiedKey.set(null);
+      this.keyVisible.set(false);
+    }
+  }
+
+  onVoiceIdInput(event: Event): void {
+    this.voiceIdDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  async saveVoiceId(): Promise<void> {
+    if (!this.canSaveVoiceId()) return;
+    const next = this.voiceIdDraft().trim();
+    const previous = this.voiceId();
+    await this.feedback.saveGeneric({
+      label: 'ElevenLabs voice',
+      write: () => this.writeSelection(this.voiceId, 'voiceId', next, previous),
+      undo:
+        previous.length > 0
+          ? () => this.writeSelection(this.voiceId, 'voiceId', previous, next)
+          : null,
+    });
   }
 
   onVoiceChange(event: Event): Promise<void> {

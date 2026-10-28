@@ -1,5 +1,11 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { MonitoredAgent } from '@ptah-extension/chat-streaming';
+import {
+  ProviderAccountsStateService,
+  type ProviderAccountsView,
+} from '@ptah-extension/core';
+import type { ProviderAccountsSnapshot } from '@ptah-extension/shared';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
 
 function lane(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
@@ -95,5 +101,117 @@ describe('AgentCardHeaderComponent — prompt cache (N6)', () => {
     expect(flat.textContent).toContain('1s');
     expect(flat.querySelector('[aria-label="Stop agent"]')).not.toBeNull();
     expect(flat.textContent).not.toContain('session-123');
+  });
+});
+
+describe('AgentCardHeaderComponent — lane account (U5)', () => {
+  const PROFILE = 'profile_work_0001';
+  const view = signal<Pick<ProviderAccountsView, 'status' | 'snapshot'>>({
+    status: 'idle',
+    snapshot: null,
+  });
+  const fakeAccounts = { state: () => view };
+
+  function ready(...accounts: Array<{ profileId: string; label: string }>) {
+    view.set({
+      status: 'ready',
+      snapshot: {
+        accounts: accounts.map((a) => ({ ...a, provider: 'claude' })),
+      } as unknown as ProviderAccountsSnapshot,
+    });
+  }
+
+  function render(agent: MonitoredAgent): HTMLElement {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AgentCardHeaderComponent],
+      providers: [
+        { provide: ProviderAccountsStateService, useValue: fakeAccounts },
+      ],
+    });
+    const fixture = TestBed.createComponent(AgentCardHeaderComponent);
+    fixture.componentRef.setInput('agent', agent);
+    fixture.componentRef.setInput('elapsedDisplay', '1s');
+    fixture.componentRef.setInput('isStopping', false);
+    fixture.componentRef.setInput('isResuming', false);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  function accountText(el: HTMLElement): string | undefined {
+    return el
+      .querySelector('[data-testid="lane-account"]')
+      ?.textContent?.trim();
+  }
+
+  beforeEach(() => view.set({ status: 'idle', snapshot: null }));
+
+  it.each(['running', 'completed'] as const)(
+    'shows the named account label on a %s lane, never its profile ID',
+    (status) => {
+      ready({ profileId: PROFILE, label: 'Work' });
+      const el = render(
+        lane({ cli: 'claude', status, accountProfileId: PROFILE }),
+      );
+      expect(accountText(el)).toBe('Account: Work');
+      expect(el.textContent).not.toContain(PROFILE);
+    },
+  );
+
+  it.each(['running', 'failed'] as const)(
+    'shows "Default" for an ambient %s lane',
+    (status) => {
+      const el = render(
+        lane({ cli: 'claude', status, accountProfileId: null }),
+      );
+      expect(accountText(el)).toBe('Default');
+    },
+  );
+
+  it('shows "Removed account" when the loaded list no longer has the profile', () => {
+    ready({ profileId: 'profile_other_0002', label: 'Personal' });
+    const el = render(
+      lane({ cli: 'claude', status: 'stopped', accountProfileId: PROFILE }),
+    );
+    expect(accountText(el)).toBe('Removed account');
+    expect(el.textContent).not.toContain(PROFILE);
+  });
+
+  it('shows nothing before the account list loads or for an unknown account', () => {
+    const named = render(lane({ cli: 'claude', accountProfileId: PROFILE }));
+    expect(accountText(named)).toBeUndefined();
+    expect(named.textContent).not.toContain(PROFILE);
+    const unknown = render(lane());
+    expect(accountText(unknown)).toBeUndefined();
+  });
+
+  it('updates the label when the account list changes', () => {
+    ready({ profileId: PROFILE, label: 'Work' });
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [AgentCardHeaderComponent],
+      providers: [
+        { provide: ProviderAccountsStateService, useValue: fakeAccounts },
+      ],
+    });
+    const fixture = TestBed.createComponent(AgentCardHeaderComponent);
+    fixture.componentRef.setInput(
+      'agent',
+      lane({ cli: 'claude', accountProfileId: PROFILE }),
+    );
+    fixture.componentRef.setInput('elapsedDisplay', '1s');
+    fixture.componentRef.setInput('isStopping', false);
+    fixture.componentRef.setInput('isResuming', false);
+    fixture.detectChanges();
+    ready({ profileId: PROFILE, label: 'Work renamed' });
+    fixture.detectChanges();
+    expect(accountText(fixture.nativeElement as HTMLElement)).toBe(
+      'Account: Work renamed',
+    );
+    ready();
+    fixture.detectChanges();
+    expect(accountText(fixture.nativeElement as HTMLElement)).toBe(
+      'Removed account',
+    );
   });
 });

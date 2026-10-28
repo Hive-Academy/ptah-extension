@@ -61,6 +61,7 @@ import type {
   SaveOperation,
 } from './providers-settings.types';
 import { PROVIDERS_ENHANCEMENT_KEYS } from './providers-settings.types';
+import { KIMI_CODE_ID, kimiCredentialSource } from './kimi-code-login';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 export type {
@@ -92,6 +93,10 @@ export {
   type ProviderAccountChoice,
   type ProviderAccountsView,
 } from './provider-accounts-state.service';
+export {
+  ClaudeAmbientStatusService,
+  type ClaudeAmbientStatusView,
+} from './claude-ambient-status.service';
 
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set([
@@ -172,6 +177,8 @@ export class ProvidersSettingsStateService {
     this.sourcesRevision,
   );
   readonly externalAuth = this.setup.externalAuth;
+  /** The in-app Kimi Code sign-in (`auth:kimiCodeLogin`); null before one ran in this webview. */
+  readonly kimiCodeLogin = this.setup.kimiCodeLogin;
   readonly commit = this.commits.commit;
   /**
    * A scalar identity makes two active badges impossible. Derived from the effective route
@@ -209,6 +216,8 @@ export class ProvidersSettingsStateService {
 
   async open(): Promise<void> {
     this.opened.set(true);
+    // A Kimi Code sign-in that ends while the page is loaded re-reads it, also after a reload.
+    this.setup.registerKimiLoginOwner(this.setupHooks);
     await this.refresh();
   }
   async checkConnection(): Promise<void> {
@@ -449,14 +458,17 @@ export class ProvidersSettingsStateService {
               (provider) => provider.provider === entry.id,
             );
             // Native CLI auth has no stored setup of its own; an installed CLI is the connection.
+            // Kimi Code counts as signed in only through its CLI login; its stored key is `hasKey`.
             const authenticated =
               entry.id === 'github-copilot'
                 ? auth.copilotAuthenticated === true
                 : entry.id === 'openai-codex'
                   ? auth.codexAuthenticated === true && !auth.codexTokenStale
-                  : entry.nativeAuth
-                    ? auth.claudeCliInstalled === true
-                    : false;
+                  : entry.id === KIMI_CODE_ID
+                    ? auth.kimiCodeCredentialSource === 'cli-login'
+                    : entry.nativeAuth
+                      ? auth.claudeCliInstalled === true
+                      : false;
             return {
               id: entry.id,
               name: entry.name,
@@ -487,7 +499,16 @@ export class ProvidersSettingsStateService {
                   ? (auth.copilotUsername ?? null)
                   : null,
               tokenStale:
-                entry.id === 'openai-codex' && auth.codexTokenStale === true,
+                (entry.id === 'openai-codex' &&
+                  auth.codexTokenStale === true) ||
+                (entry.id === KIMI_CODE_ID && auth.kimiCodeTokenStale === true),
+              ...(entry.apiKeyFallback
+                ? {
+                    credentialSource: kimiCredentialSource(
+                      auth.kimiCodeCredentialSource,
+                    ),
+                  }
+                : {}),
             };
           },
         );

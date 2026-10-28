@@ -533,6 +533,12 @@ export type AgentContinueErrorCode =
    * fallback `not_found` takes (TASK_2026_323 B11).
    */
   | 'released'
+  /**
+   * The lane's named Claude account was refused at continuation (route
+   * changed, unsupported source or identity not proved). The agent is not
+   * continued on another account.
+   */
+  | 'account_refused'
   | 'unknown';
 
 /** Parameters for ptahCli:list RPC method */

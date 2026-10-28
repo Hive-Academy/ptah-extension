@@ -12,7 +12,7 @@ let permissionActionsInstance = 0;
     @if (!compact() && item().permissionPreview) {
       <p class="mt-2 break-words text-xs text-base-content-muted">{{ item().permissionPreview }}</p>
     }
-    <div class="flex min-w-0 items-center gap-1" [class.mt-2]="!compact()" (keydown.escape)="closeMenu($event)">
+    <div role="group" aria-label="Permission actions" class="flex min-w-0 items-center gap-1" [class.mt-2]="!compact()" (keydown.escape)="closeMenu($event)">
       @for (action of visibleActions(); track action.id) {
         <button #visibleButton type="button" class="btn btn-sm px-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" [class.min-h-9]="!compact()" [class.min-h-7]="compact()" [class.h-7]="compact()"
           [class.btn-primary]="action.id === primaryAction()?.id" [class.btn-ghost]="action.id !== primaryAction()?.id"
@@ -25,7 +25,7 @@ let permissionActionsInstance = 0;
           aria-label="More permission actions" [attr.aria-expanded]="menuOpen()" [attr.aria-controls]="'permission-more-' + instanceId" [disabled]="busy()" (click)="toggleMenu()">More</button>
       }
     </div>
-    <div [id]="'permission-more-' + instanceId" [hidden]="!menuOpen()" class="mt-1 flex-wrap gap-1" [class.flex]="menuOpen()" (keydown.escape)="closeMenu($event)">
+    <div role="group" aria-label="Additional permission actions" [id]="'permission-more-' + instanceId" [hidden]="!menuOpen()" class="mt-1 flex-wrap gap-1" [class.flex]="menuOpen()" (keydown.escape)="closeMenu($event)">
       @if (menuOpen()) {
         @for (action of overflowActions(); track action.id) {
           <button #extraAction type="button" class="btn btn-ghost btn-sm min-h-7 px-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"

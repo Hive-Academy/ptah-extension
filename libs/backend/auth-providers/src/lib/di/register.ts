@@ -1,3 +1,4 @@
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import {
   Lifecycle,
   instanceCachingFactory,
@@ -12,6 +13,10 @@ import { ProviderAccountStore } from '../accounts/provider-account.store';
 import { ProviderAccountService } from '../accounts/provider-account.service';
 import { ProviderAccountActionsService } from '../accounts/provider-account-actions.service';
 import { accountActionResult, ClaudeAccountCommand } from '../accounts/claude-account-command';
+import { ClaudeRouteCertifier, type ClaudeRouteCertifierFs } from '../accounts/claude-route-certifier';
+import { ClaudeLoginConsole } from '../accounts/claude-login-console';
+import { ClaudeAmbientLoginStatusReader, NODE_AMBIENT_STATUS_HOST } from '../accounts/claude-ambient-login-status';
+import type { ClaudeAccountSelectionReader, ProviderAccountAdmissionPort } from '@ptah-extension/auth-providers-tokens';
 import { AUTH_PROVIDERS_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import { AuthManager } from '../auth/auth-manager';
@@ -31,6 +36,7 @@ import { registerProviders } from '../providers/register-providers';
 import { OpenRouterPricingService } from '../providers/openrouter';
 import { CopilotTranslationProxy } from '../providers/copilot';
 import { CodexTranslationProxy } from '../providers/codex';
+import { KimiCodeTranslationProxy } from '../providers/kimi-code';
 import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
@@ -147,10 +153,35 @@ export function registerAuthProvidersServices(
   warmupPricing(container, logger);
 }
 
+/** Read-only fs of the certifier (D14 note 1): UTF-8 reads, typed dir entries, `stat` follows links. */
+const certifierFs: ClaudeRouteCertifierFs = {
+  readFile: (path) => readFile(path, 'utf8'),
+  lstat: (path) => lstat(path),
+  readdir: (path) => readdir(path, { withFileTypes: true }),
+  stat: (path) => stat(path),
+};
+
 function registerProviderAccountServices(container: DependencyContainer): void {
   container.register(ClaudeAccountCommand, {
     useFactory: instanceCachingFactory((c) => new ClaudeAccountCommand(
       c.resolve(SDK_TOKENS.SDK_CLI_DETECTOR), c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER),
+    )),
+  });
+  // Not decorated: the host (process env and clock) is a runtime value, not a token.
+  container.register(ClaudeAmbientLoginStatusReader, {
+    useFactory: instanceCachingFactory((c) => new ClaudeAmbientLoginStatusReader(
+      c.resolve(ClaudeAccountCommand), NODE_AMBIENT_STATUS_HOST, c.resolve<Logger>(TOKENS.LOGGER),
+    )),
+  });
+  // Neither class is decorated: the platform is a runtime value, not a token.
+  container.register(ClaudeRouteCertifier, {
+    useFactory: instanceCachingFactory((c) => new ClaudeRouteCertifier(
+      c.resolve(ClaudeAccountCommand), process.platform, certifierFs,
+    )),
+  });
+  container.register(ClaudeLoginConsole, {
+    useFactory: instanceCachingFactory((c) => new ClaudeLoginConsole(
+      c.resolve(SDK_TOKENS.SDK_PROCESS_SPAWNER), process.platform,
     )),
   });
   container.register(ProviderAccountStore, {
@@ -159,16 +190,15 @@ function registerProviderAccountServices(container: DependencyContainer): void {
   container.register(ProviderAccountService, {
     useClass: ProviderAccountService,
   }, { lifecycle: Lifecycle.Singleton });
-  // D7: admission stays release-held everywhere, including hosts without
-  // account storage. This port refuses exactly like the service, so optional
-  // consumers construct and every refusal keeps its typed code and summary.
-  function releaseHeldProviderAccountAdmission() {
-    const refusal = (code: 'release-held' | 'conflict') => ({
+  // Hosts without account storage refuse every admission with a typed code
+  // and summary, so optional consumers construct and fail closed.
+  function storagelessProviderAccountAdmission(): ProviderAccountAdmissionPort {
+    const refusal = (code: 'unavailable-storage' | 'conflict') => ({
       code,
       summary: accountActionResult(code).summary,
     });
     return {
-      admitClaudeRoute: async () => refusal('release-held'),
+      admitClaudeRoute: async () => refusal('unavailable-storage'),
       releaseReservation: async () => refusal('conflict'),
       retainUnresolvedReservation: async () => refusal('conflict'),
     };
@@ -176,13 +206,23 @@ function registerProviderAccountServices(container: DependencyContainer): void {
   // Registration stays unconditional: Electron registers this module before
   // SQLITE_CONNECTION. VS Code never registers the connection at all, and the
   // service constructor requires it, so resolve the service only when the
-  // connection exists. Without the connection the factory hands out the
-  // fail-closed port above instead of throwing inside the factory.
+  // connection exists. Without the connection the factories hand out the
+  // fail-closed port above (and the default-route reader below) instead of
+  // throwing inside the factory.
   container.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, {
-    useFactory: instanceCachingFactory((c) =>
+    useFactory: instanceCachingFactory<ProviderAccountAdmissionPort>((c) =>
       c.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION, true)
         ? c.resolve(ProviderAccountService)
-        : releaseHeldProviderAccountAdmission(),
+        : storagelessProviderAccountAdmission(),
+    ),
+  });
+  // Without storage no named account can be stored, so the stored selection
+  // is the default route.
+  container.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_SELECTION_READER, {
+    useFactory: instanceCachingFactory<ClaudeAccountSelectionReader>((c) =>
+      c.isRegistered(PERSISTENCE_TOKENS.SQLITE_CONNECTION, true)
+        ? c.resolve(ProviderAccountService)
+        : { readStoredSelection: async () => ({ profileId: null }) },
     ),
   });
   container.register(ProviderAccountActionsService, {
@@ -219,6 +259,11 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_KIMI_CODE_PROXY,
+    { useClass: KimiCodeTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
     AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY,
     { useClass: OpenRouterTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
@@ -241,6 +286,7 @@ export function registerCuratorAuthServices(
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_CODEX_PROXY),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_KIMI_CODE_PROXY),
         ),
     ),
   });

@@ -2,14 +2,16 @@
  * Guard for the pre-paint theme boot script in `src/index.html`.
  *
  * That script cannot import anything — it runs in `<head>` before any module
- * is evaluated — so it hard-codes three theme name lists. They MUST stay in
+ * is evaluated — so it hard-codes four theme name lists. They MUST stay in
  * step with `DAISYUI_THEMES`, because they decide:
  *
  *   - EAGER    which themes are compiled into `styles.css` (never fetch the
  *              deferred sheet for these)
  *   - DEFERRED which themes live in `theme-extra.css` (block the first paint
  *              on the sheet for these)
- *   - DARK     the value written to `data-theme-mode` before Angular boots
+ *   - DARK     the value written to `data-theme-mode` before Angular boots,
+ *              and the glass target of a legacy theme (dark or light)
+ *   - GLASS    which themes get `data-glass="on"` before Angular boots
  *
  * A theme added to `DAISYUI_THEMES` but missing from DEFERRED would silently
  * render with the wrong (anubis) variables for anyone who selects it. This

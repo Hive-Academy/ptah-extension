@@ -410,10 +410,10 @@ describe('WorkspaceProviderProfileResolver — chat sessions without an override
     const { resolver, globalAuthEnv } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'kimi-code',
+        anthropicProviderId: 'z-ai',
       },
       ownOverride: false,
-      providerKeys: { 'kimi-code': 'kimi-key' },
+      providerKeys: { 'z-ai': 'fake-zai-key' },
     });
 
     const profile = await resolver.resolveProviderProfileForWorkspace(
@@ -421,18 +421,18 @@ describe('WorkspaceProviderProfileResolver — chat sessions without an override
       'default',
     );
 
-    expect(profile?.providerId).toBe('kimi-code');
-    expect(Object.values(profile?.authEnv ?? {})).toContain('kimi-key');
+    expect(profile?.providerId).toBe('z-ai');
+    expect(Object.values(profile?.authEnv ?? {})).toContain('fake-zai-key');
     expect(globalAuthEnv).toEqual({});
   });
 
-  it('isolates a kimi-code snapshot: API key set, AUTH_TOKEN blanked, tier capabilities declared', async () => {
-    const { resolver } = createHarness({
+  it('routes a kimi-code workspace through the proxy pool: no raw key in the snapshot, tier capabilities declared', async () => {
+    const { resolver, acquire } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
         anthropicProviderId: 'kimi-code',
       },
-      providerKeys: { 'kimi-code': 'kimi-key' },
+      providerKeys: { 'kimi-code': 'fake-kimi-key' },
     });
 
     const profile = await resolver.resolveProviderProfileForWorkspace(
@@ -445,11 +445,9 @@ describe('WorkspaceProviderProfileResolver — chat sessions without an override
     const capabilities =
       'thinking,interleaved_thinking,effort,xhigh_effort,max_effort';
 
-    expect(env['ANTHROPIC_BASE_URL']).toBe('https://api.kimi.ai/coding/');
-    expect(env['ANTHROPIC_API_KEY']).toBe('kimi-key');
-    // Blanked by presence so the session's `process.env` spread cannot carry
-    // the global provider's bearer token to Kimi.
-    expect(env['ANTHROPIC_AUTH_TOKEN']).toBe('');
+    expect(acquire).toHaveBeenCalled();
+    expect(env['ANTHROPIC_BASE_URL']).toBe('http://127.0.0.1:51234');
+    expect(JSON.stringify(env)).not.toContain('fake-kimi-key');
     expect(env['ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES']).toBe(
       capabilities,
     );
@@ -625,11 +623,11 @@ describe('WorkspaceProviderProfileResolver — cross-workspace isolation', () =>
 
 describe('WorkspaceProviderProfileResolver — no snapshot', () => {
   it('fails closed when the shared auth env serves a different provider', async () => {
-    // Kimi Code resolved, but no key is stored: no snapshot can be built.
+    // Z.AI resolved, but no key is stored: no snapshot can be built.
     const { resolver } = createHarness({
       workspaceSettings: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'kimi-code',
+        anthropicProviderId: 'z-ai',
       },
       sharedAuth: { authMethod: 'thirdParty', providerId: 'openrouter' },
     });
@@ -640,7 +638,7 @@ describe('WorkspaceProviderProfileResolver — no snapshot', () => {
     );
 
     await expect(attempt).rejects.toBeInstanceOf(AuthRequiredError);
-    await expect(attempt).rejects.toMatchObject({ providerId: 'kimi-code' });
+    await expect(attempt).rejects.toMatchObject({ providerId: 'z-ai' });
   });
 
   it('fails closed when the shared auth env holds no configuration', async () => {

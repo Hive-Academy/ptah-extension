@@ -1573,8 +1573,8 @@ describe('buildAgentNamespace — spawn boundary', () => {
 
 /**
  * `accountSelection` at the `execute_code` boundary (TASK_2026_712, Batch 28b).
- * The same rules as the MCP spawn schema: claude-only, named refused while
- * named admission is release-held (D7), and a resume never takes a named
+ * The same rules as the MCP spawn schema: claude-only, named accepted on a
+ * fresh spawn (the runtime admits it), and a resume never takes a named
  * account. Nothing is spawned when the value is refused.
  */
 describe('buildAgentNamespace — spawn accountSelection', () => {
@@ -1652,16 +1652,31 @@ describe('buildAgentNamespace — spawn accountSelection', () => {
     );
   });
 
-  it('refuses a named claude account before spawn (release-held)', async () => {
+  it('forwards a named claude account on a fresh spawn', async () => {
     const { outcome, mocks } = await spawnWith({
       task: 't',
       cli: 'claude',
       accountSelection: { kind: 'named', profileId: 'profile-0001' },
     });
 
-    await expect(outcome).rejects.toThrow(
-      /named Claude account lanes are not available.*not spawned/,
-    );
+    await expect(outcome).resolves.toEqual({ agentId: 'a' });
+    expect(
+      mocks.processManager.spawn.mock.calls[0][0].accountSelection,
+    ).toEqual({ kind: 'named', profileId: 'profile-0001' });
+  });
+
+  it.each([
+    ['another system CLI', { cli: 'codex' as const }],
+    ['an auto-detected lane', {}],
+    ['a Ptah CLI agent', { cli: 'claude' as const, ptahCliId: 'agent-a' }],
+  ])('refuses a named account for %s', async (_label, target) => {
+    const { outcome, mocks } = await spawnWith({
+      task: 't',
+      ...target,
+      accountSelection: { kind: 'named', profileId: 'profile-0001' },
+    });
+
+    await expect(outcome).rejects.toThrow(/applies only to cli "claude" lanes/);
     expect(mocks.processManager.spawn).not.toHaveBeenCalled();
   });
 
@@ -1688,9 +1703,7 @@ describe('buildAgentNamespace — spawn accountSelection', () => {
       accountSelection: { kind: 'ambient' },
     });
 
-    await expect(outcome).rejects.toThrow(
-      /applies only to cli "claude" lanes/,
-    );
+    await expect(outcome).rejects.toThrow(/applies only to cli "claude" lanes/);
     expect(mocks.processManager.spawn).not.toHaveBeenCalled();
     expect(mocks.processManager.spawnFromSdkHandle).not.toHaveBeenCalled();
   });
@@ -1703,14 +1716,17 @@ describe('buildAgentNamespace — spawn accountSelection', () => {
     ['an env bag', { kind: 'named', profileId: 'profile-0001', env: {} }],
     ['a token field', { kind: 'ambient', token: 'secret' }],
     ['a malformed profile id', { kind: 'named', profileId: '../x' }],
-  ])('refuses a malformed selection (%s) without spawning', async (_l, value) => {
-    const { outcome, mocks } = await spawnWith({
-      task: 't',
-      cli: 'claude',
-      accountSelection: value,
-    });
+  ])(
+    'refuses a malformed selection (%s) without spawning',
+    async (_l, value) => {
+      const { outcome, mocks } = await spawnWith({
+        task: 't',
+        cli: 'claude',
+        accountSelection: value,
+      });
 
-    await expect(outcome).rejects.toThrow(/"accountSelection" must be/);
-    expect(mocks.processManager.spawn).not.toHaveBeenCalled();
-  });
+      await expect(outcome).rejects.toThrow(/"accountSelection" must be/);
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+    },
+  );
 });

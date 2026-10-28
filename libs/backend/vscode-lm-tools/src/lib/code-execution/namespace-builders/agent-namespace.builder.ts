@@ -186,8 +186,9 @@ type UntypedSpawnRequest = Omit<SpawnAgentRequest, 'accountSelection'> & {
  * reader and the same refusal rules as the MCP spawn schema, so both surfaces
  * accept and refuse identical values. A malformed value (null, extra keys, a
  * path or token field, a bad profile id) is refused, never read as ambient.
- * Returns the parsed selection, which past the refusal is an ambient or
- * omitted selection on a `claude` lane (named stays release-held, D7).
+ * Returns the parsed selection, which past the refusal is a selection on a
+ * `claude` lane: ambient, omitted, or named on a fresh spawn (the runtime
+ * admits a named account and refuses the spawn when it cannot prove it).
  */
 function assertAccountSelection(
   request: UntypedSpawnRequest,
@@ -208,9 +209,7 @@ function assertAccountSelection(
     accountSelection: field.selection,
   });
   if (refusal !== undefined) {
-    throw new Error(
-      `ptah.agent.spawn: ${refusal} The agent was not spawned.`,
-    );
+    throw new Error(`ptah.agent.spawn: ${refusal} The agent was not spawned.`);
   }
   return field.selection;
 }
@@ -458,8 +457,8 @@ export function buildAgentNamespace(
       // caller-supplied roleDefinition is dropped too: only the resolver may
       // produce one. So is a caller-supplied systemPrompt (warned above). The
       // raw accountSelection is replaced by the parsed one from the check
-      // above: only an ambient or omitted selection on a `claude` lane gets
-      // this far, and it is forwarded as typed.
+      // above: only a selection on a `claude` lane gets this far (ambient,
+      // omitted, or named on a fresh spawn), and it is forwarded as typed.
       const {
         parentSessionId: _rawParentSessionId,
         roleDefinition: _callerRoleDefinition,

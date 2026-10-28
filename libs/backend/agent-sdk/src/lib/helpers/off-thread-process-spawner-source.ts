@@ -35,9 +35,9 @@
  *
  * Protocol (see `off-thread-process-spawner.ts` for the typed mirror). Every
  * message in both directions carries the `id` of the lease it belongs to:
- *   host -> worker: { type: 'spawn', id, command, args, cwd, env, stderrMode,
- *                     detached, windowsHide, windowsVerbatimArguments,
- *                     launchGuard? }
+ *   host -> worker: { type: 'spawn', id, command, args, cwd, env, stdioMode,
+ *                     stderrMode, detached, windowsHide,
+ *                     windowsVerbatimArguments, launchGuard? }
  *                 | { type: 'stdin', id, chunk: Uint8Array }
  *                 | { type: 'stdin-end', id }
  *                 | { type: 'kill', id, signal }
@@ -68,6 +68,11 @@
  * expose a real `Readable`: the rival-CLI adapters call `setEncoding('utf8')`
  * on it, and decoding in the worker instead would split a multi-byte character
  * across two chunks. `'ignore'` never pipes stderr at all.
+ *
+ * **`stdioMode: 'ignore'` pipes nothing (user-console children).** The child
+ * gets three `ignore` slots, so it has no stdout to read: `stdout-end` is
+ * posted right after `spawned`, and `stdin`/`pause`/`resume` find no stream.
+ * Any other value (or none, from an older host) keeps the piped shape.
  *
  * **The Windows command is already resolved when it arrives.** `cross-spawn`'s
  * parser runs on the HOST and sends the resolved `command`, `args` and
@@ -235,6 +240,10 @@ function launchGuardRefusal(guard) {
 
 function startChild(state, message) {
   const stderrMode = message.stderrMode || 'ignore';
+  const stdio =
+    message.stdioMode === 'ignore'
+      ? ['ignore', 'ignore', 'ignore']
+      : ['pipe', 'pipe', stderrMode === 'ignore' ? 'ignore' : 'pipe'];
   const refusal = launchGuardRefusal(message.launchGuard);
   if (refusal !== null) {
     send(state, {
@@ -251,7 +260,7 @@ function startChild(state, message) {
     child = spawn(message.command, message.args, {
       cwd: message.cwd,
       env: message.env,
-      stdio: ['pipe', 'pipe', stderrMode === 'ignore' ? 'ignore' : 'pipe'],
+      stdio: stdio,
       windowsHide: message.windowsHide !== false,
       detached: message.detached === true,
       windowsVerbatimArguments: message.windowsVerbatimArguments === true,
@@ -279,16 +288,21 @@ function startChild(state, message) {
     send(state, { type: 'exit', code: code, signal: signal });
   });
 
-  const onStdoutEnd = function () {
+  if (child.stdout) {
+    const onStdoutEnd = function () {
+      endStdoutOnce(state);
+    };
+    child.stdout.on('data', function (chunk) {
+      const view = new Uint8Array(chunk);
+      send(state, { type: 'stdout', chunk: view }, [view.buffer]);
+    });
+    child.stdout.on('end', onStdoutEnd);
+    child.stdout.on('close', onStdoutEnd);
+    child.stdout.on('error', onStdoutEnd);
+  } else {
+    // An ignore-stdio child has no stdout: there is nothing left to drain.
     endStdoutOnce(state);
-  };
-  child.stdout.on('data', function (chunk) {
-    const view = new Uint8Array(chunk);
-    send(state, { type: 'stdout', chunk: view }, [view.buffer]);
-  });
-  child.stdout.on('end', onStdoutEnd);
-  child.stdout.on('close', onStdoutEnd);
-  child.stdout.on('error', onStdoutEnd);
+  }
 
   if (child.stderr) {
     if (state.streamStderr) {

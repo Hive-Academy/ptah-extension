@@ -6,6 +6,7 @@ import type {
   EffectiveRouteResult,
 } from '@ptah-extension/auth-providers';
 
+import type { KimiCodeCredentialSource } from '@ptah-extension/shared';
 import { withEngine } from '@ptah-extension/cli-engine';
 import { buildFormatter, type Formatter } from '../output/formatter.js';
 import { ExitCode } from '../jsonrpc/types.js';
@@ -85,6 +86,7 @@ const OAUTH_LOGIN_HINTS: Record<string, string> = {
   copilot: 'ptah auth login github-copilot',
   'openai-codex': 'codex login --device-auth && ptah auth use openai-codex',
   codex: 'codex login --device-auth && ptah auth use openai-codex',
+  'kimi-code': 'kimi login',
 };
 
 export async function execute(
@@ -660,6 +662,7 @@ async function readReadiness(
   const authStatus = await safeCall<{
     authMethod?: string | null;
     anthropicProviderId?: string | null;
+    kimiCodeCredentialSource?: KimiCodeCredentialSource;
   }>(transport, 'auth:getAuthStatus', {});
   const defaultProviderResp = await safeCall<{
     provider?: string | null;
@@ -675,10 +678,16 @@ async function readReadiness(
   };
 
   const providers = await fetchProviderCatalog(transport);
-  const oauthHealth = await safeCall<{
+  const health = await safeCall<{
     copilotAuthenticated?: boolean;
     codexAuthenticated?: boolean;
   }>(transport, 'auth:getHealth', undefined);
+  // Kimi Code's credential source is part of the auth status payload
+  // (`auth:getAuthStatus`), not of the SDK health payload.
+  const oauthHealth = {
+    ...(health ?? {}),
+    kimiCodeCredentialSource: authStatus?.kimiCodeCredentialSource,
+  };
 
   const routeProviders: EffectiveRouteProvider[] = providers.map((entry) =>
     toRouteProvider(entry, oauthHealth),
@@ -693,6 +702,7 @@ function toRouteProvider(
   oauthHealth: {
     copilotAuthenticated?: boolean;
     codexAuthenticated?: boolean;
+    kimiCodeCredentialSource?: KimiCodeCredentialSource;
   } | null,
 ): EffectiveRouteProvider {
   if (entry.authType === 'apiKey') {
@@ -712,6 +722,15 @@ function toRouteProvider(
     } else if (entry.id === 'openai-codex' || entry.id === 'codex') {
       status =
         oauthHealth?.codexAuthenticated === true
+          ? 'connected'
+          : 'unauthenticated';
+    } else if (entry.id === 'kimi-code') {
+      // Kimi Code: CLI sign-in, or the stored API key as a fallback.
+      const source = oauthHealth?.kimiCodeCredentialSource;
+      status =
+        source === 'cli-login' ||
+        source === 'api-key' ||
+        entry.hasApiKey === true
           ? 'connected'
           : 'unauthenticated';
     }

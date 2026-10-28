@@ -1,32 +1,81 @@
 import 'reflect-metadata';
+import { EventEmitter } from 'events';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   ClaudeAccountNamedRoute,
   ClaudeAccountRunReservation,
+  ClaudeCertifiedLaunchContext,
+  ClaudeLaunchBoundaryOutcome,
   ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import {
+  ClaudeCertifiedLaunchRefusal,
+  assertCertifiedLaunch,
   buildFlagSettingsArg,
   buildSafeEnv,
   buildSessionName,
+  certifiedEnvDigest,
+  claudeIdentityReference,
   deriveWorkspaceLabel,
+  type HookInput,
   type Options,
   type SdkMessageTransformer,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
 import {
+  buildClaudeLaneBootstrapOptions,
   buildClaudeSdkLaneOptions,
+  claudeActualLaunch,
   resolveClaudeLanePermissionOptions,
   type ClaudeSdkLaneOptionsInput,
 } from './claude-sdk-lane-options';
 import {
   ClaudeNamedLaneAdmission,
   ClaudeSdkLaneRunner,
+  claudeLaneRefusal,
+  claudeLaneRefusalCode,
+  claudeLaneForeignErrorClass,
   type ClaudeLaneAccountPersistence,
   type ClaudeSdkLaneRunContext,
 } from './claude-sdk-lane-runner';
+
+/** Certified launch fixture for one canonical directory; values are fixtures only. */
+function certifiedLaunch(
+  dir = 'D:/accounts/selected',
+  overrides: Partial<ClaudeCertifiedLaunchContext> = {},
+): ClaudeCertifiedLaunchContext {
+  const env = {
+    PATH: 'D:/bin',
+    CLAUDE_CONFIG_DIR: dir,
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: dir,
+  };
+  return {
+    executable: {
+      command: 'D:/cli/claude.exe',
+      prefixArgs: [],
+      sdkExecutablePath: 'D:/cli/cli.js',
+      version: '2.1.310',
+      fingerprint: { size: 1, mtimeMs: 1 },
+    },
+    env,
+    envDigest: certifiedEnvDigest(env),
+    cwd: 'D:/workspace',
+    settingSources: ['user', 'project', 'local'],
+    policy: {
+      coverage: 'win32@2.1.310',
+      managedFile: 'absent',
+      managedDropIn: 'absent',
+      registry: 'absent',
+      remoteSignals: 'absent',
+    },
+    accountClass: 'personal',
+    identityReference:
+      claudeIdentityReference('owner@example.test', 'org') ?? '',
+    ...overrides,
+  };
+}
 import { PtahCliStreamLoop } from '../ptah-cli/helpers/ptah-cli-stream-loop.service';
 import { createPromptMailbox } from '../ptah-cli/helpers/ptah-cli-prompt-mailbox';
 
@@ -173,6 +222,7 @@ describe('Claude native lane options', () => {
       authEpoch: 1,
       runId: 'fixture-run',
     } as ClaudeAccountNamedRoute;
+    input.launch = certifiedLaunch();
     const options = buildClaudeSdkLaneOptions(input);
     expect(options.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/accounts/selected');
     expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY');
@@ -392,7 +442,7 @@ describe('Claude native lane lifecycle', () => {
 });
 
 describe('named lane option and lifecycle boundaries', () => {
-  it('pins secure storage, excludes ambient settings and redacts named child diagnostics', () => {
+  it('pins secure storage, uses the certified sources and redacts named child diagnostics', () => {
     const input = optionsInput();
     input.accountRoute = {
       kind: 'named',
@@ -404,8 +454,10 @@ describe('named lane option and lifecycle boundaries', () => {
       authEpoch: 0,
       runId: 'run',
     } as ClaudeAccountNamedRoute;
+    const launch = certifiedLaunch(undefined, { settingSources: ['project'] });
+    input.launch = launch;
     const options = buildClaudeSdkLaneOptions(input);
-    expect(options.settingSources).toEqual([]);
+    expect(options.settingSources).toEqual(['project']);
     expect(options.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(
       'D:/accounts/selected',
     );
@@ -482,7 +534,7 @@ describe('named runner handoff', () => {
     await expect(f.handle.done).resolves.toBe(1);
     await expect(queued?.done).resolves.toBe(1);
     await expect(f.handle.continue?.('late')).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     f.finish(0);
     await Promise.resolve();
@@ -501,14 +553,34 @@ describe('named lane identity proof', () => {
     throw new Error('Not reached during bootstrap');
   };
 
-  function bootstrapFixture(stored?: ProviderAccountBinding) {
+  // A personal claude.ai login with no email: passes the tripwire, proves no identity.
+  const personalNoEmail = {
+    tokenSource: 'claude.ai',
+    subscriptionType: 'max',
+    apiProvider: 'firstParty',
+  };
+
+  function bootstrapFixture(
+    setup: {
+      stored?: ProviderAccountBinding;
+      launch?: ClaudeCertifiedLaunchContext | null;
+      info?: Record<string, unknown>;
+      boundary?: () => Promise<ClaudeLaunchBoundaryOutcome>;
+      accountInfo?: () => Promise<Record<string, unknown>>;
+      deadlineMs?: number;
+    } = {},
+  ) {
     const route = {
       kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
       canonicalConfigDir: 'D:/accounts/selected',
       routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
     } as ClaudeAccountNamedRoute;
+    const launch = setup.launch === null ? undefined : (setup.launch ?? certifiedLaunch());
     const commitRunBinding = jest.fn(notReached);
     const assertRouteCurrent = jest.fn(async () => undefined);
+    const checkLaunchBoundary = jest.fn(
+      setup.boundary ?? (async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true })),
+    );
     const persistence: ClaudeLaneAccountPersistence = {
       available: true,
       lookupBySdkSession: notReached,
@@ -518,30 +590,40 @@ describe('named lane identity proof', () => {
       attachSdkSession: notReached,
       saveAccountBound: notReached,
       assertRouteCurrent,
+      checkLaunchBoundary,
       onAuthEpochChanged: () => () => undefined,
     };
+    // Settlement outcomes are not read beyond a warning; only the calls count.
+    const releaseReservation = jest.fn(notReached);
+    const retainUnresolvedReservation = jest.fn(notReached);
     const admissionPort: ProviderAccountAdmissionPort = {
       admitClaudeRoute: notReached,
-      releaseReservation: notReached,
-      retainUnresolvedReservation: notReached,
+      releaseReservation,
+      retainUnresolvedReservation,
     };
     const close = jest.fn();
-    // No email in the account info: the child cannot prove an identity.
-    const query = { accountInfo: async () => ({}), close: (): void => close() };
+    const query = {
+      accountInfo: setup.accountInfo ?? (async () => setup.info ?? personalNoEmail),
+      close: (): void => close(),
+    };
     const queryMock = jest.fn(() => query as ReturnType<QueryFn>);
     const queryFn: QueryFn = queryMock;
-    const options: Options = {
-      spawnClaudeCodeProcess: () => {
-        throw new Error('The fake query never spawns');
-      },
-    };
+    const options: Options = launch
+      ? buildClaudeLaneBootstrapOptions(
+          route, launch, new AbortController(), { spawn: jest.fn() },
+        )
+      : { spawnClaudeCodeProcess: () => { throw new Error('never spawned'); } };
     const abort = new AbortController();
-    // A long deadline: a refusal must come from the identity check, not a timeout.
+    // A long deadline: a refusal must come from the checks, not a timeout.
     const admission = new ClaudeNamedLaneAdmission(
-      route, {} as ClaudeAccountRunReservation, admissionPort, persistence,
-      abort, { warn: jest.fn() }, stored, 60_000,
+      route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
+      abort, { warn: jest.fn() }, setup.stored, setup.deadlineMs ?? 60_000,
     );
-    return { admission, queryFn, queryMock, options, abort, close, commitRunBinding, assertRouteCurrent };
+    return {
+      admission, route, launch, queryFn, queryMock, options, abort, close,
+      commitRunBinding, assertRouteCurrent, checkLaunchBoundary,
+      releaseReservation, retainUnresolvedReservation,
+    };
   }
 
   it.each<[string, ProviderAccountBinding | undefined]>([
@@ -552,9 +634,9 @@ describe('named lane identity proof', () => {
       identity: { kind: 'unknown' },
     } satisfies ProviderAccountBinding],
   ])('refuses an unproved identity before any binding with %s', async (_label, stored) => {
-    const f = bootstrapFixture(stored);
+    const f = bootstrapFixture({ stored });
     await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
-      code: 'release-held',
+      code: 'identity-unproved',
     });
     expect(f.queryMock).toHaveBeenCalledTimes(1);
     expect(f.assertRouteCurrent).toHaveBeenCalledTimes(1);
@@ -563,6 +645,284 @@ describe('named lane identity proof', () => {
     // as proved, and no deadline fired.
     expect(f.close).not.toHaveBeenCalled();
     expect(f.abort.signal.aborted).toBe(false);
+  });
+
+  it('refuses a named route without a certified launch before any SDK call', async () => {
+    const route = bootstrapFixture().route;
+    const input = optionsInput();
+    input.accountRoute = route;
+    expect(() => buildClaudeSdkLaneOptions(input)).toThrow(
+      expect.objectContaining({ code: 'identity-unproved' }),
+    );
+    expect(() =>
+      buildClaudeLaneBootstrapOptions(route, undefined, new AbortController(), { spawn: jest.fn() }),
+    ).toThrow(expect.objectContaining({ code: 'identity-unproved' }));
+    const f = bootstrapFixture({ launch: null });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.queryMock).not.toHaveBeenCalled();
+    expect(f.checkLaunchBoundary).not.toHaveBeenCalled();
+  });
+
+  it('awaits the bootstrap boundary check before the child opens', async () => {
+    let finish!: (outcome: ClaudeLaunchBoundaryOutcome) => void;
+    const f = bootstrapFixture({
+      boundary: () => new Promise((resolve) => { finish = resolve; }),
+    });
+    const bootstrap = f.admission.bootstrap(f.queryFn, f.options);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.checkLaunchBoundary).toHaveBeenCalledWith(
+      f.route, f.launch, 'bootstrap', f.abort.signal,
+    );
+    expect(f.queryMock).not.toHaveBeenCalled();
+    finish({ ok: true });
+    await expect(bootstrap).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [true, 'releaseReservation', 'retainUnresolvedReservation'],
+    [false, 'retainUnresolvedReservation', 'releaseReservation'],
+  ] as const)(
+    'refuses a bootstrap boundary refusal with its code and no query (terminated %s)',
+    async (terminated, settled, untouched) => {
+      const f = bootstrapFixture({
+        boundary: async () => ({ ok: false, code: 'unsupported-source', terminated }),
+      });
+      await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+        code: 'unsupported-source',
+      });
+      expect(f.queryMock).not.toHaveBeenCalled();
+      await f.admission.dispose();
+      await f.admission.dispose();
+      expect(f[settled]).toHaveBeenCalledTimes(1);
+      expect(f[untouched]).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<[string, (options: Options) => Options, string]>([
+    ['cwd', (o) => ({ ...o, cwd: 'D:/elsewhere' }), 'route-changed'],
+    ['executable', (o) => ({ ...o, pathToClaudeCodeExecutable: 'D:/other/cli.js' }), 'route-changed'],
+    ['setting sources', (o) => ({ ...o, settingSources: ['user'] }), 'route-changed'],
+    ['env entry', (o) => ({ ...o, env: { ...o.env, ANTHROPIC_API_KEY: 'x' } }), 'route-changed'],
+    ['managed settings', (o) => ({ ...o, managedSettings: {} }), 'identity-unproved'],
+    ['managed-settings arg', (o) => ({ ...o, extraArgs: { '--managed-settings=x': null } }), 'identity-unproved'],
+  ])('refuses %s drift at bootstrap before the boundary check and the child', async (_label, drift, code) => {
+    const f = bootstrapFixture();
+    await expect(f.admission.bootstrap(f.queryFn, drift(f.options))).rejects.toMatchObject({ code });
+    expect(f.checkLaunchBoundary).not.toHaveBeenCalled();
+    expect(f.queryMock).not.toHaveBeenCalled();
+  });
+
+  const allPassed = {
+    tokenSource: true, apiKeySource: true, apiProvider: true, subscription: 'max', personalSubscription: true,
+  } as const;
+
+  // The bundled CLI 2.1.278 accountInfo shape for a claude.ai subscriber: no
+  // tokenSource, no apiKeySource, a display subscription name.
+  const bundledCliPersonal = { subscriptionType: 'Claude Max', apiProvider: 'firstParty' };
+
+  it.each<[string, Record<string, unknown>]>([
+    ['the bundled CLI Claude Max shape', bundledCliPersonal],
+    ['the bundled CLI Claude Pro shape', { subscriptionType: 'Claude Pro' }],
+    ['the bundled CLI shape with apiKeySource none', { ...bundledCliPersonal, apiKeySource: 'none' }],
+    ['the claude.ai token source shape', personalNoEmail],
+  ])('passes the personal-login tripwire for %s', async (_label, info) => {
+    // A different account: the run gets past the tripwire and refuses at the compare.
+    const f = bootstrapFixture({
+      info: { ...info, email: 'other@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-compare' });
+  });
+
+  const refusedSubscription = { personalSubscription: false } as const;
+
+  it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    ['a console token source', { ...personalNoEmail, tokenSource: 'console' }, { tokenSource: false }],
+    ['an env OAuth token source', { ...bundledCliPersonal, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN' }, { tokenSource: false }],
+    [
+      'a file-descriptor OAuth token source',
+      { ...bundledCliPersonal, tokenSource: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR' },
+      { tokenSource: false },
+    ],
+    ['an apiKeyHelper key source', { ...personalNoEmail, apiKeySource: 'apiKeyHelper' }, { apiKeySource: false }],
+    ['an env API key source', { ...bundledCliPersonal, apiKeySource: 'ANTHROPIC_API_KEY' }, { apiKeySource: false }],
+    ['a team subscription', { ...personalNoEmail, subscriptionType: 'team' }, { subscription: 'team', ...refusedSubscription }],
+    ['a Claude Team subscription', { ...bundledCliPersonal, subscriptionType: 'Claude Team' }, { subscription: 'team', ...refusedSubscription }],
+    [
+      'a Claude Enterprise subscription',
+      { ...bundledCliPersonal, subscriptionType: 'Claude Enterprise' },
+      { subscription: 'enterprise', ...refusedSubscription },
+    ],
+    ['a Claude API subscription', { ...bundledCliPersonal, subscriptionType: 'Claude API' }, { subscription: 'api', ...refusedSubscription }],
+    ['an unknown subscription word', { ...personalNoEmail, subscriptionType: 'future' }, { subscription: 'other', ...refusedSubscription }],
+    ['no subscription', { tokenSource: 'claude.ai' }, { subscription: 'absent', ...refusedSubscription }],
+    ['no subscription and no token source', { apiProvider: 'firstParty' }, { subscription: 'absent', ...refusedSubscription }],
+    ['a third-party provider', { ...personalNoEmail, apiProvider: 'bedrock' }, { apiProvider: false }],
+    ['a vertex provider on the bundled CLI shape', { ...bundledCliPersonal, apiProvider: 'vertex' }, { apiProvider: false }],
+  ])('trips on %s before any binding or prompt', async (_label, info, failed) => {
+    const f = bootstrapFixture({
+      info: { ...info, email: 'owner@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    // The diagnostic names the failed check with fixed words, never a value.
+    const diagnostic = f.admission.launchDiagnostic;
+    expect(diagnostic).toEqual({
+      phase: 'bootstrap', step: 'personal-login',
+      personalLogin: { ...allPassed, ...failed },
+    });
+    expect(JSON.stringify(diagnostic)).not.toMatch(
+      /owner|example|console|apiKeyHelper|bedrock|vertex|future|Claude|CLAUDE_CODE|ANTHROPIC/,
+    );
+  });
+
+  it('refuses a child signed in to an account other than the certified one', async () => {
+    const f = bootstrapFixture({
+      info: { ...personalNoEmail, email: 'other@example.test', organization: 'org' },
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-compare' });
+  });
+
+  it('names the identity-absent step for a personal login with no email', async () => {
+    const f = bootstrapFixture();
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({
+      code: 'identity-unproved',
+    });
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'identity-absent' });
+  });
+
+  it('names the account-info step and the foreign error class when the child query rejects', async () => {
+    class SdkTransportError extends Error {
+      override name = 'SdkTransportError';
+    }
+    const f = bootstrapFixture({
+      accountInfo: async () => { throw new SdkTransportError('owner@example.test D:/x'); },
+    });
+    const error: unknown = await f.admission.bootstrap(f.queryFn, f.options).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(f.admission.launchDiagnostic).toEqual({ phase: 'bootstrap', step: 'account-info' });
+    expect(claudeLaneForeignErrorClass(error)).toBe('other');
+    expect(claudeLaneRefusalCode(error)).toBe('identity-unproved');
+  });
+
+  it('records a deadline interrupt when a wait times out', async () => {
+    const f = bootstrapFixture({
+      accountInfo: () => new Promise<never>(() => undefined),
+      deadlineMs: 5,
+    });
+    await expect(f.admission.bootstrap(f.queryFn, f.options)).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.launchDiagnostic).toEqual({
+      phase: 'bootstrap', step: 'account-info', interrupt: 'deadline',
+    });
+  });
+
+  it('reports no foreign class for refusals and a fixed word for odd names', () => {
+    expect(claudeLaneForeignErrorClass(claudeLaneRefusal('busy'))).toBeUndefined();
+    expect(claudeLaneForeignErrorClass('text')).toBe('non-error');
+    expect(claudeLaneForeignErrorClass(Object.assign(new Error('m'), { name: 'a b/c' }))).toBe('other');
+    expect(claudeLaneForeignErrorClass(Object.assign(new Error('m'), { name: 'ownerExampleTest' }))).toBe('other');
+    let reads = 0;
+    const switching = new Error('m');
+    Object.defineProperty(switching, 'name', {
+      get: () => (reads++ === 0 ? 'TypeError' : 'owner@example.test'),
+    });
+    expect(claudeLaneForeignErrorClass(switching)).toBe('TypeError');
+    expect(reads).toBe(1);
+    const throwing = new Error('m');
+    Object.defineProperty(throwing, 'name', {
+      get: () => {
+        throw new Error('owner@example.test');
+      },
+    });
+    expect(claudeLaneForeignErrorClass(throwing)).toBe('other');
+    expect(claudeLaneForeignErrorClass(new TypeError('m'))).toBe('TypeError');
+  });
+});
+
+describe('named lane certified final options and refusal codes', () => {
+  const route = {
+    kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+  } as ClaudeAccountNamedRoute;
+
+  it('uses the certified cwd and sources and carries no managed settings channel', () => {
+    const launch = certifiedLaunch(undefined, { cwd: 'D:/certified-workspace' });
+    const input = optionsInput();
+    input.accountRoute = route;
+    input.launch = launch;
+    const options = buildClaudeSdkLaneOptions(input);
+    expect(options.cwd).toBe('D:/certified-workspace');
+    expect(options.settingSources).toEqual(launch.settingSources);
+    expect(options.env).toEqual(launch.env);
+    expect(options).not.toHaveProperty('managedSettings');
+    expect(
+      Object.keys(options.extraArgs ?? {}).some((key) => key.includes('managed-settings')),
+    ).toBe(false);
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final')).not.toThrow();
+  });
+
+  it('builds a bootstrap that passes the bootstrap check and nothing else', () => {
+    const launch = certifiedLaunch();
+    const options = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), { spawn: jest.fn() },
+    );
+    expect(options.settingSources).toEqual([]);
+    expect(options).not.toHaveProperty('managedSettings');
+    expect(options.pathToClaudeCodeExecutable).toBe(launch.executable.sdkExecutablePath);
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(options), 'final')).toThrow();
+  });
+
+  // Without direct execution the certified executable is the installation
+  // path, not the loader's CLI JS path; both named builders must follow it.
+  it('uses the certified executable when it differs from the loader path', () => {
+    const base = certifiedLaunch();
+    const launch: ClaudeCertifiedLaunchContext = {
+      ...base,
+      executable: { ...base.executable, sdkExecutablePath: 'D:/install/claude.exe' },
+    };
+    const bootstrap = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), { spawn: jest.fn() },
+    );
+    expect(bootstrap.pathToClaudeCodeExecutable).toBe('D:/install/claude.exe');
+    expect(() =>
+      assertCertifiedLaunch(launch, claudeActualLaunch(bootstrap), 'bootstrap'),
+    ).not.toThrow();
+    const input = optionsInput();
+    expect(input.executable).toBe('D:/cli/cli.js');
+    input.accountRoute = route;
+    input.launch = launch;
+    const final = buildClaudeSdkLaneOptions(input);
+    expect(final.pathToClaudeCodeExecutable).toBe('D:/install/claude.exe');
+    expect(() => assertCertifiedLaunch(launch, claudeActualLaunch(final), 'final')).not.toThrow();
+    // The ambient lane keeps the loader path.
+    const ambient = buildClaudeSdkLaneOptions(optionsInput());
+    expect(ambient.pathToClaudeCodeExecutable).toBe('D:/cli/cli.js');
+  });
+
+  it('keeps the real refusal code and maps foreign errors to identity-unproved', () => {
+    expect(claudeLaneRefusal('unsupported-source').code).toBe('unsupported-source');
+    expect(claudeLaneRefusal().code).toBe('identity-unproved');
+    expect(claudeLaneRefusalCode(claudeLaneRefusal('route-changed'))).toBe('route-changed');
+    expect(claudeLaneRefusalCode(new ClaudeCertifiedLaunchRefusal('identity-unproved'))).toBe(
+      'identity-unproved',
+    );
+    expect(claudeLaneRefusalCode(Object.assign(new Error('x'), { code: 'busy' }))).toBe(
+      'identity-unproved',
+    );
   });
 });
 
@@ -585,6 +945,7 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
       routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
     } as ClaudeAccountNamedRoute;
     input.accountRoute = route;
+    input.launch = certifiedLaunch(route.canonicalConfigDir);
     const named = buildClaudeSdkLaneOptions(input);
     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
     expect(named.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
@@ -603,8 +964,293 @@ describe('A2 mocked-evidence lane route and policy matrix', () => {
     }
     const other = buildClaudeSdkLaneOptions({ ...input, accountRoute: {
       ...route, profileId: 'other', runId: 'other-run', canonicalConfigDir: 'D:/other-account',
-    } as ClaudeAccountNamedRoute });
+    } as ClaudeAccountNamedRoute, launch: certifiedLaunch('D:/other-account') });
     expect(other.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/other-account');
     expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+  });
+});
+
+describe('named lane final child init after the first turn (D68)', () => {
+  type QueryFn = ClaudeSdkLaneRunContext['queryFn'];
+  type Message = Record<string, unknown>;
+  const owner = {
+    tokenSource: 'claude.ai', subscriptionType: 'max', apiProvider: 'firstParty',
+    email: 'owner@example.test', organization: 'org',
+  };
+  const route = {
+    kind: 'named', provider: 'claude', profileId: 'profile', runId: 'run',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+  } as ClaudeAccountNamedRoute;
+  const sessionId = '99999999-2222-4333-8444-555555555555';
+  const init = (overrides: Message = {}): Message => ({
+    type: 'system', subtype: 'init', session_id: sessionId,
+    claude_code_version: '2.1.310', apiKeySource: 'none', ...overrides,
+  });
+  const spawnInput = {
+    command: 'claude', args: [], env: {}, signal: new AbortController().signal,
+  };
+
+  /**
+   * Models CLI 2.1.278 in streaming-input mode: the final child emits
+   * `system/init` only after it consumed the first user message.
+   */
+  function fixture(
+    setup: {
+      init?: Message | null;
+      deadlineMs?: number;
+      yolo?: boolean;
+      /** Holds the binding commit, or the final child's identity proof read. */
+      hold?: 'commit' | 'proof';
+    } = {},
+  ) {
+    const launch = certifiedLaunch();
+    const events: string[] = [];
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => (enter = resolve));
+    let identityReads = 0;
+    const controller = new AbortController();
+    const callerHook = jest.fn(async () => ({}));
+    const binding: ProviderAccountBinding = {
+      version: 1, provider: 'claude', profileId: 'profile', runId: 'run',
+      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+      identity: { kind: 'known', ownerKey: launch.identityReference },
+    };
+    const commitRunBinding = jest.fn(async () => {
+      if (setup.hold === 'commit') {
+        enter();
+        await released;
+      }
+      events.push('commit');
+      return binding;
+    });
+    const attachSdkSession = jest.fn(async () => {
+      events.push('attach');
+      return { status: 'attached' as const };
+    });
+    const persistence: ClaudeLaneAccountPersistence = {
+      available: true,
+      lookupBySdkSession: jest.fn(),
+      validateResume: async () => ({ code: 'ok' }),
+      persistReference: async () => undefined,
+      commitRunBinding,
+      attachSdkSession,
+      saveAccountBound: async () => undefined,
+      assertRouteCurrent: async () => undefined,
+      checkLaunchBoundary: async (): Promise<ClaudeLaunchBoundaryOutcome> => ({ ok: true }),
+      onAuthEpochChanged: () => () => undefined,
+    };
+    const admissionPort: ProviderAccountAdmissionPort = {
+      admitClaudeRoute: jest.fn(),
+      releaseReservation: jest.fn(),
+      retainUnresolvedReservation: jest.fn(),
+    };
+    const processes: EventEmitter[] = [];
+    const spawner = {
+      spawn: jest.fn().mockImplementation(() => {
+        const child = new EventEmitter();
+        processes.push(child);
+        return child;
+      }),
+    };
+    const prompts: unknown[] = [];
+    const finalArgs: Parameters<QueryFn>[0][] = [];
+    const queryFn: QueryFn = jest.fn((args: Parameters<QueryFn>[0]) => {
+      const index = finalArgs.push(args) - 1;
+      args.options?.spawnClaudeCodeProcess?.(spawnInput);
+      const child = processes[processes.length - 1];
+      const final = index === 1;
+      const stream: Message[] = [];
+      let consumed = false;
+      const query = {
+        accountInfo: async () => {
+          // Read 1 is the bootstrap child; read 2 is the final child's proof.
+          if (setup.hold === 'proof' && ++identityReads === 2) {
+            enter();
+            await released;
+          } else if (setup.hold !== 'proof') identityReads++;
+          return owner;
+        },
+        close: (): void => {
+          child.emit('exit', 0);
+        },
+        next: async (): Promise<IteratorResult<Message>> => {
+          if (final && !consumed && typeof args.prompt !== 'string') {
+            consumed = true;
+            const first = await args.prompt[Symbol.asyncIterator]().next();
+            if (first.done) return { done: true, value: undefined };
+            prompts.push(first.value);
+            events.push('prompt');
+            if (setup.init !== null) stream.push(setup.init ?? init());
+            stream.push({ type: 'assistant', text: 'early output' });
+          }
+          const value = stream.shift();
+          if (value) return { done: false, value };
+          return new Promise<never>(() => undefined);
+        },
+      };
+      return query as ReturnType<QueryFn>;
+    });
+    const input = optionsInput();
+    input.accountRoute = route;
+    input.launch = launch;
+    input.resumeSessionId = undefined;
+    input.processSpawner = spawner;
+    if (setup.yolo) {
+      input.permissionHandler = permissionHandler('yolo');
+      input.assembly = {
+        ...input.assembly,
+        hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [callerHook] }] },
+      };
+    }
+    const finalOptions = buildClaudeSdkLaneOptions(input);
+    const bootstrapOptions = buildClaudeLaneBootstrapOptions(
+      route, launch, new AbortController(), spawner,
+    );
+    const admission = new ClaudeNamedLaneAdmission(
+      route, launch, {} as ClaudeAccountRunReservation, admissionPort, persistence,
+      controller, { warn: jest.fn() }, undefined, setup.deadlineMs ?? 60_000,
+    );
+    const metadata = {
+      name: 'Reviewer', workspaceId: 'D:/workspace', workingDirectory: 'D:/workspace',
+      createdAt: 0, lastActiveAt: 0, totalCost: 0,
+      totalTokens: { input: 0, output: 0 }, isChildSession: true,
+    };
+    const run = async () => {
+      await admission.bootstrap(queryFn, bootstrapOptions);
+      return admission.launch(queryFn, finalOptions, metadata, { message: 'task' });
+    };
+    return {
+      admission, run, events, prompts, finalArgs, commitRunBinding, attachSdkSession,
+      entered, release, controller, callerHook,
+    };
+  }
+
+  const toolHookInput: HookInput = {
+    hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: {},
+    tool_use_id: 'tool-1', session_id: sessionId, transcript_path: '', cwd: '',
+  };
+  const denyHook = {
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
+  };
+  const hookOf = (f: ReturnType<typeof fixture>) =>
+    f.finalArgs[1]?.options?.hooks?.PreToolUse?.[0]?.hooks[0];
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it('consumes no prompt while the same-child identity proof is pending', async () => {
+    const f = fixture({ hold: 'proof' });
+    const running = f.run();
+    await f.entered;
+    await settle();
+    expect(f.prompts).toHaveLength(0);
+    expect(f.events).not.toContain('prompt');
+    f.release();
+    await expect(running).resolves.toBeUndefined();
+    expect(f.prompts).toHaveLength(1);
+  });
+
+  it('denies a YOLO PreToolUse call before init is verified, ahead of caller hooks (F1)', async () => {
+    const f = fixture({ init: null, deadlineMs: 200, yolo: true });
+    const running = f.run();
+    await settle();
+    const options = f.finalArgs[1]?.options;
+    expect(options?.permissionMode).toBe('bypassPermissions');
+    const matchers = options?.hooks?.PreToolUse ?? [];
+    expect(matchers).toHaveLength(2);
+    expect(matchers[0].matcher).toBeUndefined();
+    expect(matchers[1].hooks).toEqual([f.callerHook]);
+    const signal = new AbortController().signal;
+    expect(await hookOf(f)?.(toolHookInput, 'tool-1', { signal })).toMatchObject(denyHook);
+    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
+  });
+
+  it('holds a YOLO PreToolUse call after init until the binding commits (F1)', async () => {
+    const f = fixture({ hold: 'commit', yolo: true });
+    const running = f.run();
+    await f.entered;
+    let decision: unknown;
+    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
+      signal: new AbortController().signal,
+    }).then((value) => (decision = value));
+    await settle();
+    expect(decision).toBeUndefined();
+    f.release();
+    await expect(running).resolves.toBeUndefined();
+    await held;
+    // Admitted: no decision, so the caller's permission flow applies.
+    expect(decision).toEqual({});
+    await f.admission.dispose();
+    expect(
+      await hookOf(f)?.(toolHookInput, 'tool-1', { signal: new AbortController().signal }),
+    ).toMatchObject(denyHook);
+  });
+
+  it('denies a held YOLO PreToolUse call when the run is aborted before admission (F1)', async () => {
+    const f = fixture({ hold: 'commit', yolo: true });
+    const running = f.run();
+    await f.entered;
+    const held = hookOf(f)?.(toolHookInput, 'tool-1', {
+      signal: new AbortController().signal,
+    });
+    f.controller.abort();
+    expect(await held).toMatchObject(denyHook);
+    f.release();
+    await expect(running).rejects.toBeDefined();
+    expect(f.attachSdkSession).not.toHaveBeenCalled();
+  });
+
+  it('releases the first turn after the identity proof and passes on init', async () => {
+    const f = fixture();
+    await expect(f.run()).resolves.toBeUndefined();
+    expect(f.prompts).toEqual([
+      expect.objectContaining({ type: 'user', message: { role: 'user', content: 'task' } }),
+    ]);
+    // The binding is committed only after the init that followed the prompt.
+    expect(f.events).toEqual(['prompt', 'commit', 'attach']);
+    // Buffered messages replay to the caller in order, init first.
+    const query = f.admission.query;
+    expect(await query?.next()).toEqual({ done: false, value: init() });
+    expect(await query?.next()).toEqual({
+      done: false, value: { type: 'assistant', text: 'early output' },
+    });
+  });
+
+  it.each<[string, Message]>([
+    ['a different CLI version', init({ claude_code_version: '2.1.278' })],
+    ['a non-personal key source', init({ apiKeySource: 'user' })],
+  ])('refuses %s and forwards nothing', async (_label, message) => {
+    const f = fixture({ init: message });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.admission.query).toBeUndefined();
+  });
+
+  it('refuses when no init arrives before the deadline', async () => {
+    const f = fixture({ init: null, deadlineMs: 50 });
+    await expect(f.run()).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(f.admission.launchDiagnostic).toMatchObject({
+      phase: 'final', step: 'init-wait', interrupt: 'deadline',
+    });
+    expect(f.prompts).toHaveLength(1);
+    expect(f.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.admission.query).toBeUndefined();
+  });
+
+  it('denies a tool call before init is verified', async () => {
+    const f = fixture({ init: null, deadlineMs: 200 });
+    const running = f.run();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const canUseTool = f.finalArgs[1]?.options?.canUseTool;
+    expect(canUseTool).toBeDefined();
+    const context = {
+      signal: new AbortController().signal, toolUseID: 'tool-1', requestId: 'request',
+    };
+    await expect(canUseTool?.('Read', {}, context)).resolves.toEqual({
+      behavior: 'deny', message: 'Account admission pending.',
+    });
+    await expect(running).rejects.toMatchObject({ code: 'identity-unproved' });
   });
 });

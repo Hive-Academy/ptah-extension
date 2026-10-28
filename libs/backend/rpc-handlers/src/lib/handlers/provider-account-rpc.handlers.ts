@@ -7,9 +7,12 @@
  *   - `provider:setAccountSelection` / `setAccountDefault` — future-start
  *     selection writes for one scope or both.
  *   - `provider:startAccountSignIn` / `cancelAccountSignIn` /
- *     `signOutAccount` — release-held (decisions.md D7): validated, then
- *     refused with `release-held`. Nothing is launched and success is never
- *     reported.
+ *     `signOutAccount` — validated and authorized here, then run by the
+ *     account actions port. Sign-in returns at once with its operation; the
+ *     final state arrives later through `onStateChanged`.
+ *   - Every actions state change pushes one sanitized snapshot per open
+ *     workspace. A sign-in fallback script is returned to the caller only;
+ *     it is user-facing content and is never logged.
  *
  * Boundary rules:
  *   - Params pass the strict schemas in `provider-account-rpc.schema.ts`
@@ -35,19 +38,27 @@
  * Electron profile enables, so this class is never registered elsewhere.
  */
 
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { ProviderAccountService } from '@ptah-extension/auth-providers';
+import {
+  ClaudeAmbientLoginStatusReader,
+  ProviderAccountService,
+} from '@ptah-extension/auth-providers';
+import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import type { ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import {
   MESSAGE_TYPES,
   PROVIDER_ACCOUNT_RESULT_CODES,
   PROVIDER_ACCOUNT_RPC_METHOD_NAMES,
   isSafeProviderAccountSummary,
+  type ProviderAccountActionResult,
   type ProviderAccountCommittedWrite,
+  type ProviderAccountOperation,
   type ProviderAccountProvider,
   type ProviderAccountResultCode,
   type ProviderAccountRpcMethodName,
@@ -56,9 +67,12 @@ import {
   type ProviderAccountScope,
   type ProviderAccountScopeSelection,
   type ProviderAccountSelectionWrite,
+  type ProviderAccountSignInFallback,
+  type ProviderAccountState,
   type ProviderAccountSummary,
   type ProviderAccountsChangedNotification,
   type ProviderAccountsSnapshot,
+  type ProviderAmbientClaudeStatus,
 } from '@ptah-extension/shared';
 import { PROVIDER_ACCOUNT_RPC_SCHEMAS } from './provider-account-rpc.schema';
 
@@ -67,6 +81,37 @@ export type ProviderAccountRpcService = Pick<
   ProviderAccountService,
   'list' | 'add' | 'rename' | 'remove' | 'selection' | 'select' | 'setDefault'
 >;
+
+/** The ambient (no named account) Claude login check. Kept narrow for a test fake. */
+export type ProviderAccountAmbientStatusReader = Pick<
+  ClaudeAmbientLoginStatusReader,
+  'read'
+>;
+
+/** One profile state change from the actions port. No path, identity or CLI text. */
+export interface ProviderAccountRpcStateChange {
+  readonly profileId: string;
+  readonly state: ProviderAccountState;
+  readonly revision: number;
+}
+
+/**
+ * The account actions this layer calls: the port, a sign-in start that may
+ * carry the manual fallback script, and the state-change subscription.
+ * `ProviderAccountActionsService` satisfies it structurally.
+ */
+export interface ProviderAccountRpcActions extends ProviderAccountActionPort {
+  startSignIn(
+    command: Parameters<ProviderAccountActionPort['startSignIn']>[0],
+  ): Promise<
+    ProviderAccountActionResult & {
+      readonly fallback?: ProviderAccountSignInFallback;
+    }
+  >;
+  onStateChanged(
+    listener: (change: ProviderAccountRpcStateChange) => void,
+  ): () => void;
+}
 
 /** The host push path every webview-facing handler uses. */
 export interface ProviderAccountBroadcaster {
@@ -85,6 +130,37 @@ type WriteOutcome = ProviderAccountRpcResult<
   ProviderAccountCommittedWrite & { readonly account?: ProviderAccountSummary }
 >;
 
+/** Outcome of sign-in and sign-out: both return their operation. */
+type OperationOutcome = Result<'provider:startAccountSignIn'>;
+
+/** Outcome of cancel. */
+type CancelOutcome = Result<'provider:cancelAccountSignIn'>;
+
+/**
+ * A remembered outcome. An action keeps its promise, so a replay while the
+ * first call runs gets the same outcome and never starts a second one.
+ */
+type LedgerOutcome =
+  | { readonly kind: 'write'; readonly value: WriteOutcome }
+  | { readonly kind: 'operation'; readonly value: Promise<OperationOutcome> }
+  | { readonly kind: 'cancel'; readonly value: Promise<CancelOutcome> };
+
+/** How one action kind is stored in, and read back from, the ledger. */
+interface LedgerEntryKind<T> {
+  read(outcome: LedgerOutcome): Promise<T> | undefined;
+  wrap(value: Promise<T>): LedgerOutcome;
+}
+
+const OPERATION_ENTRY: LedgerEntryKind<OperationOutcome> = {
+  read: (outcome) => (outcome.kind === 'operation' ? outcome.value : undefined),
+  wrap: (value) => ({ kind: 'operation', value }),
+};
+
+const CANCEL_ENTRY: LedgerEntryKind<CancelOutcome> = {
+  read: (outcome) => (outcome.kind === 'cancel' ? outcome.value : undefined),
+  wrap: (value) => ({ kind: 'cancel', value }),
+};
+
 interface WriteTarget {
   readonly provider: ProviderAccountProvider;
   readonly workspaceRoot: string;
@@ -92,7 +168,7 @@ interface WriteTarget {
 }
 
 /** The only provider whose accounts the service manages today. */
-const SERVED_PROVIDER: ProviderAccountProvider = 'claude';
+const SERVED_PROVIDER = 'claude' satisfies ProviderAccountProvider;
 
 /** Remembered write outcomes. Oldest is evicted first; no timer. */
 const REQUEST_LEDGER_LIMIT = 256;
@@ -113,7 +189,7 @@ const REFUSAL_COPY: Record<RefusalCode, string> = {
   conflict: 'The account changed. Refresh and try again.',
   cancelled: 'Sign in was cancelled. Check status before trying again.',
   timeout: 'The account operation timed out. Check status before trying again.',
-  'release-held': 'Named account commands are awaiting release authorization.',
+  'release-held': 'Named accounts are not available on this host.',
   'invalid-bound': 'The account binding is invalid.',
 };
 
@@ -145,8 +221,14 @@ export class ProviderAccountRpcHandlers {
   /** requestId → the params fingerprint and the outcome it produced. */
   private readonly ledger = new Map<
     string,
-    { readonly fingerprint: string; readonly outcome: WriteOutcome }
+    { readonly fingerprint: string; readonly outcome: LedgerOutcome }
   >();
+
+  /** Sign-in or sign-out this handler started and has not seen settle, by profile. */
+  private readonly operations = new Map<string, ProviderAccountOperation>();
+
+  /** Release path of the `onStateChanged` subscription. */
+  private unsubscribe: (() => void) | undefined;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -157,11 +239,21 @@ export class ProviderAccountRpcHandlers {
     private readonly workspace: IWorkspaceProvider,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly broadcaster: ProviderAccountBroadcaster,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ACTIONS)
+    private readonly actions: ProviderAccountRpcActions,
+    @inject(ClaudeAmbientLoginStatusReader)
+    private readonly ambient: ProviderAccountAmbientStatusReader,
   ) {}
 
   register(): void {
+    this.unsubscribe ??= this.actions.onStateChanged((change) =>
+      this.stateChanged(change),
+    );
     this.on('provider:listAccounts', (p) => this.listAccounts(p));
     this.on('provider:getAccountStatus', (p) => this.getAccountStatus(p));
+    this.on('provider:getAmbientClaudeStatus', (p) =>
+      this.getAmbientClaudeStatus(p),
+    );
     this.on('provider:addAccount', (p) =>
       withAccount(
         // The service keys the new profile by requestId, so a replay the
@@ -210,20 +302,32 @@ export class ProviderAccountRpcHandlers {
       }),
     );
     this.on('provider:startAccountSignIn', (p) =>
-      this.releaseHeld('provider:startAccountSignIn', p),
+      this.action('provider:startAccountSignIn', p, OPERATION_ENTRY, (root) =>
+        this.startSignIn(root, p),
+      ),
     );
     this.on('provider:cancelAccountSignIn', (p) =>
-      this.releaseHeld('provider:cancelAccountSignIn', p),
+      this.action('provider:cancelAccountSignIn', p, CANCEL_ENTRY, (root) =>
+        this.cancelSignIn(root, p),
+      ),
     );
     this.on('provider:signOutAccount', (p) =>
-      this.releaseHeld('provider:signOutAccount', p),
+      this.action('provider:signOutAccount', p, OPERATION_ENTRY, (root) =>
+        this.signOut(root, p),
+      ),
     );
+  }
+
+  /** Ends the `onStateChanged` subscription. */
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
   }
 
   /** Registers one method; its params are parsed before `run` sees them. */
   private on<M extends ProviderAccountRpcMethodName>(
     method: M,
-    run: (params: Params<M>) => Result<M>,
+    run: (params: Params<M>) => Result<M> | Promise<Result<M>>,
   ): void {
     this.rpcHandler.registerMethod<Params<M>, Result<M>>(
       method,
@@ -254,21 +358,49 @@ export class ProviderAccountRpcHandlers {
     }
   }
 
-  private getAccountStatus(
+  private async getAccountStatus(
     params: Params<'provider:getAccountStatus'>,
-  ): Result<'provider:getAccountStatus'> {
+  ): Promise<Result<'provider:getAccountStatus'>> {
     if (params.provider !== SERVED_PROVIDER) return refusal('wrong-provider');
     try {
-      const account = this.accounts
-        .list()
-        .find((entry) => entry.profileId === params.profileId);
-      // No sign-in or sign-out runs while those commands are release-held,
-      // so a status never carries an `operation`.
-      return account
+      // One status probe, or one poll tick of a sign-in this process owns.
+      const status = await this.actions.readStatus({
+        provider: SERVED_PROVIDER,
+        profileId: params.profileId,
+      });
+      if (status.code !== 'ok') {
+        return this.actionRefused('provider:getAccountStatus', status);
+      }
+      const account = this.findAccount(params.profileId);
+      if (account === undefined) return refusal('missing-profile');
+      const operation = this.operations.get(params.profileId);
+      return operation === undefined
         ? { ok: true, account: sanitizeSummary(account) }
-        : refusal('missing-profile');
+        : { ok: true, account: sanitizeSummary(account), operation };
     } catch (error: unknown) {
       return this.refusalFrom('provider:getAccountStatus', error);
+    }
+  }
+
+  /**
+   * Host-wide read of the existing Claude login. No workspace check (the
+   * ambient login is not per workspace), no ledger (read-only) and no
+   * broadcast. The status is copied field by field so nothing but
+   * `state`/`checkedAt`/`reason` can cross this layer.
+   */
+  private async getAmbientClaudeStatus(
+    params: Params<'provider:getAmbientClaudeStatus'>,
+  ): Promise<Result<'provider:getAmbientClaudeStatus'>> {
+    if (params.provider !== SERVED_PROVIDER) return refusal('wrong-provider');
+    try {
+      const read = await this.ambient.read({ refresh: params.refresh === true });
+      const status: ProviderAmbientClaudeStatus =
+        read.state === 'unknown' && read.reason !== undefined
+          ? { state: read.state, checkedAt: read.checkedAt, reason: read.reason }
+          : { state: read.state, checkedAt: read.checkedAt };
+      return { ok: true, status };
+    } catch (error: unknown) {
+      return this.refusalFrom('provider:getAmbientClaudeStatus', error);
     }
   }
 
@@ -289,14 +421,213 @@ export class ProviderAccountRpcHandlers {
     const fingerprint = `${method}\n${JSON.stringify(params)}`;
     const prior = this.ledger.get(params.requestId);
     if (prior) {
-      return prior.fingerprint === fingerprint
-        ? prior.outcome
+      return prior.fingerprint === fingerprint && prior.outcome.kind === 'write'
+        ? prior.outcome.value
         : refusal('conflict', REQUEST_REUSED);
     }
 
     const outcome = this.commit(method, root, params.requestId, apply);
-    this.remember(params.requestId, fingerprint, outcome);
+    this.remember(params.requestId, fingerprint, {
+      kind: 'write',
+      value: outcome,
+    });
     return outcome;
+  }
+
+  /**
+   * One sign-in, cancel or sign-out: the same authority, provider and ledger
+   * checks as a write, then the actions port. The ledger keeps the promise,
+   * so a replay while the first call runs gets the same outcome.
+   */
+  private action<T extends OperationOutcome | CancelOutcome>(
+    method: ProviderAccountRpcMethodName,
+    params: WriteTarget,
+    entry: LedgerEntryKind<T | Refusal>,
+    run: (root: string) => Promise<T | Refusal>,
+  ): Promise<T | Refusal> {
+    const root = this.openRoot(params.workspaceRoot);
+    if (params.provider !== SERVED_PROVIDER) {
+      return Promise.resolve(refusal('wrong-provider'));
+    }
+
+    const fingerprint = `${method}\n${JSON.stringify(params)}`;
+    const prior = this.ledger.get(params.requestId);
+    if (prior) {
+      const replay =
+        prior.fingerprint === fingerprint
+          ? entry.read(prior.outcome)
+          : undefined;
+      return replay ?? Promise.resolve(refusal('conflict', REQUEST_REUSED));
+    }
+
+    const outcome = run(root).catch((error: unknown): T | Refusal =>
+      this.refusalFrom(method, error),
+    );
+    this.remember(params.requestId, fingerprint, entry.wrap(outcome));
+    return outcome;
+  }
+
+  private async startSignIn(
+    root: string,
+    params: Params<'provider:startAccountSignIn'>,
+  ): Promise<OperationOutcome> {
+    const operation: ProviderAccountOperation = {
+      operationId: randomUUID(),
+      kind: 'sign-in',
+    };
+    const result = await this.actions.startSignIn({
+      provider: SERVED_PROVIDER,
+      profileId: params.profileId,
+      operationId: operation.operationId,
+      expectedRevision: params.expectedRevision,
+    });
+    if (result.code !== 'ok') {
+      return this.actionRefused('provider:startAccountSignIn', result);
+    }
+    // The sign-in stays pending until `onStateChanged` reports its end.
+    this.operations.set(params.profileId, operation);
+    const committed = this.actionCommitted(
+      'provider:startAccountSignIn',
+      root,
+      params.requestId,
+    );
+    if (!committed.ok) return committed;
+    // The fallback script goes to the caller only; it is never logged.
+    return result.fallback === undefined
+      ? { ok: true, snapshot: committed.snapshot, operation }
+      : {
+          ok: true,
+          snapshot: committed.snapshot,
+          operation,
+          fallback: {
+            platform: result.fallback.platform,
+            script: result.fallback.script,
+          },
+        };
+  }
+
+  private async cancelSignIn(
+    root: string,
+    params: Params<'provider:cancelAccountSignIn'>,
+  ): Promise<CancelOutcome> {
+    const account = this.findAccount(params.profileId);
+    if (account === undefined) return refusal('missing-profile');
+    // A live sign-in holds the revision its reservation wrote; the port
+    // refuses a stale one with `conflict`.
+    const result = await this.actions.cancelSignIn({
+      provider: SERVED_PROVIDER,
+      profileId: params.profileId,
+      operationId: params.operationId,
+      expectedRevision: account.revision,
+    });
+    if (result.code !== 'ok' && result.code !== 'cancelled') {
+      return this.actionRefused('provider:cancelAccountSignIn', result);
+    }
+    this.settleOperation(params.profileId, params.operationId);
+    return this.actionCommitted(
+      'provider:cancelAccountSignIn',
+      root,
+      params.requestId,
+    );
+  }
+
+  private async signOut(
+    root: string,
+    params: Params<'provider:signOutAccount'>,
+  ): Promise<OperationOutcome> {
+    const operation: ProviderAccountOperation = {
+      operationId: randomUUID(),
+      kind: 'sign-out',
+    };
+    // Sign-out settles before the port returns, success or not, so its
+    // operation never enters `operations`: a refused sign-out must not
+    // replace or delete the handle of a live sign-in for the same profile.
+    const result = await this.actions.signOut({
+      provider: SERVED_PROVIDER,
+      profileId: params.profileId,
+      operationId: operation.operationId,
+      expectedRevision: params.expectedRevision,
+    });
+    if (result.code !== 'ok') {
+      return this.actionRefused('provider:signOutAccount', result);
+    }
+    // An accepted sign-out leaves the profile with no live operation.
+    this.operations.delete(params.profileId);
+    const committed = this.actionCommitted(
+      'provider:signOutAccount',
+      root,
+      params.requestId,
+    );
+    return committed.ok
+      ? { ok: true, snapshot: committed.snapshot, operation }
+      : committed;
+  }
+
+  /** Revision bump, snapshot and one push for an action the port accepted. */
+  private actionCommitted(
+    method: ProviderAccountRpcMethodName,
+    root: string,
+    requestId: string,
+  ): ProviderAccountRpcResult<ProviderAccountCommittedWrite> {
+    this.revision += 1;
+    let snapshot: ProviderAccountsSnapshot;
+    try {
+      snapshot = this.snapshot(root);
+    } catch (error: unknown) {
+      this.logger.warn(`${LOG_PREFIX} ${method} snapshot read failed`, {
+        code: resultCode(error),
+      });
+      return refusal('timeout', UNCONFIRMED_SNAPSHOT);
+    }
+    this.notify({ snapshot, requestId });
+    return { ok: true, snapshot };
+  }
+
+  /** A port refusal keeps its closed code; the sentence is this layer's fixed copy. */
+  private actionRefused(
+    method: ProviderAccountRpcMethodName,
+    result: ProviderAccountActionResult,
+  ): Refusal {
+    const code: RefusalCode =
+      result.code === 'ok' ? 'unavailable-storage' : result.code;
+    this.logger.debug(`${LOG_PREFIX} ${method} refused`, { code });
+    return refusal(code);
+  }
+
+  /**
+   * One actions state change: a sign-in that left `pending` is settled, and
+   * every open workspace gets one snapshot at the next revision.
+   */
+  private stateChanged(change: ProviderAccountRpcStateChange): void {
+    if (change.state !== 'pending') {
+      const operation = this.operations.get(change.profileId);
+      if (operation?.kind === 'sign-in')
+        this.operations.delete(change.profileId);
+    }
+    this.revision += 1;
+    for (const root of this.workspace.getWorkspaceFolders()) {
+      let snapshot: ProviderAccountsSnapshot;
+      try {
+        snapshot = this.snapshot(root);
+      } catch (error: unknown) {
+        // degradation-audit: reported - a state push is best effort; the renderer re-reads with `provider:listAccounts`.
+        this.logger.warn(`${LOG_PREFIX} state change snapshot read failed`, {
+          code: resultCode(error),
+        });
+        return;
+      }
+      this.notify({ snapshot });
+    }
+  }
+
+  private settleOperation(profileId: string, operationId: string): void {
+    if (this.operations.get(profileId)?.operationId === operationId) {
+      this.operations.delete(profileId);
+    }
+  }
+
+  private findAccount(profileId: string): ProviderAccountSummary | undefined {
+    return this.accounts.list().find((entry) => entry.profileId === profileId);
   }
 
   private commit(
@@ -329,21 +660,6 @@ export class ProviderAccountRpcHandlers {
     return account === undefined
       ? { ok: true, snapshot }
       : { ok: true, snapshot, account: sanitizeSummary(account) };
-  }
-
-  /**
-   * Named sign-in, cancel and sign-out stay release-held (decisions.md D7).
-   * The request is still validated and authorized so a forbidden caller gets
-   * the same denial it would get once the commands are live.
-   */
-  private releaseHeld(
-    method: ProviderAccountRpcMethodName,
-    params: WriteTarget,
-  ): Refusal {
-    this.openRoot(params.workspaceRoot);
-    if (params.provider !== SERVED_PROVIDER) return refusal('wrong-provider');
-    this.logger.debug(`${LOG_PREFIX} ${method} refused: release-held`);
-    return refusal('release-held');
   }
 
   /**
@@ -393,7 +709,8 @@ export class ProviderAccountRpcHandlers {
     }
     return {
       scope,
-      selection: stored.revision < 0 ? { kind: 'omitted' } : { kind: 'ambient' },
+      selection:
+        stored.revision < 0 ? { kind: 'omitted' } : { kind: 'ambient' },
       revision: stored.revision,
     };
   }
@@ -421,7 +738,7 @@ export class ProviderAccountRpcHandlers {
   private remember(
     requestId: string,
     fingerprint: string,
-    outcome: WriteOutcome,
+    outcome: LedgerOutcome,
   ): void {
     if (this.ledger.size >= REQUEST_LEDGER_LIMIT) {
       const oldest = this.ledger.keys().next();
@@ -442,7 +759,10 @@ export class ProviderAccountRpcHandlers {
 }
 
 function refusal(code: RefusalCode, summary?: string): Refusal {
-  return { ok: false, result: { code, summary: summary ?? REFUSAL_COPY[code] } };
+  return {
+    ok: false,
+    result: { code, summary: summary ?? REFUSAL_COPY[code] },
+  };
 }
 
 /** Add and Rename always commit with the account they wrote. */

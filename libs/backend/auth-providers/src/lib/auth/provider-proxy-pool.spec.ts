@@ -152,6 +152,7 @@ import type {
   CustomProviderEntry,
 } from '@ptah-extension/shared';
 import {
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   getAnthropicProvider,
   getProviderBaseUrl,
   setCustomProviderEntries,
@@ -175,6 +176,7 @@ import {
   type ProviderQuotaObservation,
 } from './provider-quota.store';
 import type { IOpenRouterAuthService } from '../providers/openrouter';
+import type { IKimiCodeAuthService } from '../providers/kimi-code';
 import * as localModule from '../providers/local';
 import * as customModule from '../providers/custom';
 import { CUSTOM_PROXY_TOKEN_PLACEHOLDER } from '../providers/custom';
@@ -271,8 +273,18 @@ interface Harness {
 
 const CODEX_ACCOUNT_OWNER = 'openai-codex#account:0123456789abcdef';
 
+function makeKimiCodeAuth(): jest.Mocked<
+  Pick<IKimiCodeAuthService, 'startWatching' | 'ensureFresh'>
+> {
+  return {
+    startWatching: jest.fn(),
+    ensureFresh: jest.fn(async () => true),
+  };
+}
+
 function makePool(
   codexAuth: ICodexAuthService = {} as unknown as ICodexAuthService,
+  kimiCodeAuth: Partial<IKimiCodeAuthService> = makeKimiCodeAuth(),
 ): Harness {
   const logger = createMockLogger();
   const config = createMockConfigManager();
@@ -294,6 +306,7 @@ function makePool(
     codexAuth,
     openRouterAuth,
     codexOwnerKeys,
+    kimiCodeAuth as IKimiCodeAuthService,
   );
 
   return { pool, authSecrets, logger, config };
@@ -333,6 +346,26 @@ describe('ProviderProxyPool', () => {
 
   it('sanity: LM Studio is a proxy-requiring provider', () => {
     expect(lmStudioProvider().requiresProxy).toBe(true);
+  });
+
+  it('serves kimi-code through one shared Kimi proxy and readies the CLI login', async () => {
+    const kimiCodeAuth = makeKimiCodeAuth();
+    const kimiHarness = makePool(undefined, kimiCodeAuth);
+    const kimi = getAnthropicProvider('kimi-code');
+    if (!kimi) throw new Error('kimi-code provider entry missing');
+    try {
+      const a = await kimiHarness.pool.acquire('/ws/a', 'kimi-code', kimi);
+      const b = await kimiHarness.pool.acquire('/ws/b', 'kimi-code', kimi);
+      expect(a?.authToken).toBe(KIMI_CODE_PROXY_TOKEN_PLACEHOLDER);
+      expect(a?.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      expect(b).toEqual(a);
+      expect(kimiCodeAuth.startWatching).toHaveBeenCalled();
+      expect(kimiCodeAuth.ensureFresh).toHaveBeenCalled();
+      // The credential is dynamic: no stored key is read to key the pool.
+      expect(kimiHarness.authSecrets.getProviderKey).not.toHaveBeenCalled();
+    } finally {
+      await kimiHarness.pool.disposeAll();
+    }
   });
 
   it('(a) two workspaces on the same provider configuration share one started proxy', async () => {

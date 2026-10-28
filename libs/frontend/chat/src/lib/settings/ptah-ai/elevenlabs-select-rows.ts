@@ -21,11 +21,17 @@ export interface ElevenLabsSelectRow {
   readonly options: readonly LabeledOption[];
 }
 
+// Model ids follow https://elevenlabs.io/docs/overview/models. Deprecated ids stay last so a
+// previously saved value still shows; ElevenLabs names the replacement in the label.
 const TTS_MODELS: readonly LabeledOption[] = [
-  { value: 'eleven_multilingual_v2', label: 'Multilingual v2 (default)' },
-  { value: 'eleven_turbo_v2_5', label: 'Turbo v2.5 (low latency)' },
-  { value: 'eleven_flash_v2_5', label: 'Flash v2.5 (fastest)' },
-  { value: 'eleven_monolingual_v1', label: 'Monolingual v1 (English)' },
+  { value: 'eleven_multilingual_v2', label: 'Multilingual v2: stable long-form, 29 languages (default)' },
+  { value: 'eleven_v4', label: 'Eleven v4: most expressive, 90+ languages' },
+  { value: 'eleven_v4_turbo', label: 'Eleven v4 Turbo: expressive, real-time' },
+  { value: 'eleven_v3', label: 'Eleven v3: expressive, 70+ languages' },
+  { value: 'eleven_flash_v2_5', label: 'Flash v2.5: fastest and lowest cost, 32 languages' },
+  { value: 'eleven_flash_v2', label: 'Flash v2: fast, English only' },
+  { value: 'eleven_turbo_v2_5', label: 'Turbo v2.5 (deprecated, use Flash v2.5)' },
+  { value: 'eleven_monolingual_v1', label: 'Monolingual v1 (legacy)' },
 ];
 
 const OUTPUT_FORMATS: readonly LabeledOption[] = [
@@ -38,7 +44,9 @@ const OUTPUT_FORMATS: readonly LabeledOption[] = [
 ];
 
 const STT_MODELS: readonly LabeledOption[] = [
-  { value: 'scribe_v1', label: 'Scribe v1' },
+  { value: 'scribe_v2', label: 'Scribe v2: 90+ languages (default)' },
+  { value: 'scribe_v2_medical', label: 'Scribe v2 Medical: tuned for clinical audio' },
+  { value: 'scribe_v1', label: 'Scribe v1 (deprecated, use Scribe v2)' },
 ];
 
 export const ELEVENLABS_TTS_ROWS: readonly ElevenLabsSelectRow[] = [

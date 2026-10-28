@@ -6,6 +6,7 @@ import type {
   RpcMethodName,
   SettingScope,
 } from '@ptah-extension/shared';
+import { AuthStateService } from './auth-state.service';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { EffortStateService } from './effort-state.service';
 import { ModelStateService } from './model-state.service';
@@ -74,6 +75,7 @@ describe('ProvidersConnectionSetupService', () => {
   let events: string[];
   let hooks: ProvidersConnectionSetupHooks;
   let route: ProvidersSettingsSection<ProvidersEffectiveRoute>;
+  let refreshSharedAuth: jest.Mock<Promise<void>, []>;
 
   const methods = () => call.mock.calls.map(([method]) => method);
   const draft = (
@@ -119,10 +121,15 @@ describe('ProvidersConnectionSetupService', () => {
       if (!handler) throw new Error(`Unexpected RPC: ${method}`);
       return handler(params);
     });
+    refreshSharedAuth = jest.fn(async () => void events.push('refreshAuthStatus'));
     TestBed.configureTestingModule({
       providers: [
         WorkspaceScopeService,
         { provide: ClaudeRpcService, useValue: { call } },
+        {
+          provide: AuthStateService,
+          useValue: { refreshAuthStatus: refreshSharedAuth },
+        },
         {
           provide: ModelStateService,
           useValue: { refreshModels: jest.fn(async () => undefined) },
@@ -420,6 +427,311 @@ describe('ProvidersConnectionSetupService', () => {
         signInState: 'signed-in',
       });
       expect(events).toEqual(['refreshConnections', 'refreshRoute']);
+    });
+  });
+
+  describe('in-app Kimi Code sign-in', () => {
+    const push = (payload: unknown) =>
+      service.handleMessage({ type: 'auth:kimiCodeLoginStatus', payload });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it('handles only the Kimi Code sign-in push', () => {
+      expect(service.handledMessageTypes).toEqual(['auth:kimiCodeLoginStatus']);
+    });
+
+    it('starts the login, shows the link and code, then confirms the sign-in and re-reads the page', async () => {
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({ success: true, state: { status: 'starting' } }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      expect(call).toHaveBeenCalledWith('auth:kimiCodeLogin', {}, undefined);
+      expect(service.kimiCodeLogin()).toEqual({ status: 'starting' });
+      expect(service.externalAuth().data).toMatchObject({
+        providerId: 'kimi-code',
+        signInState: 'in-flight',
+      });
+      // No terminal launch, no auth read before the sign-in ends.
+      expect(methods()).toEqual(['auth:kimiCodeLogin']);
+
+      push({
+        status: 'awaiting-browser',
+        verificationUrl: 'https://auth.example.test/device?code=FAKE-1234',
+        userCode: 'FAKE-1234',
+        browserOpened: true,
+      });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'awaiting-browser',
+        verificationUrl: 'https://auth.example.test/device?code=FAKE-1234',
+        userCode: 'FAKE-1234',
+        browserOpened: true,
+      });
+
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true, kimiCodeTokenStale: false }),
+      );
+      push({ status: 'succeeded' });
+      await settle();
+      expect(call).toHaveBeenCalledWith(
+        'auth:getAuthStatus',
+        { providerId: 'kimi-code' },
+        undefined,
+      );
+      expect(service.externalAuth().data).toMatchObject({
+        providerId: 'kimi-code',
+        signInState: 'signed-in',
+        message: 'Sign-in detected. Verify the connection before using it.',
+      });
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+      expect(hooks.refreshAuthStatus).not.toHaveBeenCalled();
+      expect(events).toEqual([
+        'refreshAuthStatus',
+        'refreshConnections',
+        'refreshRoute',
+      ]);
+
+      // A repeated final push ends nothing twice.
+      push({ status: 'succeeded' });
+      await settle();
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not claim a finished login that the auth status does not confirm', async () => {
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({ success: true, state: { status: 'succeeded' } }),
+      );
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true, kimiCodeTokenStale: true }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      expect(service.externalAuth().data).toMatchObject({
+        signInState: 'idle',
+      });
+      expect(service.externalAuth().data?.message).toContain('kimi login');
+    });
+
+    it('shows a missing CLI as a failed start with the host fixed copy', async () => {
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({
+          success: false,
+          error: 'Kimi Code CLI is not installed.',
+          state: {
+            status: 'failed',
+            errorCode: 'not-installed',
+            error: 'Kimi Code CLI is not installed.',
+          },
+        }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      // Only the code is kept; the UI shows its own copy for it.
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'failed',
+        errorCode: 'not-installed',
+      });
+      expect(service.externalAuth().data?.signInState).toBe('failed');
+      expect(events).toEqual([]);
+    });
+
+    it('a failed start RPC keeps no text, never the transport error', async () => {
+      handlers.set('auth:kimiCodeLogin', async () => {
+        throw new Error('spawn ENOENT /home/someone/.kimi-code/bin/kimi');
+      });
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      expect(service.kimiCodeLogin()).toEqual({ status: 'failed' });
+      expect(service.externalAuth().data?.signInState).toBe('failed');
+    });
+
+    it('a host error string never enters view state', async () => {
+      push({ status: 'failed', errorCode: 'exited', error: 'fake-secret-text' });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'failed',
+        errorCode: 'exited',
+      });
+      expect(JSON.stringify(service.externalAuth())).not.toContain(
+        'fake-secret-text',
+      );
+    });
+
+    it('a sign-in that ends after a reload refreshes shared auth and the loaded page once', async () => {
+      // Fresh service (reload): no local start; the Providers page registered itself on open.
+      service.registerKimiLoginOwner(hooks);
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true, kimiCodeTokenStale: false }),
+      );
+      push({ status: 'awaiting-browser', userCode: 'FAKE-1234' });
+      await settle();
+      push({ status: 'succeeded' });
+      await settle();
+      expect(methods()).toEqual(['auth:getAuthStatus']);
+      expect(service.externalAuth().data?.signInState).toBe('signed-in');
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+      expect(events).toEqual([
+        'refreshAuthStatus',
+        'refreshConnections',
+        'refreshRoute',
+      ]);
+    });
+
+    it('refreshes shared auth on success even when no Providers page is loaded', async () => {
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true }),
+      );
+      push({ status: 'succeeded' });
+      await settle();
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+      expect(events).toEqual(['refreshAuthStatus']);
+    });
+
+    it('keeps a final phase until a new start: an old push neither reopens nor re-finishes it', async () => {
+      service.registerKimiLoginOwner(hooks);
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true }),
+      );
+      push({ status: 'succeeded' });
+      await settle();
+      push({ status: 'awaiting-browser', userCode: 'FAKE-OLD' });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({ status: 'succeeded' });
+      expect(service.externalAuth().data?.signInState).toBe('signed-in');
+      push({ status: 'succeeded' });
+      push({ status: 'failed', errorCode: 'exited' });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({ status: 'succeeded' });
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+      expect(methods()).toEqual(['auth:getAuthStatus']);
+
+      // An explicit new start resets it.
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({ success: true, state: { status: 'starting' } }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      push({ status: 'awaiting-browser', userCode: 'FAKE-NEW' });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'awaiting-browser',
+        userCode: 'FAKE-NEW',
+      });
+    });
+
+    it('a start that rejects after a success push keeps the success', async () => {
+      const reply = deferred<RpcResult<unknown>>();
+      handlers.set('auth:kimiCodeLogin', () => reply.promise);
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: true }),
+      );
+      const started = service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      push({ status: 'succeeded' });
+      await settle();
+      reply.resolve(new RpcResult(false, undefined, 'fake-secret-text'));
+      await started;
+      expect(service.kimiCodeLogin()).toEqual({ status: 'succeeded' });
+      expect(service.externalAuth().data?.signInState).toBe('signed-in');
+      expect(refreshSharedAuth).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed start response cannot replace a push that arrived while it was pending', async () => {
+      const reply = deferred<RpcResult<unknown>>();
+      handlers.set('auth:kimiCodeLogin', () => reply.promise);
+      const started = service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      push({ status: 'cancelled' });
+      await settle();
+      reply.resolve(success({ success: false, error: 'fake-secret-text' }));
+      await started;
+      expect(service.kimiCodeLogin()).toEqual({ status: 'cancelled' });
+      expect(service.externalAuth().data?.signInState).toBe('idle');
+    });
+
+    it('discards a start response that settles after a newer start', async () => {
+      const first = deferred<RpcResult<unknown>>();
+      const second = deferred<RpcResult<unknown>>();
+      const replies = [first.promise, second.promise];
+      handlers.set('auth:kimiCodeLogin', () => replies.shift() ?? first.promise);
+      const older = service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      const newer = service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      second.resolve(
+        success({
+          success: true,
+          state: { status: 'awaiting-browser', userCode: 'FAKE-NEW' },
+        }),
+      );
+      await newer;
+      first.resolve(success({ success: false }));
+      await older;
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'awaiting-browser',
+        userCode: 'FAKE-NEW',
+      });
+      expect(service.externalAuth().data?.signInState).toBe('in-flight');
+    });
+
+    it('clears a stale running phase when the host had no sign-in to cancel', async () => {
+      push({ status: 'awaiting-browser', userCode: 'FAKE-1234' });
+      await settle();
+      handlers.set('auth:kimiCodeLoginCancel', async () =>
+        success({ cancelled: false }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in-cancel', hooks);
+      expect(service.kimiCodeLogin()).toBeNull();
+      expect(service.externalAuth().data?.signInState).toBe('idle');
+    });
+
+    it('cancels through the host; the cancelled push ends the sign-in', async () => {
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({ success: true, state: { status: 'awaiting-browser' } }),
+      );
+      handlers.set('auth:kimiCodeLoginCancel', async () =>
+        success({ cancelled: true }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      await service.performExternalAuth('kimi-code', 'sign-in-cancel', hooks);
+      expect(call).toHaveBeenCalledWith(
+        'auth:kimiCodeLoginCancel',
+        {},
+        undefined,
+      );
+      push({ status: 'cancelled', error: 'Sign-in cancelled.' });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({ status: 'cancelled' });
+      expect(service.externalAuth().data?.signInState).toBe('idle');
+      expect(events).toEqual([]);
+    });
+
+    it('drops malformed pushes, non-https links and an older phase', async () => {
+      handlers.set('auth:kimiCodeLogin', async () =>
+        success({ success: true, state: { status: 'starting' } }),
+      );
+      await service.performExternalAuth('kimi-code', 'sign-in', hooks);
+      push({ status: 'logged-in' });
+      push('awaiting-browser');
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({ status: 'starting' });
+      push({
+        status: 'awaiting-browser',
+        verificationUrl: 'javascript:alert(1)',
+        userCode: 'FAKE-0000',
+      });
+      await settle();
+      expect(service.kimiCodeLogin()).toEqual({
+        status: 'awaiting-browser',
+        userCode: 'FAKE-0000',
+      });
+      push({ status: 'starting' });
+      await settle();
+      expect(service.kimiCodeLogin()?.status).toBe('awaiting-browser');
+    });
+
+    it('Check again re-reads the status without starting a login', async () => {
+      handlers.set('auth:getAuthStatus', async () =>
+        success({ kimiCodeAuthenticated: false }),
+      );
+      await service.performExternalAuth('kimi-code', 'cli-check', hooks);
+      expect(methods()).toEqual(['auth:getAuthStatus']);
+      expect(service.externalAuth().data).toMatchObject({
+        providerId: 'kimi-code',
+        signInState: 'idle',
+      });
+      expect(service.externalAuth().data?.message).toContain('kimi login');
     });
   });
 

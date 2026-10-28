@@ -5,13 +5,19 @@
  * D12 current row (highlight on the whole li, chips included), C-6 open in a
  * tab, C-10 child prefix and indent, D-2 inline rename (Enter, blur, Escape
  * with stopPropagation, IME, maxlength, focus and selection), and the row
- * actions (names, Organize availability, 24 px targets, touch visibility).
+ * actions (names, Organize availability, 24 px targets, touch visibility),
+ * and U6 the session account label (TASK_2026_719).
  */
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import {
+  ProviderAccountsStateService,
+  type ProviderAccountsView,
+} from '@ptah-extension/core';
+import {
   SESSION_ORGANIZATION_DEFAULTS,
   type ChatSessionSummary,
+  type ProviderAccountsSnapshot,
   type SessionId,
   type SessionOrganizationSummary,
 } from '@ptah-extension/shared';
@@ -495,5 +501,139 @@ describe('SessionListRowComponent', () => {
       expect(editRow?.classList.contains('pl-2.5')).toBe(true);
       expect(editRow?.classList.contains('pl-[34px]')).toBe(false);
     });
+  });
+});
+
+describe('SessionListRowComponent — session account (U6)', () => {
+  const PROFILE = 'profile_work_0001';
+  const view = signal<Pick<ProviderAccountsView, 'status' | 'snapshot'>>({
+    status: 'idle',
+    snapshot: null,
+  });
+  let opened: string[] = [];
+  const fakeAccounts = {
+    state: () => view,
+    open: (provider: string) => {
+      opened.push(provider);
+      view.set({ status: 'loading', snapshot: null });
+      return Promise.resolve();
+    },
+  };
+
+  let fixture: ComponentFixture<RowHostComponent>;
+
+  function ready(...accounts: Array<{ profileId: string; label: string }>) {
+    view.set({
+      status: 'ready',
+      snapshot: {
+        accounts: accounts.map((a) => ({ ...a, provider: 'claude' })),
+      } as unknown as ProviderAccountsSnapshot,
+    });
+  }
+
+  function render(session: ChatSessionSummary): HTMLElement {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [RowHostComponent],
+      providers: [
+        { provide: ProviderAccountsStateService, useValue: fakeAccounts },
+      ],
+    });
+    fixture = TestBed.createComponent(RowHostComponent);
+    fixture.componentInstance.session.set(session);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  function accountText(el: HTMLElement): string | undefined {
+    return el
+      .querySelector('[data-testid="session-row-account"]')
+      ?.textContent?.trim();
+  }
+
+  beforeEach(() => {
+    opened = [];
+    view.set({ status: 'idle', snapshot: null });
+  });
+
+  it.each([true, false])(
+    'shows the named account label (isActive=%s), never its profile ID',
+    (isActive) => {
+      ready({ profileId: PROFILE, label: 'Work' });
+      const el = render(summary({ isActive, accountProfileId: PROFILE }));
+      expect(accountText(el)).toBe('Account: Work');
+      expect(
+        el
+          .querySelector('[data-testid="session-row-account"]')
+          ?.getAttribute('title'),
+      ).toBe('Account: Work');
+      expect(el.textContent).not.toContain(PROFILE);
+    },
+  );
+
+  it('caps a long account label at 10rem with the full text in its title', () => {
+    const label = 'A very long account label that would push the row meta';
+    ready({ profileId: PROFILE, label });
+    const el = render(summary({ accountProfileId: PROFILE }));
+    const badge = el.querySelector('[data-testid="session-row-account"]');
+    expect(badge?.classList).toContain('max-w-[10rem]');
+    expect(badge?.classList).toContain('truncate');
+    expect(badge?.classList).toContain('min-w-0');
+    expect(badge?.getAttribute('title')).toBe(`Account: ${label}`);
+  });
+
+  it.each([true, false])(
+    'shows "Default" for an ambient Claude session (isActive=%s) without reading accounts',
+    (isActive) => {
+      const el = render(summary({ isActive }));
+      expect(accountText(el)).toBe('Default');
+      const anthropic = render(
+        summary({ isActive, providerId: 'anthropic' }),
+      );
+      expect(accountText(anthropic)).toBe('Default');
+      expect(opened).toEqual([]);
+    },
+  );
+
+  it('shows no account for a session whose last turn ran on another provider', () => {
+    const el = render(summary({ providerId: 'openrouter' }));
+    expect(
+      el.querySelector('[data-testid="session-row-account"]'),
+    ).toBeNull();
+  });
+
+  it('shows "Removed account" once the loaded list lacks the profile', () => {
+    ready({ profileId: 'profile_other_0002', label: 'Other' });
+    const el = render(summary({ accountProfileId: PROFILE }));
+    expect(accountText(el)).toBe('Removed account');
+    expect(el.textContent).not.toContain(PROFILE);
+  });
+
+  it('opens the Claude account list once for a named session and shows nothing until it loads', () => {
+    const el = render(summary({ accountProfileId: PROFILE }));
+    expect(opened).toEqual(['claude']);
+    expect(accountText(el)).toBeUndefined();
+
+    ready({ profileId: PROFILE, label: 'Work' });
+    fixture.detectChanges();
+    expect(accountText(el)).toBe('Account: Work');
+    expect(opened).toEqual(['claude']);
+  });
+
+  it('does not re-open a list that is already loaded', () => {
+    ready({ profileId: PROFILE, label: 'Work' });
+    render(summary({ accountProfileId: PROFILE }));
+    expect(opened).toEqual([]);
+  });
+
+  it('follows a live rename and removal', () => {
+    ready({ profileId: PROFILE, label: 'Work' });
+    const el = render(summary({ accountProfileId: PROFILE }));
+    ready({ profileId: PROFILE, label: 'Personal' });
+    fixture.detectChanges();
+    expect(accountText(el)).toBe('Account: Personal');
+    ready();
+    fixture.detectChanges();
+    expect(accountText(el)).toBe('Removed account');
   });
 });

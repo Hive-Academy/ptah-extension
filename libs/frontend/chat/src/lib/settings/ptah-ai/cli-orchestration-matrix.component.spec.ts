@@ -1,7 +1,12 @@
 import { ApplicationRef, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
+  ClaudeAmbientStatusService,
+  ProviderAccountsStateService,
   ProvidersSettingsStateService,
+  VSCodeService,
+  type ClaudeAmbientStatusView,
+  type ProviderAccountsView,
   type ProvidersCliModels,
   type ProvidersCliTest,
   type ProvidersOrchestration,
@@ -159,9 +164,55 @@ class StateStub {
   });
 }
 
+/** P6 lane account cell: one signed-in named account makes the cell visible (P6-1). */
+class AccountsStub {
+  readonly view = signal<ProviderAccountsView>({
+    status: 'ready',
+    stale: false,
+    error: null,
+    snapshot: {
+      provider: 'claude',
+      workspaceRoot: 'workspace',
+      revision: 1,
+      accounts: [
+        {
+          profileId: 'p-1',
+          label: 'Work',
+          provider: 'claude',
+          state: 'signed-in',
+          owner: 'unknown',
+          revision: 1,
+          activeRunCount: 0,
+        },
+      ],
+      selections: {
+        main: { scope: 'main', selection: { kind: 'omitted' }, revision: 1 },
+        lane: { scope: 'lane', selection: { kind: 'omitted' }, revision: 1 },
+      },
+    },
+  });
+  readonly state = jest.fn((_provider: 'claude') => this.view.asReadonly());
+  readonly open = jest.fn(async (_provider: 'claude') => undefined);
+  readonly setSelection = jest.fn(async () => ({
+    status: 'unavailable' as const,
+  }));
+}
+class AmbientStub {
+  readonly view = signal<ClaudeAmbientStatusView>({
+    status: 'idle',
+    result: null,
+    localFailure: false,
+  });
+  readonly read = jest.fn(async (_refresh: boolean) => undefined);
+}
+
 describe('CliOrchestrationMatrixComponent', () => {
   let fixture: ComponentFixture<CliOrchestrationMatrixComponent>;
   let state: StateStub;
+  let accounts: AccountsStub;
+  let ambient: AmbientStub;
+  /** Read when a cell is created; the matrix itself never injects the account services. */
+  let electron = true;
   let feedback: SettingsSaveFeedbackService;
   const element = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
@@ -228,10 +279,24 @@ describe('CliOrchestrationMatrixComponent', () => {
       value: jest.fn(),
     });
     state = new StateStub();
+    accounts = new AccountsStub();
+    ambient = new AmbientStub();
+    electron = true;
     TestBed.configureTestingModule({
       imports: [CliOrchestrationMatrixComponent],
       providers: [
         { provide: ProvidersSettingsStateService, useValue: state },
+        {
+          // A getter: other children inject this service when the matrix is created, before a test flips `electron`.
+          provide: VSCodeService,
+          useValue: {
+            get isElectron() {
+              return electron;
+            },
+          },
+        },
+        { provide: ProviderAccountsStateService, useValue: accounts },
+        { provide: ClaudeAmbientStatusService, useValue: ambient },
         {
           provide: PROVIDER_MODELS_LOADER,
           useValue: {
@@ -1351,6 +1416,66 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(cell?.getAttribute('aria-label')).toBe(
         'Antigravity model: claude-sonnet-4-6. Change',
       );
+    });
+  });
+
+  describe('P6 lane account cell (L1, acceptance 8)', () => {
+    const cellIn = (id: string) =>
+      row(id)?.querySelector('ptah-claude-lane-account-cell') ?? null;
+    function detectClaude(installed: boolean) {
+      state.orchestration.set(
+        ready({
+          ...ORCHESTRATION,
+          detectedClis: [
+            ...ORCHESTRATION.detectedClis,
+            detected('claude', installed, installed ? { version: '2.1.0' } : {}),
+          ],
+        }),
+      );
+      fixture.detectChanges();
+    }
+
+    it('is absent while no Claude row exists, and reads nothing', () => {
+      expect(q('ptah-claude-lane-account-cell')).toBeNull();
+      expect(accounts.open).not.toHaveBeenCalled();
+    });
+
+    it('sits under the installed Claude row name line only', () => {
+      detectClaude(true);
+      const cell = cellIn('claude');
+      expect(cell).not.toBeNull();
+      expect(cell?.previousElementSibling?.className).toContain('cli-name-line');
+      expect(
+        cell?.querySelector('[data-testid="cli-matrix-account-trigger"]')
+          ?.textContent,
+      ).toContain('Existing Claude login');
+      expect(
+        element().querySelectorAll('ptah-claude-lane-account-cell'),
+      ).toHaveLength(1);
+      for (const id of ['codex', 'antigravity', 'glm-1', 'copilot']) {
+        expect(cellIn(id)).toBeNull();
+      }
+      expect(accounts.open).toHaveBeenCalledWith('claude');
+      expect(ambient.read).toHaveBeenCalledWith(false);
+    });
+
+    it('is absent on an uninstalled Claude row', () => {
+      detectClaude(false);
+      expect(row('claude')).not.toBeNull();
+      expect(q('ptah-claude-lane-account-cell')).toBeNull();
+    });
+
+    it('renders nothing and reads nothing off Electron', () => {
+      electron = false;
+      detectClaude(true);
+      expect(
+        cellIn('claude')?.querySelector(
+          '[data-testid="cli-matrix-account-trigger"]',
+        ) ?? null,
+      ).toBeNull();
+      expect(accounts.open).not.toHaveBeenCalled();
+      expect(accounts.state).not.toHaveBeenCalled();
+      expect(ambient.read).not.toHaveBeenCalled();
     });
   });
 });

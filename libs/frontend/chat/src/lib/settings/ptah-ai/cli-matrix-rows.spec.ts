@@ -405,9 +405,24 @@ describe('cliMatrixRows', () => {
           .keyStatus,
       ).toEqual({ kind: 'keyless', label: 'No key needed' });
       expect(
-        glm({ hasStoredKey: false, hasApiKey: false, providerId: 'kimi-code' })
+        glm({ hasStoredKey: false, hasApiKey: false, providerId: 'anthropic' })
           .keyStatus,
       ).toEqual({ kind: 'missing', label: 'No API key' });
+    });
+
+    it('labels a key-less Kimi Code instance by its host sign-in', () => {
+      expect(
+        glm({ hasStoredKey: false, hasApiKey: true, providerId: 'kimi-code' })
+          .keyStatus,
+      ).toEqual({ kind: 'keyless', label: 'Kimi Code connection' });
+      expect(
+        glm({ hasStoredKey: false, hasApiKey: false, providerId: 'kimi-code' })
+          .keyStatus,
+      ).toEqual({ kind: 'missing', label: 'Not signed in' });
+      expect(
+        glm({ hasStoredKey: true, hasApiKey: true, providerId: 'kimi-code' })
+          .keyStatus,
+      ).toEqual({ kind: 'key-set', label: 'Key set' });
     });
 
     it('shows tier badges in Sonnet, Opus, Haiku order (#54)', () => {

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
-import type { ConnectionCheckRecord } from '@ptah-extension/shared';
+import type { ConnectionCheckRecord, KimiCodeLoginState } from '@ptah-extension/shared';
 import { NativeDrawerComponent, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type { UsedBy } from './connection-usage';
 import {
@@ -13,6 +13,7 @@ import {
 } from './connection-drawer/credentials-tab.component';
 import { ModelsTiersTabComponent } from './connection-drawer/models-tiers-tab.component';
 import { AdvancedTabComponent } from './connection-drawer/advanced-tab.component';
+import { AccountsTabComponent } from './accounts/accounts-tab.component';
 // The card uses the same avatar, so a connection looks the same on the card and in its drawer.
 import { connectionAvatarTone, connectionInitials, KEY_UNREADABLE_TEXT } from './provider-connection-card.state';
 
@@ -38,7 +39,7 @@ const PROTOCOL_LABELS: Readonly<Record<CustomProtocol, string>> = {
  * - Models & Tiers: a custom gateway's own default models (the entry's `defaultTiers`);
  * - Advanced: a custom gateway's name and protocol.
  */
-const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, string>> = {
+const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview' | 'accounts'>, string>> = {
   credentials: 'Change this connection\'s endpoint address in setup.',
   models: 'Change this gateway\'s own default models in setup.',
   advanced: 'Change this gateway\'s name or protocol in setup.',
@@ -60,7 +61,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent, CredentialsTabComponent,
-    ModelsTiersTabComponent, AdvancedTabComponent],
+    ModelsTiersTabComponent, AdvancedTabComponent, AccountsTabComponent],
   template: `
     <ptah-native-drawer [isOpen]="connection() !== null" widthClass="w-full max-w-lg"
       [ariaLabel]="(connection()?.name ?? 'Connection') + ' connection details'" (closed)="closed.emit()">
@@ -75,12 +76,15 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
         </div>
       }
       @if (connection(); as current) {
-        <!-- Four tabs stay on one line (prototype): the labels inherit nowrap and the strip takes 8px of the
-             body padding on each side; the tab body resets both. -->
-        <ptah-native-tab-group class="-mx-2 block whitespace-nowrap" [tabs]="tabs()" [(activeId)]="activeTab"
-          ariaLabel="Connection details sections">
-          <div class="whitespace-normal px-2 pt-4" [attr.data-tab-body]="activeTabId()">
+        <!-- The strip wraps onto a second line in a narrow drawer instead of truncating a label (P5-D6); it
+             takes 8px of the body padding on each side and the tab body resets both. -->
+        <ptah-native-tab-group class="-mx-2 block [&_[role=tablist]]:flex-wrap" [tabs]="tabs()" [(activeId)]="activeTab"
+          ariaLabel="Connection details sections" data-testid="connection-drawer-tabs">
+          <div class="px-2 pt-4" [attr.data-tab-body]="activeTabId()">
             @switch (activeTabId()) {
+              @case ('accounts') {
+                <ptah-accounts-tab />
+              }
               @case ('overview') {
                 <ptah-connection-overview-tab [status]="status()" [positiveProbeEvidence]="positiveProbeEvidence()"
                   [isActive]="isActive()" [kind]="kind()" [authModeLabel]="authModeRowLabel()" [credentialLabel]="credentialLabel()"
@@ -92,7 +96,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
               @case ('credentials') {
                 <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isDriver()"
                   [saving]="saving()" [setup]="credentialsSetup()" [setupError]="credentialsSetupError()" [commit]="credentialsCommit()"
-                  [externalAuth]="externalAuth()" [verifyDraftConnection]="verifyDraftConnection()"
+                  [externalAuth]="externalAuth()" [kimiLogin]="kimiLogin()" [verifyDraftConnection]="verifyDraftConnection()"
                   [cancelDraftVerification]="cancelDraftVerification()" (replaceKeyRequested)="emitReplace(current, $event)"
                   (deleteKeyRequested)="deleteKeyRequested.emit()" (signOutRequested)="signOutRequested.emit()"
                   (externalActionRequested)="externalActionRequested.emit($event)" (keyRetryRequested)="keyRetryRequested.emit()" />
@@ -155,11 +159,20 @@ export class ConnectionDetailDrawerComponent {
   readonly usageError = input(false);
   /** Wire protocol of a custom entry; `null` for a catalog connection or while it is unknown. */
   readonly customProtocol = input<CustomProtocol | null>(null);
+  /** The host serves named Claude accounts (account state not inert); otherwise the Accounts tab is absent. */
+  readonly accountsAvailable = input(false);
+  /**
+   * The tab the drawer opens on each time the connection changes (e.g. the main agent's "Sign in" opens
+   * Accounts). `null` opens Overview; a tab this connection does not show falls back to Overview.
+   */
+  readonly initialTab = input<ConnectionDrawerTabId | null>(null);
   /** Credentials tab: stored endpoint and tiers, its own last write, the host's sign-in message. */
   readonly credentialsSetup = input<CredentialsSetup | null>(null);
   readonly credentialsSetupError = input(false);
   readonly credentialsCommit = input<CredentialsCommit | null>(null);
   readonly externalAuth = input<CredentialsExternalAuth>({ status: 'idle', message: null });
+  /** The in-app Kimi Code sign-in, for the Kimi Code Credentials view. */
+  readonly kimiLogin = input<KimiCodeLoginState | null>(null);
   readonly verifyDraftConnection = input.required<VerifyDraftFn>();
   readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly closed = output<void>();
@@ -180,7 +193,11 @@ export class ConnectionDetailDrawerComponent {
     const current = this.connection();
     return current ? connectionKind(current) : 'api-key';
   });
-  protected readonly tabs = computed(() => connectionDrawerTabs(this.kind()));
+  /** Accounts only where the host serves named accounts (the parent gates on a non-inert account state). */
+  protected readonly tabs = computed(() => {
+    const tabs = connectionDrawerTabs(this.kind());
+    return this.accountsAvailable() ? tabs : tabs.filter((tab) => tab.id !== 'accounts');
+  });
   /** The bound id when it is one of this connection's tabs, otherwise Overview. */
   protected readonly activeTabId = computed<ConnectionDrawerTabId>(() =>
     this.tabs().find((tab) => tab.id === this.activeTab())?.id ?? 'overview');
@@ -206,17 +223,36 @@ export class ConnectionDetailDrawerComponent {
       }
       case 'api-key': return current?.hasKey ? 'API key · Stored locally'
         : current?.keyUnreadable ? 'API key · Stored key unreadable' : 'API key · No key stored';
-      case 'oauth': return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
+      case 'oauth': {
+        const source = this.fallbackSourceLabel();
+        if (source) return `Provider sign-in · ${source}`;
+        return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
+      }
       case 'local': return current?.hasKey ? 'Local server · Key stored locally'
         : current?.keyUnreadable ? 'Local server · Stored key unreadable' : 'Local server';
       default: return 'CLI subscription · Claude CLI login';
+    }
+  });
+  /**
+   * A sign-in connection that also takes a stored key (Kimi Code) names the credential serving it now
+   * (`credentialSource`), not a generic sign-in. Null for every other connection.
+   */
+  private readonly fallbackSourceLabel = computed(() => {
+    const current = this.connection();
+    switch (current?.credentialSource) {
+      case 'cli-login': return `${current.name} CLI sign-in`;
+      case 'api-key': return 'API key (fallback)';
+      case 'none': return 'Not signed in';
+      default: return null;
     }
   });
   protected readonly credentialLabel = computed(() => {
     const current = this.connection();
     switch (this.kind()) {
       case 'claude-cli': return 'Claude CLI login session';
-      case 'oauth': return current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session';
+      case 'oauth':
+        return this.fallbackSourceLabel()
+          ?? (current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session');
       case 'local': return current?.hasKey ? 'Optional key stored on this machine'
         : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key needed';
       default: return current?.hasKey ? 'Stored on this machine' : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key stored';
@@ -225,7 +261,9 @@ export class ConnectionDetailDrawerComponent {
   /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */
   protected readonly overviewKeyHint = computed(() => {
     const current = this.connection();
-    return current?.hasKey && (this.kind() === 'api-key' || this.kind() === 'custom') ? current.keyHint ?? null : null;
+    // `credentialSource` is set only for a sign-in connection that also takes a stored key (`apiKeyFallback`, Kimi Code).
+    return current?.hasKey && (current.credentialSource || this.kind() === 'api-key' || this.kind() === 'custom')
+      ? current.keyHint ?? null : null;
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {
@@ -238,7 +276,7 @@ export class ConnectionDetailDrawerComponent {
   });
   protected readonly setupCopy = computed(() => {
     const tab = this.activeTabId();
-    return tab === 'overview' ? '' : SETUP_COPY[tab];
+    return tab === 'overview' || tab === 'accounts' ? '' : SETUP_COPY[tab];
   });
 
   private readonly connectionId = computed(() => this.connection()?.id ?? null);
@@ -248,10 +286,11 @@ export class ConnectionDetailDrawerComponent {
   }
 
   constructor() {
-    // Every connection opens on Overview.
+    // Every connection opens on the requested tab, or Overview; `activeTabId` falls back to Overview when
+    // the requested tab is not one of this connection's tabs. Changing only `initialTab` does not move it.
     effect(() => {
       this.connectionId();
-      untracked(() => this.activeTab.set('overview'));
+      untracked(() => this.activeTab.set(this.initialTab() ?? 'overview'));
     });
   }
 }

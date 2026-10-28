@@ -21,16 +21,21 @@
  */
 
 import type { Logger } from '@ptah-extension/vscode-core';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type {
-  ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ProviderAccountAdmissionPort,
-  ProviderAccountPortRefusal,
+  ClaudeAccountNamedRoute, ClaudeAccountRunReservation, ClaudeCertifiedLaunchContext, ClaudeLaunchBoundary,
+  ClaudeLaunchBoundaryOutcome, ProviderAccountAdmissionPort, ProviderAccountPortRefusal,
 } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountBinding, ProviderAccountIdentityEvidence, ProviderAccountSelection } from '@ptah-extension/shared';
 import type { AccountInfo, QueryFunction } from '../../types/sdk-types/claude-sdk.types';
 import type { SessionMetadata } from '../../session-metadata-store';
 import type { NamedAccountQueryHandle } from '../sdk-query-runner.service';
-import { buildNamedAccountBootstrapOptions } from '../sdk-query-options-builder';
+import { buildNamedAccountBootstrapOptions, namedActualLaunch } from '../sdk-query-options-builder';
+import {
+  ClaudeCertifiedLaunchRefusal, assertCertifiedLaunch, claudePersonalLoginCheck, claudePersonalLoginPassed,
+} from '../claude-certified-launch';
+import { claudeIdentityReference } from '../claude-identity-reference';
+import { withNamedAccountToolGate } from '../named-account-prompt-gate';
 import type {
   ISdkPermissionHandler,
   AuthEnv,
@@ -43,7 +48,9 @@ import {
   getAllAnthropicProviders,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
   type ContextCapacityRoute,
 } from '@ptah-extension/shared';
 import type { UsageCostSource } from '../../session-stats/session-stats-owner.service';
@@ -127,6 +134,9 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
             break;
           case CODEX_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'openai-codex';
+            break;
+          case KIMI_CODE_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'kimi-code';
             break;
           case OPENROUTER_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'openrouter';
@@ -565,18 +575,79 @@ export interface NamedAccountPersistencePort {
   saveAccountBound(metadata: SessionMetadata, binding: ProviderAccountBinding): Promise<void>;
   assertRouteCurrent(route: ClaudeAccountNamedRoute): Promise<void>;
   onAuthEpochChanged(listener: (route: ClaudeAccountNamedRoute) => void): () => void;
+  /** Route revalidation and policy re-scan right before one SDK child starts. */
+  checkLaunchBoundary(route: ClaudeAccountNamedRoute, launch: ClaudeCertifiedLaunchContext,
+    boundary: ClaudeLaunchBoundary, signal: AbortSignal): Promise<ClaudeLaunchBoundaryOutcome>;
 }
 
-/** Fixed, path-free typed refusal, including the admission port's release-held. */
-export function namedAccountRefusal(code: ProviderAccountPortRefusal['code'] = 'release-held'): ProviderAccountPortRefusal {
-  return { code, summary: 'Named account admission could not be completed.' };
+const NAMED_REFUSAL_SUMMARY = 'Named account admission could not be completed.';
+/**
+ * The fixed, log-safe step that refused a named admission (D76). It is held
+ * beside the refusal, never on it, so the refusal the renderer receives keeps
+ * exactly its `code` and `summary`.
+ */
+export type NamedRefusalReason =
+  | 'expired' | 'step-timeout' | 'aborted' | 'resume-unproven' | 'admission-refused' | 'not-named'
+  | 'launch-missing' | 'launch-cwd-mismatch' | 'launch-refused' | 'boundary-refused' | 'binding-mismatch'
+  | 'identity-unproved' | 'identity-mismatch' | 'stream-ended' | 'init-unproven' | 'buffer-overflow'
+  | 'state-missing' | 'route-conflict' | 'session-mismatch' | 'attach-conflict' | 'wrong-provider'
+  | 'storage-unavailable' | 'project-path-invalid' | 'step-failed' | 'unclassified';
+
+const refusalReasons = new WeakMap<object, NamedRefusalReason>();
+
+/** Fixed, path-free typed refusal. A refusal with no stated code is `identity-unproved`. */
+export function namedAccountRefusal(code: ProviderAccountPortRefusal['code'] = 'identity-unproved',
+  reason: NamedRefusalReason = 'unclassified'): ProviderAccountPortRefusal {
+  const refusal: ProviderAccountPortRefusal = { code, summary: NAMED_REFUSAL_SUMMARY };
+  refusalReasons.set(refusal, reason);
+  return refusal;
 }
 
-function namedIdentity(account: AccountInfo): ProviderAccountIdentityEvidence {
-  const email = account.email?.trim();
-  return email ? { kind: 'known', ownerKey: createHash('sha256')
-    .update(`ptah-quota-owner\0${email}\0${account.organization?.trim() ?? ''}`, 'utf8').digest('hex') }
-    : { kind: 'unknown' };
+function isNamedRefusal(error: unknown): error is ProviderAccountPortRefusal {
+  return typeof error === 'object' && error !== null && refusalReasons.has(error);
+}
+
+/**
+ * The reason a named refusal carries; a certified-launch refusal is
+ * `launch-refused` and any other error a failed step (`step-failed`).
+ */
+export function namedRefusalReason(error: unknown): NamedRefusalReason {
+  const reason = typeof error === 'object' && error !== null ? refusalReasons.get(error) : undefined;
+  if (reason) return reason;
+  return error instanceof ClaudeCertifiedLaunchRefusal ? 'launch-refused' : 'step-failed';
+}
+
+/** A fresh named refusal with the code and reason of the error it replaces. */
+function rewrapNamedRefusal(error: unknown): ProviderAccountPortRefusal {
+  return namedAccountRefusal(namedRefusalCode(error), namedRefusalReason(error));
+}
+
+/**
+ * The refusal code an error carries: a named refusal's or a certified-launch
+ * refusal's own code. Any other error is an unclassified named-run failure,
+ * `identity-unproved` (the `namedAccountRefusal` default), so no foreign
+ * error field reaches a caller.
+ */
+function namedRefusalCode(error: unknown): ProviderAccountPortRefusal['code'] {
+  if (isNamedRefusal(error) || error instanceof ClaudeCertifiedLaunchRefusal) return error.code;
+  return 'identity-unproved';
+}
+
+/** Init key sources a certified named child may report. */
+const CERTIFIED_INIT_KEY_SOURCES: ReadonlySet<string> = new Set(['none', 'oauth']);
+
+/**
+ * Post-init tripwire and identity: the running child must use a personal
+ * claude.ai login (`claudePersonalLoginCheck`: no API key source, first-party
+ * provider, a personal subscription in the raw or the display vocabulary) and
+ * be the account its launch was certified for. Any
+ * mismatch, an unknown identity included, refuses `identity-unproved`.
+ */
+function namedIdentity(account: AccountInfo, launch: ClaudeCertifiedLaunchContext): ProviderAccountIdentityEvidence {
+  if (!claudePersonalLoginPassed(claudePersonalLoginCheck(account))) throw namedAccountRefusal('identity-unproved', 'identity-unproved');
+  const ownerKey = claudeIdentityReference(account.email, account.organization);
+  if (ownerKey === null || ownerKey !== launch.identityReference) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
+  return { kind: 'known', ownerKey };
 }
 
 function sameNamedIdentity(left: ProviderAccountIdentityEvidence, right: ProviderAccountIdentityEvidence): boolean {
@@ -584,22 +655,47 @@ function sameNamedIdentity(left: ProviderAccountIdentityEvidence, right: Provide
     ? left.ownerKey === right.ownerKey : left.kind === right.kind;
 }
 
-/** An empty gate that does not even pull caller-owned conversation until commit. */
+/**
+ * Holds caller-owned conversation. Nothing is pulled until `releaseFirst`,
+ * which hands over only the first caller turn: CLI 2.1.278 in streaming-input
+ * mode builds `system/init` after that turn (D68, D69). No later turn is pulled
+ * until `commit`, and each later turn passes `approve` first. The first turn
+ * skips `approve`: the same child proved the account right before the release.
+ */
 class NamedQueryGate {
+  private released = false;
   private open = false;
   private closed = false;
-  private wake!: () => void;
-  private readonly ready = new Promise<void>((resolve) => { this.wake = resolve; });
-  commit(): void { if (!this.closed) { this.open = true; this.wake(); } }
-  close(): void { this.closed = true; this.wake(); }
+  private wakeRelease!: () => void;
+  private wakeCommit!: () => void;
+  private readonly releasedFirst = new Promise<void>((resolve) => { this.wakeRelease = resolve; });
+  private readonly committed = new Promise<void>((resolve) => { this.wakeCommit = resolve; });
+  releaseFirst(): void { if (!this.closed) { this.released = true; this.wakeRelease(); } }
+  commit(): void {
+    if (this.closed) return;
+    this.released = true;
+    this.open = true;
+    this.wakeRelease();
+    this.wakeCommit();
+  }
+  close(): void { this.closed = true; this.wakeRelease(); this.wakeCommit(); }
   async *stream(source?: AsyncIterable<SDKUserMessage>, approve?: () => Promise<void>): AsyncIterable<SDKUserMessage> {
-    await this.ready;
-    if (!this.open || this.closed || !source) return;
+    await this.releasedFirst;
+    if (!this.released || this.closed || !source) return;
+    let first = true;
     for await (const message of source) {
       if (this.closed) return;
-      await approve?.();
-      if (this.closed) return;
+      if (!first) {
+        await approve?.();
+        if (this.closed) return;
+      }
       yield message;
+      if (first) {
+        first = false;
+        // Pull no later turn before the run is admitted.
+        await this.committed;
+        if (!this.open || this.closed) return;
+      }
     }
   }
 }
@@ -607,6 +703,9 @@ class NamedQueryGate {
 /** Named-only lifecycle. The ambient executor never constructs this object. */
 export class NamedAccountQueryAdmission {
   route!: ClaudeAccountNamedRoute;
+  certifiedLaunch?: ClaudeCertifiedLaunchContext;
+  /** True while a boundary check's own children are not proved closed. */
+  private boundaryUnproved = false;
   private reservation?: ClaudeAccountRunReservation;
   private baseline?: ProviderAccountIdentityEvidence;
   private storedBinding?: ProviderAccountBinding;
@@ -616,6 +715,19 @@ export class NamedAccountQueryAdmission {
   private readonly gates: NamedQueryGate[] = [];
   private stopEpoch?: () => void;
   private settlement?: Promise<void>;
+  /** Terminal: once set, no step admits the run, returns the query or delegates a tool. */
+  private disposed = false;
+  /** True once the admitted child ended on its own; dispose then leaves the session controller alone. */
+  private childEnded = false;
+  private settleAdmission?: (admitted: boolean) => void;
+  /**
+   * Wall-clock end of the whole admission: the earlier of this flow's own
+   * budget and the caller's operation deadline (D73). Until the run is
+   * admitted, `wait` never outlasts it and an expired end never admits.
+   */
+  private readonly admissionEndsAt: number;
+  /** Set when the binding commits; later waits (per-turn identity checks) keep only the per-step deadline. */
+  private admitted = false;
   private readonly onAbort = (): void => {
     for (const gate of this.gates) gate.close();
     this.closeChild();
@@ -630,28 +742,69 @@ export class NamedAccountQueryAdmission {
     private readonly logger: Pick<Logger, 'warn'>,
     private readonly abortController: AbortController,
     private readonly deadlineMs = 15_000,
+    admissionBudgetMs = NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
+    /** Absolute end (epoch ms) of the whole RPC operation, set at handler entry. */
+    operationDeadline?: number,
   ) {
+    // The renderer's admission RPC timeout is derived from this same budget,
+    // so the host always answers before the renderer gives up (D72). The
+    // handler's deadline already counts the work done before admission (D73).
+    this.admissionEndsAt = Math.min(Date.now() + admissionBudgetMs, operationDeadline ?? Number.POSITIVE_INFINITY);
     abortController.signal.addEventListener('abort', this.onAbort, { once: true });
     if (abortController.signal.aborted) this.onAbort();
   }
 
-  /** Every admission await is cancellable; late resolutions never advance the flow. */
-  async wait<T>(pending: Promise<T>): Promise<T> {
+  /**
+   * An expired admission refuses the same way the budget timer does: abort
+   * (which disposes the flow) and throw the deadline refusal. Checked before
+   * each race and after it, so an already-settled step cannot win a
+   * zero-length race and admit after the end (D73).
+   */
+  private refuseIfExpired(): void {
+    if (this.admitted || Date.now() < this.admissionEndsAt) return;
+    this.abortController.abort();
+    throw namedAccountRefusal('identity-unproved', 'expired');
+  }
+
+  /**
+   * Every admission await is cancellable; late resolutions never advance the flow.
+   * A `step` is bounded by the per-step deadline and the admission end. The
+   * CLI's `first-messages` (it emits `system/init` only after its MCP servers
+   * connect, slow under start-up load) are bounded by the admission end only.
+   */
+  async wait<T>(pending: Promise<T>, bound: 'step' | 'first-messages' = 'step'): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancel: (() => void) | undefined;
+    try {
+      this.refuseIfExpired();
+    } catch (refusal: unknown) {
+      // The caller's step is already running and is abandoned by this refusal;
+      // observe its late rejection so it never surfaces as an unhandled rejection.
+      void pending.catch(() => this.logger.warn('[SessionLifecycle] Abandoned admission step rejected after the deadline.'));
+      throw refusal;
+    }
+    const remainingMs = Math.max(0, this.admissionEndsAt - Date.now());
+    const limitMs = this.admitted ? this.deadlineMs
+      : bound === 'first-messages' ? remainingMs : Math.min(this.deadlineMs, remainingMs);
     try {
       const value = await Promise.race([
         pending,
         new Promise<never>((_resolve, reject) => {
-          cancel = () => reject(namedAccountRefusal());
+          cancel = () => reject(namedAccountRefusal('identity-unproved', 'aborted'));
           this.abortController.signal.addEventListener('abort', cancel, { once: true });
           if (this.abortController.signal.aborted) cancel();
         }),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => { this.abortController.abort(); reject(namedAccountRefusal()); }, this.deadlineMs);
+          timer = setTimeout(() => {
+            const expired = !this.admitted && Date.now() >= this.admissionEndsAt;
+            // Reject before the abort, so the timeout reason wins the race over the abort listener's.
+            reject(namedAccountRefusal('identity-unproved', expired ? 'expired' : 'step-timeout'));
+            this.abortController.abort();
+          }, limitMs);
         }),
       ]);
-      if (this.abortController.signal.aborted) throw namedAccountRefusal();
+      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal('identity-unproved', 'aborted');
+      this.refuseIfExpired();
       return value;
     } finally {
       clearTimeout(timer);
@@ -659,17 +812,25 @@ export class NamedAccountQueryAdmission {
     }
   }
 
-  async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection,
-    resumeSessionId?: string, executable?: string, forkSession = false): Promise<void> {
+  /**
+   * `workingDirectory` is the session's project directory. Admission certifies
+   * that directory's settings, so the certified launch and the final query run
+   * there, never in the account's own directory.
+   */
+  async bootstrap(queryFn: QueryFunction, selection: ProviderAccountSelection, workingDirectory: string,
+    resumeSessionId?: string, forkSession = false): Promise<void> {
     try {
+      // Time used up before admission (handler preparation included) refuses before any reservation.
+      this.refuseIfExpired();
       // Resolve authoritative evidence before constructing ANY conversation options.
       const stored = resumeSessionId
         ? await this.wait(this.persistence.resolveAccountBinding(resumeSessionId)) : null;
-      if (resumeSessionId && (!stored || stored.identity.kind === 'unknown')) throw namedAccountRefusal();
+      if (resumeSessionId && (!stored || stored.identity.kind === 'unknown')) throw namedAccountRefusal('identity-unproved', 'resume-unproven');
       this.storedBinding = forkSession ? undefined : stored ?? undefined;
       this.resumeSdkSessionId = forkSession ? undefined : resumeSessionId;
       const pending = this.admission.admitClaudeRoute({ provider: 'claude', scope: 'main',
-        selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID() }).then(async (result) => {
+        selection, operationId: randomUUID(), runId: this.storedBinding?.runId ?? randomUUID(), workingDirectory,
+      }).then(async (result) => {
         if (result.code === 'ok') {
           this.reservation = result.reservation;
           if (this.abortController.signal.aborted) await this.dispose();
@@ -677,12 +838,18 @@ export class NamedAccountQueryAdmission {
         return result;
       });
       const admitted = await this.wait(pending);
-      if (admitted.code !== 'ok') throw namedAccountRefusal(admitted.code);
-      if (admitted.resources.kind !== 'named') throw namedAccountRefusal();
+      if (admitted.code !== 'ok') throw namedAccountRefusal(admitted.code, 'admission-refused');
+      if (admitted.resources.kind !== 'named') throw namedAccountRefusal('identity-unproved', 'not-named');
       this.route = admitted.resources.route;
+      // No certified launch: refuse before any bootstrap options or child exist.
+      const launch = admitted.resources.launch;
+      if (!launch) throw namedAccountRefusal('identity-unproved', 'launch-missing');
+      // A launch certified for any other directory proves nothing about this project's settings.
+      if (launch.cwd !== workingDirectory) throw namedAccountRefusal('identity-unproved', 'launch-cwd-mismatch');
+      this.certifiedLaunch = launch;
       if (stored && (stored.provider !== this.route.provider || stored.profileId !== this.route.profileId ||
           stored.routeFingerprint !== this.route.routeFingerprint || stored.routeRevision !== this.route.routeRevision)) {
-        throw namedAccountRefusal();
+        throw namedAccountRefusal('identity-unproved', 'binding-mismatch');
       }
       this.stopEpoch = this.persistence.onAuthEpochChanged((changed) => {
         this.registry.invalidateAccountRoute(changed);
@@ -692,55 +859,95 @@ export class NamedAccountQueryAdmission {
         }
       });
       await this.wait(this.persistence.assertRouteCurrent(this.route));
+      const bootstrapOptions = buildNamedAccountBootstrapOptions(this.route, new AbortController(), launch);
+      await this.checkBoundary(bootstrapOptions, 'bootstrap');
       const gate = new NamedQueryGate();
       this.gates.push(gate);
-      this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(),
-        buildNamedAccountBootstrapOptions(this.route, new AbortController(), executable),
+      this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(), bootstrapOptions,
         (termination) => { this.termination = termination; });
-      const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()));
-      if (stored && !sameNamedIdentity(stored.identity, identity)) throw namedAccountRefusal();
+      const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
+      if (stored && !sameNamedIdentity(stored.identity, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
       this.baseline = stored?.identity ?? identity;
       gate.close();
       this.child.sdkQuery.close();
       await this.wait(this.child.terminated);
       this.child = undefined;
       this.termination = undefined;
-    } catch {
+    } catch (error: unknown) {
       await this.dispose();
-      throw namedAccountRefusal();
+      throw rewrapNamedRefusal(error);
     }
+  }
+
+  /**
+   * Both checks that must pass right before one SDK child starts: the options
+   * against the certified launch (no I/O), then the host boundary check (route
+   * revalidation and policy re-scan). The query factory is never reached on a
+   * refusal.
+   */
+  private async checkBoundary(options: Options, boundary: ClaudeLaunchBoundary): Promise<void> {
+    const launch = this.certifiedLaunch;
+    if (!launch) throw namedAccountRefusal('identity-unproved', 'launch-missing');
+    assertCertifiedLaunch(launch, namedActualLaunch(options), boundary);
+    // Unproved until an outcome proves the check's children closed: an abort
+    // or deadline during the check settles by retaining the reservation.
+    this.boundaryUnproved = true;
+    const outcome = await this.wait(this.persistence.checkLaunchBoundary(this.route, launch, boundary,
+      this.abortController.signal));
+    if (outcome.ok) {
+      this.boundaryUnproved = false;
+      return;
+    }
+    this.boundaryUnproved = !outcome.terminated;
+    throw namedAccountRefusal(outcome.code, 'boundary-refused');
   }
 
   async launch(queryFn: QueryFunction, source: AsyncIterable<SDKUserMessage>, options: Options,
     registerKey: string, metadata: Omit<SessionMetadata, 'sessionId'>): Promise<Query> {
     const gate = new NamedQueryGate();
     this.gates.push(gate);
-    let admitted = false;
-    const canUseTool = options.canUseTool;
+    // One admission check for `canUseTool` and the `PreToolUse` hook: a tool call
+    // is denied until `system/init` is verified. After that it waits for the
+    // admission outcome: allowed once the binding is committed, denied on any
+    // refusal, abort or dispose (the catch below and `dispose` settle it false).
+    let initVerified = false;
+    const admission = new Promise<boolean>((resolve) => { this.settleAdmission = resolve; });
+    const toolAdmitted = async (): Promise<boolean> => initVerified && (await admission) &&
+      !this.disposed && !this.abortController.signal.aborted;
     try {
-      if (this.abortController.signal.aborted) throw namedAccountRefusal();
+      if (this.disposed) throw namedAccountRefusal('identity-unproved', 'aborted');
+      if (this.abortController.signal.aborted) throw namedAccountRefusal('identity-unproved', 'aborted');
+      const launch = this.certifiedLaunch;
+      if (!launch) throw namedAccountRefusal('identity-unproved', 'launch-missing');
+      await this.checkBoundary(options, 'final');
       this.child = this.runner.invokeNamedQuery(queryFn, gate.stream(source, async () => {
         try { await this.verifyIdentity(); }
-        catch { await this.dispose(); throw namedAccountRefusal(); }
-      }), { ...options, canUseTool: (tool, input, context) => admitted && !this.abortController.signal.aborted && canUseTool
-        ? canUseTool(tool, input, context)
-        : Promise.resolve({ behavior: 'deny', message: 'Account admission pending.' }) },
+        catch (error: unknown) { await this.dispose(); throw rewrapNamedRefusal(error); }
+      }), withNamedAccountToolGate(options, toolAdmitted),
         (termination) => { this.termination = termination; });
       await this.verifyIdentity();
+      // The same child proved the account: hand over the first caller turn only.
+      gate.releaseFirst();
       const query = this.child.sdkQuery;
       const buffered: SDKMessage[] = [];
       let sdkSessionId: string | undefined;
       while (!sdkSessionId) {
-        const next = await this.wait(query.next());
-        if (next.done) throw namedAccountRefusal();
+        const next = await this.wait(query.next(), 'first-messages');
+        if (next.done) throw namedAccountRefusal('identity-unproved', 'stream-ended');
         buffered.push(next.value);
-        if (next.value.type === 'system' && next.value.subtype === 'init') sdkSessionId = next.value.session_id;
-        if (buffered.length > 64) throw namedAccountRefusal();
+        if (next.value.type === 'system' && next.value.subtype === 'init') {
+          // The running CLI must be the certified version on a login key source.
+          if (next.value.claude_code_version !== launch.executable.version ||
+              !CERTIFIED_INIT_KEY_SOURCES.has(next.value.apiKeySource)) throw namedAccountRefusal('identity-unproved', 'init-unproven');
+          sdkSessionId = next.value.session_id;
+          initVerified = true;
+        }
+        if (buffered.length > 64) throw namedAccountRefusal('identity-unproved', 'buffer-overflow');
       }
-      if (!this.registry.bindAccountRoute(registerKey, this.route) || !this.reservation || !this.baseline) {
-        throw namedAccountRefusal();
-      }
-      if (this.resumeSdkSessionId && this.resumeSdkSessionId !== sdkSessionId) throw namedAccountRefusal();
+      if (!this.reservation || !this.baseline) throw namedAccountRefusal('identity-unproved', 'state-missing');
+      // No registry record, or the session is bound to another route: a conflict.
+      if (!this.registry.bindAccountRoute(registerKey, this.route)) throw namedAccountRefusal('conflict', 'route-conflict');
+      if (this.resumeSdkSessionId && this.resumeSdkSessionId !== sdkSessionId) throw namedAccountRefusal('conflict', 'session-mismatch');
       // An ordinary resume keeps the immutable SDK attachment and binding.
       // Forks create a new run/link, while checking the original owner's baseline.
       const binding = this.storedBinding ?? await this.wait(
@@ -749,15 +956,19 @@ export class NamedAccountQueryAdmission {
           binding.runId !== this.route.runId || binding.routeFingerprint !== this.route.routeFingerprint ||
           binding.routeRevision !== this.route.routeRevision ||
           (this.storedBinding ? binding.authEpoch > this.route.authEpoch : binding.authEpoch !== this.route.authEpoch) ||
-          !sameNamedIdentity(binding.identity, this.baseline)) throw namedAccountRefusal();
+          !sameNamedIdentity(binding.identity, this.baseline)) throw namedAccountRefusal('identity-unproved', 'binding-mismatch');
       const attached = await this.wait(this.persistence.attachSdkSession({ provider: 'claude', sdkSessionId,
         runId: binding.runId, attachedAt: Date.now() }));
-      if (attached.status !== 'attached') throw namedAccountRefusal();
+      if (attached.status !== 'attached') throw namedAccountRefusal('conflict', 'attach-conflict');
       await this.wait(this.persistence.saveAccountBound({ ...metadata, sessionId: sdkSessionId }, binding));
       await this.verifyIdentity();
-      admitted = true;
+      // A dispose during the last read is terminal: never admit after it.
+      if (this.disposed || this.abortController.signal.aborted) throw namedAccountRefusal('identity-unproved', 'aborted');
+      this.refuseIfExpired();
+      this.admitted = true;
+      this.settleAdmission?.(true);
       gate.commit();
-      void this.child.terminated.then(() => this.dispose()).catch(() =>
+      void this.child.terminated.then(() => { this.childEnded = true; return this.dispose(); }).catch(() =>
         this.logger.warn('[SessionLifecycle] Account reservation settlement failed.'));
       // Replay init exactly once to the normal transformer; it remains the owner
       // of stats/session-id callbacks. No control-stage message escapes on failure.
@@ -771,17 +982,19 @@ export class NamedAccountQueryAdmission {
         const value = Reflect.get(target, key, target);
         return typeof value === 'function' ? value.bind(target) : value;
       } });
-    } catch {
+    } catch (error: unknown) {
+      this.settleAdmission?.(false);
       await this.dispose();
-      throw namedAccountRefusal();
+      throw rewrapNamedRefusal(error);
     }
   }
 
   private async verifyIdentity(): Promise<void> {
-    if (!this.child || !this.baseline) throw namedAccountRefusal();
+    const launch = this.certifiedLaunch;
+    if (!this.child || !this.baseline || !launch) throw namedAccountRefusal('identity-unproved', 'state-missing');
     await this.wait(this.persistence.assertRouteCurrent(this.route));
-    const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()));
-    if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal();
+    const identity = namedIdentity(await this.wait(this.child.sdkQuery.accountInfo()), launch);
+    if (!sameNamedIdentity(this.baseline, identity)) throw namedAccountRefusal('identity-unproved', 'identity-mismatch');
   }
 
   private closeChild(): void {
@@ -789,11 +1002,20 @@ export class NamedAccountQueryAdmission {
     catch { this.logger.warn('[SessionLifecycle] Named account child close was not confirmed.'); }
   }
 
+  /**
+   * Terminal, like the lane's dispose: marks the flow disposed, settles admission
+   * false (held and later tool calls are denied), aborts every pending admission
+   * await, then closes the gates and the child. The session controller is left
+   * alone only when the admitted child already ended on its own.
+   */
   async dispose(): Promise<void> {
+    this.disposed = true;
+    this.settleAdmission?.(false);
     for (const gate of this.gates) gate.close();
     this.closeChild();
     this.stopEpoch?.();
     this.abortController.signal.removeEventListener('abort', this.onAbort);
+    if (!this.childEnded) this.abortController.abort();
     if (!this.reservation) return;
     if (this.settlement) return this.settlement;
     const reservation = this.reservation;
@@ -808,7 +1030,8 @@ export class NamedAccountQueryAdmission {
       } finally { clearTimeout(timer); }
       const command = { reservationId: reservation.reservationId, operationId: reservation.operationId,
         authEpoch: reservation.authEpoch };
-      const result = terminated
+      // Release only when every owned child, boundary probes included, is proved closed.
+      const result = terminated && !this.boundaryUnproved
         ? await this.admission.releaseReservation({ ...command, reason: 'child-closed' })
         : await this.admission.retainUnresolvedReservation(command);
       if (result.code !== 'ok') this.logger.warn('[SessionLifecycle] Named account reservation remains held.');
@@ -892,6 +1115,7 @@ export class SessionQueryExecutor {
       mcpServersOverride,
       initialUserQuery,
       authEnvOverride,
+      admissionDeadline,
     } = config;
 
     this.logger.info(
@@ -933,18 +1157,27 @@ export class SessionQueryExecutor {
     if (selection?.kind === 'named') {
       try {
         if (authEnvOverride && (authEnvOverride.ANTHROPIC_API_KEY || authEnvOverride.ANTHROPIC_AUTH_TOKEN ||
-            authEnvOverride.ANTHROPIC_BASE_URL)) throw namedAccountRefusal('wrong-provider');
+            authEnvOverride.ANTHROPIC_BASE_URL)) throw namedAccountRefusal('wrong-provider', 'wrong-provider');
         const admission = this.queryRunner.accountAdmission;
         const persistence = this.queryRunner.accountPersistence;
-        if (!admission || !persistence) throw namedAccountRefusal();
+        // A host without account admission or persistence has no storage for a
+        // named run; nothing was reserved, so there is nothing held to release.
+        if (!admission || !persistence) throw namedAccountRefusal('unavailable-storage', 'storage-unavailable');
+        // Admission certifies the project directory; without one there is no
+        // valid request (the admission port refuses a malformed request `conflict`).
+        const projectPath = sessionConfig?.projectPath;
+        if (typeof projectPath !== 'string' || projectPath.trim() === '') throw namedAccountRefusal('conflict', 'project-path-invalid');
         named = new NamedAccountQueryAdmission(this.queryRunner, admission, persistence,
-          this.registry, this.logger, abortController);
+          this.registry, this.logger, abortController, undefined, undefined, admissionDeadline);
         namedQueryFn = await named.wait(this.moduleLoader.getQueryFunction());
-        await named.bootstrap(namedQueryFn, selection, resumeSessionId, pathToClaudeCodeExecutable, forkSession);
+        await named.bootstrap(namedQueryFn, selection, projectPath, resumeSessionId, forkSession);
       } catch (error) {
         await named?.dispose();
         this.registry.remove(rec);
         abortController.abort();
+        // Fixed fields only: the reason literal and the step, never ids, paths or messages.
+        this.logger.warn('[SessionLifecycle] Named admission refused', {
+          reason: namedRefusalReason(error), step: 'bootstrap' });
         throw error;
       }
     }
@@ -1142,7 +1375,7 @@ export class SessionQueryExecutor {
           : (PERMISSION_MODE_MAP[currentLevel] as
               'default' | 'acceptEdits' | 'plan');
       const buildOptions = this.queryOptionsBuilder.build({
-        ...(named ? { accountRoute: named.route } : {}),
+        ...(named ? { accountRoute: named.route, accountLaunch: named.certifiedLaunch } : {}),
         userMessageStream,
         abortController,
         sessionConfig,
@@ -1264,10 +1497,10 @@ export class SessionQueryExecutor {
       abortController.abort();
       this.logger.error(
         `[SessionLifecycle] Query init failed for session ${sessionId}; rolling back pre-registration`,
-        named ? new Error('Named account query initialization refused.')
+        named ? new Error(`Named account query initialization refused (reason: ${namedRefusalReason(err)}).`)
           : err instanceof Error ? err : new Error(String(err)),
       );
-      throw named ? namedAccountRefusal() : err;
+      throw named ? rewrapNamedRefusal(err) : err;
     }
   }
 

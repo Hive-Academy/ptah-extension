@@ -32,6 +32,7 @@ import type { ProviderModelsService } from '../provider-models.service';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
+import type { IKimiCodeAuthService } from '../providers/kimi-code/kimi-code-provider.types';
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../providers/copilot';
 
 function asLogger(mock: MockLogger): Logger {
@@ -74,6 +75,8 @@ function createHarness(opts: {
   configValues?: Record<string, unknown>;
   proxyUrl?: string;
   copilotAuthed?: boolean;
+  /** Whether the Kimi Code auth service reports a CLI login or a stored key. */
+  kimiCodeAuthed?: boolean;
   /**
    * Persisted tier overrides, keyed by provider id then scope. A scope with
    * no entry reads back as all-nulls, which is what a lane sees before the
@@ -142,6 +145,27 @@ function createHarness(opts: {
   const openRouterAuth = {
     isAuthenticated: jest.fn(async () => true),
   } as unknown as IOpenRouterAuthService;
+  const kimiCodeAuth: IKimiCodeAuthService = {
+    getStatus: jest.fn(async () => ({
+      cliDetected: true,
+      loggedIn: opts.kimiCodeAuthed ?? true,
+      stale: false,
+      hasApiKey: false,
+      credentialSource: (opts.kimiCodeAuthed ?? true)
+        ? ('cli-login' as const)
+        : ('none' as const),
+    })),
+    resolveRequestCredential: jest.fn(async () => ({
+      kind: 'oauth' as const,
+      accessToken: 'fake-access-token-1',
+    })),
+    ensureFresh: jest.fn(async () => true),
+    forceRefresh: jest.fn(async () => false),
+    isAuthenticated: jest.fn(async () => opts.kimiCodeAuthed ?? true),
+    clearCache: jest.fn(),
+    startWatching: jest.fn(),
+    stopWatching: jest.fn(),
+  };
 
   // A fresh store per harness. The production one is a module singleton and a
   // shared instance across cases would make the quota specs order-dependent.
@@ -162,6 +186,7 @@ function createHarness(opts: {
     codexAuth,
     openRouterAuth,
     quota,
+    kimiCodeAuth,
   );
 
   return {
@@ -210,20 +235,46 @@ describe('ProviderAuthResolver.resolve', () => {
   it('third-party api-key sets base url + provider auth env var + tier envs', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { 'kimi-code': 'kimi-key' },
+      providerKeys: { 'z-ai': 'zai-key' },
     });
-    const result = await resolver.resolve('kimi-code');
+    const result = await resolver.resolve('z-ai');
     expect(result).not.toBeNull();
-    expect(result?.env.ANTHROPIC_BASE_URL).toBe('https://api.kimi.ai/coding/');
-    // Kimi Code authenticates with x-api-key, so only ANTHROPIC_API_KEY is set.
-    expect(result?.env.ANTHROPIC_API_KEY).toBe('kimi-key');
-    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
-      getAnthropicProvider('kimi-code')?.defaultTiers?.sonnet,
+    expect(result?.env.ANTHROPIC_BASE_URL).toBe(
+      'https://api.z.ai/api/anthropic',
     );
-    expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    // Z.AI authenticates with a bearer, so only ANTHROPIC_AUTH_TOKEN is set.
+    expect(result?.env.ANTHROPIC_AUTH_TOKEN).toBe('zai-key');
+    expect(result?.env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe(
+      getAnthropicProvider('z-ai')?.defaultTiers?.sonnet,
+    );
+    expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
-  it('third-party api-key declares the static tier capabilities so effort reaches the runtime', async () => {
+  it('Kimi Code lanes go through the curator Kimi proxy, never a raw key', async () => {
+    const { resolver, ensureProxy } = createHarness({
+      activeProviderId: 'anthropic',
+      providerKeys: { 'kimi-code': 'fake-kimi-key' },
+      proxyUrl: 'http://127.0.0.1:60002',
+    });
+    const result = await resolver.resolve('kimi-code');
+    expect(ensureProxy).toHaveBeenCalledWith('kimi-code');
+    expect(result?.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:60002');
+    expect(result?.env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(JSON.stringify(result?.env)).not.toContain('fake-kimi-key');
+  });
+
+  it('Kimi Code lanes throw ProviderAuthError with no CLI login and no key', async () => {
+    const { resolver, ensureProxy } = createHarness({
+      activeProviderId: 'anthropic',
+      kimiCodeAuthed: false,
+    });
+    await expect(resolver.resolve('kimi-code')).rejects.toBeInstanceOf(
+      ProviderAuthError,
+    );
+    expect(ensureProxy).not.toHaveBeenCalled();
+  });
+
+  it('Kimi Code lanes declare the static tier capabilities so effort reaches the runtime', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
       providerKeys: { 'kimi-code': 'kimi-key' },
@@ -256,17 +307,17 @@ describe('ProviderAuthResolver.resolve', () => {
   it('third-party api-key honors a provider.<id>.baseUrl override', async () => {
     const { resolver } = createHarness({
       activeProviderId: 'anthropic',
-      providerKeys: { 'kimi-code': 'kimi-key' },
-      configValues: { 'provider.kimi-code.baseUrl': 'https://custom.example/' },
+      providerKeys: { 'z-ai': 'zai-key' },
+      configValues: { 'provider.z-ai.baseUrl': 'https://custom.example/' },
     });
-    const result = await resolver.resolve('kimi-code');
+    const result = await resolver.resolve('z-ai');
     expect(result?.env.ANTHROPIC_BASE_URL).toBe('https://custom.example/');
     expect(result?.baseUrl).toBe('https://custom.example/');
   });
 
   it('third-party api-key throws ProviderAuthError when provider key missing', async () => {
     const { resolver } = createHarness({ activeProviderId: 'anthropic' });
-    await expect(resolver.resolve('kimi-code')).rejects.toBeInstanceOf(
+    await expect(resolver.resolve('z-ai')).rejects.toBeInstanceOf(
       ProviderAuthError,
     );
   });

@@ -375,7 +375,14 @@ describe.each([
     'start',
     ChatStartParamsSchema,
     { tabId: VALID_TAB_UUID },
-    ['tabId', 'options', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
+    [
+      'tabId',
+      'options',
+      'surfaceMode',
+      'mcpToolProfile',
+      'ptahUiFence',
+      'accountSelection',
+    ],
   ],
   [
     'continue',
@@ -388,6 +395,7 @@ describe.each([
       'surfaceMode',
       'mcpToolProfile',
       'ptahUiFence',
+      'accountSelection',
     ],
   ],
 ] as const)(
@@ -409,8 +417,66 @@ describe.each([
       );
     });
 
-    it('declares only the base keys plus ptahUiFence', () => {
+    it('declares only the base keys plus ptahUiFence and accountSelection', () => {
       expect(Object.keys(schema.shape)).toEqual(expectedKeys);
+    });
+  },
+);
+
+describe.each([
+  ['start', ChatStartParamsSchema, { tabId: VALID_TAB_UUID }],
+  [
+    'continue',
+    ChatContinueParamsSchema,
+    { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID },
+  ],
+  [
+    'resume',
+    ChatResumeParamsSchema,
+    { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID },
+  ],
+] as const)(
+  'accountSelection validation for %s',
+  (_method, schema, required) => {
+    it.each([
+      [{ kind: 'named', profileId: 'profile_01' }],
+      [{ kind: 'ambient' }],
+      [{ kind: 'omitted' }],
+    ])('accepts %j', (accountSelection) => {
+      expect(
+        schema.parse({ ...required, accountSelection }).accountSelection,
+      ).toEqual(accountSelection);
+    });
+
+    it('keeps an absent selection absent and still validates the request', () => {
+      const parsed = schema.parse(required);
+      expect(parsed).not.toHaveProperty('accountSelection');
+      expect(parsed.tabId).toBe(VALID_TAB_UUID);
+    });
+
+    it.each([
+      ['a string', 'named'],
+      ['null', null],
+      ['an unknown kind', { kind: 'default' }],
+      ['named without a profile id', { kind: 'named' }],
+      ['named with an empty profile id', { kind: 'named', profileId: '' }],
+      ['named with a numeric profile id', { kind: 'named', profileId: 7 }],
+      [
+        'named with a path-shaped profile id',
+        { kind: 'named', profileId: '../profiles/a' },
+      ],
+      [
+        'ambient with an extra key',
+        { kind: 'ambient', profileId: 'profile_01' },
+      ],
+      [
+        'named with an extra key',
+        { kind: 'named', profileId: 'profile_01', configDir: 'x' },
+      ],
+    ])('rejects %s', (_label, accountSelection) => {
+      expect(() => schema.parse({ ...required, accountSelection })).toThrow(
+        ZodError,
+      );
     });
   },
 );

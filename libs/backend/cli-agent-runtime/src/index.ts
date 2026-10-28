@@ -46,6 +46,9 @@ export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
 export { MCP_ATTACHMENT_TIMEOUT_MS } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { IMcpAttachmentProbe, McpAttachment } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';
+// Certified lane persistence (TASK_2026_719 B17): bound only by a certifying host.
+export { CLAUDE_LANE_ACCOUNT_PERSISTENCE } from './lib/di/tokens';
+export type { ClaudeLaneAccountPersistence } from './lib/claude/claude-sdk-lane-runner';
 export { registerCliAgentRuntimeServices } from './lib/di/register';
 export { LaneAccountResumeError } from './lib/cli-agents/lane-resume-gate';
 
