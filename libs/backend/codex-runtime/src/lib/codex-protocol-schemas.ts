@@ -418,6 +418,18 @@ export const item = z.discriminatedUnion('type', [
     review: string,
   }),
 ]);
+// Reasoning deltas stream before the reasoning item completes; the completed
+// item still carries the authoritative final text (summary, else content).
+export const reasoningSummaryTextDelta = z.object({
+  ...itemIds,
+  summaryIndex: integer,
+  delta: string,
+});
+export const reasoningTextDelta = z.object({
+  ...itemIds,
+  contentIndex: integer,
+  delta: string,
+});
 export const turnError = z.object({
   message: string,
   additionalDetails: string.nullish(),

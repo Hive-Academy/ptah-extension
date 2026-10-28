@@ -208,6 +208,10 @@ export type CodexRuntimeEvent = CodexEventIdentity &
         readonly toolId: string;
         readonly output: CodexJsonValue;
         readonly status: 'completed' | 'failed' | 'cancelled';
+        /** Process exit code the server reported for the item (commandExecution today). Present only when reported: 0 is a real value, wire null/absent stays absent. */
+        readonly exitCode?: number;
+        /** Server-reported error text of a failed tool call (mcpToolCall.error.message today), length-bounded. Absent when the server reported no error text. */
+        readonly errorText?: string;
       }
     | {
         readonly type: 'reasoning';

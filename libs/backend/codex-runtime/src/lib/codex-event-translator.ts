@@ -4,6 +4,7 @@ import {
   isUnmodeledCodexNotification,
 } from './codex-protocol-validator';
 import type {
+  CodexJsonValue,
   CodexRuntimeEvent,
   CodexRuntimeError,
   CodexReportedUsage,
@@ -55,6 +56,28 @@ function toolStatus(status: string): 'completed' | 'failed' | 'cancelled' {
   return 'failed';
 }
 
+/** Forwarded tool output is bounded per string; the exposure equals Claude's Bash output. */
+export const MAX_TOOL_OUTPUT_CHARS = 10_000;
+const TRUNCATED_MARKER = '\n[output truncated]';
+
+function boundText(text: string): string {
+  return text.length <= MAX_TOOL_OUTPUT_CHARS
+    ? text
+    : `${text.slice(0, MAX_TOOL_OUTPUT_CHARS)}${TRUNCATED_MARKER}`;
+}
+
+/** Bounds every string leaf of a validated value; structure and other leaves pass through. */
+function boundJson(value: CodexJsonValue): CodexJsonValue {
+  if (typeof value === 'string') return boundText(value);
+  if (Array.isArray(value)) return value.map(boundJson);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(
+      ([key, entry]): [string, CodexJsonValue] => [key, boundJson(entry)],
+    ),
+  );
+}
+
 /** One instance per context/process generation. No I/O or routing side effects. */
 export class CodexEventTranslator {
   private sequence = 0;
@@ -62,6 +85,8 @@ export class CodexEventTranslator {
   private readonly usage = new Map<string, CodexReportedUsage>();
   private readonly totals = new Map<string, Usage>();
   private readonly baselines = new Map<string, Usage>();
+  /** Turn key -> item ids whose reasoning summary deltas were streamed; textDelta stays silent for them. */
+  private readonly summaryItems = new Map<string, Set<string>>();
   private disposed = false;
 
   constructor(
@@ -109,6 +134,42 @@ export class CodexEventTranslator {
             type: 'textDelta',
             itemId: parsed.data.itemId,
             delta: parsed.data.delta,
+          },
+        ]);
+      }
+      case 'item/reasoning/summaryTextDelta': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        if (parsed.data.delta === '') return [];
+        const key = this.key(parsed.data);
+        const items = this.summaryItems.get(key) ?? new Set<string>();
+        items.add(parsed.data.itemId);
+        this.summaryItems.set(key, items);
+        return this.emit(parsed.data, [
+          {
+            type: 'reasoning',
+            itemId: parsed.data.itemId,
+            phase: 'delta',
+            text: parsed.data.delta,
+          },
+        ]);
+      }
+      case 'item/reasoning/textDelta': {
+        const parsed = codexNotificationSchemas[method].safeParse(params);
+        if (!parsed.success) return this.invalid(params);
+        // Raw reasoning text streams only for items with no summary deltas;
+        // the completed item's summary stays authoritative.
+        if (
+          parsed.data.delta === '' ||
+          this.summaryStreamed(parsed.data, parsed.data.itemId)
+        )
+          return [];
+        return this.emit(parsed.data, [
+          {
+            type: 'reasoning',
+            itemId: parsed.data.itemId,
+            phase: 'delta',
+            text: parsed.data.delta,
           },
         ]);
       }
@@ -185,6 +246,7 @@ export class CodexEventTranslator {
         this.terminals.add(key);
         this.usage.delete(key);
         this.baselines.delete(key);
+        this.summaryItems.delete(key);
         return events;
       }
       default:
@@ -200,10 +262,15 @@ export class CodexEventTranslator {
     this.usage.clear();
     this.totals.clear();
     this.baselines.clear();
+    this.summaryItems.clear();
   }
 
   private key(identity: Identity): string {
     return JSON.stringify([identity.threadId, identity.turnId]);
+  }
+
+  private summaryStreamed(identity: Identity, itemId: string): boolean {
+    return this.summaryItems.get(this.key(identity))?.has(itemId) ?? false;
   }
 
   private emit(identity: Identity, payloads: Payload[]): CodexRuntimeEvent[] {
@@ -271,10 +338,8 @@ export class CodexEventTranslator {
                 type: 'toolCompleted',
                 toolId: item.id,
                 status: toolStatus(item.status),
-                output:
-                  item.status === 'completed'
-                    ? (item.aggregatedOutput ?? null)
-                    : { error: safeError('commandFailed').message },
+                output: boundJson(item.aggregatedOutput ?? null),
+                ...(item.exitCode == null ? {} : { exitCode: item.exitCode }),
               },
             ]
           : [
@@ -292,10 +357,18 @@ export class CodexEventTranslator {
                 type: 'toolCompleted',
                 toolId: item.id,
                 status: item.error ? 'failed' : toolStatus(item.status),
-                output:
-                  item.error || item.status !== 'completed'
-                    ? { error: safeError('toolFailed').message }
-                    : (item.result ?? null),
+                // _meta is protocol plumbing, not tool output; it is not forwarded.
+                output: item.result
+                  ? boundJson({
+                      content: item.result.content,
+                      ...(item.result.structuredContent === undefined
+                        ? {}
+                        : { structuredContent: item.result.structuredContent }),
+                    })
+                  : null,
+                ...(item.error
+                  ? { errorText: boundText(item.error.message) }
+                  : {}),
               },
             ]
           : [
@@ -344,10 +417,8 @@ export class CodexEventTranslator {
                 toolId: item.id,
                 status:
                   item.success === false ? 'failed' : toolStatus(item.status),
-                output:
-                  item.status === 'completed' && item.success !== false
-                    ? (item.contentItems ?? null)
-                    : { error: safeError('toolFailed').message },
+                // A failure reports its own content items; no text is invented.
+                output: boundJson(item.contentItems ?? null),
               },
             ]
           : [

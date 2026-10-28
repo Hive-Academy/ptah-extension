@@ -1,15 +1,30 @@
 import { z } from 'zod';
-import { string, integer, json } from './codex-protocol-schemas';
+import {
+  string,
+  integer,
+  json,
+  reasoningSummaryTextDelta,
+  reasoningTextDelta,
+} from './codex-protocol-schemas';
 import {
   codexRequestSchemas,
   codexServerRequestSchemas,
-  codexNotificationSchemas,
+  codexNotificationSchemas as methodNotificationSchemas,
 } from './codex-protocol-methods';
 export {
   codexRequestSchemas,
   codexServerRequestSchemas,
-  codexNotificationSchemas,
 } from './codex-protocol-methods';
+
+// The reasoning delta notifications are registered here, not in
+// codex-protocol-methods.ts (outside this batch's file set). Registering them
+// removes the two methods from the unmodeled surface; the pinned allowlist
+// below keeps the full manifest.
+export const codexNotificationSchemas = {
+  ...methodNotificationSchemas,
+  'item/reasoning/summaryTextDelta': reasoningSummaryTextDelta,
+  'item/reasoning/textDelta': reasoningTextDelta,
+} as const;
 
 const requests = { ...codexRequestSchemas, ...codexServerRequestSchemas };
 export type CodexRequestMethod = keyof typeof requests;

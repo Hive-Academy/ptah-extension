@@ -192,6 +192,11 @@ const notifications: [string, unknown][] = [
       willRetry: false,
     },
   ],
+  [
+    'item/reasoning/summaryTextDelta',
+    { ...ids, summaryIndex: 0, delta: 'thinking' },
+  ],
+  ['item/reasoning/textDelta', { ...ids, contentIndex: 0, delta: 'thinking' }],
 ];
 
 describe('server extensions and strict client contracts', () => {
@@ -542,6 +547,31 @@ describe('Codex protocol validation', () => {
     expect(() =>
       validateCodexFrame({ method: 'future/notification', params: {} }),
     ).toThrow(expect.objectContaining({ code: 'unknownMethod' }));
+  });
+
+  it('models the reasoning delta notifications with required fields', () => {
+    for (const [method, indexKey] of [
+      ['item/reasoning/summaryTextDelta', 'summaryIndex'],
+      ['item/reasoning/textDelta', 'contentIndex'],
+    ] as const) {
+      const params = { ...ids, [indexKey]: 0, delta: 'thinking' };
+      const frame = validateCodexFrame({ method, params });
+      expect(frame).toEqual({ method, params });
+      expect(() =>
+        validateCodexFrame({
+          method,
+          params: { ...params, futureField: true },
+        }),
+      ).not.toThrow();
+      const missing = { ...params } as Record<string, unknown>;
+      delete missing[indexKey];
+      expect(() =>
+        validateCodexFrame({ method, params: missing }),
+      ).toThrow(CodexProtocolError);
+      expect(() => validateCodexFrame({ id: 1, method, params })).toThrow(
+        CodexProtocolError,
+      );
+    }
   });
 
   it.each(notifications.slice(0, 7))(
