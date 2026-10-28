@@ -2753,7 +2753,7 @@ Deferred / not this round:
   and host notice released with the wire id.
 - Report: batch-8k-5-report.md.
 
-## Round 8l: native MCP for Codex main chat (D8 parity; P8 D13) — IN_PROGRESS (8l-1a 4f12d4c04, 8l-1b f3d9e950c COMPLETE; 8l-1c, 8l-2, 8l-3 PENDING, stopped at the coordinator's session-budget wrap-up)
+## Round 8l: native MCP for Codex main chat (D8 parity; P8 D13) — BATCHES COMPLETE (8l-1a 4f12d4c04, 8l-1b f3d9e950c, 8l-1c b959b58d9, 8l-2 9b364c658, 8l-3 e448b5517; gateway-chat-bridge verify PASS; phase gate + P8 re-review pending at the coordinator)
 
 - Phase: P8 | Phase gate and P8 re-review: the coordinator, after this round (not run here).
 - Binding user decisions: D8 (native chat honours Ptah MCP AND the user's MCP servers; never
@@ -2916,7 +2916,7 @@ Edge cases:
   logger call, the profile JSON, the fingerprint, the persisted identity or the notice.
 - Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`.
 
-### Batch 8l-3: follow-up native turns keep the live thread (8k-5 finding 3) — PENDING
+### Batch 8l-3: follow-up native turns keep the live thread (8k-5 finding 3) — COMPLETE (e448b5517; report batch-8l-3-report.md; defect real)
 
 - Files: spec first (R/codex-host/ or R/streaming/), fix only if reproduced, in the Codex side
   (agent-sdk codex-chat-adapter.ts token semantics or the host publish), never the shared
