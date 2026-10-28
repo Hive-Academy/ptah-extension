@@ -175,8 +175,11 @@ export class CommandCenterProjectionSource {
         parentSessionId: agent.parentSessionId ?? root.sessionId,
         state: workStateForStatus(agent.status),
         providerId: 'anthropic',
+        displayName: agent.teammateName ?? agent.agentType,
+        task: agent.taskDescription ?? agent.description,
         runId: agent.workflowRunId,
-        updatedAt: agent.lastEventAt,
+        startedAt: agent.startedAt,
+        updatedAt: agent.lastEventAt ?? agent.completedAt ?? agent.startedAt,
       }));
     const workspace =
       rootTab?.commandCenterOrigin?.workspaceId ??
