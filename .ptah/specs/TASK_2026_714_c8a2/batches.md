@@ -2923,6 +2923,228 @@ Edge cases:
   broadcaster's Claude behaviour. Findings 1-2 of 8k-5: recorded only.
 - Verify: the changed projects.
 
+## Round 8m: protocol parity (native Codex chat == Claude UI contracts) — PLANNED, NO BATCH STARTED (session budget wrap-up; next session runs Wave 1)
+
+- Phase: P8 | Phase gate and P8 re-review: the coordinator, after this round (code-logic; style
+  only if a new public API appears). The team-leader commits per batch, does not push.
+- Goal (user): native Codex chat produces EXACTLY Claude's UI contracts (FlatStreamEventUnion,
+  turn_state, PermissionRequest, the AskUserQuestion flow, tool input/output shapes). Fix in the
+  translation layer only: codex-runtime `codex-event-translator.ts` / `codex-approval-bridge.ts`
+  -> agent-sdk `codex-chat-events.ts` / `codex-tool-presentation.ts` -> rpc-handlers
+  `codex-host/codex-chat-host-ports.ts`. No Codex special case in the frontend, no second proxy.
+- Every gap is pinned by a parity spec that compares the Codex output with the Claude
+  fixture/shape for the same case (pattern: `R/codex-host/codex-chat-native-contract.spec.ts`).
+- Binding: D8 (never strip, revert or comment out MCP). Electron first; Claude behavior unchanged.
+- Executors (user request via coordinator, 2026-10-28): every batch is a CLI lane in W
+  (workingDirectory = W), one batch per lane, vendors mixed; no in-process subagent. Live list
+  14:45 UTC: codex (cli, confirmed room, 4% weekly), Glm (ptah-cli
+  pc-355b645d-35af-4974-84cf-9cf961ea0164, Ollama Cloud), grok (cli, limits unknown),
+  antigravity (cli, limit reader failed); opencode AT LIMIT (do not use); copilot disabled;
+  cursor/pi not installed. codex and Glm first; grok/antigravity as extra capacity; a lane that
+  fails to start or stalls -> reassign the batch (fallback: other family same capability ->
+  same family other provider/model -> subagent with a reason). Review family: implementer
+  codex/Glm/grok/antigravity, reviewer Claude (coordinator's P8 re-review) — satisfies
+  decision 7. Record the vendor that wrote each batch in its header.
+- Execution mode: three waves of file-disjoint batches, at most 3 lanes in flight. A wave's
+  commits start only after EVERY lane of the wave has finished (lint-staged hides unstaged
+  changes during the pre-commit hook); then git status for undeclared files, scoped verify under
+  the lock, commit batch by batch with explicit paths; only then the next wave.
+- Lane rules (FIRST lines of every lane task): NEVER call ptah_get_diagnostics; NEVER verify,
+  commit or push; edit ONLY the declared files; the CLAUDE.md verify and Electron-first rules;
+  no `any` / `as unknown as` / `@ts-ignore` / `eslint-disable`; never strip MCP; 40 tool calls;
+  write the batch report to the declared absolute path
+  (`.ptah/specs/TASK_2026_714_c8a2/batch-8m-<id>-report.md`) and call ptah_agent_report.
+- Wave plan: Wave 1 = 8m-1 (codex), 8m-2 (Glm), 8m-3 (grok, else antigravity). Wave 2 = 8m-4
+  (Glm), 8m-5 (codex), 8m-6 (grok/antigravity). Wave 3 = 8m-7 (codex). G6 is in Wave 1.
+
+### Plan validation (8m) — PASSED WITH RISKS
+
+Evidence (file:line at 88404d091; C = W/libs/backend/codex-runtime/src/lib, A =
+W/libs/backend/agent-sdk/src/lib/codex-app-server, R = W/libs/backend/rpc-handlers/src/lib/chat):
+
+- G6 (coordinator, highest priority): `C/codex-execution-profile.ts:226-255` maps 'ask' to
+  read-only + granular approvals, 'auto-edit'/'yolo' to workspace-write + on-request. Codex then
+  asks only on model-requested escalation (live-test-p8f b turn 1). Codex source (openai/codex
+  main, fetched 2026-10-28): `core/src/safety.rs` `assess_patch_safety`: `UnlessTrusted =>
+  return Ok(SafetyCheck::AskUser)` for every patch; OnRequest/Granular auto-approve patches
+  inside writable roots. `core/src/exec_policy.rs` `render_decision_for_unmatched_command`:
+  `UnlessTrusted => Decision::Prompt` ("require approval for every command that is not
+  explicitly allowed by an exec policy rule"); OnRequest/Granular with a restricted sandbox ->
+  `Allow` unless the command requests a sandbox override. Schema allows "untrusted"
+  (`protocol/codex-app-server-protocol.schema.json` AskForApproval; `C/codex-protocol-schemas.ts:20,33`).
+  `C/codex-permission-policy.ts:41` already auto-accepts fileChange for 'auto-edit', presents
+  commands, declines everything in 'plan'. Fingerprint identity includes sandboxPolicy and
+  approvalPolicy (`C/codex-execution-profile.ts:264-275`).
+- G1: `C/codex-event-translator.ts:274-277, 295-298, 347-350` replace failed/declined results
+  with `safeError(...).message` ("Codex could not complete this operation.").
+- G2: `A/codex-tool-presentation.ts:65-73` adds `cwd` to the Bash input.
+- G3: `C/codex-event-translator.ts:238-251` emits reasoning only on completion; `item/reasoning/
+  summaryTextDelta|textDelta` are unmodeled; `A/codex-chat-events.ts:166-178` -> host
+  `R/codex-host/codex-chat-event-callbacks.ts:80-89` publishes `thinking_delta` even for `''`.
+- G4: `C/codex-runtime.ts:59,376` option `requestUserInput` is never passed by a host;
+  `C/codex-approval-bridge.ts:233-236` then answers `{}`. Claude path:
+  `agent-sdk/src/lib/permission/ask-user-question.service.ts` (ASK_USER_QUESTION_REQUEST,
+  registry, idle auto-pick, abort -> null, `chat:pending-questions` replay).
+- G5: `libs/shared/src/lib/types/permission.parsers.ts:47-107` drops `allowedDecisions` (the
+  only wire entry point, `chat-message-handler.service.ts:734`), so the 8c frontend readers are
+  dead; `R/codex-host/codex-chat-host-ports.ts:466-475` `dismiss` still finds the wire id while
+  `handlePermissionResponse` (:491-545) is inside `respond`, so PERMISSION_AUTO_RESOLVED follows
+  a user answer (8k-5 finding 2).
+- L1: `A/codex-chat-adapter.ts:628-635` `interruptSession` closes the context; native `/compact`
+  (`R/session/chat-slash-command-router.service.ts:363-371`) then hits `session()` ->
+  `unavailable` (`A/codex-chat-adapter.ts:735-739`) -> CODEX_UNAVAILABLE
+  (`R/session/chat-session.service.ts:564-568`). Claude's Stop keeps the tab usable.
+- L3: `R/codex-host/codex-chat-host-ports.ts:295-302` logs user servers as "attached"; the Ptah
+  attach (:327-336) is not logged.
+
+Decisions (team-leader; reversible; recorded in decisions.md as P8 D14-D18):
+
+- D14 (G6): 'ask' and 'auto-edit' -> approvalPolicy `untrusted` + sandbox workspace-write
+  (writableRoots [cwd], network false). 'plan' and 'yolo' unchanged. Claude semantics: Manual
+  asks before every non-read-only tool; acceptEdits auto-accepts edits but asks for Bash; plan
+  never executes; bypass runs all. The Ptah policy already gives auto-edit its edit auto-accept.
+- D15 (G1/G2/G3): the core passes real bounded results (output text, exit code, MCP error text,
+  declined status) instead of the generic text; agent-sdk formats them into Claude's tool_result
+  shape; Bash input is exactly Claude's {command, description?}; reasoning streams as
+  thinking_delta from summary deltas and an empty reasoning item opens no thinking block.
+- D16 (G5): `allowedDecisions` leaves the contract end to end (host payload, shared type, dead
+  8c frontend readers). The Codex prompt is Claude's prompt; the host maps Claude's decision
+  vocabulary (allow/always_allow/deny_with_message/deny), as today. No PERMISSION_AUTO_RESOLVED
+  after a user answer.
+- D17 (L1): Stop on a native turn sends `turn/interrupt` and keeps the context (Claude parity:
+  the tab stays usable); the UI contract of the Stop spec is unchanged (cancelled ->
+  aborted_streaming, prompt cancelled once). Close only when the interrupt fails or no terminal
+  arrives (runtime 30 s timer); then the next send / `/compact` resumes.
+- D18 (G4): Codex `requestUserInput` uses Claude's AskUserQuestion flow and contracts (same
+  service instance, request/response/auto-resolved messages, pending-questions replay, abort).
+
+Risks:
+
+| Risk | Severity | Mitigation |
+| --- | --- | --- |
+| After approval an `untrusted` command may still run in the workspace-write sandbox; network or out-of-workspace writes then fail and Codex may ask a second time | MEDIUM | 8m-1 documents it; the coordinator's live re-test (scenario b, plain prompt) checks it; harness `policy()` updated so the evidence harness can prove it |
+| The fingerprint changes for 'ask'/'auto-edit'; threads created before 8m-1 may fail resume | MEDIUM | 8m-1 finds the resume comparison and pins the behavior (coded refusal or accepted, never a silent mismatch) |
+| Real tool output can carry secrets (env dumps) | MEDIUM | 8m-2 bounds output size and keeps unknown payload shapes out; the same exposure Claude's Bash output has (parity) |
+| Interrupt during an approval: bridge answers `cancel`, server terminal may not arrive | MEDIUM | 8m-5 keeps the existing 30 s runtime timer -> close -> next send resumes; spec |
+| Removing `allowedDecisions` touches 3 projects; chat lint has pre-existing errors | LOW | 8m-6 compares lint with main; exception recorded (atomic contract removal) |
+| AskUserQuestion answers are keyed by question text; Codex wants answers by question id | MEDIUM | 8m-7 maps both ways with a spec; duplicate question texts are disambiguated |
+
+Assumptions:
+
+- Codex App Server accepts `approvalPolicy: "untrusted"` with `approvalsReviewer: "user"` on
+  thread/start and turn/start (schema yes; live proof by the coordinator with the harness).
+- The Claude reference shapes for a failed Bash / denied tool are taken from
+  `SdkMessageTransformer` and the Claude permission deny text (8m-4 reads them, no guessing).
+
+Edge cases: failed command with empty output (exit code only); declined vs interrupted vs
+failed status; MCP error with structured content; reasoning item with summary deltas then a
+different final text; empty reasoning; Stop with no active turn; Stop while opening; question
+with `isOther`/`isSecret`; question aborted by Stop; webview not delivered -> auto-pick.
+
+### Wave 1 (3 lanes in parallel; file-disjoint)
+
+### Batch 8m-1: Manual-mode approvals before execution (G6, highest priority) — PENDING (Wave 1; planned lane: codex)
+
+- Files (declared deliverables): C/codex-execution-profile.ts, C/codex-execution-profile.spec.ts,
+  C/codex-runtime.spec.ts (thread/start + turn/start frames),
+  W/libs/backend/codex-runtime/tools/evidence-harness.ts (`policy()` mirrors the profile),
+  C/codex-parity-gate.ts only if its proof notes name the old mapping,
+  R/codex-host/codex-chat-native-contract.spec.ts (this wave's only writer of that file).
+- Tasks: D14 mapping; find where `profileFingerprint` is compared on resume and pin it (coded
+  refusal or accepted, never a silent mismatch); specs: profile per level (ask, auto-edit, plan,
+  yolo), exact turn/start frame; end-to-end contract: in 'ask' a `item/fileChange/requestApproval`
+  and a `item/commandExecution/requestApproval` arriving before the item starts each produce one
+  PermissionRequest (passes the real parser); Allow -> accept, the item then runs; Deny -> the item
+  is declined and never completes as success. MCP untouched.
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime,@ptah-extension/rpc-handlers`.
+
+### Batch 8m-2: core passes real tool results and reasoning deltas (G1 core, G3 core) — PENDING (Wave 1; planned lane: Glm)
+
+- Files: C/codex-event-translator.ts, C/codex-event-translator.spec.ts, C/codex-runtime.types.ts,
+  C/codex-protocol-schemas.ts, C/codex-protocol-validator.ts (+ .spec.ts if the unmodeled list
+  changes).
+- Tasks: commandExecution completed/failed/declined -> real `aggregatedOutput` (bounded, cut
+  marked), `exitCode`, status; mcpToolCall error -> the server's error text (bounded) and result
+  content; dynamicToolCall failure -> its content items; declined -> status cancelled, no invented
+  text; keep the unknown-item / unknown-notification rules (no arbitrary payload echo). Model
+  `item/reasoning/summaryTextDelta` (and `textDelta` when no summary) -> `reasoning` phase delta;
+  final reasoning still emitted. Specs per case. A new optional field on a runtime event must keep
+  agent-sdk compiling (no consumer change in this batch).
+- Verify: `npm run verify -- -p @ptah-extension/codex-runtime` and
+  `npm run verify -- -t typecheck -p @ptah-extension/agent-sdk`.
+
+### Batch 8m-3: host prompt lifecycle and MCP logs (G5 host, L3, L2b check) — PENDING (Wave 1; planned lane: grok, else antigravity)
+
+- Files: R/codex-host/codex-chat-host-ports.ts, R/codex-host/codex-chat-host-ports.spec.ts.
+- Tasks: no PERMISSION_AUTO_RESOLVED after a user answer (still sent when the answer cannot be
+  delivered); stop sending `allowedDecisions` (D16; the shared field is removed in 8m-6); L3: log
+  the Ptah attach with the URL path shape (`/session/{routingId}/workspace/...`, routing ids
+  allowed, no secrets) under a coded `ptah-mcp-attached`, and user servers as "configured"
+  (not attached/reachable); L2b: locate the sessions-rail preview source (read-only); fix only if
+  the cause is in this file's native path, else record deferred in the report.
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers`.
+
+### Wave 2 (after Wave 1 is committed; 3 lanes in parallel; file-disjoint)
+
+### Batch 8m-4: Claude-shaped tool cards and thinking (G2, G1 projection, G3 projection, live L2) — PENDING (Wave 2; planned lane: Glm)
+
+- Depends on: 8m-2.
+- Files: A/codex-tool-presentation.ts (+ .spec.ts), A/codex-chat-events.ts (+ .spec.ts),
+  R/codex-host/codex-chat-event-callbacks.ts (+ .spec.ts). Exception: 6 files, 2 projects.
+- Tasks: Bash input == Claude's (command, description) — no `cwd`, no "Arguments" section;
+  Write/Edit/Read/MCP inputs checked the same way; a failed Bash tool_result == Claude's failed
+  Bash (content text with exit code and stderr/stdout, `isError` true -> card not "Command
+  succeeded"); a declined tool == Claude's denial result text; thinking_delta streamed per
+  summary delta, no block for empty reasoning, final text not duplicated. Parity specs compare
+  with the Claude path (`SdkMessageTransformer` in agent-sdk; Claude deny text from
+  `sdk-permission-handler.ts`), not with hand-written shapes.
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
+
+### Batch 8m-5: Stop interrupts the turn, the tab stays usable (L1) — PENDING (Wave 2; planned lane: codex)
+
+- Files: A/codex-chat-adapter.ts (+ .spec.ts), A/codex-chat-turn-stream.ts,
+  A/codex-chat-turn-lifecycle.spec.ts, R/codex-host/codex-chat-native-contract.spec.ts (this
+  wave's only writer).
+- Tasks: D17; update the 8k-5 Stop spec (no `context.close`, bridge `cancel`, same UI events);
+  new specs: after Stop during approval a plain follow-up and native `/compact` succeed on the
+  same thread; Stop with no active turn; interrupt failure / no terminal -> close -> next send
+  and `/compact` resume (no CODEX_UNAVAILABLE).
+- Verify: `npm run verify -- -p @ptah-extension/agent-sdk,@ptah-extension/rpc-handlers`.
+
+### Batch 8m-6: `allowedDecisions` leaves the shared contract (G5 shared/frontend) — PENDING (Wave 2; planned lane: grok or antigravity)
+
+- Depends on: 8m-3 (host no longer sets the field).
+- Files: libs/shared/src/lib/types/permission.types.ts; libs/frontend/chat-streaming/src/lib/
+  permission-handler.service.ts (+ .spec.ts); libs/frontend/chat/src/lib/services/
+  chat-attention-source.service.ts (+ .spec.ts), chat-attention-action-dispatcher.service.ts
+  (+ .spec.ts). Exception: 3 projects, 7 files (one atomic contract removal).
+- Tasks: remove the field and the dead 8c readers (native decision handling) with their specs;
+  Claude prompt behavior unchanged (its specs stay green); no new Codex special case.
+- Verify: `npm run verify -- -p @ptah-extension/shared,@ptah-extension/chat-streaming,@ptah-extension/chat`
+  (chat lint compared with main: pre-existing lazy-load import errors) and
+  `npm run verify -- -t typecheck -p ptah-electron,ptah-extension-vscode,ptah-cli,ptah-tui`.
+
+### Wave 3 (after Wave 2 is committed)
+
+### Batch 8m-7: Codex questions use Claude's AskUserQuestion flow (G4, mcpElicitation check) — PENDING (Wave 3; planned lane: codex)
+
+- Files: new R/codex-host/codex-chat-user-questions.ts (+ .spec.ts),
+  W/apps/ptah-electron/src/di/codex-runtime-composition.ts, R/codex-host/codex-chat-native-contract.spec.ts;
+  DI guard specs (container.smoke.spec.ts, expected-resolvable.ts, rpc-surface.spec.ts,
+  surface-composition.spec.ts) only if a service/RPC is registered.
+- Tasks: D18; the runtime option `requestUserInput` is wired in Electron; map Codex questions
+  (id, header, question, options, isOther, isSecret) to AskUserQuestionRequest through the SAME
+  AskUserQuestionService instance (ASK_USER_QUESTION_REQUEST / RESPONSE / AUTO_RESOLVED,
+  pending-questions replay, host attention) and answers back by question id; abort/Stop ->
+  registry cleared, bridge `cancel`; idle/undelivered -> Claude's auto-pick; check
+  `mcpServer/elicitation/request` against Claude's elicitation path; fix or record deferred.
+- Verify: `npm run verify -- -p @ptah-extension/rpc-handlers,ptah-electron`.
+
+### Round 8m closing checks
+
+- `node scripts/verify.mjs --exec --task degradation-audit -- npx nx run degradation-audit:lint --output-style=static`
+- `node scripts/verify.mjs --exec --task di-lint -- npx nx run di-lint:lint`
+
 ---
 
 # Phase P9 — Gateway consumer (@ptah-extension/gateway-chat-bridge)
