@@ -9,7 +9,11 @@ import {
 } from './codex-app-server-process';
 import { CodexProtocolError } from './codex-protocol-validator';
 import { CodexMcpConfigError } from './codex-mcp-config';
-import { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime';
+import {
+  CodexRuntime,
+  CodexResumeProfileChangedError,
+  type CodexRuntimeOptions,
+} from './codex-runtime';
 import type {
   CodexExecutionProfile,
   CodexMcpServer,
@@ -29,16 +33,12 @@ const profile: CodexExecutionProfile = {
   cwd: '/work',
   model: 'model',
   permissionLevel: 'ask',
-  approvalPolicy: {
-    granular: {
-      sandbox_approval: true,
-      rules: true,
-      skill_approval: true,
-      request_permissions: true,
-      mcp_elicitations: true,
-    },
+  approvalPolicy: 'untrusted',
+  sandboxPolicy: {
+    mode: 'workspace-write',
+    networkAccess: false,
+    writableRoots: ['/work'],
   },
-  sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
   instructionSources: [],
   mcpServers: [],
   attachments: [],
@@ -182,7 +182,11 @@ class FakeChild extends EventEmitter implements SpawnedProcessHandle {
           cwd: '/work',
           model: 'model',
           modelProvider: 'openai',
-          sandbox: { type: 'readOnly' },
+          sandbox: {
+            type: 'workspaceWrite',
+            networkAccess: false,
+            writableRoots: ['/work'],
+          },
         };
         break;
       case 'turn/start': {
@@ -672,6 +676,74 @@ describe('CodexRuntime', () => {
       ],
     ).toMatchObject({ threadId: identity.threadId });
     await resumedRuntime.close();
+  });
+
+  it.each(['ask', 'auto-edit'] as const)(
+    'refuses an older %s profile before spawning with a logged stable code',
+    async (permissionLevel) => {
+      const identity: CodexThreadIdentity = {
+        contextId: profile.contextId,
+        threadId: 'stored-thread',
+        processGeneration: 3,
+        normalizedHome: profile.normalizedHome,
+        providerId: profile.providerId,
+        workspaceId: profile.workspaceId,
+        profileFingerprint: 'pre-D14-fingerprint',
+      };
+      const failure = await runtime
+        .open({ ...profile, permissionLevel }, identity)
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CodexResumeProfileChangedError);
+      expect(failure).toMatchObject({
+        name: 'CodexResumeProfileChangedError',
+        code: 'resume-profile-changed',
+        message: 'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
+      });
+      expect(options.logger.error).toHaveBeenCalledTimes(1);
+      expect(options.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Start a new chat'),
+        { code: 'resume-profile-changed' },
+      );
+      expect(children).toHaveLength(0);
+      expect(persist).not.toHaveBeenCalled();
+      expect(inactive).not.toHaveBeenCalled();
+    },
+  );
+
+  it('sends the exact Manual thread and turn policy frames', async () => {
+    const context = await runtime.open(profile);
+    await context.startTurn({ text: 'hi' });
+    const frames = children[0].frames;
+    expect(frames.find((frame) => frame['method'] === 'thread/start')).toEqual({
+      id: expect.any(Number),
+      method: 'thread/start',
+      params: {
+        cwd: '/work',
+        model: 'model',
+        approvalPolicy: 'untrusted',
+        approvalsReviewer: 'user',
+        sandbox: 'workspace-write',
+      },
+    });
+    expect(frames.find((frame) => frame['method'] === 'turn/start')).toEqual({
+      id: expect.any(Number),
+      method: 'turn/start',
+      params: {
+        threadId: context.identity.threadId,
+        input: [{ type: 'text', text: 'hi' }],
+        model: 'model',
+        effort: null,
+        approvalPolicy: 'untrusted',
+        approvalsReviewer: 'user',
+        cwd: '/work',
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          networkAccess: false,
+          writableRoots: ['/work'],
+        },
+      },
+    });
+    expect(children[0].fixtureErrors).toEqual([]);
   });
 
   it('serializes admission, steers the expected in-flight turn, and starts a new turn when idle', async () => {

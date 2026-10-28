@@ -100,8 +100,12 @@ const profile: CodexExecutionProfile = {
   cwd: '/workspace',
   model: 'gpt-5',
   permissionLevel: 'ask',
-  approvalPolicy: 'on-request',
-  sandboxPolicy: { mode: 'read-only', networkAccess: false, writableRoots: [] },
+  approvalPolicy: 'untrusted',
+  sandboxPolicy: {
+    mode: 'workspace-write',
+    networkAccess: false,
+    writableRoots: ['/workspace'],
+  },
   instructionSources: [],
   mcpServers: [],
   attachments: [],
@@ -798,6 +802,103 @@ describe('Native Codex chat contracts end to end', () => {
       h.dispose();
     }
   });
+
+  it.each([
+    ['fileChange', 'allow'],
+    ['fileChange', 'deny'],
+    ['commandExecution', 'allow'],
+    ['commandExecution', 'deny'],
+  ] as const)(
+    'presents exactly one pre-start %s approval and honors %s',
+    async (kind, decision) => {
+      const h = codexHarness();
+      // Pre-start: the approval arrives before any item, so nothing is
+      // projected yet (message_start is synthesized with the first mapped
+      // item event). The turn is live once startTurn is accepted.
+      let turnBegun = false;
+      h.server.onTurnStart = () => {
+        h.server.notify(turnStarted());
+        turnBegun = true;
+      };
+      const tool = kind === 'commandExecution'
+        ? {
+            type: kind,
+            id: 'call-1',
+            ...command,
+            commandActions: [],
+          }
+        : {
+            type: kind,
+            id: 'call-1',
+            changes: [{
+              path: '/workspace/example.txt',
+              diff: '+approved edit',
+              kind: { type: 'add' },
+            }],
+          };
+      try {
+        const streaming = h.start();
+        await eventually(() => turnBegun, 'turn started before approval');
+        const reply = h.bridge().handle({
+          id: 7,
+          method: `item/${kind}/requestApproval`,
+          params: {
+            threadId: THREAD,
+            turnId: TURN,
+            itemId: 'call-1',
+            startedAtMs: 1,
+            ...(kind === 'commandExecution' ? command : { grantRoot: '/workspace' }),
+          },
+        }, TURN, new AbortController().signal);
+        const permissions = () => h.view.messages().filter(
+          ({ type }) => type === MESSAGE_TYPES.PERMISSION_REQUEST,
+        );
+        await eventually(() => permissions().length > 0, 'pre-start approval');
+        expect(permissions()).toHaveLength(1);
+        expect(h.view.chunks().filter((event) => event.eventType === 'tool_start'))
+          .toHaveLength(0);
+        const parsed = parsePermissionRequest(permissions()[0].payload);
+        expect(parsed).not.toBeNull();
+        expect(parsed).toMatchObject({
+          sessionId: THREAD,
+          tabId: TAB,
+          toolUseId: 'call-1',
+        });
+        expect(h.ports.handlePermissionResponse({
+          id: parsed?.id ?? '',
+          // Plain deny cancels the Codex turn; the refusal flow below (the
+          // server reports the item declined and the turn continues) is
+          // deny_with_message, which the host maps to the decline decision.
+          decision: decision === 'allow' ? 'allow' : 'deny_with_message',
+        })).toBe(true);
+        await expect(reply).resolves.toMatchObject({
+          response: { decision: decision === 'allow' ? 'accept' : 'decline' },
+        });
+        if (decision === 'allow') {
+          h.server.notify(item({ ...tool, status: 'inProgress' }));
+          h.server.notify(item({ ...tool, status: 'completed' }, true));
+        } else {
+          // The server reports refusal without ever executing the item.
+          h.server.notify(item({ ...tool, status: 'declined' }, true));
+        }
+        h.server.notify(turnCompleted());
+        await streaming;
+        expect(permissions()).toHaveLength(1);
+        const starts = h.view.chunks().filter((event) => event.eventType === 'tool_start');
+        const results = h.view.chunks().filter((event) => event.eventType === 'tool_result');
+        expect(starts).toHaveLength(decision === 'allow' ? 1 : 0);
+        expect(results).toHaveLength(1);
+        expect(results[0]).toMatchObject({
+          toolCallId: parsed?.toolUseId,
+          isError: decision === 'deny',
+        });
+        expect(results.filter((event) => !event.isError))
+          .toHaveLength(decision === 'allow' ? 1 : 0);
+      } finally {
+        h.dispose();
+      }
+    },
+  );
 
   it('presents an approval that the renderer parser accepts, keyed to its tool_start', async () => {
     const h = codexHarness();

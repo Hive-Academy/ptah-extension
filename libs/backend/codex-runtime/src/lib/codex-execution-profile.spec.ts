@@ -41,15 +41,34 @@ describe('buildCodexExecutionProfile', () => {
       });
       const observed = policy(permissionLevel);
       expect(profile.approvalPolicy).toEqual(observed.approvalPolicy);
+      expect(profile.approvalPolicy).toBe(
+        permissionLevel === 'ask' || permissionLevel === 'auto-edit'
+          ? 'untrusted'
+          : 'on-request',
+      );
       expect(profile.sandboxPolicy.mode).toBe(observed.sandbox);
+      expect(profile.sandboxPolicy.mode).toBe(
+        permissionLevel === 'plan' ? 'read-only' : 'workspace-write',
+      );
       expect(profile.sandboxPolicy.networkAccess).toBe(false);
       expect(profile.approvalsReviewer).toBe('user');
+      expect(observed.approvalsReviewer).toBe('user');
       expect(profile.fullAccessStatus).toBe('unproved-disabled');
       expect(profile.sandboxPolicy.writableRoots).toEqual(
-        ['auto-edit', 'yolo'].includes(permissionLevel) ? ['/real/work'] : [],
+        permissionLevel === 'plan' ? [] : ['/real/work'],
       );
     },
   );
+
+  it('distinguishes Manual and plan thread fingerprints', () => {
+    const source = input();
+    const ask = buildCodexExecutionProfile(source);
+    const plan = buildCodexExecutionProfile({
+      ...source,
+      session: { ...source.session, permissionLevel: 'plan' },
+    });
+    expect(ask.profileFingerprint).not.toBe(plan.profileFingerprint);
+  });
 
   it('applies precedence without injecting absent defaults from higher layers', () => {
     const source = input();

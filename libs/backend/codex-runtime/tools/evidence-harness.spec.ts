@@ -949,12 +949,11 @@ describe('review regression guards using real functions and isolated disk', () =
       'Unsafe sandbox',
     );
     for (const level of ['ask', 'plan', 'auto-edit', 'yolo'] as const) {
-      if (level !== 'ask')
-        expect(policy(level).approvalPolicy).toBe('on-request');
+      expect(policy(level).approvalPolicy).toBe(
+        level === 'plan' || level === 'yolo' ? 'on-request' : 'untrusted',
+      );
       expect(policy(level).sandbox).toBe(
-        level === 'auto-edit' || level === 'yolo'
-          ? 'workspace-write'
-          : 'read-only',
+        level === 'plan' ? 'read-only' : 'workspace-write',
       );
     }
   });
@@ -1293,20 +1292,24 @@ describe('review regression guards using real functions and isolated disk', () =
   });
 });
 
-describe('granular ask approval policy', () => {
+describe('bounded approval policy profile', () => {
   it('enables experimentalApi only for granular initialize params', () => {
-    for (const level of ['ask', undefined] as const) {
-      expect(initializeParams(policy(level).approvalPolicy)).toEqual({
-        clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
-        capabilities: { experimentalApi: true },
-      });
-    }
-    for (const level of ['plan', 'auto-edit', 'yolo'] as const) {
+    for (const level of [
+      'ask',
+      undefined,
+      'plan',
+      'auto-edit',
+      'yolo',
+    ] as const) {
       expect(initializeParams(policy(level).approvalPolicy)).toEqual({
         clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
         capabilities: { experimentalApi: false },
       });
     }
+    expect(initializeParams({ granular })).toEqual({
+      clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
+      capabilities: { experimentalApi: true },
+    });
   });
 
   it('confirms an echoed granular policy and user reviewer structurally', () => {
@@ -1318,7 +1321,7 @@ describe('granular ask approval policy', () => {
           },
           approvalsReviewer: 'user',
         },
-        policy('ask').approvalPolicy,
+        { granular },
       ),
     ).not.toThrow();
   });
@@ -1390,27 +1393,31 @@ describe('granular ask approval policy', () => {
     request_permissions: true,
     skill_approval: true,
   };
-  it('uses granular approvals for ask and the default read-only profile', () => {
+  it('uses untrusted approvals for ask and the default profile', () => {
     for (const level of ['ask', undefined] as const)
       expect(policy(level)).toEqual({
-        sandbox: 'read-only',
-        approvalPolicy: { granular },
+        sandbox: 'workspace-write',
+        approvalPolicy: 'untrusted',
         approvalsReviewer: 'user',
       });
   });
-  it('serializes the config override as TOML, retaining on-request for other levels', () => {
-    expect(approvalPolicyOverride(policy('ask').approvalPolicy)).toBe(
-      'approval_policy={granular={sandbox_approval=true,rules=true,mcp_elicitations=true,request_permissions=true,skill_approval=true}}',
-    );
-    for (const level of ['plan', 'auto-edit', 'yolo'] as const) {
+  it('serializes the config override as TOML, retaining on-request for plan and yolo', () => {
+    for (const level of ['ask', undefined, 'auto-edit'] as const)
+      expect(approvalPolicyOverride(policy(level).approvalPolicy)).toBe(
+        'approval_policy="untrusted"',
+      );
+    for (const level of ['plan', 'yolo'] as const) {
       expect(approvalPolicyOverride(policy(level).approvalPolicy)).toBe(
         'approval_policy="on-request"',
       );
-      expect(policy(level)).not.toHaveProperty('approvalsReviewer');
+      expect(policy(level).approvalsReviewer).toBe('user');
     }
+    expect(approvalPolicyOverride({ granular })).toBe(
+      'approval_policy={granular={sandbox_approval=true,rules=true,mcp_elicitations=true,request_permissions=true,skill_approval=true}}',
+    );
   });
   it('compares the config structurally, rejecting changed, missing and extra values', () => {
-    const expected = policy('ask').approvalPolicy;
+    const expected = { granular };
     expect(
       approvalPoliciesEqual(
         { granular: Object.fromEntries(Object.entries(granular).reverse()) },
@@ -1928,7 +1935,7 @@ describe('ask-command-edit evidence flow', () => {
       expect(result.status).toBe('unverified: required gate not observed');
       expect(result.approvals).toHaveLength(approvals);
       expect(result.notes).not.toContain(
-        'granular ask: no approval request observed',
+        'untrusted ask: no approval request observed',
       );
       expect(
         result.notes?.filter((note) =>
@@ -1950,7 +1957,7 @@ describe('ask-command-edit evidence flow', () => {
       result.notes?.some((note) => note.includes('expected approval requests')),
     ).toBe(false);
     expect(result.notes).not.toContain(
-      'granular ask: no approval request observed',
+      'untrusted ask: no approval request observed',
     );
   });
 

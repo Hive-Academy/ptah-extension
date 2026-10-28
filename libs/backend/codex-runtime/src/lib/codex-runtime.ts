@@ -59,6 +59,18 @@ export interface CodexRuntimeOptions {
   readonly requestUserInput?: CodexApprovalBridgeOptions['requestUserInput'];
 }
 
+/** A stored thread must not silently adopt a different execution policy. */
+export class CodexResumeProfileChangedError extends Error {
+  readonly code = 'resume-profile-changed';
+
+  constructor() {
+    super(
+      'Codex cannot resume this chat because its execution profile has changed. Start a new chat to use the current permission policy.',
+    );
+    this.name = 'CodexResumeProfileChangedError';
+  }
+}
+
 /** Host-owned instance; contexts share only the scoped, in-memory permission rules. */
 export class CodexRuntime implements RuntimePort {
   private readonly contexts = new Map<string, RuntimeContext>();
@@ -86,11 +98,15 @@ export class CodexRuntime implements RuntimePort {
           'normalizedHome',
           'providerId',
           'workspaceId',
-          'profileFingerprint',
         ] as const
       ).some((key) => resume[key] !== profile[key])
     )
       throw new Error('Codex resume identity mismatch');
+    if (resume && resume.profileFingerprint !== profile.profileFingerprint) {
+      const error = new CodexResumeProfileChangedError();
+      this.options.logger.error(error.message, { code: error.code });
+      throw error;
+    }
     // Lane budget/tool enforcement is not present at this boundary; MCP
     // servers are applied natively as config overrides on the thread frame.
     if (

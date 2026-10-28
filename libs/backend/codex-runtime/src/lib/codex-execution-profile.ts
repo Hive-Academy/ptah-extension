@@ -224,6 +224,7 @@ export function buildCodexExecutionProfile(
       throw new Error('Resume paths cannot change');
   }
   const writable =
+    selected.permissionLevel === 'ask' ||
     selected.permissionLevel === 'auto-edit' ||
     selected.permissionLevel === 'yolo';
   const profile: Omit<BuiltCodexExecutionProfile, 'profileFingerprint'> = {
@@ -235,18 +236,12 @@ export function buildCodexExecutionProfile(
         ? { ...attachment, path: normalize(attachment.path) }
         : attachment,
     ),
-    // Matches evidence-harness policy() (6e-6j); Ptah-side YOLO approvals live in 2f.
+    // D14: untrusted requests approval before edits and untrusted commands.
+    // Mirror evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
     approvalPolicy:
-      selected.permissionLevel === 'ask'
-        ? {
-            granular: {
-              sandbox_approval: true,
-              rules: true,
-              skill_approval: true,
-              request_permissions: true,
-              mcp_elicitations: true,
-            },
-          }
+      selected.permissionLevel === 'ask' ||
+      selected.permissionLevel === 'auto-edit'
+        ? 'untrusted'
         : 'on-request',
     sandboxPolicy: {
       mode: writable ? 'workspace-write' : 'read-only',
