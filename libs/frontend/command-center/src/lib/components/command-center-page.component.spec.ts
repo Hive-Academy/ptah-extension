@@ -81,6 +81,7 @@ describe('CommandCenterPageComponent', () => {
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
   type LiveContext = NonNullable<Parameters<typeof sessionContextCue>[0]>;
+  const otherWorkspaceTabIds = new Set<string>();
   const tabs = signal<
     {
       id: string;
@@ -151,7 +152,12 @@ describe('CommandCenterPageComponent', () => {
       chooseCurrentTab: jest.fn(),
       refreshSessions: jest.fn(),
     },
-    tabs: { activeWorkspacePath: '/workspace', tabs },
+    tabs: {
+      activeWorkspacePath: '/workspace',
+      tabs,
+      findTabByIdAcrossWorkspaces: (id: string) =>
+        otherWorkspaceTabIds.has(id) ? { tab: { id } } : null,
+    },
     open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
     confirmProposal: jest.fn(async (_id: string) => undefined),
@@ -1531,6 +1537,17 @@ describe('CommandCenterPageComponent', () => {
       settle();
       expect(forget).toHaveBeenCalledTimes(1);
       expect(forget).toHaveBeenCalledWith('child-tab');
+      fixture.destroy();
+    });
+
+    it('keeps the dock state of a tab still open in another workspace', () => {
+      const { fixture, dock, settle } = mountPage();
+      const forget = jest.spyOn(dock, 'forgetTab');
+      otherWorkspaceTabIds.add('child-tab');
+      tabs.set([{ id: 'root-tab' }]);
+      settle();
+      expect(forget).not.toHaveBeenCalled();
+      otherWorkspaceTabIds.clear();
       fixture.destroy();
     });
   });

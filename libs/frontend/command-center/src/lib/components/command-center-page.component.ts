@@ -470,7 +470,12 @@ export class CommandCenterPageComponent {
       );
       const closed = [...this.knownTabIds].filter((id) => !ids.has(id));
       this.knownTabIds = ids;
-      untracked(() => closed.forEach((id) => dock.forgetTab(id)));
+      // tabs() lists only the active workspace; a tab open elsewhere keeps its state.
+      untracked(() =>
+        closed
+          .filter((id) => !this.page.tabs.findTabByIdAcrossWorkspaces(id))
+          .forEach((id) => dock.forgetTab(id)),
+      );
     });
   }
 
