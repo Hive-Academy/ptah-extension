@@ -627,3 +627,16 @@
   N1 (propagation spec for chat-session.service) is recorded as later coverage work.
 - Source: orchestrator, review evidence.
 - Reversible: yes.
+
+## D75
+
+- Decision: record two live-test observations of session 12 as later tasks, not as fixes in #827.
+  (a) The SDK adapter is initialized for the auth route of the workspace that is active at app start; a
+  switch to a workspace with another route (API key -> Claude CLI) does not initialize it again, so
+  chat:start fails with "No Anthropic API key configured" until restart. Not in this task's diff.
+  (b) A named main chat right after app start refused closed after 54 s ("Named account admission could
+  not be completed", no binding, no lease) while the log showed event-loop lag; the same flow on the warm
+  app passed in 34.7 s. The refusal has no code in the log. Later: log the refusal code and the step,
+  and review the 15 s per-step limit under start-up load.
+- Source: orchestrator, live evidence (`test-report.md` "Live results").
+- Reversible: yes.

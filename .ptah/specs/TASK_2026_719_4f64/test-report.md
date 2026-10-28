@@ -64,7 +64,7 @@ Paths are relative to `libs/backend/` unless stated. "L" = line of the `it(` tit
 | R7.1 ambient env/options unchanged | rev 4 ambient pin list (`claude-account-route-env.spec.ts`, `sdk-query-options-builder*.spec.ts`, ambient cases above) unchanged | covered |
 | R7.2 host typecheck/tests | not run here (rule: no `npm run verify`) | not run |
 | R7.3 non-Claude lanes unchanged | `agent-process-manager.account-binding.spec.ts:249,716`; `agent-spawn-accounts.spec.ts:256` | covered |
-| R8 live test | part B below | pending, user-run |
+| R8 live test | "Live results" below | Part A lane PASS (s11); Part B named main chat PASS (s12 re-test); E1-E6 / steps 1-8 not run |
 
 Regression table rows (`implementation-plan.md:879-920`): every row has a committed spec. Rows 879-884,
 888-919 were matched by title above (B3, B5, B6, B8, B9, B11-B15 specs listed in the table exist and contain
@@ -92,6 +92,22 @@ warning, then ran normally. Typecheck of the two files was not run separately.
   copy searches find no "awaiting release". If the criterion is read literally ("`release-held` no longer produced by any
   production path"), the code name still exists for abort/timeout/stream-end and foreign errors. Needs a production
   decision (rename to a neutral code or accept); not changed here.
+
+## Live results
+
+DB `~/.ptah/state/ptah-dev.sqlite` (read-only query `.ptah/tmp/live-q.cjs`, opaque ids only). Profile
+`e8b8f739` ("Second Line"). Haiku 5.5. Logs: logger tags, timestamps and fixed fields only.
+
+| Run | Build | Result | Evidence |
+| --- | --- | --- | --- |
+| s11 Part A, Claude CLI lane, named | `3ec32e0ca` | PASS | binding `273e3b78…` on `e8b8f739`, `identity_kind known`, link `d030267f…`, no refusal |
+| s11 Part B, main chat, named | `3ec32e0ca` | FAIL (UX) | account PASS (binding `cfd54cc2…`, link `d5e215c5…`, reply), but "RPC timeout: chat:start": host 35.1 s, renderer 30 s → D72/D73 |
+| s12 Part B try 1 | `7736c04f8` | not a task result | app started on another workspace with the API-key route; the switch to the test workspace did not initialize the SDK adapter again → "No Anthropic API key configured" in 2 s (D75 a) |
+| s12 Part B try 2 (restart on the test workspace, 20 s after start) | `7736c04f8` | FAIL closed | no RPC timeout; host answered after 54.3 s with "Named account admission could not be completed"; no new binding, no new lease; event-loop lag and deferred background work logged at that time; no refusal code in the log (D75 b) |
+| s12 Part B try 3 (warm app) | `7736c04f8` | PASS | reply "hey" after 37.5 s; no RPC timeout; `[RPC] slow handler` chat:start 34.7 s (< 120 s); new binding `365d6cbe…` on `e8b8f739`, `identity_kind known`, owner key hash equals the profile `identity_ref` (opaque compare); new link `36118d12…` |
+
+The agent drove s12 through CDP on its own instance (accessibility tree only) at the user's request; the user
+did not sign in again (profile already signed in). Paid calls: three Haiku messages.
 
 ## Live test plan (Requirement 8)
 
