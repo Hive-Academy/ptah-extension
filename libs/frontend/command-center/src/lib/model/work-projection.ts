@@ -33,6 +33,10 @@ export interface OwnedAgent {
 /** Keep scene plates legible; the full task remains available at its source. */
 export const WORK_LABEL_MAX_LENGTH = 28;
 const START_CLOCK_SKEW_MS = 30_000;
+const ACTIVE_STATES: ReadonlySet<CommandWorkState> = new Set([
+  'running',
+  'starting',
+]);
 
 function agentLabel(agent: OwnedAgent): string {
   const provider = agent.providerId?.trim();
@@ -291,6 +295,16 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
     });
   }
   const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
+  // A finished root turn still orchestrates while its delegated work runs.
+  if (
+    unique[0].state === 'idle' &&
+    unique.some(
+      (node) =>
+        (node.kind === 'agent' || node.kind === 'child') &&
+        ACTIVE_STATES.has(node.state),
+    )
+  )
+    unique[0] = { ...unique[0], state: 'running' };
   return {
     nodes: unique,
     edges: unique.flatMap((node) =>
