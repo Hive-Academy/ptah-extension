@@ -3517,6 +3517,25 @@ END OF ANUBIS DESIGN SYSTEM
      deeper key shadow, still no border. */
   box-shadow: var(--glass-rim), 0 0 0 1px rgb(36 44 72 / 0.08), 0 2px 6px -2px rgb(36 44 72 / 0.16), 0 12px 28px -12px rgb(36 44 72 / 0.36);
 }
+/* Tool-call rows and agent tiles in the transcript are list rows, not raised
+   cards: they keep the tile fill but drop the elev-1 drop shadow and rim, as
+   they have no shadow with glass off. */
+:root[data-theme][data-glass='on'] :is(ptah-tool-call-item > [data-glass-surface='tile'], ptah-execution-node [data-glass-surface='tile']:has(> ptah-subagent-tile)) {
+  box-shadow: none;
+}
+/* The docked Stats pane (chrome) shows the scene like the git dock: the
+   inspector's solid surface blocks (plan-limit cards, the selected agent row)
+   become glass fills. The compact sheet and the overlay dock keep theirs, and
+   so do menus (they float over rows with no blur of their own). The contrast
+   hatches keep the solid utilities. */
+@media (prefers-reduced-transparency: no-preference) and (prefers-contrast: no-preference) {
+  :root[data-theme][data-glass='on'] aside[data-inspector-dock][data-glass-surface='chrome'] .bg-surface-1:not([role='menu']) {
+    background-color: var(--glass-fill-tile);
+  }
+  :root[data-theme][data-glass='on'] aside[data-inspector-dock][data-glass-surface='chrome'] li.bg-surface-2[aria-current='true'] {
+    background-color: oklch(var(--bc) / 0.08);
+  }
+}
 /* The transcript scroller's top edge under the dock: content that scrolls
    out fades over 8px instead of being cut on a line (a clipped bubble
    shadow or a row's bottom border read as a rule under the dock). The

@@ -48,6 +48,7 @@ import {
   getAllAnthropicProviders,
   COPILOT_PROXY_TOKEN_PLACEHOLDER,
   CODEX_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
   OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   NAMED_ACCOUNT_ADMISSION_BUDGET_MS,
   type ContextCapacityRoute,
@@ -133,6 +134,9 @@ export function resolveCapacityRoute(authEnv: AuthEnv): ContextCapacityRoute {
             break;
           case CODEX_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'openai-codex';
+            break;
+          case KIMI_CODE_PROXY_TOKEN_PLACEHOLDER:
+            providerId = 'kimi-code';
             break;
           case OPENROUTER_PROXY_TOKEN_PLACEHOLDER:
             providerId = 'openrouter';

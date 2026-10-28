@@ -14,8 +14,8 @@
  * `PtahCliRegistry.getProfile()` isolates per-agent auth for the CLI path.
  *
  * Correctness scope:
- * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Kimi Code,
- *   Z.AI, and other api-key passthroughs) get a fully isolated snapshot — these
+ * - Non-proxy providers (direct Anthropic, Ollama / Ollama Cloud, Z.AI, and
+ *   other api-key passthroughs) get a fully isolated snapshot — these
  *   work concurrently across workspaces after this change.
  * - Proxy-based providers (Copilot/Codex OAuth proxies, OpenRouter/Sakana/LM
  *   Studio translation proxies) require a running local proxy. Phase 3: this
@@ -73,7 +73,7 @@ import { OLLAMA_AUTH_TOKEN_PLACEHOLDER } from '../providers/local';
  * The session env is `{ ...process.env, ...snapshot }`, and the globally
  * active provider writes its tier vars (`_MODEL`, `_NAME`, `_DESCRIPTION`,
  * `_SUPPORTED_CAPABILITIES`) into `process.env`. A key the snapshot leaves
- * absent therefore inherits the global provider's value — e.g. Kimi Code's
+ * absent therefore inherits the global provider's value — e.g. one provider's
  * capability allowlist applied to another provider's opus model. A present
  * `undefined` wins the spread and is then dropped before spawn
  * (`stripUndefinedEnv` / `child_process`), so the subprocess sees the key as
@@ -324,7 +324,7 @@ export class WorkspaceProviderProfileResolver {
   /**
    * Anthropic-native and api-key-passthrough third-party providers that speak
    * the Anthropic protocol directly (no local translation proxy): Ollama, Ollama
-   * Cloud, Kimi Code, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
+   * Cloud, Z.AI, and user-defined `lane: 'anthropic'` entries. Fully
    * isolatable — these need no proxy at all, which is why they never reach
    * {@link ProviderProxyPool}.
    *
@@ -374,7 +374,7 @@ export class WorkspaceProviderProfileResolver {
       };
     }
 
-    // api-key passthrough (Kimi Code, Z.AI): direct base URL + per-provider key.
+    // api-key passthrough (Z.AI): direct base URL + per-provider key.
     const providerKey = (
       await this.authSecrets.getProviderKey(providerId)
     )?.trim();

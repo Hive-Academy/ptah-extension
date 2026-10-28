@@ -340,6 +340,29 @@ describe('LlmRpcHandlers', () => {
       );
     });
 
+    it('reports the stored fallback key of an OAuth provider with apiKeyFallback (Kimi Code)', async () => {
+      const h = makeHarness({
+        authProviderKeys: { 'kimi-code': 'fake-kimi-key' },
+      });
+      h.handlers.register();
+
+      const result = await call<{
+        providers: Array<{
+          name: string;
+          hasApiKey: boolean;
+          authType: string;
+        }>;
+      }>(h, 'llm:getProviderStatus');
+
+      const kimi = result.providers.find((p) => p.name === 'kimi-code');
+      expect(kimi?.authType).toBe('oauth');
+      expect(kimi?.hasApiKey).toBe(true);
+      // OAuth providers without the flag keep reporting no key.
+      expect(
+        result.providers.find((p) => p.name === 'openai-codex')?.hasApiKey,
+      ).toBe(false);
+    });
+
     it('defaults to anthropic when config has no defaultProvider set', async () => {
       const h = makeHarness();
       h.handlers.register();

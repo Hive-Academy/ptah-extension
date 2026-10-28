@@ -15,7 +15,11 @@ import type {
 } from '@ptah-extension/shared';
 import type { ConnectionCheckRecorder } from '../../utils/connection-check-recorder';
 import { resolveScopeFromKey } from '../setting-scope';
-import { CODEX_PROVIDER_ID, COPILOT_PROVIDER_ID } from './auth-provider-ids';
+import {
+  CODEX_PROVIDER_ID,
+  COPILOT_PROVIDER_ID,
+  KIMI_CODE_PROVIDER_ID,
+} from './auth-provider-ids';
 import type { AuthStatusCache } from './auth-status-cache';
 
 export interface EffectiveRouteMethodDeps {
@@ -49,6 +53,12 @@ export class EffectiveRouteMethod {
       codexAuthenticated: z.boolean().optional(),
       codexTokenStale: z.boolean().optional(),
       claudeCliInstalled: z.boolean().optional(),
+      kimiCodeCliDetected: z.boolean().optional(),
+      kimiCodeAuthenticated: z.boolean().optional(),
+      kimiCodeTokenStale: z.boolean().optional(),
+      kimiCodeCredentialSource: z
+        .enum(['cli-login', 'api-key', 'none'])
+        .optional(),
     });
     const providersSchema = z.object({
       providers: z.array(
@@ -152,7 +162,11 @@ export class EffectiveRouteMethod {
                     : provider.name === CODEX_PROVIDER_ID
                       ? auth.data.codexAuthenticated &&
                         !auth.data.codexTokenStale
-                      : undefined;
+                      : provider.name === KIMI_CODE_PROVIDER_ID
+                        ? // CLI sign-in, or the stored API key fallback.
+                          auth.data.kimiCodeCredentialSource === 'cli-login' ||
+                          auth.data.kimiCodeCredentialSource === 'api-key'
+                        : undefined;
                 return {
                   id: provider.name,
                   type: 'oauth',

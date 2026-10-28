@@ -50,7 +50,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /**
  * Local Whisper (STT) panel, drawer D-VOICE tab "Speech-to-text" (pattern map
- * V13-V16, V20): the existing controls reflowed as `table-xs` rows. Saves run
+ * V13-V16, V20): the existing controls reflowed as `table-sm` rows. Saves run
  * through {@link SettingsSaveFeedbackService.saveGeneric} — "Saved" only after
  * the write's own result, a failed write reverts the control and raises an
  * alert toast (D15), the "Saved" chip is gone (V20). Returning to Curated saves
@@ -86,7 +86,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
       </div>
     }
 
-    <table class="table table-xs" data-testid="local-stt-panel-table">
+    <table class="table table-sm" data-testid="local-stt-panel-table">
       <tbody>
         <!-- V13: source. Returning to Curated saves immediately; a custom source
              is committed by its Save button (V15). -->
@@ -129,7 +129,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
               <select
                 id="local-stt-model"
                 aria-label="Whisper model"
-                class="select select-bordered select-xs w-full"
+                class="select select-bordered select-sm w-full"
                 [value]="selectedModel()"
                 [ptahBusyDisabled]="saving()"
                 (change)="onModelChange($event)"
@@ -162,7 +162,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
                   id="local-stt-custom"
                   type="text"
                   aria-label="Custom model id or folder"
-                  class="input input-bordered input-xs w-full"
+                  class="input input-bordered input-sm w-full"
                   [class.input-error]="
                     customModel().length > 0 && !customModelValid()
                   "

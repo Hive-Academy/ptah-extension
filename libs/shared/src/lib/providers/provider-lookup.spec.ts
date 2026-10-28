@@ -31,6 +31,7 @@ import {
   type AnthropicProvider,
 } from './provider-registry';
 import { findModelPricing, getPricingMap } from '../utils/pricing.utils';
+import { resolveStrategy } from '../types/auth-strategy.types';
 
 /**
  * The shipped registry, widened from its literal tuple type so the optional
@@ -201,15 +202,25 @@ describe('seedStaticModelPricing', () => {
 describe('kimi-code registry entry', () => {
   const kimi = getAnthropicProvider('kimi-code');
 
-  it('is the subscription coding endpoint authenticated with x-api-key', () => {
+  it('is an OAuth proxy provider on the coding endpoint with an API key fallback', () => {
     expect(kimi).toBeDefined();
     expect(kimi?.baseUrl).toBe('https://api.kimi.ai/coding/');
+    // The direct key paths (draft verification, connection check, Ptah CLI
+    // agents) still send the fallback key as x-api-key.
     expect(kimi?.authEnvVar).toBe('ANTHROPIC_API_KEY');
-    expect(kimi?.authType).toBe('apiKey');
-    expect(kimi?.requiresProxy).toBe(false);
+    expect(kimi?.authType).toBe('oauth');
+    expect(kimi?.requiresProxy).toBe(true);
+    expect(kimi?.apiKeyFallback).toBe(true);
+    expect(kimi?.supportsOptionalApiKey).toBeUndefined();
     expect(kimi?.pricingModel).toBe('subscription');
     expect(kimi?.modelsEndpoint).toBeUndefined();
     expect(isSubscriptionCoveredProvider('kimi-code')).toBe(true);
+  });
+
+  it('routes third-party auth through the OAuth proxy strategy', () => {
+    expect(kimi).toBeDefined();
+    if (!kimi) return;
+    expect(resolveStrategy('thirdParty', kimi)).toBe('oauth-proxy');
   });
 
   it('defaults to the K3.1 Pro / K3 / Kimi for Coding tiers, all in the static list', () => {

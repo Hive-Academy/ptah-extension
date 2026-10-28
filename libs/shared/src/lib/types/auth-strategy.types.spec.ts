@@ -178,7 +178,6 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
   const EXPECTED_ROUTE_BY_PROVIDER_ID: Record<string, AuthStrategyType> = {
     // API-key providers — unchanged by TASK_2026_172.
     openrouter: 'api-key', // authType 'apiKey' + requiresProxy true
-    'kimi-code': 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough, x-api-key
     'z-ai': 'api-key', // authType undefined (defaults to key)
     sakana: 'api-key', // apiKey + requiresProxy true → proxy started inside ApiKeyStrategy
     requesty: 'api-key', // apiKey + requiresProxy FALSE → native Messages passthrough (TASK_2026_236)
@@ -192,6 +191,9 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     // OAuth + translation proxy — unchanged.
     'github-copilot': 'oauth-proxy',
     'openai-codex': 'oauth-proxy',
+    // Kimi Code CLI sign-in through the Kimi proxy, stored key as fallback
+    // (`apiKeyFallback`) — TASK_KIMI_OAUTH.
+    'kimi-code': 'oauth-proxy',
     // Local providers — unchanged. These are the routes claude-cli must NOT share.
     ollama: 'local-native',
     'ollama-cloud': 'local-native',
@@ -222,14 +224,13 @@ describe('resolveStrategy — live ANTHROPIC_PROVIDERS registry', () => {
     expect(nativeAuthProviders).toEqual(['claude-cli']);
   });
 
-  it('the API-key provider set is exactly {openrouter, kimi-code, z-ai, sakana, requesty, opencode-zen, opencode-go} — regression guard for acceptance criterion 2', () => {
+  it('the API-key provider set is exactly {openrouter, z-ai, sakana, requesty, opencode-zen, opencode-go} — regression guard for acceptance criterion 2', () => {
     const apiKeyRouted = REGISTRY.filter(
       (p) => resolveStrategy('thirdParty', p) === 'api-key',
     )
       .map((p) => p.id)
       .sort();
     expect(apiKeyRouted).toEqual([
-      'kimi-code',
       'opencode-go',
       'opencode-zen',
       'openrouter',

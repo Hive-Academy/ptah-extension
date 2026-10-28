@@ -2,6 +2,7 @@ import type {
   AuthGetEffectiveRouteResult,
   AuthSaveSettingsParams,
   AuthVerifyDraftConnectionParams,
+  KimiCodeCredentialSource,
   PtahCliConfig,
   RpcMethodParams,
   RpcMethodResult,
@@ -143,8 +144,17 @@ export interface ProvidersConnection {
   readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
   /** Signed-in account shown for GitHub Copilot; null for every other connection or when signed out. */
   readonly accountLabel: string | null;
-  /** The OpenAI Codex login exists but its token expired. Always false for other connections. */
+  /**
+   * The CLI login exists but its token expired (OpenAI Codex) or was rejected on refresh (Kimi Code).
+   * Always false for other connections.
+   */
   readonly tokenStale: boolean;
+  /**
+   * Which credential serves requests now, for a sign-in connection that also accepts a stored key
+   * (`apiKeyFallback`, currently Kimi Code): its CLI login, the stored key, or neither. Absent for
+   * every other connection.
+   */
+  readonly credentialSource?: KimiCodeCredentialSource;
   /**
    * Masked hint of the stored key (four bullets, a space, the last 4 characters), computed by the host
    * (`auth:getApiKeyStatus` `keyHint`, `auth:getAuthStatus` `apiKeyHint`). Display only: never sent back,

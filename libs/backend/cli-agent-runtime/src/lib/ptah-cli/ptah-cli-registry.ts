@@ -15,6 +15,10 @@ import {
   type ProviderProfile,
   createEmptyAuthEnv,
   isOpenCodeProviderId,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
   OLLAMA_CLOUD_DIRECT_BASE_URL,
 } from '@ptah-extension/shared';
 import {
@@ -58,6 +62,9 @@ import {
   createOpenCodeProxyForKey,
   OPENCODE_PROXY_TOKEN_PLACEHOLDER,
   LmStudioTranslationProxy,
+  KimiCodeTranslationProxy,
+  KIMI_CODE_PROVIDER_ID,
+  type IKimiCodeAuthService,
   type ITranslationProxy,
 } from '@ptah-extension/auth-providers';
 import type { PtahCliConfigPersistence } from './helpers/ptah-cli-config-persistence.service';
@@ -158,6 +165,15 @@ export class PtahCliRegistry {
      */
     @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
     private readonly container: DependencyContainer | null = null,
+    /**
+     * The host's ONE Kimi Code credential service. A key-less kimi-code agent
+     * runs through a per-agent proxy bound to this singleton, so the rotating
+     * CLI refresh token keeps a single in-process owner. Optional so a host
+     * without the Kimi Code provider still constructs the registry; such an
+     * agent then reports `unconfigured` and fails to spawn with sign-in copy.
+     */
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH, { isOptional: true })
+    private readonly kimiCodeAuth: IKimiCodeAuthService | null = null,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -211,25 +227,60 @@ export class PtahCliRegistry {
   }
 
   /**
-   * Resolve the API key for a run: truly-local → placeholder; optional-key
-   * (ollama-cloud) → saved key when present else placeholder (signin still
-   * works); key-required → saved key (undefined when unset).
+   * Resolve the credential for a run: truly-local → placeholder key;
+   * optional-key (ollama-cloud) → saved key when present else placeholder
+   * (signin still works); Kimi Code without a key → the host's Kimi Code
+   * connection while it is usable; key-required → saved key. Undefined when
+   * nothing can serve the run.
    */
-  private async resolveAgentApiKey(
+  private async resolveAgentCredential(
     id: string,
     provider: AnthropicProvider | undefined,
-  ): Promise<string | undefined> {
+  ): Promise<AgentCredential | undefined> {
     if (this.isTrulyLocal(provider)) {
-      return OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+      return { kind: 'instance-key', key: OLLAMA_AUTH_TOKEN_PLACEHOLDER };
     }
     const saved = await this.authSecrets.getProviderKey(
       `${PTAH_CLI_KEY_PREFIX}.${id}`,
     );
-    if (saved && saved.trim().length > 0) return saved;
-    if (provider?.supportsOptionalApiKey === true) {
-      return OLLAMA_AUTH_TOKEN_PLACEHOLDER;
+    if (saved && saved.trim().length > 0) {
+      return { kind: 'instance-key', key: saved };
     }
-    return saved ?? undefined;
+    if (provider?.supportsOptionalApiKey === true) {
+      return { kind: 'instance-key', key: OLLAMA_AUTH_TOKEN_PLACEHOLDER };
+    }
+    if (
+      isKimiCodeProvider(provider) &&
+      (await this.isKimiCodeConnectionUsable())
+    ) {
+      return { kind: 'kimi-connection' };
+    }
+    return undefined;
+  }
+
+  /**
+   * The host's Kimi Code connection can serve a key-less agent. It is the
+   * same connection the main chat uses: the CLI sign-in (present and its
+   * refresh not rejected) first, the provider-level Kimi Code API key as
+   * fallback. Disk and key store only, no network I/O.
+   */
+  private async isKimiCodeConnectionUsable(): Promise<boolean> {
+    if (!this.kimiCodeAuth) {
+      return false;
+    }
+    try {
+      const status = await this.kimiCodeAuth.getStatus();
+      return (status.loggedIn && !status.stale) || status.hasApiKey;
+    } catch (error: unknown) {
+      // degradation-audit: reported - an unreadable Kimi Code status is
+      // treated as not connected; a fixed warning with only the error
+      // category is logged (never host error text) and the agent reports
+      // `unconfigured` / fails to spawn with the sign-in message.
+      this.logger.warn(
+        `[PtahCliRegistry] Kimi Code connection status unavailable (${errorCategory(error)})`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -246,9 +297,15 @@ export class PtahCliRegistry {
       const hasStoredKey = await this.authSecrets.hasProviderKey(
         `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
       );
-      // Runnable: truly-local, key stored, or signin-capable (authType none).
+      // Runnable: truly-local, key stored, signin-capable (authType none), or
+      // a key-less Kimi Code agent while the host's Kimi Code connection is
+      // usable.
       const hasKey =
-        trulyLocal || hasStoredKey || provider?.authType === 'none';
+        trulyLocal ||
+        hasStoredKey ||
+        provider?.authType === 'none' ||
+        (isKimiCodeProvider(provider) &&
+          (await this.isKimiCodeConnectionUsable()));
 
       const modelCount = provider?.staticModels?.length ?? 0;
 
@@ -289,6 +346,7 @@ export class PtahCliRegistry {
       throw new SdkError(`Unknown provider: ${providerId}`);
     }
 
+    assertNotReservedKey(apiKey);
     const id = generateAgentId();
     const tierMappings = this.buildDefaultTierMappings(provider);
 
@@ -359,6 +417,9 @@ export class PtahCliRegistry {
     >,
     apiKey?: string,
   ): Promise<void> {
+    if (apiKey !== undefined) {
+      assertNotReservedKey(apiKey);
+    }
     const configs = this.configPersistence.loadConfigs();
     const index = configs.findIndex((c) => c.id === id);
     if (index === -1) {
@@ -442,8 +503,8 @@ export class PtahCliRegistry {
       return undefined;
     }
 
-    const apiKey = await this.resolveAgentApiKey(id, provider);
-    if (!apiKey) {
+    const credential = await this.resolveAgentCredential(id, provider);
+    if (!credential) {
       this.logger.warn(`[PtahCliRegistry] getProfile: no API key for: ${id}`);
       return undefined;
     }
@@ -456,7 +517,7 @@ export class PtahCliRegistry {
       id,
       agentConfig,
       provider,
-      apiKey,
+      credential,
       effectiveTiers,
       leaseKey,
     );
@@ -504,16 +565,21 @@ export class PtahCliRegistry {
           error: `Unknown provider: ${agentConfig.providerId}`,
         };
       }
-      const apiKey = await this.resolveAgentApiKey(id, testProvider);
-      if (!apiKey) {
-        return { success: false, error: 'API key not configured' };
+      const credential = await this.resolveAgentCredential(id, testProvider);
+      if (!credential) {
+        return {
+          success: false,
+          error: isKimiCodeProvider(testProvider)
+            ? KIMI_CODE_MISSING_CREDENTIAL_MESSAGE
+            : 'API key not configured',
+        };
       }
 
       seedStaticModelPricing(agentConfig.providerId);
       const { authEnv: testAuthEnv, stopProxy } = await this.buildProxyAuthEnv(
         agentConfig,
         testProvider,
-        apiKey,
+        credential,
       );
 
       const abortController = new AbortController();
@@ -639,14 +705,16 @@ export class PtahCliRegistry {
       };
     }
     const provider = getAnthropicProvider(agentConfig.providerId);
-    const apiKey = await this.resolveAgentApiKey(id, provider);
-    if (!apiKey) {
+    const credential = await this.resolveAgentCredential(id, provider);
+    if (!credential) {
       this.logger.warn(
         `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`,
       );
       return {
         status: 'no_api_key',
-        message: `No API key configured for Ptah CLI agent "${id}"`,
+        message: isKimiCodeProvider(provider)
+          ? KIMI_CODE_MISSING_CREDENTIAL_MESSAGE
+          : `No API key configured for Ptah CLI agent "${id}"`,
       };
     }
     if (!provider) {
@@ -662,7 +730,7 @@ export class PtahCliRegistry {
     const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
       agentConfig,
       provider,
-      apiKey,
+      credential,
     );
     try {
       seedStaticModelPricing(agentConfig.providerId);
@@ -1015,24 +1083,33 @@ export class PtahCliRegistry {
     id: string,
     agentConfig: PtahCliConfig,
     provider: AnthropicProvider,
-    apiKey: string,
+    credential: AgentCredential,
     effectiveTiers: PtahCliConfig['tierMappings'],
     leaseKey: string | undefined,
   ): Promise<AuthEnv> {
     const isPooled =
-      provider.requiresProxy === true && provider.authType !== 'none';
+      provider.requiresProxy === true &&
+      provider.authType !== 'none' &&
+      !usesDirectAgentKey(provider, credential);
     if (!isPooled) {
       const { authEnv } = await this.buildProxyAuthEnv(
         agentConfig,
         provider,
-        apiKey,
+        credential,
       );
+      // The tab moved to an un-pooled profile (e.g. a key was added to a
+      // key-less Kimi Code agent): give back the lease it held, AFTER the
+      // replacement env is built so a failure keeps the old profile intact.
+      // Other holders of that lease keep their reference.
+      if (leaseKey !== undefined) {
+        await this.releaseProfile(leaseKey);
+      }
       return authEnv;
     }
 
     const fingerprint = this.proxyFingerprint(
       agentConfig,
-      apiKey,
+      credential,
       effectiveTiers,
     );
     const held =
@@ -1082,7 +1159,7 @@ export class PtahCliRegistry {
     const { authEnv, stopProxy } = await this.buildProxyAuthEnv(
       agentConfig,
       provider,
-      apiKey,
+      credential,
     );
     const lease: ProfileProxyLease = {
       fingerprint,
@@ -1105,12 +1182,13 @@ export class PtahCliRegistry {
    */
   private proxyFingerprint(
     agentConfig: PtahCliConfig,
-    apiKey: string,
+    credential: AgentCredential,
     effectiveTiers: PtahCliConfig['tierMappings'],
   ): string {
     return [
       agentConfig.providerId,
-      apiKey,
+      credential.kind,
+      credential.kind === 'instance-key' ? credential.key : '',
       effectiveTiers?.sonnet ?? '',
       effectiveTiers?.opus ?? '',
       effectiveTiers?.haiku ?? '',
@@ -1135,16 +1213,32 @@ export class PtahCliRegistry {
   private async buildProxyAuthEnv(
     agentConfig: PtahCliConfig,
     provider: AnthropicProvider,
-    apiKey: string,
+    credential: AgentCredential,
   ): Promise<{ authEnv: AuthEnv; stopProxy: () => Promise<void> }> {
+    // A key-less Kimi Code agent runs on the host's Kimi Code connection
+    // through its own proxy. Never a direct fallback: there is no key to send.
+    if (credential.kind === 'kimi-connection') {
+      return this.startProxyAuthEnv(
+        agentConfig,
+        provider,
+        this.createKimiConnectionProxy(),
+      );
+    }
+
     const noopStop = async (): Promise<void> => {
       /* nothing to tear down for the direct-baseUrl path */
     };
+    const apiKey = credential.key;
 
     // Every provider that speaks OpenAI and needs a translation proxy takes the
     // proxy path — remote apiKey (Sakana) AND local (LM Studio). Anthropic-native
     // providers (Ollama, requiresProxy:false) keep the direct base-URL path.
-    if (provider.requiresProxy !== true) {
+    // So does an OAuth provider with a key fallback (Kimi Code) when the agent
+    // carries its own key, which the provider accepts directly.
+    if (
+      provider.requiresProxy !== true ||
+      usesDirectAgentKey(provider, credential)
+    ) {
       return {
         authEnv: this.buildAuthEnv(agentConfig, provider, apiKey),
         stopProxy: noopStop,
@@ -1162,6 +1256,18 @@ export class PtahCliRegistry {
       };
     }
 
+    return this.startProxyAuthEnv(agentConfig, provider, created);
+  }
+
+  /**
+   * Start a per-agent proxy and aim an AuthEnv at it with its placeholder
+   * token and the agent's tier env. The returned `stopProxy` is idempotent.
+   */
+  private async startProxyAuthEnv(
+    agentConfig: PtahCliConfig,
+    provider: AnthropicProvider,
+    created: { proxy: ITranslationProxy; placeholder: string },
+  ): Promise<{ authEnv: AuthEnv; stopProxy: () => Promise<void> }> {
     const { proxy, placeholder } = created;
     const { url: proxyUrl } = await proxy.start();
     this.logger.info(
@@ -1223,6 +1329,30 @@ export class PtahCliRegistry {
       };
     }
     return undefined;
+  }
+
+  /**
+   * A fresh per-agent Kimi Code proxy bound to the host's SINGLETON auth
+   * service, never a second one — the rotating CLI refresh token must have
+   * one in-process owner.
+   * @throws SdkError with the fixed sign-in copy when the host has no Kimi
+   *   Code auth service (fail closed: no placeholder ever goes upstream).
+   */
+  private createKimiConnectionProxy(): {
+    proxy: ITranslationProxy;
+    placeholder: string;
+  } {
+    if (!this.kimiCodeAuth) {
+      throw new SdkError(KIMI_CODE_MISSING_CREDENTIAL_MESSAGE);
+    }
+    return {
+      proxy: new KimiCodeTranslationProxy(
+        this.logger,
+        this.kimiCodeAuth,
+        this.configManager,
+      ),
+      placeholder: KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+    };
   }
 
   /**
@@ -1450,4 +1580,71 @@ export class PtahCliRegistry {
   ): PtahCliConfig['tierMappings'] {
     return undefined;
   }
+}
+
+/**
+ * How one run of a Ptah CLI agent authenticates: its own key (or a local
+ * provider's fixed placeholder), or — for a key-less Kimi Code agent — the
+ * host's Kimi Code connection through a per-agent proxy.
+ */
+type AgentCredential =
+  | { readonly kind: 'instance-key'; readonly key: string }
+  | { readonly kind: 'kimi-connection' };
+
+/** Sanitized copy for a Kimi Code agent with no key and no usable connection. */
+const KIMI_CODE_MISSING_CREDENTIAL_MESSAGE =
+  'Sign in to Kimi Code or add an API key for this instance';
+
+/**
+ * Tokens the registry and the host proxies use internally for SDK-facing
+ * auth. Saving one as an instance key would only ever mislead the route, so
+ * it is rejected at input.
+ */
+const RESERVED_PROXY_PLACEHOLDERS: ReadonlySet<string> = new Set([
+  KIMI_CODE_PROXY_TOKEN_PLACEHOLDER,
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  CODEX_PROXY_TOKEN_PLACEHOLDER,
+  OPENROUTER_PROXY_TOKEN_PLACEHOLDER,
+  SAKANA_PROXY_TOKEN_PLACEHOLDER,
+  LOCAL_PROXY_TOKEN_PLACEHOLDER,
+  OPENCODE_PROXY_TOKEN_PLACEHOLDER,
+]);
+
+function assertNotReservedKey(apiKey: string): void {
+  if (RESERVED_PROXY_PLACEHOLDERS.has(apiKey.trim())) {
+    throw new SdkError(
+      'This value is reserved by Ptah and cannot be used as an API key',
+    );
+  }
+}
+
+function isKimiCodeProvider(provider: AnthropicProvider | undefined): boolean {
+  return provider?.id === KIMI_CODE_PROVIDER_ID;
+}
+
+/**
+ * An OAuth provider that also accepts an API key (`apiKeyFallback`, Kimi
+ * Code) is reached by a Ptah CLI agent that HAS its own key with that key
+ * against the provider's direct base URL. A key-less agent resolves to the
+ * `kimi-connection` credential and runs through a proxy instead.
+ */
+function usesDirectAgentKey(
+  provider: AnthropicProvider,
+  credential: AgentCredential,
+): boolean {
+  return provider.apiKeyFallback === true && credential.kind === 'instance-key';
+}
+
+/**
+ * A log-safe category for a failure: its `code` when it carries a string
+ * one, else its `name`. Never the message, which may hold host paths.
+ */
+function errorCategory(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'non-error';
+  }
+  const code: unknown = Reflect.get(error, 'code');
+  return typeof code === 'string' && /^[A-Z0-9_]{1,40}$/.test(code)
+    ? code
+    : error.name;
 }

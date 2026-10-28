@@ -115,6 +115,18 @@ export type {
   CodexAccountUsageStatus,
 } from './lib/providers/codex';
 export {
+  KimiCodeAuthService,
+  KimiCodeLoginService,
+  KimiCodeTranslationProxy,
+  KIMI_CODE_PROVIDER_ID,
+  KimiCodeAuthUnavailableError,
+} from './lib/providers/kimi-code';
+export type {
+  IKimiCodeAuthService,
+  IKimiCodeLoginService,
+  KimiCodeAuthStatus,
+} from './lib/providers/kimi-code';
+export {
   OpenRouterAuthService,
   OpenRouterTranslationProxy,
   OpenRouterPricingService,

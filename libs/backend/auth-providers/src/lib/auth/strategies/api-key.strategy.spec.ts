@@ -303,7 +303,9 @@ describe('ApiKeyStrategy', () => {
       },
     );
 
-    it.each(['kimi-code', 'z-ai', 'requesty'] as const)(
+    // Kimi Code left this strategy: it routes through OAuthProxyStrategy
+    // (CLI sign-in with a stored-key fallback) since TASK_KIMI_OAUTH.
+    it.each(['z-ai', 'requesty'] as const)(
       '%s retains native passthrough and starts no proxy',
       async (providerId) => {
         const h = makeStrategy({

@@ -66,6 +66,7 @@ describe('ElevenLabsPanelComponent', () => {
   function mount(
     direction: 'stt' | 'tts',
     config: VoiceProviderConfigElevenLabsDto,
+    keyOnly = false,
   ): ElevenLabsPanelComponent {
     TestBed.configureTestingModule({
       imports: [ElevenLabsPanelComponent],
@@ -84,6 +85,7 @@ describe('ElevenLabsPanelComponent', () => {
     element = fixture.nativeElement as HTMLElement;
     fixture.componentRef.setInput('direction', direction);
     fixture.componentRef.setInput('config', config);
+    fixture.componentRef.setInput('keyOnly', keyOnly);
     fixture.detectChanges();
     return fixture.componentInstance;
   }
@@ -141,15 +143,15 @@ describe('ElevenLabsPanelComponent', () => {
     mount('tts', elConfig({ apiKeyConfigured: true }));
     await settle();
 
+    expect(byTestId('elevenlabs-key-configured').textContent).toContain('Key saved');
+    expect(byTestId('elevenlabs-key-stored-note').textContent).toContain('never shown');
+    byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+    fixture.detectChanges();
     const input = byTestId<HTMLInputElement>('elevenlabs-key-input');
     expect(input.type).toBe('password');
     expect(input.value).toBe('');
-    const badge = byTestId('elevenlabs-key-configured');
-    expect(badge.textContent).toContain('Configured');
-    expect(badge.classList).toContain('badge-outline');
-    expect(badge.classList).toContain('text-base-content');
     expect(element.textContent).not.toMatch(/sk_[a-zA-Z0-9]/);
-    expect(element.querySelector('table.table.table-xs')).not.toBeNull();
+    expect(element.querySelector('table.table.table-sm')).not.toBeNull();
   });
 
   describe('verify-then-save (V21, G13)', () => {
@@ -297,7 +299,49 @@ describe('ElevenLabsPanelComponent', () => {
 
       expect(calls('voice:testConnection')).toEqual([{ providerId: 'elevenlabs' }]);
       expect(byTestId('elevenlabs-test-result').textContent).toContain('Connection works.');
-      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
+      expect(element.querySelector('[data-testid="elevenlabs-key-save"]')).toBeNull();
+    });
+
+    it('hides the key form behind Replace for a saved key; Cancel drops the draft', async () => {
+      routeRpc({ 'voice:listVoices': VOICES });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+
+      const replace = byTestId<HTMLButtonElement>('elevenlabs-key-replace');
+      replace.click();
+      fixture.detectChanges();
+      expect(replace.getAttribute('aria-expanded')).toBe('true');
+      typeKey('sk_abandoned');
+
+      replace.click();
+      fixture.detectChanges();
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+      replace.click();
+      fixture.detectChanges();
+      expect(byTestId<HTMLInputElement>('elevenlabs-key-input').value).toBe('');
+    });
+
+    it('closes the replace form after the new key saves', async () => {
+      routeRpc({
+        'voice:listVoices': VOICES,
+        'voice:testConnection': () => rpcSuccess({ ok: true }),
+        'voice:setApiKey': () => rpcSuccess({ ok: true }),
+      });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+      byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+      fixture.detectChanges();
+
+      typeKey('sk_new_key');
+      byTestId<HTMLButtonElement>('elevenlabs-test-btn').click();
+      await settle();
+      byTestId<HTMLButtonElement>('elevenlabs-key-save').click();
+      await settle();
+
+      expect(calls('voice:setApiKey')).toEqual([{ providerId: 'elevenlabs', apiKey: 'sk_new_key' }]);
+      expect(element.querySelector('[data-testid="elevenlabs-key-input"]')).toBeNull();
+      expect(byTestId('elevenlabs-key-replace').textContent?.trim()).toBe('Replace');
     });
 
     it.each(HOST_FAILURES)(
@@ -356,6 +400,10 @@ describe('ElevenLabsPanelComponent', () => {
       routeRpc({ 'voice:listVoices': VOICES });
       mount('tts', elConfig({ apiKeyConfigured: configured }));
       await settle();
+      if (configured) {
+        byTestId<HTMLButtonElement>('elevenlabs-key-replace').click();
+        fixture.detectChanges();
+      }
 
       expect(byTestId<HTMLInputElement>('elevenlabs-key-input').placeholder).toBe(placeholder);
     });
@@ -476,6 +524,17 @@ describe('ElevenLabsPanelComponent', () => {
       ).toBe(2);
     });
 
+    it('in key-only mode shows just the key block and never lists cloud voices', async () => {
+      routeRpc({ 'voice:listVoices': VOICES });
+      mount('tts', elConfig({ apiKeyConfigured: true }), true);
+      await settle();
+
+      expect(calls('voice:listVoices')).toEqual([]);
+      expect(byTestId('elevenlabs-key-configured')).toBeTruthy();
+      expect(element.querySelector('[data-testid="elevenlabs-voice-select"]')).toBeNull();
+      expect(element.querySelector('select')).toBeNull();
+    });
+
     it('loads voices once the container passes a config with a first saved key', async () => {
       routeRpc({ 'voice:listVoices': VOICES });
       mount('tts', elConfig());
@@ -512,6 +571,46 @@ describe('ElevenLabsPanelComponent', () => {
         expect(element.querySelector('[data-testid="elevenlabs-voice-select"]')).not.toBeNull();
       },
     );
+
+    it('names the missing permission and saves a typed voice ID when the key cannot list voices', async () => {
+      routeRpc({
+        'voice:listVoices': () => rpcSuccess({ ok: false, error: 'host detail', category: 'auth' }),
+        'voice:setProviderConfig': () => rpcSuccess({ ok: true }),
+      });
+      const component = mount('tts', elConfig({ apiKeyConfigured: true, voiceId: 'v1' }));
+      await settle();
+
+      expect(byTestId('elevenlabs-voices-hint').textContent).toContain('Enable Voices (read)');
+      const input = byTestId<HTMLInputElement>('elevenlabs-voice-id-input');
+      const save = byTestId<HTMLButtonElement>('elevenlabs-voice-id-save');
+      expect(input.value).toBe('v1');
+      expect(isDisabledControl(save)).toBe(true);
+
+      input.value = 'bad id!';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(isDisabledControl(save)).toBe(true);
+
+      input.value = ' JBFqnCBsd6RMkjVDRZzb ';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      save.click();
+      await settle();
+
+      expect(calls('voice:setProviderConfig')).toEqual([{ elevenlabs: { voiceId: 'JBFqnCBsd6RMkjVDRZzb' } }]);
+      expect(component.voiceId()).toBe('JBFqnCBsd6RMkjVDRZzb');
+    });
+
+    it('offers a voice ID entry with a generic hint for a non-permission failure', async () => {
+      routeRpc({ 'voice:listVoices': () => rpcError('host detail') });
+      mount('tts', elConfig({ apiKeyConfigured: true }));
+      await settle();
+
+      expect(byTestId('elevenlabs-voices-hint').textContent?.trim()).toBe('You can still enter a voice ID.');
+      expect(byTestId<HTMLInputElement>('elevenlabs-voice-id-input').placeholder).toBe(
+        'Default: Rachel (21m00Tcm4TlvDq8ikWAM)',
+      );
+    });
 
     it('saves a voice on selection with Undo writing the previous voice', async () => {
       routeRpc({
@@ -565,7 +664,7 @@ describe('ElevenLabsPanelComponent', () => {
       ['voice', 'tts', 'elevenlabs-voice-select', 'v2', 'voiceId'],
       ['TTS model', 'tts', 'elevenlabs-tts-model-select', 'eleven_turbo_v2_5', 'ttsModelId'],
       ['output format', 'tts', 'elevenlabs-output-format-select', 'pcm_16000', 'outputFormat'],
-      ['STT model', 'stt', 'elevenlabs-stt-model-select', 'scribe_v1', 'sttModelId'],
+      ['STT model', 'stt', 'elevenlabs-stt-model-select', 'scribe_v2', 'sttModelId'],
     ];
 
     it.each(SELECTS)(
@@ -575,7 +674,7 @@ describe('ElevenLabsPanelComponent', () => {
           'voice:listVoices': VOICES,
           'voice:setProviderConfig': () => rpcSuccess({ ok: true }),
         });
-        // STT has a single option, so start it elsewhere to make the choice a change.
+        // Start STT elsewhere so every choice is a change.
         mount(direction, elConfig({ apiKeyConfigured: true, voiceId: 'v1', sttModelId: 'old' }));
         await settle();
 
@@ -633,7 +732,7 @@ describe('ElevenLabsPanelComponent', () => {
     expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-voice-select'))).toBe(true);
     expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-output-format-select'))).toBe(true);
     expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-clear'))).toBe(true);
-    expect(isDisabledControl(byTestId<HTMLInputElement>('elevenlabs-key-input'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-replace'))).toBe(true);
 
     resolveWrite(rpcSuccess({ ok: true }));
     await settle();

@@ -59,6 +59,10 @@ import type {
 } from '@ptah-extension/shared';
 
 import { maskKeyHint } from '../utils/mask-key-hint';
+import {
+  createFakeKimiCodeAuth,
+  createFakeKimiCodeLogin,
+} from '../../test-utils/kimi-code-fakes';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
@@ -159,6 +163,8 @@ function makeHarness(
     getActivePath: jest.fn(() => undefined),
   };
 
+  const kimiCodeAuth = createFakeKimiCodeAuth();
+  const kimiCodeLogin = createFakeKimiCodeLogin();
   const handlers = new AuthRpcHandlers(
     logger as unknown as Logger,
     rpcHandler as unknown as RpcHandler,
@@ -186,6 +192,8 @@ function makeHarness(
       })),
       clearCache: jest.fn(),
     } as unknown as ICodexAuthService,
+    kimiCodeAuth,
+    kimiCodeLogin,
     createMockPlatformCommands() as unknown as IPlatformCommands,
     createMockAuthProvider() as unknown as IPlatformAuthProvider,
     {

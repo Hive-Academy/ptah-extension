@@ -7,7 +7,9 @@ import type { IPlatformAuthProvider } from '@ptah-extension/platform-core';
 import type {
   CopilotAuthService,
   ICodexAuthService,
+  IKimiCodeAuthService,
 } from '@ptah-extension/auth-providers';
+import type { KimiCodeCredentialSource } from '@ptah-extension/shared';
 import { maskKeyHint } from '../../utils/mask-key-hint';
 import { getGitHubUsername } from './github-username';
 import { keyStoreReadFailure } from './key-store-read-failure';
@@ -25,6 +27,14 @@ export interface CodexProbeResult {
   codexTokenStale: boolean;
 }
 
+/** Kimi Code part of the status payload. Disk and key store only. */
+export interface KimiCodeProbeResult {
+  kimiCodeCliDetected: boolean;
+  kimiCodeAuthenticated: boolean;
+  kimiCodeTokenStale: boolean;
+  kimiCodeCredentialSource: KimiCodeCredentialSource;
+}
+
 /** Secret-store half of the status payload. */
 export interface SecretProbeResult {
   hasApiKey: boolean;
@@ -40,12 +50,13 @@ export interface AuthStatusProbesDeps {
   readonly authSecretsService: IAuthSecretsService;
   readonly copilotAuth: CopilotAuthService;
   readonly codexAuth: ICodexAuthService;
+  readonly kimiCodeAuth: Pick<IKimiCodeAuthService, 'getStatus'>;
   readonly platformAuth: IPlatformAuthProvider;
 }
 
 /**
- * The stateless sources behind `auth:getAuthStatus`: the secret store, Copilot
- * and Codex. The memoised Claude-CLI probe lives in `ClaudeCliHealthProbe`.
+ * The stateless sources behind `auth:getAuthStatus`: the secret store, Copilot,
+ * Codex and Kimi Code. The memoised Claude-CLI probe lives in `ClaudeCliHealthProbe`.
  */
 export class AuthStatusProbes {
   constructor(private readonly deps: AuthStatusProbesDeps) {}
@@ -156,4 +167,41 @@ export class AuthStatusProbes {
       return { codexAuthenticated: false, codexTokenStale: false };
     }
   }
+
+  /** Kimi Code probe. Non-fatal: a failure yields "no credential". */
+  async probeKimiCode(): Promise<KimiCodeProbeResult> {
+    return withProbeTimeout(
+      this.deps.logger,
+      'Kimi Code',
+      this.runKimiCodeProbe(),
+      noKimiCodeCredential,
+    );
+  }
+
+  private async runKimiCodeProbe(): Promise<KimiCodeProbeResult> {
+    try {
+      const status = await this.deps.kimiCodeAuth.getStatus();
+      return {
+        kimiCodeCliDetected: status.cliDetected,
+        kimiCodeAuthenticated: status.loggedIn,
+        kimiCodeTokenStale: status.stale,
+        kimiCodeCredentialSource: status.credentialSource,
+      };
+    } catch (kimiError: unknown) {
+      this.deps.logger.warn(
+        'Kimi Code auth status check failed (non-fatal)',
+        kimiError instanceof Error ? kimiError : new Error(String(kimiError)),
+      );
+      return noKimiCodeCredential();
+    }
+  }
+}
+
+function noKimiCodeCredential(): KimiCodeProbeResult {
+  return {
+    kimiCodeCliDetected: false,
+    kimiCodeAuthenticated: false,
+    kimiCodeTokenStale: false,
+    kimiCodeCredentialSource: 'none',
+  };
 }

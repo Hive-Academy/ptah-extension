@@ -121,7 +121,8 @@ function validateApiKeyFormat(
  *               — except `anthropic`, which is `'cli'` when the user picked
  *               authMethod=claudeCli/claude-cli, otherwise `'apiKey'`.
  *   - hasApiKey: secretStorage presence — apiKey providers, plus key-optional
- *               ones (Ollama Cloud) where a stored key means direct access
+ *               ones (Ollama Cloud) where a stored key means direct access,
+ *               plus OAuth providers with a key fallback (Kimi Code)
  *   - baseUrl: registry default OR per-provider override at
  *              `provider.<id>.baseUrl` in ~/.ptah/settings.json
  *   - baseUrlOverridden: true iff the override is set
@@ -134,6 +135,7 @@ function buildStatusProviderList(): Array<{
   isLocal: boolean;
   defaultBaseUrl: string | null;
   supportsOptionalApiKey: boolean;
+  apiKeyFallback: boolean;
 }> {
   const entries: Array<{
     id: string;
@@ -143,6 +145,7 @@ function buildStatusProviderList(): Array<{
     isLocal: boolean;
     defaultBaseUrl: string | null;
     supportsOptionalApiKey: boolean;
+    apiKeyFallback: boolean;
   }> = [
     {
       id: ANTHROPIC_DIRECT_PROVIDER_ID,
@@ -154,6 +157,7 @@ function buildStatusProviderList(): Array<{
       isLocal: false,
       defaultBaseUrl: null,
       supportsOptionalApiKey: false,
+      apiKeyFallback: false,
     },
   ];
   const registry: readonly AnthropicProvider[] = getAllAnthropicProviders();
@@ -166,6 +170,7 @@ function buildStatusProviderList(): Array<{
       isLocal: p.isLocal === true,
       defaultBaseUrl: p.baseUrl,
       supportsOptionalApiKey: p.supportsOptionalApiKey === true,
+      apiKeyFallback: p.apiKeyFallback === true,
     });
   }
   return entries;
@@ -305,7 +310,11 @@ export class LlmRpcHandlers {
                 authType = 'cli';
               }
               let hasApiKey = false;
-              if (authType === 'apiKey' || entry.supportsOptionalApiKey) {
+              if (
+                authType === 'apiKey' ||
+                entry.supportsOptionalApiKey ||
+                entry.apiKeyFallback
+              ) {
                 const legacyStored = await secretStorage.get(
                   `${API_KEY_PREFIX}.${entry.id}`,
                 );

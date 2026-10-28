@@ -36,6 +36,10 @@ import { ProviderQuotaError } from './provider-quota.error';
 import type { ProviderQuotaStore } from './provider-quota.store';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
 import type { ICodexAuthService } from '../providers/codex/codex-provider.types';
+import {
+  KIMI_CODE_PROVIDER_ID,
+  type IKimiCodeAuthService,
+} from '../providers/kimi-code/kimi-code-provider.types';
 import type { IOpenRouterAuthService } from '../providers/openrouter/openrouter-provider.types';
 
 /**
@@ -136,6 +140,8 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
      */
     @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_QUOTA_STORE)
     private readonly quota: ProviderQuotaStore,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_KIMI_CODE_AUTH)
+    private readonly kimiCodeAuth: IKimiCodeAuthService,
   ) {}
 
   /**
@@ -333,6 +339,14 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
           providerId,
           'OpenAI Codex is not authenticated.',
         );
+      }
+      return;
+    }
+    if (providerId === KIMI_CODE_PROVIDER_ID) {
+      // A refresh failure is not fatal here: the stored key may still serve.
+      await this.kimiCodeAuth.ensureFresh();
+      if (!(await this.kimiCodeAuth.isAuthenticated())) {
+        throw new ProviderAuthError(providerId, 'Kimi Code is not signed in.');
       }
       return;
     }

@@ -216,6 +216,33 @@ describe('ElevenLabsClient — testConnection', () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers['xi-api-key']).toBe('override-key-xyz');
   });
+
+  it('passes a scoped key that ElevenLabs recognised but that lacks user_read', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ status: 401, json: { detail: { status: 'missing_permissions', message: 'user_read' } } }),
+    );
+    const client = makeClient();
+
+    await expect(client.testConnection()).resolves.toBeUndefined();
+  });
+
+  it('passes a scoped key reported with the current insufficient_permissions code', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ status: 403, json: { detail: { type: 'authorization_error', code: 'insufficient_permissions' } } }),
+    );
+    const client = makeClient();
+
+    await expect(client.testConnection()).resolves.toBeUndefined();
+  });
+
+  it('still rejects an invalid key', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ status: 401, json: { detail: { status: 'invalid_api_key' } } }),
+    );
+    const client = makeClient();
+
+    await expect(client.testConnection()).rejects.toMatchObject({ category: 'auth' });
+  });
 });
 
 describe('ElevenLabsClient — error mapping table', () => {
@@ -238,6 +265,18 @@ describe('ElevenLabsClient — error mapping table', () => {
     { name: '500 → provider-error', status: 500, category: 'provider-error' },
     { name: '404 → provider-error', status: 404, category: 'provider-error' },
   ];
+
+  it('names a missing permission on a scoped key for a non-probe request', async () => {
+    fetchMock.mockResolvedValue(
+      fakeResponse({ status: 401, json: { detail: { status: 'missing_permissions', message: 'voices_read' } } }),
+    );
+    const client = makeClient();
+
+    await expect(client.listVoices()).rejects.toMatchObject({
+      category: 'auth',
+      message: 'The ElevenLabs API key is missing a permission this request needs.',
+    });
+  });
 
   for (const c of cases) {
     it(`maps HTTP ${c.name}`, async () => {

@@ -54,11 +54,13 @@ import type {
   AuthCancelDraftVerificationResult,
   AuthVerifyDraftConnectionParams,
   AuthVerifyDraftConnectionResult,
+  KimiCodeLoginState,
   ProbeFailureReason,
   ProviderModelTier,
   SettingScope,
 } from '@ptah-extension/shared';
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
+import { KimiCodeLoginProgressComponent } from './connection-drawer/kimi-code-login-progress.component';
 
 /** One of the five wizard steps. */
 export type WizardStepId = 'provider' | 'credential' | 'verify' | 'models' | 'scope';
@@ -282,7 +284,10 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
 @Component({
   selector: 'ptah-provider-setup-wizard',
   standalone: true,
-  imports: [LucideAngularModule, NativeDrawerComponent, ProviderMarkComponent, ProviderModelPickerComponent],
+  imports: [
+    LucideAngularModule, NativeDrawerComponent, ProviderMarkComponent, ProviderModelPickerComponent,
+    KimiCodeLoginProgressComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     /* Static progress glyph under prefers-reduced-motion. */
@@ -708,6 +713,19 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       </p>
                     }
                   }
+                  @if (keyFallbackAvailable() && useKeyInstead()) {
+                    <p class="mt-3 text-xs text-base-content-muted">
+                      The key is used only when the {{ displayName() }} CLI is not signed in.
+                    </p>
+                    <button
+                      type="button"
+                      class="btn btn-link btn-sm mt-1 min-h-9 !px-0 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                      (click)="setUseKeyInstead(false)"
+                      data-testid="wizard-use-sign-in"
+                    >
+                      Sign in with {{ displayName() }} CLI instead
+                    </button>
+                  }
                 }
                 @case ('oauth') {
                   @if (signInState() === 'signed-in') {
@@ -722,6 +740,9 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                     >
                       Waiting for sign-in…
                     </p>
+                    <div class="mt-2">
+                      <ptah-kimi-code-login-progress [state]="signInProgress()" [installUrl]="selectedEntry()?.helpUrl ?? null" />
+                    </div>
                     <button
                       type="button"
                       class="btn btn-ghost btn-sm mt-2 min-h-9 text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -747,6 +768,19 @@ function hostnameOf(baseUrl: string | null, fallback: string): string {
                       >
                         Sign-in was not completed. Try again.
                       </p>
+                      <div class="mt-2">
+                        <ptah-kimi-code-login-progress [state]="signInProgress()" [installUrl]="selectedEntry()?.helpUrl ?? null" />
+                      </div>
+                    }
+                    @if (keyFallbackAvailable()) {
+                      <button
+                        type="button"
+                        class="btn btn-link btn-sm mt-2 block min-h-9 !px-0 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                        (click)="setUseKeyInstead(true)"
+                        data-testid="wizard-use-api-key"
+                      >
+                        Use an API key instead
+                      </button>
                     }
                   }
                 }
@@ -1443,6 +1477,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   readonly contextChanged = input(false);
   readonly commitDetail = input('');
   readonly externalMessage = input<string | null>(null);
+  /** Live progress of an in-app sign-in (Kimi Code): phase, link and code. Null for other providers. */
+  readonly signInProgress = input<KimiCodeLoginState | null>(null);
   readonly initialSetup = input<{ providerId: string; baseUrl: string | null; tiers: { sonnet: string | null; opus: string | null; haiku: string | null }; customName?: string; customProtocol?: 'openai' | 'anthropic' } | null>(null);
 
   // ------------------------------------------------------------ draft state
@@ -1457,6 +1493,8 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   private readonly _apiKeyDraft = signal('');
   private readonly _showApiKey = signal(false);
   private readonly _replacingKey = signal(false);
+  /** The user chose the stored-key path of an `apiKeyFallback` sign-in provider. */
+  private readonly _useKeyInstead = signal(false);
   private readonly _baseUrlDraft = signal('');
   private readonly _baseUrlTouched = signal(false);
   /**
@@ -1540,8 +1578,15 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     const selection = this._selection();
     if (selection?.kind === 'custom') return 'custom';
     const entry = this.selectedEntry();
+    if (entry && this.keyFallbackAvailable() && this._useKeyInstead()) return 'apiKey';
     return entry ? deriveAuthMode(entry) : 'apiKey';
   });
+
+  /** A sign-in provider that also takes a stored key (`apiKeyFallback`): the Credential step offers both. */
+  protected readonly keyFallbackAvailable = computed<boolean>(
+    () => this.selectedEntry()?.apiKeyFallback === true,
+  );
+  protected readonly useKeyInstead = this._useKeyInstead.asReadonly();
 
   protected readonly authModeLabel = computed<string>(() => AUTH_MODE_LABELS[this.authMode()]);
 
@@ -2059,6 +2104,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._apiKeyDraft.set('');
     this._showApiKey.set(false);
     this._replacingKey.set(false);
+    this._useKeyInstead.set(false);
     this._baseUrlTouched.set(false);
     this._baseUrlDraft.set(this.selectedEntry()?.baseUrl ?? '');
     this._loadedBaseUrl.set(null);
@@ -2094,6 +2140,19 @@ export class ProviderSetupWizardComponent implements OnDestroy {
   protected onBaseUrlInput(event: Event): void {
     this._baseUrlDraft.set((event.target as HTMLInputElement).value);
     this._baseUrlTouched.set(true);
+    this.invalidateVerification();
+  }
+
+  /**
+   * Switches an `apiKeyFallback` provider between its sign-in and its stored-key path. Each path checks
+   * its own credential, so a check of the other one no longer counts; a typed key is dropped.
+   */
+  protected setUseKeyInstead(useKey: boolean): void {
+    if (!this.keyFallbackAvailable() || this._useKeyInstead() === useKey) return;
+    this._useKeyInstead.set(useKey);
+    this._apiKeyDraft.set('');
+    this._showApiKey.set(false);
+    this._replacingKey.set(false);
     this.invalidateVerification();
   }
 
@@ -2369,6 +2428,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     this._apiKeyDraft.set('');
     this._showApiKey.set(false);
     this._replacingKey.set(false);
+    this._useKeyInstead.set(false);
     this._baseUrlDraft.set('');
     this._baseUrlTouched.set(false);
     this._loadedBaseUrl.set(null);

@@ -36,6 +36,7 @@ import { registerProviders } from '../providers/register-providers';
 import { OpenRouterPricingService } from '../providers/openrouter';
 import { CopilotTranslationProxy } from '../providers/copilot';
 import { CodexTranslationProxy } from '../providers/codex';
+import { KimiCodeTranslationProxy } from '../providers/kimi-code';
 import { OpenRouterTranslationProxy } from '../providers/openrouter';
 import { LmStudioTranslationProxy } from '../providers/local';
 import { CuratorProxyManager } from '../auth/curator-proxy-manager';
@@ -258,6 +259,11 @@ export function registerCuratorAuthServices(
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
+    AUTH_PROVIDERS_TOKENS.SDK_CURATOR_KIMI_CODE_PROXY,
+    { useClass: KimiCodeTranslationProxy },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
     AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY,
     { useClass: OpenRouterTranslationProxy },
     { lifecycle: Lifecycle.Singleton },
@@ -280,6 +286,7 @@ export function registerCuratorAuthServices(
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_CODEX_PROXY),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_OPENROUTER_PROXY),
           c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_LM_STUDIO_PROXY),
+          c.resolve(AUTH_PROVIDERS_TOKENS.SDK_CURATOR_KIMI_CODE_PROXY),
         ),
     ),
   });
