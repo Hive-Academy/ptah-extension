@@ -30,6 +30,20 @@ Disposal first marks the flow terminal and resolves admission false, then closes
 
 The natural-exit exception is correctly limited to an already-admitted child: the termination continuation is installed after `settleAdmission(true)` and `gate.commit()` (Main:883–885). Before admission, `childEnded` remains false and disposal must abort. Explicit disposal of a running child also aborts synchronously before the termination promise's continuation can set that flag. After an observed post-admission exit, leaving the controller alone preserves normal stream completion; `disposed` still denies tools and closes input (Main:831, Main:928, Main:932). This flag signifies observed termination, not proof of exit code zero.
 
+## Original invariant cross-check
+
+F1/F2 and invariants 1–7 below refer specifically to `code-logic-review-init-order.md`, including its **Data flow and invariant assessment** table. Rechecking those definitions does not change this scoped verdict.
+
+| Original invariant | D70 assessment and current evidence |
+| --- | --- |
+| 1. Same-child identity proof before any user message | Preserved: proof precedes first-turn release (Main:844–846; Lane:776–784). |
+| 2. Later turns held until admission and revalidated | Preserved: main waits for commit before later pulls (Main:663); lane retains exact-object first-turn exemption and subsequent validation (Lane:724). |
+| 3. Tool admission and terminal denial | F1/F2 closed at the reviewed boundary by the all-tools hook and terminal predicates (Gate:48–61; Main:831, Main:926; Lane:767, Lane:948); caller-hook concurrency caveat above applies. |
+| 4. No output before admission | Preserved: buffering precedes proxy publication; terminal checks prevent late publication after disposal (Main:853, Main:882–889; Lane:795, Lane:869–873). |
+| 5. No binding before verified init | Preserved: init validation precedes binding (Main:855–869; Lane:801–815). Existing reservation/lease settlement is retained; this is not a broader audit of that policy. |
+| 6. First message exactly once | Preserved: main releases the same source stream once; lane queues and commits the first object once (Main:649, Main:846; Lane:782–784). |
+| 7. Fixed refusal fields; no secret-bearing logs | No new violation found: hook denial uses fixed text and main launch failures retain the fixed refusal path (Gate:8–17; Main:900–902). No new swallowed-error catch was introduced by D70. |
+
 ## Five logic questions
 
 1. **Silent failure?** No new success-looking refusal found: main settles false before cleanup and rejects late success (Main:725, Main:926); lane checks terminal state before publishing its query (Lane:869).

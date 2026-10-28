@@ -578,3 +578,52 @@
 - Source: orchestrator, evidence from the review and the installed SDK. Test-gap items (paused identity read,
   pre-init output buffering) are fixed only where cheap; else recorded as Minor.
 - Reversible: yes.
+
+## D71
+
+- Decision: fix the CI webview budget error (`bundle initial exceeded maximum budget. Budget 4.00 MB was not met
+  by 8.74 kB`, PR #827 run 40570987887 on merge head with main `65ad51fc2`) by moving this branch's account UI
+  out of the initial bundle (lazy load / `@defer`), not by raising the 4 MB `maximumError` budget.
+- Evidence: PR #825 alone passed `checks`; this branch at `d545db65a` and `72fe980e1` passed `checks`. The overrun
+  appears only in the combination. Merged `origin/main` into the branch (`a0ef7f292`, no conflicts) to measure the
+  same code as CI. No local `build` target (CLAUDE.md: only when the user asks); the CI `checks` job measures the
+  budget after the push.
+- Source: orchestrator. Raising a project-wide budget is a policy change for the user; lazy loading keeps the guard.
+- Reversible: yes.
+
+## D72
+
+- Decision: fix the named main-chat `chat:start` RPC timeout in this PR. Live test (build `3ec32e0ca`, 20:15:56)
+  admitted the named main chat (binding run `cfd54cc2` on `e8b8f739`, reply "Hey"), but the renderer showed
+  "Message delivery failed. RPC timeout: chat:start" at 30 s; the backend finished at 35.1 s (`[RPC] slow handler`).
+  Timeline: 15.4 s before "Queued initial prompt" (route admission / probe child), 12.0 s until "Starting SDK
+  query", 7.6 s final child (identity, first turn, init, binding). Ambient `chat:start` takes 3.9-8.7 s.
+- Fix scope: (1) the renderer `chat:start` timeout must exceed the backend's worst-case named admission bound
+  (derived from the backend deadlines, one shared constant, not a magic number); (2) find and remove avoidable
+  serial waits in the 15.4 s / 12.0 s steps if any are clearly redundant (report otherwise).
+- Source: orchestrator; Requirement 8 needs the main chat on a named account without an error.
+- Reversible: yes.
+
+## D73
+
+- Decision: fix all three findings of `code-logic-review-budget-timeout.md` (codex, REVISE 6/10) in one round.
+  F1 Serious: one host deadline for the whole named `chat:start`/`chat:continue` starts at handler entry; the
+  admission budget uses the remaining time; time used up before admission → refuse through the existing path;
+  the host deadline stays below the renderer timeout by the margin. F2 Moderate: check the deadline before
+  admission so an already-resolved step after expiry cannot admit. F3 Moderate: accessible `@error` block for
+  the deferred Providers page (boot auth redirect target). F2/F3 are cheap and touch files already in the diff.
+- Not changed: binding/link/metadata written before the last identity read are kept on timeout (security evidence,
+  reviewer decision); the serial MCP OAuth refresh loop is pre-existing (later task).
+- Source: orchestrator, review evidence. User instruction (2026-10-28): keep codex as reviewer, do not stop.
+- Reversible: yes.
+
+## D74
+
+- Decision: fix M1 of `code-logic-review-budget-timeout-r2.md` (codex, REVISE 7/10): `wait()` observes the
+  already-started step before an expiry refusal (fixed-text Logger warning), plus one regression spec
+  (`bugfix-m1-report.md`). M2 (30 s margin does not bound preparation or cleanup: serial MCP OAuth refresh
+  loop, reservation settlement) becomes a later task: the host now refuses instead of admitting late, so the
+  residual risk is a generic renderer timeout, not a wrong admission or data loss (orchestration rule 4).
+  N1 (propagation spec for chat-session.service) is recorded as later coverage work.
+- Source: orchestrator, review evidence.
+- Reversible: yes.
