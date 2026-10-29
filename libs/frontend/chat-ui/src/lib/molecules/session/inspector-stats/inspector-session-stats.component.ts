@@ -47,24 +47,15 @@ let nextSessionId = 0;
     <section
       class="px-3 py-3"
       data-testid="inspector-session-stats"
-      [attr.aria-labelledby]="headingId"
+      aria-label="Session statistics"
     >
-      <div
-        class="mb-2 flex items-center justify-between gap-2"
-        data-glass-surface="plate"
-      >
-        <h3
-          [id]="headingId"
-          class="sec-label text-[10.5px] font-semibold uppercase"
-        >
-          SESSION
-        </h3>
-        @if (s.snapshot?.provisional) {
+      @if (s.snapshot?.provisional) {
+        <div class="mb-2 flex items-center justify-between gap-2" data-glass-surface="plate">
           <span class="text-[10.5px] text-base-content-muted"
             >~ = estimate</span
           >
-        }
-      </div>
+        </div>
+      }
       <!-- One row of totals split by vertical rules (rev 3 "B+"). -->
       <div class="grid grid-cols-3" data-testid="inspector-stats-grid">
         <div class="min-w-0 pr-2">
@@ -439,7 +430,6 @@ export class InspectorSessionStatsComponent {
     inject(StatsTileExpansionState, { optional: true }) ??
     new StatsTileExpansionState();
   private readonly instanceId = ++nextSessionId;
-  protected readonly headingId = `ptah-session-h-${this.instanceId}`;
   protected readonly contextLabelId = `ptah-context-l-${this.instanceId}`;
   protected readonly modelsPanelId = `ptah-models-p-${this.instanceId}`;
   protected readonly AlertTriangleIcon = AlertTriangle;

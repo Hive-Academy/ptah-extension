@@ -1,10 +1,10 @@
 <article data-testid="lane-event"
-  class="group mx-auto my-2 w-4/5 min-w-[min(100%,20rem)] rounded-lg border border-base-content/10 bg-base-200/40 px-4 py-3 text-sm leading-5 border-l-[3px]"
+  class="group my-2 w-4/5 min-w-[min(100%,20rem)] rounded-lg border border-base-content/10 bg-base-200/40 px-4 py-3 text-sm leading-5 border-l-[3px]"
   [class.border-l-state-run]="tone() === 'run'" [class.border-l-state-done]="tone() === 'done'"
   [class.border-l-state-need]="tone() === 'need'" [class.border-l-state-err]="tone() === 'err'"
   [attr.aria-label]="row().agent + ' lane, ' + chip().label"
   [attr.title]="presentation().peerTitle ? 'Sent by ' + presentation().peerTitle : null">
-  <div class="relative flex min-w-0 items-center">
+  <div class="flex min-w-0 items-center">
     <button type="button" data-testid="lane-event-toggle"
       class="flex min-w-0 flex-1 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:bg-base-content/5"
       [attr.aria-label]="row().agent + ' lane event details' + (chip().title ? ', ' + chip().title : '')"
@@ -27,7 +27,7 @@
       </span>
       <time class="ml-auto shrink-0 text-base-content-muted tabular-nums" [attr.datetime]="iso(latest().timestamp)">{{ time(latest().timestamp) }}</time>
     </button>
-    <div data-testid="lane-event-actions" class="pointer-events-none absolute right-0 top-0 flex items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
+    <div data-testid="lane-event-actions" class="pointer-events-none flex shrink-0 items-center gap-0.5 rounded bg-base-200 opacity-0 shadow-none transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 motion-reduce:transition-none">
       <button type="button" class="btn btn-ghost btn-xs focus-visible:ring-2 focus-visible:ring-primary"
         title="Branch conversation from here" aria-label="Branch conversation from this message"
         data-testid="lane-event-branch" (click)="branchRequested.emit(lastMessageId())">

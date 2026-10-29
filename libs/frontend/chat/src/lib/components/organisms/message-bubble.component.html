@@ -9,6 +9,13 @@
     [class.cs-compact]="viewMode() === 'compact'"
     data-testid="chat-tool-output"
   >
+    @if (turn()?.isFirstAssistant ?? true) {
+      <div class="mb-2 flex items-center gap-2 text-xs text-base-content-muted" data-testid="assistant-turn-header">
+        <ptah-agent-avatar kind="orchestrator" [size]="24" />
+        <span class="font-semibold text-base-content">Ptah</span>
+        <time [attr.datetime]="formatDateTime(message().timestamp)">{{ formatTime(message().timestamp) }}</time>
+      </div>
+    }
     @if (disclosureLabel(); as label) {
       <ptah-turn-disclosure-row
         [open]="logExpanded()"
@@ -70,8 +77,7 @@
       @if (parts.answer.length > 0) {
         <div
           class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
-          data-glass-surface="content"
-          [class.pt-4]="hasLog() || disclosureLabel() !== null"
+          [class.pt-2]="hasLog() || disclosureLabel() !== null"
         >
           @for (child of parts.answer; track child.id; let last = $last) {
             <ptah-execution-node
@@ -94,7 +100,6 @@
       <!-- No tree (raw, system or error text): the raw text is the answer. -->
       <div
         class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
-        data-glass-surface="content"
       >
         @if (mermaidFallbackText(); as text) {
           @defer (on immediate) {
@@ -182,15 +187,15 @@
     }
   </article>
 } @else {
-  <!-- User message fills the shared chat column. -->
+  <!-- User message is anchored to the right edge of the shared column. -->
   <article aria-label="You" class="block">
-    <div class="chat chat-end cs-user-chat group">
+    <div class="chat chat-end cs-user-chat group" [class.cs-peer-chat]="!!inboundPeerLabel()">
       <!-- Message bubble - same surface as the assistant bubble. A turn injected
            by another session keeps the layout and takes a non-text accent (a
            left border + the icon above) so the two are distinguishable without
            relying on colour alone. -->
       <div
-        class="chat-bubble cs-user-bubble text-base-content"
+        class="chat-bubble cs-user-bubble ml-auto w-fit max-w-[min(75%,40rem)] rounded-2xl rounded-br-md border border-primary/20 bg-primary/10 text-left text-base-content shadow-none"
         [class.border-l-4]="!!inboundPeerLabel()"
         [class.border-secondary]="!!inboundPeerLabel()"
         [attr.data-testid]="

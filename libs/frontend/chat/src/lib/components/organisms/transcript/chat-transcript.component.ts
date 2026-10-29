@@ -104,7 +104,7 @@ import {
 } from './transcript-turn-contexts';
 import { TranscriptLiveClock } from './transcript-live-clock';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { groupLaneEvents, laneMetricsForRow, newestLaneRowKeys, sameLaneMonitorSnapshot, type LaneMonitorSnapshot } from './transcript-lane-events';
+import { groupLaneEvents, laneMetricsForRow, laneRowsBeforeCompletion, newestLaneRowKeys, sameLaneMonitorSnapshot, type LaneMonitorSnapshot } from './transcript-lane-events';
 import type { LaneSlot } from '../../molecules/lane-event/lane-event-row.types';
 import { LaneEventRowComponent } from '../../molecules/lane-event/lane-event-row.component';
 
@@ -722,6 +722,7 @@ export class ChatTranscriptComponent {
   });
 
   protected readonly newestLaneRows = computed(() => newestLaneRowKeys(this.laneSlots()));
+  protected readonly laneRowsBeforeCompletion = computed(() => laneRowsBeforeCompletion(this.laneSlots()));
   private monitorSnapshots = new Map<string, LaneMonitorSnapshot>();
   protected readonly laneMetricsForRow = laneMetricsForRow;
 

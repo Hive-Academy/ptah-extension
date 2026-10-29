@@ -34,6 +34,7 @@ import {
   TypingCursorComponent,
   StreamingQuotesComponent,
   CopyButtonComponent,
+  AgentAvatarComponent,
   formatAgentDuration,
 } from '@ptah-extension/chat-ui';
 import { formatUsdCost } from '@ptah-extension/shared';
@@ -118,6 +119,7 @@ function turnHasActivityData(turn: TurnContext): boolean {
     TypingCursorComponent,
     StreamingQuotesComponent,
     CopyButtonComponent,
+    AgentAvatarComponent,
     TurnDisclosureRowComponent,
     TurnActivityPanelComponent,
     TurnLiveLineComponent,

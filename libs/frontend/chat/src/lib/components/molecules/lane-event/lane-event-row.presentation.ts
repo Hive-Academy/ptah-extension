@@ -1,4 +1,4 @@
-import { Check, LoaderCircle, TriangleAlert, X } from 'lucide-angular';
+import { Check, FileText, LoaderCircle, TriangleAlert, X } from 'lucide-angular';
 import type { LaneEventRow } from './lane-event-row.types';
 
 export type LaneEventTone = 'run' | 'done' | 'need' | 'err' | 'neutral';
@@ -94,7 +94,7 @@ export function parseLaneCompletion(body: string): LaneCompletionDetails {
   return { status, duration, exitCode, reports, deliverables, task, cliSessionId, extra };
 }
 
-export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEventMetrics | null = null): {
+export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEventMetrics | null = null, laterCompleted = false, monitorStatus: string | null = null): {
   readonly chip: LaneEventChip;
   readonly files: readonly string[];
   readonly images: number;
@@ -118,7 +118,9 @@ export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEven
     : completed && noDeliverable ? { label: 'Incomplete · no deliverable', tone: 'need', icon: TriangleAlert }
     : completed ? { label: 'Completed', tone: 'done', icon: Check,
       ...(unverified ? { title: 'deliverables not checked' } : {}) }
-    : { label: 'Running', tone: 'run', icon: LoaderCircle };
+    : monitorStatus === 'running' && !laterCompleted
+      ? { label: 'Running', tone: 'run', icon: LoaderCircle }
+      : { label: 'Report', tone: 'neutral', icon: FileText };
 
   const stats: LaneEventStat[] = [];
   if (completion?.duration) stats.push({ label: 'Duration', value: completion.duration, compact: completion.duration });
@@ -150,7 +152,7 @@ export function deriveLaneEventPresentation(row: LaneEventRow, metrics: LaneEven
   const reportLine = report?.body.split(/\r?\n/).find(line => line.trim())?.trim();
   const elapsed = completion?.duration ? ` ${failed || timedOut ? 'after' : 'in'} ${completion.duration}` : '';
   const exit = failed && completion?.exitCode !== undefined && completion.exitCode !== 0 ? ` (exit ${completion.exitCode})` : '';
-  const summary = reportLine ?? (timedOut ? `Timed out${elapsed}` : failed ? `Failed${elapsed}${exit}` : completed ? `Finished${elapsed}` : 'Running');
+  const summary = reportLine ?? (timedOut ? `Timed out${elapsed}` : failed ? `Failed${elapsed}${exit}` : completed ? `Finished${elapsed}` : chip.label);
   const peer = row.peerLabel.trim();
   const names = new Set([row.agent.trim().toLowerCase(), row.cli.trim().toLowerCase()]);
   const peerTitle = peer && !peer.toLowerCase().split(/\s*[·•]\s*/).every(part => names.has(part)) ? peer : null;

@@ -1,5 +1,5 @@
 import { createExecutionChatMessage, type ExecutionChatMessage } from '@ptah-extension/shared';
-import { groupLaneEvents, laneMetricsForRow, newestLaneRowKeys, sameLaneMonitorSnapshot } from './transcript-lane-events';
+import { groupLaneEvents, laneMetricsForRow, laneRowsBeforeCompletion, newestLaneRowKeys, sameLaneMonitorSnapshot } from './transcript-lane-events';
 
 const envelope = (id: string, agentId = 'a', kind: 'report' | 'completed' = 'report', peer = true): ExecutionChatMessage =>
   createExecutionChatMessage({ id, role: 'user', timestamp: Number(id.replace(/\D/g, '')) || 1,
@@ -28,6 +28,7 @@ describe('groupLaneEvents', () => {
     expect([...slots.values()].map(slot => slot.kind)).toEqual(['row', 'row', 'row']);
     expect(slots.get('m3')).toMatchObject({ kind: 'row', row: { rowKey: 'm3', earlier: [{ messageId: 'm1' }] } });
     const newest = newestLaneRowKeys(slots);
+    expect([...laneRowsBeforeCompletion(slots)]).toEqual(['m1']);
     const monitor = { agentId: 'a', status: 'completed', startedAt: 1, completedAt: 3,
       model: 'codex', usageTotals: { totalTokens: 250, costUsd: 0.02 } };
     const firstA = slots.get('m1'); const b = slots.get('m2'); const newestA = slots.get('m3');

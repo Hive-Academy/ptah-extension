@@ -156,6 +156,9 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(fixture.debugElement.query(By.css('.chat-footer'))).toBeNull();
     expect(bubble.nativeElement.classList.contains('surface-2')).toBe(false);
     expect(bubble.nativeElement.classList.contains('surface-1')).toBe(false);
+    expect(bubble.nativeElement.classList.contains('ml-auto')).toBe(true);
+    expect(bubble.nativeElement.classList.contains('max-w-[min(75%,40rem)]')).toBe(true);
+    expect(bubble.nativeElement.classList.contains('shadow-none')).toBe(true);
   });
 
   it('does NOT render branch/rewind buttons for assistant role messages', () => {
@@ -188,6 +191,42 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     );
     fixture.detectChanges();
   }
+
+  it('shows one compact Ptah header per turn, including the turn after a lane report', () => {
+    const first = createExecutionChatMessage({ id: 'assistant-first', role: 'assistant', rawContent: 'First' });
+    const second = createExecutionChatMessage({ id: 'assistant-second', role: 'assistant', rawContent: 'Second' });
+    const laneReport = createExecutionChatMessage({ id: 'lane-report', role: 'user', rawContent: '<agent-report agent-id="lane-1">Done</agent-report>' });
+    const next = createExecutionChatMessage({ id: 'assistant-after-report', role: 'assistant', rawContent: 'Report received.' });
+    const turns = buildTurnContexts([first, second, laneReport, next]);
+    setMessage(first);
+    fixture.componentRef.setInput('turn', turns.get(first.id) ?? null);
+    fixture.detectChanges();
+    const header = fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]') as HTMLElement;
+    expect(header.textContent).toContain('Ptah');
+    expect(header.querySelector('ptah-agent-avatar')).not.toBeNull();
+    expect(header.querySelector('time')).not.toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="assistant-turn-header"]')).toHaveLength(1);
+    fixture.componentRef.setInput('message', second);
+    fixture.componentRef.setInput('turn', turns.get(second.id) ?? null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')).toBeNull();
+    fixture.componentRef.setInput('message', next);
+    fixture.componentRef.setInput('turn', turns.get(next.id) ?? null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="assistant-turn-header"]')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('[data-testid="assistant-turn-header"]')?.textContent).toContain('Ptah');
+  });
+
+  it('renders assistant answers without a divider class or horizontal rule', () => {
+    const message = createExecutionChatMessage({
+      id: 'assistant-with-work', role: 'assistant', rawContent: 'DONE',
+    });
+    setSettledTurn(message);
+    const article = fixture.nativeElement.querySelector('article.cs-turn') as HTMLElement;
+    const answer = article.querySelector('.cs-answer') as HTMLElement;
+    expect(answer).not.toBeNull();
+    expect(article.querySelectorAll('.border-t, .border-b, hr')).toHaveLength(0);
+  });
 
   function showActivityButton(): HTMLButtonElement | null {
     return fixture.nativeElement.querySelector(

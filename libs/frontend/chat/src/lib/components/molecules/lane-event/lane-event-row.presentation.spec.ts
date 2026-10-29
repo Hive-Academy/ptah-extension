@@ -1,5 +1,5 @@
 import { deriveLaneEventPresentation, parseLaneCompletion } from './lane-event-row.presentation';
-import { Check, TriangleAlert } from 'lucide-angular';
+import { Check, FileText, TriangleAlert } from 'lucide-angular';
 import type { LaneEventRow } from './lane-event-row.types';
 
 const envelope = (lines: string[] = []) => [
@@ -72,6 +72,13 @@ describe('parseLaneCompletion', () => {
 });
 
 describe('deriveLaneEventPresentation', () => {
+  it('shows Running only for a live report row without a later completion', () => {
+    const report = row({ liveLane: true, events: [{ kind: 'report', body: 'Still working', timestamp: 1, messageId: 'r' }] });
+    expect(deriveLaneEventPresentation(report, null, false, 'running').chip.label).toBe('Running');
+    expect(deriveLaneEventPresentation(report, null, true, 'running').chip).toEqual({ label: 'Report', tone: 'neutral', icon: FileText });
+    expect(deriveLaneEventPresentation(report, null, false, 'completed').chip.label).toBe('Report');
+    expect(deriveLaneEventPresentation(report).chip.label).toBe('Report');
+  });
   it('uses the latest report first line, never task text, and one chip', () => {
     const result = deriveLaneEventPresentation(row());
     expect(result.summary).toBe('Fixed the issue.');

@@ -54,13 +54,13 @@ describe('LaneEventRowComponent', () => {
     expect(element.textContent).not.toContain('file.txt');
   });
 
-  it('centers an 80-percent lane card with a narrow-pane minimum and two-line spacing', () => {
+  it('left aligns an 80-percent lane card with a narrow-pane minimum and two-line spacing', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     const card = element.querySelector('article')!;
-    expect(card.classList.contains('mx-auto')).toBe(true);
+    expect(card.classList.contains('mx-auto')).toBe(false);
     expect(card.classList.contains('w-4/5')).toBe(true);
     expect(card.classList.contains('min-w-[min(100%,20rem)]')).toBe(true);
     expect(card.classList.contains('w-full')).toBe(false);
@@ -115,7 +115,7 @@ describe('LaneEventRowComponent', () => {
     expect(element.querySelector<HTMLButtonElement>('[data-testid="lane-event-rewind"]')!.disabled).toBe(true);
   });
 
-  it('keeps the invisible action overlay from taking pointer events until hover or focus', () => {
+  it('keeps invisible actions in normal flow and non-clickable until hover or focus', () => {
     const fixture = TestBed.createComponent(LaneEventRowComponent);
     fixture.componentRef.setInput('row', row);
     fixture.detectChanges();
@@ -124,6 +124,8 @@ describe('LaneEventRowComponent', () => {
       expect(actions.classList.contains(name)).toBe(true);
     }
     expect(actions.classList.contains('pointer-events-auto')).toBe(false);
+    expect(actions.classList.contains('absolute')).toBe(false);
+    expect(actions.classList.contains('shrink-0')).toBe(true);
   });
 
   it('shows a no-deliverable completion as incomplete with the warning tone', () => {

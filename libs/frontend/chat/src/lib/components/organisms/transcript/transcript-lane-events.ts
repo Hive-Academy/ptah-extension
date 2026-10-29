@@ -92,3 +92,15 @@ export function newestLaneRowKeys(slots: ReadonlyMap<string, LaneSlot>): Readonl
   }
   return keys;
 }
+
+/** Report rows only become historical once a later row for that agent completes. */
+export function laneRowsBeforeCompletion(slots: ReadonlyMap<string, LaneSlot>): ReadonlySet<string> {
+  const completedAgents = new Set<string>();
+  const rows = new Set<string>();
+  for (const slot of [...slots.values()].reverse()) {
+    if (slot.kind !== 'row') continue;
+    if (completedAgents.has(slot.row.agentId)) rows.add(slot.row.rowKey);
+    if (slot.row.events.some(event => event.kind === 'completed')) completedAgents.add(slot.row.agentId);
+  }
+  return rows;
+}

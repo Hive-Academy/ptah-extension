@@ -34,7 +34,7 @@ describe('glass surface roles', () => {
     expect([...defined].sort()).toEqual([...roles].sort());
   });
 
-  it('clears shell canvases only, and insets assistant answer cards like chat bubbles', () => {
+  it('clears shell canvases and keeps assistant answers without a glass card', () => {
     expect(css).not.toMatch(
       /:root\[data-glass='on'\] :is\(\.bg-base-100, \.bg-surface-0, \.bg-surface-1\) \{\s*background-color:\s*transparent/,
     );
@@ -55,9 +55,7 @@ describe('glass surface roles', () => {
         'ptah-app-shell > .bg-surface-0',
       ]),
     );
-    expect(css).toMatch(
-      /\.cs-answer\[data-glass-surface='content'\] \{[^}]*padding:\s*var\(--sidebar-spacing-sm\) var\(--sidebar-spacing-md\)/,
-    );
+    expect(css).not.toMatch(/\.cs-answer\[data-glass-surface='content'\]/);
   });
 
   it('clears only component root planes that still exist', () => {

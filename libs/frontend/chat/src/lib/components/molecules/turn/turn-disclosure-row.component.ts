@@ -48,7 +48,7 @@ const LIVE_TIMER_SEPARATOR = ' · ';
     <button
       type="button"
       [class]="
-        'flex w-full min-w-0 items-center gap-1 rounded-t border-b border-surface-border px-0.5 text-[13px] text-base-content-muted hover:text-base-content ' +
+        'flex w-full min-w-0 items-center gap-1 rounded-t px-0.5 text-[13px] text-base-content-muted hover:text-base-content ' +
         (viewMode() === 'compact' ? 'h-7' : 'h-[30px]')
       "
       data-test="turn-disclosure-row"

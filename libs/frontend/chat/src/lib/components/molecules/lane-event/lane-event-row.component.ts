@@ -20,6 +20,8 @@ import { deriveLaneEventPresentation, laneEventTime, parseLaneCompletion, type L
 export class LaneEventRowComponent {
   readonly row = input.required<LaneEventRow>();
   readonly monitorAgent = input<LaneEventMetrics | null>(null);
+  readonly monitorStatus = input<string | null>(null);
+  readonly laterCompleted = input(false);
   readonly isSessionActive = input(false);
   readonly branchRequested = output<string>();
   readonly rewindRequested = output<string>();
@@ -37,7 +39,7 @@ export class LaneEventRowComponent {
   protected readonly bodyId = computed(() => 'lane-event-body-' + this.row().rowKey);
   protected readonly canExpand = computed(() => this.completed() || this.row().events.length > 1 ||
     this.latest().body.trim() !== this.presentation().summary.trim());
-  protected readonly presentation = computed(() => deriveLaneEventPresentation(this.row(), this.monitorAgent()));
+  protected readonly presentation = computed(() => deriveLaneEventPresentation(this.row(), this.monitorAgent(), this.laterCompleted(), this.monitorStatus()));
   protected readonly summary = computed(() => this.presentation().summary);
   protected readonly stats = computed(() => this.presentation().stats);
   protected readonly attachments = computed(() => this.presentation());
