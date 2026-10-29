@@ -139,12 +139,12 @@ function freeze<T>(value: T): T {
   return value;
 }
 
-/** Chat uses D14. Every other consumer uses the pre-8m-1 approval mapping. */
+/** Chat and gateway use D14. Lane and usage use the pre-8m-1 approval mapping. */
 function resolveApprovalPolicy(
-  chat: boolean,
+  d14: boolean,
   permissionLevel: CodexProfileSettings['permissionLevel'],
 ): CodexApprovalPolicy {
-  if (chat) {
+  if (d14) {
     return permissionLevel === 'ask' || permissionLevel === 'auto-edit'
       ? 'untrusted'
       : 'on-request';
@@ -172,13 +172,13 @@ export function resolveCodexLevelPolicy(
   approvalPolicy: CodexApprovalPolicy;
   sandboxPolicy: CodexSandboxPolicy;
 } {
-  const chat = consumer === 'chat';
+  const d14 = consumer === 'chat' || consumer === 'gateway';
   const writable =
     permissionLevel === 'auto-edit' ||
     permissionLevel === 'yolo' ||
-    (chat && permissionLevel === 'ask');
+    (d14 && permissionLevel === 'ask');
   return {
-    approvalPolicy: resolveApprovalPolicy(chat, permissionLevel),
+    approvalPolicy: resolveApprovalPolicy(d14, permissionLevel),
     sandboxPolicy: {
       mode: writable ? 'workspace-write' : 'read-only',
       networkAccess: false,
@@ -284,9 +284,9 @@ export function buildCodexExecutionProfile(
     )
       throw new Error('Resume paths cannot change');
   }
-  // D14 (untrusted before edits and commands) is main chat only. It mirrors
+  // D14 (untrusted before edits and commands) is chat and gateway. It mirrors
   // evidence-harness policy(); Ptah auto-accepts auto-edit file changes.
-  // Lane, gateway and usage keep the pre-8m-1 mapping: ask is granular and
+  // Lane and usage keep the pre-8m-1 mapping: ask is granular and
   // read-only; auto-edit is on-request with workspace-write.
   const levelPolicy = resolveCodexLevelPolicy(
     selected.consumer,

@@ -1156,17 +1156,41 @@ describe('CodexRuntime', () => {
     expect(questionSignal?.aborted).toBe(true);
   });
 
-  it.each(['gateway', 'lane'] as const)('does not show async cards to %s consumers', async (consumer) => {
+  it('asks async gateway questions through the shared card like chat', async () => {
+    const ask = jest.fn(async () => ({ 'question:0': { answers: ['A'] } }));
+    runtime = new CodexRuntime({ ...options, requestUserInput: ask });
+    const context = await runtime.open({ ...profile, consumer: 'gateway' });
+    await context.startTurn({ text: 'go' });
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
+    children[0].notify('item/completed', {
+      threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
+      item: { type: 'agentMessage', id: 'question', text: 'Choose one',
+        delivery: 'async', questions: [{ title: 'Which?', options: ['A', 'B'] }] },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: 'userInputAsync', presentation: 'card', text: 'Choose one',
+    });
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'userInput', requestId: 'question',
+    }), expect.any(AbortSignal));
+  });
+
+  it('does not show async cards to lane consumers', async () => {
     const ask = jest.fn(async () => ({}));
     runtime = new CodexRuntime({ ...options, requestUserInput: ask });
-    const context = await runtime.open({ ...profile, consumer });
+    const context = await runtime.open({ ...profile, consumer: 'lane' });
     await context.startTurn({ text: 'go' });
+    const iterator = context.events(new AbortController().signal)[Symbol.asyncIterator]();
     children[0].notify('item/completed', {
       threadId: 'thread-1', turnId: 'turn-1', completedAtMs: 2,
       item: { type: 'agentMessage', id: 'question', text: 'Choose one',
         delivery: 'async', questions: [{ title: 'Which?' }] },
     });
-    await flush();
+    const received = (await iterator.next()).value;
+    expect(received).toMatchObject({
+      type: 'userInputAsync', text: 'Choose one',
+    });
+    expect(received).not.toMatchObject({ presentation: 'card' });
     expect(ask).not.toHaveBeenCalled();
   });
 

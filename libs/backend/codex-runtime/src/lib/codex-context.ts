@@ -430,7 +430,10 @@ class RuntimeContext implements CodexContext {
       }
       if (event.type === 'compaction' && event.phase !== 'started')
         this.finishCompact?.();
-      if (event.type === 'userInputAsync' && this.profile.consumer === 'chat') {
+      if (
+        event.type === 'userInputAsync' &&
+        (this.profile.consumer === 'chat' || this.profile.consumer === 'gateway')
+      ) {
         if (this.asyncQuestionItems.has(event.itemId)) {
           this.warnAsyncQuestion('duplicate');
           continue;

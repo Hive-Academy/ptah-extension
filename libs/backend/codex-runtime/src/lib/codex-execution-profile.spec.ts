@@ -34,7 +34,7 @@ function input(): CodexExecutionProfileInput {
 
 describe('buildCodexExecutionProfile', () => {
   it.each(
-    (['chat', 'lane'] as const).flatMap((consumer) =>
+    (['chat', 'gateway', 'lane'] as const).flatMap((consumer) =>
       (['ask', 'plan', 'auto-edit', 'yolo'] as const).map(
         (permissionLevel) => [consumer, permissionLevel] as const,
       ),
@@ -52,11 +52,12 @@ describe('buildCodexExecutionProfile', () => {
         permissionLevel,
         '/real/work',
       );
+      const d14 = consumer === 'chat' || consumer === 'gateway';
       const writable =
         permissionLevel === 'auto-edit' ||
         permissionLevel === 'yolo' ||
-        (consumer === 'chat' && permissionLevel === 'ask');
-      const granularAsk = consumer === 'lane' && permissionLevel === 'ask';
+        (d14 && permissionLevel === 'ask');
+      const granularAsk = !d14 && permissionLevel === 'ask';
       expect(resolved.approvalPolicy).toEqual(
         granularAsk
           ? {
@@ -68,7 +69,7 @@ describe('buildCodexExecutionProfile', () => {
                 mcp_elicitations: true,
               },
             }
-          : consumer === 'chat' &&
+          : d14 &&
               (permissionLevel === 'ask' || permissionLevel === 'auto-edit')
             ? 'untrusted'
             : 'on-request',
@@ -115,7 +116,7 @@ describe('buildCodexExecutionProfile', () => {
     },
   );
 
-  it.each(['lane', 'gateway', 'usage'] as const)(
+  it.each(['lane', 'usage'] as const)(
     'keeps the pre-8m-1 auto-edit mapping for %s',
     (consumer) => {
       const source = input();
@@ -137,7 +138,7 @@ describe('buildCodexExecutionProfile', () => {
     },
   );
 
-  it.each(['lane', 'gateway', 'usage'] as const)(
+  it.each(['lane', 'usage'] as const)(
     'keeps the pre-8m-1 ask mapping for %s',
     (consumer) => {
       const source = input();
@@ -553,20 +554,25 @@ describe('buildCodexExecutionProfile', () => {
     expect(otherWorkspace.approvalPolicy).toEqual(ask.approvalPolicy);
     expect(otherWorkspace.sandboxPolicy).not.toEqual(ask.sandboxPolicy);
     expect(otherWorkspace.profileFingerprint).not.toBe(ask.profileFingerprint);
-
-    const gateway = buildCodexExecutionProfile({
-      ...source,
-      session: {
-        ...source.session,
-        consumer: 'gateway',
-        permissionLevel: 'auto-edit',
-      },
-    });
-    expect(gateway.permissionLevel).toBe(autoEdit.permissionLevel);
-    expect(gateway.sandboxPolicy).toEqual(autoEdit.sandboxPolicy);
-    expect(gateway.approvalPolicy).not.toEqual(autoEdit.approvalPolicy);
-    expect(gateway.profileFingerprint).not.toBe(autoEdit.profileFingerprint);
   });
+
+  it.each(['ask', 'plan', 'auto-edit', 'yolo'] as const)(
+    'gives gateway the same %s policy, sandbox and fingerprint as chat',
+    (permissionLevel) => {
+      const source = input();
+      const chat = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer: 'chat', permissionLevel },
+      });
+      const gateway = buildCodexExecutionProfile({
+        ...source,
+        session: { ...source.session, consumer: 'gateway', permissionLevel },
+      });
+      expect(gateway.approvalPolicy).toEqual(chat.approvalPolicy);
+      expect(gateway.sandboxPolicy).toEqual(chat.sandboxPolicy);
+      expect(gateway.profileFingerprint).toBe(chat.profileFingerprint);
+    },
+  );
 
   it('rejects malformed input and credential-bearing URLs with sanitized errors', () => {
     const source = input();
