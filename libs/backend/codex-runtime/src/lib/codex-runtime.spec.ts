@@ -1673,6 +1673,48 @@ describe('CodexRuntime', () => {
     await resumedRuntime.close();
   });
 
+  it('resumes with changed prompts and sends the current instructions', async () => {
+    const context = await runtime.open({
+      ...profile,
+      systemPrompt: 'Original base',
+      developerPrompt: 'Original developer',
+      outputStyle: 'Original style',
+    });
+    const identity = context.identity;
+    await context.close();
+    const resumedRuntime = new CodexRuntime({
+      ...options,
+      spawner: {
+        spawnProcess: () => {
+          const child = new FakeChild(identity.threadId);
+          children.push(child);
+          return child;
+        },
+      },
+    });
+    const resumed = await resumedRuntime.open(
+      {
+        ...profile,
+        systemPrompt: 'Current base',
+        developerPrompt: 'Current developer',
+        outputStyle: 'Current style',
+      },
+      identity,
+    );
+    expect(resumed.identity.threadId).toBe(identity.threadId);
+    const resumedParams = children[1].frames.find(
+      (frame) => frame['method'] === 'thread/resume',
+    )?.['params'];
+    expect(resumedParams).toEqual(
+      expect.objectContaining({
+        threadId: identity.threadId,
+        baseInstructions: 'Current base',
+        developerInstructions: 'Current developer\n\nCurrent style',
+      }),
+    );
+    await resumedRuntime.close();
+  });
+
   it('resolves MCP header secrets into the frame only', async () => {
     const headerProfile: CodexExecutionProfile = {
       ...profile,
