@@ -402,19 +402,19 @@ describe('CliOrchestrationMatrixComponent', () => {
       );
     });
 
-    it('uses a surface row ladder and the table-sm density', () => {
+    it('uses transparent rows and the table-sm density', () => {
       expect(q('[data-testid="cli-matrix"]')?.className).toContain('table-sm');
       expect(q('[data-testid="cli-matrix"]')?.className).not.toContain('py-3');
       for (const id of ['copilot', 'cursor', 'pi']) {
-        expect(row(id)?.className).toContain('surface-2');
+        expect(row(id)?.className).not.toContain('surface-2');
         expect(row(id)?.getAttribute('data-dimmed')).toBe('true');
       }
       for (const id of ['codex', 'glm-1'])
         expect(row(id)?.getAttribute('data-dimmed')).toBeNull();
-      expect(row('glm-1')?.className).toContain('surface-2');
+      expect(row('glm-1')?.className).not.toContain('surface-2');
       state.cliAgents.set(ready([{ ...GLM, enabled: false }]));
       fixture.detectChanges();
-      expect(row('glm-1')?.className).toContain('surface-2');
+      expect(row('glm-1')?.className).not.toContain('surface-2');
     });
 
     it('has one Add, and Tiers / More (Edit, Delete) on instance rows only (Batch 32, V36-7); Credentials only on Cursor', () => {

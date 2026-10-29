@@ -64,16 +64,14 @@ interface InlineAction {
   standalone: true,
   imports: [LucideAngularModule, NativeCardComponent, SettingScopeRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // Fills its grid cell, so rows that sit side by side end at the same bottom edge.
-  // `[&>div]:h-full` relies on ptah-native-card rendering a root <div>.
-  host: { class: 'block h-full' },
+  host: { class: 'block self-start' },
   template: `
-    <ptah-native-card class="block h-full [&>div]:h-full" density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
+    <ptah-native-card class="block" density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
       [ariaLabel]="cardAriaLabel()" (activated)="detailsRequested.emit()" [attr.title]="keyUnreadable() ? keyUnreadableText : statusCopy()"
       [attr.data-state]="resolvedState()" data-testid="provider-connection-card">
-      <div class="flex min-h-[40px] items-center gap-3">
+      <div class="flex min-h-[40px] flex-wrap items-center gap-3">
         <span [class]="avatarClass()" aria-hidden="true" data-testid="card-avatar">{{ initials() }}</span>
-        <div class="min-w-0 flex-1">
+        <div class="min-w-0 flex-1 basis-48">
           <p class="break-words text-sm font-semibold leading-snug text-base-content" data-testid="provider-name">
             {{ displayName() }}
           </p>
@@ -102,7 +100,7 @@ interface InlineAction {
             }
           </div>
         </div>
-        <div class="flex shrink-0 items-center gap-2 text-xs">
+        <div class="flex max-w-full flex-wrap items-center gap-2 text-xs">
           <span class="flex items-center gap-1.5 font-medium text-base-content" data-testid="status-badge">
             @if (isBlockedMain()) {
               <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5" aria-hidden="true" />

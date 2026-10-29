@@ -163,7 +163,7 @@ describe('DecisionModelRowComponent', () => {
     expect(text('consumer-name-decision')).toBe('Decision model');
     expect(text('consumer-tier-decision')).toBe('unset');
     expect(text('consumer-summary-decision')).toBe('Unset · code ranking');
-    expect(byTestId('consumer-row-decision')?.className).toContain('surface-2');
+    expect(byTestId('consumer-row-decision')?.className).toContain('border-base-content/10');
   });
 
   describe('the five states (Req 1.5), with the host detail as plain text', () => {

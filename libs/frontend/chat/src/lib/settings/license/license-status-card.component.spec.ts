@@ -134,6 +134,9 @@ describe('LicenseStatusCardComponent', () => {
   it('shows the community card with Community and Active badges and one primary action', async () => {
     await render(status());
     expect(element.textContent).toContain('Membership & data');
+    expect(element.firstElementChild?.classList).toContain('border-base-content/10');
+    expect(element.firstElementChild?.classList).not.toContain('card');
+    expect(element.firstElementChild?.hasAttribute('data-glass-surface')).toBe(false);
     const badges = Array.from(element.querySelectorAll('.badge')).map(
       (badge) => badge.textContent?.trim(),
     );

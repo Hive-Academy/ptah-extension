@@ -17,7 +17,6 @@ import {
   Upload,
 } from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import { SurfaceSectionComponent } from '@ptah-extension/ui';
 import { AdvancedSettingsGroupComponent } from './advanced/advanced-settings-group.component';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
@@ -67,11 +66,10 @@ const FOCUS =
     OutputStyleConfigComponent,
     McpPortConfigComponent,
     VscodeLmConfigComponent,
-    SurfaceSectionComponent,
     AdvancedSettingsGroupComponent,
   ],
   template: `
-    <div class="space-y-4 py-3">
+    <div class="space-y-8 py-3">
       <ptah-license-status-card>
         <!--
           M5: the import confirm takes the place of Export / Import inside the header's action row, so the
@@ -167,7 +165,7 @@ const FOCUS =
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
 
       <!-- Fine-tuning (TASK_2026_658): closed by default; its groups load in their own chunk once opened and in view. -->
-      <ptah-surface-section padding="md" glassSurface="chrome">
+      <section class="border-t border-base-content/10 pt-6">
         <details class="group" data-testid="fine-tuning-details">
           <summary
             [class]="
@@ -207,13 +205,13 @@ const FOCUS =
               <ptah-advanced-settings-group groupId="workspace-harness" />
             } @placeholder {
               <div
-                class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+                class="min-h-[2.75rem] border-b border-base-content/10"
                 data-testid="fine-tuning-placeholder"
               ></div>
             }
           </div>
         </details>
-      </ptah-surface-section>
+      </section>
     </div>
   `,
 })
