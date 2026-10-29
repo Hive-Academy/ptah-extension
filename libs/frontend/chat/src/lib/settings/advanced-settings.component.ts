@@ -71,7 +71,7 @@ const FOCUS =
     AdvancedSettingsGroupComponent,
   ],
   template: `
-    <div class="space-y-4">
+    <div class="space-y-4 py-3">
       <ptah-license-status-card>
         <!--
           M5: the import confirm takes the place of Export / Import inside the header's action row, so the
@@ -96,7 +96,7 @@ const FOCUS =
               </span>
               <button
                 type="button"
-                class="btn btn-outline btn-xs border-error text-base-content"
+                class="btn btn-outline btn-sm border-error text-base-content"
                 [disabled]="isImporting()"
                 (click)="importSettings()"
                 data-testid="import-confirm-button"
@@ -106,7 +106,7 @@ const FOCUS =
               <button
                 #importCancel
                 type="button"
-                class="btn btn-ghost btn-xs text-base-content"
+                class="btn btn-ghost btn-sm text-base-content"
                 [disabled]="isImporting()"
                 (click)="cancelImport()"
               >
@@ -116,7 +116,7 @@ const FOCUS =
           } @else {
             <button
               type="button"
-              class="btn btn-outline btn-xs gap-1 text-base-content"
+              class="btn btn-outline btn-sm gap-1 text-base-content"
               [disabled]="isExporting()"
               (click)="exportSettings()"
               aria-label="Export settings"
@@ -138,7 +138,7 @@ const FOCUS =
             <button
               #importButton
               type="button"
-              class="btn btn-outline btn-xs gap-1 text-base-content"
+              class="btn btn-outline btn-sm gap-1 text-base-content"
               [disabled]="isImporting()"
               (click)="requestImport()"
               aria-label="Import settings"
@@ -167,7 +167,7 @@ const FOCUS =
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
 
       <!-- Fine-tuning (TASK_2026_658): closed by default; its groups load in their own chunk once opened and in view. -->
-      <ptah-surface-section padding="md">
+      <ptah-surface-section padding="md" glassSurface="chrome">
         <details class="group" data-testid="fine-tuning-details">
           <summary
             [class]="

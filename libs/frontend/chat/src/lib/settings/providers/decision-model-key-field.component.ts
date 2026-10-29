@@ -10,7 +10,7 @@ import {
 /** Field classes shared by the decision-model row and its key field, so both controls read the same in both themes. */
 export const DECISION_FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-export const DECISION_ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${DECISION_FOCUS}`;
+export const DECISION_ACTION = `btn btn-ghost btn-sm px-2 text-xs font-medium text-base-content underline underline-offset-2 ${DECISION_FOCUS}`;
 /**
  * The anubis-light `.input` / `.select` rule in styles.css sets the border to base-300 (1.21:1) and the placeholder to
  * 50% base-content (3.28:1) at (0,2,0), which beats a plain utility; so both are forced, as the Advanced settings

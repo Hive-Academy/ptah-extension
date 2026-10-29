@@ -35,12 +35,13 @@ const CHIP =
   'shrink-0 whitespace-nowrap rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-bold';
 /** `gap-1` between the strip's items. */
 const ORDER_GAP_PX = 4;
+const ORDER_SUBPIXEL_SLACK_PX = 1;
 /**
  * ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). `aria-disabled` looks like `disabled` but keeps focus (Batch
  * 36: a native `disabled` on the focused button during a save dropped focus to the page, where Esc missed the popover).
  * The disabled look is the shared Settings rule in the app styles (Batch 51); both states keep the ghost (transparent) fill.
  */
-const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent aria-disabled:border-transparent aria-disabled:bg-transparent ${FOCUS}`;
+const MOVE = `btn btn-ghost btn-sm btn-square p-0 text-base-content disabled:border-transparent disabled:bg-transparent aria-disabled:border-transparent aria-disabled:bg-transparent ${FOCUS}`;
 /** Orchestration policy lives in the user settings (plan §3 rows 891-892), like the CLI matrix's writes. */
 const SAVE_SCOPE = 'global';
 const DETECT_FAILED =
@@ -91,7 +92,7 @@ interface OrderChip {
         <div class="flex shrink-0 items-center gap-1.5">
           <label
             for="agent-max-concurrent"
-            class="whitespace-nowrap text-xs font-bold"
+            class="whitespace-nowrap text-sm font-medium"
             >Max Concurrent:</label
           >
           <input
@@ -102,7 +103,7 @@ interface OrderChip {
             step="1"
             inputmode="numeric"
             [class]="
-              'input input-bordered input-xs h-6 min-h-6 w-16 px-1.5 text-center font-mono text-xs ' +
+              'input input-bordered input-sm w-16 px-1.5 text-center font-mono text-xs ' +
               focusRing
             "
             [value]="maxConcurrent() ?? ''"
@@ -115,7 +116,7 @@ interface OrderChip {
 
         <div class="relative flex min-w-0 flex-1 items-center gap-1.5">
           <span
-            class="shrink-0 whitespace-nowrap text-xs font-semibold text-base-content-muted"
+            class="shrink-0 whitespace-nowrap text-sm font-medium text-base-content-muted"
             aria-hidden="true"
             >Order:</span
           >
@@ -161,10 +162,12 @@ interface OrderChip {
                 >
               }
             </span>
-            <!-- Measuring copy of every chip (invisible, out of the flow): the widths decide how many whole chips fit. -->
+            <!-- Measuring copy of every chip (invisible, out of the flow): the widths decide how many whole chips fit.
+                 Clipped to the strip: an invisible box still counts as scrollable overflow, and the full chain is wider
+                 than the glass shell's narrower Settings scroller at 1024 px (a page-wide horizontal scrollbar). -->
             <span
               #orderMeasure
-              class="pointer-events-none invisible absolute left-0 top-0 flex items-center gap-1 whitespace-nowrap text-xs"
+              class="pointer-events-none invisible absolute left-0 top-0 flex max-w-full items-center gap-1 overflow-hidden whitespace-nowrap text-xs"
               aria-hidden="true"
             >
               <span data-measure="arrow" class="text-xs">→</span>
@@ -308,7 +311,7 @@ interface OrderChip {
         <button
           type="button"
           [class]="
-            'btn btn-outline btn-xs h-6 min-h-6 shrink-0 gap-1 border-base-content-muted text-[11px] text-base-content ' +
+            'btn btn-outline btn-sm shrink-0 gap-1.5 border-base-content-muted text-xs text-base-content ' +
             focusRing
           "
           [ptahBusyDisabled]="detecting()"
@@ -434,17 +437,23 @@ export class AgentOrchestrationConfigComponent {
     const strip = this.orderStrip()?.nativeElement,
       measure = this.orderMeasure()?.nativeElement;
     if (!strip || !measure) return;
-    const available = strip.clientWidth;
+    // Fractional layout widths: offsetWidth/clientWidth round to whole pixels, and summed over the chips that rounding
+    // put the last whole chip a fraction of a pixel past the strip. (A layout-less DOM reports 0 rects; it falls back
+    // to the rounded values.) One pixel of slack covers what is left.
+    const exact = (node: HTMLElement | null, rounded: number) =>
+      node?.getBoundingClientRect().width || rounded;
+    const width = exact(strip, strip.clientWidth);
+    const available = width - ORDER_SUBPIXEL_SLACK_PX;
     const widths = Array.from(
       measure.querySelectorAll<HTMLElement>('[data-measure="chip"]'),
-    ).map((node) => node.offsetWidth);
-    const arrow =
-      measure.querySelector<HTMLElement>('[data-measure="arrow"]')
-        ?.offsetWidth ?? 0;
-    const more =
-      measure.querySelector<HTMLElement>('[data-measure="more"]')
-        ?.offsetWidth ?? 0;
-    if (!available || widths.some((width) => width === 0)) {
+    ).map((node) => exact(node, node.offsetWidth));
+    const arrowNode = measure.querySelector<HTMLElement>(
+      '[data-measure="arrow"]',
+    );
+    const moreNode = measure.querySelector<HTMLElement>('[data-measure="more"]');
+    const arrow = exact(arrowNode, arrowNode?.offsetWidth ?? 0);
+    const more = exact(moreNode, moreNode?.offsetWidth ?? 0);
+    if (!width || widths.some((width) => width === 0)) {
       this.fittingCount.set(null);
       return;
     }

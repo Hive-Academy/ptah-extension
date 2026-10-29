@@ -44,7 +44,7 @@ const NOT_CONFIRMED = `${settingNotConfirmedMessage(LABEL)} Check the saved sett
         <p class="text-xs text-base-content-muted" role="status" data-testid="copilot-auto-approve-unloaded">The saved setting could not be read.</p>
       }
       @if (needsRecheck()) {
-        <button type="button" [class]="'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' + focusRing"
+        <button type="button" [class]="'btn btn-outline btn-sm border-base-content-muted text-base-content ' + focusRing"
           [ptahBusyDisabled]="saving()" (click)="recheck()" data-testid="copilot-auto-approve-recheck">Check saved setting again</button>
       }
     </div>

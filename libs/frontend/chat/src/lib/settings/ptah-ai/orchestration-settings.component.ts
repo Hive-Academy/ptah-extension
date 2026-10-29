@@ -33,13 +33,15 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
     AdvancedSettingsGroupComponent,
   ],
   template: `
-    <div class="flex flex-col gap-4 font-sans text-sm text-base-content">
+    <!-- Same box and rhythm as the Providers page: the Settings shell sets the width, centring and side padding. -->
+    <div class="flex flex-col gap-4 py-3 font-sans text-sm text-base-content">
       <!-- Subagent prompt-cache TTL (TASK_2026_597 N1): its own chunk, loaded when scrolled into view. -->
       @defer (on viewport) {
         <ptah-subagent-cache-ttl-setting />
       } @placeholder {
         <div
           class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-glass-surface="tile"
           aria-busy="true"
           data-testid="subagent-cache-ttl-placeholder"
         ></div>
@@ -52,6 +54,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
       } @placeholder {
         <div
           class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-glass-surface="tile"
           data-testid="session-budget-placeholder"
         ></div>
       }
@@ -68,6 +71,7 @@ import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-gr
       } @placeholder {
         <div
           class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-glass-surface="tile"
           data-testid="orchestration-advanced-placeholder"
         ></div>
       }

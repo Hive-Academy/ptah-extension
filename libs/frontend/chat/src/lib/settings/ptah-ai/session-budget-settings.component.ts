@@ -175,18 +175,19 @@ function storedNumberIsValid(
     <ptah-surface-section
       tone="subtle"
       padding="md"
-      class="text-xs text-base-content"
+      glassSurface="chrome"
+      class="text-sm text-base-content"
       aria-labelledby="session-budget-heading"
       data-testid="settings-section-session-budget"
     >
-      <div section-header>
+      <div section-header class="mb-3 border-b border-base-content/10 pb-2">
         <h3
           id="session-budget-heading"
-          class="font-bold uppercase tracking-wide"
+          class="text-base font-semibold text-base-content"
         >
           Session budget
         </h3>
-        <p class="mt-0.5 text-[11px] text-base-content-muted">
+        <p class="mt-0.5 text-xs text-base-content-muted">
           Set per-chat limits and when Ptah should intervene.
         </p>
       </div>
@@ -210,7 +211,7 @@ function storedNumberIsValid(
             <button
               type="button"
               [class]="
-                'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' +
+                'btn btn-outline btn-sm border-base-content-muted text-base-content ' +
                 focusRing
               "
               (click)="reload()"
@@ -221,10 +222,12 @@ function storedNumberIsValid(
           </div>
         }
         @default {
-          <div class="grid auto-rows-fr gap-4 md:grid-cols-3">
+          <div class="grid gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
             @for (key of booleanKeys; track key) {
               <div class="flex min-w-0 flex-col gap-1">
-                <span class="font-bold">{{ labels[key] }}</span>
+                <span class="text-sm font-medium text-base-content">{{
+                  labels[key]
+                }}</span>
                 <label
                   class="flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg border border-base-content/10 px-2"
                 >
@@ -238,11 +241,11 @@ function storedNumberIsValid(
                     [attr.aria-describedby]="'session-budget-' + key + '-help'"
                     [attr.data-testid]="'session-budget-' + key"
                   />
-                  <span>Enabled</span>
+                  <span class="text-sm">Enabled</span>
                 </label>
                 <p
                   [id]="'session-budget-' + key + '-help'"
-                  class="text-[11px] text-base-content-muted"
+                  class="text-xs text-base-content-muted"
                 >
                   {{ booleanHelp[key] }}
                 </p>
@@ -250,13 +253,13 @@ function storedNumberIsValid(
             }
 
             <div class="flex min-w-0 flex-col gap-1">
-              <label for="session-budget-unit" class="font-bold">{{
+              <label for="session-budget-unit" class="text-sm font-medium text-base-content">{{
                 labels.unit
               }}</label>
               <select
                 id="session-budget-unit"
                 [class]="
-                  'select select-bordered select-sm h-8 min-h-8 w-full text-xs ' +
+                  'select select-bordered select-sm w-full text-sm ' +
                   focusRing
                 "
                 [value]="unitValue()"
@@ -273,7 +276,7 @@ function storedNumberIsValid(
               </select>
               <p
                 id="session-budget-unit-help"
-                class="text-[11px] text-base-content-muted"
+                class="text-xs text-base-content-muted"
               >
                 Tokens use chat usage; Cost uses priced models.
               </p>
@@ -286,7 +289,7 @@ function storedNumberIsValid(
               <div class="flex min-w-0 flex-col gap-1">
                 <label
                   [for]="'session-budget-' + field.key"
-                  class="font-bold"
+                  class="text-sm font-medium text-base-content"
                   >{{ field.label }}</label
                 >
                 <div class="join flex w-full">
@@ -297,7 +300,7 @@ function storedNumberIsValid(
                       settings[field.key].integer ? 'numeric' : 'decimal'
                     "
                     [class]="
-                      'input input-bordered input-sm join-item h-8 min-h-8 min-w-0 flex-1 text-right text-xs tabular-nums text-base-content ' +
+                      'input input-bordered input-sm join-item min-w-0 flex-1 text-right text-sm tabular-nums text-base-content ' +
                       (errors()[field.key] ? 'input-error ' : '') +
                       focusRing
                     "
@@ -325,20 +328,20 @@ function storedNumberIsValid(
                     [attr.data-testid]="'session-budget-' + field.key"
                   />
                   <span
-                    class="btn btn-sm join-item h-8 min-h-8 shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-2 text-[11px] font-normal text-base-content-muted"
+                    class="btn btn-sm join-item shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-3 text-xs font-normal text-base-content-muted"
                     aria-hidden="true"
                     >{{ unitSuffix(field.key) }}</span
                   >
                 </div>
                 @if (humanReadable(field.key); as readable) {
                   <span
-                    class="whitespace-nowrap text-[11px] text-base-content-muted"
+                    class="whitespace-nowrap text-xs text-base-content-muted"
                     >{{ readable }}</span
                   >
                 }
                 <p
                   [id]="'session-budget-' + field.key + '-help'"
-                  class="text-[11px] text-base-content-muted"
+                  class="text-xs text-base-content-muted"
                 >
                   {{ field.help }} Range: {{ range(field.key) }}.
                 </p>

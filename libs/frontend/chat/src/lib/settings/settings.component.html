@@ -13,19 +13,21 @@
   - Compact spacing: space-y-3, gap-2
 -->
 
-<div class="h-full overflow-y-auto bg-surface-0">
+<!-- Glass: the page plane clears (component styles) so the blurred chrome pane and its scene show under the cards. -->
+<div class="settings-page h-full overflow-y-auto bg-surface-0">
   <div
-    class="mx-auto w-full max-w-screen-2xl px-3 py-3 space-y-3 md:px-6 lg:px-8"
+    class="mx-auto w-full max-w-screen-2xl px-3 py-3 space-y-4 md:px-6 lg:px-8"
   >
     <!-- Header (prototypes/final/index.html:82-95): Back, title, workspace and app context -->
-    <header class="settings-header">
+    <!-- Glass: the header text sits on its own plate (a local text scrim), not on the bare pane. -->
+    <header class="settings-header" data-glass-surface="plate">
       <div
         class="flex items-center justify-between gap-3 pb-2 border-b border-base-300"
       >
         <div class="flex items-center gap-2.5">
           <button
             type="button"
-            class="btn btn-xs btn-ghost p-1 text-base-content-muted hover:text-base-content"
+            class="btn btn-sm btn-ghost btn-square text-base-content-muted hover:text-base-content"
             (click)="backToChat()"
             aria-label="Back to Chat"
             title="Back to Chat"
@@ -37,7 +39,7 @@
               aria-hidden="true"
             />
           </button>
-          <h1 class="text-base font-bold tracking-tight text-base-content">
+          <h1 class="text-lg font-semibold tracking-tight text-base-content">
             Settings
           </h1>
         </div>
@@ -74,7 +76,8 @@
           @let active = activeSettingsTab() === tab.id;
           <button
             type="button"
-            class="settings-tab relative flex min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-[13px] leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            data-glass-surface="tile"
+            class="settings-tab relative flex min-w-0 items-center justify-center gap-2 rounded-lg px-2.5 py-2.5 text-sm leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             [class.surface-2]="!active"
             [class.text-base-content-muted]="!active"
             [class.surface-3]="active"
@@ -114,10 +117,11 @@
         served through a translation proxy running on this machine — so the
         custom line names the host instead of making a promise about it.
       -->
-      <!-- D10: one text-[11px] line; the dot carries the tone, and the full sentence stays in the DOM and the title. -->
+      <!-- D10: one text-xs line; the dot carries the tone, and the full sentence stays in the DOM and the title. -->
       @if (authState.isCustomProviderSelected()) {
         <div
-          class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
+          class="settings-plate mb-3 flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted"
+          data-glass-surface="plate"
           data-testid="custom-provider-security-copy"
           [attr.title]="
             'Your own endpoint. Credentials and prompts go from this machine to ' +
@@ -143,7 +147,8 @@
         </div>
       } @else {
         <div
-          class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
+          class="settings-plate mb-3 flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted"
+          data-glass-surface="plate"
           data-testid="builtin-provider-security-copy"
         >
           <span

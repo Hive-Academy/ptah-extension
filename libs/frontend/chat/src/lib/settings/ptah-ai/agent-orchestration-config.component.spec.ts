@@ -230,7 +230,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(bar?.querySelector('[data-testid="policy-order"]')).not.toBeNull();
       expect(
         bar?.querySelector('[data-testid="policy-order-edit"]')?.className,
-      ).toContain('h-6');
+      ).toContain('btn-sm');
       expect(button('policy-redetect')?.getAttribute('aria-label')).toBe(
         'Re-detect CLI agents',
       );
@@ -400,7 +400,8 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(
         button('policy-order-down-antigravity')?.getAttribute('aria-label'),
       ).toBe('Move Antigravity down');
-      for (const size of ['h-6', 'min-h-6', 'w-6'])
+      // 32 px square target (btn-sm btn-square), the Settings touch-target floor.
+      for (const size of ['btn-sm', 'btn-square'])
         expect(up?.className).toContain(size);
     });
 
@@ -583,13 +584,13 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(popover()?.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
     });
 
-    it('V36-2: helper text is at least 12 px (text-xs); no 10 or 11 px text outside the btn-xs label', async () => {
+    it('V36-2: helper text is at least 12 px (text-xs); no 10 or 11 px text anywhere', async () => {
       await openOrder();
       const small = Array.from(
         element().querySelectorAll<HTMLElement>(
           '[class*="text-[10px]"], [class*="text-[11px]"]',
         ),
-      ).filter((node) => !node.classList.contains('btn'));
+      );
       expect(small).toHaveLength(0);
       expect(q('[data-testid="policy-order"]')?.className).toContain('text-xs');
     });

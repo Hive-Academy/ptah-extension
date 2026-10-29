@@ -82,18 +82,19 @@ function formatValue(
       <ptah-surface-section
         tone="subtle"
         padding="md"
-        class="text-xs text-base-content"
+        glassSurface="chrome"
+        class="text-sm text-base-content"
         [attr.aria-labelledby]="idPrefix() + '-heading'"
         [attr.data-testid]="'settings-section-' + group.id"
       >
-        <div section-header>
+        <div section-header class="mb-3 border-b border-base-content/10 pb-2">
           <h3
             [id]="idPrefix() + '-heading'"
-            class="font-bold uppercase tracking-wide"
+            class="text-base font-semibold text-base-content"
           >
             {{ group.title }}
           </h3>
-          <p class="mt-0.5 text-[11px] text-base-content-muted">
+          <p class="mt-0.5 text-xs text-base-content-muted">
             {{ group.description }}
           </p>
         </div>
@@ -117,7 +118,7 @@ function formatValue(
               <button
                 type="button"
                 [class]="
-                  'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' +
+                  'btn btn-outline btn-sm border-base-content-muted text-base-content ' +
                   focusRing
                 "
                 (click)="reload()"
@@ -128,7 +129,7 @@ function formatValue(
             </div>
           }
           @default {
-            <div class="grid items-start gap-4 md:grid-cols-3">
+            <div class="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
               @for (setting of settings(); track setting.key) {
                 <div
                   class="flex min-w-0 flex-col gap-1"
@@ -137,7 +138,7 @@ function formatValue(
                   "
                 >
                   @if (setting.kind === 'boolean') {
-                    <span class="flex items-center gap-1.5 font-bold"
+                    <span class="flex items-center gap-1.5 text-sm font-medium text-base-content"
                       >{{ setting.label }}
                       @if (setting.apply === 'restart') {
                         <span [class]="restartBadge" aria-hidden="true"
@@ -163,6 +164,7 @@ function formatValue(
                         [attr.data-testid]="'advanced-setting-' + setting.key"
                       />
                       <span
+                        class="text-sm"
                         [attr.data-testid]="
                           'advanced-setting-' + setting.key + '-state'
                         "
@@ -174,7 +176,7 @@ function formatValue(
                   } @else {
                     <label
                       [for]="'advanced-setting-' + setting.key"
-                      class="flex items-center gap-1.5 font-bold"
+                      class="flex items-center gap-1.5 text-sm font-medium text-base-content"
                       >{{ setting.label }}
                       @if (setting.apply === 'restart') {
                         <span [class]="restartBadge" aria-hidden="true"
@@ -190,7 +192,7 @@ function formatValue(
                           setting.integer ? 'numeric' : 'decimal'
                         "
                         [class]="
-                          'input input-bordered input-sm join-item h-8 min-h-8 min-w-0 flex-1 text-right text-xs tabular-nums text-base-content ' +
+                          'input input-bordered input-sm join-item min-w-0 flex-1 text-right text-sm tabular-nums text-base-content ' +
                           (errors()[setting.key] ? errorBorder + ' ' : '') +
                           focusRing
                         "
@@ -207,7 +209,7 @@ function formatValue(
                       />
                       @if (setting.unit) {
                         <span
-                          class="btn btn-sm join-item h-8 min-h-8 shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-2 text-[11px] font-normal text-base-content-muted"
+                          class="btn btn-sm join-item shrink-0 cursor-default whitespace-nowrap border-base-content/10 px-3 text-xs font-normal text-base-content-muted"
                           aria-hidden="true"
                           >{{ setting.unit }}</span
                         >
@@ -216,7 +218,7 @@ function formatValue(
                   }
                   <p
                     [id]="'advanced-setting-' + setting.key + '-help'"
-                    class="text-[11px] text-base-content-muted"
+                    class="text-xs text-base-content-muted"
                   >
                     {{ helpText(setting) }}
                   </p>
@@ -267,7 +269,7 @@ export class AdvancedSettingsGroupComponent implements OnInit {
   protected readonly errorBorder =
     'input-error !border-[color:var(--ptah-error-ink,oklch(var(--er)))]';
   protected readonly restartBadge =
-    'badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content';
+    'badge badge-outline badge-sm whitespace-nowrap border-info/30 bg-info/10 text-xs font-medium text-base-content';
 
   protected readonly group = computed(() =>
     ADVANCED_SETTING_GROUPS.find((group) => group.id === this.groupId()),

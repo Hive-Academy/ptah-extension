@@ -69,8 +69,8 @@ export async function bootVariant(
 
 export const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
 /**
- * The CLI matrix and the background model roles: on the Providers tab, below Routing Map + Connections. Waits for the
- * matrix (its own deferred chunk) so the callers can act on it.
+ * The CLI matrix and the background model roles: on the Providers tab, below the Main agent and Connections.
+ * Waits for the matrix (its own deferred chunk) so the callers can act on it.
  */
 export async function agentsRoutingTab(page: Page): Promise<void> {
   await gotoSettingsTab(page, 'Providers');
@@ -219,7 +219,7 @@ export async function openScopeBadge(page: Page, field: string): Promise<Locator
   return popover;
 }
 
-/** Providers tab, then the routing map's Main Agent "Reassign": returns the open Main Agent popover (Batch 26). */
+/** Providers tab, then the Main agent section's "Reassign": returns the open Main Agent popover (Batch 26). */
 export async function openMainAgentPopover(page: Page): Promise<Locator> {
   await providersTab(page);
   const reassign = page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]');

@@ -94,7 +94,7 @@ async function expectClosedToOpener(
   await expect(modal.opener(page)).toBeFocused();
 }
 
-/** Boots Settings on the Providers tab with the CLI matrix (below Routing Map + Connections) rendered (its deferred chunk). */
+/** Boots Settings on the Providers tab with the CLI matrix (below the Main agent and Connections) rendered (its deferred chunk). */
 async function bootOrchestration(
   page: Page,
   url: string,
