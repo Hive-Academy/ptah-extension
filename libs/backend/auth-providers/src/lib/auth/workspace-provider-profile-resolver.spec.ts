@@ -901,6 +901,63 @@ describe('resolveExecutionProfile', () => {
 
   it.each([
     {
+      name: 'gateway with only the gateway capability',
+      consumer: 'gateway',
+      hostCapabilities: { nativeCodex: false, nativeCodexGateway: true },
+      allowed: true,
+    },
+    {
+      name: 'gateway with only the chat capability',
+      consumer: 'gateway',
+      hostCapabilities: { nativeCodex: true },
+      allowed: false,
+    },
+    {
+      name: 'chat with the chat capability',
+      consumer: 'chat',
+      hostCapabilities: { nativeCodex: true },
+      allowed: true,
+    },
+    {
+      name: 'chat with only the gateway capability',
+      consumer: 'chat',
+      hostCapabilities: { nativeCodex: false, nativeCodexGateway: true },
+      allowed: false,
+    },
+    {
+      name: 'lane with both capabilities',
+      consumer: 'lane',
+      hostCapabilities: { nativeCodex: true, nativeCodexGateway: true },
+      allowed: false,
+    },
+  ] as const)('resumes native Codex for $name only when allowed', async ({
+    consumer,
+    hostCapabilities,
+    allowed,
+  }) => {
+    const h = nativeHarness();
+    const request = {
+      ...input,
+      consumer,
+      hostCapabilities,
+      existingIdentity: identity,
+    };
+    const profile = h.resolver.resolveExecutionProfile(request);
+    if (allowed) {
+      await expect(profile).resolves.toMatchObject({
+        runtime: 'codex-app-server',
+        seed: { consumer, existingIdentity: identity },
+      });
+    } else {
+      await expect(profile).rejects.toBeInstanceOf(AuthRequiredError);
+      await expect(profile).rejects.toThrow(
+        'This session requires a host with native Codex support.',
+      );
+    }
+  });
+
+  it.each([
+    {
       name:
         'keeps a gateway turn on Claude when only the chat capability is enabled',
       consumer: 'gateway' as const,

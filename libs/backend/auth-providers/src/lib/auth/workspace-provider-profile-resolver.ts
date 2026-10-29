@@ -186,10 +186,9 @@ export class WorkspaceProviderProfileResolver {
       workspacePath,
       requestedModel,
       existingIdentity,
-      hostCapabilities,
     } = input;
     const resumeNative = existingIdentity?.runtime === 'codex-app-server';
-    if (resumeNative && !hostCapabilities.nativeCodex) {
+    if (resumeNative && !this.hasNativeCodexCapability(input)) {
       throw new AuthRequiredError(
         'This session requires a host with native Codex support.',
       );
@@ -280,27 +279,26 @@ export class WorkspaceProviderProfileResolver {
   }
 
   private shouldStartNativeCodex(input: ExecutionProfileRequest): boolean {
-    let capability: boolean;
+    return (
+      this.hasNativeCodexCapability(input) &&
+      this.activeProviderResolver.resolveActiveAuthForPath(input.workspacePath)
+        .providerId === 'openai-codex'
+    );
+  }
+
+  private hasNativeCodexCapability(input: ExecutionProfileRequest): boolean {
     switch (input.consumer) {
       case 'chat':
-        capability = input.hostCapabilities.nativeCodex;
-        break;
+        return input.hostCapabilities.nativeCodex;
       case 'gateway':
-        capability = input.hostCapabilities.nativeCodexGateway === true;
-        break;
+        return input.hostCapabilities.nativeCodexGateway === true;
       case 'lane':
-        capability = false;
-        break;
+        return false;
       default: {
         const consumer: never = input.consumer;
         return consumer;
       }
     }
-    return (
-      capability &&
-      this.activeProviderResolver.resolveActiveAuthForPath(input.workspacePath)
-        .providerId === 'openai-codex'
-    );
   }
 
   private resolveNativeCodexModel(requestedModel: string): {
