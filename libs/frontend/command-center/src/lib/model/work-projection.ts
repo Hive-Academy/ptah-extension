@@ -1,13 +1,8 @@
-import {
-  derivePhase,
-  type PhaseDerivationInput,
-} from '@ptah-extension/tribunal-panel/phase';
 import type {
   CommandWorkEdge,
   CommandWorkNode,
   CommandWorkState,
 } from './command-center.store';
-import { workStateForStatus } from './work-state';
 
 export interface OwnedChild {
   readonly tabId: string;
@@ -26,7 +21,6 @@ export interface OwnedAgent {
   readonly providerId?: string;
   readonly displayName?: string;
   readonly task?: string;
-  readonly runId?: string;
   readonly startedAt?: number;
   readonly updatedAt?: number;
 }
@@ -37,7 +31,6 @@ const START_CLOCK_SKEW_MS = 30_000;
 const WORK_KINDS: ReadonlySet<CommandWorkNode['kind']> = new Set([
   'agent',
   'child',
-  'lane',
 ]);
 const ACTIVE_STATES: ReadonlySet<CommandWorkState> = new Set([
   'running',
@@ -59,14 +52,6 @@ function agentLabel(agent: OwnedAgent): string {
     ? `${name.slice(0, WORK_LABEL_MAX_LENGTH - 1).trimEnd()}…`
     : name;
 }
-export interface OwnedRun {
-  readonly runId: string;
-  readonly rootSessionId: string;
-  readonly phase: PhaseDerivationInput;
-  readonly laneStartedAt?: ReadonlyMap<string, number>;
-  readonly state: CommandWorkState;
-  readonly updatedAt?: number;
-}
 export interface ProjectionInput {
   readonly now?: number;
   readonly rootTabId: string;
@@ -81,7 +66,6 @@ export interface ProjectionInput {
     readonly updatedAt?: number;
   }[];
   readonly agents: readonly OwnedAgent[];
-  readonly runs: readonly OwnedRun[];
 }
 export interface ProjectionResult {
   readonly nodes: readonly CommandWorkNode[];
@@ -198,86 +182,8 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       tabId: child.tabId,
     });
   }
-  const runs = new Map(
-    input.runs
-      .filter((run) => owned.has(run.rootSessionId))
-      .map((run) => [run.runId, run]),
-  );
-  for (const run of runs.values()) {
-    const runId = `tribunal:${run.runId}`;
-    nodes.push({
-      id: runId,
-      kind: 'tribunal',
-      parentId: nodeForSession(run.rootSessionId),
-      label: `Tribunal ${run.phase.move}`,
-      providerId: null,
-      state: run.state,
-      updatedAt: run.updatedAt,
-    });
-    for (const lane of run.phase.laneBindings.lanes) {
-      const boundAgent = run.phase.laneBindings.bound.get(lane.laneId);
-      const status = boundAgent?.status;
-      const state: CommandWorkState = status
-        ? workStateForStatus(status)
-        : 'queued';
-      nodes.push({
-        id: `lane:${run.runId}:${lane.laneId}`,
-        kind: 'lane',
-        parentId: runId,
-        label: lane.role
-          ? `${lane.displayName} (${lane.role})`
-          : lane.displayName,
-        providerId: lane.cli,
-        state,
-        ...startField(
-          boundAgent ? run.laneStartedAt?.get(lane.laneId) : undefined,
-        ),
-      });
-    }
-    const phase = derivePhase(run.phase);
-    if (phase.kind === 'relay') {
-      for (const step of phase.phases)
-        nodes.push({
-          id: `phase:${run.runId}:${step.role}`,
-          kind: 'phase',
-          parentId: runId,
-          label: step.role,
-          providerId: null,
-          state:
-            step.status === 'pending'
-              ? 'queued'
-              : step.status === 'complete'
-                ? 'completed'
-                : 'failed',
-        });
-    } else if (phase.kind === 'crucible') {
-      nodes.push({
-        id: `phase:${run.runId}:round-${phase.currentRound}`,
-        kind: 'phase',
-        parentId: runId,
-        label: `Round ${phase.currentRound}`,
-        providerId: null,
-        state: phase.termination === 'in-progress' ? 'running' : 'completed',
-      });
-    } else {
-      nodes.push({
-        id: `phase:${run.runId}:stage`,
-        kind: 'phase',
-        parentId: runId,
-        label:
-          phase.kind === 'none' ? 'No phase tracking' : 'Phase unavailable',
-        providerId: null,
-        state: run.state,
-      });
-    }
-  }
   for (const agent of input.agents) {
     if (!owned.has(canonical(agent.parentSessionId))) continue;
-    const run = agent.runId ? runs.get(agent.runId) : undefined;
-    const lane = run?.phase.laneBindings.lanes.find(
-      (candidate) => candidate.agentId === agent.agentId,
-    );
-    if (agent.kind === 'cli' && lane) continue;
     const id =
       agent.kind === 'cli'
         ? `cli:${agent.agentId}`
@@ -286,12 +192,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       id,
       kind: 'agent',
       agentKind: agent.kind,
-      parentId:
-        run && lane
-          ? `lane:${run.runId}:${lane.laneId}`
-          : run
-            ? `tribunal:${run.runId}`
-            : nodeForSession(agent.parentSessionId),
+      parentId: nodeForSession(agent.parentSessionId),
       label: agentLabel(agent),
       providerId: agent.providerId ?? null,
       state: agent.state,

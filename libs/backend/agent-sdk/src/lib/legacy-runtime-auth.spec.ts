@@ -59,7 +59,7 @@ describe('legacy runtime auth initialization', () => {
       normalizedHome: '/home/codex',
     };
     await expect(h.adapter.initialize(context)).resolves.toBe(true);
-    expect(h.configureAuthentication).toHaveBeenCalledWith('oauth', context);
+    expect(h.configureAuthentication).toHaveBeenCalledWith(undefined, context);
     expect(h.configureAuthentication.mock.calls[0][1]).toBe(context);
     expect(h.findExecutable).toHaveBeenCalledTimes(1);
     expect(h.emitInitialized).toHaveBeenCalledWith(
@@ -67,10 +67,10 @@ describe('legacy runtime auth initialization', () => {
     );
   });
 
-  it('keeps the original one-argument auth call and CLI initialization when context is absent', async () => {
+  it('keeps the no-argument default auth call and CLI initialization when context is absent', async () => {
     const h = fixture();
     await expect(h.adapter.initialize()).resolves.toBe(true);
-    expect(h.configureAuthentication).toHaveBeenCalledWith('oauth');
+    expect(h.configureAuthentication).toHaveBeenCalledWith();
     expect(h.findExecutable).toHaveBeenCalledTimes(1);
     expect(h.setHealth).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'available' }),
@@ -80,7 +80,7 @@ describe('legacy runtime auth initialization', () => {
   it('preserves auth-failure behavior without a context', async () => {
     const h = fixture(false);
     await expect(h.adapter.initialize()).resolves.toBe(false);
-    expect(h.configureAuthentication).toHaveBeenCalledWith('oauth');
+    expect(h.configureAuthentication).toHaveBeenCalledWith();
     expect(h.findExecutable).not.toHaveBeenCalled();
     expect(h.emitInitialized).toHaveBeenCalledWith(
       expect.objectContaining({ success: false }),

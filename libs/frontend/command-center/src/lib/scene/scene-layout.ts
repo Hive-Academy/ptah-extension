@@ -20,10 +20,9 @@ export interface SceneNode {
   readonly y: number;
   readonly radius: number;
   readonly scale: number;
-  readonly kind: 'root' | 'delegate' | 'tribunal' | 'satellite';
+  readonly kind: 'root' | 'delegate';
   readonly label: string;
   readonly labelRect: SceneRect | null;
-  readonly phases: readonly CommandWorkNode[];
 }
 
 export interface SceneLayout {
@@ -113,7 +112,7 @@ export function layoutScene(
     };
   const byId = new Map(projection.nodes.map((node) => [node.id, node]));
   const rest = projection.nodes.filter(
-    (node) => node.id !== root.id && node.kind !== 'phase',
+    (node) => node.id !== root.id,
   );
   const priority = (node: CommandWorkNode): number =>
     node.id === selectedId
@@ -138,7 +137,7 @@ export function layoutScene(
       }
       visited.add(parentId);
       const parent = byId.get(parentId);
-      if (!parent || parent.kind === 'phase') {
+      if (!parent) {
         valid = false;
         break;
       }
@@ -185,13 +184,12 @@ export function layoutScene(
     return null;
   };
   const orbitNodes = visible.filter(
-    (node) => node.kind !== 'lane' && (!rect || !owningChild(node)),
+    (node) => !rect || !owningChild(node),
   );
   const many = orbitNodes.length > 8;
   for (let i = 0; i < orbitNodes.length; i++) {
     const node = orbitNodes[i];
-    const kind: SceneNode['kind'] =
-      node.kind === 'tribunal' ? 'tribunal' : 'delegate';
+    const kind: SceneNode['kind'] = 'delegate';
     const inner = many && i < 8;
     const ringIndex = inner ? i : many ? i - 8 : i;
     const ringCount = inner
@@ -208,7 +206,7 @@ export function layoutScene(
           ry: viewport.height * (many ? (inner ? 0.225 : 0.385) : 0.365),
         };
     const scale = many ? (inner ? 0.72 : 0.78) : 1;
-    const radius = ((kind === 'tribunal' ? 70 : 58) * scale) / 2;
+    const radius = (58 * scale) / 2;
     placed.push({
       node,
       x: cx + rx * Math.cos(angle),
@@ -239,29 +237,14 @@ export function layoutScene(
         point.x += direction[0] * (minimum - distance);
         point.y += direction[1] * (minimum - distance);
       }
-      const envelope =
-        point.kind === 'tribunal' &&
-        visible.some(
-          (node) => node.parentId === point.node.id && node.kind === 'lane',
-        )
-          ? point.radius + 44
-          : point.radius;
-      point.x = clamp(point.x, left + envelope, right - envelope);
-      point.y = clamp(point.y, top + envelope, bottom - envelope);
+      point.x = clamp(point.x, left + point.radius, right - point.radius);
+      point.y = clamp(point.y, top + point.radius, bottom - point.radius);
     }
   }
-  const tribunalWithLanes = new Set(
-    visible.filter((node) => node.kind === 'lane').map((node) => node.parentId),
-  );
-  const envelopeFor = (point: (typeof placed)[number]): number =>
-    point.radius +
-    (point.kind === 'tribunal' && tribunalWithLanes.has(point.node.id)
-      ? 44
-      : 0);
   const clear = placed.slice(1).every((point, index) => {
     if (
       Math.hypot(point.x - cx, point.y - cy) <
-      rootRadius + 32 + envelopeFor(point)
+      rootRadius + 32 + point.radius
     )
       return false;
     return placed
@@ -269,7 +252,7 @@ export function layoutScene(
       .every(
         (other) =>
           Math.hypot(point.x - other.x, point.y - other.y) >=
-          envelopeFor(point) + envelopeFor(other),
+          point.radius + other.radius,
       );
   });
   if (!clear) {
@@ -286,17 +269,12 @@ export function layoutScene(
         const point = placed[index];
         const target = targets[index - 1];
         const radius = Math.max(12, target.radius * factor);
-        const envelope =
-          radius +
-          (point.kind === 'tribunal' && tribunalWithLanes.has(point.node.id)
-            ? 44
-            : 0);
         let bestX = 0;
         let bestY = 0;
         let bestDistance = Infinity;
-        for (let y = top + envelope; y <= bottom - envelope; y += 10) {
-          for (let x = left + envelope; x <= right - envelope; x += 10) {
-            if (Math.hypot(x - cx, y - cy) < rootRadius + 32 + envelope)
+        for (let y = top + radius; y <= bottom - radius; y += 10) {
+          for (let x = left + radius; x <= right - radius; x += 10) {
+            if (Math.hypot(x - cx, y - cy) < rootRadius + 32 + radius)
               continue;
             if (
               packed
@@ -304,7 +282,7 @@ export function layoutScene(
                 .some(
                   (other) =>
                     Math.hypot(x - other.x, y - other.y) <
-                    envelope + envelopeFor(other) + 4,
+                    radius + other.radius + 4,
                 )
             )
               continue;
@@ -341,20 +319,11 @@ export function layoutScene(
       const owner = pending[childIndex];
       const owned = visible.filter((node) => {
         if (owningChild(node) !== owner.node.id) return false;
-        return (
-          node.kind !== 'lane' ||
-          byId.get(node.parentId ?? '')?.kind !== 'tribunal'
-        );
+        return true;
       });
       owned.forEach((node, index) => {
-        const kind: SceneNode['kind'] =
-          node.kind === 'tribunal'
-            ? 'tribunal'
-            : node.kind === 'lane'
-              ? 'satellite'
-              : 'delegate';
-        const radius =
-          node.kind === 'tribunal' ? 35 : node.kind === 'lane' ? 16 : 29;
+        const kind: SceneNode['kind'] = 'delegate';
+        const radius = 29;
         const angle = -Math.PI / 2 + (index * Math.PI * 2) / owned.length;
         let best: { x: number; y: number; score: number } | null = null;
         for (let step = 0; step < 32; step++) {
@@ -395,24 +364,6 @@ export function layoutScene(
       });
     }
   }
-  // Satellites inherit the final core position, so pair separation cannot detach them.
-  for (const core of placed.filter((point) => point.kind === 'tribunal')) {
-    const lanes = visible.filter(
-      (node) => node.kind === 'lane' && node.parentId === core.node.id,
-    );
-    const orbitRadius = core.radius + 16 + 12;
-    lanes.forEach((node, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / lanes.length;
-      placed.push({
-        node,
-        x: core.x + orbitRadius * Math.cos(angle),
-        y: core.y + orbitRadius * Math.sin(angle),
-        radius: 16,
-        scale: 1,
-        kind: 'satellite',
-      });
-    });
-  }
   const dense = placed.length > 12;
   let ordinaryLabels = 0;
   const used: SceneRect[] = [];
@@ -424,13 +375,7 @@ export function layoutScene(
       !rect && point.node.kind === 'child'
         ? `${providerName(parent?.providerId ?? null)} · ${point.node.label}`
         : point.node.label;
-    const phases =
-      point.kind === 'tribunal'
-        ? projection.nodes.filter(
-            (node) => node.kind === 'phase' && node.parentId === point.node.id,
-          )
-        : [];
-    return { ...point, label, phases };
+    return { ...point, label };
   });
   const labelRects: (SceneRect | null)[] = placed.map(() => null);
   const labelPriority = (point: (typeof placed)[number]): number =>

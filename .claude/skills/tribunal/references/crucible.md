@@ -48,10 +48,8 @@ Pick by **capability, not by brand** — the roster comes from `ptah_agent_list`
 
 Roster sources, in order:
 
-1. **UI role tokens** `(executor)` / `(judge)` — authoritative ([vendor-panel.md §0](vendor-panel.md#0-explicit-panel-from-the-tribunal-ui)).
-2. **UI lanes without tokens** — the first lane executes, the last judges; confirm that reading before spending a call.
-3. **Lanes the user named** — resolve each against `ptah_agent_list` and use exactly those. The judge must still be a different family from the executor; if the named pair is one family, say so and ask for another judge.
-4. **Nothing named** — the heuristic above, selecting for role fit rather than family spread.
+1. **User's plain-text role pins** `(executor)` / `(judge)` — authoritative ([vendor-panel.md §0](vendor-panel.md#0-explicit-panel-from-the-user)). Resolve each pinned lane against `ptah_agent_list`. The judge must be a different family from the executor; if a pinned pair is one family, say so and ask for another judge.
+2. **Roles not pinned** — use the heuristic above to choose the executor and judge from different families. Keep any lanes the user named, and state the role choices in the panel confirmation before spending a call. Never infer roles from lane order.
 
 UI deliverables: check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence.
 
@@ -117,7 +115,7 @@ write rubric → announce lanes + round cap + cost → EXECUTE → JUDGE → gat
 
 ### Step 1 — Init & announce
 
-Create `.ptah/specs/TASK_[ID]/` per [task-tracking.md § New task](../../orchestration/references/task-tracking.md#new-task), or use the folder the UI framing names. Write `context.md` with `mode: tribunal-crucible`, the executor lane, the judge lane, and the round cap. Write `rubric.md`. Announce: both lanes, the cap, and the cost — **2 paid calls per round**. Get the go-ahead; this writes code.
+Create `.ptah/specs/TASK_[ID]/` per [task-tracking.md § New task](../../orchestration/references/task-tracking.md#new-task), or use the folder the user named in chat. Write `context.md` with `mode: tribunal-crucible`, the executor lane, the judge lane, and the round cap. Write `rubric.md`. Announce: both lanes, the cap, and the cost — **2 paid calls per round**. Get the go-ahead; this writes code.
 
 ### Step 2 — Execute
 

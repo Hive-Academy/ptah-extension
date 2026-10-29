@@ -97,6 +97,7 @@ import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.
 import {
   HIDE_AGENT_SIDEBAR,
   RAIL_TRANSCRIPT_RETENTION,
+  SESSION_DISPLAY_DOCK,
   SESSION_CONTEXT,
   SESSION_CARD_ACTIONS,
   SESSION_VISIBLE,
@@ -194,6 +195,7 @@ function mount(
     contextual?: boolean;
     cardActions?: boolean;
     railRetention?: boolean;
+    hostDock?: DisplayDockState;
   } = {},
 ): Harness {
   const {
@@ -203,6 +205,7 @@ function mount(
     contextual = false,
     cardActions = false,
     railRetention = false,
+    hostDock,
   } = options;
   const agents = signal<MonitoredAgent[]>([]);
   const activeTabId = signal<string | null>('tab-1');
@@ -401,6 +404,7 @@ function mount(
       },
       { provide: SESSION_CONTEXT, useValue: contextual ? contextTabId.asReadonly() : null },
       { provide: RAIL_TRANSCRIPT_RETENTION, useValue: railRetention },
+      ...(hostDock ? [{ provide: SESSION_DISPLAY_DOCK, useValue: hostDock }] : []),
       { provide: SESSION_CARD_ACTIONS, useValue: cardActions ? { openLane: jest.fn(), openSession: jest.fn() } : null },
       { provide: SESSION_VISIBLE, useValue: null },
       { provide: HIDE_AGENT_SIDEBAR, useValue: hideAgentSidebar },
@@ -517,6 +521,30 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       h.openTabs.set([]);
       await settle();
       expect(store().tab('tab-2').open).toBe(true);
+    });
+
+    it('feeds a host-supplied dock and leaves the display sheet to the host', async () => {
+      const hostDock = new DisplayDockState();
+      h = mount({ hostDock });
+      const injector = h.fixture.debugElement.injector;
+      expect(injector.get(DisplayDockState)).toBe(hostDock);
+      expect(injector.get(PTAH_UI_DISPLAY_DOCK_SYNC)).toBe(hostDock);
+      hostDock.setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+      await settle();
+      expect(dockEl()).toBeNull();
+    });
+
+    it('owns its dock and renders the sheet when no host dock is supplied', async () => {
+      h = mount();
+      store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+      await settle();
+      expect(dockEl()).not.toBeNull();
+    });
+
+    it('VS Code: a host dock is ignored, no store (R1.14)', () => {
+      h = mount({ electron: false, hostDock: new DisplayDockState() });
+      const injector = h.fixture.debugElement.injector;
+      expect(injector.get(DisplayDockState, null, { optional: true })).toBeNull();
     });
 
     it('VS Code: no store, no Display toggle and no dock (R1.14)', async () => {

@@ -122,7 +122,7 @@ describe('CanvasLayoutService', () => {
     expect(service.containerWidth()).toBe(0);
   });
 
-  it('TileLayout keeps the shape Tribunal consumes', () => {
+  it('TileLayout keeps the expected coordinate shape', () => {
     const position: TileLayout = { x: 0, y: 1, w: 2, h: 3 };
     expect([position.x, position.y, position.w, position.h]).toEqual([0, 1, 2, 3]);
   });

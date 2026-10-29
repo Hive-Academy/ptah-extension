@@ -392,8 +392,7 @@ export class TaskIndexService implements ITaskIndexNotifier {
   }
 
   /**
-   * Read ONE Crucible judge report out of a task folder
-   * (`tasks:getRoundJudge`).
+   * Read one Crucible judge report from a task folder.
    *
    * `round` is a NUMBER and the filename is composed HERE, from the shared
    * contract's {@link roundJudgeFile}. That is the security boundary: a number

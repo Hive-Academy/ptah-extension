@@ -13,7 +13,11 @@
  *   `libs/backend/agent-sdk/src/lib/helpers/auth-method.utils.ts`
  */
 
-import { normalizeAuthMethod } from './auth-method.utils';
+import {
+  normalizeAuthMethod,
+  parseAuthMethod,
+  resolveDefaultAuthMethod,
+} from './auth-method.utils';
 
 describe('normalizeAuthMethod', () => {
   describe('legacy spellings (passthrough)', () => {
@@ -86,5 +90,48 @@ describe('normalizeAuthMethod', () => {
       expect(normalizeAuthMethod('auto')).toBe('apiKey');
       expect(normalizeAuthMethod('garbage')).toBe('apiKey');
     });
+  });
+});
+
+describe('parseAuthMethod', () => {
+  it.each([
+    ['apiKey', 'apiKey'],
+    ['claudeCli', 'claudeCli'],
+    ['claude-cli', 'claudeCli'],
+    ['thirdParty', 'thirdParty'],
+    ['oauth', 'thirdParty'],
+    ['openrouter', 'thirdParty'],
+  ])('maps the known spelling %s → %s', (raw, expected) => {
+    expect(parseAuthMethod(raw)).toBe(expected);
+  });
+
+  it.each([undefined, null, 42, '', 'garbage', 'APIKEY', { method: 'apiKey' }])(
+    'reports no method for missing or unknown input (%p)',
+    (raw) => {
+      expect(parseAuthMethod(raw)).toBeUndefined();
+    },
+  );
+});
+
+describe('resolveDefaultAuthMethod', () => {
+  it('uses the Claude CLI login when no API key is stored and the login is connected', () => {
+    expect(
+      resolveDefaultAuthMethod({ hasApiKey: false, claudeCliConnected: true }),
+    ).toBe('claudeCli');
+  });
+
+  it('keeps the API key when one is stored, even with a connected login', () => {
+    expect(
+      resolveDefaultAuthMethod({ hasApiKey: true, claudeCliConnected: true }),
+    ).toBe('apiKey');
+    expect(
+      resolveDefaultAuthMethod({ hasApiKey: true, claudeCliConnected: false }),
+    ).toBe('apiKey');
+  });
+
+  it('keeps the API key path when neither is available', () => {
+    expect(
+      resolveDefaultAuthMethod({ hasApiKey: false, claudeCliConnected: false }),
+    ).toBe('apiKey');
   });
 });

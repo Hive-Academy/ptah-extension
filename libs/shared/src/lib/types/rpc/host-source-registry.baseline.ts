@@ -345,7 +345,6 @@ export const BASELINE_RPC_METHOD_NAMES: readonly string[] = [
   'tasks:generateRegistry',
   'tasks:get',
   'tasks:getArtifact',
-  'tasks:getRoundJudge',
   'tasks:getViews',
   'tasks:list',
   'tasks:reindex',

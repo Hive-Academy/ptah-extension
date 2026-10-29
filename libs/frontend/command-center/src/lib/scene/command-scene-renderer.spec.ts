@@ -34,7 +34,6 @@ const layout: SceneRenderSnapshot['layout'] = {
       kind: 'root',
       label: 'Ptah',
       labelRect: { x: 80, y: 120, width: 40, height: 20 },
-      phases: [],
     },
     {
       node: child,
@@ -45,7 +44,6 @@ const layout: SceneRenderSnapshot['layout'] = {
       kind: 'delegate',
       label: 'A',
       labelRect: null,
-      phases: [],
     },
   ],
   overflowCompleted: 0,
@@ -705,7 +703,7 @@ describe('CommandSceneRenderer', () => {
             index === 1
               ? {
                   ...node,
-                  node: { ...node.node, kind: 'lane' as const, startedAt },
+                  node: { ...node.node, kind: 'agent' as const, startedAt },
                 }
               : node,
           ),

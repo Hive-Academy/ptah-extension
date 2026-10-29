@@ -18,7 +18,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type IAuthSecretsService,
+} from '@ptah-extension/vscode-core';
 import type { AuthEnv, AuthStrategyType } from '@ptah-extension/shared';
 import { resolveStrategy, type LegacyAuthMethod } from '@ptah-extension/shared';
 import {
@@ -38,8 +42,11 @@ import {
 import { normalizeAuthMethod } from './auth-method.utils';
 import {
   ActiveProviderResolver,
+  createAuthCredentialProbe,
   type ActiveAuth,
+  type AuthCredentialProbe,
 } from './active-provider-resolver';
+import { ClaudeAmbientLoginStatusReader } from '../accounts/claude-ambient-login-status';
 
 export interface AuthResult {
   configured: boolean;
@@ -76,6 +83,9 @@ export class AuthManager implements IAuthEnvProvider {
    */
   private configuredAuth: ActiveAuth | null = null;
 
+  /** Credential state for the default auth method when none is configured. */
+  private readonly credentialProbe: AuthCredentialProbe;
+
   /** Strategy registry: maps AuthStrategyType to the injected strategy instance */
   private readonly strategyRegistry: ReadonlyMap<
     AuthStrategyType,
@@ -100,7 +110,12 @@ export class AuthManager implements IAuthEnvProvider {
     cliStrategy: IAuthStrategy,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER)
     private readonly activeProviderResolver: ActiveProviderResolver,
+    @inject(TOKENS.AUTH_SECRETS_SERVICE)
+    authSecrets: Pick<IAuthSecretsService, 'getCredential'>,
+    @inject(ClaudeAmbientLoginStatusReader)
+    ambientLogin: Pick<ClaudeAmbientLoginStatusReader, 'read'>,
   ) {
+    this.credentialProbe = createAuthCredentialProbe(authSecrets, ambientLogin);
     this.strategyRegistry = new Map<AuthStrategyType, IAuthStrategy>([
       ['api-key', apiKeyStrategy],
       ['oauth-proxy', oauthProxyStrategy],
@@ -125,6 +140,12 @@ export class AuthManager implements IAuthEnvProvider {
    * 3. Resolve strategy from legacy auth method + provider metadata
    * 4. Delegate to strategy.configure()
    * 5. Log env summary (boolean presence, no secrets)
+   *
+   * Without `rawAuthMethod` the active auth is resolved with the
+   * credential-aware default
+   * ({@link ActiveProviderResolver.resolveActiveAuthWithDefault}), so a
+   * missing `authMethod` with no API key and a connected Claude CLI login
+   * configures the Claude CLI login. An explicit value is only normalized.
    */
   async configureAuthentication(
     rawAuthMethod?: string,
@@ -134,7 +155,11 @@ export class AuthManager implements IAuthEnvProvider {
       context === undefined ? undefined : this.parseOperationContext(context);
     const authMethod =
       rawAuthMethod === undefined
-        ? this.activeProviderResolver.resolveActiveAuth().authMethod
+        ? (
+            await this.activeProviderResolver.resolveActiveAuthWithDefault(
+              this.credentialProbe,
+            )
+          ).authMethod
         : normalizeAuthMethod(rawAuthMethod);
     const resolved = this.resolveProviderAndStrategy(authMethod);
     const providerId = operationContext?.providerId ?? resolved.providerId;
@@ -196,6 +221,12 @@ export class AuthManager implements IAuthEnvProvider {
 
   resolveActiveAuth(): ActiveAuth {
     return this.activeProviderResolver.resolveActiveAuth();
+  }
+
+  resolveActiveAuthWithDefault(): Promise<ActiveAuth> {
+    return this.activeProviderResolver.resolveActiveAuthWithDefault(
+      this.credentialProbe,
+    );
   }
 
   resolveActiveAuthForPath(workspacePath: string): ActiveAuth {

@@ -666,6 +666,32 @@ export class SessionLifecycleManager {
     return this._control.disposeAllSessions();
   }
 
+  /**
+   * Host shutdown: end every active session AND wait for each named Claude
+   * account run lease to be released, so the release write lands before the
+   * host closes its database. The ordinary {@link disposeAllSessions} (config
+   * re-init) does not wait for lease settlement.
+   *
+   * Both run side by side: the named flows close their own children, so a lease
+   * release does not queue behind the session interrupts. Rejects only when the
+   * session teardown itself rejects, after the lease settlement has finished.
+   *
+   * The settlement starts first: it closes named admission synchronously, so a
+   * session started while the interrupts are awaited is refused before it can
+   * reserve, and the drain's snapshot holds every flow that may own a lease.
+   */
+  async disposeAllSessionsForShutdown(): Promise<void> {
+    const settled = this._queryExecutor.settleNamedAccountReservations();
+    const [ended] = await Promise.allSettled([
+      this._control.disposeAllSessions(),
+      settled,
+    ]);
+    if (ended.status === 'rejected') {
+      const reason: unknown = ended.reason;
+      throw reason instanceof Error ? reason : new Error(String(reason));
+    }
+  }
+
   /** Tab ids of the live sessions of one workspace (normalized path match). */
   getSessionIdsForWorkspace(workspacePath: string): string[] {
     return this._control.getSessionIdsForWorkspace(workspacePath);

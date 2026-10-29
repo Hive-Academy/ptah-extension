@@ -22,6 +22,7 @@ import {
   RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
   SESSION_CONTEXT,
+  SESSION_DISPLAY_DOCK,
   SESSION_FOCUSED,
   SESSION_READ_ONLY,
   SESSION_START_GUARD,
@@ -31,6 +32,7 @@ import {
   type SessionStartGuard,
   type SessionStopHandler,
 } from '../../tokens/session-context.token';
+import type { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import {
   ChatViewComponent,
   RAIL_MIN_CONTENT_WIDTH,
@@ -72,6 +74,11 @@ export class SessionEmbedComponent implements OnDestroy {
   readonly retainRailTranscript = input(false);
   /** Hide the composer: a watch-only transcript that cannot start or stop turns. */
   readonly readOnly = input(false);
+  /**
+   * A host-owned display dock (Electron). The view feeds it and renders no
+   * display sheet, so the host can show the display elsewhere.
+   */
+  readonly displayDock = input<DisplayDockState | null>(null);
 
   readonly chatView = ChatViewComponent;
   private readonly context = computed<string | null>(() => this.tabId());
@@ -105,6 +112,12 @@ export class SessionEmbedComponent implements OnDestroy {
         provide: SESSION_READ_ONLY,
         // Boolean token: ChatView reads this once when its injector creates it.
         useFactory: () => this.readOnly(),
+      },
+      {
+        provide: SESSION_DISPLAY_DOCK,
+        // Read once when ChatView's injector creates its dock provider; the
+        // host passes a constant, so a later input change is not followed.
+        useFactory: () => this.displayDock(),
       },
       {
         provide: RAIL_TRANSCRIPT_RETENTION,

@@ -33,6 +33,14 @@ export interface IAuthEnvProvider {
   ): Promise<AuthResult>;
   clearAuthentication(): void;
   resolveActiveAuth(): { authMethod: string; providerId: string };
+  /**
+   * The active auth with the credential-aware default for a missing
+   * `authMethod` (reads the API key and the Claude CLI login when needed).
+   */
+  resolveActiveAuthWithDefault(): Promise<{
+    authMethod: string;
+    providerId: string;
+  }>;
   /** Auth of an explicit workspace, which may differ from the active one. */
   resolveActiveAuthForPath(workspacePath: string): {
     authMethod: string;

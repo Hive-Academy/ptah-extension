@@ -20,8 +20,6 @@ export interface SpriteRequest {
   readonly dpr: number;
 }
 
-const SHIELD = 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z';
-
 function monogram(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
   return (
@@ -118,17 +116,13 @@ export class SpriteCache {
       if (sprite) return sprite;
     }
     const root = node.parentId === null;
-    const tribunal = node.kind === 'tribunal';
-    const satellite = node.kind === 'lane' || node.kind === 'phase';
-    const size = Math.max(satellite ? 32 : 12, request.size);
+    const size = Math.max(12, request.size);
     const dpr = Math.max(1, Math.min(2, request.dpr));
     const slug =
       !root && node.providerId
         ? (PROVIDER_BRAND_SLUGS[node.providerId] ?? '')
         : '';
-    const fallback = tribunal
-      ? ''
-      : root
+    const fallback = root
         ? 'P'
         : slug
           ? ''
@@ -140,7 +134,6 @@ export class SpriteCache {
       dpr,
       slug,
       fallback,
-      tribunal,
       `logo:${root && this.logoReady}`,
       palette.lit,
       palette.mid,
@@ -249,20 +242,16 @@ export class SpriteCache {
         context.textBaseline = 'middle';
         context.fillText('P', center, center + 2);
       }
-    } else if (artwork || tribunal) {
+    } else if (artwork) {
       const box = (artwork?.viewBox ?? '0 0 24 24').split(' ').map(Number);
-      const extent = Math.max(tribunal ? 12 : 12, radius * 0.86);
+      const extent = Math.max(12, radius * 0.86);
       context.save();
       context.translate(center - extent / 2, center - extent / 2);
       context.scale(extent / box[2], extent / box[3]);
       context.translate(-box[0], -box[1]);
       context.fillStyle = theme === 'dark' ? palette.lit : '#2f241b';
       context.strokeStyle = palette.rim;
-      if (tribunal) {
-        context.lineWidth = 2;
-        context.lineJoin = 'round';
-        context.stroke(new Path2D(SHIELD));
-      } else if (artwork) {
+      if (artwork) {
         for (const part of artwork.paths) {
           context.globalAlpha = part.opacity ?? 1;
           context.fillStyle =

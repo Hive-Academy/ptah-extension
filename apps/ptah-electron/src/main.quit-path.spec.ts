@@ -115,6 +115,9 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   // reap runs BEFORE the SQLite close because an agent exit stages a lane
   // outcome write into that connection (TASK_2026_646 Batch 38b).
   'sessionSpawner',
+  // Main-chat sessions end after their children and BEFORE the SQLite close:
+  // a named Claude account session releases its run lease through it.
+  'chatSessions',
   'agentProcessManager',
   'sqliteConnection',
   'disposeVoiceWorker',
@@ -198,6 +201,11 @@ function makeFullRefs(order: string[]): BootRefs {
     },
   };
   refs.sessionSpawner = { dispose: record('sessionSpawner') };
+  refs.chatSessions = {
+    disposeAllSessionsForShutdown: async () => {
+      order.push('chatSessions');
+    },
+  };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
   refs.diagnostics = {
@@ -332,6 +340,7 @@ describe('will-quit — LIFO disposal order', () => {
     const refs = makeFullRefs(order);
     refs.messagingGateway = null;
     refs.agentProcessManager = null;
+    refs.chatSessions = null;
     const deferQuit = jest.fn();
     const quit = jest.fn();
 
@@ -345,7 +354,10 @@ describe('will-quit — LIFO disposal order', () => {
     expect(ranSynchronously).toBe(true);
     expect(order).toEqual(
       EXPECTED_LIFO_ORDER.filter(
-        (name) => name !== 'messagingGateway' && name !== 'agentProcessManager',
+        (name) =>
+          name !== 'messagingGateway' &&
+          name !== 'agentProcessManager' &&
+          name !== 'chatSessions',
       ),
     );
     expect(deferQuit).not.toHaveBeenCalled();
@@ -509,6 +521,7 @@ describe('will-quit — the gateway drain gates the SQLite close', () => {
     expect(requiresDeferredDisposal(refs)).toBe(true);
 
     refs.agentProcessManager = null;
+    refs.chatSessions = null;
     expect(requiresDeferredDisposal(refs)).toBe(false);
 
     refs.messagingGateway = {

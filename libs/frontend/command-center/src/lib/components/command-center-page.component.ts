@@ -10,9 +10,10 @@ import {
   inject,
   Injector,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
-import { ArtifactStore } from '@ptah-extension/chat';
+import { ArtifactStore, DisplayDockState } from '@ptah-extension/chat';
 import { VSCodeService } from '@ptah-extension/core';
 import {
   sessionContextCue,
@@ -32,14 +33,11 @@ import { CommandDockComponent } from './command-dock.component';
 import { CommandCenterHeaderComponent } from './command-center-header.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageController } from './command-center-page.controller';
-import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import { CommandCenterStartComponent } from './command-center-start.component';
 import {
   CommandNodeDetailComponent,
   type CommandChildStats,
-  type CommandPhaseCount,
-  phaseCountOf,
 } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
 import { CommandCaptionStripComponent } from './command-caption-strip.component';
@@ -54,6 +52,10 @@ import {
   type CommandLiveTarget,
 } from './command-live-panel.component';
 import { CommandRailDisplayComponent } from './command-rail-display.component';
+import {
+  isUserDisplayOpen,
+  type DisplayDockView,
+} from './command-rail-display-cue';
 
 /** Scene space kept clear for a one-line stage caption (spec section 4). */
 const CAPTION_RESERVE_PX = 72;
@@ -83,7 +85,6 @@ const CAPTION_RESERVE_PX = 72;
   providers: [
     CommandCenterStore,
     CommandCenterSessionCoordinator,
-    CommandCenterTribunalTransport,
     CommandCenterProjectionSource,
     CommandCenterPageController,
   ],
@@ -137,9 +138,6 @@ export class CommandCenterPageComponent {
       return result;
     },
   );
-  public phaseCount(nodeId: string): CommandPhaseCount | null {
-    return phaseCountOf(this.page.projection().nodes, nodeId);
-  }
   public readonly contextCue = computed(() => {
     const rootId = this.page.store.markedTabId();
     const root = this.page.tabs.tabs().find((tab) => tab.id === rootId);
@@ -152,7 +150,7 @@ export class CommandCenterPageComponent {
     let running = 0;
     let waiting = 0;
     for (const node of this.page.projection().nodes) {
-      if (node.kind === 'root' || node.kind === 'phase') continue;
+      if (node.kind === 'root') continue;
       if (node.state === 'running') running++;
       if (node.state === 'awaiting input') waiting++;
     }
@@ -195,11 +193,18 @@ export class CommandCenterPageComponent {
   private readonly artifactStore = inject(ArtifactStore);
   /** Electron shell panes are already chrome cards; nested chrome would double the glass. */
   protected readonly isElectron = inject(VSCodeService).isElectron;
+  /**
+   * One display dock for the page (Electron only, like ChatView's own): the
+   * Live embed's transcript feeds it and the rail's Display tab shows it.
+   */
+  protected readonly displayDock: DisplayDockState | null = this.isElectron
+    ? new DisplayDockState()
+    : null;
 
   /**
    * The Live tab follows the selection up to the nearest node with its own
    * chat tab: a live child streams its tab, everything else (root, SDK and
-   * CLI agents, tribunals, lanes) streams the root tab, where their cards and
+   * CLI agents) streams the root tab, where their cards and
    * inline bubbles appear. A target whose tab is not open in the
    * `TabManagerService` (a persisted or finished child) has no live tab.
    */
@@ -242,10 +247,33 @@ export class CommandCenterPageComponent {
       : null;
   });
 
+  /**
+   * The Live embed stays content-visible under the Display tab: its
+   * transcript is what feeds the dock that tab shows. The panel itself is
+   * still hidden there.
+   */
+  public readonly liveContentVisible = computed(
+    () => this.activeTab() === 'live' || this.activeTab() === 'display',
+  );
+
+  /** Surfaces and artifacts published for the target since Display was last shown. */
+  private readonly unseenDisplays = signal(0);
+  /**
+   * The Display tab's badge. With a dock: the target's unseen displays.
+   * Without one (VS Code): the target's artifact count.
+   */
   public readonly displayCount = computed(() => {
+    if (this.displayDock) return this.unseenDisplays();
     const id = this.liveTarget().tabId;
     return id ? (this.artifactStore.records()[id]?.length ?? 0) : 0;
   });
+  public readonly displayCountUnit = this.displayDock ? 'new' : 'items';
+  private seenDisplays: { tabId: string | null; total: number } = {
+    tabId: null,
+    total: 0,
+  };
+  private lastDockView: DisplayDockView | null = null;
+  private knownTabIds: ReadonlySet<string> = new Set();
 
   /** Spoken or heard words first; otherwise a muted hint for the hovered or selected sphere. */
   public readonly stageCaption = computed<CommandCaption | null>(() => {
@@ -384,6 +412,64 @@ export class CommandCenterPageComponent {
       this.measureOverlay();
       this.scrollToNewPendingCard();
     });
+    if (this.displayDock) this.wireDisplayDock(this.displayDock);
+  }
+
+  /**
+   * The rail's side of the shared dock: a user open in the Live transcript
+   * shows the Display tab; the Display tab keeps the target's dock open (the
+   * rail never closes it); a closed chat tab's dock state is released.
+   */
+  private wireDisplayDock(dock: DisplayDockState): void {
+    effect(() => {
+      const tabId = this.liveTarget().tabId;
+      const next: DisplayDockView | null = tabId
+        ? {
+            tabId,
+            state: dock.tab(tabId),
+            fullscreenArtifactId: dock.fullscreenArtifact(tabId),
+          }
+        : null;
+      const previous = this.lastDockView;
+      this.lastDockView = next;
+      if (previous && next && isUserDisplayOpen(previous, next)) {
+        untracked(() => this.activeTab.set('display'));
+      }
+    });
+    effect(() => {
+      const tabId = this.liveTarget().tabId;
+      if (!tabId || this.activeTab() !== 'display') return;
+      const state = dock.tab(tabId);
+      if (!state.open || state.newCount > 0) untracked(() => dock.open(tabId));
+    });
+    effect(() => {
+      const tabId = this.liveTarget().tabId;
+      // Each published surface advances surfaceRevision once; artifacts are counted directly.
+      const total = tabId
+        ? dock.tab(tabId).surfaceRevision +
+          (this.artifactStore.records()[tabId]?.length ?? 0)
+        : 0;
+      const seen = this.seenDisplays;
+      this.seenDisplays = { tabId, total };
+      if (this.activeTab() === 'display' || seen.tabId !== tabId) {
+        untracked(() => this.unseenDisplays.set(0));
+      } else if (total > seen.total) {
+        untracked(() => this.unseenDisplays.update((n) => n + total - seen.total));
+      }
+    });
+    effect(() => {
+      const ids = new Set<string>(
+        this.page.tabs.tabs().map((tab) => tab.id),
+      );
+      const closed = [...this.knownTabIds].filter((id) => !ids.has(id));
+      this.knownTabIds = ids;
+      // tabs() lists only the active workspace; a tab open elsewhere keeps its state.
+      untracked(() =>
+        closed
+          .filter((id) => !this.page.tabs.findTabByIdAcrossWorkspaces(id))
+          .forEach((id) => dock.forgetTab(id)),
+      );
+    });
   }
 
   private observeStatsBand(): void {
@@ -404,10 +490,7 @@ export class CommandCenterPageComponent {
   }
 
   private scrollToNewPendingCard(): void {
-    const inputId = this.page.store.pendingInput()?.id;
-    const proposalId = this.page.shownProposal()?.proposalId;
-    const key =
-      inputId || proposalId ? `${inputId ?? ''}:${proposalId ?? ''}` : null;
+    const key = this.page.store.pendingInput()?.id ?? null;
     if (key === this.lastPendingKey) return;
     this.lastPendingKey = key;
     if (key)

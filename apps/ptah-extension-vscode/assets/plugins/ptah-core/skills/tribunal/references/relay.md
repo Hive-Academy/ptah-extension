@@ -5,14 +5,18 @@ phase assigned to a lane. The protocol is
 [orchestration/references/lane-assignment.md § Assigning phases to lanes](../../orchestration/references/lane-assignment.md#assigning-phases-to-lanes).
 Read it before spawning anything; it is the authority for this run.
 
-Mapping a Tribunal UI launch onto it:
+Plain-text phase pins from the user map to orchestration:
 
-| UI framing | Meaning |
+| User says | Meaning |
 | --- | --- |
-| `(plan)` / `(architect)` / `(implement)` / `(review)` token | That lane is pinned to that phase |
-| `Deliverable: <specFolder>/<file>` | Write that phase's output exactly there |
-| `Spec folder: TASK_… (already created …)` | Use it; do not allocate an ID |
-| `[tribunal:<laneId>]` | Keep as the literal first line of that lane's task |
+| A lane for plan, architect, implement or review | Pin that lane to the named phase |
+| A model for a phase | Resolve that model against `ptah_agent_list` before spawning |
+| A task folder or deliverable path | Use the named path as given |
+
+Keep each pin with its named phase and run phases in orchestration order. Report unavailable
+or AT LIMIT pins without
+substitution. Present the resolved lanes, phases and expected paid call count; get
+confirmation before any `ptah_agent_spawn`.
 
 The review lane must not be the implement lane. You own every gate: Gate 1 after the plan, Gate 2
 after the architecture, before relaying the next phase. The recorded approval mode decides each gate

@@ -20,6 +20,7 @@ export type {
   ClaudeAccountReservationReleaseReason,
   ClaudeAccountReservationReleased,
   ClaudeAccountReservationRetain,
+  ClaudeAccountRunChild,
   ClaudeAccountReservationRetainOutcome,
   ClaudeAccountReservationRetained,
   ClaudeAccountResolvedResourceContext,

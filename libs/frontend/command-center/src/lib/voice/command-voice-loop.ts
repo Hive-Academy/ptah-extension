@@ -76,7 +76,6 @@ export class CommandVoiceLoop {
   private bargeInOnset = false;
   private bargeInCandidateAt: number | null = null;
   private playbackEpoch = 0;
-  private pendingRoster = false;
   private lastReply = '';
   private generation = 0;
   private captionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -460,14 +459,6 @@ export class CommandVoiceLoop {
         return;
       }
       this.showCaption('user', transcript);
-      if (this.pendingRoster) {
-        this.store.setToast({
-          message: 'Confirm or decline the roster on the card.',
-          tone: 'error',
-        });
-        this.finishTurn();
-        return;
-      }
       if (this.store.pendingInput()?.kind === 'question') {
         if (this.options.answerOrdinaryQuestion?.(transcript)) {
           this.finishTurn();
@@ -609,19 +600,6 @@ export class CommandVoiceLoop {
     this.speak(summary, 'status');
   }
 
-  public onRosterProposal(summary: string, valid: boolean): void {
-    this.pendingRoster = valid;
-    if (valid) this.speak(summary, 'status');
-  }
-
-  public onRosterResolved(): void {
-    this.pendingRoster = false;
-  }
-
-  public setRosterPending(pending: boolean): void {
-    this.pendingRoster = pending;
-  }
-
   public retrySpeech(): void {
     if (this.lastReply) {
       this.store.setVoiceError?.(null);
@@ -711,7 +689,6 @@ export class CommandVoiceLoop {
     this.muted = false;
     this.store.setMuted(false);
     this.resetTurnState();
-    this.pendingRoster = false;
     this.playback.stopAll();
     this.cutCaption();
     this.playbackEpoch++;

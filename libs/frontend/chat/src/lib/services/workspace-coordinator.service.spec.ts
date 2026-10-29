@@ -470,22 +470,22 @@ describe('WorkspaceCoordinatorService', () => {
   describe('view state does not survive a workspace switch (TASK_2026_195)', () => {
     it("replaces the previous workspace's view instead of leaving it on screen", async () => {
       await service.switchWorkspace('D:/repo/A');
-      appState.setCurrentView('tribunal');
+      appState.setCurrentView('analytics');
       await settle();
-      expect(appState.currentView()).toBe('tribunal');
+      expect(appState.currentView()).toBe('analytics');
 
       await service.switchWorkspace('D:/repo/B');
       await settle();
 
-      // The reported symptom: B used to render A's tribunal surface, backed by
-      // B's (empty) tribunal slice.
+      // The reported symptom: B used to render A's analytics surface, backed by
+      // B's (empty) analytics slice.
       expect(appState.currentView()).toBe('chat');
       expect(appState.openViews()).toEqual(['chat']);
     });
 
     it('restores each workspace view on return (A→B→A)', async () => {
       await service.switchWorkspace('D:/repo/A');
-      appState.setCurrentView('tribunal');
+      appState.setCurrentView('analytics');
       await settle();
       await service.switchWorkspace('D:/repo/B');
       appState.setCurrentView('tasks');
@@ -493,7 +493,7 @@ describe('WorkspaceCoordinatorService', () => {
       await service.switchWorkspace('D:/repo/A');
       await settle();
 
-      expect(appState.currentView()).toBe('tribunal');
+      expect(appState.currentView()).toBe('analytics');
 
       await service.switchWorkspace('D:/repo/B');
       await settle();

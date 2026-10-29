@@ -1,4 +1,5 @@
 import { InjectionToken, Signal } from '@angular/core';
+import type { DisplayDockState } from '../services/display-dock/display-dock.state';
 
 /**
  * Optional injection token that overrides the global activeTabSessionId
@@ -79,4 +80,15 @@ export const SESSION_READ_ONLY = new InjectionToken<boolean>(
 /** Opts a contextual Rail host into four-tab transcript retention. */
 export const RAIL_TRANSCRIPT_RETENTION = new InjectionToken<boolean>(
   'RAIL_TRANSCRIPT_RETENTION',
+);
+
+/**
+ * A host-owned display dock for a hosted chat view (Electron only). When
+ * present, the view feeds this store instead of creating its own and renders
+ * no display sheet: the host shows the display. The view feeds it only while
+ * its transcript is active, so the host keeps it content-visible for as long
+ * as it shows the display. Absent means the view owns its dock.
+ */
+export const SESSION_DISPLAY_DOCK = new InjectionToken<DisplayDockState>(
+  'SESSION_DISPLAY_DOCK',
 );

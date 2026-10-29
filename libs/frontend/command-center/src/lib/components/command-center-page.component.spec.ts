@@ -3,15 +3,16 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DisplayDockState } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { sessionContextCue } from '@ptah-extension/chat-ui';
+import { VSCodeService } from '@ptah-extension/core';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
 import {
   CommandCenterStore,
   type CommandWorkNode,
 } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
-import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
 import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
@@ -24,6 +25,7 @@ import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandNodeDetailComponent } from './command-node-detail.component';
 import { CommandSessionStatsComponent } from './command-session-stats.component';
 import {
+  LivePanelStubComponent,
   RAIL_STUB_OVERRIDE,
   railStubProviders,
 } from './command-rail.testing';
@@ -78,6 +80,7 @@ describe('CommandCenterPageComponent', () => {
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
   type LiveContext = NonNullable<Parameters<typeof sessionContextCue>[0]>;
+  const otherWorkspaceTabIds = new Set<string>();
   const tabs = signal<
     {
       id: string;
@@ -110,7 +113,6 @@ describe('CommandCenterPageComponent', () => {
   const hoveredNodeId = signal<string | null>(null);
   const canvasUnavailable = signal(false);
   const now = signal(1_000);
-  const pendingProposal = signal<TribunalRosterProposal | null>(null);
   const recordWriteFailure = signal<{
     workspacePath: string;
     record: 'lastSession';
@@ -122,16 +124,11 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId,
     canvasUnavailable,
     now,
-    pendingProposal,
-    shownProposal: computed(() =>
-      store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
-    ),
     recordWriteFailure,
     turnAbortable: signal(false),
     shownSessionStatus: computed(() => store.sessionStatus()),
     darkMode: signal(true),
     toggleTheme: jest.fn(),
-    rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
     coordinator: {
@@ -148,18 +145,20 @@ describe('CommandCenterPageComponent', () => {
       chooseCurrentTab: jest.fn(),
       refreshSessions: jest.fn(),
     },
-    tabs: { activeWorkspacePath: '/workspace', tabs },
+    tabs: {
+      activeWorkspacePath: '/workspace',
+      tabs,
+      findTabByIdAcrossWorkspaces: (id: string) =>
+        otherWorkspaceTabIds.has(id) ? { tab: { id } } : null,
+    },
     open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
-    confirmProposal: jest.fn(async (_id: string) => undefined),
-    declineProposal: jest.fn((_id: string) => undefined),
     answerOrdinaryQuestion: jest.fn(),
     answerPermission: jest.fn(),
     startVoice: jest.fn(),
     stopVoice: jest.fn(),
     toggleMuteVoice: jest.fn(),
     retrySpeech: jest.fn(),
-    retryInvalidDecline: jest.fn(),
     interruptSpeech: jest.fn(),
     openVoiceSettings: jest.fn(),
     sendCommand: jest.fn(),
@@ -175,7 +174,6 @@ describe('CommandCenterPageComponent', () => {
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
     now.set(1_000);
-    pendingProposal.set(null);
     store.setPendingInput(null);
     store.setVoiceError(null);
     recordWriteFailure.set(null);
@@ -461,12 +459,6 @@ describe('CommandCenterPageComponent', () => {
       nodes: [
         nodes[0],
         { ...nodes[1], state: 'starting' },
-        {
-          ...nodes[1],
-          id: 'phase:one',
-          kind: 'phase',
-          state: 'awaiting input',
-        },
         { ...nodes[1], id: 'child:two', state: 'awaiting input' },
         { ...nodes[1], id: 'child:three', state: 'running' },
       ],
@@ -477,7 +469,7 @@ describe('CommandCenterPageComponent', () => {
     const caption = fixture.nativeElement.querySelector(
       '.stage .stats-band .stage-caption p:nth-child(2)',
     ) as HTMLElement;
-    expect(caption.textContent).toContain('5 nodes');
+    expect(caption.textContent).toContain('4 nodes');
     expect(caption.textContent).toContain('1 running');
     expect(caption.textContent).toContain('1 waiting');
     projection.set({ nodes: [{ ...nodes[0], state: 'completed' }], edges: [] });
@@ -1005,37 +997,6 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('passes the roster proposal to the pending card and routes confirm and decline', () => {
-    const proposal: TribunalRosterProposal = {
-      proposalId: 'p1',
-      nonce: 'nonce',
-      rootSessionId: 'session',
-      move: 'council',
-      options: ['Decline', 'Confirm'],
-      objective: 'Review',
-      rounds: 1,
-      lanes: [
-        {
-          laneId: 'codex#1',
-          family: 'codex',
-          displayName: 'Codex',
-          cli: 'codex',
-        },
-      ],
-    };
-    pendingProposal.set(proposal);
-    const fixture = TestBed.createComponent(CommandCenterPageComponent);
-    fixture.detectChanges();
-    const card = fixture.debugElement.query(
-      By.directive(CommandPendingInputComponent),
-    ).componentInstance as CommandPendingInputComponent;
-    expect(card.proposal()).toBe(proposal);
-    card.confirm.emit(proposal);
-    card.decline.emit('p1');
-    expect(controller.confirmProposal).toHaveBeenCalledWith('p1');
-    expect(controller.declineProposal).toHaveBeenCalledWith('p1');
-    fixture.destroy();
-  });
 
   it('routes approval card decisions to permission response only', () => {
     store.setPendingInput({
@@ -1113,30 +1074,6 @@ describe('CommandCenterPageComponent', () => {
     expect(controller.answerOrdinaryQuestion).toHaveBeenCalledTimes(2);
     fixture.destroy();
     store.setPendingInput(null);
-  });
-  it('offers the Decline retry action and catches initial open failures with fixed text', async () => {
-    controller.open.mockRejectedValueOnce(new Error('secret detail'));
-    const fixture = TestBed.createComponent(CommandCenterPageComponent);
-    fixture.detectChanges();
-    await Promise.resolve();
-    expect(store.toast()?.message).toBe(
-      'Could not open the Command Center session.',
-    );
-    expect(store.toast()?.message).not.toContain('secret');
-    store.setToast({
-      tone: 'error',
-      message: 'Retry the Decline.',
-      action: 'retry-decline',
-    });
-    fixture.detectChanges();
-    const button = [
-      ...fixture.nativeElement.querySelectorAll('.alert button'),
-    ].find((item: HTMLButtonElement) =>
-      item.textContent?.includes('Retry Decline'),
-    ) as HTMLButtonElement;
-    button.click();
-    expect(controller.retryInvalidDecline).toHaveBeenCalledTimes(1);
-    fixture.destroy();
   });
 
   it('reopens for an explicit Status click before sending', async () => {
@@ -1433,6 +1370,112 @@ describe('CommandCenterPageComponent', () => {
       expect(
         fixture.nativeElement.querySelector('ptah-command-work-list'),
       ).not.toBeNull();
+      fixture.destroy();
+    });
+  });
+
+  describe('shared display dock (Electron)', () => {
+    beforeEach(() => {
+      TestBed.overrideProvider(VSCodeService, { useValue: { isElectron: true } });
+      tabs.set([{ id: 'root-tab' }, { id: 'child-tab' }]);
+    });
+
+    const mountPage = () => {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const live = fixture.debugElement.query(By.directive(LivePanelStubComponent))
+        .componentInstance as LivePanelStubComponent;
+      const dock = live.displayDock() as DisplayDockState;
+      const settle = () => {
+        fixture.detectChanges();
+        fixture.detectChanges();
+      };
+      const displayTab = () =>
+        fixture.nativeElement.querySelector('[data-testid="rail-tab-display"]') as HTMLElement;
+      return { fixture, live, dock, settle, displayTab };
+    };
+
+    it('keeps the Live embed content-visible while the Display tab shows its dock', () => {
+      const { fixture, live, dock, settle } = mountPage();
+      expect(dock).toBeInstanceOf(DisplayDockState);
+      expect(live.visible()).toBe(true);
+      fixture.componentInstance.activeTab.set('display');
+      settle();
+      expect(live.visible()).toBe(true);
+      const livePanel = fixture.nativeElement.querySelector(
+        '#command-rail-panel-live',
+      ) as HTMLElement;
+      expect(livePanel.hidden).toBe(true);
+      fixture.componentInstance.activeTab.set('work');
+      settle();
+      expect(live.visible()).toBe(false);
+      fixture.destroy();
+    });
+
+    it('switches to the Display tab on a chip open, not on an auto-open', () => {
+      const { fixture, dock, settle } = mountPage();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-a');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('live');
+      dock.openArtifact('root-tab', 'artifact-1');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.openSurface('root-tab', 'surface-a');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.requestFullscreenArtifact('root-tab', 'artifact-1');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('display');
+      fixture.destroy();
+    });
+
+    it('badges displays published while another tab is active until Display is shown', () => {
+      const { fixture, dock, settle, displayTab } = mountPage();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-a');
+      settle();
+      dock.requestAutoOpen('root-tab', 'turn-1', 'surface-b');
+      settle();
+      expect(fixture.componentInstance.activeTab()).toBe('live');
+      expect(displayTab().querySelector('.tab-badge')?.textContent?.trim()).toBe('2');
+      expect(displayTab().getAttribute('aria-label')).toBe('Display, 2 new');
+      fixture.componentInstance.activeTab.set('display');
+      settle();
+      expect(dock.tab('root-tab').open).toBe(true);
+      expect(displayTab().querySelector('.tab-badge')).toBeNull();
+      expect(displayTab().getAttribute('aria-label')).toBeNull();
+      dock.requestAutoOpen('root-tab', 'turn-2', 'surface-c');
+      settle();
+      expect(displayTab().querySelector('.tab-badge')).toBeNull();
+      fixture.componentInstance.activeTab.set('live');
+      settle();
+      dock.requestAutoOpen('root-tab', 'turn-2', 'surface-d');
+      settle();
+      expect(displayTab().querySelector('.tab-badge')?.textContent?.trim()).toBe('1');
+      fixture.destroy();
+    });
+
+    it('forgets the dock state of a closed chat tab', () => {
+      const { fixture, dock, settle } = mountPage();
+      const forget = jest.spyOn(dock, 'forgetTab');
+      tabs.set([{ id: 'root-tab' }]);
+      settle();
+      expect(forget).toHaveBeenCalledTimes(1);
+      expect(forget).toHaveBeenCalledWith('child-tab');
+      fixture.destroy();
+    });
+
+    it('keeps the dock state of a tab still open in another workspace', () => {
+      const { fixture, dock, settle } = mountPage();
+      const forget = jest.spyOn(dock, 'forgetTab');
+      otherWorkspaceTabIds.add('child-tab');
+      tabs.set([{ id: 'root-tab' }]);
+      settle();
+      expect(forget).not.toHaveBeenCalled();
+      otherWorkspaceTabIds.clear();
       fixture.destroy();
     });
   });

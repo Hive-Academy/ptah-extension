@@ -86,6 +86,7 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
 import type { NamedAccountPersistencePort } from './session-lifecycle/session-query-executor.service';
+import { isChildExitProved, spawnedChildPid } from './child-exit-proof';
 
 /** Host adapter over the account registry and SessionMetadataStore. */
 export const SDK_NAMED_ACCOUNT_PERSISTENCE = Symbol.for('SdkNamedAccountPersistence');
@@ -94,6 +95,8 @@ export interface NamedAccountQueryHandle {
   readonly sdkQuery: ReturnType<QueryFunction>;
   /** Resolves only on the spawned child's exit event, never on query.close(). */
   readonly terminated: Promise<void>;
+  /** The spawned child's OS pid once known; null when it never started. Pending until spawn. */
+  readonly childPid: Promise<number | null>;
 }
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -488,19 +491,23 @@ export class SdkQueryRunner {
     let terminated!: () => void;
     const termination = new Promise<void>((resolve) => { terminated = resolve; });
     observeTermination?.(termination);
+    let spawned!: (pid: Promise<number | null>) => void;
+    const childPid = new Promise<number | null>((resolve) => { spawned = resolve; });
     const observedOptions: SdkQueryOptions = {
       ...options,
       spawnClaudeCodeProcess: (input) => {
         const child = spawn(input);
-        // The worker shim can synthesize a signal-only exit after losing its
-        // worker. A numeric exit status is proof; signal-only exits stay held
-        // until the spawner exposes an explicit, trustworthy termination proof.
-        child.once('exit', (code) => { if (code !== null) terminated(); });
+        // A numeric exit status is proof. A signal-only exit (the SDK's close
+        // and every abort end the child with kill()) is proof only when the
+        // spawner observed the child's own exit; the exit the worker shim
+        // synthesizes after losing its worker stays held.
+        child.once('exit', (code) => { if (isChildExitProved(child, code)) terminated(); });
+        spawned(spawnedChildPid(child));
         return child;
       },
     };
     const sdkQuery = this.launch('interactive', () => queryFn({ prompt, options: observedOptions }));
-    return { sdkQuery, terminated: termination };
+    return { sdkQuery, terminated: termination, childPid };
   }
 
   /**

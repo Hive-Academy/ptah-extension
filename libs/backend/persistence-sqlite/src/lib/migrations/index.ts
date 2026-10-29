@@ -86,6 +86,8 @@ import { sql as sql0057DropSkillPipeline, vecSql as vecSql0057DropSkillPipeline 
 import { sql as sql0058ProviderAccounts } from './0058_provider_accounts';
 import { sql as sql0059ProviderAccountSessionLinks } from './0059_provider_account_session_links';
 import { sql as sql0060ProviderAccountLeaseEpoch } from './0060_provider_account_lease_epoch';
+import { sql as sql0061ProviderAccountLeaseHost } from './0061_provider_account_lease_host';
+import { sql as sql0062ProviderAccountOperationHost } from './0062_provider_account_operation_host';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -431,5 +433,15 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 60,
     name: '0060_provider_account_lease_epoch',
     sql: sql0060ProviderAccountLeaseEpoch,
+  },
+  {
+    version: 61,
+    name: '0061_provider_account_lease_host',
+    sql: sql0061ProviderAccountLeaseHost,
+  },
+  {
+    version: 62,
+    name: '0062_provider_account_operation_host',
+    sql: sql0062ProviderAccountOperationHost,
   },
 ];

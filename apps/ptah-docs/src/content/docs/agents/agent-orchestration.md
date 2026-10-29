@@ -49,7 +49,7 @@ Enable **`agent-lanes`** alongside `orchestration` to run CLI work. It defines d
 If the session has no `ptah_agent_*` tools, work proceeds with native tools and the agent says so. When `ptah_*` tools are available, agent templates use them first; when absent, they use native tools directly without probing for them.
 
 :::tip[CLI-only delivery: Relay]
-[Relay](/tribunal/relay/) is the orchestration pipeline run on CLI lanes, launched from the Tribunal panel for now. Assign a vendor and model to plan, architect, implement, and review. Review uses a separate lane, with another vendor family preferred; a user-requested same-family review is flagged.
+[Relay](/tribunal/relay/) is the orchestration pipeline run on CLI lanes, requested through the `tribunal` skill in main chat. Assign a vendor and model to plan, architect, implement, and review. Review uses a separate lane, with another vendor family preferred; a user-requested same-family review is flagged.
 :::
 
 ## Parallel work and handoffs
