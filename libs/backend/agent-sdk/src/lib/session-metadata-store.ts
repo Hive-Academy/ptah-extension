@@ -1064,6 +1064,9 @@ export class SessionMetadataStore {
             storedCallerPath = storedWorkspaceId;
           }
         } catch {
+          // degradation-audit: optional-capability - a stored path that cannot
+          // be normalized is treated as foreign; the proposed workspace path is
+          // used instead, which is the repair this branch exists for.
           storedCallerPath = undefined;
         }
       }

@@ -161,6 +161,13 @@ export const SessionStatusParamsSchema = z.object({
   sessionId: z.string().min(1),
 });
 
+/** A native Codex row's stored count; a missing or invalid value lists as 0. */
+function storedCodexMessageCount(value: number | undefined): number {
+  return value !== undefined && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : 0;
+}
+
 /**
  * RPC handlers for session operations (SDK-based)
  *
@@ -553,9 +560,7 @@ export class SessionRpcHandlers {
                 lastActivityAt: s.lastActiveAt,
                 createdAt: s.createdAt,
                 messageCount: s.codexExecution?.runtime === 'codex-app-server'
-                  ? Number.isSafeInteger(s.codexMessageCount) && (s.codexMessageCount ?? -1) >= 0
-                    ? s.codexMessageCount ?? 0
-                    : 0
+                  ? storedCodexMessageCount(s.codexMessageCount)
                   : messageCounts.get(s.sessionId) ?? 0,
                 isActive: false, // Listed sessions are not currently active
                 ...(transcriptIndex
