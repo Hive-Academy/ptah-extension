@@ -39,16 +39,18 @@ function harness(delivered = true) {
       return delivered;
     },
   }, logger, registry);
-  const handler: Pick<SdkPermissionHandler, 'createCallback'> = {
+  const cleanupPendingPermissions = jest.fn();
+  const handler: Pick<SdkPermissionHandler, 'createCallback' | 'cleanupPendingPermissions'> = {
     createCallback: (sessionId, _agent, tabId) =>
       async (_tool, input, options) =>
         service.handleAskUserQuestion(input, options.toolUseID, sessionId, options.signal, tabId),
+    cleanupPendingPermissions,
   };
   const ask = createCodexChatUserQuestions({
     permissionHandler: handler, tabId: () => TAB, logger,
   });
   const prompt = () => sent.find(({ type }) => type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST)?.payload as AskUserQuestionRequest | undefined;
-  return { ask, service, registry, sent, prompt, logger: mockLogger };
+  return { ask, service, registry, sent, prompt, logger: mockLogger, cleanupPendingPermissions };
 }
 
 describe('Codex chat user questions', () => {
@@ -65,6 +67,7 @@ describe('Codex chat user questions', () => {
     h.service.handleQuestionResponse({ id: prompt?.id ?? '', answers: { 'Proceed?': 'Yes' } });
     await expect(pending).resolves.toEqual({ first: { answers: ['Yes'] } });
     expect(h.registry.size).toBe(0);
+    expect(h.cleanupPendingPermissions).not.toHaveBeenCalled();
   });
 
   it('disambiguates repeated text before mapping answers to distinct ids', async () => {
@@ -102,6 +105,8 @@ describe('Codex chat user questions', () => {
     controller.abort();
     await expect(pending).resolves.toEqual({});
     expect(h.registry.size).toBe(0);
+    expect(h.cleanupPendingPermissions).toHaveBeenCalledTimes(1);
+    expect(h.cleanupPendingPermissions).toHaveBeenCalledWith(SESSION);
   });
 
   it('uses the shared auto-pick when the webview cannot receive the question', async () => {
@@ -124,5 +129,32 @@ describe('Codex chat user questions', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it('does not dismiss the card for an invalid request', async () => {
+    const h = harness();
+    const controller = new AbortController();
+    controller.abort();
+    const invalid = request([{ id: 'one', header: 'One', question: 'Proceed?', options: [choice] }]);
+    await expect(h.ask({ ...invalid, details: { questions: [{ id: '' }] } }, controller.signal))
+      .resolves.toEqual({});
+    expect(h.cleanupPendingPermissions).not.toHaveBeenCalled();
+  });
+
+  it('logs a throwing cleanup and still resolves', async () => {
+    const h = harness();
+    h.cleanupPendingPermissions.mockImplementation(() => {
+      throw new Error('cleanup failed');
+    });
+    const controller = new AbortController();
+    const pending = h.ask(request([{ id: 'one', header: 'One', question: 'Stop?', options: [choice] }]), controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    await expect(pending).resolves.toEqual({});
+    expect(h.cleanupPendingPermissions).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'Codex user question cleanup failed',
+      expect.objectContaining({ requestId: 7, error: 'cleanup failed' }),
+    );
   });
 });

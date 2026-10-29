@@ -1192,10 +1192,11 @@ describe('Native Codex chat sessions across turns', () => {
         return true;
       },
     }, logger, registry);
-    const permissionHandler: Pick<SdkPermissionHandler, 'createCallback'> = {
+    const permissionHandler: Pick<SdkPermissionHandler, 'createCallback' | 'cleanupPendingPermissions'> = {
       createCallback: (sessionId, _agent, tabId) =>
         async (_tool, input, options) =>
           service.handleAskUserQuestion(input, options.toolUseID, sessionId, options.signal, tabId),
+      cleanupPendingPermissions: jest.fn(),
     };
     const ask = createCodexChatUserQuestions({ permissionHandler, tabId: () => TAB, logger });
     const clock: CodexClock = {

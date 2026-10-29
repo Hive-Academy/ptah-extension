@@ -17,7 +17,10 @@ const questionsSchema = z.object({
 const responseSchema = z.object({ answers: z.record(z.string(), z.string()) });
 
 export interface CodexChatUserQuestionsDeps {
-  readonly permissionHandler: Pick<SdkPermissionHandler, 'createCallback'>;
+  readonly permissionHandler: Pick<
+    SdkPermissionHandler,
+    'createCallback' | 'cleanupPendingPermissions'
+  >;
   readonly tabId: (sessionId: SessionId) => string;
   readonly logger: Pick<Logger, 'warn'>;
 }
@@ -62,6 +65,19 @@ export function createCodexChatUserQuestions(
         requestId: String(request.requestId),
       },
     );
+    // An abort before an answer never reaches the webview's own dismiss path.
+    // Claude sends PERMISSION_SESSION_CLEANUP from cleanupPendingPermissions;
+    // the same call drops the Codex card. An answer or an invalid request does not.
+    if (signal.aborted && (result === null || result.behavior !== 'allow')) {
+      try {
+        deps.permissionHandler.cleanupPendingPermissions(sessionId);
+      } catch (error) {
+        deps.logger.warn('Codex user question cleanup failed', {
+          requestId: request.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (signal.aborted || result === null || result.behavior !== 'allow')
       return {};
     const response = responseSchema.safeParse(result.updatedInput);

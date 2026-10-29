@@ -153,6 +153,9 @@ interface AutoResumePreflight extends MainSessionAccountSelection {
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
   ptahUiFence?: ChatContinueParams['ptahUiFence'];
+  /** Attachments for a Codex resume turn. Claude resume does not receive them. */
+  files?: ChatContinueParams['files'];
+  images?: ChatContinueParams['images'];
   /** Absolute end of the calling RPC, from {@link namedAdmissionDeadline} (named admission only). */
   admissionDeadline?: number;
 }
@@ -1200,6 +1203,7 @@ export class ChatSessionService {
       const isSlashCommand = SlashCommandInterceptor.isSlashCommand(prompt);
 
       let justResumed = false;
+      let promptDelivered = false;
       if (isSlashCommand) {
         await this.endDeadRecordBeforeSlashCommand(sessionId, tabId);
       } else {
@@ -1212,6 +1216,7 @@ export class ChatSessionService {
         );
         if ('error' in resumeOutcome) return resumeOutcome.error;
         justResumed = resumeOutcome.justResumed;
+        promptDelivered = resumeOutcome.promptDelivered === true;
       }
 
       const files = params.files ?? [];
@@ -1240,6 +1245,11 @@ export class ChatSessionService {
           sessionId,
           workspacePath,
         );
+      // Native Codex thread resume starts the turn (prompt and attachments).
+      // Claude resume ignores them, so only that Codex turn skips the second send.
+      if (promptDelivered) {
+        return { success: true, sessionId };
+      }
       if (!justResumed && hasStopIntent(prompt)) {
         const autopilotEnabled = this.configManager.getWithDefault<boolean>(
           'autopilot.enabled',
@@ -1722,8 +1732,11 @@ export class ChatSessionService {
    * Auto-resume an inactive SDK session before continuing. Returns
    * `{ justResumed: false }` when already active; otherwise resumes via
    * the resolved session config and streams to the webview. `{ error }`
-   * carries a structured `ChatContinueResult` on failure. Log messages +
-   * payloads are byte-identical to the pre-extraction inline block.
+   * carries a structured `ChatContinueResult` on failure.
+   *
+   * `promptDelivered` is set only on a successful resume, and only when the
+   * Codex app-server runtime started the turn from a non-empty prompt.
+   * Callers that ignore the field keep the previous `{ justResumed }` behavior.
    */
   private async autoResumeIfInactive(
     sessionId: SessionId,
@@ -1740,7 +1753,10 @@ export class ChatSessionService {
      * does register, passes the real answer.
      */
     mcpRegisteredForSubagents = true,
-  ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
+  ): Promise<
+    | { justResumed: boolean; promptDelivered?: boolean }
+    | { error: ChatContinueResult }
+  > {
     let accountSelection: ResolvedMainAccountSelection | undefined;
     try {
       accountSelection = await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
@@ -1904,7 +1920,12 @@ export class ChatSessionService {
                 ? { accountSelection, admissionDeadline: params.admissionDeadline }
                 : {}),
             }
-          : { model: execution.seed.model }),
+          : {
+              model: execution.seed.model,
+              // Codex thread/resume starts the turn; Claude resume ignores these.
+              ...(params.files !== undefined ? { files: params.files } : {}),
+              ...(params.images !== undefined ? { images: params.images } : {}),
+            }),
       });
       if (execution.runtime === 'codex-app-server') {
         try {
@@ -1923,7 +1944,10 @@ export class ChatSessionService {
         params.surfaceMode,
       );
       this.logger.info(`[RPC] Session ${sessionId} resumed successfully`);
-      return { justResumed: true };
+      // Native Codex resume already started the turn when the prompt is non-empty.
+      const promptDelivered =
+        execution.runtime === 'codex-app-server' && prompt.length > 0;
+      return { justResumed: true, promptDelivered };
     } catch (resumeError) {
       const codexFailure = this.codexFailure(resumeError);
       if (codexFailure) return { error: codexFailure };

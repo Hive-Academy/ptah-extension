@@ -242,6 +242,16 @@ export interface AgentSessionResumeConfig extends AISessionConfig {
   permissionLevel?: PermissionLevel;
   /** New user message to send as part of this resumed turn. */
   prompt?: string;
+  /**
+   * Delivered with the resumed turn by runtimes that start a turn on resume.
+   * Claude ignores them like `prompt`.
+   */
+  files?: string[];
+  /**
+   * Delivered with the resumed turn by runtimes that start a turn on resume.
+   * Claude ignores them like `prompt`.
+   */
+  images?: { data: string; mediaType: string }[];
   /** See {@link AgentSessionStartConfig.includePartialMessages}. */
   includePartialMessages?: boolean;
   /** See {@link AgentSessionStartConfig.providerProfile}. */

@@ -349,7 +349,7 @@ describe('chat native session preparation', () => {
         ptahUiFence: true,
         ...(ambient ? { thinking } : {}),
       }),
-    ).resolves.toEqual({ justResumed: true });
+    ).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.resumeSession).toHaveBeenCalledTimes(1);
     const resumed = h.resumeSession.mock.calls[0][1] as AgentSessionResumeConfig;
     expect(resumed).toMatchObject({
@@ -429,7 +429,7 @@ describe('chat native session preparation', () => {
         sessionId,
         tabId: 'tab',
       }),
-    ).resolves.toEqual({ justResumed: true });
+    ).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.prepare).toHaveBeenCalledWith(
       expect.objectContaining({
         projectPath: '/original-workspace',
@@ -470,7 +470,7 @@ describe('chat native session preparation', () => {
     h.publishRuntimeNotices.mockRejectedValue(new Error('private broadcast detail'));
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'continue', {
       sessionId, tabId: 'tab',
-    })).resolves.toEqual({ justResumed: true });
+    })).resolves.toEqual({ justResumed: true, promptDelivered: true });
     expect(h.service['streamBroadcaster'].streamEventsToWebview).toHaveBeenCalledWith(
       sessionId, await h.resumeSession.mock.results[0].value, 'tab', undefined,
     );
@@ -553,7 +553,7 @@ describe('chat native session preparation', () => {
     });
     await expect(h.service['autoResumeIfInactive'](sessionId, 'tab', 'hello', {
       sessionId, tabId: 'tab',
-    })).resolves.toEqual({ justResumed: true });
+    })).resolves.toEqual({ justResumed: true, promptDelivered: false });
     expect(h.resumeSession).toHaveBeenCalledWith(sessionId, expect.objectContaining({
       model: 'claude-sonnet', providerProfile: profile,
     }));
