@@ -1682,6 +1682,38 @@ describe('CodexRuntime', () => {
     expect(context.turnPermissionLevel).toBe('ask');
   });
 
+  it('snapshots the last sent level, not the opening level, for an idle notification after a level change', async () => {
+    const planPolicy = resolveCodexLevelPolicy('chat', 'plan', '/work');
+    const context = await runtime.open({
+      ...profile,
+      permissionLevel: 'plan',
+      ...planPolicy,
+      profileFingerprint: codexProfileFingerprint({
+        permissionLevel: 'plan',
+        ...planPolicy,
+      }),
+    });
+    await context.updateNextTurn({ permissionLevel: 'ask' });
+    await context.startTurn({ text: 'first' });
+    expect(
+      children[0].frames.find((frame) => frame['method'] === 'turn/start')?.[
+        'params'
+      ],
+    ).toMatchObject({
+      approvalPolicy: 'untrusted',
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: ['/work'] },
+    });
+    children[0].complete();
+    await context.updateNextTurn({ permissionLevel: 'plan' });
+    expect(context.turnPermissionLevel).toBe('plan');
+    children[0].turnNumber = 2;
+    children[0].notify('turn/started', {
+      threadId: 'thread-1',
+      turn: turn('turn-2'),
+    });
+    expect(context.turnPermissionLevel).toBe('ask');
+  });
+
   it('keeps the last sent level after a rejected turn/start', async () => {
     const context = await runtime.open(profile);
     await context.updateNextTurn({ permissionLevel: 'plan' });
