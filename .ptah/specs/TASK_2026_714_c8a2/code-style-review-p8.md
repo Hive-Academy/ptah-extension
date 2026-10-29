@@ -1,159 +1,125 @@
-# Code Style Review (P8 phase) — `TASK_2026_714_c8a2`
+# Code Style Review (P8 re-review) — `TASK_2026_714_c8a2`
 
-Scope: `git diff 64cad6713^..b35d78386` excluding `.ptah/specs`. Priority on the new public API and Electron DI. Read in full: `codex-runtime-composition.ts` (key ranges; the middle of `createScope` and the profile builder were only partly displayed), `codex-binding-registry.ts`, the index diffs, `codex-executable-pin.ts`, `codex-chat-event-callbacks.ts` (header), and the ipc-bridge, bootstrap, shutdown and adapter diffs. The four DI guard specs were read only through their diffs and the token census, not in full. No heavy checks were run.
+Scope: the 50 task commits from `git log --first-parent --no-merges 9b5f4c86c..HEAD`. That is 51 non-spec production files, plus `tools/` and `scripts/`. This replaces the earlier P8 style review. Read-only: no tests, diagnostics or builds were run.
+
+Read in full or in the relevant ranges: `codex-gateway-adapter.ts`, the header of `codex-chat-adapter.ts`, the `codex-chat-host-ports.ts` profile and presentation ranges, and the `codex-runtime-composition.ts` usage and bundled-root ranges. I also read the commit diffs for `session-metadata-store.ts`, `session-rpc.handlers.ts`, `chat-session.service.ts` and `chat-slash-command-router.service.ts`. The rest was checked by grep. I did not read `codex-event-translator.ts`, `codex-approval-bridge.ts` or `codex-protocol-*` in full.
 
 ## Summary
 
 | Metric          | Value          |
 | --------------- | -------------- |
-| Overall score   | 6.5/10         |
+| Overall score   | 7/10           |
 | Assessment      | NEEDS_REVISION |
 | Blocking issues | 0              |
-| Serious issues  | 5              |
-| Minor issues    | 6              |
-| Files reviewed  | ~20 non-spec   |
+| Serious issues  | 3              |
+| Moderate issues | 3              |
+| Minor issues    | 4              |
+| Files reviewed  | ~51 non-spec   |
 
-No stated invariant is broken. The grep found no `as any`, `as unknown as`, `@ts-ignore` or `eslint-disable` in the new production code. Cross-lib imports go through barrels. Only the Electron composition root touches `vscode-core`, `rpc-handlers` and `agent-sdk` together. The serious findings are structural debt that grew in this phase.
+The boundaries hold, and the frontend contract goes in the right direction. Two earlier P8 findings are closed. The remaining debt is mostly (a) a Codex error contract that is detected by string in two places, (b) Codex constants living in the wrong lib, and (c) files over the 700-line warning that keep growing.
 
 ## Five style questions
 
 1. What breaks in six months?
-   - `bindElectronCodexChat` (`codex-runtime-composition.ts:~210-455`) is one function of about 250 lines. It holds four mutable maps (`tabs`, `profiles`, `preparedTabs`, `scopes`) and monkey-patches `record.lifecycle.opened` and `.closed` after the object was already handed to `adapterPorts.sessions` (lines 429-441). Any change to session lifecycle ordering needs the whole function in your head. `controls` is referenced inside `closed` before its `const` declaration at line 457; this is correct only because of call timing.
-   - `codex-chat-adapter.ts` is 823 lines (notes say 763; it grew by about 60 in this phase) against the 700 `max-lines` warning in `eslint.config.mjs:559`. Every later Codex feature lands here.
+   - `CodexResumeProfileChangedError` is not exported from `@ptah-extension/codex-runtime`. `codex-chat-adapter.ts:787` and `chat-session.service.ts:625-630` match `error.name === 'CodexResumeProfileChangedError'` plus a `'code' in error` probe. Renaming the class or code breaks the UX path at runtime with no compile error.
+   - `codex-chat-adapter.ts` (811 lines) and `codex-runtime.ts` (1043 lines) are past the 700-line `max-lines` warning (`eslint.config.mjs:564`).
 2. What would a new team member misread?
-   - `ipc-bridge.ts` resolves `CODEX_CHAT_ADAPTER_PORTS` as `unknown` and duck-types `handlePermissionResponse`. That hides the real contract, which is `CodexChatHostPorts.handlePermissionResponse` (`codex-chat-host-ports.ts:67`).
-   - `tabId(id)` falls back to the session id as a tab id (`composition:225`). This is silent and looks like a legitimate tab.
-   - `EXPECTED_NULL_RUNTIME_TOKENS`, `EXPECTED_RUNTIME_TOKENS` and `ELECTRON_CODEX_BOUND_TOKENS` live in a file named `expected-resolvable.ts` and mix "nullable default" with "bound by Electron" semantics.
+   - `CODEX_PTAH_TOOL_TIMEOUT_SEC` and `ptahMcpSessionUrl` live in `cli-agent-runtime` (`codex-lane-config.builder.ts:51`). `rpc-handlers` (`codex-chat-host-ports.ts:10`) and the gateway import them from there. The reader will assume this is a lane-only constant.
+   - `PTAH_UI_HINT_CODEX = PTAH_UI_HINT_SHARED` (`ptah-ui-hint.ts:15`) is an alias that carries no Codex-specific content.
 3. What does this cost to maintain?
-   - A module-level mutable `Set` in `codex-binding-registry.ts:9`. Bootstrap, shutdown and tests share process-global state, so every spec that calls `bindElectronCodexChat` needs a matching dispose.
-   - The `AggregateError` fan-out dispose is written twice: `codex-binding-registry.ts:27-33` and the binding's `dispose` at `composition:~305-313`, plus the scope-level one.
-   - Unrelated reformatting churn in `bootstrap.ts` (the `createAttentionRendererReadiness` and `attachElectronHostAttention` hunks), `expected-resolvable.ts:29` and `rpc-surface.spec.ts` enlarges the diff and review surface for no behavioural change.
-4. Inconsistent with the repo?
-   - `rpc-surface.spec.ts:1-8` moves imports above the file's header doc comment and adds a top-level `it` outside the `describe`.
-   - `ipc-bridge.ts` adds new `console.warn` calls (lines 413 and 423). That matches the file's own pre-existing style but not the Logger convention used by the composition and bootstrap code.
-   - The ESM `require()` of the manifest JSON in a library (`codex-executable-pin.ts:6`) is unlike any sibling in `codex-runtime`; the other manifest code goes through typed imports. The documented cost is that the developer path `binaryPath` ends up in the bundle.
+   - `session-metadata-store.ts` is 2165 lines and takes Codex-only persistence on top: `codexSessionName`, `codexMessageCount` and `incrementCodexMessageCount`.
+   - `session-rpc.handlers.ts:556-558` re-validates the count that the store already validated with `codexMessageCountSchema`.
+4. Where is this inconsistent with the repo?
+   - `chat-session.service.ts:256` declares a local `StreamlessFollowUpAdmission` interface instead of using an exported type. `NativeSessionControls` is exported at `agent-sdk/src/index.ts:168`, but the router's `acceptsFollowUpWithoutStream` is not part of it. This is the same duck-typing pattern flagged in the earlier P8 S3.
+   - `session-metadata-store.ts:1066` has a bare `catch { storedCallerPath = undefined; }` with no `degradation-audit` marker. Neighbouring catches in the same file and in `codex-runtime.ts:583,749` carry one.
 5. What would I do differently?
-   - Split the composition into three cohesive units: a session-state holder (tabs, profiles, lifecycle), a controls and legacy-ports builder, and the scope factory. The lifecycle then becomes one object built once, not patched.
-   - Export a narrow `CodexPermissionResponder` type from `agent-sdk` or `rpc-handlers` and have `ipc-bridge` resolve it typed.
-   - Extract the dispose-all helper once.
+   - Export `CodexResumeProfileChangedError` and an `isCodexResumeProfileChanged(e)` guard from codex-runtime, and let `rpc-handlers` map the code to the user text (the message is currently duplicated at `codex-runtime.ts:67-70` and `chat-session.service.ts`).
+   - Move the Ptah MCP URL and timeout into `codex-runtime`, since it is the one core lib. Have the lane and chat host both import from it.
+   - Split `CodexContext` out of `codex-runtime.ts`: the file holds the `CodexRuntime` class (about 130 lines) plus the context class (about 800 lines).
 
 ## Blocking issues
 
-None.
+None. No `as any`, `as unknown as`, `@ts-ignore` or `@ts-expect-error` was found in the touched production files. The one `eslint-disable` in the scope is `chat-session.service.ts:667` (`no-restricted-properties`, with a stated reason), not the module-boundaries rule. The `no-control-regex` disable at `chat-attention-source.service.ts:27` also states its reason. `codex-runtime` imports only `platform-core`, `shared/schemas` and `node:` built-ins, with no `vscode`, `electron` or adapter imports.
 
 ## Serious issues
 
-### S1. `codex-chat-adapter.ts` is 823 lines and growing
+### S1. Resume-profile-changed error is matched by name string and its text is duplicated
 
-- File: `libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.ts` (823 lines; `max-lines` rule at `eslint.config.mjs:559`)
-- Problem: the file exceeds the repo limit and gained about 60 lines in this phase (`sessions?.opened`/`closed` wiring, turn identity plumbing). The adapter mixes session registry, open/resume orchestration, turn streaming and cleanup.
-- Tradeoff: the cost is real because the P8 follow-ups (compaction metadata, terminal slot, result block index) all land here.
-- Recommendation: extract session-lifecycle bookkeeping (open/close/publish) or turn handling into a sibling file before more behaviour is added.
+- File: `libs/backend/agent-sdk/src/lib/codex-app-server/codex-chat-adapter.ts:787-789`; `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:625-635`; class at `libs/backend/codex-runtime/src/lib/codex-runtime.ts:64-73` (not in `codex-runtime/src/index.ts`).
+- Problem: a typed domain error exists but is not exported, so two adapter layers detect it with `error.name === '...'` plus `'code' in error` probes. The user-facing sentence is hard-coded twice (the class and the `RpcUserError` in `chat-session.service.ts`).
+- Tradeoff: exporting the class and a guard gives a compile-time contract and one message source.
+- Recommendation: export from the barrel, use `instanceof` or a guard, and keep only one copy of the text. This also stops `chat-session.service.ts` (2066 lines, already over the limit) from carrying Codex wording.
 
-### S2. `bindElectronCodexChat` is one oversized function with patched lifecycle
+### S2. Codex constants and the MCP URL helper live in `cli-agent-runtime`
 
-- File: `apps/ptah-electron/src/di/codex-runtime-composition.ts:~210-455` (file is 595 lines)
-- Problem: single responsibility is violated. Per-session state, port wiring, the legacy-settings derivation (lines 221-274, about 55 lines of inline validation) and DI registration all sit in one closure. `record.lifecycle.opened` and `.closed` are reassigned after `adapterPorts.sessions = record.lifecycle` captured the object (lines 429-441). This relies on mutation of a shared object and on `controls` being initialised later.
-- Tradeoff: composing the lifecycle once (record lifecycle plus Electron side effects) removes the temporal coupling and makes the order testable.
-- Recommendation: build `lifecycle = { opened, closed }` explicitly and pass it in. Move the legacy settings reader into its own function, for example in rpc-handlers next to `createLegacySessionControlPorts`, so the composition root only wires. This also resolves the known item that legacy settings derive the auth namespace from the workspace's current auth (lines 229-235).
+- File: `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-lane-config.builder.ts:51`; `cli-adapters/ptah-mcp-url.ts`; consumers `codex-chat-host-ports.ts:10,340` and `codex-gateway-adapter.ts` (imports `ptahMcpSessionUrl`).
+- Problem: the task goal is that `codex-runtime` is the single core and chat and gateway are thin adapters. Instead, chat host ports and the gateway depend on the lane lib for the Codex tool timeout and the session URL. `rpc-handlers` gets a dependency edge to `cli-agent-runtime` for a Codex runtime constant.
+- Recommendation: move `CODEX_PTAH_TOOL_TIMEOUT_SEC` and the URL builder into `codex-runtime` (next to `codex-mcp-config.ts`). The lane re-imports them.
 
-### S3. IPC bridge resolves the Codex ports as `unknown` and duck-types
+### S3. Oversized and still-growing files in the Codex path
 
-- File: `apps/ptah-electron/src/ipc/ipc-bridge.ts` (new block in the SDK permission-response branch)
-- Problem: `resolve<unknown>(SDK_TOKENS.CODEX_CHAT_ADAPTER_PORTS)` followed by `'handlePermissionResponse' in codexPorts && typeof ... === 'function'`. It bypasses the repo rule of interfaces as contracts. A rename of the method fails at runtime, not at compile time. The agent-sdk port type `CodexChatAdapterPorts` does not declare the method; `CodexChatHostPorts` in rpc-handlers does.
-- Recommendation: add a small exported port type (`handlePermissionResponse(response): boolean`) to the shared contract and resolve it typed. The `isRegistered(..., true)` plus null guard can stay.
+- Files:
+  - `codex-chat-adapter.ts`: 811 lines. The previous review called out 823 and nothing has been split.
+  - `codex-runtime-composition.ts`: 647 lines.
+  - `codex-runtime.ts`: 1043 lines, with two classes in one file.
+  - `codex-chat-host-ports.ts`: 581 lines, with one factory closure holding the presentation, pending-map and profile logic (lines ~340-470).
+- Problem: Round 8m–8o landed fixes into these files rather than into new siblings.
+- Recommendation: split `CodexContext` into `codex-context.ts`. In the chat adapter, extract open/resume bookkeeping. In host-ports, move `presentation` into a `codex-chat-approval-presentation.ts`.
 
-### S4. Public API widened without a consumer or a narrow contract
+## Moderate issues
 
-- Files: `libs/backend/agent-sdk/src/index.ts:142-171` (`CodexChatAdapter` class, `registerCodexChatServices`), `libs/backend/rpc-handlers/src/index.ts:158-166`
-- Problem:
-  - The concrete `CodexChatAdapter` class is exported but no app imports it. The review list says it was exported to avoid deep relative imports, but the composition code never references the class (grep of `apps/`).
-  - `registerCodexChatServices` is exported but is called only inside `register.ts:238`.
-  - Both widen the barrel for no consumer. Hosts are meant to override only the nullable port tokens.
-  - `CodexChatTurnIdentity` is exported correctly and is consumed by rpc-handlers.
-- Recommendation: drop `CodexChatAdapter` and `registerCodexChatServices` from the barrel, or document the intended consumer. Keep the types and interfaces that cross the boundary.
-
-### S5. Manifest loaded with `require()` in a library module
-
-- File: `libs/backend/codex-runtime/src/lib/codex-executable-pin.ts:6`, exported at `libs/backend/codex-runtime/src/index.ts:74`
-- Problem: the lint passes, but the esbuild bundle inlines the whole manifest, including the diagnostic developer `binaryPath` and method lists. The Zod projection strips them only at runtime. The module also couples a runtime-agnostic lib to CommonJS semantics.
-- Recommendation: generate a minimal pin file (platform, arch, versions, hashes only) and import that, or use a typed JSON import with `resolveJsonModule` scoped to this project. The same applies to `rpc-handlers` consumers who call the new export.
+- M1. `libs/backend/rpc-handlers/src/lib/handlers/session-rpc.handlers.ts:556-558` has a nested ternary with `Number.isSafeInteger` that duplicates the `codexMessageCount` helper in `session-metadata-store.ts`. Expose one normalised accessor from the store (or `agent-sdk`) and use it here.
+- M2. `libs/backend/agent-sdk/src/lib/session-metadata-store.ts:1060-1067` is a bare `catch` that silently falls back to "no caller path". Add a `degradation-audit` marker with the reason, or log. The Codex persistence helpers (`codexSessionName`, `codexMessageCount`, `incrementCodexMessageCount`) are the first natural extraction out of the 2165-line store.
+- M3. `libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:256,345` uses a local structural interface for the router instead of an exported `agent-sdk` type. Export `StreamlessFollowUpAdmission` (or add the method to `NativeSessionControls`) next to the router.
 
 ## Minor issues
 
-- `apps/ptah-electron/src/di/codex-binding-registry.ts:9`: process-global `Set`; duplicated aggregate-dispose logic (see Q3). Consider returning the handle from `bindElectronCodexChat` and having bootstrap own it.
-- `apps/ptah-electron/src/activation/bootstrap.ts` (the reformat hunks), `apps/ptah-electron/src/di/expected-resolvable.ts:29`, `apps/ptah-electron/src/di/rpc-surface.spec.ts:1-8,70-75`: unrelated reformatting, and a spec `it` placed outside `describe` after moving the imports above the header comment.
-- `apps/ptah-electron/src/ipc/ipc-bridge.ts:413,423`: new `console.warn` lines. This is consistent with the file but not with Logger use.
-- `libs/shared/src/lib/types/branded.types.ts:~43`: `UUID_REGEX` now accepts v4 and v7 for every consumer of that regex, not only Codex thread ids. This is documented in the comment, but a Codex-specific brand or validator would keep the loosening local. Spec updated (`branded.types.spec.ts`).
-- `apps/ptah-electron/src/di/codex-runtime-composition.ts:225`: `tabId` falls back to the session id (known item). Prefer returning `undefined` and letting callers skip tab-scoped delivery.
-- `apps/ptah-electron/src/di/codex-runtime-composition.ts:179-190`: synchronous `readFileSync` and `execFileSync` on the Electron main thread during `createScope` (known item). This is a runtime concern for the logic reviewer; the style note is that the helper is inlined in the registration lambda instead of a named function.
+- `libs/backend/agent-sdk/src/lib/prompt-harness/ptah-ui-hint.ts:15`: `PTAH_UI_HINT_CODEX` is a pure alias of the shared hint. Use one name unless a Codex variant is planned.
+- `libs/backend/gateway-chat-bridge/src/lib/codex-gateway-adapter.ts:17` and `codex-chat-adapter.ts:6` import `Logger` from `vscode-core` (type only). This matches sibling files in both libs. It is a known pre-existing coupling, not a new violation.
+- `apps/ptah-electron/src/di/codex-runtime-composition.ts:440-460`: the usage `profileForHome` builds a profile inline with `realpathSync`. `codex-chat-host-ports.ts:421` builds another. Keep as is, but a `buildUsageProfile` helper in codex-runtime would remove the inline shape from the composition root.
+- `libs/frontend/chat-streaming/src/lib/permission-handler.service.ts:320,546,553,594`: `console.warn` calls. These are not new in this scope (nothing was added in the task commits), so no action is needed here.
 
 ## File-by-file
 
-### apps/ptah-electron/src/di/codex-runtime-composition.ts
-
-Score 6/10 — 0 B, 2 S (S2 and the file size), 2 M. Imports follow the barrel rule and the composition root is the right place for `vscode-core`, `rpc-handlers` and `agent-sdk`. The unit does too much (S2).
-
-### apps/ptah-electron/src/di/codex-binding-registry.ts
-
-Score 7.5/10 — 0 B, 0 S, 1 M. The split reflects a real boundary: shutdown must not import `rpc-handlers`. It is small and legible, but it is global state.
-
-### apps/ptah-electron/src/activation/bootstrap.ts and shutdown.ts
-
-Score 7/10 — 0 B, 0 S, 1 M. `bindElectronCodexChat` is called after `WEBVIEW_MANAGER` registration and before `attachElectronHostAttention`, which is the right order. Disposal is guarded by `hasElectronCodexBindings()` in both the shutdown path and `requiresDeferredDisposal`. The only issue is the unrelated reformatting.
-
-### libs/backend/agent-sdk codex-chat-adapter.ts and index.ts
-
-Score 6/10 — 0 B, 2 S (S1, S4), 0 M. The adapter change itself is small and well documented (`sessions` observer, turn identity). The size and the barrel widening are the issues.
-
-### libs/backend/rpc-handlers (index.ts, codex-chat-event-callbacks.ts, codex-session-settings-record.ts, chat-message-handler.service.ts)
-
-Score 8/10 — 0 B, 0 S, 0 M. Deps are typed with `Pick<...>`, logger errors carry real `Error` instances, and there are no casts. The callbacks file depends on `agent-sdk` only through its public barrel. Naming follows `codex-*` kebab-case with role suffixes.
-
-### libs/backend/codex-runtime (codex-executable-pin.ts, index.ts)
-
-Score 6.5/10 — 0 B, 1 S (S5), 0 M.
-
-### libs/shared (branded.types.ts, payload-map.ts)
-
-Score 8/10 — 0 B, 0 S, 1 M. `permission:prompt-cancelled` is registered in both `message-constants.ts:231` and `payload-map.ts:363`, as the typed contract requires. The UUID regex loosening is the only note.
-
-### apps/ptah-electron/src/ipc/ipc-bridge.ts
-
-Score 6/10 — 0 B, 1 S (S3), 1 M.
+- `libs/backend/codex-runtime/src/lib/*` — 8/10. Host-neutral, with ports and Zod at the protocol boundary. `codex-runtime.ts` at 1043 lines is the one structural issue (S3). `CodexResumeProfileChangedError` is not exported (S1).
+- `libs/backend/agent-sdk/src/lib/codex-app-server/*` — 7/10. The split into `codex-chat-events`, `-approval-sink`, `-turn-stream` and `-tool-presentation` is a good responsibility split. The adapter stays too big (S3), and the error is matched by name (S1).
+- `libs/backend/rpc-handlers/.../codex-host/*` — 7/10. Typed ports, a barrel-only `agent-sdk` import and kebab-case with role suffixes. It depends on `cli-agent-runtime` for Codex constants (S2). The `host-ports` closure is large (S3).
+- `chat-session.service.ts`, `session-rpc.handlers.ts`, `chat-slash-command-router.service.ts` — 6.5/10. The task added only small deltas: +31, +26 and +20 lines. The nested ternary, the name-string error match and the local interface (S1, M1, M3) keep the Codex special-casing inside generic files.
+- `libs/backend/gateway-chat-bridge/.../codex-gateway-adapter.ts` — 8/10. It uses the gate, `registerCodexRuntime` in a child scope, and a distinct approval sink.
+- `libs/backend/cli-agent-runtime/.../codex/*` — 7.5/10. It consumes `codex-runtime` types, but owns constants that belong in the core (S2).
+- `libs/backend/auth-providers/.../codex-account-usage.service.ts` — 7.5/10. 526 lines, with three bare catches; the ones I checked carry an audit marker.
+- `libs/frontend/chat*`, `libs/shared permission.types.ts` — 9/10. The diff removes Codex-specific wire fields (`allowedDecisions`, the "native" request flag) and the Codex test branches. The only remaining "native" word in scope is a comment about OS notifications (`chat-attention-source.service.ts:132`).
+- `apps/ptah-electron/src/di/codex-runtime-composition.ts` — 7/10. It is the correct composition root. Size is the issue (S3).
 
 ## Pattern compliance
 
-| Repository rule or nearby convention | Status | Evidence |
+| Rule or convention | Status | Evidence |
 | --- | --- | --- |
-| Public-barrel-only cross-lib imports | PASS | `codex-runtime-composition.ts:5-59`, `codex-chat-event-callbacks.ts:1-14` |
-| Only composition roots import host platforms and `vscode-core` | PASS | Electron composition root imports `vscode-core` TOKENS and Logger only |
-| Hexagonal ports: agnostic libs depend on interfaces | PASS (with S3 caveat) | `CodexChatAdapterPorts.sessions?` observer; `ipc-bridge.ts` resolves `unknown` |
-| No `as any` / `as unknown as` / `@ts-ignore` / `eslint-disable` in production | PASS | grep over the new production files returned none |
-| Tokens are `Symbol.for` constants in a token object | PASS | `SDK_TOKENS.*` reuse, no new ad-hoc symbols (`HOST_ATTENTION_COORDINATOR_TOKEN` pre-existing) |
-| DI census updated when the resolvable surface changes | PASS | `expected-resolvable.ts:73-99`, `rpc-surface.spec.ts`, `container.smoke.spec.ts` |
-| `max-lines` 700 | FAIL | `codex-chat-adapter.ts` 823 lines; composition 595 (under the limit but one 250-line function) |
-| Logger instead of console | FAIL (minor, pre-existing file) | `ipc-bridge.ts:413,423` |
-| Typed webview message contract | PASS | `payload-map.ts:363`, `message-constants.ts:231` |
-| Kebab-case file names with role suffixes | PASS | `codex-binding-registry.ts`, `codex-session-settings-record.ts` |
-| Commit scopes in `.commitlintrc.json` | NOT_APPLICABLE | commits not reviewed here |
+| `codex-runtime` is host-neutral (no `vscode`, `electron`, adapters) | PASS | imports are only `platform-core`, `shared/schemas`, `node:` |
+| Cross-lib imports go through public barrels | PASS | gateway and host-ports import `@ptah-extension/*` only |
+| Chat, gateway and lane adapters are thin over codex-runtime | PARTIAL | constants and URL helper in `cli-agent-runtime` (S2) |
+| Tokens are `Symbol.for` in the token object | PASS | `agent-sdk/src/lib/di/tokens.ts:26-58` |
+| No `any`, `as unknown as`, `@ts-ignore`, `eslint-disable` of boundaries | PASS | grep over the touched files; two stated-reason disables only |
+| Typed contracts instead of duck typing | FAIL | `codex-chat-adapter.ts:787`, `chat-session.service.ts:625-630,256` |
+| Logger injection rather than `console` | PASS | no new `console.*` in backend files; frontend `console.warn` is not new |
+| `max-lines` 700 | FAIL | 811, 1043, 647 (under the limit), 2066 and 2165 (pre-existing, grew) |
+| No Codex special case in frontend | PASS | task diffs remove Codex branches and fields |
+| Kebab-case with role suffix | PASS | `codex-chat-*.ts`, `*.service.ts` |
 
 ## Maintenance debt
 
-- Introduced: a 250-line composition function with patched lifecycle, a process-global binding registry, an exported concrete adapter class and registration function with no consumer, a bundled manifest with diagnostic fields, and a duck-typed IPC hook.
-- Retired: the deep relative imports into `agent-sdk` (replaced by public exports), the swallowed logger errors (`failed` now logs the real Error), and the duplicated message-id derivation (callbacks now match `CodexChatEvents`).
-- Net: debt direction is up, mainly in the adapter file size and the composition function.
+- Introduced: name-string error matching in two layers, Codex constants in the lane lib, and about 150 more lines in already-oversized files (`session-metadata-store.ts`, `chat-session.service.ts`).
+- Retired: the earlier P8 S3 `ipc-bridge` `unknown` duck-typing is out of scope here. The Codex fields and branches in the frontend were removed this phase.
+- Net: slightly up, concentrated in file size.
 
 ## Verdict
 
-- Recommendation: REVISE
-- Confidence: MEDIUM-HIGH (the middle of `createScope` and the DI guard spec bodies were read via diffs and excerpts, not in full)
-- Key concern: the structural debt in `codex-chat-adapter.ts` (823 lines) and `bindElectronCodexChat` (one oversized function with mutated lifecycle) is growing at the exact seam that the remaining P8 follow-ups need to touch.
-- What a 10/10 version would do differently:
-  - Split the adapter below 700 lines by responsibility.
-  - Build the session lifecycle once and compose it, instead of patching it.
-  - Type the IPC permission hook through a shared port.
-  - Trim the barrel to types and contracts that have consumers.
-  - Ship a minimal pin file instead of inlining the whole manifest.
-  - Own the binding handle in bootstrap, with no module-global `Set`.
-  - Keep reformatting out of the feature diff.
+- Recommendation: REVISE (NEEDS_REVISION)
+- Confidence: MEDIUM. Several large files were read in ranges and by diff, not line by line.
+- Key concern: the Codex contract (resume error, tool timeout, MCP URL) leaks across layers by string or via the wrong lib instead of living once in `codex-runtime`.
+- A 10/10 version would:
+  - Export the resume error and a guard from codex-runtime.
+  - Move the Ptah MCP constants into codex-runtime.
+  - Split `CodexContext` and the chat adapter below 700 lines.
+  - Give the store one normalised native message-count accessor.
+  - Keep the Codex branches out of `chat-session.service.ts` and `session-rpc.handlers.ts`.
