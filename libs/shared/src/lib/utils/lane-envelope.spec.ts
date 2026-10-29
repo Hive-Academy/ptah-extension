@@ -110,8 +110,33 @@ describe('parseLaneEnvelope', () => {
       'two SDK envelopes',
       '<agent-message from="a">x</agent-message><agent-message from="b">y</agent-message>',
     ],
+    [
+      'a text block after the SDK trailer',
+      '<agent-message from="a">\nx\n</agent-message>\n\nThat "other Claude session" is an agent.\n\nUnrelated text.',
+    ],
   ])('returns null for %s', (_label, text) => {
     expect(parseLaneEnvelope(text)).toBeNull();
+  });
+
+  it('accepts an SDK envelope whose body mentions the tag', () => {
+    expect(
+      parseLaneEnvelope(
+        '<agent-message from="a1">\nSearch for <agent-message in the source.\n</agent-message>',
+      ),
+    ).toMatchObject({
+      kind: 'report',
+      agentId: 'a1',
+      cli: 'subagent',
+      body: 'Search for <agent-message in the source.',
+    });
+  });
+
+  it('accepts a multi-line SDK trailer paragraph', () => {
+    expect(
+      parseLaneEnvelope(
+        '<agent-message from="a1">\nDone.\n</agent-message>\n\nThat "other Claude session" is an agent\nworking in this session.\n',
+      ),
+    ).toMatchObject({ agentId: 'a1', body: 'Done.' });
   });
 });
 

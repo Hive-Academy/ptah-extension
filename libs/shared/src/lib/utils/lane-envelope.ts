@@ -39,9 +39,13 @@ const TAG_KIND: Readonly<Record<string, LaneEnvelopeKind>> = {
 const ENVELOPE_PATTERN =
   /^\s*<(agent-report|agent-lane-completed)((?:\s+[a-z-]+="[^"]*")*)\s*>\n?([\s\S]*?)\n?<\/\1>\s*$/;
 
+// The SDK safety trailer is one paragraph: a blank line after it starts other
+// text, which must stay visible, so the whole message is then not an envelope.
 const SDK_ENVELOPE_PATTERN =
-  /^\s*(?:Another Claude session sent a message:\s*)?<agent-message\s+from\s*=\s*"([^"]+)"\s*>\n?([\s\S]*?)\n?<\/agent-message>(?:\s*That "other Claude session"[\s\S]*)?\s*$/;
-const SDK_ENVELOPE_TAG_PATTERN = /<agent-message\b/g;
+  /^\s*(?:Another Claude session sent a message:\s*)?<agent-message\s+from\s*=\s*"([^"]+)"\s*>\n?([\s\S]*?)\n?<\/agent-message>(?:\s*That "other Claude session"[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*)?\s*$/;
+// A full opening tag with a `from` attribute; a bare `<agent-message` mention in
+// the body is not a second envelope.
+const SDK_ENVELOPE_TAG_PATTERN = /<agent-message\s+from\s*=\s*"[^"]*"\s*>/g;
 
 const ATTRIBUTE_PATTERN = /([a-z-]+)="([^"]*)"/g;
 
